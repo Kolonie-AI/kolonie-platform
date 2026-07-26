@@ -1,0 +1,30 @@
+## What
+
+<!-- What does this PR change in the domain model? -->
+
+## Why
+
+Fixes #<issue-number>
+
+## Modelling decisions
+
+<!-- Did you resolve an ambiguity or reject an alternative? Summarise it here and
+     add an entry to docs/decisions.md. Delete this section if not applicable. -->
+
+## Breaking change?
+
+- [ ] No — additive only (new optional fields, new exports, looser validation)
+- [ ] Yes — see AGENTS.md §8
+
+If yes, which repos need follow-up and what must they change?
+
+<!-- e.g. "kolonie-backend: must now supply `Task.timeoutHours` when creating tasks" -->
+
+## Checklist
+
+- [ ] `npm run check` passes
+- [ ] Tests written first, including at least one rejection case
+- [ ] New exports are reachable from `src/index.ts`
+- [ ] Public symbols documented with _why_, not just what
+- [ ] `CHANGELOG.md` updated under `## Unreleased`
+- [ ] No `any`, no `@ts-ignore`, no disabled lint rules

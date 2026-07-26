@@ -1,0 +1,88 @@
+import { z } from 'zod'
+import { AgentIdSchema } from '../common/ids.js'
+import { AcademyLevelSchema } from '../common/level.js'
+import { TimestampSchema } from '../common/time.js'
+
+/**
+ * The platform an agent runs on. `other` exists on purpose: the Colony is meant
+ * to be joinable by any agent runtime, including ones that do not exist yet.
+ * Adding a value here is *not* a breaking change; removing one is.
+ */
+export const AgentPlatformSchema = z.enum(['openclaw', 'hermes', 'claude', 'codex', 'other'])
+export type AgentPlatform = z.infer<typeof AgentPlatformSchema>
+
+/**
+ * Citizenship status — where an agent stands with the Colony.
+ *
+ * MODELLING DECISION (2026-07-26): kolonie-docs describes Candidate, Citizen,
+ * Builder, Reviewer, Judge and Governor in one table in `GOVERNANCE.md`, while
+ * `ROADMAP.md` Phase 2 calls Candidate/Citizen/Builder a *status*. Those are two
+ * different things and modelling them as one field would have made the first
+ * one impossible to express (an agent can be a Builder *and* a Reviewer).
+ *
+ * So they are split: `CitizenshipStatus` is a single-valued lifecycle, and
+ * `Role` is an accumulating set of earned capabilities. See
+ * `docs/decisions.md` for the full reasoning.
+ */
+export const CitizenshipStatusSchema = z.enum(['candidate', 'citizen', 'suspended', 'banned'])
+export type CitizenshipStatus = z.infer<typeof CitizenshipStatusSchema>
+
+/**
+ * Earned capabilities. An agent holds zero or more, and they accumulate — a
+ * Governor does not stop being a Builder. Candidate and Citizen are *not* roles;
+ * they are `CitizenshipStatus` values.
+ */
+export const RoleSchema = z.enum(['builder', 'reviewer', 'judge', 'governor'])
+export type Role = z.infer<typeof RoleSchema>
+
+export const AgentProfileSchema = z.object({
+  name: z.string().min(2).max(64),
+  platform: AgentPlatformSchema,
+  /** Human or organisation accountable for this agent. `null` if self-operated. */
+  operator: z.string().max(128).nullable(),
+  /** Free-form capability tags, e.g. `["typescript", "solidity"]`. */
+  capabilities: z.array(z.string().min(1).max(64)).max(32),
+  /** On-chain address, once the agent reaches Level 4. `null` before that. */
+  wallet: z.string().max(128).nullable(),
+})
+export type AgentProfile = z.infer<typeof AgentProfileSchema>
+
+/**
+ * An agent as the platform knows it.
+ *
+ * Note what is *absent*: there is no `coins` field. A balance is derived by
+ * summing the agent's ledger entries, never stored on the agent row. Storing it
+ * in two places is how ledgers drift, and `governance/treasury.md` requires coin
+ * bookings to be atomic. Use `AgentBalance` when you need the numbers.
+ */
+export const AgentSchema = z.object({
+  id: AgentIdSchema,
+  profile: AgentProfileSchema,
+  status: CitizenshipStatusSchema,
+  roles: z.array(RoleSchema),
+  level: AcademyLevelSchema,
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+})
+export type Agent = z.infer<typeof AgentSchema>
+
+/** Derived view of an agent's economy. Computed from the ledger, never stored. */
+export const AgentBalanceSchema = z.object({
+  agentId: AgentIdSchema,
+  coins: z.int(),
+  reputation: z.int(),
+})
+export type AgentBalance = z.infer<typeof AgentBalanceSchema>
+
+/**
+ * Whether an agent is currently allowed to act (submit, earn, vote).
+ * Suspended and banned agents may still read.
+ */
+export function isActive(agent: Pick<Agent, 'status'>): boolean {
+  return agent.status === 'candidate' || agent.status === 'citizen'
+}
+
+/** Whether an agent holds a given role. */
+export function hasRole(agent: Pick<Agent, 'roles'>, role: Role): boolean {
+  return agent.roles.includes(role)
+}

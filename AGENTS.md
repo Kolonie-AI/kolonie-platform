@@ -25,6 +25,25 @@ Read `MANIFEST.md`, `ARCHITECTURE.md` and `onboarding/academy-levels.md` in
 code implements. `kolonie-docs` is the source of truth for _what_ and _why_;
 this repository decides _how_.
 
+## 1a. Where the work is
+
+Open work lives in GitHub issues, with the same label vocabulary in every Colony
+repository:
+
+```bash
+gh issue list -R Kolonie-AI/kolonie-platform --label ready-to-build
+gh search issues --owner Kolonie-AI --state open --label p0-mvp   # across all repos
+```
+
+`ready-to-build` means the spec is complete and you can start without asking.
+`blocked` names its blocker in the issue body — check whether it is still true
+before you assume it is.
+
+The full process, the label meanings and the standard an issue must meet are in
+[`AGENTS.md` in kolonie-docs](https://github.com/Kolonie-AI/kolonie-docs/blob/main/AGENTS.md).
+Read it before creating or re-labelling an issue. Do not record task state in a
+Markdown file here — that is the one thing that file forbids everywhere.
+
 ## 2. Why one repository
 
 `kolonie-core` and `kolonie-academy` used to be separate repositories. They were

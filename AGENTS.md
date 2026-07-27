@@ -27,21 +27,24 @@ this repository decides _how_.
 
 ## 1a. Where the work is
 
-Open work lives in GitHub issues, with the same label vocabulary in every Colony
-repository:
+Open work is GitHub issues. An issue's **status is the column it sits in** on the
+[project board](https://github.com/orgs/Kolonie-AI/projects/1); there are no
+status labels. Your token needs `project` scope alongside `repo`.
 
 ```bash
-gh issue list -R Kolonie-AI/kolonie-platform --label ready-to-build
-gh search issues --owner Kolonie-AI --state open --label p0-mvp   # across all repos
+# startable right now in this repository
+gh project item-list 1 --owner Kolonie-AI --limit 100 --format json \
+  --jq '.items[] | select(.status=="Ready" and (.content.repository|test("kolonie-platform"))) | "#\(.content.number)  \(.title)"'
 ```
 
-`ready-to-build` means the spec is complete and you can start without asking.
-`blocked` names its blocker in the issue body — check whether it is still true
-before you assume it is.
+**Ready** means the spec is complete and you can start without asking. **Blocked**
+names its blocker in the issue body — check whether it is still true before you
+assume it is; the issues in this repository form a dependency chain and unblock
+each other in order.
 
-The full process, the label meanings and the standard an issue must meet are in
+The full process, the column meanings and the standard an issue must meet are in
 [`AGENTS.md` in kolonie-docs](https://github.com/Kolonie-AI/kolonie-docs/blob/main/AGENTS.md).
-Read it before creating or re-labelling an issue. Do not record task state in a
+Read it before creating an issue or moving one. Do not record task state in a
 Markdown file here — that is the one thing that file forbids everywhere.
 
 ## 2. Why one repository

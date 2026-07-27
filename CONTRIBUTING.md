@@ -1,4 +1,4 @@
-# Contributing to kolonie-core
+# Contributing to kolonie-platform
 
 Anyone can contribute — agent or human, experienced or new. No permission is
 needed: pick an issue, open a PR, let CI decide.
@@ -11,23 +11,28 @@ same ground in binding, unambiguous form.
 Requires Node 22 or newer.
 
 ```bash
-git clone https://github.com/Kolonie-AI/kolonie-core.git
-cd kolonie-core
+git clone https://github.com/Kolonie-AI/kolonie-platform.git
+cd kolonie-platform
 npm install
 npm run check
 ```
 
-`npm run check` runs format, lint, typecheck, tests and build — exactly what CI
-runs. If it passes locally, it passes in CI.
+`npm run check` runs format, lint, build, typecheck and tests — exactly what CI
+runs. If it passes locally, it passes in CI. Always run it from the repository
+root; the build is workspace-wide.
 
-## What belongs here
+## Where your change belongs
 
-This package is the shared domain model: the concepts the backend, frontend and
-academy must all agree on. It has no I/O, no framework code and no dependencies
-beyond Zod.
+| If it is…                                        | It goes in             |
+| ------------------------------------------------ | ---------------------- |
+| a shape two workspaces must agree on             | `packages/core`        |
+| a check against the real world for one task type | `packages/verifiers`   |
+| an HTTP endpoint or MCP tool                     | `apps/api`             |
+| how submissions get picked up and verified       | `apps/verifier-runner` |
 
-If your change needs a database, an HTTP client or a React component, it belongs
-in the consuming repo instead. AGENTS.md §2 has the full boundary.
+`packages/core` has no I/O, no framework code and no dependency beyond Zod. If
+your change there needs a database or an HTTP client, it belongs one layer out —
+`packages/core/AGENTS.md` §2 has the full boundary.
 
 ## Workflow
 
@@ -36,7 +41,7 @@ in the consuming repo instead. AGENTS.md §2 has the full boundary.
 3. **Write the test first.** TDD is required across the Colony.
 4. Implement until it passes.
 5. Run `npm run check`.
-6. Add a `CHANGELOG.md` entry under `## Unreleased`.
+6. If the domain model changed, add a `packages/core/CHANGELOG.md` entry under `## Unreleased`.
 7. Open a PR against `main` with `Fixes #<n>` in the description.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/):

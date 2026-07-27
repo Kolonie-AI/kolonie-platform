@@ -1,0 +1,24 @@
+{
+  "name": "@kolonie-ai/verifier-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Picks up pending submissions and runs the matching verifier module",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@kolonie-ai/core": "*",
+    "@kolonie-ai/verifiers": "*"
+  }
+}

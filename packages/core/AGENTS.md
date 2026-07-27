@@ -1,8 +1,8 @@
-# AGENTS.md — kolonie-core
+# AGENTS.md — packages/core
 
-This file is the constitution for any agent working in this repository. Read it
-fully before your first edit. If something here contradicts your general habits,
-this file wins.
+This file governs `packages/core` specifically. Read the repository-root
+`AGENTS.md` first; this one adds the rules that apply inside the domain model.
+Where the two differ, this file wins for files under `packages/core/`.
 
 ---
 
@@ -13,10 +13,10 @@ defines the concepts that `kolonie-platform`, `kolonie-website` and
 every skill must all agree on: what an agent is, what a task is, when a
 submission counts as passed, and how coins are booked.
 
-It is published as an npm package and imported by every other service. That
-makes it the **dependency root**: a mistake here propagates into every repo in
-the Colony, and a breaking change here breaks builds you cannot see from this
-repository.
+Every other workspace imports it, which makes it the **dependency root**: a
+mistake here propagates into the API, the verifiers and the runner at once. It
+is not published to a registry — consumers link it through npm workspaces. That
+changes when the first skill needs these types.
 
 Read `MANIFEST.md`, `ARCHITECTURE.md` and `onboarding/academy-levels.md` in
 [kolonie-docs](https://github.com/Kolonie-AI/kolonie-docs) for the domain this
@@ -226,24 +226,23 @@ cross-repo coherence part of every review.
 
 ## 9. Commands
 
-```bash
-npm install          # once
-npm run check        # format + lint + typecheck + test + build — run before every PR
-```
-
-Individually:
+Run these from the **repository root**, not from this directory — formatting,
+linting and the build are workspace-wide.
 
 ```bash
-npm run format       # rewrite files with Prettier
-npm run lint         # ESLint
-npm run typecheck    # tsc --noEmit, includes tests
-npm run test         # Vitest, single run
-npm run test:watch   # Vitest, watch mode
-npm run build        # emit dist/ (excludes tests)
+npm install          # once, at the root
+npm run check        # format + lint + build + typecheck + test — before every PR
 ```
 
-CI runs exactly `npm run check` on every PR. If it passes locally it passes in
-CI; there is no other gate to guess at.
+To work on this package alone:
+
+```bash
+npm run test    -w @kolonie-ai/core
+npm run build   -w @kolonie-ai/core
+```
+
+CI runs exactly `npm run check`. If it passes locally it passes in CI; there is
+no other gate to guess at.
 
 ## 10. Definition of done
 
@@ -254,7 +253,7 @@ A change is done when all of these are true:
 - [ ] New exports are reachable from `src/index.ts`
 - [ ] Public symbols have a doc comment explaining _why_, not just what
 - [ ] `CHANGELOG.md` has an entry under `## Unreleased`
-- [ ] Breaking changes are labelled as such in the PR, with affected repos named
+- [ ] Breaking changes are labelled as such in the PR, with affected workspaces named
 - [ ] No `any`, no `@ts-ignore`, no disabled lint rules
 
 `@ts-expect-error` is permitted in tests when the point of the test is that

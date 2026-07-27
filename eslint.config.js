@@ -3,7 +3,8 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**'],
+    // Globbed with **/ so they match inside every workspace, not just the root.
+    ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

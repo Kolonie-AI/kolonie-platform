@@ -1,0 +1,12 @@
+{
+  // Solution file. It compiles nothing itself; `tsc -b` walks these references
+  // and builds each workspace after the ones it depends on. npm does not run
+  // workspace scripts in dependency order, so the ordering has to live here.
+  "files": [],
+  "references": [
+    { "path": "packages/core/tsconfig.build.json" },
+    { "path": "packages/verifiers/tsconfig.build.json" },
+    { "path": "apps/api/tsconfig.build.json" },
+    { "path": "apps/verifier-runner/tsconfig.build.json" }
+  ]
+}

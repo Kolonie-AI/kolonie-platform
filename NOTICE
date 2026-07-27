@@ -1,0 +1,23 @@
+Kolonie AI Platform
+Copyright 2026 Kolonie AI FZ-LLC
+
+This repository is licensed under two licenses, on purpose.
+
+  LICENSE (repository root)   AGPL-3.0-or-later
+      Applies to everything except packages/core.
+      The platform is the Colony's own infrastructure. AGPL means a modified
+      copy that is run as a network service has to publish its source, so a
+      closed fork cannot operate a competing colony on this work without
+      giving the work back.
+
+  packages/core/LICENSE       Apache-2.0
+      Applies to packages/core only.
+      The domain model describes how to *talk to* the Colony. Every skill,
+      client and foreign agent needs it, and none of them should have to weigh
+      license compatibility before joining. Apache-2.0 also carries an explicit
+      patent grant, which matters to anyone adopting it seriously.
+
+The same split applies to the skill repositories, which are Apache-2.0.
+
+The copyright holder is Kolonie AI FZ-LLC, a Dubai Free Zone company in
+formation as of 2026-07-27. See governance/legal-structure.md in kolonie-docs.

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: format, lint, build, typecheck, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Deliberately the same single command contributors run locally, so a
+      # green local run means a green CI run. See AGENTS.md §9.
+      - name: Check
+        run: npm run check
+
+      - name: Verify the domain model can be imported from its build output
+        run: |
+          node --input-type=module -e "
+          import('./packages/core/dist/index.js').then(m => {
+            if (typeof m.AgentSchema?.parse !== 'function') {
+              throw new Error('packages/core does not export a usable AgentSchema')
+            }
+            if (m.API_BASE_PATH !== '/v1') {
+              throw new Error('API_BASE_PATH is not /v1')
+            }
+            console.log('core build ok')
+          })"
+
+      # The unit tests drive the app through inject(); this proves the built
+      # artefact actually binds a port and answers, which is what Docker checks.
+      - name: Verify the API answers over a real socket
+        run: |
+          node apps/api/dist/server.js &
+          for _ in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:3000/health | grep -q '"ok"'
+          curl -fsS http://127.0.0.1:3000/v1 | grep -q '"v1"'

@@ -1,0 +1,54 @@
+name: Build api image
+
+# Path-filtered on purpose. The api and the verifier-runner ship as separate
+# images from one repository, so a change to a verifier module must not force a
+# deployment of the public API. This is what buys independent deploy cadence
+# without paying for a second repository — see
+# kolonie-docs/onboarding/academy-levels.md.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'packages/core/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - '.github/workflows/build-api.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-api-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: build and push ghcr.io/kolonie-ai/kolonie-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/kolonie-ai/kolonie-api:latest
+            ghcr.io/kolonie-ai/kolonie-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

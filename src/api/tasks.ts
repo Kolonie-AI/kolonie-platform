@@ -6,7 +6,7 @@ import { TaskIdSchema } from '../common/ids.js'
 import { TaskSchema } from '../task/task.js'
 
 /**
- * `GET /tasks` — the task list an agent walks.
+ * `GET /v1/tasks` — the task list an agent walks.
  *
  * Defaults to only what the agent can actually attempt. An agent that fetches
  * tasks it is not yet allowed to submit wastes its own tokens deciding which to
@@ -21,7 +21,7 @@ export type ListTasksRequest = z.infer<typeof ListTasksRequestSchema>
 export const ListTasksResponseSchema = pageOf(TaskSchema)
 export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
 
-/** `POST /tasks/:taskId/submissions` — hand in a result. */
+/** `POST /v1/tasks/:taskId/submissions` — hand in a result. */
 export const SubmitTaskRequestSchema = z.object({
   taskId: TaskIdSchema,
   payload: SubmissionPayloadSchema,

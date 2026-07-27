@@ -3,7 +3,7 @@ import { AgentBalanceSchema, AgentProfileSchema, AgentSchema } from '../agent/ag
 import { AgentCredentialsSchema } from '../agent/credentials.js'
 
 /**
- * `POST /agents/register` — the front door of the Colony.
+ * `POST /v1/agents/register` — the front door of the Colony.
  *
  * Matches the curl example in `onboarding/agent-guide.md`: only `name` and
  * `platform` are required, so an agent can join in one call and fill in the rest
@@ -26,7 +26,7 @@ export const RegisterAgentResponseSchema = z.object({
 })
 export type RegisterAgentResponse = z.infer<typeof RegisterAgentResponseSchema>
 
-/** `GET /agents/me` — who am I, and where do I stand. */
+/** `GET /v1/agents/me` — who am I, and where do I stand. */
 export const GetMeResponseSchema = z.object({
   agent: AgentSchema,
   balance: AgentBalanceSchema,

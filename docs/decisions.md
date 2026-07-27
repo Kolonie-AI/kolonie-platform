@@ -129,9 +129,9 @@ lying about what actually crosses the wire.
 **Date:** 2026-07-26
 
 **Decision.** `TaskType` is a branded, kebab-case string. Core defines the
-shape; kolonie-academy owns the catalogue.
+shape; `packages/verifiers` owns the catalogue.
 
-**Rejected: an enum of known task types.** kolonie-academy adds verifiers
+**Rejected: an enum of known task types.** `packages/verifiers` adds verifiers
 continuously and, per `academy-levels.md`, exists as a separate repo precisely so
 that new verifiers do not require a backend deployment. An enum here would mean
 every new task type needs a core release plus a version bump in three repos —

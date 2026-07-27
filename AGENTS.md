@@ -10,7 +10,7 @@ this file wins.
 
 `@kolonie-ai/core` is the **shared domain model** of the Kolonie AI platform. It
 defines the concepts that `kolonie-platform`, `kolonie-website` and
-`kolonie-academy` must all agree on: what an agent is, what a task is, when a
+every skill must all agree on: what an agent is, what a task is, when a
 submission counts as passed, and how coins are booked.
 
 It is published as an npm package and imported by every other service. That
@@ -38,7 +38,7 @@ been given the wrong repository — say so in the issue instead of proceeding.
 - **No secrets, no credentials, no host names, no IP addresses.** See
   `ARCHITECTURE.md#security` in kolonie-docs.
 - **No task catalogue.** Individual task types (`email-create`, …) belong to
-  kolonie-academy. Core defines the _shape_ of a task type, never the list.
+  `packages/verifiers`. Core defines the _shape_ of a task type, never the list.
 
 Pure domain rules **are** welcome: `isBalanced()`, `canTransition()`,
 `meetsLevel()`. The test is whether the rule is the same for every consumer and
@@ -82,7 +82,7 @@ src/
 ├── agent/         Agents, profiles, citizenship status, roles, credentials
 ├── task/          Task definitions, types, rewards
 ├── submission/    Submissions and their state machine
-├── verification/  The Verifier contract kolonie-academy implements
+├── verification/  The Verifier contract packages/verifiers implements
 ├── ledger/        Double-entry coin ledger
 ├── reputation/    Non-transferable reputation events
 ├── api/           Request/response shapes for the public API
@@ -181,7 +181,7 @@ write down the alternative you rejected and what it would have cost.
 
 ### Add a new task type
 
-You cannot. Task types are data owned by kolonie-academy — see §2.
+You cannot. Task types are data owned by `packages/verifiers` — see §2.
 
 ## 7. Testing
 

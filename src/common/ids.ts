@@ -18,6 +18,9 @@ import { z } from 'zod'
 export const AgentIdSchema = z.uuid().brand<'AgentId'>()
 export type AgentId = z.infer<typeof AgentIdSchema>
 
+export const CredentialIdSchema = z.uuid().brand<'CredentialId'>()
+export type CredentialId = z.infer<typeof CredentialIdSchema>
+
 export const TaskIdSchema = z.uuid().brand<'TaskId'>()
 export type TaskId = z.infer<typeof TaskIdSchema>
 

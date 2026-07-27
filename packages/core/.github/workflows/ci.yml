@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: format, lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Deliberately the same single command contributors run locally, so a
+      # green local run means a green CI run. See AGENTS.md §9.
+      - name: Check
+        run: npm run check
+
+      - name: Verify the built package can be imported
+        run: node --input-type=module -e "import('./dist/index.js').then(m => { if (typeof m.AgentSchema?.parse !== 'function') { throw new Error('dist/index.js does not export a usable AgentSchema') } console.log('dist import ok') })"

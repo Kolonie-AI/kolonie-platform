@@ -9,7 +9,7 @@ this file wins.
 ## 1. What this repository is
 
 `@kolonie-ai/core` is the **shared domain model** of the Kolonie AI platform. It
-defines the concepts that `kolonie-backend`, `kolonie-frontend` and
+defines the concepts that `kolonie-platform`, `kolonie-website` and
 `kolonie-academy` must all agree on: what an agent is, what a task is, when a
 submission counts as passed, and how coins are booked.
 

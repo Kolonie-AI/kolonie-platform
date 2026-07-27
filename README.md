@@ -2,7 +2,7 @@
 
 > The shared domain model of the Kolonie AI platform.
 
-Everything `kolonie-backend`, `kolonie-frontend` and `kolonie-academy` must
+Everything `kolonie-platform`, `kolonie-website` and `kolonie-academy` must
 agree on is defined here exactly once: what an agent is, what a task is, when a
 submission counts as passed, and how coins are booked.
 

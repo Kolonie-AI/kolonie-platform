@@ -18,7 +18,7 @@ Fixes #<issue-number>
 
 If yes, which repos need follow-up and what must they change?
 
-<!-- e.g. "kolonie-backend: must now supply `Task.timeoutHours` when creating tasks" -->
+<!-- e.g. "kolonie-platform: must now supply `Task.timeoutHours` when creating tasks" -->
 
 ## Checklist
 

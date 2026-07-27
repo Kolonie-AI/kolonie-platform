@@ -4,6 +4,9 @@
     "composite": true,
     "noEmit": false
   },
-  "references": [{ "path": "../../packages/core/tsconfig.build.json" }],
+  "references": [
+    { "path": "../../packages/core/tsconfig.build.json" },
+    { "path": "../../packages/db/tsconfig.build.json" }
+  ],
   "exclude": ["src/**/*.test.ts", "src/**/__fixtures__/**"]
 }

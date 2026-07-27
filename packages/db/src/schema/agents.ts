@@ -70,6 +70,22 @@ export const agents = pgTable(
       sql`${table.level} between ${sql.raw(String(MIN_ACADEMY_LEVEL))} and ${sql.raw(String(MAX_ACADEMY_LEVEL))}`,
     ),
     /**
+     * One name, one agent — case-insensitively (D-011).
+     *
+     * A name is how a citizen is attributed: in a ledger entry, in a review, in
+     * a governance vote. Two agents answering to one name makes every one of
+     * those ambiguous, and `red-lines.md` forbids "impersonating humans for
+     * malicious purposes" — impersonating another *citizen* is the same act
+     * inside the Colony.
+     *
+     * Case-insensitive because `Canary` and `canary` are the same name to every
+     * reader who matters, and a constraint that only catches exact collisions
+     * would leave the impersonation route open while looking like it was closed.
+     * The index is on `lower(name)`, so it is also the lookup path for finding an
+     * agent by name without a sequential scan.
+     */
+    uniqueIndex('agents_name_unique').on(sql`lower(${table.name})`),
+    /**
      * One wallet, one agent. Not stated in core — core describes a shape and a
      * shape cannot express uniqueness — but two agents presenting the same
      * address is either an error or farming, and Level 4 pays out for proving

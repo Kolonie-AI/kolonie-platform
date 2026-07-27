@@ -1,4 +1,6 @@
+import { createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
+import { databaseRegistry } from './registration.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -6,11 +8,20 @@ const PORT = Number(process.env['PORT'] ?? 3000)
 // Traefik on the shared Docker network.
 const HOST = '0.0.0.0'
 
-const app = buildApp()
+// Throws with an explanation if DATABASE_URL is missing (D-009). Failing here is
+// the point: a process that cannot reach its database has not degraded, and
+// discovering that on the first agent's registration is worse than discovering
+// it before the container is ever declared healthy.
+const db = createDatabase(databaseUrlFromEnv())
+
+const app = buildApp({ registry: databaseRegistry(db) })
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    void app.close().then(() => process.exit(0))
+    void app
+      .close()
+      .then(() => db.close())
+      .then(() => process.exit(0))
   })
 }
 

@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from './app.js'
+import { fakeRegistry } from './__fixtures__/registry.js'
 
 let app: FastifyInstance
 
 beforeAll(async () => {
-  app = buildApp()
+  app = buildApp({ registry: fakeRegistry() })
   await app.ready()
 })
 

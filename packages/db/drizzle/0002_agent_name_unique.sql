@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "agents_name_unique" ON "agents" USING btree (lower("name"));

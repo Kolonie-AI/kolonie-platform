@@ -15,6 +15,13 @@
       "when": 1785192974841,
       "tag": "0001_ledger_double_entry",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785195552794,
+      "tag": "0002_agent_name_unique",
+      "breakpoints": true
     }
   ]
 }

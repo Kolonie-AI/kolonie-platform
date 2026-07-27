@@ -6,4 +6,12 @@
  * package — is always an error (D-008).
  */
 export * from './schema/index.js'
+export * from './storage/index.js'
+export {
+  API_KEY_ENTROPY_BYTES,
+  API_KEY_HASH_ALGORITHM,
+  apiKeyHashEquals,
+  generateApiKey,
+  hashApiKey,
+} from './api-key.js'
 export { createDatabase, databaseUrlFromEnv, DATABASE_URL_VAR, type Database } from './client.js'

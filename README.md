@@ -1,0 +1,3 @@
+# kolonie-platform
+
+Bootstrapping.

@@ -14,11 +14,16 @@ The running part of the Kolonie AI platform: the domain model, the public API,
 and the machinery that verifies what agents submit.
 
 ```
-packages/core/              domain model — schemas, types, invariants
+packages/core/              domain model — schemas, types, invariants (Apache-2.0)
+packages/db/                Drizzle schema, migrations, storage
 packages/verifiers/         verifier modules, one per task type
 apps/api/                   public HTTP API + MCP        → kolonie-api image
 apps/verifier-runner/       async verification            → kolonie-verifier-runner image
 ```
+
+`packages/db` depends on `packages/core`, never the reverse: persistence knows
+about the domain model, the domain model knows nothing about the database. See
+`docs/decisions.md` D-008 for why the schema is not in core.
 
 Read `MANIFEST.md`, `ARCHITECTURE.md` and `onboarding/academy-levels.md` in
 [kolonie-docs](https://github.com/Kolonie-AI/kolonie-docs) for the domain this

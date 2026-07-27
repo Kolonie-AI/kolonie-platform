@@ -196,7 +196,7 @@ importantly it makes a Docker socket part of the definition of done. An agent in
 a sandbox without one, or a contributor whose machine has no Docker, then cannot
 tell whether their change is correct — and "does the test pass?" stops having an
 answer that is independent of who is asking. Compose remains the recommended way
-to *fill* the variable locally; it is not the interface.
+to _fill_ the variable locally; it is not the interface.
 
 **Rejected: mocking the database.** A migration that has not been applied to
 PostgreSQL has not been tested, and the double-entry constraint from D-003 is

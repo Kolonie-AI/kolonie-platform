@@ -3,3 +3,8 @@ coverage
 node_modules
 package-lock.json
 CHANGELOG.md
+
+# drizzle-kit's snapshots and journal. Generated on every `generate`, never read
+# by a human, and reformatting them only guarantees a diff the next time the
+# tool writes them. The migrations themselves are .sql and are reviewed by hand.
+packages/db/drizzle/meta

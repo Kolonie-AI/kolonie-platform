@@ -101,6 +101,21 @@ CI runs exactly `npm run check`, plus two smoke checks: that the built core
 exports a usable `AgentSchema`, and that the built API answers `/health` over a
 real socket. Green locally means green in CI.
 
+**One environment variable.** `packages/db` talks to PostgreSQL 16 through
+`DATABASE_URL` and knows nothing else about where the database came from — see
+D-009. Set it and the database tests run; leave it unset and they skip locally
+with an explanation, and fail the build on CI. Skipping them silently on CI is
+the one thing this arrangement must never do, so it is asserted rather than
+assumed.
+
+```bash
+export DATABASE_URL=postgres://user:password@host:5432/database
+```
+
+Any PostgreSQL 16 will do. `docker-compose.dev.yml` in `kolonie-infra` is one way
+to get one; `packages/db/README.md` gives a one-line alternative. Do not write a
+tool into an acceptance criterion where you mean a capability.
+
 Scoped to one workspace:
 
 ```bash

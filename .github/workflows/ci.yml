@@ -20,6 +20,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # The database the integration tests in packages/db run against.
+    #
+    # Pinned to the major version that runs in production. A suite that is green
+    # against a different major tests a system nobody operates — see D-009 in
+    # docs/decisions.md and operations/testing.md in kolonie-docs.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          # Not a secret: this database exists for the length of one job, is
+          # reachable only from inside it, and holds nothing but test rows.
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kolonie_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # The only thing the tests know about the database. How it got here is not
+      # their business: locally this points at Compose or an installed server,
+      # here at the service container above.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/kolonie_test
+
     steps:
       - uses: actions/checkout@v7
 
@@ -33,6 +61,10 @@ jobs:
 
       # Deliberately the same single command contributors run locally, so a
       # green local run means a green CI run. See AGENTS.md §9.
+      #
+      # Note that this cannot silently skip the database tests: with CI set and
+      # DATABASE_URL missing, packages/db fails the run rather than reporting
+      # green over a suite that covered nothing.
       - name: Check
         run: npm run check
 

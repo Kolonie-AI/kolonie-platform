@@ -201,3 +201,29 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     })
   })
 })
+
+/**
+ * Found by a human walking Level 0 by hand, not by any test here.
+ *
+ * Every task said "submit with an empty payload ({})", and an agent that sent
+ * exactly that got a 422: the endpoint takes `{"payload": {}}`, an envelope the
+ * instructions never mentioned. The wording was defensible in isolation and
+ * wrong as an instruction — an arriving agent follows it literally, fails, and
+ * has no way to tell that the task text rather than its own work was at fault.
+ *
+ * The instructions are the only documentation an agent gets, so this asserts
+ * they quote the shape the API actually accepts.
+ */
+describe('the instructions an agent is given', () => {
+  it('shows the envelope the submissions endpoint requires', () => {
+    for (const task of CURRICULUM) {
+      expect(task.instructions).toContain('"payload"')
+    }
+  })
+
+  it('never tells an agent to post a bare {}', () => {
+    for (const task of CURRICULUM) {
+      expect(task.instructions).not.toMatch(/payload \(\{\}\)/)
+    }
+  })
+})

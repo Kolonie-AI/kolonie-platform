@@ -96,19 +96,39 @@ describe('the Academy task definitions', () => {
   })
 
   /**
-   * Every rung above Level 0 stays drafted until the Colony can actually decide
-   * it. For GitHub that means the token its verifier reads through (infra#20);
-   * for the two below it, a verifier at all. Having written `GithubContributionVerifier`
-   * is not the same as being able to decide a submission with it: without the
-   * credential it answers `pending`, the row is re-queued by every poll, and the
-   * agent is told after 72 hours that it ran out of time — the same outcome as
-   * no verifier at all, reached more slowly.
+   * A rung stays drafted until the Colony can actually decide it. Having written
+   * a verifier is not the same as being able to decide a submission with it:
+   * without its credential it answers `pending`, the row is re-queued by every
+   * poll, and the agent is told after 72 hours that it ran out of time — the
+   * same outcome as no verifier at all, reached more slowly.
+   *
+   * `github-contribution` was on this list until 2026-07-29 and came off it when
+   * `GITHUB_VERIFIER_TOKEN` was provisioned (`kolonie-infra#20`), which is the
+   * list working as intended rather than an exception to it.
+   *
+   * `email-roundtrip` remains: it has no verifier and no mailer.
    */
   it('keeps every task the Colony cannot yet decide out of sight', () => {
-    const undecidable = ['email-roundtrip', 'github-contribution']
+    const undecidable = ['email-roundtrip']
     for (const type of undecidable) {
       expect(ACADEMY_TASKS.find((task) => task.type === type)?.status).toBe('draft')
     }
+  })
+
+  /**
+   * The other reason a rung is drafted, and it is not the same reason.
+   *
+   * `browser-capability` *can* be decided — a real browser cleared it end to end
+   * and its verifier reads the Colony's own record, needing no credential from
+   * anyone. It waits on `CAPABILITY_PAGE_URL` on the deployment host
+   * (`kolonie-infra#23`), without which minting answers 503 and an active task
+   * would tell an arriving agent the Colony is broken.
+   *
+   * Kept as its own test so that flipping it active for the wrong reason — "the
+   * verifier exists, so ship it" — fails here with the actual condition named.
+   */
+  it('keeps the browser rung drafted while the host cannot serve its page', () => {
+    expect(ACADEMY_TASKS.find((task) => task.type === 'browser-capability')?.status).toBe('draft')
   })
 
   it('pays more for the harder levels', () => {
@@ -217,14 +237,27 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
       expect(visible.map((task) => task.type)).toEqual(['profile-complete'])
     })
 
-    it('has nothing above Level 1 yet, and does not pretend otherwise', async () => {
-      expect((await listFor(3)).map((task) => task.type)).toEqual(['profile-complete'])
+    /**
+     * Level 3 went active on 2026-07-29 once its token existed, so an agent that
+     * had somehow reached Level 3 would see it. **No agent can**, and that is
+     * the state worth asserting rather than hiding: Level 1 is drafted pending
+     * `kolonie-infra#23`, promotion is one rung per pass (D-021), so nothing
+     * currently climbs past Level 0. An active rung above an invisible one is
+     * inert, not broken — but it stops being inert the moment Level 1 ships, and
+     * this is where that is noticed.
+     */
+    it('shows the GitHub rung only to a level no agent can currently reach', async () => {
+      expect((await listFor(3)).map((task) => task.type)).toEqual([
+        'profile-complete',
+        'github-contribution',
+      ])
+      expect((await listFor(1)).map((task) => task.type)).toEqual(['profile-complete'])
     })
 
     it('hides every drafted rung from an agent that has reached it', async () => {
       const visible = (await listFor(3)).map((task) => task.type)
 
-      for (const drafted of ['email-roundtrip', 'github-contribution']) {
+      for (const drafted of ['email-roundtrip', 'browser-capability', 'browser-captcha']) {
         expect(visible).not.toContain(drafted)
       }
     })

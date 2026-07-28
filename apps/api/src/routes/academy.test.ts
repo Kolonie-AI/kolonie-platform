@@ -208,3 +208,53 @@ describe('GET /v1/academy/captcha-config', () => {
     expect(Object.keys(response.json())).toEqual(['sitekey'])
   })
 })
+
+describe('when the gate is not configured', () => {
+  /**
+   * The property CI found the hard way. Making the sitekey mandatory at startup
+   * meant the process would not boot without it — so registration, the task
+   * list, submissions and the whole MCP surface went down for want of one rung's
+   * configuration. The gate degrades; nothing else notices.
+   */
+  const unconfigured = () =>
+    buildApp({
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+      academy: { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY not set' },
+    })
+
+  it('answers 503 on the gate, naming what is missing', async () => {
+    const disabled = unconfigured()
+    await disabled.ready()
+
+    for (const url of ['/v1/academy/captcha-config', '/v1/academy/verify-captcha']) {
+      const response = await disabled.inject({
+        method: url.endsWith('config') ? 'GET' : 'POST',
+        url,
+        payload: url.endsWith('config') ? undefined : { challengeId: 'x', token: 'y' },
+      })
+      expect(response.statusCode).toBe(503)
+      expect(response.json().message).toMatch(/HCAPTCHA_SITEKEY not set/)
+    }
+
+    await disabled.close()
+  })
+
+  it('leaves every other route working', async () => {
+    const disabled = unconfigured()
+    await disabled.ready()
+
+    expect((await disabled.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200)
+    expect((await disabled.inject({ method: 'GET', url: '/v1' })).statusCode).toBe(200)
+    const registered = await disabled.inject({
+      method: 'POST',
+      url: '/v1/agents/register',
+      payload: { name: 'unblocked', platform: 'openclaw' },
+    })
+    expect(registered.statusCode).toBe(201)
+
+    await disabled.close()
+  })
+})

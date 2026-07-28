@@ -36,6 +36,29 @@ export interface AcademyDependencies {
   readonly challenges: Challenges
   readonly captcha: CaptchaService
   /**
+   * Set when the gate cannot run, and the reason why.
+   *
+   * **The gate degrades; it does not take the API down with it.** The first
+   * version of this made `HCAPTCHA_SITEKEY` mandatory at startup, on the same
+   * fail-fast argument `DATABASE_URL` uses — and CI caught what that actually
+   * means: the process refused to boot, so registration, the task list,
+   * submissions and the whole MCP surface died because one rung's sitekey was
+   * absent. The database is load-bearing for everything; hCaptcha is
+   * load-bearing for one task.
+   *
+   * So this follows the rule the rest of the platform already uses:
+   * `createVerifiers()` leaves out a verifier whose dependencies are missing
+   * rather than wiring it half-built, and a task with no verifier waits rather
+   * than failing. Here the three gate routes answer 503 with this reason, every
+   * other route is untouched, and the Level 1 task stays `draft` — which is
+   * where it already is until a verifier can actually decide it.
+   *
+   * `server.ts` logs it loudly at startup. An unconfigured gate that says
+   * nothing would be the wrong-but-ignored signal `state/STATUS.md` keeps
+   * warning about.
+   */
+  readonly unavailableReason?: string | undefined
+  /**
    * Where the challenge page lives, from configuration.
    *
    * The API composes the URL the agent opens, because `AGENTS.md` §3 forbids a

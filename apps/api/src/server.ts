@@ -19,19 +19,39 @@ const HOST = '0.0.0.0'
 const db = createDatabase(databaseUrlFromEnv())
 
 /**
- * Required, and it fails here rather than at the first agent that asks for a
- * challenge — the same argument `DATABASE_URL` makes above. A gate that mints
- * URLs pointing at nowhere is worse than one that refuses to start.
+ * The gate's configuration, or the reason there is none.
  *
- * The host lives here, in configuration, because `AGENTS.md` §3 forbids one in
- * any file of this repository.
+ * **Absent config degrades the gate; it does not stop the API.** The first
+ * version of this threw, borrowing `DATABASE_URL`'s fail-fast argument — and CI
+ * showed what that costs: the process would not boot, so registration, the task
+ * list, submissions and the entire MCP surface were down because one rung's
+ * sitekey was unset. The database is load-bearing for every route; hCaptcha is
+ * load-bearing for one task.
+ *
+ * The rule this follows instead is the platform's own: `createVerifiers()` omits
+ * a verifier whose dependencies are missing rather than half-wiring it, and a
+ * task with no verifier waits. Here the gate's three routes answer 503 and
+ * nothing else changes.
  */
-const required = (name: string): string => {
-  const value = process.env[name]
-  if (value === undefined || value === '') {
-    throw new Error(`${name} is not set. The API cannot serve the Academy gate without it.`)
+const gateConfig = (): { sitekey: string; secret: string; pageUrl: string } | string => {
+  const missing = ['HCAPTCHA_SITEKEY', 'HCAPTCHA_SECRET', 'CHALLENGE_PAGE_URL'].filter(
+    (name) => (process.env[name] ?? '') === '',
+  )
+  if (missing.length > 0) return `${missing.join(', ')} not set`
+
+  return {
+    sitekey: process.env['HCAPTCHA_SITEKEY'] as string,
+    secret: process.env['HCAPTCHA_SECRET'] as string,
+    pageUrl: process.env['CHALLENGE_PAGE_URL'] as string,
   }
-  return value
+}
+
+const gate = gateConfig()
+
+if (typeof gate === 'string') {
+  // Loud on purpose. An unconfigured gate that said nothing would be exactly the
+  // wrong-but-ignored signal state/STATUS.md keeps warning about.
+  console.warn(`kolonie-api: Browser Capability Gate disabled — ${gate}`)
 }
 
 const app = buildApp({
@@ -39,11 +59,19 @@ const app = buildApp({
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
   submissions: databaseSubmissions(db),
-  academy: {
-    challenges: databaseChallenges(db),
-    captcha: hcaptchaService(required('HCAPTCHA_SITEKEY'), required('HCAPTCHA_SECRET')),
-    challengePageUrl: required('CHALLENGE_PAGE_URL'),
-  },
+  academy:
+    typeof gate === 'string'
+      ? {
+          challenges: databaseChallenges(db),
+          captcha: hcaptchaService('', ''),
+          challengePageUrl: '',
+          unavailableReason: gate,
+        }
+      : {
+          challenges: databaseChallenges(db),
+          captcha: hcaptchaService(gate.sitekey, gate.secret),
+          challengePageUrl: gate.pageUrl,
+        },
 })
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

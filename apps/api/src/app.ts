@@ -112,6 +112,20 @@ export function buildApp({
     })
   }
 
+  /**
+   * The gate's three routes share one answer when it is not configured, and it
+   * is a 503 rather than a 404: the endpoint exists and is temporarily unable to
+   * serve, which is what an agent needs to know in order to retry rather than
+   * conclude the Colony has no such rung.
+   */
+  const gateUnavailable: ApiError | undefined =
+    academy.unavailableReason === undefined
+      ? undefined
+      : {
+          code: 'internal',
+          message: `The Browser Capability Gate is not available: ${academy.unavailableReason}`,
+        }
+
   app.register(
     async (v1) => {
       v1.get('/', async () => ({
@@ -257,6 +271,8 @@ export function buildApp({
        * stays satisfiable: the host is in the environment, not in the source.
        */
       v1.post('/academy/challenges', async (request, reply) => {
+        if (gateUnavailable !== undefined) return reply.status(503).send(gateUnavailable)
+
         const authenticated = await authenticate(request.headers.authorization, store)
 
         if (authenticated.outcome === 'rejected') {
@@ -278,7 +294,10 @@ export function buildApp({
        * so the static file stays static and the key stays configuration; the
        * secret half never leaves this process.
        */
-      v1.get('/academy/captcha-config', async () => ({ sitekey: academy.captcha.sitekey }))
+      v1.get('/academy/captcha-config', async (_request, reply) => {
+        if (gateUnavailable !== undefined) return reply.status(503).send(gateUnavailable)
+        return reply.send({ sitekey: academy.captcha.sitekey })
+      })
 
       /**
        * Where a solved challenge is checked and bound to an agent.
@@ -290,6 +309,8 @@ export function buildApp({
        * endpoint as well as registration.
        */
       v1.post('/academy/verify-captcha', async (request, reply) => {
+        if (gateUnavailable !== undefined) return reply.status(503).send(gateUnavailable)
+
         const result = await verifyCaptcha(request.body, academy)
 
         if (result.outcome === 'rejected') {

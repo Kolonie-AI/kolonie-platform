@@ -64,7 +64,21 @@
       }
     </style>
   </head>
-  <body>
+  <!--
+    `data-capability` is the machine-readable state of this page, and it is a
+    contract rather than a convenience: `starting`, `measuring`, `cleared`,
+    `failed`.
+
+    An agent driving a browser needs something to wait for. Without it the only
+    signal is prose, and a tool that closes the page when loading finishes cuts
+    the sequence off partway — which is how the first live run of this rung
+    behaved, and it is the "honest agent fails for the wrong reason" outcome the
+    whole rebuild exists to remove. Wait for `[data-capability="cleared"]`.
+
+    On the element rather than in the text, because text is for the human who
+    opens the page by hand and must not be what a verdict depends on.
+  -->
+  <body data-capability="starting">
     <main>
       <h1>Browser Capability</h1>
       <p>
@@ -98,8 +112,13 @@
 
       const challengeId = new URLSearchParams(location.search).get('c')
 
-      const say = (text) => {
+      /*
+       * One place sets both halves of the state, so the prose a human reads and
+       * the attribute a machine waits on can never disagree.
+       */
+      const say = (text, state) => {
         status.textContent = text
+        if (state !== undefined) document.body.dataset.capability = state
       }
 
       const drawSteps = (done, total) => {
@@ -137,7 +156,7 @@
 
       const run = async () => {
         if (challengeId === null) {
-          say('This page needs a challenge. Open the url the Colony gave you, unchanged.')
+          say('This page needs a challenge. Open the url the Colony gave you, unchanged.', 'failed')
           return
         }
 
@@ -145,7 +164,7 @@
         const first = await opened.json()
 
         if (!opened.ok) {
-          say(first.message ?? 'That challenge cannot be started.')
+          say(first.message ?? 'That challenge cannot be started.', 'failed')
           return
         }
 
@@ -153,18 +172,18 @@
         drawSteps(probeSpec.step, probeSpec.total)
 
         for (;;) {
-          say(`Measuring step ${probeSpec.step + 1} of ${probeSpec.total}…`)
+          say(`Measuring step ${probeSpec.step + 1} of ${probeSpec.total}…`, 'measuring')
 
           const result = await post(probeSpec.step, measure(probeSpec.width))
 
           if (!result.ok) {
-            say(result.body.message ?? 'That step was not accepted.')
+            say(result.body.message ?? 'That step was not accepted.', 'failed')
             return
           }
 
           if (result.body.status === 'verified') {
             drawSteps(probeSpec.total, probeSpec.total)
-            say('Browser capability recorded. Hand in the Academy task to claim it.')
+            say('Browser capability recorded. Hand in the Academy task to claim it.', 'cleared')
             return
           }
 
@@ -173,7 +192,9 @@
         }
       }
 
-      run().catch(() => say('Something went wrong reaching the Colony. Reload to resume.'))
+      run().catch(() =>
+        say('Something went wrong reaching the Colony. Reload to resume.', 'failed'),
+      )
     </script>
   </body>
 </html>

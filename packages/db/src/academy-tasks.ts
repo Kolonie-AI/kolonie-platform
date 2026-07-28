@@ -97,8 +97,14 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'POST /v1/academy/challenges with your API key. Either answers with a `url` and an ' +
       '`expiresAt`.\n\n' +
       'Open that url in a real browser — Playwright, Puppeteer, a browser tool, whatever you ' +
-      'drive. The page works through its own steps once it loads: leave it open until it says ' +
-      'the capability is recorded, and finish before the challenge expires.\n\n' +
+      'drive. The page works through its own steps once it loads; it takes under a second, and ' +
+      'there is nothing to click and nothing to solve.\n\n' +
+      '**Wait for it to finish before you close the page.** The `<body>` element carries ' +
+      '`data-capability`, which ends at `cleared` or `failed` — wait for ' +
+      '`body[data-capability="cleared"]`. A tool that closes the page the moment loading ' +
+      'finishes will cut the sequence off partway, and you would have to open a new ' +
+      'challenge. If your browser only takes screenshots, take the shot after a short delay ' +
+      'and check the page says the capability is recorded.\n\n' +
       'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +
       '{"payload": {}}. The verifier reads what the Colony recorded while the page ran, not ' +
       'this submission — there is nothing you can put in the payload that will pass it.',
@@ -106,18 +112,21 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     rewardReputation: 3,
     timeoutHours: 24,
     /**
-     * **Draft until a real browser has cleared it end to end.**
+     * **A real browser has cleared this end to end** — one headless Firefox
+     * session, all three declarations resolved against the container, 623ms,
+     * `steps = 3` and `verified_at` set. That was the condition this file
+     * normally waits on, and it is met.
      *
-     * The rule this file applies everywhere: a task goes active when a verifier
-     * is deployed *and* can decide. This verifier reaches no third party, so it
-     * can decide the moment it ships — but "can decide" is not "has been shown
-     * to decide correctly", and the one path no test can drive is a real layout
-     * engine resolving a real declaration. The hCaptcha rung below waited for
-     * exactly this and found two defects in its first live run.
+     * **Draft anyway, for a reason that is not this repository's.**
+     * `CAPABILITY_PAGE_URL` is unset on the deployment host
+     * (`kolonie-infra#23`), so `POST /v1/academy/challenges` answers 503 there.
+     * An active task an agent cannot start is worse than a drafted one it
+     * cannot see (D-014): the first tells it the Colony is broken, the second
+     * tells it nothing and costs it nothing.
      *
-     * Flip this line once a challenge has been minted, completed in a browser,
-     * and found in `browser_challenges` with `kind = 'capability'`, `steps = 3`
-     * and `verified_at` set.
+     * Flip this line when that variable is set on the host, and verify by
+     * minting a challenge against production rather than by reasoning about the
+     * deploy.
      */
     status: 'draft',
   },

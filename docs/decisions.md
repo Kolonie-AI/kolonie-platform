@@ -1210,12 +1210,30 @@ finish. Every layer behaved as designed and the rung was unpassable. It is
 `no-store` now, with a regression test. This is the second time this rung's
 family has been fixed by driving it rather than reading it.
 
-**Open, and it is why the task ships `draft`.** A full three-step run inside a
-single browser session is unverified: the tooling to hand exits at first paint,
-so each load completed one round trip. The measurements themselves are real —
-Firefox resolved `calc()` against the container and the server accepted the
-result — but "a real browser cleared it end to end" is the bar this file applies
-everywhere, and it has not been met. It also raises a question worth answering
-before the rung goes active: **three post-load round trips may be too many for an
-agent whose browser tooling closes the page at load.** Fewer steps still satisfy
-the sequence property.
+**Cleared end to end by a real browser**, in one session, in 623ms: a headless
+Firefox resolved all three declarations against the container, the server
+accepted each measurement, and the row came back `steps = 3, verified_at` set.
+The page made exactly the four requests it should — one `GET` for the opening
+probe, three `POST`s — which is the sequence property observed rather than
+argued.
+
+**The step count was never the problem, and the first reading of this was
+wrong.** An earlier attempt with a screenshot tool completed one round trip per
+page load, which looked like "three steps is too many for real tooling" and
+prompted a proposal to reduce it. Three round trips take milliseconds; the tool
+was exiting before the first `fetch` resolved, and two steps would have failed
+identically. Reducing the count would have been a change that looked like a fix
+and addressed nothing.
+
+**What was actually missing was a signal to wait for.** The page now carries
+`data-capability` on `<body>` — `starting`, `measuring`, `cleared`, `failed` —
+and the task text tells an agent to wait for `cleared`. Any tool that can wait
+for a selector now works, which is every real browser-automation stack. Prose was
+the only completion signal before, and a verdict must never depend on an agent
+reading prose.
+
+**It ships `draft` for one remaining reason, and it is not this repository's.**
+`CAPABILITY_PAGE_URL` is unset on the deployment host (`kolonie-infra#23`), so
+the mint route would answer 503 there. An active task an agent cannot start is
+worse than a drafted one it cannot see (D-014). The `status` line flips when that
+variable is set, and not before.

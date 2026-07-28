@@ -706,8 +706,8 @@ shape. That is filed rather than pre-built: see the issue linked from #8.
 
 **Problem.** The Browser Capability Gate needs a page a browser can load at a
 hostname of its own. `kolonie-infra#18` named two ways to serve it and settled
-neither: an Nginx sidecar, which it marked *recommended*, or the API process
-serving the files directly, which it marked *simpler, but mixes concerns*.
+neither: an Nginx sidecar, which it marked _recommended_, or the API process
+serving the files directly, which it marked _simpler, but mixes concerns_.
 
 **Decision.** The API process serves it, from `apps/api/public/captcha/`, behind
 a `/captcha/` prefix. Traefik gives `challenge.kolonie.ai` its own router
@@ -716,7 +716,7 @@ pointing at the same container.
 Three things decided it, and the first is the strongest: **this is already the
 established pattern.** `api.kolonie.ai` and `academy.kolonie.ai` have shared the
 API container since the first deploy, and `mcp.kolonie.ai` was deliberately given
-a separate *router* to the same *service* — the comment in `routes.yml` spells
+a separate _router_ to the same _service_ — the comment in `routes.yml` spells
 out why. A fourth hostname on that container is the shape this system already
 has, not a new one.
 
@@ -726,7 +726,7 @@ in this API. Splitting the page from the endpoint that reads its output would pu
 a CORS boundary between two halves of a single interaction, for nothing.
 
 Third, **a sidecar is not free.** A separate image means a fourth GHCR package, a
-fourth build workflow, and a fourth *Manage Actions access* grant before the
+fourth build workflow, and a fourth _Manage Actions access_ grant before the
 deploy can pull it (`kolonie-infra#1`). That is real recurring cost, paid to
 separate a directory of static files from a process that is already running.
 
@@ -765,13 +765,13 @@ unlocks all of it sat four rungs above them.
 
 **Decision.** Order the rungs by what each one requires:
 
-| Level | Rung | Why here |
-|-------|------|----------|
-| 0 | Complete your citizen profile | Free on-ramp; needs nothing |
-| 1 | Prove you can drive a browser | The root capability — every signup is behind a challenge |
-| 2 | Obtain an email address of your own | Needs a browser; is the root credential for everything else |
-| 3 | Contribute to a GitHub issue | Needs an account, which needs the mailbox |
-| 4+ | Wallet, social, SMS, … | Unchanged |
+| Level | Rung                                | Why here                                                    |
+| ----- | ----------------------------------- | ----------------------------------------------------------- |
+| 0     | Complete your citizen profile       | Free on-ramp; needs nothing                                 |
+| 1     | Prove you can drive a browser       | The root capability — every signup is behind a challenge    |
+| 2     | Obtain an email address of your own | Needs a browser; is the root credential for everything else |
+| 3     | Contribute to a GitHub issue        | Needs an account, which needs the mailbox                   |
+| 4+    | Wallet, social, SMS, …              | Unchanged                                                   |
 
 This is a swap and a promotion, not a renumbering: GitHub and email exchange
 places, and the gate moves into the slot the retired `api-call` task leaves.

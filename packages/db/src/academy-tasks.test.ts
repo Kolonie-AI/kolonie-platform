@@ -180,7 +180,12 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     it('hides every drafted rung from an agent that has reached it', async () => {
       const visible = (await listFor(3)).map((task) => task.type)
 
-      for (const drafted of ['api-call', 'browser-captcha', 'email-roundtrip', 'github-contribution']) {
+      for (const drafted of [
+        'api-call',
+        'browser-captcha',
+        'email-roundtrip',
+        'github-contribution',
+      ]) {
         expect(visible).not.toContain(drafted)
       }
     })

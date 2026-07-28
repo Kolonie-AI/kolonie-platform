@@ -79,6 +79,11 @@ a number nothing verifies.
   summing them, and the wrong number it reports looks plausible.
 - **No `ledger_transactions` table.** A transaction is the set of rows sharing a
   `transaction_id`; the trigger keeps the set consistent.
+- **No `evidence` column on `submissions`.** Verdicts and their evidence live in
+  the append-only `verifications` table (D-016). A column would hold one answer,
+  and a submission the runner checks twice — because a verifier said "the world
+  has not replied yet" — would have the second answer overwrite the one that
+  explains the payout.
 - **No plaintext credential anywhere.** `credentials.secret_hash` holds a hash and
   the core `Credential` shape omits it entirely, so the type is safe to return
   from the API and safe to log. Never add the secret to that shape.

@@ -22,7 +22,8 @@ describe('verifySubmission', () => {
     expect(verdict.outcome).toBe('verified')
     if (verdict.outcome !== 'verified') return
     expect(verdict.submission.status).toBe('passed')
-    expect(verdict.evidence).toBeTruthy()
+    expect(verdict.result.status).toBe('pass')
+    expect(verdict.result.evidence).toBeTruthy()
   })
 
   it('moves a bad submission to failed', async () => {

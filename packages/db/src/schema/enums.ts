@@ -9,6 +9,7 @@ import {
   SubmissionStatusSchema,
   SystemAccountSchema,
   TaskStatusSchema,
+  VerificationStatusSchema,
 } from '@kolonie-ai/core'
 
 /**
@@ -49,6 +50,17 @@ export const taskStatus = pgEnum('task_status', valuesOf(TaskStatusSchema.option
 export const submissionStatus = pgEnum(
   'submission_status',
   valuesOf(SubmissionStatusSchema.options),
+)
+
+/**
+ * The verifier's own vocabulary, not the submission's. `pass` is not `passed`:
+ * a verdict of `pass` is what a verifier returns, and `passed` is what the
+ * submission becomes once the API has acted on it. `submissionStatusFor` in
+ * core is the one place that translation happens.
+ */
+export const verificationStatus = pgEnum(
+  'verification_status',
+  valuesOf(VerificationStatusSchema.options),
 )
 
 export const systemAccount = pgEnum('system_account', valuesOf(SystemAccountSchema.options))

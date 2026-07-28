@@ -39,6 +39,10 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 - `API_VERSION` and `API_BASE_PATH`
 - `VerdictPoll` — where an asynchronous verdict will surface, and the floor on
   how soon it is worth looking
+- `Verification` — one recorded check of one submission: which verifier decided
+  it, what it decided, and the evidence for it. Append-only and separate from the
+  submission, so a re-check cannot overwrite the answer a payout rests on (D-016)
+- `VerificationId` branded id
 
 ## 0.1.0 — 2026-07-26
 

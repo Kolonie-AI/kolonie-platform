@@ -1,0 +1,299 @@
+import { describe, expect, it } from 'vitest'
+import {
+  SubmissionSchema,
+  TaskTypeSchema,
+  type Submission,
+  type SubmissionId,
+  type TaskType,
+} from '@kolonie-ai/core'
+import { startRunner, tick, type Log } from './loop.js'
+import type {
+  ClaimedSubmission,
+  ExpiredSubmission,
+  RecordVerdictCommand,
+  RecordVerdictResult,
+  SubmissionQueue,
+} from './queue.js'
+
+const API_CALL = TaskTypeSchema.parse('api-call')
+
+const aSubmission = (
+  id: string,
+  payload: Record<string, unknown> = { echo: 'hello' },
+): Submission =>
+  SubmissionSchema.parse({
+    id,
+    taskId: '3f1e0a4e-6d2b-4c3a-9f5e-1a2b3c4d5e6f',
+    agentId: '11111111-2222-4333-8444-555555555555',
+    payload,
+    status: 'verifying',
+    attempt: 1,
+    submittedAt: '2026-07-27T10:00:00.000Z',
+    verifiedAt: null,
+  })
+
+const FIRST = '9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'
+const SECOND = '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e'
+
+/**
+ * A queue that remembers what was asked of it.
+ *
+ * Deliberately not a database. Whether the claim is race-free is a property of
+ * the SQL and is asserted against a real PostgreSQL in `packages/db`; no fake
+ * can say anything about it. What is asserted here is the thing the fake *can*
+ * observe — that a claimed submission is never dropped, whichever way the
+ * verification goes.
+ */
+class FakeQueue implements SubmissionQueue {
+  readonly recorded: RecordVerdictCommand[] = []
+  readonly released: SubmissionId[] = []
+  sweeps = 0
+  overdue: readonly ExpiredSubmission[] = []
+  stale = false
+  claimFails: Error | undefined
+
+  constructor(private queued: ClaimedSubmission[] = []) {}
+
+  async claimNext(taskTypes: readonly TaskType[]): Promise<ClaimedSubmission | undefined> {
+    if (this.claimFails) throw this.claimFails
+    const index = this.queued.findIndex((entry) => taskTypes.includes(entry.taskType))
+    if (index === -1) return undefined
+    return this.queued.splice(index, 1)[0]
+  }
+
+  async record(command: RecordVerdictCommand): Promise<RecordVerdictResult> {
+    this.recorded.push(command)
+    if (this.stale) return { outcome: 'stale', status: 'timeout' }
+    return {
+      outcome: 'recorded',
+      submission: { ...aSubmission(command.submissionId), status: 'passed' },
+      verification: {
+        id: '7d6c5b4a-3e2f-4a1b-8c9d-0e1f2a3b4c5d',
+        submissionId: command.submissionId,
+        taskType: command.taskType,
+        status: command.result.status,
+        evidence: command.result.evidence,
+        metadata: command.result.metadata ?? null,
+        createdAt: '2026-07-28T12:00:00.000Z',
+      },
+    } as RecordVerdictResult
+  }
+
+  async release(submissionId: SubmissionId): Promise<boolean> {
+    this.released.push(submissionId)
+    return true
+  }
+
+  async expireOverdue(): Promise<readonly ExpiredSubmission[]> {
+    this.sweeps++
+    return this.overdue
+  }
+}
+
+const claimed = (id: string, taskType = API_CALL): ClaimedSubmission => ({
+  submission: aSubmission(id),
+  taskType,
+})
+
+const quiet: Log = { info: () => {}, warn: () => {}, error: () => {} }
+
+describe('tick', () => {
+  it('reports idle when nothing is waiting', async () => {
+    const queue = new FakeQueue()
+    expect(await tick({ queue, taskTypes: [API_CALL], log: quiet })).toEqual({ kind: 'idle' })
+  })
+
+  it('writes a passing verdict with its evidence', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+
+    const outcome = await tick({ queue, taskTypes: [API_CALL], log: quiet })
+
+    expect(outcome).toEqual({ kind: 'decided', status: 'passed' })
+    expect(queue.recorded).toHaveLength(1)
+    expect(queue.recorded[0]?.result.status).toBe('pass')
+    expect(queue.recorded[0]?.result.evidence).toBeTruthy()
+    expect(queue.released).toEqual([])
+  })
+
+  /** Evidence is required on every verdict, not only the ones that pay out. */
+  it('writes evidence on a failing verdict too', async () => {
+    const queue = new FakeQueue([{ submission: aSubmission(FIRST, {}), taskType: API_CALL }])
+
+    await tick({ queue, taskTypes: [API_CALL], log: quiet })
+
+    expect(queue.recorded[0]?.result.status).toBe('fail')
+    expect(queue.recorded[0]?.result.evidence).toContain('echo')
+  })
+
+  /**
+   * `AGENTS.md` §6: a missing verifier is not an error. Production keeps such a
+   * submission out of the claim entirely; if one is claimed anyway — the
+   * verifier set changed between the query and the call — nothing is written
+   * about it and it goes straight back.
+   */
+  it('records nothing and releases the row when no verifier can decide it', async () => {
+    const unverifiable = TaskTypeSchema.parse('instagram-follow')
+    const queue = new FakeQueue([claimed(FIRST, unverifiable)])
+
+    const outcome = await tick({ queue, taskTypes: [unverifiable], log: quiet })
+
+    expect(outcome.kind).toBe('skipped')
+    expect(queue.recorded).toEqual([])
+    expect(queue.released).toEqual([FIRST])
+  })
+
+  it('releases the row when the verifier throws, and does not swallow the fault', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+    const upstreamIsDown = new Error('ECONNREFUSED')
+
+    await expect(
+      tick({
+        queue,
+        taskTypes: [API_CALL],
+        log: quiet,
+        verify: () => Promise.reject(upstreamIsDown),
+      }),
+    ).rejects.toThrow('ECONNREFUSED')
+
+    expect(queue.recorded).toEqual([])
+    expect(queue.released).toEqual([FIRST])
+  })
+
+  /**
+   * The timeout sweep and a slow verifier can reach the same row. The sweep
+   * wins, because it already wrote a terminal verdict — a submission must not be
+   * reopened into a payout by a check that started before its deadline.
+   */
+  it('drops a verdict that arrives after the submission was already decided', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+    queue.stale = true
+
+    const outcome = await tick({ queue, taskTypes: [API_CALL], log: quiet })
+
+    expect(outcome).toEqual({ kind: 'stale', status: 'timeout' })
+    expect(queue.released).toEqual([])
+  })
+})
+
+describe('startRunner', () => {
+  /** Runs the loop without waiting: every pause resolves immediately. */
+  const immediately = { sleep: async () => {}, pollIntervalMs: 0, sweepIntervalMs: 0 }
+
+  const until = async (condition: () => boolean): Promise<void> => {
+    for (let i = 0; i < 1000 && !condition(); i++) await Promise.resolve()
+  }
+
+  it('drains the queue and then idles', async () => {
+    const queue = new FakeQueue([claimed(FIRST), claimed(SECOND)])
+    const runner = startRunner({ queue, taskTypes: [API_CALL], log: quiet }, immediately)
+
+    await until(() => queue.recorded.length === 2)
+    await runner.stop()
+
+    expect(queue.recorded.map((command) => command.submissionId)).toEqual([FIRST, SECOND])
+  })
+
+  it('sweeps for submissions past their deadline', async () => {
+    const queue = new FakeQueue()
+    const runner = startRunner({ queue, taskTypes: [API_CALL], log: quiet }, immediately)
+
+    await until(() => queue.sweeps > 0)
+    await runner.stop()
+
+    expect(queue.sweeps).toBeGreaterThan(0)
+  })
+
+  /**
+   * A database that is refusing connections fails every submission equally, so
+   * the backoff is on the poll rather than on the row: retrying each submission
+   * individually would turn one outage into a request storm against something
+   * already struggling.
+   */
+  it('backs off exponentially while polls keep failing, and recovers', async () => {
+    const queue = new FakeQueue()
+    queue.claimFails = new Error('the database is not accepting connections')
+    const waits: number[] = []
+
+    const runner = startRunner(
+      { queue, taskTypes: [API_CALL], log: quiet },
+      {
+        pollIntervalMs: 1_000,
+        maxBackoffMs: 8_000,
+        sweepIntervalMs: 0,
+        sleep: async (ms) => {
+          waits.push(ms)
+          if (waits.length === 4) queue.claimFails = undefined
+        },
+      },
+    )
+
+    await until(() => waits.length >= 5)
+    await runner.stop()
+
+    expect(waits.slice(0, 4)).toEqual([2_000, 4_000, 8_000, 8_000])
+    // The poll that succeeded resets it to the ordinary interval.
+    expect(waits[4]).toBe(1_000)
+    expect(runner.health().consecutiveFailures).toBe(0)
+  })
+
+  it('reports itself unhealthy before the first poll completes, healthy after', async () => {
+    const queue = new FakeQueue()
+    const runner = startRunner({ queue, taskTypes: [API_CALL], log: quiet }, immediately)
+
+    await until(() => runner.health().lastPollAt !== null)
+    expect(runner.health().running).toBe(true)
+    expect(runner.health().lastPollAt).not.toBeNull()
+
+    await runner.stop()
+    expect(runner.health().running).toBe(false)
+  })
+
+  /**
+   * SIGTERM during a verification must not lose it. `stop` resolves only after
+   * the verdict has been written — anything else hands the agent a submission
+   * stuck in `verifying` until the sweep expires it, for a check that had
+   * already succeeded.
+   */
+  it('finishes the submission in flight before it stops', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+    let finishVerifying = (): void => {}
+    const verifying = new Promise<void>((resolve) => {
+      finishVerifying = resolve
+    })
+
+    const runner = startRunner(
+      {
+        queue,
+        taskTypes: [API_CALL],
+        log: quiet,
+        verify: async (submission) => {
+          await verifying
+          return {
+            outcome: 'verified',
+            submission: { ...submission, status: 'passed' },
+            result: { status: 'pass', evidence: 'The slow check finally answered.' },
+          }
+        },
+      },
+      immediately,
+    )
+
+    await until(() => runner.health().inFlight === 1)
+
+    let stopped = false
+    const stopping = runner.stop().then(() => {
+      stopped = true
+    })
+
+    await until(() => stopped)
+    expect(stopped).toBe(false)
+    expect(queue.recorded).toEqual([])
+
+    finishVerifying()
+    await stopping
+
+    expect(stopped).toBe(true)
+    expect(queue.recorded).toHaveLength(1)
+    expect(queue.released).toEqual([])
+  })
+})

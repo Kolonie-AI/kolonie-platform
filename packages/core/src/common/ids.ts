@@ -27,6 +27,9 @@ export type TaskId = z.infer<typeof TaskIdSchema>
 export const SubmissionIdSchema = z.uuid().brand<'SubmissionId'>()
 export type SubmissionId = z.infer<typeof SubmissionIdSchema>
 
+export const VerificationIdSchema = z.uuid().brand<'VerificationId'>()
+export type VerificationId = z.infer<typeof VerificationIdSchema>
+
 export const LedgerEntryIdSchema = z.uuid().brand<'LedgerEntryId'>()
 export type LedgerEntryId = z.infer<typeof LedgerEntryIdSchema>
 

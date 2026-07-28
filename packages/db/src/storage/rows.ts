@@ -2,11 +2,13 @@ import {
   AgentSchema,
   SubmissionSchema,
   TaskSchema,
+  VerificationSchema,
   type Agent,
   type Submission,
   type Task,
+  type Verification,
 } from '@kolonie-ai/core'
-import type { agents, submissions, tasks } from '../schema/index.js'
+import type { agents, submissions, tasks, verifications } from '../schema/index.js'
 
 /**
  * Turn a database row into the domain shape.
@@ -89,6 +91,28 @@ export function toSubmission(row: typeof submissions.$inferSelect): Submission {
     attempt: row.attempt,
     submittedAt: toTimestamp(row.submittedAt),
     verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),
+  })
+}
+
+/**
+ * Turn a verification row into the domain shape.
+ *
+ * Same contract as {@link toAgent}, and one thing of its own: `metadata` is
+ * `jsonb`, so the column is `unknown` to the compiler and the core schema is
+ * what establishes it is an object. A verifier that returned no metadata leaves
+ * `null` here, and `null` stays `null` rather than becoming `{}` — "the verifier
+ * offered no proof" and "the verifier offered empty proof" are different
+ * statements about a payout.
+ */
+export function toVerification(row: typeof verifications.$inferSelect): Verification {
+  return VerificationSchema.parse({
+    id: row.id,
+    submissionId: row.submissionId,
+    taskType: row.taskType,
+    status: row.status,
+    evidence: row.evidence,
+    metadata: row.metadata ?? null,
+    createdAt: toTimestamp(row.createdAt),
   })
 }
 

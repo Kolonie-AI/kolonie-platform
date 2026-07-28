@@ -3,6 +3,7 @@ import {
   submissionStatusFor,
   type Submission,
   type TaskType,
+  type VerifyResult,
 } from '@kolonie-ai/core'
 import { verifierFor } from '@kolonie-ai/verifiers'
 
@@ -11,9 +12,20 @@ import { verifierFor } from '@kolonie-ai/verifiers'
  *
  * `skipped` is not a failure — it means the submission stays as it is and will
  * be picked up again later.
+ *
+ * A verified verdict carries the verifier's whole `VerifyResult`, not just the
+ * status it maps to. The loop persists that result verbatim: the evidence is
+ * the audit trail behind any coin booked on it, and the verifier's own
+ * vocabulary (`pass`, `pending`) says something the submission's status cannot —
+ * `pending` from a verifier means the world has not answered yet, while
+ * `pending` on a submission means nobody has looked.
  */
 export type Verdict =
-  | { readonly outcome: 'verified'; readonly submission: Submission; readonly evidence: string }
+  | {
+      readonly outcome: 'verified'
+      readonly submission: Submission
+      readonly result: VerifyResult
+    }
   | { readonly outcome: 'skipped'; readonly reason: string }
 
 /**
@@ -62,7 +74,7 @@ export async function verifySubmission(
 
   return {
     outcome: 'verified',
-    evidence: result.evidence,
+    result,
     submission: { ...submission, status: next },
   }
 }

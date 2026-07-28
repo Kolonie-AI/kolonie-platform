@@ -1,0 +1,343 @@
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import {
+  canTransition,
+  isTerminal,
+  now as currentTime,
+  submissionStatusFor,
+  SubmissionIdSchema,
+  TaskTypeSchema,
+  type Submission,
+  type SubmissionId,
+  type SubmissionStatus,
+  type TaskType,
+  type Timestamp,
+  type Verification,
+  type VerifyResult,
+} from '@kolonie-ai/core'
+import type { Database } from '../client.js'
+import { submissions, tasks, verifications } from '../schema/index.js'
+import { toSubmission, toVerification } from './rows.js'
+
+/** Statuses a submission can sit in while it still awaits a verdict. */
+const OPEN_STATUSES = ['pending', 'verifying'] as const
+
+/** A submission the runner now owns, together with what it needs to check it. */
+export interface ClaimedSubmission {
+  /** Already moved to `verifying` in the same transaction that handed it over. */
+  readonly submission: Submission
+  /** The type of the joined task — which verifier module has to run. */
+  readonly taskType: TaskType
+}
+
+/**
+ * Hand the runner the next submission to check, and mark it as taken.
+ *
+ * The claim and the status change are one statement's worth of work in one
+ * transaction, which is the whole point: `FOR UPDATE … SKIP LOCKED` means a
+ * second runner reading at the same instant walks straight past this row instead
+ * of blocking on it or — far worse — picking it up as well. Two runners paying
+ * out one submission twice is the failure this line prevents, and it is cheaper
+ * to prevent here than to detect in the ledger.
+ *
+ * `OF submissions`: the task is joined for its type and is not locked. Locking
+ * it would serialise every runner behind whichever one happened to claim a
+ * submission of the same task type.
+ *
+ * Only `pending` rows are claimed. A row already in `verifying` belongs to
+ * another runner — or to one that died holding it, which is what
+ * {@link expireOverdueSubmissions} is for, not this function. Claiming those
+ * back on a timer here would race the runner that is still working on it.
+ *
+ * `taskTypes` is the set of verifiers the calling runner actually has, and it is
+ * a filter rather than a check afterwards for a reason that only shows up in
+ * production. A submission whose verifier is not deployed yet must stay pending
+ * (`AGENTS.md` §6). Claiming it first and discovering that second would mean
+ * putting it straight back on every poll — and since the queue is served oldest
+ * first, that one undeployable row would sit at the head of the line and starve
+ * everything behind it until its deadline. Not selecting it at all leaves it
+ * exactly as pending as the rule requires, and invisible to the queue.
+ *
+ * An empty set claims nothing, which is the honest answer for a runner that
+ * ships no verifiers.
+ */
+export async function claimNextSubmission(
+  db: Database,
+  taskTypes: readonly TaskType[],
+): Promise<ClaimedSubmission | undefined> {
+  if (taskTypes.length === 0) return undefined
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ submission: submissions, taskType: tasks.type })
+      .from(submissions)
+      .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+      .where(and(eq(submissions.status, 'pending'), inArray(tasks.type, [...taskTypes])))
+      // Oldest first: an agent that has waited longest is served first, and a
+      // submission cannot be starved by a steady arrival of newer ones.
+      .orderBy(asc(submissions.submittedAt))
+      .limit(1)
+      .for('update', { of: submissions, skipLocked: true })
+
+    if (row === undefined) return undefined
+
+    const [claimed] = await tx
+      .update(submissions)
+      .set({ status: 'verifying' })
+      .where(eq(submissions.id, row.submission.id))
+      .returning()
+
+    if (claimed === undefined) throw new Error('claiming a locked submission returned no row')
+
+    return {
+      submission: toSubmission(claimed),
+      taskType: TaskTypeSchema.parse(row.taskType),
+    }
+  })
+}
+
+/** What recording a verdict did. */
+export type RecordVerdictResult =
+  | {
+      readonly outcome: 'recorded'
+      readonly submission: Submission
+      readonly verification: Verification
+    }
+  /**
+   * The row was no longer the caller's to decide — another writer reached it
+   * first, most plausibly the timeout sweep while a slow verifier was still
+   * thinking. Not an error: the verdict is dropped and the evidence with it,
+   * because a submission that has already timed out must not be resurrected
+   * into a payout by a check that started before the deadline.
+   */
+  | { readonly outcome: 'stale'; readonly status: SubmissionStatus }
+
+export interface RecordVerdictCommand {
+  readonly submissionId: SubmissionId
+  /** The type whose verifier produced this verdict; copied onto the record. */
+  readonly taskType: TaskType
+  readonly result: VerifyResult
+  /** Injectable for tests. Production passes nothing and gets the wall clock. */
+  readonly now?: Timestamp
+}
+
+/**
+ * Write a verdict: the evidence first, then the submission's new status, in one
+ * transaction.
+ *
+ * The order inside the transaction does not matter — the atomicity does. A
+ * submission that reaches `passed` without the row explaining why would be a
+ * coin the Colony cannot account for once #8 books on it, and the constraint
+ * that makes that impossible is that both writes commit together or neither
+ * does.
+ *
+ * **This function does not pay out**, and must not grow the ability to.
+ * `AGENTS.md` §3: the API books, never the verifier. What it writes is a fact
+ * about a check; what that fact is worth in coins is decided elsewhere.
+ *
+ * A `pending` verdict — the mail has not arrived yet — returns the submission to
+ * `pending` and leaves `verified_at` null, so the next poll picks it up again.
+ * The evidence row is still written: "checked at 14:02, the transaction had not
+ * confirmed" is exactly the history that explains why a payout happened at 14:30
+ * and not earlier.
+ */
+export async function recordVerdict(
+  db: Database,
+  command: RecordVerdictCommand,
+): Promise<RecordVerdictResult> {
+  const decidedAt = command.now ?? currentTime()
+  const next = submissionStatusFor(command.result.status)
+
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ status: submissions.status })
+      .from(submissions)
+      .where(eq(submissions.id, command.submissionId))
+      .for('update')
+      .limit(1)
+
+    // The row was claimed by this runner moments ago. Its disappearance means a
+    // submission was deleted mid-verification, which nothing in the Colony does.
+    if (current === undefined) {
+      throw new Error(
+        `no submission row for ${command.submissionId}, which was claimed for verification`,
+      )
+    }
+
+    if (current.status !== 'verifying') return { outcome: 'stale', status: current.status }
+
+    // The state machine lives in core so that both writers of this table agree
+    // on it (see `SUBMISSION_TRANSITIONS`). Re-deriving the rule here would be
+    // the second slightly-different copy that comment warns about.
+    if (!canTransition(current.status, next)) {
+      throw new Error(`illegal transition from '${current.status}' to '${next}'`)
+    }
+
+    const [record] = await tx
+      .insert(verifications)
+      .values({
+        submissionId: command.submissionId,
+        taskType: command.taskType,
+        status: command.result.status,
+        evidence: command.result.evidence,
+        metadata: command.result.metadata ?? null,
+        createdAt: decidedAt,
+      })
+      .returning()
+
+    if (record === undefined) throw new Error('insert into verifications returned no row')
+
+    const [updated] = await tx
+      .update(submissions)
+      .set({
+        status: next,
+        // The `submissions_verified_at_matches_status` constraint requires these
+        // two to agree, so the terminal test decides the timestamp rather than
+        // the caller remembering to.
+        verifiedAt: isTerminal(next) ? decidedAt : null,
+      })
+      .where(eq(submissions.id, command.submissionId))
+      .returning()
+
+    if (updated === undefined) throw new Error('updating a locked submission returned no row')
+
+    return {
+      outcome: 'recorded',
+      submission: toSubmission(updated),
+      verification: toVerification(record),
+    }
+  })
+}
+
+/**
+ * Put a claimed submission back in the queue without deciding it.
+ *
+ * For transient failures — the verifier's upstream was unreachable, the process
+ * is shutting down mid-check. Nothing is written to `verifications`, because
+ * nothing was verified: a row here would put "the check did not happen" in the
+ * table that explains why coins were paid.
+ *
+ * Returns whether the release actually applied. `false` means the row was no
+ * longer `verifying` — the timeout sweep got there first — and the caller has
+ * nothing left to do.
+ */
+export async function releaseSubmission(
+  db: Database,
+  submissionId: SubmissionId,
+): Promise<boolean> {
+  const released = await db
+    .update(submissions)
+    .set({ status: 'pending' })
+    .where(and(eq(submissions.id, submissionId), eq(submissions.status, 'verifying')))
+    .returning({ id: submissions.id })
+
+  return released.length > 0
+}
+
+/** A submission the sweep gave up on, and the deadline it missed. */
+export interface ExpiredSubmission {
+  readonly submissionId: SubmissionId
+  readonly taskType: TaskType
+  /** What it was when the deadline passed — `pending` or `verifying`. */
+  readonly previousStatus: SubmissionStatus
+}
+
+/**
+ * Mark every open submission whose deadline has passed as `timeout`.
+ *
+ * Two distinct things end up here, and both need to.
+ *
+ * A `pending` submission past its deadline is the ordinary case: the task waits
+ * on the real world (D-005), the world never answered, and `timeoutHours` is the
+ * agent's promise that the wait ends. A `verifying` one is the interesting case
+ * — it is a row whose runner died holding it. Nothing else reclaims those, and
+ * without this sweep a single crash would leave a submission unanswerable
+ * forever while its agent polls `GET /v1/agents/me` for a verdict that cannot
+ * arrive.
+ *
+ * `timeout` is its own terminal status rather than `failed` on purpose: the
+ * agent did not submit something wrong, so its record should not say it did.
+ * Core allows a retry from neither, but `academy-levels.md` treats the two
+ * differently when it comes to reputation.
+ *
+ * The deadline is measured from `submitted_at`, not from the claim: it is the
+ * agent's wait that `timeoutHours` bounds, and a submission the runner picked up
+ * late has already used part of it.
+ */
+export async function expireOverdueSubmissions(
+  db: Database,
+  options: { readonly now?: Timestamp; readonly limit?: number } = {},
+): Promise<readonly ExpiredSubmission[]> {
+  const deadline = options.now ?? currentTime()
+  const limit = options.limit ?? 50
+
+  return db.transaction(async (tx) => {
+    const overdue = await tx
+      .select({
+        id: submissions.id,
+        status: submissions.status,
+        taskType: tasks.type,
+        timeoutHours: tasks.timeoutHours,
+      })
+      .from(submissions)
+      .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+      .where(
+        and(
+          inArray(submissions.status, [...OPEN_STATUSES]),
+          sql`${submissions.submittedAt} + make_interval(hours => ${tasks.timeoutHours}) <= ${deadline}::timestamptz`,
+        ),
+      )
+      .orderBy(asc(submissions.submittedAt))
+      .limit(limit)
+      .for('update', { of: submissions, skipLocked: true })
+
+    if (overdue.length === 0) return []
+
+    const expired: ExpiredSubmission[] = []
+
+    for (const row of overdue) {
+      const submissionId = SubmissionIdSchema.parse(row.id)
+      const taskType = TaskTypeSchema.parse(row.taskType)
+
+      // Written as a verdict, unlike a release: a timeout *is* a decision about
+      // the submission, it is terminal, and an agent that reads "your submission
+      // expired" is owed the same account of why as one that reads "you failed".
+      await tx.insert(verifications).values({
+        submissionId,
+        taskType,
+        status: 'timeout',
+        evidence:
+          `No verdict within the task's ${row.timeoutHours}-hour window` +
+          `; the submission was '${row.status}' when the deadline passed.`,
+        createdAt: deadline,
+      })
+
+      await tx
+        .update(submissions)
+        .set({ status: 'timeout', verifiedAt: deadline })
+        .where(eq(submissions.id, row.id))
+
+      expired.push({ submissionId, taskType, previousStatus: row.status })
+    }
+
+    return expired
+  })
+}
+
+/**
+ * Every check made on one submission, oldest first.
+ *
+ * The audit read: this is what answers "why was this agent paid", and #8 books
+ * against the last row of it.
+ */
+export async function verificationsFor(
+  db: Database,
+  submissionId: SubmissionId,
+): Promise<readonly Verification[]> {
+  const rows = await db
+    .select()
+    .from(verifications)
+    .where(eq(verifications.submissionId, submissionId))
+    .orderBy(asc(verifications.createdAt))
+
+  return rows.map(toVerification)
+}

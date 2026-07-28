@@ -48,6 +48,24 @@ Colony's ledger.
 Migrations are append-only once merged. Editing one that has run somewhere means
 two databases with the same recorded history and different shapes.
 
+## Changing the Academy tasks
+
+```bash
+npm run build -w @kolonie-ai/db
+npm run seed  -w @kolonie-ai/db      # academy-tasks.ts -> the tasks table
+```
+
+Migrations create the `tasks` table and nothing fills it, so `GET /v1/tasks`
+answers with an empty list until this has run. The deploy runs it after
+`migrate`, out of the api image, so a change to `src/academy-tasks.ts` reaches
+production on the next deploy and needs no manual step.
+
+Each task carries a **fixed id written into the file**, and that is what makes
+re-running safe: rows are upserted on it, so a second run corrects wording and
+rewards instead of duplicating the Academy. Seeding never deletes — a task the
+Colony has paid out against cannot vanish without taking the audit trail with it,
+so removing a task means setting it `retired`, deliberately.
+
 ## The one thing to understand before touching the ledger
 
 `ledger_entries` carries a `DEFERRABLE INITIALLY DEFERRED` constraint trigger,

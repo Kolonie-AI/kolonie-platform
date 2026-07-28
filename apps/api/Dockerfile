@@ -37,9 +37,10 @@ COPY --from=build /app/packages/core/package.json ./packages/core/package.json
 COPY --from=build /app/packages/core/dist ./packages/core/dist
 # packages/db is here for two separate reasons, and both are load-bearing.
 # `apps/api` imports it at startup (server.ts opens the pool), so without it the
-# process does not survive its first line. And the deploy applies migrations by
-# running `npm run migrate -w @kolonie-ai/db` from this image, rather than
-# building a third one for a step that takes two seconds — see kolonie-infra#9.
+# process does not survive its first line. And the deploy runs its two one-shot
+# steps out of this image — `npm run migrate` and `npm run seed`, both
+# `-w @kolonie-ai/db` — rather than building a third image for work that takes
+# two seconds. See kolonie-infra#9.
 COPY --from=build /app/packages/db/package.json ./packages/db/package.json
 COPY --from=build /app/packages/db/dist ./packages/db/dist
 # The SQL itself, not only the code that applies it: migrate.js resolves its

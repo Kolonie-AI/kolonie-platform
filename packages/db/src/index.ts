@@ -7,6 +7,7 @@
  */
 export * from './schema/index.js'
 export * from './storage/index.js'
+export { ACADEMY_TASKS, seedAcademyTasks, type SeedResult } from './academy-tasks.js'
 export {
   API_KEY_ENTROPY_BYTES,
   API_KEY_HASH_ALGORITHM,

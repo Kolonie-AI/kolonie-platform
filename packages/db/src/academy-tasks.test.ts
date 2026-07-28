@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { TASK_TYPE_PATTERN, type AcademyLevel } from '@kolonie-ai/core'
-import { ACADEMY_TASKS, seedAcademyTasks } from './academy-tasks.js'
+import { ACADEMY_TASKS, CURRICULUM, seedAcademyTasks } from './academy-tasks.js'
 import type { Database } from './client.js'
 import { tasks } from './schema/index.js'
 import { listTasks } from './storage/tasks.js'
@@ -26,8 +26,34 @@ describe('the Academy task definitions', () => {
     expect(ids.size).toBe(ACADEMY_TASKS.length)
   })
 
-  it('covers Levels 0 to 2, one task each', () => {
-    expect(ACADEMY_TASKS.map((task) => task.level)).toEqual([0, 1, 2])
+  it('climbs one rung per level, in dependency order', () => {
+    expect(CURRICULUM.map((task) => task.level)).toEqual([0, 1, 2, 3])
+    expect(CURRICULUM.map((task) => task.type)).toEqual([
+      'profile-complete',
+      'browser-captcha',
+      'email-roundtrip',
+      'github-contribution',
+    ])
+  })
+
+  /**
+   * The ordering rule of D-023, asserted rather than described. A mailbox is
+   * obtained through a browser, and a GitHub account is created with a mailbox,
+   * so each of these rungs has to sit above the one it needs. The first ladder
+   * had GitHub at Level 2 and email at Level 3 — it asked for the account before
+   * the address that account is created with.
+   */
+  it('never places a rung below one it depends on', () => {
+    const levelOf = (type: string) => CURRICULUM.find((task) => task.type === type)?.level ?? -1
+    expect(levelOf('browser-captcha')).toBeLessThan(levelOf('email-roundtrip'))
+    expect(levelOf('email-roundtrip')).toBeLessThan(levelOf('github-contribution'))
+  })
+
+  it('keeps a retired task seeded, so nothing in the ledger dangles', () => {
+    const retired = ACADEMY_TASKS.filter((task) => task.retired)
+    expect(retired.map((task) => task.type)).toEqual(['api-call'])
+    // Retired means invisible, not absent: D-014 hides a draft task from agents.
+    expect(retired.every((task) => task.status === 'draft')).toBe(true)
   })
 
   it('names a task type that is a valid slug', () => {
@@ -37,21 +63,23 @@ describe('the Academy task definitions', () => {
   })
 
   /**
-   * The Level 2 task stays drafted until the Colony holds the token its verifier
-   * reads GitHub through (infra#20). Having written `GithubContributionVerifier`
+   * Every rung above Level 0 stays drafted until the Colony can actually decide
+   * it. For GitHub that means the token its verifier reads through (infra#20);
+   * for the two below it, a verifier at all. Having written `GithubContributionVerifier`
    * is not the same as being able to decide a submission with it: without the
    * credential it answers `pending`, the row is re-queued by every poll, and the
    * agent is told after 72 hours that it ran out of time — the same outcome as
    * no verifier at all, reached more slowly.
    */
-  it('keeps a task the Colony cannot yet decide out of sight', () => {
-    const level2 = ACADEMY_TASKS.find((task) => task.level === 2)
-    expect(level2?.type).toBe('github-contribution')
-    expect(level2?.status).toBe('draft')
+  it('keeps every task the Colony cannot yet decide out of sight', () => {
+    const undecidable = ['browser-captcha', 'email-roundtrip', 'github-contribution']
+    for (const type of undecidable) {
+      expect(CURRICULUM.find((task) => task.type === type)?.status).toBe('draft')
+    }
   })
 
   it('pays more for the harder levels', () => {
-    const coins = ACADEMY_TASKS.map((task) => task.rewardCoins)
+    const coins = CURRICULUM.map((task) => task.rewardCoins)
     expect(coins).toEqual([...coins].sort((a, b) => a - b))
     expect(coins.every((amount) => amount > 0)).toBe(true)
   })
@@ -132,20 +160,33 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
       expect(visible.map((task) => task.type)).toEqual(['profile-complete'])
     })
 
-    it('adds Level 1 once the agent has cleared Level 0', async () => {
-      const visible = await listFor(1)
-
-      expect(visible.map((task) => task.type)).toEqual(['profile-complete', 'api-call'])
+    /**
+     * **One climbable rung, and this test exists to keep that visible.**
+     *
+     * Before D-023 an agent at Level 1 was also offered `api-call`, and passing
+     * it paid 15 coins for a capability the submission itself had already
+     * demonstrated. Retiring it is honest and it is also a regression in what
+     * there is to do: until the browser and mailbox verifiers ship, clearing
+     * Level 0 leads to an empty list.
+     *
+     * That is the state the Academy is actually in, and asserting it means the
+     * next rung to go active makes this test fail rather than pass quietly.
+     */
+    it('has nothing further to offer until the next verifier ships', async () => {
+      expect((await listFor(1)).map((task) => task.type)).toEqual(['profile-complete'])
+      expect((await listFor(3)).map((task) => task.type)).toEqual(['profile-complete'])
     })
 
-    it('still hides the drafted Level 2 task from an agent that has reached it', async () => {
-      const visible = await listFor(2)
+    it('hides every drafted rung from an agent that has reached it', async () => {
+      const visible = (await listFor(3)).map((task) => task.type)
 
-      expect(visible.map((task) => task.type)).not.toContain('github-contribution')
+      for (const drafted of ['api-call', 'browser-captcha', 'email-roundtrip', 'github-contribution']) {
+        expect(visible).not.toContain(drafted)
+      }
     })
 
     it('gives each visible task a reward and instructions to act on', async () => {
-      for (const task of await listFor(2)) {
+      for (const task of await listFor(3)) {
         expect(task.reward.coins).toBeGreaterThan(0)
         expect(task.instructions.length).toBeGreaterThan(50)
         expect(task.status).toBe('active')

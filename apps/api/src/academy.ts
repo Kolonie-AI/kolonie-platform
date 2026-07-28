@@ -109,6 +109,26 @@ const VerifyCaptchaRequestSchema = z.object({
   token: z.string().min(1).max(8192),
 })
 
+/**
+ * The gate's answer when it cannot run, or `undefined` when it can.
+ *
+ * One message for both surfaces. The REST routes send it as a 503 and the MCP
+ * tool as a tool error, but an agent that meets the gate through one door and
+ * then the other must not be told two different stories about the same missing
+ * sitekey. It is `internal` rather than `not_found` for the reason the routes
+ * already give: the rung exists and is temporarily unable to serve, which is
+ * what an agent needs in order to retry rather than conclude the Colony has no
+ * such rung.
+ */
+export function gateUnavailable({ unavailableReason }: AcademyDependencies): ApiError | undefined {
+  if (unavailableReason === undefined) return undefined
+
+  return {
+    code: 'internal',
+    message: `The Browser Capability Gate is not available: ${unavailableReason}`,
+  }
+}
+
 /** Wire the gate to a real database. */
 export function databaseChallenges(db: Database): Challenges {
   return {

@@ -7,7 +7,12 @@ import { updateProfile } from './profile.js'
 import { listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
 import type { AgentRegistry } from './registration.js'
-import { openChallenge, verifyCaptcha, type AcademyDependencies } from './academy.js'
+import {
+  gateUnavailable,
+  openChallenge,
+  verifyCaptcha,
+  type AcademyDependencies,
+} from './academy.js'
 
 export interface AppDependencies {
   /** The Browser Capability Gate — see `academy.ts` and D-024. */
@@ -108,7 +113,13 @@ export function buildApp({
       // response. `hijack` hands the raw socket to the MCP transport, which
       // streams and manages the response itself from here on.
       reply.hijack()
-      await handleMcpRequest({ registry, store }, presented, request.raw, reply.raw, request.body)
+      await handleMcpRequest(
+        { registry, store, catalogue, submissions, academy },
+        presented,
+        request.raw,
+        reply.raw,
+        request.body,
+      )
     })
   }
 
@@ -118,13 +129,7 @@ export function buildApp({
    * serve, which is what an agent needs to know in order to retry rather than
    * conclude the Colony has no such rung.
    */
-  const gateUnavailable: ApiError | undefined =
-    academy.unavailableReason === undefined
-      ? undefined
-      : {
-          code: 'internal',
-          message: `The Browser Capability Gate is not available: ${academy.unavailableReason}`,
-        }
+  const unavailable = gateUnavailable(academy)
 
   app.register(
     async (v1) => {
@@ -271,7 +276,7 @@ export function buildApp({
        * stays satisfiable: the host is in the environment, not in the source.
        */
       v1.post('/academy/challenges', async (request, reply) => {
-        if (gateUnavailable !== undefined) return reply.status(503).send(gateUnavailable)
+        if (unavailable !== undefined) return reply.status(503).send(unavailable)
 
         const authenticated = await authenticate(request.headers.authorization, store)
 
@@ -295,7 +300,7 @@ export function buildApp({
        * secret half never leaves this process.
        */
       v1.get('/academy/captcha-config', async (_request, reply) => {
-        if (gateUnavailable !== undefined) return reply.status(503).send(gateUnavailable)
+        if (unavailable !== undefined) return reply.status(503).send(unavailable)
         return reply.send({ sitekey: academy.captcha.sitekey })
       })
 
@@ -309,7 +314,7 @@ export function buildApp({
        * endpoint as well as registration.
        */
       v1.post('/academy/verify-captcha', async (request, reply) => {
-        if (gateUnavailable !== undefined) return reply.status(503).send(gateUnavailable)
+        if (unavailable !== undefined) return reply.status(503).send(unavailable)
 
         const result = await verifyCaptcha(request.body, academy)
 

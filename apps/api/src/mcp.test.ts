@@ -12,6 +12,7 @@ import {
   type ApiKey,
 } from '@kolonie-ai/core'
 import { buildApp } from './app.js'
+import { VERDICT_POLL } from './submissions.js'
 import {
   AUTHENTICATED_TOOLS,
   createMcpServer,
@@ -24,7 +25,7 @@ import {
 import { fakeRegistry } from './__fixtures__/registry.js'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony } from './__fixtures__/colony.js'
-import { fakeCatalogue } from './__fixtures__/catalogue.js'
+import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 
@@ -34,10 +35,7 @@ import { fakeAcademy } from './__fixtures__/academy.js'
  * description and the input schema are part of what the agent sees, and only a
  * client round trip proves they survive registration intact.
  */
-const connectedClient = async (
-  deps: McpDependencies = { registry: fakeRegistry(), store: fakeStore() },
-  credential?: string,
-) => {
+const connectedClient = async (deps: McpDependencies = fakeColony(), credential?: string) => {
   const server = createMcpServer(deps, credential)
   const client = new Client({ name: 'test', version: '0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
@@ -48,7 +46,13 @@ const connectedClient = async (
 
 /** A stranger: no credential, so only the unauthenticated tier exists. */
 const anonymousClient = (registry = fakeRegistry()) =>
-  connectedClient({ registry, store: fakeStore() })
+  connectedClient({
+    registry,
+    store: fakeStore(),
+    catalogue: fakeCatalogue(),
+    submissions: fakeSubmissions(),
+    academy: fakeAcademy(),
+  })
 
 describe('kolonie.about', () => {
   it('is offered to an agent that presents no credential', async () => {
@@ -500,6 +504,222 @@ describe('kolonie.profile.update', () => {
     expect(agent.profile.capabilities).toEqual(['typescript'])
     await close()
     await app.close()
+  })
+})
+
+/**
+ * A citizen with the key it was actually issued, from one Colony both surfaces
+ * read. Two unrelated fakes could prove a round trip that never happened.
+ */
+const registeredCitizen = async () => {
+  const colony = fakeColony()
+  const registered = await colony.registry.register({ name: 'canary', platform: 'openclaw' })
+  if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+  const { agent, credentials } = registered.response
+  return { colony, agent, apiKey: credentials.apiKey }
+}
+
+describe('kolonie.tasks.list', () => {
+  it('ceilings the list at the caller’s level, whatever the caller asks for', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    // Level 3 from an agent standing at 0. The argument narrows; it may not lift.
+    await client.callTool({ name: 'kolonie.tasks.list', arguments: { level: 3 } })
+
+    // The ceiling comes from the credential, exactly as `GET /v1/tasks` takes it
+    // — the difference between a filter and a permission (D-014).
+    expect(catalogue.lastQuery()).toMatchObject({ maxLevel: 0, level: 3 })
+    await close()
+  })
+
+  it('carries each task’s instructions in the text, not only in the structure', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({ instructions: 'Set at least one capability on your profile.' })
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    // A model reads the text half. An agent that has to make a second call to
+    // find out what a task wants will guess instead.
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('Set at least one capability on your profile.')
+    expect(text).toContain(String(task.id))
+    expect(text).toContain('kolonie.tasks.submit')
+    expect(result.structuredContent).toMatchObject({ items: [{ id: task.id }], nextCursor: null })
+    await close()
+  })
+
+  it('says an empty list means wait, not that the Colony is broken', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    expect(result.isError).toBeFalsy()
+    // A rung whose verifier cannot decide stays invisible. An agent told only
+    // "0 tasks" concludes it has finished the Academy.
+    expect(JSON.stringify(result.content)).toContain('not a refusal')
+    await close()
+  })
+
+  it('rejects a cursor it never issued in the same vocabulary the endpoint uses', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    catalogue.answers({ outcome: 'invalid-cursor' })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.list',
+      arguments: { cursor: 'not-a-cursor' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('validation_failed')
+    await close()
+  })
+})
+
+describe('kolonie.tasks.submit', () => {
+  it('defaults the payload, so the mistake that failed Level 0 cannot be made', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const task = aTask()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: task.id },
+    })
+
+    // Every task text said "submit with an empty payload ({})" until 2026-07-28,
+    // which is a 422 against an endpoint that wants {"payload": {}}. A named
+    // argument that defaults has no envelope to get wrong.
+    expect(result.isError).toBeFalsy()
+    expect(submissions.lastCommand()).toMatchObject({ taskId: task.id, payload: {} })
+    await close()
+  })
+
+  it('takes the agent from the credential — there is nowhere to put someone else’s', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, payload: {} },
+    })
+
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.tasks.submit')
+    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual(['payload', 'taskId'])
+    expect(submissions.lastCommand()?.agentId).toBe(agent.id)
+    await close()
+  })
+
+  it('sends the agent to kolonie.me for the verdict rather than to a path', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id },
+    })
+
+    // Verification is asynchronous (D-005). An agent that is not told where the
+    // answer appears invents a polling loop, and every skill invents a different one.
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('kolonie.me')
+    expect(text).toContain(String(VERDICT_POLL.afterSeconds))
+    await close()
+  })
+
+  it('names a refusal an agent can branch on', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.answers({ outcome: 'level-too-low', requiredLevel: 3 })
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id },
+    })
+
+    expect(result.isError).toBe(true)
+    // The same stable code the endpoint sends, so "wait" and "never" stay
+    // distinguishable on both surfaces.
+    expect(JSON.stringify(result.content)).toContain('level_locked')
+    await close()
+  })
+})
+
+describe('kolonie.academy.challenge', () => {
+  it('hands back a URL the agent opens, bound to a challenge it did not choose', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.academy.challenge', arguments: {} })
+
+    expect(result.isError).toBeFalsy()
+    const { challengeId, url } = result.structuredContent as { challengeId: string; url: string }
+    // The id is the credential the browser carries, and the API composes the URL
+    // because the host is configuration (D-024, AGENTS.md §3).
+    expect(url).toContain(challengeId)
+    expect(JSON.stringify(result.content)).toContain(url)
+    await close()
+  })
+
+  it('takes no arguments — the challenge belongs to whoever holds the key', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
+
+    // A parameter here would be an invitation to mint one for somebody else.
+    expect(tool?.inputSchema.properties ?? {}).toEqual({})
+    await close()
+  })
+
+  it('tells the agent never to type its key into the page it is being sent to', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.academy.challenge', arguments: {} })
+
+    // Sending an agent to a web page is the one moment the Colony could teach it
+    // a habit that gets its credential stolen somewhere else.
+    expect(JSON.stringify(result.content)).toContain('Never type your API key')
+    await close()
+  })
+
+  it('refuses with the gate’s own message when the gate is not configured', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const academy = { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY is not set' }
+    const { client, close } = await connectedClient({ ...colony, academy }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.academy.challenge', arguments: {} })
+
+    // The gate degrades; it does not take the surface down. One message for both
+    // doors, so an agent is not told two stories about one missing sitekey.
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('HCAPTCHA_SITEKEY is not set')
+    await close()
+  })
+
+  it('leaves the rest of the tier working when the gate is down', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const academy = { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY is not set' }
+    const { client, close } = await connectedClient({ ...colony, academy }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(result.isError).toBeFalsy()
+    await close()
   })
 })
 

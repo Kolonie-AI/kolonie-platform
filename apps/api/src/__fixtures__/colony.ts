@@ -38,11 +38,14 @@ import { fakeSubmissions } from './submissions.js'
 export interface FakeColony {
   readonly registry: AgentRegistry
   readonly store: AgentStore
-  /** Present so this fixture can be handed to `buildApp` whole. Answers nothing. */
+  /**
+   * The task list, behind both surfaces. A test that needs to see the query it
+   * was sent overrides this with its own `fakeCatalogue`, which records them.
+   */
   readonly catalogue: TaskCatalogue
-  /** Same — the MCP surface has no submission tool yet. */
+  /** Where submissions go, behind both surfaces. Overridable the same way. */
   readonly submissions: TaskSubmissions
-  /** Same again — no MCP tool opens a Browser Capability challenge yet. */
+  /** The Browser Capability Gate, behind both surfaces. Overridable the same way. */
   readonly academy: AcademyDependencies
   /** Revoke a key the Colony issued, exactly as the database would see it. */
   readonly revoke: (apiKey: ApiKey) => void

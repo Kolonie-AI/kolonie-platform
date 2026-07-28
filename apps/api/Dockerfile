@@ -35,6 +35,17 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/packages/core/package.json ./packages/core/package.json
 COPY --from=build /app/packages/core/dist ./packages/core/dist
+# packages/db is here for two separate reasons, and both are load-bearing.
+# `apps/api` imports it at startup (server.ts opens the pool), so without it the
+# process does not survive its first line. And the deploy applies migrations by
+# running `npm run migrate -w @kolonie-ai/db` from this image, rather than
+# building a third one for a step that takes two seconds — see kolonie-infra#9.
+COPY --from=build /app/packages/db/package.json ./packages/db/package.json
+COPY --from=build /app/packages/db/dist ./packages/db/dist
+# The SQL itself, not only the code that applies it: migrate.js resolves its
+# migrations folder relative to its own location, so `dist` without `drizzle` is
+# a migrator that finds nothing pending and reports success.
+COPY --from=build /app/packages/db/drizzle ./packages/db/drizzle
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 

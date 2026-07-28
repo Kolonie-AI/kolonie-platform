@@ -11,6 +11,10 @@ on:
     paths:
       - 'apps/api/**'
       - 'packages/core/**'
+      # The image ships packages/db, and the deploy migrates the live database
+      # out of it. A new migration that does not rebuild this image is a
+      # migration the deploy will never apply — see kolonie-infra#9.
+      - 'packages/db/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig*.json'

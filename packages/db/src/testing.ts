@@ -1,22 +1,10 @@
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { sql } from 'drizzle-orm'
-import { fileURLToPath } from 'node:url'
 import { createDatabase, DATABASE_URL_VAR, type Database } from './client.js'
+import { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA } from './migrations.js'
 
-/** Where the generated SQL lives, resolved from this file so cwd does not matter. */
-export const MIGRATIONS_FOLDER = fileURLToPath(new URL('../drizzle', import.meta.url))
-
-/**
- * Drizzle records which migrations have run in `__drizzle_migrations`, and puts
- * that table in its **own** schema rather than in `public`.
- *
- * This is worth knowing before you reset a database by hand: dropping `public`
- * alone leaves the bookkeeping intact, so the next `migrate()` believes
- * everything is applied, does nothing, and hands back an empty database without
- * an error. Anything that wipes the database must wipe both schemas — which is
- * what `resetDatabase` is for.
- */
-export const MIGRATIONS_SCHEMA = 'drizzle'
+// Re-exported so test files keep importing everything they need from one place.
+export { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA }
 
 /**
  * Whether we are on a CI runner.

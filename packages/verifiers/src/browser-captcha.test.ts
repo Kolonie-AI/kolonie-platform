@@ -7,7 +7,7 @@ import {
   type Submission,
   type Timestamp,
 } from '@kolonie-ai/core'
-import { BrowserCaptchaVerifier } from './browser-captcha.js'
+import { BrowserCaptchaVerifier, type ChallengeKind } from './browser-captcha.js'
 
 const anAgent = (): Agent =>
   AgentSchema.parse({
@@ -38,8 +38,16 @@ const aSubmission = ({ payload = {} }: { payload?: Record<string, unknown> } = {
     verifiedAt: null,
   })
 
-const gates = (clearedAt: Timestamp | null) => ({
-  clearedAt: async (_agentId: AgentId) => clearedAt,
+/**
+ * A gate that answers for one kind and refuses the other.
+ *
+ * Written this way rather than as a constant, because the property worth
+ * asserting is not "the verifier returns what the port said" — it is that the
+ * verifier *asks about its own kind*. A fake that answered regardless would pass
+ * whatever the verifier queried, including the wrong thing.
+ */
+const gates = (clearedAt: Timestamp | null, kind: ChallengeKind = 'captcha') => ({
+  clearedAt: async (_agentId: AgentId, asked: ChallengeKind) => (asked === kind ? clearedAt : null),
 })
 
 describe('BrowserCaptchaVerifier', () => {
@@ -60,7 +68,25 @@ describe('BrowserCaptchaVerifier', () => {
     const result = await verifier.verify(aSubmission(), { agent: anAgent() })
 
     expect(result.status).toBe('fail')
-    expect(result.evidence).toContain('/v1/academy/challenges')
+    // It says the badge is optional rather than telling the agent to go solve
+    // it: declining is a correct answer since `kolonie-docs#33`.
+    expect(result.evidence).toMatch(/optional/i)
+    expect(result.evidence).toMatch(/blocks no rung/i)
+  })
+
+  /**
+   * The badge and the promoting rung share a table, and clearing the easy page
+   * must not hand out a badge for a hostile surface nobody crossed. The column
+   * that keeps them apart is only useful if the verifier names its kind.
+   */
+  it('is not satisfied by a cleared capability challenge', async () => {
+    const verifier = new BrowserCaptchaVerifier({
+      gates: gates('2026-07-29T12:00:00.000Z' as Timestamp, 'capability'),
+    })
+
+    const result = await verifier.verify(aSubmission(), { agent: anAgent() })
+
+    expect(result.status).toBe('fail')
   })
 
   /**

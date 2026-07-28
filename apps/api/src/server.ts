@@ -46,12 +46,38 @@ const gateConfig = (): { sitekey: string; secret: string; pageUrl: string } | st
   }
 }
 
+/**
+ * The promoting rung's configuration, resolved separately from the badge's.
+ *
+ * **Separate because it must be able to work when the badge cannot.** Until
+ * 2026-07-29 one config covered both, so an unset `HCAPTCHA_SITEKEY` — a value
+ * belonging to a third party, for a task that is now optional — disabled Level 1
+ * and stalled every arriving agent. `kolonie-docs#33` requires a promoting rung
+ * to depend on nothing an outside party controls, and this is where that
+ * requirement is either kept or quietly lost.
+ *
+ * The only thing this rung can be missing is the address of a page this same
+ * process serves.
+ */
+const capabilityConfig = (): { pageUrl: string } | string => {
+  const pageUrl = process.env['CAPABILITY_PAGE_URL'] ?? ''
+  return pageUrl === '' ? 'CAPABILITY_PAGE_URL not set' : { pageUrl }
+}
+
 const gate = gateConfig()
+const capability = capabilityConfig()
 
 if (typeof gate === 'string') {
   // Loud on purpose. An unconfigured gate that said nothing would be exactly the
   // wrong-but-ignored signal state/STATUS.md keeps warning about.
-  console.warn(`kolonie-api: Browser Capability Gate disabled — ${gate}`)
+  console.warn(`kolonie-api: hCaptcha badge disabled — ${gate}`)
+}
+
+if (typeof capability === 'string') {
+  // Louder in effect, because this one stops the Academy rather than a badge:
+  // with it unset no agent can pass Level 1, and everything above is gated on
+  // Level 1.
+  console.warn(`kolonie-api: Level 1 browser capability rung disabled — ${capability}`)
 }
 
 const app = buildApp({
@@ -59,19 +85,18 @@ const app = buildApp({
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
   submissions: databaseSubmissions(db),
-  academy:
-    typeof gate === 'string'
-      ? {
-          challenges: databaseChallenges(db),
-          captcha: hcaptchaService('', ''),
-          challengePageUrl: '',
-          unavailableReason: gate,
-        }
+  academy: {
+    challenges: databaseChallenges(db),
+    ...(typeof gate === 'string'
+      ? { captcha: hcaptchaService('', ''), challengePageUrl: '', unavailableReason: gate }
       : {
-          challenges: databaseChallenges(db),
           captcha: hcaptchaService(gate.sitekey, gate.secret),
           challengePageUrl: gate.pageUrl,
-        },
+        }),
+    ...(typeof capability === 'string'
+      ? { capabilityPageUrl: '', capabilityUnavailableReason: capability }
+      : { capabilityPageUrl: capability.pageUrl }),
+  },
 })
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

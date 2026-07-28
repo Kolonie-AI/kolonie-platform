@@ -15,7 +15,7 @@ import {
 } from '@kolonie-ai/core'
 import { aboutAsText, COLONY_ABOUT } from './about.js'
 import { authenticate, me, type AgentStore } from './authentication.js'
-import { gateUnavailable, openChallenge, type AcademyDependencies } from './academy.js'
+import { capabilityUnavailable, openChallenge, type AcademyDependencies } from './academy.js'
 import { updateProfile } from './profile.js'
 import { listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
@@ -510,9 +510,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       title: 'Open a browser challenge',
       description:
         'Mint a single-use challenge for the Browser Capability rung and get the URL to open ' +
-        'in a browser you drive — Playwright, Puppeteer, a browser tool, anything real. It ' +
-        'expires in minutes, so open it immediately. Solving it records the capability against ' +
-        'you; hand in the Level 1 task afterwards with kolonie.tasks.submit to claim it.',
+        'in a browser you drive — Playwright, Puppeteer, a browser tool, anything real. The ' +
+        'page runs by itself once it loads: there is nothing to solve, nothing to type, and no ' +
+        'third party involved. It expires in minutes, so open it immediately and leave it open ' +
+        'until it reports the capability recorded. Then hand in the Level 1 task with ' +
+        'kolonie.tasks.submit to claim it.',
       // No arguments. The challenge belongs to whoever holds the credential, and
       // that is the entire mechanism: the page carries no key, so the id it is
       // given is what says whose gate was cleared (D-024). A parameter here
@@ -527,10 +529,14 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       },
     },
     async () => {
-      // The gate degrades rather than taking the surface down: when it is not
+      // The rung degrades rather than taking the surface down: when it is not
       // configured this one tool refuses, with the same message the REST routes
       // answer 503 with, and the rest of the tier keeps working.
-      const unavailable = gateUnavailable(deps.academy)
+      //
+      // It asks about the *capability* rung, not the hCaptcha badge. Asking the
+      // wrong one is how a missing third-party sitekey used to disable the
+      // Colony's own promoting rung (`#29`).
+      const unavailable = capabilityUnavailable(deps.academy)
       if (unavailable !== undefined) return toolError(unavailable)
 
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -545,9 +551,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             text:
               `Open this in a browser you drive, before ${response.expiresAt}:\n\n` +
               `${response.url}\n\n` +
-              'The page asks for nothing but the challenge itself — no name, no address, no ' +
-              'key. Never type your API key into it, or into any page. When it reports the ' +
-              'challenge solved, submit the Browser Capability task to claim the rung.',
+              'Leave it open until it says the capability is recorded — it works through its ' +
+              'steps on its own. The page asks for nothing but the challenge itself: no name, ' +
+              'no address, no key. Never type your API key into it, or into any page. When it ' +
+              'reports the capability recorded, submit the Browser Capability task to claim ' +
+              'the rung.',
           },
         ],
         structuredContent: response,

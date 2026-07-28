@@ -5,7 +5,13 @@ import type { Database } from '../client.js'
 import { browserChallenges } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
-import { hasClearedGate, mintChallenge, redeemChallenge } from './challenges.js'
+import {
+  advanceChallenge,
+  challengeProgress,
+  hasClearedGate,
+  mintChallenge,
+  redeemChallenge,
+} from './challenges.js'
 
 const target = databaseTestTarget()
 
@@ -13,7 +19,7 @@ if (!target.available) {
   console.warn(`\n${target.reason}\n`)
 }
 
-describe.skipIf(!target.available)('the Browser Capability Gate', () => {
+describe.skipIf(!target.available)('browser challenges', () => {
   let db: Database
   let agentId: AgentId
   let otherId: AgentId
@@ -60,32 +66,32 @@ describe.skipIf(!target.available)('the Browser Capability Gate', () => {
   }
 
   it('mints a challenge that is unsolved and in the future', async () => {
-    const minted = await mintChallenge(db, agentId)
+    const minted = await mintChallenge(db, agentId, 'captcha')
 
     expect(minted.id).toMatch(/^[0-9a-f-]{36}$/i)
     expect(Date.parse(minted.expiresAt)).toBeGreaterThan(Date.now())
-    expect(await hasClearedGate(db, agentId)).toBeNull()
+    expect(await hasClearedGate(db, agentId, 'captcha')).toBeNull()
   })
 
   it('credits the agent that minted the challenge, never the caller', async () => {
-    const minted = await mintChallenge(db, agentId)
+    const minted = await mintChallenge(db, agentId, 'captcha')
 
     const redeemed = await redeemChallenge(db, minted.id)
 
     expect(redeemed).toEqual({ outcome: 'verified', agentId })
-    expect(await hasClearedGate(db, agentId)).toBeTruthy()
+    expect(await hasClearedGate(db, agentId, 'captcha')).toBeTruthy()
     // The other agent solved nothing, and holding the id would not have helped.
-    expect(await hasClearedGate(db, otherId)).toBeNull()
+    expect(await hasClearedGate(db, otherId, 'captcha')).toBeNull()
   })
 
   it('tells apart an unknown id, an expired one and one already used', async () => {
     expect(await redeemChallenge(db, crypto.randomUUID())).toEqual({ outcome: 'unknown' })
 
-    const used = await mintChallenge(db, agentId)
+    const used = await mintChallenge(db, agentId, 'captcha')
     await redeemChallenge(db, used.id)
     expect(await redeemChallenge(db, used.id)).toEqual({ outcome: 'already_verified' })
 
-    const stale = await mintChallenge(db, agentId)
+    const stale = await mintChallenge(db, agentId, 'captcha')
     await expire(stale.id)
     expect(await redeemChallenge(db, stale.id)).toEqual({ outcome: 'expired' })
   })
@@ -97,7 +103,7 @@ describe.skipIf(!target.available)('the Browser Capability Gate', () => {
    * test needs a real database.
    */
   it('lets exactly one of two concurrent redemptions win', async () => {
-    const minted = await mintChallenge(db, agentId)
+    const minted = await mintChallenge(db, agentId, 'captcha')
 
     const results = await Promise.all([
       redeemChallenge(db, minted.id),
@@ -127,20 +133,115 @@ describe.skipIf(!target.available)('the Browser Capability Gate', () => {
   it('keeps a pass long after the challenge that earned it has expired', async () => {
     await db.insert(browserChallenges).values({
       agentId,
+      kind: 'captcha',
       createdAt: sql`now() - interval '7 days'`,
       expiresAt: sql`now() - interval '7 days' + interval '10 minutes'`,
       verifiedAt: sql`now() - interval '7 days' + interval '2 minutes'`,
     })
 
-    expect(await hasClearedGate(db, agentId)).toBeTruthy()
+    expect(await hasClearedGate(db, agentId, 'captcha')).toBeTruthy()
   })
 
   it('refuses at the database to record a solve after expiry', async () => {
-    const minted = await mintChallenge(db, agentId)
+    const minted = await mintChallenge(db, agentId, 'captcha')
     await expire(minted.id)
 
     // The check constraint is the backstop under the endpoint's own guard: this
     // is the constraint the whole gate rests on, so it is stated in SQL too.
+    await expect(
+      db
+        .update(browserChallenges)
+        .set({ verifiedAt: sql`now()` })
+        .where(eq(browserChallenges.id, minted.id)),
+    ).rejects.toThrow()
+  })
+  /**
+   * The two kinds share this table and must never satisfy each other. Without
+   * `kind` in every read, clearing the easy capability page would hand out the
+   * hCaptcha badge for work nobody did — which is the entire reason the column
+   * exists rather than a single "cleared" flag.
+   */
+  it('keeps the two kinds from answering for each other', async () => {
+    const capability = await mintChallenge(db, agentId, 'capability')
+    for (let step = 0; step < 3; step += 1) await advanceChallenge(db, capability.id, step)
+
+    expect(await hasClearedGate(db, agentId, 'capability')).toBeTruthy()
+    expect(await hasClearedGate(db, agentId, 'captcha')).toBeNull()
+    // And the badge's redemption does not recognise the capability row at all.
+    expect(await redeemChallenge(db, capability.id)).toEqual({ outcome: 'unknown' })
+  })
+
+  it('clears a capability challenge only on its last step', async () => {
+    const minted = await mintChallenge(db, agentId, 'capability')
+
+    expect(await advanceChallenge(db, minted.id, 0)).toMatchObject({
+      outcome: 'advanced',
+      steps: 1,
+    })
+    expect(await advanceChallenge(db, minted.id, 1)).toMatchObject({
+      outcome: 'advanced',
+      steps: 2,
+    })
+    expect(await hasClearedGate(db, agentId, 'capability')).toBeNull()
+
+    expect(await advanceChallenge(db, minted.id, 2)).toEqual({ outcome: 'cleared', agentId })
+    expect(await hasClearedGate(db, agentId, 'capability')).toBeTruthy()
+  })
+
+  /**
+   * The step number is what makes a correct measurement non-replayable. Without
+   * it in the `WHERE`, one solved step sent three times would clear the rung.
+   */
+  it('refuses a step that is not the one outstanding', async () => {
+    const minted = await mintChallenge(db, agentId, 'capability')
+    await advanceChallenge(db, minted.id, 0)
+
+    expect(await advanceChallenge(db, minted.id, 0)).toEqual({ outcome: 'out_of_order', steps: 1 })
+    expect(await advanceChallenge(db, minted.id, 2)).toEqual({ outcome: 'out_of_order', steps: 1 })
+    expect(await hasClearedGate(db, agentId, 'capability')).toBeNull()
+  })
+
+  /** Same guard as the redemption, one layer along: the `UPDATE … WHERE` is it. */
+  it('lets exactly one of two concurrent reports of the same step win', async () => {
+    const minted = await mintChallenge(db, agentId, 'capability')
+
+    const results = await Promise.all([
+      advanceChallenge(db, minted.id, 0),
+      advanceChallenge(db, minted.id, 0),
+    ])
+
+    expect(results.filter((r) => r.outcome === 'advanced')).toHaveLength(1)
+    expect(results.filter((r) => r.outcome === 'out_of_order')).toHaveLength(1)
+  })
+
+  it('refuses to advance an expired capability challenge', async () => {
+    const minted = await mintChallenge(db, agentId, 'capability')
+    await expire(minted.id)
+
+    expect(await advanceChallenge(db, minted.id, 0)).toEqual({ outcome: 'expired' })
+    expect(await challengeProgress(db, minted.id)).toEqual({ outcome: 'expired' })
+  })
+
+  it('reports progress so a reloaded page resumes rather than starting over', async () => {
+    const minted = await mintChallenge(db, agentId, 'capability')
+    await advanceChallenge(db, minted.id, 0)
+
+    expect(await challengeProgress(db, minted.id)).toEqual({
+      outcome: 'open',
+      steps: 1,
+      total: 3,
+    })
+  })
+
+  /**
+   * The database's own backstop under the endpoint's guard. `verified_at` on a
+   * capability row that has not finished its steps is the one write that would
+   * make two of the three steps decoration.
+   */
+  it('refuses at the database to clear a capability challenge mid-sequence', async () => {
+    const minted = await mintChallenge(db, agentId, 'capability')
+    await advanceChallenge(db, minted.id, 0)
+
     await expect(
       db
         .update(browserChallenges)

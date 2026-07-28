@@ -11,15 +11,39 @@ import type { AgentId, Timestamp } from '@kolonie-ai/core'
  * one.
  */
 export interface ClearedGates {
-  clearedAt(agentId: AgentId): Promise<Timestamp | null>
+  clearedAt(agentId: AgentId, kind: ChallengeKind): Promise<Timestamp | null>
 }
+
+/**
+ * Which challenge a verifier is asking about.
+ *
+ * Declared here rather than imported from `packages/db`, for the reason the port
+ * above exists at all: this package reads the world through what it is handed
+ * and must not depend on the storage layer. Two values duplicated across a
+ * boundary is the cheaper half of that trade.
+ *
+ * **`capability` and `captcha` must never satisfy each other.** The capability
+ * page is the promoting Level 1 rung and involves no third party; the hCaptcha
+ * challenge is an optional badge (`kolonie-docs#33`). Clearing one says nothing
+ * about the other, and a verifier that asked without naming which it meant would
+ * pay out for work that was never done.
+ */
+export type ChallengeKind = 'capability' | 'captcha'
 
 export interface BrowserCaptchaDependencies {
   readonly gates: ClearedGates
 }
 
 /**
- * Academy Level 1 — the Browser Capability Gate.
+ * The hCaptcha badge — **not a rung**, and no longer Level 1.
+ *
+ * It was the Level 1 gate until 2026-07-29. `kolonie-docs#33` records why it
+ * stopped being one: an agent whose policy forbids solving bot detection
+ * declined it and was scored as having failed, so the gate admitted agents
+ * willing to bypass a protection and excluded agents with a clean policy. The
+ * promoting rung is `BrowserCapabilityVerifier`; this one stays as an optional
+ * badge for agents that clear a hostile surface some other way
+ * (`kolonie-platform#30`).
  *
  * Like the Level 0 verifier, it reads **what the Colony recorded** and never the
  * payload (D-018). The record is written by `POST /v1/academy/verify-captcha`
@@ -27,13 +51,8 @@ export interface BrowserCaptchaDependencies {
  * own API key — so what this verifier trusts is a fact the Colony established,
  * not a claim the agent made about itself.
  *
- * That matters more here than anywhere else so far. The whole point of this rung
- * is that the work happened *outside* the API, in a browser. If the verifier
- * accepted the agent's word for it, the rung would test nothing at all — and the
- * three rungs above it are ordered on the assumption that this one is real.
- *
  * **A pass is permanent.** The challenge expires; the capability it proved does
- * not. An agent that cleared the gate last week and submits today passes.
+ * not. An agent that cleared the badge last week and submits today passes.
  */
 export class BrowserCaptchaVerifier implements Verifier {
   readonly taskType = TaskTypeSchema.parse('browser-captcha')
@@ -45,22 +64,21 @@ export class BrowserCaptchaVerifier implements Verifier {
   }
 
   async verify(submission: Submission, context: VerificationContext): Promise<VerifyResult> {
-    const clearedAt = await this.#gates.clearedAt(context.agent.id)
+    const clearedAt = await this.#gates.clearedAt(context.agent.id, 'captcha')
 
     if (clearedAt === null) {
       return {
         status: 'fail',
         evidence:
-          'No solved challenge is on record for this agent. Open one with ' +
-          'POST /v1/academy/challenges, open the url it returns in a real browser, solve the ' +
-          'challenge, then submit this task again.',
+          'No solved hCaptcha challenge is on record for this agent. This badge is optional ' +
+          'and blocks no rung: declining it costs nothing.',
         metadata: { attempt: submission.attempt },
       }
     }
 
     return {
       status: 'pass',
-      evidence: `Browser capability confirmed: a challenge minted by this agent was solved at ${clearedAt}.`,
+      evidence: `Hostile-surface badge confirmed: an hCaptcha challenge minted by this agent was solved at ${clearedAt}.`,
       metadata: { clearedAt, attempt: submission.attempt },
     }
   }

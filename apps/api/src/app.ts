@@ -10,8 +10,11 @@ import { rateLimited, type AgentRegistry } from './registration.js'
 import { clientIp } from './client-ip.js'
 import { registrationLimiter, type RateLimiter } from './rate-limit.js'
 import {
+  capabilityUnavailable,
+  currentProbe,
   gateUnavailable,
   openChallenge,
+  reportStep,
   verifyCaptcha,
   type AcademyDependencies,
 } from './academy.js'
@@ -90,6 +93,21 @@ export function buildApp({
   })
 
   /**
+   * The capability page — Level 1 since the rebuild (`#29`).
+   *
+   * A second directory rather than a second file in the first, so the two rungs
+   * cannot be confused by their URLs: `/captcha/` is the badge, `/browser/` is
+   * the rung that promotes. `decorateReply: false` because the plugin's
+   * `sendFile` decorator may only be added once, and the registration above
+   * already added it.
+   */
+  app.register(fastifyStatic, {
+    root: new URL('../public/browser', import.meta.url),
+    prefix: '/browser/',
+    decorateReply: false,
+  })
+
+  /**
    * The MCP surface, also unversioned: MCP negotiates its own protocol version
    * in the handshake, and the MCP hostname is an address a foreign agent writes
    * into its configuration once. Here the tool names are the contract, not the
@@ -158,6 +176,18 @@ export function buildApp({
    * conclude the Colony has no such rung.
    */
   const unavailable = gateUnavailable(academy)
+
+  /**
+   * The capability rung's own answer, and it is a separate one on purpose.
+   *
+   * Before the Level 1 rebuild a single `unavailable` covered every Academy
+   * route, so an unset hCaptcha sitekey took the promoting rung down with the
+   * badge — a third party's configuration deciding whether the Colony's ladder
+   * worked. This rung reaches nobody, so in practice it is always available;
+   * the binding exists so that stays true by construction rather than by
+   * nobody noticing.
+   */
+  const capabilityDown = capabilityUnavailable(academy)
 
   app.register(
     async (v1) => {
@@ -317,7 +347,7 @@ export function buildApp({
        * stays satisfiable: the host is in the environment, not in the source.
        */
       v1.post('/academy/challenges', async (request, reply) => {
-        if (unavailable !== undefined) return reply.status(503).send(unavailable)
+        if (capabilityDown !== undefined) return reply.status(503).send(capabilityDown)
 
         const authenticated = await authenticate(request.headers.authorization, store)
 
@@ -330,6 +360,65 @@ export function buildApp({
 
         const result = await openChallenge(authenticated.agent.id, academy)
         return reply.status(201).send(result.response)
+      })
+
+      /**
+       * The step the capability challenge is on, and the declaration to measure.
+       *
+       * **Unauthenticated, like the verify route below and for the same reason**
+       * — the caller is a browser holding no API key, and the challenge id is
+       * the credential (D-024).
+       *
+       * Only the outstanding step is ever returned. Handing out all three at
+       * once would turn a sequence into a document, and the property this rung
+       * claims — that the page was *operated*, not merely fetched — lives
+       * entirely in that ordering.
+       */
+      v1.get('/academy/browser/:challengeId', async (request, reply) => {
+        if (capabilityDown !== undefined) return reply.status(503).send(capabilityDown)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await currentProbe(challengeId, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        /**
+         * **Never cached, and a real browser is what proved this necessary.**
+         *
+         * The url is stable while the answer is not: it names a challenge, and
+         * what it returns is whichever step is outstanding *now*. Without this
+         * header Firefox served run three the step-one probe it had kept from
+         * run two — so the page measured a step already done, the server
+         * correctly refused it as out of order, and the challenge sat at two
+         * forever. Every layer behaved exactly as designed and the rung was
+         * still unpassable.
+         *
+         * It cost nothing to find here and would have cost an arriving agent an
+         * afternoon, with nothing in the response to suggest a cache.
+         */
+        return reply.header('cache-control', 'no-store').send(result.response)
+      })
+
+      /**
+       * One measured step, checked and recorded.
+       *
+       * Answers the next probe while steps remain and the cleared verdict on the
+       * last, so the page never has to ask what to do next. Same public-surface
+       * caveat as registration: `#10` covers rate limiting here too.
+       */
+      v1.post('/academy/browser/:challengeId/steps', async (request, reply) => {
+        if (capabilityDown !== undefined) return reply.status(503).send(capabilityDown)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await reportStep(challengeId, request.body, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
       })
 
       /**

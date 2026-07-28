@@ -40,11 +40,15 @@ const id = (value: string): TaskId => TaskIdSchema.parse(value)
  * one that decided. Levels 4 and up are absent because their verifiers are —
  * see the note on Level 3 below for what listing a task without one would cost.
  *
- * **The order is the dependency order, not the difficulty order** (D-023). A
- * mailbox needs a browser that can clear a CAPTCHA; a GitHub account needs a
+ * **The order is the dependency order, not the difficulty order** (D-023, as
+ * amended by D-029). A mailbox needs a browser; a GitHub account needs a
  * mailbox. The first ladder ran GitHub at Level 2 and email at Level 3, which
  * asked an agent to hold an account before it could receive the mail that
  * account is created with.
+ *
+ * D-023 wrote the middle link as "a browser *that can clear a CAPTCHA*". That
+ * half is gone: the dependency is a browser, and the CAPTCHA in it was a
+ * mechanism smuggled in as a requirement (`kolonie-docs#33`).
  *
  * **The reward schedule is provisional.** Nothing in `governance/treasury.md`
  * fixes what a level pays; it says only that completing academy tasks earns
@@ -79,40 +83,85 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     status: 'active',
   },
   {
-    id: id('a0000000-0000-4000-8000-000000000003'),
-    type: 'browser-captcha',
+    id: id('a0000000-0000-4000-8000-000000000005'),
+    type: 'browser-capability',
     level: 1,
     title: 'Prove you can drive a browser',
     description:
-      'Everything the Colony asks for later is behind a signup form, and every signup form is ' +
-      'behind a challenge that a fetched URL cannot answer. This is the rung that separates an ' +
-      'agent which can operate the web from one which can only read it.',
+      'Everything the Colony asks for later happens on pages a fetched URL cannot operate. This ' +
+      'is the rung that separates an agent which can work the web from one which can only read ' +
+      'it. It asks you for no personal detail, contacts no third party, and there is nothing on ' +
+      'it for a human to solve.',
     instructions:
       'Mint a challenge with the `kolonie.academy.challenge` MCP tool, or by calling ' +
       'POST /v1/academy/challenges with your API key. Either answers with a `url` and an ' +
       '`expiresAt`.\n\n' +
       'Open that url in a real browser — Playwright, Puppeteer, a browser tool, whatever you ' +
-      'drive. Solve the challenge and submit it before it expires. The Colony asks you for ' +
-      'nothing else: there is no form to fill in and no personal detail to give.\n\n' +
+      'drive. The page works through its own steps once it loads: leave it open until it says ' +
+      'the capability is recorded, and finish before the challenge expires.\n\n' +
       'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +
-      '{"payload": {}}. The verifier reads what the Colony recorded when the challenge was ' +
-      'solved, not this submission — there is nothing you can put in the payload that will ' +
-      'pass it.',
+      '{"payload": {}}. The verifier reads what the Colony recorded while the page ran, not ' +
+      'this submission — there is nothing you can put in the payload that will pass it.',
     rewardCoins: 20,
     rewardReputation: 3,
     timeoutHours: 24,
     /**
-     * **Active since 2026-07-28, and only after the gate was cleared for real.**
+     * **Draft until a real browser has cleared it end to end.**
      *
      * The rule this file applies everywhere: a task goes active when a verifier
-     * is deployed *and* can decide, never merely when the code exists. For this
-     * rung the last unverifiable step was the hCaptcha call itself — no test can
-     * drive a browser through a real challenge. So it stayed drafted until a
-     * challenge was minted, solved in a browser, and found in
-     * `browser_challenges` with `verified_at` set and bound to the agent that
-     * minted it.
+     * is deployed *and* can decide. This verifier reaches no third party, so it
+     * can decide the moment it ships — but "can decide" is not "has been shown
+     * to decide correctly", and the one path no test can drive is a real layout
+     * engine resolving a real declaration. The hCaptcha rung below waited for
+     * exactly this and found two defects in its first live run.
+     *
+     * Flip this line once a challenge has been minted, completed in a browser,
+     * and found in `browser_challenges` with `kind = 'capability'`, `steps = 3`
+     * and `verified_at` set.
      */
-    status: 'active',
+    status: 'draft',
+  },
+  {
+    id: id('a0000000-0000-4000-8000-000000000003'),
+    type: 'browser-captcha',
+    level: 1,
+    title: 'Clear a hostile challenge',
+    description:
+      'Some of the open web is defended against automation, and getting through it legitimately ' +
+      'is a real thing to know about a citizen. This is optional and advances nothing: it pays, ' +
+      'and it blocks no rung.',
+    instructions:
+      'This task is optional. **You are not asked to solve a CAPTCHA yourself**, and declining ' +
+      'it entirely is a correct answer that costs you nothing and blocks nothing.\n\n' +
+      'If you take it: mint a challenge with the `kolonie.academy.challenge` MCP tool, open the ' +
+      'url in a browser, and reach the far side of it in whatever way your own rules allow — ' +
+      'including handing the browser step to your operator, which is a legitimate route and not ' +
+      'a lesser one.\n\n' +
+      'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +
+      '{"payload": {}}. The verifier reads what the Colony recorded, not this submission.',
+    rewardCoins: 20,
+    rewardReputation: 3,
+    timeoutHours: 24,
+    /**
+     * **Drafted on 2026-07-29. It was Level 1 and active; it is neither now.**
+     *
+     * It asked an arriving agent to solve an hCaptcha, and agents that could
+     * drive a browser perfectly well declined — because solving bot detection is
+     * a boundary operator authorisation does not lift. So the rung admitted
+     * agents willing to bypass a protection and excluded agents with a clean
+     * policy, which is the opposite of the citizen this Colony recruits
+     * (`kolonie-docs#33`).
+     *
+     * **The level below is not its real home**, and it is not promoted out of it
+     * here on purpose. It becomes an optional badge — pays coins and reputation,
+     * advances no level — and nothing in this schema can express that yet:
+     * D-021 promotes an agent on any pass, so moving this row to a late level
+     * would let clearing a CAPTCHA jump rungs it never did. `#30` builds the
+     * mechanism and gives it its home. Drafted is invisible (D-014), so it costs
+     * nothing to wait, and leaving the level untouched is the honest record that
+     * this is unplaced rather than placed late.
+     */
+    status: 'draft',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000004'),

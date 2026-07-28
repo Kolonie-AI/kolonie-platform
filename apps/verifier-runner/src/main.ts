@@ -52,9 +52,11 @@ const db = createDatabase(databaseUrlFromEnv())
 const verifiers = createVerifiers({
   github: httpGitHubReader(process.env[GITHUB_VERIFIER_TOKEN_VAR]),
   authors: { citizenFor: (login) => citizenForGithubAuthor(db, login) },
-  // Needs no credential of its own: the gate was already checked against
-  // hCaptcha by the API, and this only reads what that recorded (D-024).
-  gates: { clearedAt: (agentId) => hasClearedGate(db, agentId) },
+  // Needs no credential of its own: both browser challenges were already
+  // decided by the API, and this only reads what that recorded (D-024). The
+  // kind is passed straight through, so the capability rung and the hCaptcha
+  // badge cannot be satisfied by each other's rows.
+  gates: { clearedAt: (agentId, kind) => hasClearedGate(db, agentId, kind) },
 })
 
 const runner = startRunner(

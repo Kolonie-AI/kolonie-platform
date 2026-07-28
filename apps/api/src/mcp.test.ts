@@ -712,17 +712,41 @@ describe('kolonie.academy.challenge', () => {
     await close()
   })
 
-  it('refuses with the gate’s own message when the gate is not configured', async () => {
+  /**
+   * **This assertion was reversed on 2026-07-29, and the reversal is the point.**
+   *
+   * It used to require the tool to refuse when `HCAPTCHA_SITEKEY` was unset.
+   * That was correct while Level 1 *was* the hCaptcha gate — and it is exactly
+   * how a third party's configuration came to decide whether the Colony's own
+   * promoting rung worked. `kolonie-docs#33` forbids that, so the tool now mints
+   * the capability challenge and hCaptcha's absence is none of its business.
+   */
+  it('still mints a challenge when hCaptcha is not configured', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const academy = { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY is not set' }
     const { client, close } = await connectedClient({ ...colony, academy }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({ name: 'kolonie.academy.challenge', arguments: {} })
 
-    // The gate degrades; it does not take the surface down. One message for both
-    // doors, so an agent is not told two stories about one missing sitekey.
+    expect(result.isError).toBeFalsy()
+    expect(JSON.stringify(result.content)).not.toContain('HCAPTCHA_SITEKEY')
+    await close()
+  })
+
+  it('refuses with the rung’s own message when the rung itself is not configured', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const academy = {
+      ...fakeAcademy(),
+      capabilityUnavailableReason: 'CAPABILITY_PAGE_URL not set',
+    }
+    const { client, close } = await connectedClient({ ...colony, academy }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.academy.challenge', arguments: {} })
+
+    // The rung degrades; it does not take the surface down. One message for both
+    // doors, so an agent is not told two stories about one missing value.
     expect(result.isError).toBe(true)
-    expect(JSON.stringify(result.content)).toContain('HCAPTCHA_SITEKEY is not set')
+    expect(JSON.stringify(result.content)).toContain('CAPABILITY_PAGE_URL not set')
     await close()
   })
 

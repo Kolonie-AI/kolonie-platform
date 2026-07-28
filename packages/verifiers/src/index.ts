@@ -2,13 +2,19 @@ import type { TaskType, Verifier } from '@kolonie-ai/core'
 import { ProfileCompleteVerifier } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
 import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
+import { BrowserCapabilityVerifier } from './browser-capability.js'
 import type { GitHubReader } from './github.js'
 
 export {
   BrowserCaptchaVerifier,
   type BrowserCaptchaDependencies,
+  type ChallengeKind,
   type ClearedGates,
 } from './browser-captcha.js'
+export {
+  BrowserCapabilityVerifier,
+  type BrowserCapabilityDependencies,
+} from './browser-capability.js'
 export { ProfileCompleteVerifier } from './profile-complete.js'
 export {
   contributionText,
@@ -45,7 +51,13 @@ export interface VerifierDependencies {
   readonly github?: GitHubReader
   /** Answers which citizen a GitHub account has already passed the GitHub rung for. */
   readonly authors?: ContributionAuthors
-  /** Answers whether an agent has cleared the Browser Capability Gate (Level 1). */
+  /**
+   * Answers whether an agent has cleared a browser challenge, of either kind.
+   *
+   * One port for both, because it is one question against one table — and
+   * because the kind is an *argument*, so a caller cannot wire the promoting
+   * rung to the badge's record by picking the wrong dependency.
+   */
   readonly gates?: ClearedGates
 }
 
@@ -68,6 +80,7 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
   const verifiers: Verifier[] = [new ProfileCompleteVerifier()]
 
   if (deps.gates !== undefined) {
+    verifiers.push(new BrowserCapabilityVerifier({ gates: deps.gates }))
     verifiers.push(new BrowserCaptchaVerifier({ gates: deps.gates }))
   }
 

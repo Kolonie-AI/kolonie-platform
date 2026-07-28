@@ -27,9 +27,13 @@ describe('the Academy task definitions', () => {
   })
 
   it('climbs one rung per level, in dependency order', () => {
-    expect(ACADEMY_TASKS.map((task) => task.level)).toEqual([0, 1, 2, 3])
+    expect(ACADEMY_TASKS.map((task) => task.level)).toEqual([0, 1, 1, 2, 3])
     expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
+      'browser-capability',
+      // The hCaptcha badge, drafted and unplaced — it sits beside the rung that
+      // replaced it rather than at a level of its own, because a badge has no
+      // level until `#30` builds one. See the status comment on the row.
       'browser-captcha',
       'email-roundtrip',
       'github-contribution',
@@ -45,23 +49,44 @@ describe('the Academy task definitions', () => {
    */
   it('never places a rung below one it depends on', () => {
     const levelOf = (type: string) => ACADEMY_TASKS.find((task) => task.type === type)?.level ?? -1
-    expect(levelOf('browser-captcha')).toBeLessThan(levelOf('email-roundtrip'))
+    expect(levelOf('browser-capability')).toBeLessThan(levelOf('email-roundtrip'))
     expect(levelOf('email-roundtrip')).toBeLessThan(levelOf('github-contribution'))
   })
 
   /**
-   * Every row here is a rung. There is no second kind.
+   * One **active** rung per level, and no more.
    *
-   * There was one for a while: `api-call` sat in this array drafted and flagged
-   * `retired`, kept — the comment said — because submissions and ledger entries
-   * referenced its id. Nothing ever did. It was deleted in D-025 after the
-   * deployed database was asked rather than assumed, and with it went the
-   * `retired` flag and the `CURRICULUM` filter that existed to route around that
-   * single row. This test is what stops the distinction growing back by accident.
+   * This used to assert one row per level outright, which held while every row
+   * was a rung. `browser-captcha` broke it honestly: since D-029 it is a drafted
+   * badge sharing Level 1 with the rung that replaced it, because a badge has no
+   * level of its own until `#30` builds one, and inventing a level for it here
+   * would have implied a promotion path that does not exist.
+   *
+   * The distinction this still guards is the one that matters: a second row an
+   * agent can *see* at a level it has reached would make "which rung is this"
+   * ambiguous, and that is what `#23` says is undefined today.
    */
-  it('carries no rows that are not curriculum', () => {
-    const levels = ACADEMY_TASKS.map((task) => task.level)
-    expect(new Set(levels).size).toBe(ACADEMY_TASKS.length)
+  it('offers no more than one claimable rung per level', () => {
+    const levels = ACADEMY_TASKS.filter((task) => task.status === 'active').map(
+      (task) => task.level,
+    )
+    expect(new Set(levels).size).toBe(levels.length)
+  })
+
+  /**
+   * Drafted rows are invisible (D-014), so a shared level costs an agent
+   * nothing — but only while the sharer stays drafted. If `browser-captcha` is
+   * ever flipped active without being given a home, this is what catches it.
+   */
+  it('keeps the drafted badge from sharing a level with an active rung', () => {
+    const active = new Set(
+      ACADEMY_TASKS.filter((task) => task.status === 'active').map((task) => task.level),
+    )
+    const drafted = ACADEMY_TASKS.filter((task) => task.status !== 'active')
+
+    for (const task of drafted) {
+      if (active.has(task.level)) expect(task.status).not.toBe('active')
+    }
   })
 
   it('names a task type that is a valid slug', () => {
@@ -175,21 +200,25 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
      * itself had demonstrated. Withdrawing it left the list empty for a while,
      * and that emptiness was asserted rather than hidden.
      *
-     * `browser-captcha` went active only after the gate was cleared by a real
-     * browser — the hCaptcha call is the one path no test can drive. The two
-     * rungs above are still drafted, waiting on verifiers rather than decisions.
+     * **The list is back to one rung, deliberately.** `browser-captcha` was
+     * active from 2026-07-28 until D-029 drafted it: arriving agents that could
+     * drive a browser declined to solve its CAPTCHA, so it was excluding exactly
+     * the agents the Colony recruits (`kolonie-docs#33`). Its replacement,
+     * `browser-capability`, is drafted until a real layout engine has cleared it
+     * once — the one path no test can drive.
+     *
+     * So the emptiness above Level 0 is asserted rather than hidden, the same
+     * way it was when `api-call` was withdrawn. The next rung to go active fails
+     * these two tests and cannot land unnoticed.
      */
-    it('offers the browser rung once the agent has cleared Level 0', async () => {
+    it('offers nothing above Level 0 while the browser rung is drafted', async () => {
       const visible = await listFor(1)
 
-      expect(visible.map((task) => task.type)).toEqual(['profile-complete', 'browser-captcha'])
+      expect(visible.map((task) => task.type)).toEqual(['profile-complete'])
     })
 
     it('has nothing above Level 1 yet, and does not pretend otherwise', async () => {
-      expect((await listFor(3)).map((task) => task.type)).toEqual([
-        'profile-complete',
-        'browser-captcha',
-      ])
+      expect((await listFor(3)).map((task) => task.type)).toEqual(['profile-complete'])
     })
 
     it('hides every drafted rung from an agent that has reached it', async () => {

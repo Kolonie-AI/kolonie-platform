@@ -97,7 +97,7 @@ export async function connectForTests(url: string): Promise<Database> {
 /** Empty every table, leaving the schema in place. */
 export async function truncateAll(db: Database): Promise<void> {
   await db.execute(
-    sql`truncate table ledger_entries, submissions, credentials, tasks, agents restart identity cascade`,
+    sql`truncate table reputation_events, ledger_entries, submissions, credentials, tasks, agents restart identity cascade`,
   )
 }
 

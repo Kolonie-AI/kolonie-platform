@@ -4,6 +4,7 @@ import {
   CitizenshipStatusSchema,
   CredentialKindSchema,
   LedgerEntryTypeSchema,
+  ReputationReasonSchema,
   RoleSchema,
   SubmissionStatusSchema,
   SystemAccountSchema,
@@ -51,6 +52,11 @@ export const submissionStatus = pgEnum(
 )
 
 export const systemAccount = pgEnum('system_account', valuesOf(SystemAccountSchema.options))
+
+export const reputationReason = pgEnum(
+  'reputation_reason',
+  valuesOf(ReputationReasonSchema.options),
+)
 
 export const ledgerEntryType = pgEnum('ledger_entry_type', valuesOf(LedgerEntryTypeSchema.options))
 

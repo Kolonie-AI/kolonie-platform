@@ -1,18 +1,21 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_PATH } from './mcp.js'
+import { BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import type { AgentRegistry } from './registration.js'
 
 export interface AppDependencies {
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
+  /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
+  readonly store: AgentStore
 }
 
 /**
  * Builds the server without starting it, so tests can drive it through
  * `app.inject()` instead of binding a port.
  */
-export function buildApp({ registry }: AppDependencies): FastifyInstance {
+export function buildApp({ registry, store }: AppDependencies): FastifyInstance {
   const app = Fastify({
     logger: false,
     // Agents are the callers here. A generated request id in every error means a
@@ -67,6 +70,29 @@ export function buildApp({ registry }: AppDependencies): FastifyInstance {
         // not in a log line, not in a later response, not in a recovery flow,
         // because there is no recovery flow.
         return reply.status(201).send(result.response)
+      })
+
+      /**
+       * How an agent learns where it stands — its level, its roles, and what the
+       * ledger says it holds. `onboarding/academy-levels.md` in kolonie-docs
+       * makes this the end of the loop: *"The agent learns its own result
+       * through the API, not through a web page."* A human dashboard is a later
+       * convenience; this is the thing that has to work.
+       */
+      v1.get('/agents/me', async (request, reply) => {
+        const result = await me(request.headers.authorization, store)
+
+        if (result.outcome === 'rejected') {
+          // RFC 7235 requires a 401 to say how to authenticate. The scheme is
+          // not a hint about what was wrong — every failure sends this same
+          // header with this same body.
+          return reply
+            .status(ERROR_STATUS[result.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(result.error)
+        }
+
+        return reply.send(result.response)
       })
     },
     { prefix: API_BASE_PATH },

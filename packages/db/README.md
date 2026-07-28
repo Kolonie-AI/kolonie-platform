@@ -70,8 +70,13 @@ a number nothing verifies.
 ## What is deliberately not here
 
 - **No `coins` or `reputation` column on `agents`.** Balances are derived by
-  summing `ledger_entries` (D-002). There is a test that fails if either column
-  appears.
+  summing `ledger_entries` and `reputation_events` (D-002). There is a test that
+  fails if either column appears.
+- **Reputation is not a ledger entry type.** It has its own append-only table
+  (D-012), because it is awarded rather than transferred and so has no
+  counterparty to balance against. `balanceOfAgent` therefore runs two aggregates
+  and never a join — joining two independent logs multiplies their rows before
+  summing them, and the wrong number it reports looks plausible.
 - **No `ledger_transactions` table.** A transaction is the set of rows sharing a
   `transaction_id`; the trigger keeps the set consistent.
 - **No plaintext credential anywhere.** `credentials.secret_hash` holds a hash and

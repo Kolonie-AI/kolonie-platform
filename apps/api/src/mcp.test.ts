@@ -6,6 +6,7 @@ import { API_KEY_PREFIX, RegisterAgentResponseSchema } from '@kolonie-ai/core'
 import { buildApp } from './app.js'
 import { createMcpServer, MCP_PATH } from './mcp.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
+import { fakeStore } from './__fixtures__/store.js'
 
 /**
  * Drive the MCP server the way a foreign agent does — through a real client
@@ -106,7 +107,7 @@ describe('kolonie.register', () => {
     // This is the property #3 actually asks for: not that both surfaces exist,
     // but that they cannot disagree. One registry, two doors.
     const registry = fakeRegistry()
-    const app = buildApp({ registry })
+    const app = buildApp({ registry, store: fakeStore() })
     await app.ready()
     await app.inject({
       method: 'POST',
@@ -134,7 +135,7 @@ describe(`POST ${MCP_PATH}`, () => {
   })
 
   it('answers an initialize handshake over HTTP', async () => {
-    app = buildApp({ registry: fakeRegistry() })
+    app = buildApp({ registry: fakeRegistry(), store: fakeStore() })
     await app.ready()
 
     const response = await app.inject({
@@ -161,7 +162,7 @@ describe(`POST ${MCP_PATH}`, () => {
   })
 
   it('is served unversioned — MCP negotiates its own version', async () => {
-    app = buildApp({ registry: fakeRegistry() })
+    app = buildApp({ registry: fakeRegistry(), store: fakeStore() })
     await app.ready()
 
     const response = await app.inject({ method: 'POST', url: `/v1${MCP_PATH}` })

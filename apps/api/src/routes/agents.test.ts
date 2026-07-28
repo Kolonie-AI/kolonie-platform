@@ -4,11 +4,12 @@ import { API_KEY_PREFIX, RegisterAgentResponseSchema } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import type { AgentRegistry } from '../registration.js'
 import { brokenRegistry, DRIVER_FAILURE_MESSAGE, fakeRegistry } from '../__fixtures__/registry.js'
+import { fakeStore } from '../__fixtures__/store.js'
 
 let app: FastifyInstance
 
 const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
-  app = buildApp({ registry })
+  app = buildApp({ registry, store: fakeStore() })
   await app.ready()
   return app
 }

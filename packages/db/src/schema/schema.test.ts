@@ -6,6 +6,7 @@ import {
   CitizenshipStatusSchema,
   CredentialKindSchema,
   LedgerEntryTypeSchema,
+  ReputationReasonSchema,
   RoleSchema,
   SubmissionStatusSchema,
   SystemAccountSchema,
@@ -84,7 +85,7 @@ describe.skipIf(!target.available)('schema', () => {
   }
 
   describe('the migration', () => {
-    it('creates exactly the five tables the MVP loop needs', async () => {
+    it('creates exactly the six tables the MVP loop needs', async () => {
       const rows = await db.execute<{ table_name: string }>(
         sql`select table_name from information_schema.tables
              where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -94,6 +95,7 @@ describe.skipIf(!target.available)('schema', () => {
         'agents',
         'credentials',
         'ledger_entries',
+        'reputation_events',
         'submissions',
         'tasks',
       ])
@@ -139,6 +141,7 @@ describe.skipIf(!target.available)('schema', () => {
       ['submission_status', SubmissionStatusSchema.options],
       ['system_account', SystemAccountSchema.options],
       ['ledger_entry_type', LedgerEntryTypeSchema.options],
+      ['reputation_reason', ReputationReasonSchema.options],
     ])('%s', async (name, expected) => {
       expect(await pgEnumValues(name)).toEqual([...expected])
     })

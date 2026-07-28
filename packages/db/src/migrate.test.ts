@@ -54,11 +54,11 @@ describe.skipIf(!target.available)('the migrations', () => {
     await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
     const afterFirst = await objectCounts()
 
-    // The five tables the MVP loop needs. Drizzle's bookkeeping table is not
+    // The six tables the MVP loop needs. Drizzle's bookkeeping table is not
     // among them — it lives in its own schema, which is why `resetDatabase`
     // has to drop that one too.
-    expect(afterFirst.tables).toBe('5')
-    expect(afterFirst.enums).toBe('9')
+    expect(afterFirst.tables).toBe('6')
+    expect(afterFirst.enums).toBe('10')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

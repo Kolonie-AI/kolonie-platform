@@ -1105,7 +1105,7 @@ before they are rediscovered:
   is refused, every hostname still answers through the edge. What remains is
   narrower and is its own issue: the ranges prove _a_ Cloudflare edge, not _this
   zone's_ edge, so another Cloudflare customer could still reach the origin.
-  Authenticated origin pull closes that — `kolonie-infra#23`.
+  Authenticated origin pull closes that — `kolonie-infra#24`.
 - **The counter is per process.** A second API container doubles the effective
   limit. There is one today; if that changes, this becomes wrong silently.
 - **The fingerprint is a correlation key, not a privacy measure.** SHA-256 over

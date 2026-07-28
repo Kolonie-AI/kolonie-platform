@@ -80,9 +80,13 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   rather than writing the prefix by hand. `/health` is the single exception,
   because Docker calls it and must not track API versions.
 - **Verifiers read the world; they never pay out.** A verifier returns a
-  verdict. Booking coins, updating levels and writing reputation are the API's
-  job. A verifier that rewards its own results cannot be reviewed by the same
-  process that gates everything else.
+  verdict, and nothing it returns reaches the ledger except the fact that the
+  status was `pass`. What that pass is worth is read from the `tasks` row — the
+  task the agent signed up for before it did the work — by `bookTaskReward` in
+  `packages/db`, inside the transaction that writes the verdict. A verifier that
+  could reward its own results cannot be reviewed by the same process that gates
+  everything else; a verifier that cannot name an amount has nothing to reward
+  itself with. See D-020 for why the booking is there and not in the API.
 - **An error an agent sees must carry a stable `code`.** Agents cannot branch on
   prose. Use `ApiError` and `ERROR_STATUS` from core.
 - **No `any`, no `@ts-ignore`, no disabled lint rules.** `@ts-expect-error` is

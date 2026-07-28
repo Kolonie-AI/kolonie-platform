@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm'
-import { bigint, check, index, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import {
+  bigint,
+  check,
+  index,
+  pgTable,
+  timestamp,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
 import { ledgerAccountKind, ledgerEntryType, systemAccount } from './enums.js'
 
@@ -92,5 +101,26 @@ export const ledgerEntries = pgTable(
     index('ledger_entries_reference_idx')
       .on(table.reference)
       .where(sql`${table.reference} is not null`),
+    /**
+     * A task reward is booked **once** per submission, and this index is what
+     * says so — not a check in TypeScript.
+     *
+     * The difference matters because the thing that would book twice is not a
+     * careless caller, it is two runners deciding the same submission in the
+     * same millisecond. A `select` that finds no prior booking followed by an
+     * `insert` is a race with a window exactly as wide as the transaction, and
+     * both sides would pass it. Postgres is the only participant that sees both
+     * inserts, so Postgres has to be the one that refuses the second.
+     *
+     * `(reference, account_kind)` rather than `reference` alone: a booking is
+     * two rows sharing one reference — the agent's credit and the mint's debit —
+     * and they are told apart by exactly this column. Partial on
+     * `type = 'task_reward'` so that a later booking of a different kind against
+     * the same submission (a review reward, an adjustment) is still possible;
+     * what may not happen twice is *this* payout.
+     */
+    uniqueIndex('ledger_entries_task_reward_unique')
+      .on(table.reference, table.accountKind)
+      .where(sql`${table.type} = 'task_reward'`),
   ],
 )

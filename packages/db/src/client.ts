@@ -5,6 +5,17 @@ import * as schema from './schema/index.js'
 export type Database = ReturnType<typeof createDatabase>
 
 /**
+ * The handle inside `db.transaction(...)`.
+ *
+ * Storage functions that must run as part of a larger transaction take this
+ * instead of a `Database`, and the distinction is load-bearing rather than
+ * cosmetic: `bookTaskReward` is only correct when it commits together with the
+ * verdict that triggered it, and a parameter it cannot be handed a pool for is
+ * the cheapest way to say so to the next caller.
+ */
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0]
+
+/**
  * The name of the one environment variable this package reads.
  *
  * D-009: everything that needs Postgres addresses it through this variable and

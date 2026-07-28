@@ -93,7 +93,16 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
     return { kind: 'stale', status: written.status }
   }
 
-  log.info(`submission ${submission.id} → ${written.submission.status} (${taskType})`)
+  // What the pass cost the mint, in the same line as the verdict. An operator
+  // reading these is answering "did the Colony pay for this", and a booking
+  // recorded nowhere but the ledger makes that a query rather than a glance.
+  const booked =
+    written.booking === undefined
+      ? ''
+      : ` — booked ${written.booking.coins} coin(s) and ${written.booking.reputation} reputation, ` +
+        `agent now at level ${written.booking.level}`
+
+  log.info(`submission ${submission.id} → ${written.submission.status} (${taskType})${booked}`)
   return { kind: 'decided', status: written.submission.status }
 }
 

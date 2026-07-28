@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { AgentIdSchema, LedgerEntryIdSchema, LedgerTransactionIdSchema } from '../common/ids.js'
+import {
+  AgentIdSchema,
+  LedgerEntryIdSchema,
+  LedgerTransactionIdSchema,
+  SubmissionIdSchema,
+} from '../common/ids.js'
 import {
   type AccountRef,
   CoinAmountSchema,
@@ -8,6 +13,8 @@ import {
   agentAccount,
   balanceOf,
   isBalanced,
+  SUBMISSION_REFERENCE_PREFIX,
+  submissionReference,
   sumEntries,
   systemAccount,
 } from './ledger.js'
@@ -93,5 +100,14 @@ describe('sumEntries / balanceOf', () => {
 
   it('nets credits against debits', () => {
     expect(balanceOf([{ amount: 100 }, { amount: -30 }, { amount: -20 }])).toBe(50)
+  })
+})
+
+describe('submissionReference', () => {
+  it('prefixes the submission id so an audit can find every entry it paid for', () => {
+    const submissionId = SubmissionIdSchema.parse('9a7b5c3d-1e2f-4a5b-8c6d-7e8f9a0b1c2d')
+    expect(submissionReference(submissionId)).toBe(
+      `${SUBMISSION_REFERENCE_PREFIX}9a7b5c3d-1e2f-4a5b-8c6d-7e8f9a0b1c2d`,
+    )
   })
 })

@@ -14,4 +14,10 @@ export {
   generateApiKey,
   hashApiKey,
 } from './api-key.js'
-export { createDatabase, databaseUrlFromEnv, DATABASE_URL_VAR, type Database } from './client.js'
+export {
+  createDatabase,
+  databaseUrlFromEnv,
+  DATABASE_URL_VAR,
+  type Database,
+  type Transaction,
+} from './client.js'

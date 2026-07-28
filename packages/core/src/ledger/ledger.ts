@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { AgentIdSchema, LedgerEntryIdSchema, LedgerTransactionIdSchema } from '../common/ids.js'
+import {
+  AgentIdSchema,
+  LedgerEntryIdSchema,
+  LedgerTransactionIdSchema,
+  type SubmissionId,
+} from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
@@ -108,6 +113,22 @@ export function sumEntries(entries: readonly Pick<LedgerEntry, 'amount'>[]): Coi
  */
 export function isBalanced(transaction: Pick<LedgerTransaction, 'entries'>): boolean {
   return sumEntries(transaction.entries) === 0
+}
+
+/**
+ * What a booking caused, written into `reference` in a form anyone can parse.
+ *
+ * `reference` is free-form by schema, and free-form is how an audit trail turns
+ * into prose nobody can query. Every entry the Colony books against a submission
+ * carries this exact string, so "which entries paid for submission X" is an
+ * index lookup rather than a `like` over a column of sentences — and so the
+ * uniqueness that makes a reward bookable once can be enforced on it.
+ */
+export const SUBMISSION_REFERENCE_PREFIX = 'submission:'
+
+/** The `reference` every entry booked on a submission carries. */
+export function submissionReference(submissionId: SubmissionId): string {
+  return `${SUBMISSION_REFERENCE_PREFIX}${submissionId}`
 }
 
 /** Balance of a single account, given the entries that belong to it. */

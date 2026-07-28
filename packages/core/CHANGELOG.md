@@ -43,6 +43,12 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   it, what it decided, and the evidence for it. Append-only and separate from the
   submission, so a re-check cannot overwrite the answer a payout rests on (D-016)
 - `VerificationId` branded id
+- `levelAfterCompleting()` — the level an agent holds after passing a task at a
+  given level. Derived, never supplied: it advances one rung at most and never
+  demotes an agent that re-passes a level it had already cleared (D-021)
+- `submissionReference()` and `SUBMISSION_REFERENCE_PREFIX` — the `reference`
+  every ledger entry booked on a submission carries, so "which entries paid for
+  this submission" is an index lookup rather than a search through prose
 
 ## 0.1.0 — 2026-07-26
 

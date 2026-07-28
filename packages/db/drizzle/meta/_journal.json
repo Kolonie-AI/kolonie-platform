@@ -36,6 +36,13 @@
       "when": 1785231806049,
       "tag": "0004_verifications",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785238115645,
+      "tag": "0005_reward_booking",
+      "breakpoints": true
     }
   ]
 }

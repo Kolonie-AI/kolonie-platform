@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import {
+  check,
+  index,
+  integer,
+  pgTable,
+  timestamp,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
 import { reputationReason } from './enums.js'
 import { submissions } from './submissions.js'
@@ -17,10 +26,11 @@ import { submissions } from './submissions.js'
  * no transfer or spend event type" — so a table that cannot express a transfer
  * is the honest shape.
  *
- * **Nothing writes here yet.** `GET /v1/agents/me` reads it (#4); the booking on
- * a passed submission lands in #8. The table exists ahead of its writer because
- * the alternative was to serve a hardcoded `reputation: 0` in a response shape
- * foreign agents hard-code — a number no test could tell apart from a bug.
+ * **One writer, and it is the verdict.** `bookTaskReward` inserts a
+ * `task_passed` event in the transaction that marks a submission `passed`;
+ * `GET /v1/agents/me` sums this table to answer what an agent has done. Nothing
+ * updates a row here, ever — a reputation event is a fact about a moment, and
+ * the way to correct one is an `adjustment` event that says so.
  */
 export const reputationEvents = pgTable(
   'reputation_events',
@@ -70,9 +80,24 @@ export const reputationEvents = pgTable(
     ),
     /** An agent's reputation is `sum(delta)` over this index. */
     index('reputation_events_agent_id_idx').on(table.agentId),
-    /** #8 books on a verdict and has to find what it already booked. */
+    /** The booking on a verdict has to find what it already booked. */
     index('reputation_events_submission_id_idx')
       .on(table.submissionId)
       .where(sql`${table.submissionId} is not null`),
+    /**
+     * One `task_passed` event per submission, enforced by the database for the
+     * same reason as `ledger_entries_task_reward_unique`: the writer that would
+     * duplicate it is a second concurrent verdict, and only Postgres sees both.
+     *
+     * Reputation without this index is worse than coins without it. Coins are
+     * audited by summing the whole ledger against the mint, so a double credit
+     * shows up as a supply that does not add up. Reputation has no counterparty
+     * and no total to check against — a doubled event is simply a citizen with a
+     * track record it did not earn, and the roles that reputation gates would be
+     * granted on it.
+     */
+    uniqueIndex('reputation_events_task_passed_unique')
+      .on(table.submissionId)
+      .where(sql`${table.reason} = 'task_passed' and ${table.submissionId} is not null`),
   ],
 )

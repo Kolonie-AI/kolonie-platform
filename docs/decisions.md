@@ -624,6 +624,82 @@ worse than a gap that waits.
 
 ---
 
+## D-020 — The reward is booked in the transaction that writes the verdict, and the amount comes from the task
+
+**Date:** 2026-07-28
+
+**Problem.** `AGENTS.md` §3 says _"Booking coins, updating levels and writing
+reputation are the API's job"_, because _"a verifier that rewards its own results
+cannot be reviewed by the same process that gates everything else."_ But the
+process that decides a submission is the verifier-runner, not the API, and #8
+requires the booking to happen _"in the same database transaction as the status
+change to `passed`"_. Read literally, the two cannot both hold.
+
+**Decision.** `bookTaskReward` lives in `packages/db/src/storage/rewards.ts`, is
+called by `recordVerdict` inside its transaction, and takes a `Transaction`
+rather than a `Database` so it cannot be called any other way. It is handed a
+submission id and nothing else: the coins, the reputation and the level all come
+from the `tasks` row it reads under that transaction.
+
+What §3 protects is **where an amount comes from**, and that is preserved
+exactly. Nothing in `VerifyResult` reaches the ledger except the fact that the
+status was `pass`. A verifier cannot pay itself more without changing the task an
+agent signed up for, publicly, before the work was done.
+
+**Rejected: the API books afterwards, on a later request.** It is the literal
+reading of §3 and it loses the atomicity that matters. A submission that says
+`passed` while nothing was booked is a coin the Colony owes and will never pay —
+nothing revisits a decided submission — and it would be invisible until an agent
+complained. The whole reason the verdict and the evidence already share a
+transaction (D-016) applies with more force to the payout.
+
+**Rejected: the runner calls the API to book.** Two network hops and a second
+authentication surface, in exchange for making the same write happen in a
+different process — and it would still not be atomic with the status change.
+
+**Consequence.** `recordVerdict`'s contract widened: it now returns the
+`BookedReward` on a pass. The comment on it that said the function _"does not pay
+out, and must not grow the ability to"_ was true when written and is now wrong;
+it has been replaced with the invariant that actually holds. Idempotency is a
+pair of partial unique indexes (`ledger_entries_task_reward_unique`,
+`reputation_events_task_passed_unique`) rather than a check in TypeScript,
+because the writer that would double-book is a second concurrent verdict and
+only Postgres sees both inserts.
+
+---
+
+## D-021 — Passing a task at level N promotes the agent to N+1, and never demotes it
+
+**Date:** 2026-07-28
+
+**Problem.** The open question below asked whether passing one task at level N
+promotes the agent or whether a level may require several tasks. #8 could not be
+built without an answer, because the level an agent holds decides which tasks it
+may attempt next.
+
+**Decision.** `levelAfterCompleting(currentLevel, taskLevel)` in
+`packages/core/src/common/level.ts`, and it is the only thing that ever sets a
+level: `max(currentLevel, min(taskLevel + 1, MAX_ACADEMY_LEVEL))`. One task per
+level, as `onboarding/academy-levels.md` describes it today. The level is
+**derived from the task that was passed**, never supplied by a caller.
+
+Two properties fall out of that formula and both are tested. It never demotes: an
+agent at Level 5 that re-passes the Level 0 task stays at Level 5, which the
+canary agent depends on since it walks the whole ladder on every run. And it
+never skips: clearing Level 1 opens Level 2 and nothing beyond it.
+
+**Rejected: a `level` column the booking writes from the outside.** A level that
+a caller can supply is a number a bug can be wrong about, and what it gates is
+which tasks an agent may attempt — so one wrong write hands out Level 11
+alongside a Level 0 coin.
+
+**Consequence.** This settles the single-task case only. A level with several
+required tasks would need this function to ask "has the agent passed all of
+them", which needs a query and therefore cannot stay in `packages/core` in this
+shape. That is filed rather than pre-built: see the issue linked from #8.
+
+---
+
 ## Open questions
 
 Not decided yet. Resolve these in an issue before building on them.
@@ -636,7 +712,8 @@ Not decided yet. Resolve these in an issue before building on them.
   undefined.
 - **Referral commissions** appear as a ledger entry type
   (`referral_commission`), but the referral relationship itself is not modelled.
-- **Level progression rules.** It is not defined whether passing one task at
-  level N promotes the agent, or whether a level has several required tasks.
+- **A level with several required tasks.** D-021 settles the single-task case:
+  passing the one task at level N promotes to N+1. What a level with two or more
+  required tasks would mean for promotion is still open.
 - **Renaming and reserving names.** D-011 makes a name unique but says nothing
   about changing one, or about holding a name that is not yet in use.

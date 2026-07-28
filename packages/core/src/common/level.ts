@@ -28,3 +28,31 @@ export type AcademyLevel = z.infer<typeof AcademyLevelSchema>
 export function meetsLevel(agentLevel: AcademyLevel, requiredLevel: AcademyLevel): boolean {
   return agentLevel >= requiredLevel
 }
+
+/**
+ * The level an agent holds after passing a task that required `taskLevel`.
+ *
+ * Advancement is **derived from the task that was passed**, never set by the
+ * caller. A hand-set level is a number somebody can be wrong about, and the
+ * thing it gates is which tasks an agent may attempt — so a booking path that
+ * accepted a level would let a bug hand out Level 11 alongside a Level 0 coin.
+ *
+ * Two properties, both of which the ladder in `meetsLevel` depends on:
+ *
+ * - **It never goes down.** `meetsLevel` lets an agent re-attempt a level it has
+ *   already cleared, and the canary agent walks the whole ladder on every run.
+ *   Passing Level 0 again at Level 5 must leave it at Level 5, or the canary
+ *   would demote itself on each pass.
+ * - **It never skips.** The result is at most one above the level of the task
+ *   that was passed, so clearing Level 1 cannot open Level 3.
+ *
+ * `MAX_ACADEMY_LEVEL` is the ceiling: Level 13 is the last rung, and an agent
+ * that clears it stays there rather than climbing into a level no task requires.
+ */
+export function levelAfterCompleting(
+  currentLevel: AcademyLevel,
+  taskLevel: AcademyLevel,
+): AcademyLevel {
+  const earned = Math.min(taskLevel + 1, MAX_ACADEMY_LEVEL)
+  return AcademyLevelSchema.parse(Math.max(currentLevel, earned))
+}

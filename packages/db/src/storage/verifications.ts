@@ -17,6 +17,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, submissions, tasks, verifications } from '../schema/index.js'
+import { bookTaskReward, type BookedReward } from './rewards.js'
 import { toAgent, toSubmission, toVerification } from './rows.js'
 
 /** Statuses a submission can sit in while it still awaits a verdict. */
@@ -118,6 +119,12 @@ export type RecordVerdictResult =
       readonly outcome: 'recorded'
       readonly submission: Submission
       readonly verification: Verification
+      /**
+       * What the pass paid, or `undefined` for any verdict that is not a pass.
+       * A failed submission books nothing, and says so by having nothing here
+       * rather than by a booking of zero.
+       */
+      readonly booking?: BookedReward
     }
   /**
    * The row was no longer the caller's to decide — another writer reached it
@@ -138,18 +145,23 @@ export interface RecordVerdictCommand {
 }
 
 /**
- * Write a verdict: the evidence first, then the submission's new status, in one
- * transaction.
+ * Write a verdict: the evidence, the submission's new status, and — on a pass —
+ * the coins and reputation it earned, in one transaction.
  *
- * The order inside the transaction does not matter — the atomicity does. A
- * submission that reaches `passed` without the row explaining why would be a
- * coin the Colony cannot account for once #8 books on it, and the constraint
- * that makes that impossible is that both writes commit together or neither
- * does.
+ * The order inside the transaction does not matter; the atomicity does, and it
+ * is what all three writes are here for. A submission that reaches `passed`
+ * without the row explaining why is a coin the Colony cannot account for. A
+ * submission that reaches `passed` without the booking is a coin the Colony owes
+ * and will never pay, because nothing ever revisits a decided submission. Both
+ * states are unreachable only if everything commits together or nothing does.
  *
- * **This function does not pay out**, and must not grow the ability to.
- * `AGENTS.md` §3: the API books, never the verifier. What it writes is a fact
- * about a check; what that fact is worth in coins is decided elsewhere.
+ * **This function does not decide what a pass is worth**, and must not grow the
+ * ability to. `AGENTS.md` §3 — the verifier never rewards its own results — is a
+ * rule about where an amount comes from, and the amount comes from the `tasks`
+ * row, read by {@link bookTaskReward} inside this transaction. Nothing in
+ * `command.result` reaches the ledger except the fact that the status was
+ * `pass`; a verifier that wanted to pay itself more would have to change the
+ * task an agent signed up for, in public, before the work was done.
  *
  * A `pending` verdict — the mail has not arrived yet — returns the submission to
  * `pending` and leaves `verified_at` null, so the next poll picks it up again.
@@ -217,10 +229,20 @@ export async function recordVerdict(
 
     if (updated === undefined) throw new Error('updating a locked submission returned no row')
 
+    // The last clause of the sentence the MVP is measured against in
+    // `ROADMAP.md`: *"…and a coin lands in the ledger."* Only on `passed` —
+    // `failed`, `timeout` and a return to `pending` all book nothing, which is
+    // the same statement as having no branch for them.
+    const booking =
+      next === 'passed'
+        ? await bookTaskReward(tx, { submissionId: command.submissionId, bookedAt: decidedAt })
+        : undefined
+
     return {
       outcome: 'recorded',
       submission: toSubmission(updated),
       verification: toVerification(record),
+      ...(booking === undefined ? {} : { booking }),
     }
   })
 }

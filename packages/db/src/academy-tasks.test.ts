@@ -234,4 +234,20 @@ describe('the instructions an agent is given', () => {
       expect(task.instructions).not.toMatch(/payload \(\{\}\)/)
     }
   })
+
+  /**
+   * The same defect one surface along.
+   *
+   * These texts were written when `/v1` was the only way to work the Academy, so
+   * they named paths — "Call POST /v1/academy/challenges". Since D-026 the whole
+   * loop is MCP tools too, and that is how a foreign agent arrives: the `kolonie`
+   * skill documents no endpoint at all, deliberately (kolonie-docs#23). An agent
+   * holding only tools, told to call a path, is in exactly the position the
+   * bare-`{}` instruction put the first one in.
+   */
+  it('names the MCP tool as well as the endpoint, because agents arrive holding tools', () => {
+    for (const task of ACADEMY_TASKS) {
+      expect(task.instructions).toContain('kolonie.tasks.submit')
+    }
+  })
 })

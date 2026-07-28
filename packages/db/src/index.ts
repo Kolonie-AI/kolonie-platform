@@ -15,6 +15,7 @@ export {
   generateApiKey,
   hashApiKey,
 } from './api-key.js'
+export { fingerprintOf, REGISTRATION_FINGERPRINT_ALGORITHM } from './registration-fingerprint.js'
 export {
   createDatabase,
   databaseUrlFromEnv,

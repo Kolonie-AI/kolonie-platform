@@ -1,0 +1,2 @@
+ALTER TABLE "agents" ADD COLUMN "registration_fingerprint" varchar(64);--> statement-breakpoint
+CREATE INDEX "agents_registration_fingerprint_idx" ON "agents" USING btree ("registration_fingerprint") WHERE "agents"."registration_fingerprint" is not null;

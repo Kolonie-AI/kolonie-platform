@@ -3,7 +3,13 @@ import {
   type ApiError,
   type RegisterAgentResponse,
 } from '@kolonie-ai/core'
-import { registerAgent, type Database, type RegisterAgentResult } from '@kolonie-ai/db'
+import {
+  fingerprintOf,
+  registerAgent,
+  type Database,
+  type RegisterAgentResult,
+} from '@kolonie-ai/db'
+import { REGISTRATION_LIMIT, type RateLimiter } from './rate-limit.js'
 
 /**
  * Everything registration needs from the outside world.
@@ -21,7 +27,21 @@ import { registerAgent, type Database, type RegisterAgentResult } from '@kolonie
  * suite pretends to cover the other.
  */
 export interface AgentRegistry {
-  register(request: unknown): Promise<RegistrationOutcome>
+  register(request: unknown, caller: Caller): Promise<RegistrationOutcome>
+}
+
+/**
+ * Who is asking, as far as the front door can tell.
+ *
+ * Registration is the one operation with no credential to identify the caller,
+ * so the address is all there is. It is a required argument rather than an
+ * optional one because both things that need it — the rate limit and the
+ * fingerprint of D-028 — fail *open* when it is missing, and a defence that
+ * silently switches itself off is worse than none.
+ */
+export interface Caller {
+  /** Resolved by `clientIp`, never read off the socket at the use site. */
+  readonly ip: string
 }
 
 /**
@@ -29,14 +49,67 @@ export interface AgentRegistry {
  *
  * `invalid` is the case the storage layer never sees, because validation happens
  * before it is called.
+ *
+ * `rate-limited` is separate from `rejected` although both end in an `ApiError`,
+ * because it is the only outcome that can tell the caller *when to come back*.
+ * Folding it into `rejected` would leave the retry delay reachable only by
+ * parsing it back out of `details`, and the HTTP surface has a header to put it
+ * in.
  */
 export type RegistrationOutcome =
   | { readonly outcome: 'registered'; readonly response: RegisterAgentResponse }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
+  | {
+      readonly outcome: 'rate-limited'
+      readonly error: ApiError
+      readonly retryAfterSeconds: number
+    }
 
 /** Wire registration to a real database. */
 export function databaseRegistry(db: Database): AgentRegistry {
-  return { register: (request) => register(request, (parsed) => registerAgent(db, parsed)) }
+  return {
+    register: (request, caller) =>
+      register(request, (parsed) => registerAgent(db, parsed, fingerprintOf(caller.ip))),
+  }
+}
+
+/**
+ * Put a rate limit in front of a registry, whichever surface the call arrived
+ * through.
+ *
+ * A decorator over `AgentRegistry` rather than a route hook, and that is the
+ * whole design. `kolonie.register` shares no route with `POST
+ * /v1/agents/register` — the MCP surface is a single `POST` carrying every tool
+ * — so a limiter attached to the HTTP route would leave the MCP door open, and
+ * one attached to the MCP path would throttle authenticated traffic that has a
+ * credential and does not need it. Wrapping the operation puts the limit where
+ * the operation is, which is the same argument `AgentRegistry` itself already
+ * makes about one rule and two surfaces.
+ */
+export function rateLimited(registry: AgentRegistry, limiter: RateLimiter): AgentRegistry {
+  return {
+    async register(request, caller) {
+      const verdict = limiter.take(caller.ip)
+
+      if (!verdict.allowed) {
+        return {
+          outcome: 'rate-limited',
+          retryAfterSeconds: verdict.retryAfterSeconds,
+          error: {
+            code: 'rate_limited',
+            message:
+              `Too many registrations from this address. The Colony accepts ${REGISTRATION_LIMIT} ` +
+              `per hour, and this is not a punishment for a mistake — an agent that already holds ` +
+              `a key does not need a second one. If you have lost yours, there is no recovery ` +
+              `flow: wait, register again under a new name, and store the key this time.`,
+            details: { retryAfterSeconds: String(verdict.retryAfterSeconds) },
+          },
+        }
+      }
+
+      return registry.register(request, caller)
+    },
+  }
 }
 
 /**

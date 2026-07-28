@@ -13,6 +13,7 @@ import type { Database } from '../client.js'
 import { hashApiKey } from '../api-key.js'
 import { agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { fingerprintOf } from '../registration-fingerprint.js'
 import { registerAgent, updateAgentProfile } from './agents.js'
 
 const target = databaseTestTarget()
@@ -174,6 +175,82 @@ describe.skipIf(!target.available)('registerAgent', () => {
         // the type system refusing it is half the guarantee, Postgres the other.
         registerAgent(db, { ...aRequest(), platform: 'not-a-platform' }),
       ).rejects.toThrow()
+    })
+  })
+
+  /**
+   * D-028: the front door records where a registration came from, so the
+   * question *"which other agents arrived from here"* can be asked later. These
+   * assert the storage half — that the value is written, kept opaque, and never
+   * turned into a constraint.
+   */
+  describe('registration fingerprint', () => {
+    /** RFC 5737 documentation addresses. `AGENTS.md` §9 — never a real one. */
+    const CALLER = '192.0.2.10'
+    const OTHER_CALLER = '192.0.2.11'
+
+    const fingerprintOfAgent = async (id: AgentId) => {
+      const [row] = await db.select().from(agents).where(eq(agents.id, id))
+      return row?.registrationFingerprint ?? null
+    }
+
+    it('records the fingerprint the caller handed it', async () => {
+      const result = await registerAgent(db, aRequest(), fingerprintOf(CALLER))
+      if (result.outcome !== 'registered') throw new Error('expected a registration')
+
+      expect(await fingerprintOfAgent(result.agent.id)).toBe(fingerprintOf(CALLER))
+    })
+
+    it('never stores the address itself', async () => {
+      const result = await registerAgent(db, aRequest(), fingerprintOf(CALLER))
+      if (result.outcome !== 'registered') throw new Error('expected a registration')
+
+      const [row] = await db.select().from(agents).where(eq(agents.id, result.agent.id))
+      expect(JSON.stringify(row)).not.toContain(CALLER)
+    })
+
+    /**
+     * The query the column exists for. If this stopped working, the answer to
+     * "is one operator holding five accounts" would be unavailable at exactly
+     * the moment someone needed it.
+     */
+    it('groups two registrations from one caller under one value', async () => {
+      await registerAgent(db, aRequest({ name: 'canary' }), fingerprintOf(CALLER))
+      await registerAgent(db, aRequest({ name: 'sparrow' }), fingerprintOf(CALLER))
+      await registerAgent(db, aRequest({ name: 'magpie' }), fingerprintOf(OTHER_CALLER))
+
+      const rows = await db
+        .select()
+        .from(agents)
+        .where(eq(agents.registrationFingerprint, fingerprintOf(CALLER)))
+
+      expect(rows.map((row) => row.name).sort()).toEqual(['canary', 'sparrow'])
+    })
+
+    /**
+     * Not unique, and this is the assertion that keeps it that way. A fleet
+     * behind one NAT and two citizens in one office are ordinary; a constraint
+     * here would refuse the second honest agent while the farming case simply
+     * changes address.
+     */
+    it('lets several agents share one fingerprint', async () => {
+      const first = await registerAgent(db, aRequest({ name: 'canary' }), fingerprintOf(CALLER))
+      const second = await registerAgent(db, aRequest({ name: 'sparrow' }), fingerprintOf(CALLER))
+
+      expect(first.outcome).toBe('registered')
+      expect(second.outcome).toBe('registered')
+    })
+
+    /**
+     * A caller whose address could not be resolved still registers. Absent means
+     * "not recorded" — turning it into a refusal would make a missing header a
+     * closed front door.
+     */
+    it('registers without one, leaving the column null', async () => {
+      const result = await registerAgent(db, aRequest())
+      if (result.outcome !== 'registered') throw new Error('expected a registration')
+
+      expect(await fingerprintOfAgent(result.agent.id)).toBeNull()
     })
   })
 })

@@ -56,6 +56,24 @@ export const agents = pgTable(
       .default(sql`'{}'::role[]`),
     level: smallint('level').notNull().default(0),
 
+    /**
+     * Where this registration came from, as an opaque correlation key (D-028).
+     *
+     * Nullable, and it stays nullable: every agent registered before this column
+     * existed has none, and a caller whose address cannot be resolved is not a
+     * reason to refuse a registration. Absent means "not recorded", never "came
+     * from nowhere".
+     *
+     * It is deliberately **not unique**. Several honest agents share one address
+     * — a fleet behind one NAT, two citizens in one office — and a constraint
+     * here would refuse the second one. What this column supports is asking the
+     * question later; it does not answer it at the door.
+     *
+     * 64 characters because it holds hex SHA-256 and nothing else. See
+     * `registration-fingerprint.ts` for what the value does and does not claim.
+     */
+    registrationFingerprint: varchar('registration_fingerprint', { length: 64 }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -97,5 +115,13 @@ export const agents = pgTable(
       .where(sql`${table.wallet} is not null`),
     /** `GET /v1/tasks` filters the caller by status and level. */
     index('agents_status_level_idx').on(table.status, table.level),
+    /**
+     * The one query this column exists for: *which other agents registered from
+     * here, and when*. Partial, because the answer is never "all the rows that
+     * predate the column".
+     */
+    index('agents_registration_fingerprint_idx')
+      .on(table.registrationFingerprint)
+      .where(sql`${table.registrationFingerprint} is not null`),
   ],
 )

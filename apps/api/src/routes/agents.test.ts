@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { API_KEY_PREFIX, RegisterAgentResponseSchema } from '@kolonie-ai/core'
+import { API_KEY_PREFIX, ERROR_STATUS, RegisterAgentResponseSchema } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
+import { REGISTRATION_LIMIT, REGISTRATION_WINDOW_MS } from '../rate-limit.js'
 import type { AgentRegistry } from '../registration.js'
 import { brokenRegistry, DRIVER_FAILURE_MESSAGE, fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore } from '../__fixtures__/store.js'
@@ -180,5 +181,100 @@ describe('registration is not reachable unversioned', () => {
     const response = await app.inject({ method: 'POST', url: '/agents/register' })
 
     expect(response.statusCode).toBe(404)
+  })
+})
+
+/**
+ * The front door is the only place an anonymous caller writes to the database
+ * (#10). These assert the brake, not the shape of the limiter — that is
+ * `rate-limit.test.ts`. What matters here is that the route applies it, keys it
+ * on the *caller* rather than the proxy, and answers something an agent can act
+ * on.
+ */
+describe('registration is rate limited per caller', () => {
+  /** RFC 5737 documentation addresses — see the note in `client-ip.test.ts`. */
+  const CALLER = '192.0.2.10'
+  const OTHER_CALLER = '192.0.2.11'
+
+  const registerFrom = (ip: string, name: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/v1/agents/register',
+      headers: { 'x-forwarded-for': ip },
+      payload: { name, platform: 'openclaw' },
+    })
+
+  const spendTheAllowance = async (ip: string) => {
+    for (let attempt = 0; attempt < REGISTRATION_LIMIT; attempt += 1) {
+      const response = await registerFrom(ip, `canary-${attempt}`)
+      expect(response.statusCode).toBe(201)
+    }
+  }
+
+  it('refuses the registration after the limit and says so in the vocabulary agents branch on', async () => {
+    await withRegistry()
+    await spendTheAllowance(CALLER)
+
+    const response = await registerFrom(CALLER, 'one-too-many')
+
+    expect(response.statusCode).toBe(ERROR_STATUS.rate_limited)
+    expect(response.json().code).toBe('rate_limited')
+  })
+
+  it('tells the caller when to come back, in a header a machine can act on', async () => {
+    await withRegistry()
+    await spendTheAllowance(CALLER)
+
+    const response = await registerFrom(CALLER, 'one-too-many')
+
+    expect(Number(response.headers['retry-after'])).toBeGreaterThan(0)
+    expect(Number(response.headers['retry-after'])).toBeLessThanOrEqual(
+      REGISTRATION_WINDOW_MS / 1000,
+    )
+  })
+
+  /**
+   * The criterion this exists for: *"a limiter keyed on the proxy IP limits
+   * everyone at once and nobody in particular"*. If `clientIp` were ever
+   * bypassed, every caller would share one bucket and this would fail.
+   */
+  it('does not spend one caller allowance on another', async () => {
+    await withRegistry()
+    await spendTheAllowance(CALLER)
+
+    const response = await registerFrom(OTHER_CALLER, 'a-stranger')
+
+    expect(response.statusCode).toBe(201)
+  })
+
+  it('counts a rejected attempt, so probing for free names is not free', async () => {
+    const registry = fakeRegistry()
+    await withRegistry(registry)
+
+    for (let attempt = 0; attempt < REGISTRATION_LIMIT; attempt += 1) {
+      // Malformed on purpose: 422 every time, and never reaches storage.
+      await app.inject({
+        method: 'POST',
+        url: '/v1/agents/register',
+        headers: { 'x-forwarded-for': CALLER },
+        payload: { name: 'canary', platform: 'not-a-platform' },
+      })
+    }
+
+    const response = await registerFrom(CALLER, 'canary')
+
+    expect(response.statusCode).toBe(ERROR_STATUS.rate_limited)
+    expect(registry.names()).toEqual([])
+  })
+
+  it('does not reach storage once it has refused', async () => {
+    const registry = fakeRegistry()
+    await withRegistry(registry)
+    await spendTheAllowance(CALLER)
+
+    await registerFrom(CALLER, 'one-too-many')
+
+    // Exactly the allowance, and not the refused one.
+    expect(registry.names()).toHaveLength(REGISTRATION_LIMIT)
   })
 })

@@ -6,7 +6,9 @@ import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authenticati
 import { updateProfile } from './profile.js'
 import { listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
-import type { AgentRegistry } from './registration.js'
+import { rateLimited, type AgentRegistry } from './registration.js'
+import { clientIp } from './client-ip.js'
+import { registrationLimiter, type RateLimiter } from './rate-limit.js'
 import {
   gateUnavailable,
   openChallenge,
@@ -25,6 +27,12 @@ export interface AppDependencies {
   readonly catalogue: TaskCatalogue
   /** Where handed-in results go. Same reasoning — see `submissions.ts`. */
   readonly submissions: TaskSubmissions
+  /**
+   * The brake on the front door. Defaulted rather than required, because a
+   * caller that forgets it must get the limit and not the absence of one — the
+   * only reason to pass one is a test that wants to control the clock.
+   */
+  readonly limiter?: RateLimiter
 }
 
 /**
@@ -32,12 +40,21 @@ export interface AppDependencies {
  * `app.inject()` instead of binding a port.
  */
 export function buildApp({
-  registry,
+  registry: unlimitedRegistry,
   store,
   catalogue,
   submissions,
   academy,
+  limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
+  /**
+   * Every surface below sees the throttled registry and the raw one is not in
+   * scope again. Wrapping once here is what makes "the limit covers HTTP *and*
+   * MCP" a property of the wiring rather than a rule two call sites have to
+   * remember — see `rateLimited` for why the limit sits on the operation.
+   */
+  const registry = rateLimited(unlimitedRegistry, limiter)
+
   const app = Fastify({
     logger: false,
     // Agents are the callers here. A generated request id in every error means a
@@ -114,7 +131,18 @@ export function buildApp({
       // streams and manages the response itself from here on.
       reply.hijack()
       await handleMcpRequest(
-        { registry, store, catalogue, submissions, academy },
+        {
+          registry,
+          store,
+          catalogue,
+          submissions,
+          academy,
+          // Resolved here rather than inside the tool, so the MCP door and the
+          // HTTP door agree on who is calling by construction. `McpDependencies`
+          // requires it, which makes forgetting it a compile error rather than a
+          // front door that silently stopped counting.
+          caller: { ip: clientIp(request.headers, request.ip) },
+        },
         presented,
         request.raw,
         reply.raw,
@@ -156,7 +184,20 @@ export function buildApp({
        * has to land before the repositories go public.
        */
       v1.post('/agents/register', async (request, reply) => {
-        const result = await registry.register(request.body)
+        const result = await registry.register(request.body, {
+          ip: clientIp(request.headers, request.ip),
+        })
+
+        if (result.outcome === 'rate-limited') {
+          // `Retry-After` in seconds, which RFC 9110 allows alongside a date and
+          // which is the form a machine caller can act on without parsing one.
+          // The same number is in `details`, because the MCP surface has no
+          // headers to put it in and both surfaces answer from one error.
+          return reply
+            .status(ERROR_STATUS[result.error.code])
+            .header('retry-after', String(result.retryAfterSeconds))
+            .send(result.error)
+        }
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

@@ -9,6 +9,7 @@ import {
   GetMeResponseSchema,
   RegisterAgentResponseSchema,
   UpdateProfileResponseSchema,
+  type ApiError,
   type ApiKey,
 } from '@kolonie-ai/core'
 import { buildApp } from './app.js'
@@ -24,7 +25,8 @@ import {
 } from './mcp.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
 import { fakeStore } from './__fixtures__/store.js'
-import { fakeColony } from './__fixtures__/colony.js'
+import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
+import { REGISTRATION_LIMIT } from './rate-limit.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
@@ -52,6 +54,7 @@ const anonymousClient = (registry = fakeRegistry()) =>
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
+    caller: { ip: FAKE_CALLER_IP },
   })
 
 describe('kolonie.about', () => {
@@ -273,7 +276,10 @@ describe('the unauthenticated tier', () => {
 describe('kolonie.me', () => {
   const authenticatedColony = async () => {
     const colony = fakeColony()
-    const registered = await colony.registry.register({ name: 'canary', platform: 'openclaw' })
+    const registered = await colony.registry.register(
+      { name: 'canary', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
     if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
 
     const { agent, credentials } = registered.response
@@ -338,11 +344,14 @@ describe('kolonie.profile.update', () => {
    */
   const citizen = async (profile: Record<string, unknown> = {}) => {
     const colony = fakeColony()
-    const registered = await colony.registry.register({
-      name: 'canary',
-      platform: 'openclaw',
-      ...profile,
-    })
+    const registered = await colony.registry.register(
+      {
+        name: 'canary',
+        platform: 'openclaw',
+        ...profile,
+      },
+      { ip: FAKE_CALLER_IP },
+    )
     if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
 
     return { colony, apiKey: registered.response.credentials.apiKey }
@@ -483,7 +492,10 @@ describe('kolonie.profile.update', () => {
     const colony = fakeColony()
     const app = buildApp(colony)
     await app.ready()
-    const registered = await colony.registry.register({ name: 'canary', platform: 'openclaw' })
+    const registered = await colony.registry.register(
+      { name: 'canary', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
     if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
     const { apiKey } = registered.response.credentials
 
@@ -513,7 +525,10 @@ describe('kolonie.profile.update', () => {
  */
 const registeredCitizen = async () => {
   const colony = fakeColony()
-  const registered = await colony.registry.register({ name: 'canary', platform: 'openclaw' })
+  const registered = await colony.registry.register(
+    { name: 'canary', platform: 'openclaw' },
+    { ip: FAKE_CALLER_IP },
+  )
   if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
 
   const { agent, credentials } = registered.response
@@ -905,6 +920,40 @@ describe('the MCP surface over HTTP', () => {
     expect(() => GetMeResponseSchema.parse(structuredContent)).not.toThrow()
   })
 
+  /**
+   * One limit, two doors (#10). The registration limiter is wrapped around the
+   * registry in `buildApp`, so an agent that has spent its allowance at `/v1`
+   * cannot walk round to MCP and spend it again. Asserted across both surfaces
+   * rather than on the limiter, because what could break is the *wiring* — a
+   * second, unthrottled registry reaching the MCP tool would pass every
+   * single-surface test in this file.
+   */
+  it('counts a registration over MCP against the same allowance as /v1', async () => {
+    const CALLER = '192.0.2.10'
+    app = buildApp(fakeColony())
+    await app.ready()
+
+    for (let attempt = 0; attempt < REGISTRATION_LIMIT; attempt += 1) {
+      const spent = await app.inject({
+        method: 'POST',
+        url: '/v1/agents/register',
+        headers: { 'x-forwarded-for': CALLER },
+        payload: { name: `canary-${attempt}`, platform: 'openclaw' },
+      })
+      expect(spent.statusCode).toBe(201)
+    }
+
+    const overMcp = await rpc(
+      'tools/call',
+      { name: 'kolonie.register', arguments: { name: 'one-too-many', platform: 'openclaw' } },
+      { 'x-forwarded-for': CALLER },
+    )
+
+    const result = overMcp.result as { isError?: boolean; structuredContent: { error: ApiError } }
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent.error.code).toBe('rate_limited')
+  })
+
   it('refuses a key that does not resolve, the same way /v1 does', async () => {
     app = buildApp({
       registry: fakeRegistry(),
@@ -928,7 +977,10 @@ describe('the MCP surface over HTTP', () => {
     const colony = fakeColony()
     app = buildApp(colony)
     await app.ready()
-    const registered = await colony.registry.register({ name: 'canary', platform: 'openclaw' })
+    const registered = await colony.registry.register(
+      { name: 'canary', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
     if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
     colony.revoke(registered.response.credentials.apiKey)
 

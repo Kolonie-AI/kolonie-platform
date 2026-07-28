@@ -19,7 +19,7 @@ import { gateUnavailable, openChallenge, type AcademyDependencies } from './acad
 import { updateProfile } from './profile.js'
 import { listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
-import type { AgentRegistry } from './registration.js'
+import type { AgentRegistry, Caller } from './registration.js'
 
 /**
  * The MCP surface is the **root** of its own hostname.
@@ -57,6 +57,15 @@ export const MCP_PATHS = [MCP_PATH, MCP_ALIAS_PATH] as const
  */
 export interface McpDependencies {
   readonly registry: AgentRegistry
+  /**
+   * Who is calling, resolved by `app.ts` before the transport sees the request.
+   *
+   * Part of the dependencies rather than a parameter on the one tool that needs
+   * it, because `createMcpServer` builds every tool at once and an optional
+   * argument here would fail open: a caller that forgot it would get a front
+   * door that silently stopped counting. Required, so the compiler asks.
+   */
+  readonly caller: Caller
   readonly store: AgentStore
   readonly catalogue: TaskCatalogue
   readonly submissions: TaskSubmissions
@@ -187,11 +196,15 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       },
     },
     async (input) => {
-      const result = await deps.registry.register(input)
+      const result = await deps.registry.register(input, deps.caller)
 
       // The same `ApiError` the HTTP surface returns, so an agent that has
-      // learned one vocabulary does not have to learn a second.
-      if (result.outcome === 'rejected') return toolError(result.error)
+      // learned one vocabulary does not have to learn a second. A throttled
+      // caller is told the same thing here as at `/v1`, minus the header there
+      // is nowhere to put — the delay travels in `details.retryAfterSeconds`.
+      if (result.outcome === 'rejected' || result.outcome === 'rate-limited') {
+        return toolError(result.error)
+      }
 
       return {
         content: [

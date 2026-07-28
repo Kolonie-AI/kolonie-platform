@@ -55,6 +55,16 @@ const CONFLICTING_INDEX = {
 export async function registerAgent(
   db: Database,
   request: RegisterAgentRequest,
+  /**
+   * Where the registration came from, already fingerprinted (D-028).
+   *
+   * Optional because the caller decides whether it could resolve an address at
+   * all, and a registration that cannot be attributed is still a registration —
+   * refusing it would turn a missing header into a closed front door. It is the
+   * *caller's* job to hash: this function never sees a raw address, so no code
+   * path exists down which one could reach a column or a log line.
+   */
+  registrationFingerprint?: string,
 ): Promise<RegisterAgentResult> {
   const apiKey = generateApiKey()
 
@@ -68,6 +78,7 @@ export async function registerAgent(
           operator: request.operator,
           capabilities: request.capabilities,
           wallet: request.wallet,
+          registrationFingerprint: registrationFingerprint ?? null,
           // status, roles and level are left to the column defaults: `candidate`,
           // no roles, level 0 (D-001). Restating them here would create a second
           // place where "what a new agent starts as" is written down.

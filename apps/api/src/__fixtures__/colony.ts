@@ -17,7 +17,7 @@ import type { TaskCatalogue } from '../tasks.js'
 import type { TaskSubmissions } from '../submissions.js'
 import type { AcademyDependencies } from '../academy.js'
 import { fakeAcademy } from './academy.js'
-import { register, type AgentRegistry } from '../registration.js'
+import { register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
 
@@ -35,6 +35,15 @@ import { fakeSubmissions } from './submissions.js'
  * enforces case-insensitive names or finds a credential through the unique index
  * on its hash is asserted in `packages/db`, against a real Postgres.
  */
+/**
+ * The address every fake caller arrives from unless a test says otherwise.
+ *
+ * Documentation range (RFC 5737), so it is unmistakably not a real host and
+ * cannot become one — `AGENTS.md` §9 forbids a real address in this repository,
+ * and a fixture is not an exception to that.
+ */
+export const FAKE_CALLER_IP = '192.0.2.10'
+
 export interface FakeColony {
   readonly registry: AgentRegistry
   readonly store: AgentStore
@@ -47,6 +56,12 @@ export interface FakeColony {
   readonly submissions: TaskSubmissions
   /** The Browser Capability Gate, behind both surfaces. Overridable the same way. */
   readonly academy: AcademyDependencies
+  /**
+   * Who the MCP surface thinks is calling. One fixed address, because most tests
+   * are not about the rate limit and want the front door to behave the same way
+   * every time; the tests that *are* about it supply their own.
+   */
+  readonly caller: Caller
   /** Revoke a key the Colony issued, exactly as the database would see it. */
   readonly revoke: (apiKey: ApiKey) => void
   /** Credit an agent, so a balance read has something to be right about. */
@@ -108,6 +123,7 @@ export function fakeColony(): FakeColony {
 
   return {
     registry: { register: (request) => register(request, store) },
+    caller: { ip: FAKE_CALLER_IP },
 
     catalogue: fakeCatalogue(),
 

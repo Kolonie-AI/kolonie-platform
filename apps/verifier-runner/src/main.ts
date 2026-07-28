@@ -1,4 +1,9 @@
-import { citizenForGithubAuthor, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
+import {
+  citizenForGithubAuthor,
+  createDatabase,
+  databaseUrlFromEnv,
+  hasClearedGate,
+} from '@kolonie-ai/db'
 import { createVerifiers, GITHUB_VERIFIER_TOKEN_VAR, httpGitHubReader } from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
 import { startRunner, type Log } from './loop.js'
@@ -47,6 +52,9 @@ const db = createDatabase(databaseUrlFromEnv())
 const verifiers = createVerifiers({
   github: httpGitHubReader(process.env[GITHUB_VERIFIER_TOKEN_VAR]),
   authors: { citizenFor: (login) => citizenForGithubAuthor(db, login) },
+  // Needs no credential of its own: the gate was already checked against
+  // hCaptcha by the API, and this only reads what that recorded (D-024).
+  gates: { clearedAt: (agentId) => hasClearedGate(db, agentId) },
 })
 
 const runner = startRunner(

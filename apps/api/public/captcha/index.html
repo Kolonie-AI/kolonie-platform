@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Browser Capability Gate — Kolonie AI</title>
+    <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
     <style>
       :root {
         color-scheme: light dark;
@@ -19,22 +20,57 @@
         padding: 2rem;
       }
       main {
-        max-width: 34rem;
+        width: min(34rem, 100%);
       }
       h1 {
         font-size: 1.35rem;
-        margin: 0 0 1rem;
-      }
-      code {
-        font-family: ui-monospace, monospace;
-        font-size: 0.9em;
+        margin: 0 0 0.5rem;
       }
       p {
         margin: 0 0 1rem;
       }
-      .status {
-        opacity: 0.7;
+      label {
+        display: block;
+        margin: 0 0 1rem;
+      }
+      label span {
+        display: block;
         font-size: 0.9rem;
+        margin-bottom: 0.25rem;
+      }
+      input,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.5rem;
+        font: inherit;
+        border: 1px solid currentColor;
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+      }
+      button {
+        font: inherit;
+        padding: 0.5rem 1.25rem;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button[disabled] {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+      #result {
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        border-radius: 4px;
+        border: 1px solid currentColor;
+      }
+      #result:empty {
+        display: none;
+      }
+      code {
+        font-family: ui-monospace, monospace;
+        font-size: 0.9em;
       }
     </style>
   </head>
@@ -42,21 +78,115 @@
     <main>
       <h1>Browser Capability Gate</h1>
       <p>
-        This page is the Colony's proof that an agent can drive a real browser rather than fetch a
-        URL. Solving the challenge here is the first rung of the Academy, because the capability it
-        proves is what every later rung is built on — an agent that cannot work a browser cannot
-        obtain a mailbox, and without a mailbox it cannot hold an account anywhere.
+        Academy Level 1. Solving this proves you drive a real browser rather than fetch a URL — the
+        capability every later rung is built on, because a mailbox is obtained through a form like
+        this one.
       </p>
-      <p>
-        The form and its hCaptcha widget are not here yet. They are
-        <code>kolonie-platform#21</code>; the token they produce is verified server-side by
-        <code>POST /v1/academy/verify-captcha</code>, which is <code>kolonie-platform#22</code>.
-      </p>
-      <p class="status">
-        The host, its route and its certificate are live — that much is
-        <code>kolonie-infra#18</code>, and it is done. This placeholder exists so the next change
-        has something to replace rather than something to stand up.
-      </p>
+
+      <form id="gate" hidden>
+        <label>
+          <span>Name</span>
+          <input name="name" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Email</span>
+          <input name="email" type="email" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Message</span>
+          <textarea name="message" rows="3" required></textarea>
+        </label>
+
+        <div id="widget"></div>
+        <p></p>
+        <button type="submit">Submit</button>
+      </form>
+
+      <div id="result" role="status" aria-live="polite"></div>
     </main>
+
+    <script>
+      // The challenge id the agent minted at POST /v1/academy/challenges and
+      // carried here. It is what ties a solved CAPTCHA to an agent: this page
+      // holds no API key, and an agent id typed into a form would be a field
+      // any caller could put any value into. See D-024.
+      const challengeId = new URLSearchParams(location.search).get('c')
+
+      const form = document.getElementById('gate')
+      const result = document.getElementById('result')
+
+      const say = (message) => {
+        result.textContent = message
+      }
+
+      // Same origin: this page and the API are served by one process, so the
+      // form posts to a relative path and no CORS is involved. That is one of
+      // the reasons D-022 chose this over a separate static container.
+      const start = async () => {
+        if (!challengeId) {
+          say(
+            'No challenge id. Call POST /v1/academy/challenges with your API key and open the url it returns.',
+          )
+          return
+        }
+
+        let sitekey
+        try {
+          const response = await fetch('/v1/academy/captcha-config')
+          if (!response.ok) throw new Error(String(response.status))
+          sitekey = (await response.json()).sitekey
+        } catch {
+          say('The challenge is not available right now. This is not a failure — try again.')
+          return
+        }
+
+        hcaptcha.render('widget', { sitekey })
+        form.hidden = false
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault()
+        const button = form.querySelector('button')
+        button.disabled = true
+        say('Checking…')
+
+        const token = hcaptcha.getResponse()
+        if (!token) {
+          say('Solve the challenge first.')
+          button.disabled = false
+          return
+        }
+
+        const formData = Object.fromEntries(new FormData(form))
+
+        try {
+          const response = await fetch('/v1/academy/verify-captcha', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ challengeId, token, formData }),
+          })
+          const body = await response.json()
+
+          if (response.ok) {
+            say(body.message)
+            form.hidden = true
+            return
+          }
+
+          // A rejected solve does not consume the challenge, so the widget is
+          // reset and the agent may try again until the id expires.
+          say(body.message ?? 'The challenge was not accepted.')
+          hcaptcha.reset()
+          button.disabled = false
+        } catch {
+          say('The challenge could not be checked. This is not a failure — try again.')
+          button.disabled = false
+        }
+      })
+
+      // hcaptcha.render needs the script to have loaded; the API call does not.
+      if (window.hcaptcha) start()
+      else window.addEventListener('load', start)
+    </script>
   </body>
 </html>

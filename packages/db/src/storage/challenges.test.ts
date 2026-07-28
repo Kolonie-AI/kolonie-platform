@@ -1,0 +1,151 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { eq, sql } from 'drizzle-orm'
+import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
+import type { Database } from '../client.js'
+import { browserChallenges } from '../schema/index.js'
+import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { registerAgent } from './agents.js'
+import { hasClearedGate, mintChallenge, redeemChallenge } from './challenges.js'
+
+const target = databaseTestTarget()
+
+if (!target.available) {
+  console.warn(`\n${target.reason}\n`)
+}
+
+describe.skipIf(!target.available)('the Browser Capability Gate', () => {
+  let db: Database
+  let agentId: AgentId
+  let otherId: AgentId
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    agentId = await register('gatekeeper')
+    otherId = await register('bystander')
+  })
+
+  const register = async (name: string): Promise<AgentId> => {
+    const result = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name, platform: 'openclaw' }),
+    )
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent.id
+  }
+
+  /**
+   * Age a row into the past — minting cannot produce an expired one.
+   *
+   * Both timestamps move, because `browser_challenges_expiry_after_creation`
+   * refuses a row whose expiry precedes its creation. Writing this helper the
+   * obvious way is how that constraint first proved it was doing something.
+   */
+  const expire = async (challengeId: string) => {
+    await db
+      .update(browserChallenges)
+      .set({
+        createdAt: sql`now() - interval '2 minutes'`,
+        expiresAt: sql`now() - interval '1 minute'`,
+      })
+      .where(eq(browserChallenges.id, challengeId))
+  }
+
+  it('mints a challenge that is unsolved and in the future', async () => {
+    const minted = await mintChallenge(db, agentId)
+
+    expect(minted.id).toMatch(/^[0-9a-f-]{36}$/i)
+    expect(Date.parse(minted.expiresAt)).toBeGreaterThan(Date.now())
+    expect(await hasClearedGate(db, agentId)).toBeNull()
+  })
+
+  it('credits the agent that minted the challenge, never the caller', async () => {
+    const minted = await mintChallenge(db, agentId)
+
+    const redeemed = await redeemChallenge(db, minted.id)
+
+    expect(redeemed).toEqual({ outcome: 'verified', agentId })
+    expect(await hasClearedGate(db, agentId)).toBeTruthy()
+    // The other agent solved nothing, and holding the id would not have helped.
+    expect(await hasClearedGate(db, otherId)).toBeNull()
+  })
+
+  it('tells apart an unknown id, an expired one and one already used', async () => {
+    expect(await redeemChallenge(db, crypto.randomUUID())).toEqual({ outcome: 'unknown' })
+
+    const used = await mintChallenge(db, agentId)
+    await redeemChallenge(db, used.id)
+    expect(await redeemChallenge(db, used.id)).toEqual({ outcome: 'already_verified' })
+
+    const stale = await mintChallenge(db, agentId)
+    await expire(stale.id)
+    expect(await redeemChallenge(db, stale.id)).toEqual({ outcome: 'expired' })
+  })
+
+  /**
+   * Single-use is a condition in the `UPDATE … WHERE`, not a read followed by a
+   * write, so two form submissions arriving together cannot both succeed. This
+   * is the property the fake in `apps/api` cannot model, and the reason this
+   * test needs a real database.
+   */
+  it('lets exactly one of two concurrent redemptions win', async () => {
+    const minted = await mintChallenge(db, agentId)
+
+    const results = await Promise.all([
+      redeemChallenge(db, minted.id),
+      redeemChallenge(db, minted.id),
+    ])
+
+    expect(results.filter((r) => r.outcome === 'verified')).toHaveLength(1)
+    expect(results.filter((r) => r.outcome === 'already_verified')).toHaveLength(1)
+  })
+
+  it('rejects a malformed id without letting Postgres raise', async () => {
+    // The id arrives from a form field, which means it arrives from anywhere.
+    expect(await redeemChallenge(db, 'not-a-uuid')).toEqual({ outcome: 'unknown' })
+    expect(await redeemChallenge(db, "'; drop table agents; --")).toEqual({ outcome: 'unknown' })
+  })
+
+  /**
+   * The capability the gate proves does not lapse when the challenge that proved
+   * it expires. An agent that cleared it last week and submits today passes.
+   */
+  /**
+   * Written as a historical row rather than by ageing a fresh one, because
+   * ageing is not what happens: `expires_at` is fixed at mint and it is *now*
+   * that moves past it. A week-old challenge solved two minutes after it was
+   * opened is the real shape, and it satisfies both check constraints.
+   */
+  it('keeps a pass long after the challenge that earned it has expired', async () => {
+    await db.insert(browserChallenges).values({
+      agentId,
+      createdAt: sql`now() - interval '7 days'`,
+      expiresAt: sql`now() - interval '7 days' + interval '10 minutes'`,
+      verifiedAt: sql`now() - interval '7 days' + interval '2 minutes'`,
+    })
+
+    expect(await hasClearedGate(db, agentId)).toBeTruthy()
+  })
+
+  it('refuses at the database to record a solve after expiry', async () => {
+    const minted = await mintChallenge(db, agentId)
+    await expire(minted.id)
+
+    // The check constraint is the backstop under the endpoint's own guard: this
+    // is the constraint the whole gate rests on, so it is stated in SQL too.
+    await expect(
+      db
+        .update(browserChallenges)
+        .set({ verifiedAt: sql`now()` })
+        .where(eq(browserChallenges.id, minted.id)),
+    ).rejects.toThrow()
+  })
+})

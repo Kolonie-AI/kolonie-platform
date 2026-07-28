@@ -12,6 +12,7 @@ import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
+import { fakeAcademy } from '../__fixtures__/academy.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -21,7 +22,13 @@ let apiKey: ApiKey
 beforeEach(async () => {
   store = fakeStore()
   catalogue = fakeCatalogue()
-  app = buildApp({ registry: fakeRegistry(), store, catalogue, submissions: fakeSubmissions() })
+  app = buildApp({
+    registry: fakeRegistry(),
+    store,
+    catalogue,
+    submissions: fakeSubmissions(),
+    academy: fakeAcademy(),
+  })
   await app.ready()
   apiKey = store.issue({ level: 2 }).apiKey
 })

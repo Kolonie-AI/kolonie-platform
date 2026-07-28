@@ -7,6 +7,7 @@ import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions, type FakeSubmissions } from '../__fixtures__/submissions.js'
+import { fakeAcademy } from '../__fixtures__/academy.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -24,6 +25,7 @@ beforeEach(async () => {
     store,
     catalogue: fakeCatalogue(),
     submissions,
+    academy: fakeAcademy(),
   })
   await app.ready()
   const issued = store.issue({ level: 2 })

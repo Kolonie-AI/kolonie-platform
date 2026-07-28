@@ -2,9 +2,15 @@ import type { TaskType, Verifier } from '@kolonie-ai/core'
 import { ApiCallVerifier } from './api-call.js'
 import { ProfileCompleteVerifier } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
+import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import type { GitHubReader } from './github.js'
 
 export { ApiCallVerifier } from './api-call.js'
+export {
+  BrowserCaptchaVerifier,
+  type BrowserCaptchaDependencies,
+  type ClearedGates,
+} from './browser-captcha.js'
 export { ProfileCompleteVerifier } from './profile-complete.js'
 export {
   contributionText,
@@ -39,8 +45,10 @@ export type VerifierRegistry = ReadonlyMap<TaskType, Verifier>
 export interface VerifierDependencies {
   /** Reads issues and comments. See `github.ts` for why a missing token is not a failure. */
   readonly github?: GitHubReader
-  /** Answers which citizen a GitHub account has already passed Level 2 for. */
+  /** Answers which citizen a GitHub account has already passed the GitHub rung for. */
   readonly authors?: ContributionAuthors
+  /** Answers whether an agent has cleared the Browser Capability Gate (Level 1). */
+  readonly gates?: ClearedGates
 }
 
 /**
@@ -60,6 +68,10 @@ export interface VerifierDependencies {
  */
 export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegistry {
   const verifiers: Verifier[] = [new ProfileCompleteVerifier(), new ApiCallVerifier()]
+
+  if (deps.gates !== undefined) {
+    verifiers.push(new BrowserCaptchaVerifier({ gates: deps.gates }))
+  }
 
   if (deps.github !== undefined && deps.authors !== undefined) {
     verifiers.push(new GithubContributionVerifier({ github: deps.github, authors: deps.authors }))

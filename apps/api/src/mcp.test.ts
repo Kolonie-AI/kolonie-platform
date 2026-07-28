@@ -26,6 +26,7 @@ import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony } from './__fixtures__/colony.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
+import { fakeAcademy } from './__fixtures__/academy.js'
 
 /**
  * Drive the MCP server the way a foreign agent does — through a real client
@@ -207,6 +208,7 @@ describe('kolonie.register', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
     })
     await app.ready()
     await app.inject({
@@ -552,6 +554,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
     })
     await app.ready()
 
@@ -567,6 +570,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
     })
     await app.ready()
 
@@ -589,6 +593,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
     })
     await app.ready()
 
@@ -604,6 +609,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
     })
     await app.ready()
 
@@ -619,6 +625,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
     })
     await app.ready()
 
@@ -643,6 +650,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
     })
     await app.ready()
 
@@ -683,6 +691,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
     })
     await app.ready()
 

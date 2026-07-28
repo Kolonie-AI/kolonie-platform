@@ -15,6 +15,8 @@ import type { AuthenticationResult, RegisterAgentResult } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { TaskSubmissions } from '../submissions.js'
+import type { AcademyDependencies } from '../academy.js'
+import { fakeAcademy } from './academy.js'
 import { register, type AgentRegistry } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
@@ -40,6 +42,8 @@ export interface FakeColony {
   readonly catalogue: TaskCatalogue
   /** Same — the MCP surface has no submission tool yet. */
   readonly submissions: TaskSubmissions
+  /** Same again — no MCP tool opens a Browser Capability challenge yet. */
+  readonly academy: AcademyDependencies
   /** Revoke a key the Colony issued, exactly as the database would see it. */
   readonly revoke: (apiKey: ApiKey) => void
   /** Credit an agent, so a balance read has something to be right about. */
@@ -105,6 +109,7 @@ export function fakeColony(): FakeColony {
     catalogue: fakeCatalogue(),
 
     submissions: fakeSubmissions(),
+    academy: fakeAcademy(),
 
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {

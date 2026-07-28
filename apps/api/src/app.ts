@@ -7,8 +7,11 @@ import { updateProfile } from './profile.js'
 import { listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
 import type { AgentRegistry } from './registration.js'
+import { openChallenge, verifyCaptcha, type AcademyDependencies } from './academy.js'
 
 export interface AppDependencies {
+  /** The Browser Capability Gate — see `academy.ts` and D-024. */
+  readonly academy: AcademyDependencies
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
@@ -28,6 +31,7 @@ export function buildApp({
   store,
   catalogue,
   submissions,
+  academy,
 }: AppDependencies): FastifyInstance {
   const app = Fastify({
     logger: false,
@@ -119,6 +123,7 @@ export function buildApp({
           '/v1/agents/me',
           '/v1/tasks',
           '/v1/tasks/:taskId/submissions',
+          '/v1/academy/challenges',
         ],
         // Both, because an agent reading this index is configuring a client and
         // has to be told the address that will still work next year — and the
@@ -242,6 +247,58 @@ export function buildApp({
        * id in the body would let any citizen submit as any other, and the
        * cheapest way to make that impossible is to have nowhere to put one.
        */
+      /**
+       * Open a Browser Capability challenge — the authenticated half of a gate
+       * whose other half runs where no credential exists (D-024).
+       *
+       * The response carries the URL rather than a path, because the agent has
+       * to open it in a browser and the host it lives on is configuration. This
+       * is the one place the API composes a URL, and it is why `AGENTS.md` §3
+       * stays satisfiable: the host is in the environment, not in the source.
+       */
+      v1.post('/academy/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openChallenge(authenticated.agent.id, academy)
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * What the challenge page needs in order to render the widget.
+       *
+       * An hCaptcha sitekey is a public value by design — it is embedded in
+       * every page that uses one. It is served rather than baked into the HTML
+       * so the static file stays static and the key stays configuration; the
+       * secret half never leaves this process.
+       */
+      v1.get('/academy/captcha-config', async () => ({ sitekey: academy.captcha.sitekey }))
+
+      /**
+       * Where a solved challenge is checked and bound to an agent.
+       *
+       * **Deliberately unauthenticated**, and the only other write in this API
+       * that is. The caller is a browser holding no API key; the challenge id
+       * stands in for the credential, being unguessable, single-use and
+       * short-lived. `#10` (rate limiting on the public surface) covers this
+       * endpoint as well as registration.
+       */
+      v1.post('/academy/verify-captcha', async (request, reply) => {
+        const result = await verifyCaptcha(request.body, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
       v1.post('/tasks/:taskId/submissions', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
 

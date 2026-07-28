@@ -7,6 +7,7 @@ import { brokenRegistry, DRIVER_FAILURE_MESSAGE, fakeRegistry } from '../__fixtu
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
+import { fakeAcademy } from '../__fixtures__/academy.js'
 
 let app: FastifyInstance
 
@@ -16,6 +17,7 @@ const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
     store: fakeStore(),
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
+    academy: fakeAcademy(),
   })
   await app.ready()
   return app

@@ -229,7 +229,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * token and flips this line. A draft task is invisible to agents (D-014), so
      * waiting costs nothing.
      */
-    status: 'draft',
+    status: 'active',
   },
 ]
 

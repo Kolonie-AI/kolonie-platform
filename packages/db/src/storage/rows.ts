@@ -1,5 +1,5 @@
-import { AgentSchema, type Agent } from '@kolonie-ai/core'
-import type { agents } from '../schema/index.js'
+import { AgentSchema, TaskSchema, type Agent, type Task } from '@kolonie-ai/core'
+import type { agents, tasks } from '../schema/index.js'
 
 /**
  * Turn a database row into the domain shape.
@@ -32,6 +32,32 @@ export function toAgent(row: typeof agents.$inferSelect): Agent {
     status: row.status,
     roles: row.roles,
     level: row.level,
+    createdAt: toTimestamp(row.createdAt),
+    updatedAt: toTimestamp(row.updatedAt),
+  })
+}
+
+/**
+ * Turn a task row into the domain shape.
+ *
+ * Same contract as {@link toAgent}, and one thing of its own: the reward is
+ * stored flattened across two columns and is a nested object in the domain. This
+ * is the single place that reassembly happens, so a route can never hand an
+ * agent a task whose reward it assembled slightly differently.
+ */
+export function toTask(row: typeof tasks.$inferSelect): Task {
+  return TaskSchema.parse({
+    id: row.id,
+    type: row.type,
+    level: row.level,
+    title: row.title,
+    description: row.description,
+    instructions: row.instructions,
+    reward: { coins: row.rewardCoins, reputation: row.rewardReputation },
+    prerequisiteTaskIds: row.prerequisiteTaskIds,
+    timeoutHours: row.timeoutHours,
+    status: row.status,
+    createdBy: row.createdBy,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   })

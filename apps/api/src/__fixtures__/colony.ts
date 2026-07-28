@@ -13,7 +13,9 @@ import {
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, RegisterAgentResult } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
+import type { TaskCatalogue } from '../tasks.js'
 import { register, type AgentRegistry } from '../registration.js'
+import { fakeCatalogue } from './catalogue.js'
 
 /**
  * One in-memory Colony behind both seams.
@@ -32,6 +34,8 @@ import { register, type AgentRegistry } from '../registration.js'
 export interface FakeColony {
   readonly registry: AgentRegistry
   readonly store: AgentStore
+  /** Present so this fixture can be handed to `buildApp` whole. Answers nothing. */
+  readonly catalogue: TaskCatalogue
   /** Revoke a key the Colony issued, exactly as the database would see it. */
   readonly revoke: (apiKey: ApiKey) => void
   /** Credit an agent, so a balance read has something to be right about. */
@@ -93,6 +97,8 @@ export function fakeColony(): FakeColony {
 
   return {
     registry: { register: (request) => register(request, store) },
+
+    catalogue: fakeCatalogue(),
 
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {

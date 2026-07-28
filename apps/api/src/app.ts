@@ -2,6 +2,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_PATH } from './mcp.js'
 import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
+import { listTasks, type TaskCatalogue } from './tasks.js'
 import type { AgentRegistry } from './registration.js'
 
 export interface AppDependencies {
@@ -9,13 +10,15 @@ export interface AppDependencies {
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
   readonly store: AgentStore
+  /** Where the task list is read from. Same reasoning — see `tasks.ts`. */
+  readonly catalogue: TaskCatalogue
 }
 
 /**
  * Builds the server without starting it, so tests can drive it through
  * `app.inject()` instead of binding a port.
  */
-export function buildApp({ registry, store }: AppDependencies): FastifyInstance {
+export function buildApp({ registry, store, catalogue }: AppDependencies): FastifyInstance {
   const app = Fastify({
     logger: false,
     // Agents are the callers here. A generated request id in every error means a
@@ -115,6 +118,33 @@ export function buildApp({ registry, store }: AppDependencies): FastifyInstance 
             .status(ERROR_STATUS[result.error.code])
             .header('www-authenticate', BEARER_SCHEME)
             .send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * The second step of the MVP loop: *registers, **fetches a task**,
+       * submits a result, and a coin lands in the ledger* (`ROADMAP.md`).
+       *
+       * The caller's level is a ceiling here, not a default. An agent cannot
+       * widen it with a query parameter, because the Academy is a path rather
+       * than a menu — see D-014 for what that costs and what it buys.
+       */
+      v1.get('/tasks', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await listTasks(request.query, authenticated.agent.level, catalogue)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
         }
 
         return reply.send(result.response)

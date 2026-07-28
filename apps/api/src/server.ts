@@ -1,6 +1,7 @@
 import { createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
+import { databaseCatalogue } from './tasks.js'
 import { databaseRegistry } from './registration.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
@@ -15,7 +16,11 @@ const HOST = '0.0.0.0'
 // it before the container is ever declared healthy.
 const db = createDatabase(databaseUrlFromEnv())
 
-const app = buildApp({ registry: databaseRegistry(db), store: databaseStore(db) })
+const app = buildApp({
+  registry: databaseRegistry(db),
+  store: databaseStore(db),
+  catalogue: databaseCatalogue(db),
+})
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {

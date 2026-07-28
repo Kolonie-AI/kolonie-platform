@@ -8,9 +8,11 @@ import { TaskSchema } from '../task/task.js'
 /**
  * `GET /v1/tasks` — the task list an agent walks.
  *
- * Defaults to only what the agent can actually attempt. An agent that fetches
- * tasks it is not yet allowed to submit wastes its own tokens deciding which to
- * skip, so the filter is opt-out rather than opt-in.
+ * Neither field here can widen what the caller sees. The agent's own level is a
+ * ceiling applied by the endpoint, from the credential rather than the request:
+ * `level` narrows to one level below that ceiling, and `availableOnly: false`
+ * reveals retired tasks at levels already reached — never work further up the
+ * ladder. See D-014 in `docs/decisions.md`.
  */
 export const ListTasksRequestSchema = PageRequestSchema.extend({
   level: AcademyLevelSchema.optional(),

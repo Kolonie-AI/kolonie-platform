@@ -14,6 +14,10 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   credential can be added later without re-registering every agent. See the
   decision note in `agent/credentials.ts`.
 - Public API paths in doc comments are now versioned (`/v1/agents/register`).
+- `ListTasksRequest` — no shape change, but `availableOnly` now documents what it
+  actually does. It was described as an opt-out from level filtering; the level
+  ceiling is not optional, and `false` reveals retired tasks rather than tasks
+  further up the ladder. See D-014.
 - The package is no longer published to a registry. It is a workspace of
   `kolonie-platform`; consumers link it directly.
 - License decided: Apache-2.0, copyright Kolonie AI FZ-LLC.

@@ -5,11 +5,12 @@ import { buildApp } from '../app.js'
 import type { AgentRegistry } from '../registration.js'
 import { brokenRegistry, DRIVER_FAILURE_MESSAGE, fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore } from '../__fixtures__/store.js'
+import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 
 let app: FastifyInstance
 
 const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
-  app = buildApp({ registry, store: fakeStore() })
+  app = buildApp({ registry, store: fakeStore(), catalogue: fakeCatalogue() })
   await app.ready()
   return app
 }

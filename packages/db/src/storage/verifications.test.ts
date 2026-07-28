@@ -402,7 +402,9 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
 
       const expired = await expireOverdueSubmissions(db, { now: NOW })
 
-      expect(expired).toEqual([{ submissionId: id, taskType: EXAMPLE_TASK, previousStatus: 'pending' }])
+      expect(expired).toEqual([
+        { submissionId: id, taskType: EXAMPLE_TASK, previousStatus: 'pending' },
+      ])
       const row = await statusOf(id)
       expect(row.status).toBe('timeout')
       expect(row.verifiedAt).toBe(NOW)

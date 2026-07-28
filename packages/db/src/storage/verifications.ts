@@ -6,6 +6,7 @@ import {
   submissionStatusFor,
   SubmissionIdSchema,
   TaskTypeSchema,
+  type Agent,
   type Submission,
   type SubmissionId,
   type SubmissionStatus,
@@ -15,8 +16,8 @@ import {
   type VerifyResult,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { submissions, tasks, verifications } from '../schema/index.js'
-import { toSubmission, toVerification } from './rows.js'
+import { agents, submissions, tasks, verifications } from '../schema/index.js'
+import { toAgent, toSubmission, toVerification } from './rows.js'
 
 /** Statuses a submission can sit in while it still awaits a verdict. */
 const OPEN_STATUSES = ['pending', 'verifying'] as const
@@ -27,6 +28,16 @@ export interface ClaimedSubmission {
   readonly submission: Submission
   /** The type of the joined task — which verifier module has to run. */
   readonly taskType: TaskType
+  /**
+   * The agent that submitted, as `VerificationContext` requires it (D-018).
+   *
+   * Joined here rather than looked up by the runner so that it is read inside
+   * the claiming transaction, alongside the row it describes. A verifier that
+   * checks the profile is deciding whether *this* agent had *that* profile at
+   * the moment its work was taken up; fetching it separately afterwards would
+   * let an edit land in between and be checked instead.
+   */
+  readonly agent: Agent
 }
 
 /**
@@ -68,9 +79,14 @@ export async function claimNextSubmission(
 
   return db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ submission: submissions, taskType: tasks.type })
+      .select({ submission: submissions, taskType: tasks.type, agent: agents })
       .from(submissions)
       .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+      // Inner, not left: a submission whose agent has vanished is not a row to
+      // verify quietly, it is a foreign key that failed to hold. Leaving it
+      // unclaimed surfaces it as a stuck submission rather than paying it out
+      // against an agent nobody can name.
+      .innerJoin(agents, eq(agents.id, submissions.agentId))
       .where(and(eq(submissions.status, 'pending'), inArray(tasks.type, [...taskTypes])))
       // Oldest first: an agent that has waited longest is served first, and a
       // submission cannot be starved by a steady arrival of newer ones.
@@ -91,6 +107,7 @@ export async function claimNextSubmission(
     return {
       submission: toSubmission(claimed),
       taskType: TaskTypeSchema.parse(row.taskType),
+      agent: toAgent(row.agent),
     }
   })
 }

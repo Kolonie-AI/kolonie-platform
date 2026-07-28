@@ -3,6 +3,7 @@ import {
   submissionStatusFor,
   type Submission,
   type TaskType,
+  type VerificationContext,
   type VerifyResult,
 } from '@kolonie-ai/core'
 import { verifierFor } from '@kolonie-ai/verifiers'
@@ -36,13 +37,14 @@ export type Verdict =
  * clock. This is the code path that pays out coins, so it has to be testable
  * without a running Postgres — the storage loop around it is the easy half.
  *
- * `taskType` is passed in rather than read off the submission because a
- * submission only carries its `taskId`; the runner joins the task when it picks
- * the row up.
+ * `taskType` and `context` are passed in rather than read off the submission
+ * because a submission only carries ids; the runner joins the task and the agent
+ * in the same transaction that claims the row.
  */
 export async function verifySubmission(
   submission: Submission,
   taskType: TaskType,
+  context: VerificationContext,
 ): Promise<Verdict> {
   if (submission.status !== 'verifying') {
     return {
@@ -62,7 +64,7 @@ export async function verifySubmission(
     }
   }
 
-  const result = await verifier.verify(submission)
+  const result = await verifier.verify(submission, context)
   const next = submissionStatusFor(result.status)
 
   if (!canTransition(submission.status, next)) {

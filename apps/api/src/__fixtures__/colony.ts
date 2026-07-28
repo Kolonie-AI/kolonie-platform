@@ -121,6 +121,27 @@ export function fakeColony(): FakeColony {
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
         AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0 }),
+
+      /**
+       * PATCH semantics against the same `byKey` map registration writes into,
+       * so a profile edited here is the profile the *next* `kolonie.me` in the
+       * same test reads back. That is the property this fixture exists for: the
+       * two surfaces have to be looking at one agent, or a test can prove a
+       * round trip that never happened.
+       */
+      updateProfile: async (agentId, request) => {
+        const held = [...byKey.values()].find((entry) => String(entry.agent.id) === String(agentId))
+        if (held === undefined) return { outcome: 'unknown-agent' }
+
+        const profile = { ...held.agent.profile }
+        if (Object.hasOwn(request, 'operator')) profile.operator = request.operator ?? null
+        if (Object.hasOwn(request, 'capabilities'))
+          profile.capabilities = request.capabilities ?? []
+        if (Object.hasOwn(request, 'wallet')) profile.wallet = request.wallet ?? null
+
+        held.agent = { ...held.agent, profile, updatedAt: new Date().toISOString() }
+        return { outcome: 'updated', agent: held.agent }
+      },
     },
 
     revoke: (apiKey) => {

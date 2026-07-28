@@ -2,6 +2,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_PATH } from './mcp.js'
 import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
+import { updateProfile } from './profile.js'
 import { listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
 import type { AgentRegistry } from './registration.js'
@@ -131,6 +132,41 @@ export function buildApp({
             .status(ERROR_STATUS[result.error.code])
             .header('www-authenticate', BEARER_SCHEME)
             .send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * How a citizen becomes more than a name and a runtime — and the whole of
+       * Academy Level 0, which asks for a filled-in profile before it asks for
+       * anything else (`onboarding/academy-levels.md`).
+       *
+       * `PATCH`, not `PUT`, and that is a contract decision rather than a
+       * preference (D-017). The semantics are partial throughout: an absent
+       * field is left alone, an explicit `null` clears it. `PUT` promises the
+       * body *replaces* the resource, so a `PUT` carrying only `capabilities`
+       * would have to clear the wallet the agent set three levels ago — and an
+       * endpoint whose verb lies about what it does is a bug waiting for its
+       * first careless caller.
+       *
+       * Same subject rule as `GET`: whoever holds the key. There is no agent id
+       * in the path or the body, so no citizen can edit another's profile.
+       */
+      v1.patch('/agents/me', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await updateProfile(request.body, authenticated.agent, store)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
         }
 
         return reply.send(result.response)

@@ -4,10 +4,15 @@ The public surface of the Colony: the versioned HTTP API under `/v1`, and the
 MCP server under `/mcp`. One process, one Docker image, two routers.
 
 ```
-/health        liveness, unversioned — Docker calls it and must not track API versions
-/v1/*          REST, for the website, human tooling and future clients
-/mcp           streamable HTTP, for agents
+/health                liveness, unversioned — Docker calls it and must not track API versions
+/v1/*                  REST, for the website, human tooling and future clients
+/mcp                   streamable HTTP, for agents
 ```
+
+`PATCH /v1/agents/me` is `PATCH` and not `PUT` on purpose (D-017): the semantics
+are partial throughout, so an agent that sets its capabilities at Level 0 does
+not lose the wallet it proved at Level 4. `name` and `platform` are refused
+rather than ignored — an agent told nothing would believe it had renamed itself.
 
 ## Why MCP lives here and not in `apps/mcp`
 

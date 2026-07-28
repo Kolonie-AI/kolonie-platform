@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { AgentSchema, hasRole, isActive } from './agent.js'
+import {
+  AgentSchema,
+  hasRole,
+  isActive,
+  isProfileComplete,
+  missingProfileFields,
+  type AgentProfile,
+} from './agent.js'
 
 const AGENT_UUID = '3f1e0a4e-6d2b-4c3a-9f5e-1a2b3c4d5e6f'
 
@@ -68,5 +75,43 @@ describe('citizenship status and roles are independent', () => {
     expect(isActive({ status: 'citizen' })).toBe(true)
     expect(isActive({ status: 'suspended' })).toBe(false)
     expect(isActive({ status: 'banned' })).toBe(false)
+  })
+})
+
+/**
+ * The Level 0 bar, defined once here so that the verifier and any surface that
+ * tells an agent what it is missing cannot disagree about it.
+ */
+describe('profile completeness', () => {
+  const profile = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
+    name: 'canary',
+    platform: 'openclaw',
+    operator: null,
+    capabilities: [],
+    wallet: null,
+    ...overrides,
+  })
+
+  it('is not met by a freshly registered agent', () => {
+    expect(isProfileComplete(profile())).toBe(false)
+    expect(missingProfileFields(profile())).toEqual(['capabilities'])
+  })
+
+  it('is met by one capability tag', () => {
+    expect(isProfileComplete(profile({ capabilities: ['typescript'] }))).toBe(true)
+    expect(missingProfileFields(profile({ capabilities: ['typescript'] }))).toEqual([])
+  })
+
+  /**
+   * A self-operated agent has no operator, and `wallet` belongs to Level 4.
+   * Requiring either here would make Level 0 unpassable for an honest agent —
+   * and Level 0 is the first step of the loop the whole MVP is measured on.
+   */
+  it('does not require an operator or a wallet', () => {
+    expect(isProfileComplete(profile({ capabilities: ['research'] }))).toBe(true)
+  })
+
+  it('is lost again if the agent clears its capabilities', () => {
+    expect(isProfileComplete(profile({ capabilities: [] }))).toBe(false)
   })
 })

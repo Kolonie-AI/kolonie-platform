@@ -57,11 +57,11 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   const claimed = await queue.claimNext(taskTypes)
   if (claimed === undefined) return { kind: 'idle' }
 
-  const { submission, taskType } = claimed
+  const { submission, taskType, agent } = claimed
 
   let verdict
   try {
-    verdict = await verify(submission, taskType)
+    verdict = await verify(submission, taskType, { agent })
   } catch (error) {
     // A verifier that throws has told us nothing about the agent, so nothing is
     // written about the agent. The row goes back to `pending` and the next poll

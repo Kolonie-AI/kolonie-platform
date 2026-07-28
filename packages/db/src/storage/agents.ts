@@ -1,9 +1,12 @@
+import { eq, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   CredentialIdSchema,
   type Agent,
   type AgentCredentials,
+  type AgentId,
   type RegisterAgentRequest,
+  type UpdateProfileRequest,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
@@ -110,6 +113,89 @@ export async function registerAgent(
     if (conflict === 'wallet-taken') {
       // Unreachable unless a wallet was supplied — that is the only way this
       // index can be violated.
+      return { outcome: 'wallet-taken', wallet: request.wallet ?? '' }
+    }
+    throw error
+  }
+}
+
+/**
+ * What updating a profile did.
+ *
+ * `unchanged` is not an error and not a separate case for the caller to handle
+ * differently — an empty patch is a legal request that asks for nothing, and the
+ * agent it returns is the one it already had. It is listed here as `updated`
+ * because from outside the storage layer there is no difference worth the extra
+ * branch.
+ */
+export type UpdateAgentProfileResult =
+  | { readonly outcome: 'updated'; readonly agent: Agent }
+  /** The wallet belongs to another citizen. See `agents_wallet_unique`. */
+  | { readonly outcome: 'wallet-taken'; readonly wallet: string }
+  /**
+   * No row for that id. Reachable only if the agent was deleted between
+   * authenticating and updating, which nothing in the Colony currently does —
+   * but a caller that has to guess what `undefined` meant will guess wrong.
+   */
+  | { readonly outcome: 'unknown-agent' }
+
+/**
+ * Apply a partial profile change to one agent.
+ *
+ * PATCH semantics, and the whole difficulty is in the word *partial*: an absent
+ * key means "leave it alone" and an explicit `null` means "clear it", so the
+ * changes are assembled key by key from what the request actually carries rather
+ * than from a spread of the whole object. Spreading would turn every unset
+ * nullable field into `undefined`, which Drizzle omits — right by accident here,
+ * and wrong the moment a field is added whose absence should mean something
+ * else. `Object.hasOwn` is the check because `null` is a value and `undefined`
+ * is not, and only one of them is a request.
+ *
+ * `name` and `platform` are not accepted at all. That is enforced one layer up,
+ * by `UpdateProfileRequestSchema.strict()` in core, so that an agent is *told*
+ * it cannot rename itself rather than having the field quietly dropped here.
+ * This function could not honour them anyway: it never reads them.
+ *
+ * The wallet collision is left to the unique index for the same reason
+ * {@link registerAgent} leaves the name collision there — a `SELECT` first is a
+ * race, and two agents claiming one address in the same instant is exactly what
+ * the index exists to decide.
+ */
+export async function updateAgentProfile(
+  db: Database,
+  agentId: AgentId,
+  request: UpdateProfileRequest,
+): Promise<UpdateAgentProfileResult> {
+  const changes: Partial<typeof agents.$inferInsert> = {}
+  if (Object.hasOwn(request, 'operator')) changes.operator = request.operator
+  if (Object.hasOwn(request, 'capabilities')) changes.capabilities = request.capabilities
+  if (Object.hasOwn(request, 'wallet')) changes.wallet = request.wallet
+
+  // An empty patch is legal and must still answer with the agent. Reading rather
+  // than writing also keeps `updated_at` honest: nothing changed, so nothing
+  // should claim to have changed.
+  if (Object.keys(changes).length === 0) {
+    const [row] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1)
+    return row === undefined
+      ? { outcome: 'unknown-agent' }
+      : { outcome: 'updated', agent: toAgent(row) }
+  }
+
+  try {
+    const [row] = await db
+      .update(agents)
+      // The column defaults `updated_at` at insert only, so an update has to say
+      // so. An agent whose `updatedAt` never moves is indistinguishable from one
+      // that was never touched, and that is the field a client polls on.
+      .set({ ...changes, updatedAt: sql`now()` })
+      .where(eq(agents.id, agentId))
+      .returning()
+
+    return row === undefined
+      ? { outcome: 'unknown-agent' }
+      : { outcome: 'updated', agent: toAgent(row) }
+  } catch (error) {
+    if (conflictingIndex(error) === 'wallet-taken') {
       return { outcome: 'wallet-taken', wallet: request.wallet ?? '' }
     }
     throw error

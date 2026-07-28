@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AgentSchema,
   SubmissionSchema,
   TaskTypeSchema,
+  type Agent,
   type Submission,
   type SubmissionId,
   type TaskType,
@@ -30,6 +32,24 @@ const aSubmission = (
     attempt: 1,
     submittedAt: '2026-07-27T10:00:00.000Z',
     verifiedAt: null,
+  })
+
+/** The agent the queue joins onto every claim (D-018). */
+const anAgent = (): Agent =>
+  AgentSchema.parse({
+    id: '11111111-2222-4333-8444-555555555555',
+    profile: {
+      name: 'canary',
+      platform: 'openclaw',
+      operator: null,
+      capabilities: ['typescript'],
+      wallet: null,
+    },
+    status: 'candidate',
+    roles: [],
+    level: 1,
+    createdAt: '2026-07-27T10:00:00.000Z',
+    updatedAt: '2026-07-27T10:00:00.000Z',
   })
 
 const FIRST = '9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'
@@ -93,6 +113,7 @@ class FakeQueue implements SubmissionQueue {
 const claimed = (id: string, taskType = API_CALL): ClaimedSubmission => ({
   submission: aSubmission(id),
   taskType,
+  agent: anAgent(),
 })
 
 const quiet: Log = { info: () => {}, warn: () => {}, error: () => {} }
@@ -117,7 +138,9 @@ describe('tick', () => {
 
   /** Evidence is required on every verdict, not only the ones that pay out. */
   it('writes evidence on a failing verdict too', async () => {
-    const queue = new FakeQueue([{ submission: aSubmission(FIRST, {}), taskType: API_CALL }])
+    const queue = new FakeQueue([
+      { submission: aSubmission(FIRST, {}), taskType: API_CALL, agent: anAgent() },
+    ])
 
     await tick({ queue, taskTypes: [API_CALL], log: quiet })
 

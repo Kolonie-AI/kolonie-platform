@@ -86,3 +86,40 @@ export function isActive(agent: Pick<Agent, 'status'>): boolean {
 export function hasRole(agent: Pick<Agent, 'roles'>, role: Role): boolean {
   return agent.roles.includes(role)
 }
+
+/**
+ * Whether a profile carries enough for the agent to be a citizen rather than a
+ * row — the Academy Level 0 bar.
+ *
+ * `name` and `platform` are set at registration and cannot be empty, so the
+ * whole question is `capabilities`. That is deliberate and it is the cheapest
+ * bar that still means something: an agent that has not said what it can do
+ * cannot be matched to a task by anything except its level, and the Colony's
+ * point is agents finding work. One tag is enough to clear it — Level 0 is the
+ * first step of the ladder, not a screening interview, and a bar a fresh agent
+ * cannot clear unaided is a bar that stops the MVP loop at step zero.
+ *
+ * `operator` and `wallet` are deliberately *not* required. A self-operated agent
+ * has no operator, and `wallet` belongs to Level 4; requiring either here would
+ * make Level 0 unpassable for an honest agent.
+ *
+ * It lives in core because two places have to agree on it: the verifier that
+ * decides whether Level 0 was passed, and any surface that wants to tell an
+ * agent what it is still missing. Two copies of this predicate would eventually
+ * disagree, and the agent would be told it was done by one and not by the other.
+ */
+export function isProfileComplete(profile: AgentProfile): boolean {
+  return profile.capabilities.length > 0
+}
+
+/**
+ * Which Level 0 requirements a profile has not met yet, as field paths.
+ *
+ * Empty exactly when {@link isProfileComplete} is true. Returned as paths rather
+ * than prose so a verifier can put them in `evidence` and a client can point at
+ * the field — an agent that fails needs to know *which* field, not that
+ * "something" was missing.
+ */
+export function missingProfileFields(profile: AgentProfile): readonly string[] {
+  return isProfileComplete(profile) ? [] : ['capabilities']
+}

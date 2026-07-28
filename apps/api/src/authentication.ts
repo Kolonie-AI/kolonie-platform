@@ -9,9 +9,11 @@ import {
 import {
   authenticateApiKey,
   balanceOfAgent,
+  updateAgentProfile,
   type AuthenticationResult,
   type Database,
 } from '@kolonie-ai/db'
+import type { ProfileStore } from './profile.js'
 
 /**
  * Everything an authenticated read needs from the outside world.
@@ -22,7 +24,7 @@ import {
  * in `packages/db` against a real one; what the API does with the *answer* is
  * tested here.
  */
-export interface AgentStore {
+export interface AgentStore extends ProfileStore {
   authenticate(apiKey: string): Promise<AuthenticationResult>
   balanceOf(agentId: AgentId): Promise<AgentBalance>
 }
@@ -85,6 +87,7 @@ export function databaseStore(db: Database): AgentStore {
   return {
     authenticate: (apiKey) => authenticateApiKey(db, apiKey),
     balanceOf: (agentId) => balanceOfAgent(db, agentId),
+    updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
 }
 

@@ -1,11 +1,19 @@
+import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { AgentCredentialsSchema, AgentSchema, RegisterAgentRequestSchema } from '@kolonie-ai/core'
+import {
+  AgentCredentialsSchema,
+  AgentIdSchema,
+  AgentSchema,
+  RegisterAgentRequestSchema,
+  UpdateProfileRequestSchema,
+  type AgentId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { hashApiKey } from '../api-key.js'
 import { agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { registerAgent } from './agents.js'
+import { registerAgent, updateAgentProfile } from './agents.js'
 
 const target = databaseTestTarget()
 
@@ -165,6 +173,135 @@ describe.skipIf(!target.available)('registerAgent', () => {
         // @ts-expect-error the point of this test is that the value is invalid;
         // the type system refusing it is half the guarantee, Postgres the other.
         registerAgent(db, { ...aRequest(), platform: 'not-a-platform' }),
+      ).rejects.toThrow()
+    })
+  })
+})
+
+describe.skipIf(!target.available)('updateAgentProfile', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  /** A registered agent to patch. Registration is the only way one comes into being. */
+  const anAgent = async (overrides: Record<string, unknown> = {}) => {
+    const result = await registerAgent(db, aRequest(overrides))
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent
+  }
+
+  const patch = async (agentId: AgentId, request: Record<string, unknown>) =>
+    updateAgentProfile(db, agentId, UpdateProfileRequestSchema.parse(request))
+
+  it('sets capabilities, which is what Level 0 asks for', async () => {
+    const agent = await anAgent()
+
+    const result = await patch(agent.id, { capabilities: ['typescript', 'research'] })
+
+    expect(result.outcome).toBe('updated')
+    if (result.outcome !== 'updated') return
+    expect(result.agent.profile.capabilities).toEqual(['typescript', 'research'])
+    expect(() => AgentSchema.parse(result.agent)).not.toThrow()
+  })
+
+  it('persists the change rather than only reporting it', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { capabilities: ['solidity'] })
+    const [row] = await db.select().from(agents).where(eq(agents.id, agent.id))
+
+    expect(row?.capabilities).toEqual(['solidity'])
+  })
+
+  /**
+   * The property that makes this PATCH rather than PUT (D-017), asserted against
+   * a real server: absence and `null` are different requests, and only the
+   * database can prove the column was left as it was.
+   */
+  it('leaves a field the request did not mention alone', async () => {
+    const agent = await anAgent()
+    await patch(agent.id, { operator: 'Kolonie AI', wallet: '0xkeepme' })
+
+    const result = await patch(agent.id, { capabilities: ['typescript'] })
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(result.agent.profile.operator).toBe('Kolonie AI')
+    expect(result.agent.profile.wallet).toBe('0xkeepme')
+  })
+
+  it('clears a nullable field when the request sends null', async () => {
+    const agent = await anAgent({ operator: 'Kolonie AI' })
+
+    const result = await patch(agent.id, { operator: null })
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(result.agent.profile.operator).toBeNull()
+  })
+
+  it('accepts an empty patch and answers with the agent unchanged', async () => {
+    const agent = await anAgent({ capabilities: ['typescript'] })
+
+    const result = await patch(agent.id, {})
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(result.agent).toEqual(agent)
+  })
+
+  it('moves updated_at, so a client polling on it sees the change', async () => {
+    const agent = await anAgent()
+
+    const result = await patch(agent.id, { capabilities: ['typescript'] })
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(Date.parse(result.agent.updatedAt)).toBeGreaterThanOrEqual(Date.parse(agent.updatedAt))
+    expect(result.agent.createdAt).toBe(agent.createdAt)
+  })
+
+  it('reports an unknown agent rather than pretending it updated one', async () => {
+    const result = await patch(AgentIdSchema.parse(randomUUID()), { capabilities: ['x'] })
+
+    expect(result.outcome).toBe('unknown-agent')
+  })
+
+  describe('one wallet, one agent', () => {
+    it('reports a wallet already held by another citizen', async () => {
+      await anAgent({ name: 'first', wallet: '0xtaken' })
+      const second = await anAgent({ name: 'second' })
+
+      const result = await patch(second.id, { wallet: '0xtaken' })
+
+      expect(result.outcome).toBe('wallet-taken')
+    })
+
+    it('lets an agent re-send the wallet it already holds', async () => {
+      const agent = await anAgent({ wallet: '0xmine' })
+
+      expect((await patch(agent.id, { wallet: '0xmine' })).outcome).toBe('updated')
+    })
+
+    it('does not report an unrelated failure as a taken wallet', async () => {
+      const agent = await anAgent()
+
+      // `capabilities` is `text[]`. A bare string is a genuine fault, and must
+      // surface as one rather than be flattened into a wallet conflict — the
+      // same guarantee `registerAgent` makes about a taken name.
+      await expect(
+        updateAgentProfile(db, agent.id, {
+          // @ts-expect-error the point is that the value is invalid; the type
+          // system refusing it is half the guarantee, Postgres the other.
+          capabilities: 'not-an-array',
+        }),
       ).rejects.toThrow()
     })
   })

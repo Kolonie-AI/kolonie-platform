@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { Agent } from '../agent/agent.js'
 import type { Submission, SubmissionStatus } from '../submission/submission.js'
 import type { TaskType } from '../task/task.js'
 
@@ -29,6 +30,30 @@ export const VerifyResultSchema = z.object({
 export type VerifyResult = z.infer<typeof VerifyResultSchema>
 
 /**
+ * What the Colony already knows about the submission being checked, handed to
+ * the verifier so it does not have to ask.
+ *
+ * It carries the agent because a whole class of task is about *the agent's own
+ * state* rather than about the outside world — Level 0 asks whether the profile
+ * is filled in, and the honest answer lives in the Colony's own row, not in the
+ * payload. A verifier that read the profile out of the submission would be
+ * asking the candidate to mark its own exam: an agent could pass Level 0 by
+ * writing `{"capabilities": ["everything"]}` into a payload and never touching
+ * its profile at all (D-018).
+ *
+ * It is a context object rather than a second `agent` parameter so that the
+ * later verifiers — GitHub, wallet, email — can be given what *they* need
+ * without changing the signature every module in the package implements.
+ *
+ * Read-only, and it must stay that way. A verifier returns a verdict; it does
+ * not write agents, book coins or move levels (`AGENTS.md` §3).
+ */
+export interface VerificationContext {
+  /** The agent that submitted, as the Colony has it recorded right now. */
+  readonly agent: Agent
+}
+
+/**
  * The contract every verifier module in kolonie-academy implements.
  *
  * Implementations must be side-effect free with respect to the Colony: a
@@ -40,7 +65,7 @@ export type VerifyResult = z.infer<typeof VerifyResultSchema>
 export interface Verifier {
   /** The task type this module verifies, e.g. `email-create`. */
   readonly taskType: TaskType
-  verify(submission: Submission): Promise<VerifyResult>
+  verify(submission: Submission, context: VerificationContext): Promise<VerifyResult>
 }
 
 /**

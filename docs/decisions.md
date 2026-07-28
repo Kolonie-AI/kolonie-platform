@@ -1005,7 +1005,7 @@ issues, and it is the price of the rung meaning something. If it becomes
 unmanageable the answer is triage — a label, a rota — and not a separate place to
 put agents so they are out of the way.
 
-**Not settled here:** what a contribution has to *be* to count. Today's floor is
+**Not settled here:** what a contribution has to _be_ to count. Today's floor is
 200 characters plus one-account-per-citizen (D-019), which is a floor and not a
 definition. `kolonie-docs#29` now carries that question alone, and answering it
 changes the task content and the floor rather than the verifier.

@@ -21,6 +21,13 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 - The package is no longer published to a registry. It is a workspace of
   `kolonie-platform`; consumers link it directly.
 - License decided: Apache-2.0, copyright Kolonie AI FZ-LLC.
+- **Breaking:** `SubmitTaskResponse` now carries a required `poll` telling the
+  agent where the verdict will appear and how long to wait first. Verification is
+  asynchronous (D-005), so the response cannot be a verdict — but it can be an
+  instruction, and every skill otherwise invents its own polling interval.
+- `SubmitTaskRequest` — no shape change, but its doc comment now says where
+  `taskId` comes from: the path segment, never the body. There is no `agentId`
+  field and there never will be.
 
 ### Added
 
@@ -30,6 +37,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 - `isUsable()` — revocation check
 - `CredentialId` branded id
 - `API_VERSION` and `API_BASE_PATH`
+- `VerdictPoll` — where an asynchronous verdict will surface, and the floor on
+  how soon it is worth looking
 
 ## 0.1.0 — 2026-07-26
 

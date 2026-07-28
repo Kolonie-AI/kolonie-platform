@@ -4,11 +4,17 @@ import { buildApp } from './app.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
+import { fakeSubmissions } from './__fixtures__/submissions.js'
 
 let app: FastifyInstance
 
 beforeAll(async () => {
-  app = buildApp({ registry: fakeRegistry(), store: fakeStore(), catalogue: fakeCatalogue() })
+  app = buildApp({
+    registry: fakeRegistry(),
+    store: fakeStore(),
+    catalogue: fakeCatalogue(),
+    submissions: fakeSubmissions(),
+  })
   await app.ready()
 })
 

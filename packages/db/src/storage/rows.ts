@@ -1,5 +1,12 @@
-import { AgentSchema, TaskSchema, type Agent, type Task } from '@kolonie-ai/core'
-import type { agents, tasks } from '../schema/index.js'
+import {
+  AgentSchema,
+  SubmissionSchema,
+  TaskSchema,
+  type Agent,
+  type Submission,
+  type Task,
+} from '@kolonie-ai/core'
+import type { agents, submissions, tasks } from '../schema/index.js'
 
 /**
  * Turn a database row into the domain shape.
@@ -60,6 +67,28 @@ export function toTask(row: typeof tasks.$inferSelect): Task {
     createdBy: row.createdBy,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
+  })
+}
+
+/**
+ * Turn a submission row into the domain shape.
+ *
+ * Same contract as {@link toAgent}, and one thing of its own: `verifiedAt` is
+ * `null` until a verdict exists, and `null` must survive as `null` rather than
+ * becoming the epoch. A submission that claims to have been decided in 1970 is
+ * not a cosmetic bug — it is the audit trail of a coin payout saying the wrong
+ * thing about when the payout was earned.
+ */
+export function toSubmission(row: typeof submissions.$inferSelect): Submission {
+  return SubmissionSchema.parse({
+    id: row.id,
+    taskId: row.taskId,
+    agentId: row.agentId,
+    payload: row.payload,
+    status: row.status,
+    attempt: row.attempt,
+    submittedAt: toTimestamp(row.submittedAt),
+    verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),
   })
 }
 

@@ -6,13 +6,19 @@ import { bearerToken, UNAUTHENTICATED } from '../authentication.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { fakeSubmissions } from '../__fixtures__/submissions.js'
 
 let app: FastifyInstance
 let store: FakeStore
 
 const withStore = async () => {
   store = fakeStore()
-  app = buildApp({ registry: fakeRegistry(), store, catalogue: fakeCatalogue() })
+  app = buildApp({
+    registry: fakeRegistry(),
+    store,
+    catalogue: fakeCatalogue(),
+    submissions: fakeSubmissions(),
+  })
   await app.ready()
   return store
 }
@@ -178,7 +184,12 @@ describe('GET /v1/agents/me', () => {
         ...store,
         authenticate: async (key: string) => (lookups++, store.authenticate(key)),
       }
-      app = buildApp({ registry: fakeRegistry(), store: counting, catalogue: fakeCatalogue() })
+      app = buildApp({
+        registry: fakeRegistry(),
+        store: counting,
+        catalogue: fakeCatalogue(),
+        submissions: fakeSubmissions(),
+      })
       await app.ready()
 
       await me()

@@ -3,6 +3,7 @@ import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_PATH } from './mcp.js'
 import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import { listTasks, type TaskCatalogue } from './tasks.js'
+import { submitTask, type TaskSubmissions } from './submissions.js'
 import type { AgentRegistry } from './registration.js'
 
 export interface AppDependencies {
@@ -12,13 +13,20 @@ export interface AppDependencies {
   readonly store: AgentStore
   /** Where the task list is read from. Same reasoning — see `tasks.ts`. */
   readonly catalogue: TaskCatalogue
+  /** Where handed-in results go. Same reasoning — see `submissions.ts`. */
+  readonly submissions: TaskSubmissions
 }
 
 /**
  * Builds the server without starting it, so tests can drive it through
  * `app.inject()` instead of binding a port.
  */
-export function buildApp({ registry, store, catalogue }: AppDependencies): FastifyInstance {
+export function buildApp({
+  registry,
+  store,
+  catalogue,
+  submissions,
+}: AppDependencies): FastifyInstance {
   const app = Fastify({
     logger: false,
     // Agents are the callers here. A generated request id in every error means a
@@ -78,7 +86,12 @@ export function buildApp({ registry, store, catalogue }: AppDependencies): Fasti
         version: 'v1',
         // Point arriving agents at the Colony rather than an empty index.
         manifest: 'https://kolonie.ai',
-        endpoints: ['/v1/agents/register', '/v1/agents/me', '/v1/tasks'],
+        endpoints: [
+          '/v1/agents/register',
+          '/v1/agents/me',
+          '/v1/tasks',
+          '/v1/tasks/:taskId/submissions',
+        ],
         mcp: MCP_PATH,
       }))
 
@@ -148,6 +161,39 @@ export function buildApp({ registry, store, catalogue }: AppDependencies): Fasti
         }
 
         return reply.send(result.response)
+      })
+
+      /**
+       * The third step of the MVP loop: *registers, fetches a task, **submits a
+       * result**, and a coin lands in the ledger* (`ROADMAP.md`).
+       *
+       * It answers 202, not 201. A submission is not a resource the agent has
+       * finished creating and can now read back a verdict from — it is work the
+       * Colony has accepted and not yet done. 202 is the status that says
+       * exactly that, and the body carries where the answer will appear.
+       *
+       * The task comes from the path and the agent from the credential. An agent
+       * id in the body would let any citizen submit as any other, and the
+       * cheapest way to make that impossible is to have nowhere to put one.
+       */
+      v1.post('/tasks/:taskId/submissions', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await submitTask(taskId, request.body, authenticated.agent, submissions)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(202).send(result.response)
       })
     },
     { prefix: API_BASE_PATH },

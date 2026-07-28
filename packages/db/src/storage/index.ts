@@ -1,5 +1,6 @@
 export * from './agents.js'
 export * from './authentication.js'
 export * from './balance.js'
+export * from './submissions.js'
 export * from './tasks.js'
-export { toAgent, toTask, toTimestamp } from './rows.js'
+export { toAgent, toSubmission, toTask, toTimestamp } from './rows.js'

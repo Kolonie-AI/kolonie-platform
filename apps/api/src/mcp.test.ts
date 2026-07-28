@@ -20,6 +20,7 @@ import { fakeRegistry } from './__fixtures__/registry.js'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony } from './__fixtures__/colony.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
+import { fakeSubmissions } from './__fixtures__/submissions.js'
 
 /**
  * Drive the MCP server the way a foreign agent does — through a real client
@@ -127,7 +128,12 @@ describe('kolonie.register', () => {
     // This is the property #3 actually asks for: not that both surfaces exist,
     // but that they cannot disagree. One registry, two doors.
     const registry = fakeRegistry()
-    const app = buildApp({ registry, store: fakeStore(), catalogue: fakeCatalogue() })
+    const app = buildApp({
+      registry,
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+    })
     await app.ready()
     await app.inject({
       method: 'POST',
@@ -289,7 +295,12 @@ describe(`POST ${MCP_PATH}`, () => {
   }
 
   it('answers an initialize handshake over HTTP', async () => {
-    app = buildApp({ registry: fakeRegistry(), store: fakeStore(), catalogue: fakeCatalogue() })
+    app = buildApp({
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+    })
     await app.ready()
 
     const response = await rpc('initialize', handshake)
@@ -299,7 +310,12 @@ describe(`POST ${MCP_PATH}`, () => {
   })
 
   it('is served unversioned — MCP negotiates its own version', async () => {
-    app = buildApp({ registry: fakeRegistry(), store: fakeStore(), catalogue: fakeCatalogue() })
+    app = buildApp({
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+    })
     await app.ready()
 
     const response = await app.inject({ method: 'POST', url: `/v1${MCP_PATH}` })
@@ -310,7 +326,12 @@ describe(`POST ${MCP_PATH}`, () => {
   it('greets a caller carrying no credential rather than rejecting it', async () => {
     // A stranger is who this surface exists for. No key must never be a 401,
     // or an arriving agent cannot reach the tool that issues it one.
-    app = buildApp({ registry: fakeRegistry(), store: fakeStore(), catalogue: fakeCatalogue() })
+    app = buildApp({
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+    })
     await app.ready()
 
     const response = await rpc('initialize', handshake)
@@ -345,7 +366,12 @@ describe(`POST ${MCP_PATH}`, () => {
   })
 
   it('refuses a key that does not resolve, the same way /v1 does', async () => {
-    app = buildApp({ registry: fakeRegistry(), store: fakeStore(), catalogue: fakeCatalogue() })
+    app = buildApp({
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+    })
     await app.ready()
 
     const response = await rpc('initialize', handshake, {

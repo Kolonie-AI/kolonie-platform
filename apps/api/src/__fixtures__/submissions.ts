@@ -1,0 +1,68 @@
+import { randomUUID } from 'node:crypto'
+import { SubmissionSchema, type Submission } from '@kolonie-ai/core'
+import type { CreateSubmissionCommand, CreateSubmissionResult } from '@kolonie-ai/db'
+import type { TaskSubmissions } from '../submissions.js'
+
+/**
+ * A submission sink that records what it was asked and answers with what it was
+ * told.
+ *
+ * Deliberately not an in-memory reimplementation of the storage rules. `apps/api`
+ * is responsible for three things here — validating the request, taking the task
+ * from the path and the agent from the credential rather than from the body, and
+ * turning each refusal into a stable error code. All three are about what it
+ * *asks for*. A fake that also enforced levels and attempt numbers would let a
+ * test pass while the route sent someone else's agent id, because the fake would
+ * quietly use the right one. Whether the attempt number is assigned without a
+ * race is asserted in `packages/db`, against a real Postgres.
+ */
+export interface FakeSubmissions extends TaskSubmissions {
+  /** Every command the route has sent, in order. */
+  readonly commands: () => CreateSubmissionCommand[]
+  /** The last one, which is what a single-call test is asking about. */
+  readonly lastCommand: () => CreateSubmissionCommand | undefined
+  /** What the next call answers with. */
+  readonly answers: (result: CreateSubmissionResult) => void
+}
+
+export function fakeSubmissions(): FakeSubmissions {
+  const commands: CreateSubmissionCommand[] = []
+  let answer: CreateSubmissionResult | undefined
+
+  return {
+    submit: async (command) => {
+      commands.push(command)
+      return answer ?? { outcome: 'accepted', submission: aSubmission(command) }
+    },
+    commands: () => [...commands],
+    lastCommand: () => commands.at(-1),
+    answers: (result) => {
+      answer = result
+    },
+  }
+}
+
+/**
+ * A submission, valid by construction and consistent with the command that
+ * produced it.
+ *
+ * Parsed rather than cast, for the same reason the other fixtures parse: a
+ * fixture that can produce a shape core would reject makes a test believe it
+ * checked something it did not.
+ */
+export function aSubmission(
+  command: Pick<CreateSubmissionCommand, 'taskId' | 'agentId' | 'payload'>,
+  overrides: Partial<Submission> = {},
+): Submission {
+  return SubmissionSchema.parse({
+    id: randomUUID(),
+    taskId: command.taskId,
+    agentId: command.agentId,
+    payload: command.payload,
+    status: 'pending',
+    attempt: 1,
+    submittedAt: new Date().toISOString(),
+    verifiedAt: null,
+    ...overrides,
+  })
+}

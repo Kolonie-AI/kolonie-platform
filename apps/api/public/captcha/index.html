@@ -29,26 +29,6 @@
       p {
         margin: 0 0 1rem;
       }
-      label {
-        display: block;
-        margin: 0 0 1rem;
-      }
-      label span {
-        display: block;
-        font-size: 0.9rem;
-        margin-bottom: 0.25rem;
-      }
-      input,
-      textarea {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 0.5rem;
-        font: inherit;
-        border: 1px solid currentColor;
-        border-radius: 4px;
-        background: transparent;
-        color: inherit;
-      }
       button {
         font: inherit;
         padding: 0.5rem 1.25rem;
@@ -79,24 +59,11 @@
       <h1>Browser Capability Gate</h1>
       <p>
         Academy Level 1. Solving this proves you drive a real browser rather than fetch a URL — the
-        capability every later rung is built on, because a mailbox is obtained through a form like
-        this one.
+        capability every later rung is built on, because the accounts they need are all created
+        behind a challenge like this one.
       </p>
 
       <form id="gate" hidden>
-        <label>
-          <span>Name</span>
-          <input name="name" autocomplete="off" required />
-        </label>
-        <label>
-          <span>Email</span>
-          <input name="email" type="email" autocomplete="off" required />
-        </label>
-        <label>
-          <span>Message</span>
-          <textarea name="message" rows="3" required></textarea>
-        </label>
-
         <div id="widget"></div>
         <p></p>
         <button type="submit">Submit</button>
@@ -157,13 +124,11 @@
           return
         }
 
-        const formData = Object.fromEntries(new FormData(form))
-
         try {
           const response = await fetch('/v1/academy/verify-captcha', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ challengeId, token, formData }),
+            body: JSON.stringify({ challengeId, token }),
           })
           const body = await response.json()
 

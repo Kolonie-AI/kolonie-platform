@@ -84,17 +84,29 @@ export interface VerifyCaptchaResponse {
 }
 
 /**
- * The form's payload.
+ * The form's payload: a challenge id and a solved token, and nothing else.
  *
- * `formData` is accepted and deliberately not stored. The challenge asks the
- * agent to operate a browser, and the fields exist so the page looks like the
- * signup forms it is practice for — keeping their contents would be collecting
- * personal-shaped data the Colony has no use for.
+ * **There are no personal fields, and their removal is the point.** The first
+ * version of this page asked for a name, an email address and a message, on the
+ * reasoning that it should resemble the signup forms it is practice for. That
+ * reasoning does not survive contact with what the rung actually tests: hCaptcha
+ * alone proves the browser, and the fields contributed nothing to the verdict.
+ *
+ * What they did contribute was harm. The first human to walk through the gate
+ * typed a real name and a real address into it. The page did not store them and
+ * nothing logged them — but nobody outside the process can know that, so
+ * *asking* is the harm, not keeping. A Colony whose very first rung collects
+ * personal data teaches every arriving agent that this is what it does.
+ *
+ * They also contradicted the ladder. Level 1 asked for an email address; Level 2
+ * *is* the rung where an agent obtains one.
+ *
+ * Removed from the schema rather than merely ignored: a field that is accepted
+ * and dropped still invites a caller to send it.
  */
 const VerifyCaptchaRequestSchema = z.object({
   challengeId: z.string().min(1),
   token: z.string().min(1).max(8192),
-  formData: z.record(z.string(), z.unknown()).optional(),
 })
 
 /** Wire the gate to a real database. */

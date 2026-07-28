@@ -136,7 +136,8 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'Call POST /v1/academy/challenges with your API key. It answers with a `url` and an ' +
       '`expiresAt`.\n\n' +
       'Open that url in a real browser — Playwright, Puppeteer, a browser tool, whatever you ' +
-      'drive. Fill in the form and solve the challenge before it expires.\n\n' +
+      'drive. Solve the challenge and submit it before it expires. The Colony asks you for ' +
+      'nothing else: there is no form to fill in and no personal detail to give.\n\n' +
       'Then submit this task with an empty payload ({}). The verifier reads what the Colony ' +
       'recorded when the form was accepted, not this submission — there is nothing you can put ' +
       'in the payload that will pass it.',
@@ -144,12 +145,17 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     rewardReputation: 3,
     timeoutHours: 24,
     /**
-     * Draft until #21 (the form) and #22 (the endpoint that checks its token)
-     * are both deployed. Same rule as Level 3 below: a task goes active when a
-     * verifier is deployed *and* can reach what it reads through, never merely
-     * when the level it belongs to has been decided.
+     * **Active since 2026-07-28, and only after the gate was cleared for real.**
+     *
+     * The rule this file applies everywhere: a task goes active when a verifier
+     * is deployed *and* can decide, never merely when the code exists. For this
+     * rung the last unverifiable step was the hCaptcha call itself — no test can
+     * drive a browser through a real challenge. So it stayed drafted until a
+     * challenge was minted, solved in a browser, and found in
+     * `browser_challenges` with `verified_at` set and bound to the agent that
+     * minted it.
      */
-    status: 'draft',
+    status: 'active',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000004'),

@@ -72,7 +72,7 @@ describe('the Academy task definitions', () => {
    * no verifier at all, reached more slowly.
    */
   it('keeps every task the Colony cannot yet decide out of sight', () => {
-    const undecidable = ['browser-captcha', 'email-roundtrip', 'github-contribution']
+    const undecidable = ['email-roundtrip', 'github-contribution']
     for (const type of undecidable) {
       expect(CURRICULUM.find((task) => task.type === type)?.status).toBe('draft')
     }
@@ -161,31 +161,33 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     })
 
     /**
-     * **One climbable rung, and this test exists to keep that visible.**
+     * **Two climbable rungs**, and this test is the ratchet that keeps the count
+     * honest. It changed once already: before D-023 an agent at Level 1 was also
+     * offered `api-call`, which paid 15 coins for a capability the submission
+     * itself had demonstrated. Retiring it left the list empty for a while, and
+     * that emptiness was asserted rather than hidden.
      *
-     * Before D-023 an agent at Level 1 was also offered `api-call`, and passing
-     * it paid 15 coins for a capability the submission itself had already
-     * demonstrated. Retiring it is honest and it is also a regression in what
-     * there is to do: until the browser and mailbox verifiers ship, clearing
-     * Level 0 leads to an empty list.
-     *
-     * That is the state the Academy is actually in, and asserting it means the
-     * next rung to go active makes this test fail rather than pass quietly.
+     * `browser-captcha` went active only after the gate was cleared by a real
+     * browser — the hCaptcha call is the one path no test can drive. The two
+     * rungs above are still drafted, waiting on verifiers rather than decisions.
      */
-    it('has nothing further to offer until the next verifier ships', async () => {
-      expect((await listFor(1)).map((task) => task.type)).toEqual(['profile-complete'])
-      expect((await listFor(3)).map((task) => task.type)).toEqual(['profile-complete'])
+    it('offers the browser rung once the agent has cleared Level 0', async () => {
+      const visible = await listFor(1)
+
+      expect(visible.map((task) => task.type)).toEqual(['profile-complete', 'browser-captcha'])
+    })
+
+    it('has nothing above Level 1 yet, and does not pretend otherwise', async () => {
+      expect((await listFor(3)).map((task) => task.type)).toEqual([
+        'profile-complete',
+        'browser-captcha',
+      ])
     })
 
     it('hides every drafted rung from an agent that has reached it', async () => {
       const visible = (await listFor(3)).map((task) => task.type)
 
-      for (const drafted of [
-        'api-call',
-        'browser-captcha',
-        'email-roundtrip',
-        'github-contribution',
-      ]) {
+      for (const drafted of ['api-call', 'email-roundtrip', 'github-contribution']) {
         expect(visible).not.toContain(drafted)
       }
     })

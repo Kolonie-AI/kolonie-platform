@@ -56,3 +56,29 @@ jobs:
             ghcr.io/kolonie-ai/kolonie-api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # The step that used to be missing (kolonie-infra#14). Pushing the image was
+  # the end of this workflow, and the deploy lived on a `push` trigger in
+  # kolonie-infra — so production redeployed when the infrastructure
+  # configuration changed and did not redeploy when this code did. The trigger
+  # was on the wrong repository.
+  #
+  # `version: github.sha` is the other half. Deploying `latest` would ship
+  # whatever finished building most recently, which need not be this commit;
+  # naming the tag this job just pushed makes what runs a function of a commit
+  # again.
+  deploy:
+    name: deploy ghcr.io/kolonie-ai/kolonie-api:${{ github.sha }} to the VPS
+    needs: build
+    uses: Kolonie-AI/kolonie-infra/.github/workflows/deploy.yml@main
+    with:
+      service: api
+      version: ${{ github.sha }}
+    # Named, not inherited: the called workflow declares exactly these two, and
+    # they are organisation secrets visible to this repository since #14.
+    secrets:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+    permissions:
+      contents: read
+      packages: read

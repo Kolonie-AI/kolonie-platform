@@ -1096,10 +1096,16 @@ request that reaches it — including the ones the limiter exists to refuse.
 **What is deliberately not claimed.** Three limits, stated here so they are found
 before they are rediscovered:
 
-- **The headers are forgeable by anyone who can reach the origin directly.**
-  Nothing inside the process distinguishes "Cloudflare set this" from "the caller
-  typed it". The limit is worth exactly as much as the origin's refusal to accept
-  non-Cloudflare connections — `kolonie-infra#21`.
+- ~~**The headers are forgeable by anyone who can reach the origin directly.**~~
+  **Closed 2026-07-29** (`kolonie-infra#21`). The origin now refuses ports 80 and
+  443 from anything outside Cloudflare's published ranges, enforced in Docker's
+  own `DOCKER-USER` chain — which is where it has to be, because the host's
+  firewall had `deny (incoming)` set the whole time and Docker's published ports
+  bypassed it entirely. Verified from outside: a direct connection to the origin
+  is refused, every hostname still answers through the edge. What remains is
+  narrower and is its own issue: the ranges prove *a* Cloudflare edge, not *this
+  zone's* edge, so another Cloudflare customer could still reach the origin.
+  Authenticated origin pull closes that — `kolonie-infra#23`.
 - **The counter is per process.** A second API container doubles the effective
   limit. There is one today; if that changes, this becomes wrong silently.
 - **The fingerprint is a correlation key, not a privacy measure.** SHA-256 over

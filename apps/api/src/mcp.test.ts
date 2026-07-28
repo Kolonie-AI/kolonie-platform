@@ -3,9 +3,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { FastifyInstance } from 'fastify'
 import {
+  API_BASE_PATH,
   API_KEY_PREFIX,
+  API_VERSION,
   GetMeResponseSchema,
   RegisterAgentResponseSchema,
+  UpdateProfileResponseSchema,
   type ApiKey,
 } from '@kolonie-ai/core'
 import { buildApp } from './app.js'
@@ -45,6 +48,75 @@ const connectedClient = async (
 /** A stranger: no credential, so only the unauthenticated tier exists. */
 const anonymousClient = (registry = fakeRegistry()) =>
   connectedClient({ registry, store: fakeStore() })
+
+describe('kolonie.about', () => {
+  it('is offered to an agent that presents no credential', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name)).toContain('kolonie.about')
+    await close()
+  })
+
+  it('answers with structure, not prose — the reader is deciding what to do next', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    expect(result.isError).toBeFalsy()
+    // Every field #15 lists, asserted by name. A response that drops one still
+    // reads fine to a human and leaves an agent unable to work out its next move.
+    expect(result.structuredContent).toMatchObject({
+      name: 'Kolonie AI',
+      description: expect.any(String),
+      version: API_VERSION,
+      capabilities: expect.any(Array),
+      registration: { tool: 'kolonie.register', endpoint: `${API_BASE_PATH}/agents/register` },
+      docs: expect.any(String),
+    })
+    await close()
+  })
+
+  it('tells a stranger how to register without being asked a second question', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    // The text half, because a model reads that one. Both halves are generated
+    // from the same constant, so this also proves they have not drifted.
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('kolonie.register')
+    expect(text).toMatch(/once/i)
+    await close()
+  })
+
+  it('names no authenticated tool anywhere in its answer', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    // The one response every stranger is guaranteed to read. A tool name that
+    // leaks into it invites a call that can only fail, and does so in the place
+    // an arriving agent trusts most.
+    const whole = JSON.stringify(result)
+    for (const tool of AUTHENTICATED_TOOLS) expect(whole).not.toContain(tool)
+    await close()
+  })
+
+  it('says the same thing twice — a cached answer stays correct', async () => {
+    const { client, close } = await anonymousClient()
+
+    const first = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const second = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    // Byte equality, not shape equality. #15 asks for determinism because this
+    // result will be cached and diffed; a timestamp or a live count added here
+    // would pass a looser assertion and break that promise silently.
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first))
+    await close()
+  })
+})
 
 describe('kolonie.register', () => {
   it('is offered to an agent that presents no credential', async () => {
@@ -249,6 +321,183 @@ describe('kolonie.me', () => {
     // A stable code, so an agent can tell "my key died" from "retry later".
     expect(JSON.stringify(result.content)).toContain('unauthorized')
     await close()
+  })
+})
+
+describe('kolonie.profile.update', () => {
+  /**
+   * Register through the Colony fixture, so the key handed back is the key that
+   * authenticates and the profile written here is the profile read back there.
+   * Two unrelated fakes could prove a round trip that never happened.
+   */
+  const citizen = async (profile: Record<string, unknown> = {}) => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register({
+      name: 'canary',
+      platform: 'openclaw',
+      ...profile,
+    })
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+    return { colony, apiKey: registered.response.credentials.apiKey }
+  }
+
+  it('appears only once a credential is presented', async () => {
+    const { colony, apiKey } = await citizen()
+    const stranger = await connectedClient(colony)
+    const member = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const anonymous = (await stranger.client.listTools()).tools.map((tool) => tool.name)
+    const authenticated = (await member.client.listTools()).tools.map((tool) => tool.name)
+
+    expect(anonymous).not.toContain('kolonie.profile.update')
+    expect(authenticated).toContain('kolonie.profile.update')
+    await Promise.all([stranger.close(), member.close()])
+  })
+
+  it('sets capabilities, and kolonie.me reads back what was set', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const updated = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { capabilities: ['typescript', 'research'] },
+    })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(updated.isError).toBeFalsy()
+    expect(() => UpdateProfileResponseSchema.parse(updated.structuredContent)).not.toThrow()
+    // The point of the round trip: one write, visible to the other tool. This is
+    // also the mechanism behind Academy Level 0, whose verifier reads the
+    // profile rather than any payload (D-018).
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.capabilities).toEqual(['typescript', 'research'])
+    await close()
+  })
+
+  it('leaves a field it was not sent alone', async () => {
+    const { colony, apiKey } = await citizen({ operator: 'Gregor Sprint' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { capabilities: ['typescript'] },
+    })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    // PATCH semantics, all the way down (D-017). An agent updating one field
+    // must not have to resend the rest to keep it.
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.operator).toBe('Gregor Sprint')
+    await close()
+  })
+
+  it('clears a nullable field when it is sent an explicit null', async () => {
+    const { colony, apiKey } = await citizen({ operator: 'Gregor Sprint' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({ name: 'kolonie.profile.update', arguments: { operator: null } })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    // The other half of PATCH, and the reason the schema distinguishes absent
+    // from null. An agent that becomes self-operated has no other way to say so.
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.operator).toBeNull()
+    await close()
+  })
+
+  it('refuses a rename rather than ignoring it', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { name: 'someone-else' },
+    })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(result.isError).toBe(true)
+    // Distinguishable, and it names the field. "Validation failed" alone would
+    // send an agent hunting for a formatting mistake in a body that was formed
+    // perfectly well.
+    const error = JSON.stringify(result.content)
+    expect(error).toContain('validation_failed')
+    expect(error).toContain('name')
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.name).toBe('canary')
+    await close()
+  })
+
+  it('refuses a platform change the same way', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { platform: 'claude' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('platform')
+    await close()
+  })
+
+  it('cannot be called without a key — the tool is not there to call', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { capabilities: ['typescript'] },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('not found')
+    await close()
+  })
+
+  it('stops writing the moment a key is revoked, mid-session', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    colony.revoke(apiKey)
+
+    const result = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { capabilities: ['typescript'] },
+    })
+
+    // A read served from a stale handshake is a stale read; a write served from
+    // one is a revoked citizen editing the Colony's records. Hence the second
+    // resolve inside the handler.
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('unauthorized')
+    await close()
+  })
+
+  it('shares one implementation with PATCH /v1/agents/me', async () => {
+    const colony = fakeColony()
+    const app = buildApp(colony)
+    await app.ready()
+    const registered = await colony.registry.register({ name: 'canary', platform: 'openclaw' })
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { apiKey } = registered.response.credentials
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { capabilities: ['typescript'] },
+    })
+    const overHttp = await app.inject({
+      method: 'GET',
+      url: '/v1/agents/me',
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+
+    // The property #17 asks for: not that both surfaces exist, but that a write
+    // through one is a fact for the other. One code path, two doors.
+    const { agent } = GetMeResponseSchema.parse(overHttp.json())
+    expect(agent.profile.capabilities).toEqual(['typescript'])
+    await close()
+    await app.close()
   })
 })
 

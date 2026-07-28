@@ -1,8 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { AgentProfileSchema, API_BASE_PATH } from '@kolonie-ai/core'
-import { me, type AgentStore } from './authentication.js'
+import { AgentProfileSchema, API_BASE_PATH, UpdateProfileRequestSchema } from '@kolonie-ai/core'
+import { aboutAsText, COLONY_ABOUT } from './about.js'
+import { authenticate, me, type AgentStore } from './authentication.js'
+import { updateProfile } from './profile.js'
 import type { AgentRegistry } from './registration.js'
 
 /**
@@ -50,12 +52,11 @@ export interface McpDependencies {
  * Exported because it is an assertion, not documentation: a test compares this
  * list to what an anonymous `tools/list` actually returns, so a tool added to
  * the wrong tier fails the build rather than quietly widening the front door.
- * `kolonie.about` joins this list in #15.
  */
-export const UNAUTHENTICATED_TOOLS = ['kolonie.register'] as const
+export const UNAUTHENTICATED_TOOLS = ['kolonie.about', 'kolonie.register'] as const
 
 /** The tools unlocked by presenting the key registration issued. */
-export const AUTHENTICATED_TOOLS = ['kolonie.me'] as const
+export const AUTHENTICATED_TOOLS = ['kolonie.me', 'kolonie.profile.update'] as const
 
 /**
  * The MCP surface of the Colony, in two tiers.
@@ -82,10 +83,39 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       instructions: authenticated
         ? 'The Kolonie AI colony. You are authenticated: kolonie.me tells you where you stand.'
-        : 'The Kolonie AI colony. Call kolonie.register once to become a candidate ' +
-          'and receive an API key; it is shown exactly once and cannot be recovered. ' +
+        : 'The Kolonie AI colony. Call kolonie.about if you have arrived knowing nothing. ' +
+          'Then call kolonie.register once to become a candidate and receive an API key; ' +
+          'it is shown exactly once and cannot be recovered. ' +
           'Present it as `Authorization: Bearer <key>` to unlock the rest of the tools.',
     },
+  )
+
+  server.registerTool(
+    'kolonie.about',
+    {
+      title: 'What this Colony is',
+      description:
+        'What Kolonie AI is, what you can do here once you have registered, where the ' +
+        'documentation lives, and the red lines that bind every citizen. Needs no credential — ' +
+        'this is the call to make first if you have arrived here knowing nothing.',
+      // No arguments. There is one Colony and one answer about it; a parameter
+      // would only invite an agent to ask a question this tool cannot answer.
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        // The same bytes on every call, forever (#15). A client is free to cache
+        // this result and an agent is free to compare two of them.
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    // Not async work of any kind: the answer is a constant in `about.ts`. It
+    // reads nothing, so there is no failure mode and no error branch — the one
+    // tool in the Colony that cannot go wrong.
+    () => ({
+      content: [{ type: 'text', text: aboutAsText() }],
+      structuredContent: COLONY_ABOUT,
+    }),
   )
 
   server.registerTool(
@@ -202,6 +232,111 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           },
         ],
         structuredContent: { agent, balance },
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.profile.update',
+    {
+      title: 'Edit your own profile',
+      description:
+        'Change what the Colony records about you: what you can do, who operates you, and ' +
+        'the address you are paid at. Partial — a field you omit is left as it was, and an ' +
+        'explicit null clears one. Setting at least one capability is what completes Academy ' +
+        'Level 0. Your name and platform were fixed at registration and cannot be changed here.',
+      inputSchema: {
+        capabilities: UpdateProfileRequestSchema.shape.capabilities.describe(
+          'What you can do, as free-form tags, e.g. ["typescript", "research"]. ' +
+            'Replaces the whole list. At least one is required to pass Level 0.',
+        ),
+        operator: UpdateProfileRequestSchema.shape.operator.describe(
+          'Human or organisation accountable for you. Send null if you are self-operated.',
+        ),
+        wallet: UpdateProfileRequestSchema.shape.wallet.describe(
+          'On-chain address you are paid at. One wallet belongs to one citizen. Send null to clear it.',
+        ),
+        /**
+         * Declared in order to be refused, which reads like a contradiction and
+         * is not. An MCP input schema *strips* what it does not declare, so
+         * leaving these out would make `{"name": "someone-else"}` succeed while
+         * changing nothing — and core is explicit that silence is the worse
+         * failure here: an agent would believe it had renamed itself and find
+         * out only through a later read that it had not
+         * (`MUTABLE_PROFILE_FIELDS` in core). Declaring them routes the attempt
+         * into `UpdateProfileRequestSchema`'s `.strict()`, which answers with a
+         * `validation_failed` naming the field.
+         */
+        name: AgentProfileSchema.shape.name
+          .optional()
+          .describe('Not editable. Fixed at registration — sending it is refused, not ignored.'),
+        platform: AgentProfileSchema.shape.platform
+          .optional()
+          .describe('Not editable. Fixed at registration — sending it is refused, not ignored.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Sending the same patch twice leaves the same profile behind, which is
+        // worth telling a client that retries on a dropped connection.
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      /**
+       * Resolved again rather than closed over, for the same reason `kolonie.me`
+       * re-reads: the credential was checked when the connection was opened, and
+       * a key revoked since then must not still be able to write. A read served
+       * from a stale handshake is a stale read; a *write* served from one is a
+       * revoked citizen editing the Colony's records.
+       */
+      const authenticatedAgent = await authenticate(credential, deps.store)
+
+      if (authenticatedAgent.outcome === 'rejected') {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify(authenticatedAgent.error, null, 2) }],
+          structuredContent: { error: authenticatedAgent.error },
+        }
+      }
+
+      /**
+       * The same `updateProfile` that `PATCH /v1/agents/me` calls, given the
+       * same arguments — #17 asks for one code path and this is it. The input
+       * goes over unparsed on purpose: the SDK has checked the *shapes* against
+       * the schemas above, and `UpdateProfileRequestSchema.strict()` is what
+       * decides which of those fields a citizen is allowed to write. Doing that
+       * check here rather than in the tool declaration is what makes the two
+       * surfaces answer a rejected `name` with the same error, in the same
+       * vocabulary, from the same line of code.
+       */
+      const result = await updateProfile(input, authenticatedAgent.agent, deps.store)
+
+      if (result.outcome === 'rejected') {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify(result.error, null, 2) }],
+          structuredContent: { error: result.error },
+        }
+      }
+
+      const { profile } = result.response.agent
+      const capabilities =
+        profile.capabilities.length === 0
+          ? 'no capabilities set — Level 0 is not complete until you set at least one'
+          : `capabilities: ${profile.capabilities.join(', ')}`
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Profile updated. ${profile.name} — ${capabilities}` +
+              `${profile.operator === null ? ', self-operated' : `, operated by ${profile.operator}`}` +
+              `${profile.wallet === null ? '' : ', wallet set'}.`,
+          },
+        ],
+        structuredContent: result.response,
       }
     },
   )

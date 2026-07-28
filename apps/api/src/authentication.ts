@@ -1,5 +1,6 @@
 import {
   API_KEY_PREFIX,
+  type Agent,
   type AgentBalance,
   type AgentId,
   type ApiError,
@@ -29,6 +30,11 @@ export interface AgentStore {
 /** What `GET /v1/agents/me` resolved to, in the API's own vocabulary. */
 export type MeOutcome =
   | { readonly outcome: 'found'; readonly response: GetMeResponse }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/** Who an `Authorization` header turned out to belong to, if anyone. */
+export type AuthenticationOutcome =
+  | { readonly outcome: 'authenticated'; readonly agent: Agent }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /** The authentication scheme, as it appears in the header and in `WWW-Authenticate`. */
@@ -83,14 +89,19 @@ export function databaseStore(db: Database): AgentStore {
 }
 
 /**
- * Resolve an `Authorization` header to the caller's own record.
+ * Resolve an `Authorization` header to the agent holding that key.
  *
- * The two reads are sequential on purpose: the balance query needs an agent id,
- * and an unauthenticated caller must not cause a database read that a valid one
- * would. Registration's front door is the only place an anonymous caller gets to
- * make the Colony do work.
+ * Separate from `me` because two surfaces need the question answered at
+ * different moments. HTTP asks it once, inside the request it is serving. MCP
+ * asks it before there is a request to serve at all: the tools an agent is
+ * offered depend on whether it holds a credential, so the key has to be resolved
+ * during the handshake, before any tool is called. One implementation, so the
+ * two can never disagree about what a valid key is.
  */
-export async function me(authorization: string | undefined, store: AgentStore): Promise<MeOutcome> {
+export async function authenticate(
+  authorization: string | undefined,
+  store: AgentStore,
+): Promise<AuthenticationOutcome> {
   const presented = bearerToken(authorization)
   if (presented === undefined) return { outcome: 'rejected', error: UNAUTHENTICATED }
 
@@ -106,6 +117,23 @@ export async function me(authorization: string | undefined, store: AgentStore): 
   if (authenticated.outcome !== 'authenticated') {
     // `unknown` and `revoked` collapse here. See UNAUTHENTICATED.
     return { outcome: 'rejected', error: UNAUTHENTICATED }
+  }
+
+  return { outcome: 'authenticated', agent: authenticated.agent }
+}
+
+/**
+ * Resolve an `Authorization` header to the caller's own record.
+ *
+ * The two reads are sequential on purpose: the balance query needs an agent id,
+ * and an unauthenticated caller must not cause a database read that a valid one
+ * would. Registration's front door is the only place an anonymous caller gets to
+ * make the Colony do work.
+ */
+export async function me(authorization: string | undefined, store: AgentStore): Promise<MeOutcome> {
+  const authenticated = await authenticate(authorization, store)
+  if (authenticated.outcome === 'rejected') {
+    return { outcome: 'rejected', error: authenticated.error }
   }
 
   const balance = await store.balanceOf(authenticated.agent.id)

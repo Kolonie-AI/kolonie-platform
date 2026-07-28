@@ -1,7 +1,7 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_PATH } from './mcp.js'
-import { BEARER_SCHEME, me, type AgentStore } from './authentication.js'
+import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import type { AgentRegistry } from './registration.js'
 
 export interface AppDependencies {
@@ -37,11 +37,36 @@ export function buildApp({ registry, store }: AppDependencies): FastifyInstance 
    * path.
    */
   app.post(MCP_PATH, async (request, reply) => {
+    /**
+     * The credential is resolved before the transport sees the request, because
+     * it decides which tools exist rather than whether one call is allowed. An
+     * agent that presents nothing is not an error — it is a stranger, and the
+     * unauthenticated tier is what a stranger is for.
+     *
+     * A key that is presented and does not resolve is a different matter, and it
+     * fails here rather than inside a tool. An agent whose key has been revoked
+     * would otherwise be handed a stranger's tool list and left to infer why
+     * `kolonie.me` vanished. It gets the same status, the same
+     * `WWW-Authenticate` header and the same `unauthorized` body that
+     * `GET /v1/agents/me` sends — one answer to a bad key, whichever door it
+     * was presented at.
+     */
+    const presented = request.headers.authorization
+    if (presented !== undefined) {
+      const authenticated = await authenticate(presented, store)
+      if (authenticated.outcome === 'rejected') {
+        return reply
+          .status(ERROR_STATUS[authenticated.error.code])
+          .header('www-authenticate', BEARER_SCHEME)
+          .send(authenticated.error)
+      }
+    }
+
     // Fastify has already parsed the body and would otherwise send its own
     // response. `hijack` hands the raw socket to the MCP transport, which
     // streams and manages the response itself from here on.
     reply.hijack()
-    await handleMcpRequest(registry, request.raw, reply.raw, request.body)
+    await handleMcpRequest({ registry, store }, presented, request.raw, reply.raw, request.body)
   })
 
   app.register(

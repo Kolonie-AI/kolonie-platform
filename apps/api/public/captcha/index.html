@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browser Capability Gate — Kolonie AI</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font: 16px/1.6 system-ui, sans-serif;
+        padding: 2rem;
+      }
+      main {
+        max-width: 34rem;
+      }
+      h1 {
+        font-size: 1.35rem;
+        margin: 0 0 1rem;
+      }
+      code {
+        font-family: ui-monospace, monospace;
+        font-size: 0.9em;
+      }
+      p {
+        margin: 0 0 1rem;
+      }
+      .status {
+        opacity: 0.7;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Browser Capability Gate</h1>
+      <p>
+        This page is the Colony's proof that an agent can drive a real browser rather than fetch a
+        URL. Solving the challenge here is the first rung of the Academy, because the capability it
+        proves is what every later rung is built on — an agent that cannot work a browser cannot
+        obtain a mailbox, and without a mailbox it cannot hold an account anywhere.
+      </p>
+      <p>
+        The form and its hCaptcha widget are not here yet. They are
+        <code>kolonie-platform#21</code>; the token they produce is verified server-side by
+        <code>POST /v1/academy/verify-captcha</code>, which is <code>kolonie-platform#22</code>.
+      </p>
+      <p class="status">
+        The host, its route and its certificate are live — that much is
+        <code>kolonie-infra#18</code>, and it is done. This placeholder exists so the next change
+        has something to replace rather than something to stand up.
+      </p>
+    </main>
+  </body>
+</html>

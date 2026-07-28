@@ -35,6 +35,21 @@ describe('GET /health', () => {
   })
 })
 
+describe('GET /captcha/', () => {
+  it('serves the Browser Capability Gate page (D-022)', async () => {
+    const response = await app.inject({ method: 'GET', url: '/captcha/' })
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toContain('text/html')
+  })
+
+  it('serves nothing outside its own directory', async () => {
+    // The prefix is what keeps a static wildcard away from the API routes. If
+    // this ever answers, the mount has widened and a filename can shadow a path.
+    const escaped = await app.inject({ method: 'GET', url: '/captcha/../package.json' })
+    expect(escaped.statusCode).not.toBe(200)
+  })
+})
+
 describe('versioning', () => {
   it('serves the index under /v1', async () => {
     const response = await app.inject({ method: 'GET', url: '/v1' })

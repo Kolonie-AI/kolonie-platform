@@ -1,4 +1,5 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
+import fastifyStatic from '@fastify/static'
 import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp.js'
 import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
@@ -41,6 +42,26 @@ export function buildApp({
    * not have to track API versions to know whether the process is alive.
    */
   app.get('/health', async () => ({ status: 'ok' }))
+
+  /**
+   * The Browser Capability Gate's page, served by this process rather than by a
+   * container of its own (D-022). Unversioned like `/health`, and for a related
+   * reason: the caller is a browser following a link, not an agent holding a
+   * contract.
+   *
+   * The prefix is narrow on purpose. Registering static files at the root would
+   * put a wildcard route in front of the whole API, and the first filename that
+   * happened to collide with a path would win silently. Confined to
+   * `/captcha/`, it can only ever serve what is in that directory.
+   *
+   * `dist/app.js` sits one level below the package root, and the Dockerfile
+   * copies `public/` to the same place, so this resolves identically in the
+   * container and in a local run.
+   */
+  app.register(fastifyStatic, {
+    root: new URL('../public/captcha', import.meta.url),
+    prefix: '/captcha/',
+  })
 
   /**
    * The MCP surface, also unversioned: MCP negotiates its own protocol version

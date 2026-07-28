@@ -37,16 +37,17 @@ describe('the Academy task definitions', () => {
   })
 
   /**
-   * The Level 2 task was a draft until `GithubContributionVerifier` shipped
-   * (#19), and the rule it was drafted under outlives it: an active task with no
-   * verifier is listed, attempted, and then timed out on an agent that did the
-   * work correctly. A task goes active in the change that deploys the module
-   * which can decide it — which is what this asserts, from the other side.
+   * The Level 2 task stays drafted until the Colony holds the token its verifier
+   * reads GitHub through (infra#20). Having written `GithubContributionVerifier`
+   * is not the same as being able to decide a submission with it: without the
+   * credential it answers `pending`, the row is re-queued by every poll, and the
+   * agent is told after 72 hours that it ran out of time — the same outcome as
+   * no verifier at all, reached more slowly.
    */
-  it('offers Level 2 now that a verifier can decide it', () => {
+  it('keeps a task the Colony cannot yet decide out of sight', () => {
     const level2 = ACADEMY_TASKS.find((task) => task.level === 2)
     expect(level2?.type).toBe('github-contribution')
-    expect(level2?.status).toBe('active')
+    expect(level2?.status).toBe('draft')
   })
 
   it('pays more for the harder levels', () => {
@@ -137,14 +138,10 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
       expect(visible.map((task) => task.type)).toEqual(['profile-complete', 'api-call'])
     })
 
-    it('offers Level 2 to an agent that has reached it, now that it can be decided', async () => {
+    it('still hides the drafted Level 2 task from an agent that has reached it', async () => {
       const visible = await listFor(2)
 
-      expect(visible.map((task) => task.type)).toEqual([
-        'profile-complete',
-        'api-call',
-        'github-contribution',
-      ])
+      expect(visible.map((task) => task.type)).not.toContain('github-contribution')
     })
 
     it('gives each visible task a reward and instructions to act on', async () => {

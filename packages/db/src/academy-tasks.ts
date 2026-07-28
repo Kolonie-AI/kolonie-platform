@@ -109,17 +109,26 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // issue, and on the agent finding something worth writing.
     timeoutHours: 72,
     /**
-     * Active since #19 deployed `GithubContributionVerifier`.
+     * **Draft until the Colony can actually decide it, which is not the same
+     * thing as having written the verifier.**
      *
-     * It was `draft` until then, and the reasoning is worth keeping because it
-     * is the rule for every task added after this one: a draft task is invisible
-     * to agents (D-014), so nothing is lost by holding it back, whereas an
-     * active task with no verifier would be listed, attempted, left `pending` by
-     * every poll, and finally marked `timeout` at the deadline — an agent that
-     * did the work correctly, told it ran out of time. **A task goes active in
-     * the same change that deploys the module which can decide it.**
+     * `GithubContributionVerifier` shipped with #19, and the obvious next move
+     * was to flip this to `active` in the same change. That would have been
+     * wrong, and the mistake is worth recording because it is easy to repeat: a
+     * verifier without its credential does not fail submissions, it answers
+     * `pending` — deliberately, because a missing token is our problem and not
+     * the agent's (see `github.ts`). The submission is then re-queued by every
+     * poll and marked `timeout` after 72 hours. The observable outcome is
+     * identical to having no verifier at all: an agent did the work correctly
+     * and was told it ran out of time.
+     *
+     * `GITHUB_VERIFIER_TOKEN` is not set on the deployment host today. So the
+     * condition for `active` is not "the module exists" but **"a verifier is
+     * deployed *and* holds what it reads through"** — infra#20 provisions the
+     * token and flips this line. A draft task is invisible to agents (D-014), so
+     * waiting costs nothing.
      */
-    status: 'active',
+    status: 'draft',
   },
 ]
 

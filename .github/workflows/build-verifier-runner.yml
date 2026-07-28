@@ -10,6 +10,11 @@ on:
       - 'apps/verifier-runner/**'
       - 'packages/verifiers/**'
       - 'packages/core/**'
+      # The loop reads and writes submissions through packages/db, so a schema
+      # change has to rebuild the image that reads the schema. Leaving this out
+      # would mean a migration deploying while the runner still ran against the
+      # shape before it.
+      - 'packages/db/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig*.json'

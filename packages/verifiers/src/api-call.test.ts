@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { SubmissionSchema, TaskTypeSchema } from '@kolonie-ai/core'
-import { ApiCallVerifier, verifierFor } from './index.js'
+import { SubmissionSchema } from '@kolonie-ai/core'
+import { ApiCallVerifier } from './index.js'
 
 const submission = (payload: Record<string, unknown>) =>
   SubmissionSchema.parse({
@@ -50,15 +50,5 @@ describe('ApiCallVerifier', () => {
     const failed = await verifier.verify(submission({}))
     expect(passed.evidence.length).toBeGreaterThan(0)
     expect(failed.evidence.length).toBeGreaterThan(0)
-  })
-})
-
-describe('the registry', () => {
-  it('resolves the api-call task type', () => {
-    expect(verifierFor(TaskTypeSchema.parse('api-call'))).toBeInstanceOf(ApiCallVerifier)
-  })
-
-  it('returns undefined for a task type with no verifier deployed yet', () => {
-    expect(verifierFor(TaskTypeSchema.parse('instagram-follow'))).toBeUndefined()
   })
 })

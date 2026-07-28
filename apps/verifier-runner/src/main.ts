@@ -1,5 +1,5 @@
-import { createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
-import { VERIFIERS } from '@kolonie-ai/verifiers'
+import { citizenForGithubAuthor, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
+import { createVerifiers, GITHUB_VERIFIER_TOKEN_VAR, httpGitHubReader } from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
 import { startRunner, type Log } from './loop.js'
 import { databaseQueue } from './queue.js'
@@ -27,7 +27,32 @@ const log: Log = {
 // complains that its verdict never arrived.
 const db = createDatabase(databaseUrlFromEnv())
 
-const runner = startRunner({ queue: databaseQueue(db), log }, { pollIntervalMs: POLL_INTERVAL_MS })
+/**
+ * The one place the Colony's verifiers are assembled with what they read the
+ * world through.
+ *
+ * The GitHub token is read-only and belongs to the Colony, never to an agent
+ * (D-019). It is read here rather than inside `packages/verifiers` so that the
+ * package stays testable without an environment and so that the credential is
+ * named in exactly one file — this one. A runner started without it still
+ * starts: `httpGitHubReader` answers `unavailable`, which becomes a `pending`
+ * verdict, and the submissions wait for the deploy that supplies it rather than
+ * being failed for a misconfiguration that is ours.
+ *
+ * `citizenForGithubAuthor` is the only reason this app knows about the database
+ * on the verifiers' behalf. A verifier that could query storage itself would be
+ * one refactor away from writing to it, which is the boundary `AGENTS.md` §3
+ * draws — so the query lives in `packages/db` and arrives here as a function.
+ */
+const verifiers = createVerifiers({
+  github: httpGitHubReader(process.env[GITHUB_VERIFIER_TOKEN_VAR]),
+  authors: { citizenFor: (login) => citizenForGithubAuthor(db, login) },
+})
+
+const runner = startRunner(
+  { queue: databaseQueue(db), verifiers, log },
+  { pollIntervalMs: POLL_INTERVAL_MS },
+)
 
 const health = createHealthServer({
   port: HEALTH_PORT,
@@ -35,7 +60,7 @@ const health = createHealthServer({
   health: () => runner.health(),
 })
 
-const deployed = [...VERIFIERS.keys()].join(', ') || 'none'
+const deployed = [...verifiers.keys()].join(', ') || 'none'
 console.log(`kolonie-verifier-runner started. Verifiers deployed: ${deployed}`)
 console.log(`polling every ${POLL_INTERVAL_MS}ms; health on :${HEALTH_PORT}/health`)
 

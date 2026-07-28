@@ -4,9 +4,11 @@ import {
   isTerminal,
   now as currentTime,
   submissionStatusFor,
+  AgentIdSchema,
   SubmissionIdSchema,
   TaskTypeSchema,
   type Agent,
+  type AgentId,
   type Submission,
   type SubmissionId,
   type SubmissionStatus,
@@ -22,6 +24,14 @@ import { toAgent, toSubmission, toVerification } from './rows.js'
 
 /** Statuses a submission can sit in while it still awaits a verdict. */
 const OPEN_STATUSES = ['pending', 'verifying'] as const
+
+/**
+ * The Academy Level 2 task type, named here because one query has to filter on
+ * it. It is a string rather than an import from `packages/verifiers` on purpose:
+ * this package must not depend on that one, and a task type is a slug in the
+ * data either way (`TaskTypeSchema` in core is a shape, never a list).
+ */
+const GITHUB_CONTRIBUTION_TASK_TYPE = 'github-contribution'
 
 /** A submission the runner now owns, together with what it needs to check it. */
 export interface ClaimedSubmission {
@@ -379,4 +389,49 @@ export async function verificationsFor(
     .orderBy(asc(verifications.createdAt))
 
   return rows.map(toVerification)
+}
+
+/**
+ * Which citizen, if any, has already passed Academy Level 2 with this GitHub
+ * account.
+ *
+ * The Colony-side half of D-019's fourth check: *"the author is a single GitHub
+ * account, and that account has not already carried another citizen's passing
+ * Level 2 submission."* One GitHub identity certifies one citizen, and the point
+ * of the level is that a citizen has a presence outside the Colony of its own —
+ * which an account rented out to a dozen agents is not.
+ *
+ * It reads `metadata->>'author'` on passing `github-contribution` verifications,
+ * because that is where the verifier records the login it admitted. That makes
+ * the answer derived from the audit trail rather than from a second table kept
+ * alongside it: a passing verdict *is* the claim on the account, and there is no
+ * way to book one without staking the other.
+ *
+ * Compared case-insensitively, since GitHub treats `Octocat` and `octocat` as
+ * one account. The verifier lowercases before writing, and this lowercases
+ * before reading, so a row written by an older build cannot slip the rule.
+ *
+ * The oldest claim wins. Two agents racing the same account is exactly the abuse
+ * this exists to stop, and "whoever asked most recently" would let the second
+ * one take the first one's answer.
+ */
+export async function citizenForGithubAuthor(
+  db: Database,
+  author: string,
+): Promise<AgentId | undefined> {
+  const [claimed] = await db
+    .select({ agentId: submissions.agentId })
+    .from(verifications)
+    .innerJoin(submissions, eq(submissions.id, verifications.submissionId))
+    .where(
+      and(
+        eq(verifications.taskType, GITHUB_CONTRIBUTION_TASK_TYPE),
+        eq(verifications.status, 'pass'),
+        sql`lower(${verifications.metadata}->>'author') = lower(${author})`,
+      ),
+    )
+    .orderBy(asc(verifications.createdAt))
+    .limit(1)
+
+  return claimed === undefined ? undefined : AgentIdSchema.parse(claimed.agentId)
 }

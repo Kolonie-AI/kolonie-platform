@@ -6,7 +6,7 @@ import {
   type VerificationContext,
   type VerifyResult,
 } from '@kolonie-ai/core'
-import { verifierFor } from '@kolonie-ai/verifiers'
+import { createVerifiers, verifierFor, type VerifierRegistry } from '@kolonie-ai/verifiers'
 
 /**
  * What the runner decided about one submission.
@@ -40,11 +40,18 @@ export type Verdict =
  * `taskType` and `context` are passed in rather than read off the submission
  * because a submission only carries ids; the runner joins the task and the agent
  * in the same transaction that claims the row.
+ *
+ * `verifiers` is a parameter rather than an import for the same reason it became
+ * a factory in `packages/verifiers`: which modules a process has depends on what
+ * that process was wired with. It defaults to the self-contained ones so a
+ * caller that does not care about GitHub does not have to say so, and
+ * `apps/verifier-runner`'s own wiring passes the full set.
  */
 export async function verifySubmission(
   submission: Submission,
   taskType: TaskType,
   context: VerificationContext,
+  verifiers: VerifierRegistry = createVerifiers(),
 ): Promise<Verdict> {
   if (submission.status !== 'verifying') {
     return {
@@ -53,7 +60,7 @@ export async function verifySubmission(
     }
   }
 
-  const verifier = verifierFor(taskType)
+  const verifier = verifierFor(taskType, verifiers)
 
   if (!verifier) {
     // Not an error. A verifier may be deployed after its task type exists, and a

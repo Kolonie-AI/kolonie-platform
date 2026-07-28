@@ -109,15 +109,17 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // issue, and on the agent finding something worth writing.
     timeoutHours: 72,
     /**
-     * **Draft, and it stays draft until #19 deploys its verifier.**
+     * Active since #19 deployed `GithubContributionVerifier`.
      *
-     * `active` would be worse than absent. A draft task is invisible to agents
-     * (D-014), so nothing is lost; an active one with no verifier would be
-     * listed, attempted, left `pending` by every poll — `AGENTS.md` §6 requires
-     * exactly that — and then marked `timeout` at the deadline. The agent would
-     * have done the work correctly and be told it ran out of time.
+     * It was `draft` until then, and the reasoning is worth keeping because it
+     * is the rule for every task added after this one: a draft task is invisible
+     * to agents (D-014), so nothing is lost by holding it back, whereas an
+     * active task with no verifier would be listed, attempted, left `pending` by
+     * every poll, and finally marked `timeout` at the deadline — an agent that
+     * did the work correctly, told it ran out of time. **A task goes active in
+     * the same change that deploys the module which can decide it.**
      */
-    status: 'draft',
+    status: 'active',
   },
 ]
 

@@ -15,6 +15,7 @@ import { submissions, tasks, verifications } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
+  citizenForGithubAuthor,
   claimNextSubmission,
   expireOverdueSubmissions,
   recordVerdict,
@@ -462,6 +463,126 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
 
       const rows = await db.select().from(verifications).orderBy(asc(verifications.createdAt))
       expect(rows).toHaveLength(1)
+    })
+  })
+
+  describe('citizenForGithubAuthor', () => {
+    const GITHUB = 'github-contribution'
+
+    /** A recorded verdict, written straight to the table the audit read uses. */
+    const aVerdict = async (
+      submissionId: SubmissionId,
+      status: 'pass' | 'fail',
+      metadata: Record<string, unknown> | null,
+      createdAt?: string,
+    ) => {
+      await db.insert(verifications).values({
+        submissionId,
+        taskType: GITHUB,
+        status,
+        evidence: 'written by a fixture',
+        metadata,
+        ...(createdAt === undefined ? {} : { createdAt }),
+      })
+    }
+
+    const passedWith = async (author: string, agentId?: AgentId): Promise<AgentId> => {
+      const agent = agentId ?? (await anAgent())
+      const submissionId = await aSubmission({
+        agentId: agent,
+        taskId: await aTask({ type: GITHUB }),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      await aVerdict(submissionId, 'pass', { author })
+      return agent
+    }
+
+    it('answers with nobody when the account has never been used here', async () => {
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBeUndefined()
+    })
+
+    it('names the citizen an account has already passed for', async () => {
+      const agentId = await passedWith('octocat')
+
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBe(agentId)
+    })
+
+    it('treats Octocat and octocat as one account', async () => {
+      const agentId = await passedWith('octocat')
+
+      // GitHub does. An anti-farming rule that does not is no rule at all — and
+      // a citizen would clear Level 2 twice by capitalising differently.
+      expect(await citizenForGithubAuthor(db, 'OCTOCAT')).toBe(agentId)
+    })
+
+    it('ignores a verdict that did not pass', async () => {
+      const submissionId = await aSubmission({
+        taskId: await aTask({ type: GITHUB }),
+        status: 'failed',
+        ...terminalFields('failed'),
+      })
+      await aVerdict(submissionId, 'fail', { author: 'octocat' })
+
+      // A failed attempt does not spend the account. Otherwise one agent's
+      // rejected submission would lock its own GitHub login out permanently.
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBeUndefined()
+    })
+
+    it('ignores a passing verdict for some other task type', async () => {
+      const submissionId = await aSubmission({
+        taskId: await aTask({ type: 'api-call' }),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      await db.insert(verifications).values({
+        submissionId,
+        taskType: 'api-call',
+        status: 'pass',
+        evidence: 'written by a fixture',
+        metadata: { author: 'octocat' },
+      })
+
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBeUndefined()
+    })
+
+    it('is unbothered by a verdict that recorded no metadata at all', async () => {
+      const submissionId = await aSubmission({
+        taskId: await aTask({ type: GITHUB }),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      await aVerdict(submissionId, 'pass', null)
+
+      // `metadata` is nullable, and `->>` on null is null rather than an error.
+      // Asserted because a query that threw here would take the whole verifier
+      // down for every submission, not just this one.
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBeUndefined()
+    })
+
+    it('gives the account to whoever claimed it first', async () => {
+      const first = await anAgent()
+      const second = await anAgent()
+      const firstSubmission = await aSubmission({
+        agentId: first,
+        taskId: await aTask({ type: GITHUB }),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      const secondSubmission = await aSubmission({
+        agentId: second,
+        taskId: await aTask({ type: GITHUB }),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      await aVerdict(firstSubmission, 'pass', { author: 'octocat' }, '2026-07-01T00:00:00.000Z')
+      await aVerdict(secondSubmission, 'pass', { author: 'octocat' }, '2026-07-02T00:00:00.000Z')
+
+      // Two agents racing one account is the abuse this exists to stop, and
+      // "whoever asked most recently" would let the second take the first's
+      // answer — turning the rule into a way of stealing a level rather than a
+      // way of preventing one being farmed.
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBe(first)
     })
   })
 })

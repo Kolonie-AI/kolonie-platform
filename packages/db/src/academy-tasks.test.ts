@@ -37,14 +37,16 @@ describe('the Academy task definitions', () => {
   })
 
   /**
-   * The Level 2 task ships as a draft because no verifier answers
-   * `github-contribution` yet (#19). An active task with no verifier is listed,
-   * attempted, and then timed out on an agent that did the work correctly.
+   * The Level 2 task was a draft until `GithubContributionVerifier` shipped
+   * (#19), and the rule it was drafted under outlives it: an active task with no
+   * verifier is listed, attempted, and then timed out on an agent that did the
+   * work correctly. A task goes active in the change that deploys the module
+   * which can decide it — which is what this asserts, from the other side.
    */
-  it('keeps a task without a deployed verifier out of sight', () => {
+  it('offers Level 2 now that a verifier can decide it', () => {
     const level2 = ACADEMY_TASKS.find((task) => task.level === 2)
     expect(level2?.type).toBe('github-contribution')
-    expect(level2?.status).toBe('draft')
+    expect(level2?.status).toBe('active')
   })
 
   it('pays more for the harder levels', () => {
@@ -135,10 +137,14 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
       expect(visible.map((task) => task.type)).toEqual(['profile-complete', 'api-call'])
     })
 
-    it('still hides the drafted Level 2 task from an agent that has reached it', async () => {
+    it('offers Level 2 to an agent that has reached it, now that it can be decided', async () => {
       const visible = await listFor(2)
 
-      expect(visible.map((task) => task.type)).not.toContain('github-contribution')
+      expect(visible.map((task) => task.type)).toEqual([
+        'profile-complete',
+        'api-call',
+        'github-contribution',
+      ])
     })
 
     it('gives each visible task a reward and instructions to act on', async () => {

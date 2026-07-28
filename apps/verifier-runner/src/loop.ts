@@ -1,5 +1,5 @@
 import { now as currentTime, type TaskType, type Timestamp } from '@kolonie-ai/core'
-import { VERIFIERS } from '@kolonie-ai/verifiers'
+import { createVerifiers, type VerifierRegistry } from '@kolonie-ai/verifiers'
 import { verifySubmission } from './runner.js'
 import type { SubmissionQueue } from './queue.js'
 
@@ -24,9 +24,17 @@ export interface Log {
 export interface LoopDependencies {
   readonly queue: SubmissionQueue
   /**
-   * The task types this process can verify. Defaults to whatever
-   * `packages/verifiers` registered, which is the only correct answer in
-   * production; tests pass their own.
+   * The verifier modules this process was wired with.
+   *
+   * Defaults to the self-contained ones. `main.ts` supplies the full set,
+   * including the ones that read the outside world — which is why this is a
+   * dependency rather than an import: the registry a process has is a fact about
+   * how it was started, not about what the package can build.
+   */
+  readonly verifiers?: VerifierRegistry
+  /**
+   * The task types this process can verify. Defaults to whatever `verifiers`
+   * holds, which is the only correct answer in production; tests pass their own.
    */
   readonly taskTypes?: readonly TaskType[]
   /** The pure decision function. Injectable so a test can make it throw or hang. */
@@ -51,8 +59,11 @@ export interface LoopDependencies {
  */
 export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   const { queue, log = silentLog } = deps
-  const verify = deps.verify ?? verifySubmission
-  const taskTypes = deps.taskTypes ?? [...VERIFIERS.keys()]
+  const verifiers = deps.verifiers ?? createVerifiers()
+  const verify =
+    deps.verify ??
+    ((submission, taskType, context) => verifySubmission(submission, taskType, context, verifiers))
+  const taskTypes = deps.taskTypes ?? [...verifiers.keys()]
 
   const claimed = await queue.claimNext(taskTypes)
   if (claimed === undefined) return { kind: 'idle' }
@@ -173,7 +184,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
   const sleep = options.sleep ?? realSleep
   const log = deps.log ?? silentLog
   const clock = deps.now ?? currentTime
-  const taskTypes = deps.taskTypes ?? [...VERIFIERS.keys()]
+  const taskTypes = deps.taskTypes ?? [...(deps.verifiers ?? createVerifiers()).keys()]
 
   let running = true
   let lastPollAt: Timestamp | null = null

@@ -1,6 +1,6 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
-import { handleMcpRequest, MCP_PATH } from './mcp.js'
+import { handleMcpRequest, MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp.js'
 import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import { updateProfile } from './profile.js'
 import { listTasks, type TaskCatalogue } from './tasks.js'
@@ -44,42 +44,48 @@ export function buildApp({
 
   /**
    * The MCP surface, also unversioned: MCP negotiates its own protocol version
-   * in the handshake, and `mcp.kolonie.ai` is an address a foreign agent writes
+   * in the handshake, and the MCP hostname is an address a foreign agent writes
    * into its configuration once. Here the tool names are the contract, not the
    * path.
+   *
+   * Registered on every path in `MCP_PATHS` — the host root, which is what the
+   * agent guide documents, and `/mcp`, which is what the server used to require.
+   * Both permanently (#18).
    */
-  app.post(MCP_PATH, async (request, reply) => {
-    /**
-     * The credential is resolved before the transport sees the request, because
-     * it decides which tools exist rather than whether one call is allowed. An
-     * agent that presents nothing is not an error — it is a stranger, and the
-     * unauthenticated tier is what a stranger is for.
-     *
-     * A key that is presented and does not resolve is a different matter, and it
-     * fails here rather than inside a tool. An agent whose key has been revoked
-     * would otherwise be handed a stranger's tool list and left to infer why
-     * `kolonie.me` vanished. It gets the same status, the same
-     * `WWW-Authenticate` header and the same `unauthorized` body that
-     * `GET /v1/agents/me` sends — one answer to a bad key, whichever door it
-     * was presented at.
-     */
-    const presented = request.headers.authorization
-    if (presented !== undefined) {
-      const authenticated = await authenticate(presented, store)
-      if (authenticated.outcome === 'rejected') {
-        return reply
-          .status(ERROR_STATUS[authenticated.error.code])
-          .header('www-authenticate', BEARER_SCHEME)
-          .send(authenticated.error)
+  for (const path of MCP_PATHS) {
+    app.post(path, async (request, reply) => {
+      /**
+       * The credential is resolved before the transport sees the request, because
+       * it decides which tools exist rather than whether one call is allowed. An
+       * agent that presents nothing is not an error — it is a stranger, and the
+       * unauthenticated tier is what a stranger is for.
+       *
+       * A key that is presented and does not resolve is a different matter, and it
+       * fails here rather than inside a tool. An agent whose key has been revoked
+       * would otherwise be handed a stranger's tool list and left to infer why
+       * `kolonie.me` vanished. It gets the same status, the same
+       * `WWW-Authenticate` header and the same `unauthorized` body that
+       * `GET /v1/agents/me` sends — one answer to a bad key, whichever door it
+       * was presented at.
+       */
+      const presented = request.headers.authorization
+      if (presented !== undefined) {
+        const authenticated = await authenticate(presented, store)
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
       }
-    }
 
-    // Fastify has already parsed the body and would otherwise send its own
-    // response. `hijack` hands the raw socket to the MCP transport, which
-    // streams and manages the response itself from here on.
-    reply.hijack()
-    await handleMcpRequest({ registry, store }, presented, request.raw, reply.raw, request.body)
-  })
+      // Fastify has already parsed the body and would otherwise send its own
+      // response. `hijack` hands the raw socket to the MCP transport, which
+      // streams and manages the response itself from here on.
+      reply.hijack()
+      await handleMcpRequest({ registry, store }, presented, request.raw, reply.raw, request.body)
+    })
+  }
 
   app.register(
     async (v1) => {
@@ -93,7 +99,10 @@ export function buildApp({
           '/v1/tasks',
           '/v1/tasks/:taskId/submissions',
         ],
-        mcp: MCP_PATH,
+        // Both, because an agent reading this index is configuring a client and
+        // has to be told the address that will still work next year — and the
+        // one its neighbour already has written down.
+        mcp: { path: MCP_PATH, alias: MCP_ALIAS_PATH },
       }))
 
       /**
@@ -235,10 +244,26 @@ export function buildApp({
     { prefix: API_BASE_PATH },
   )
 
+  /**
+   * Two surfaces share this server, so a lost caller has to be told about both.
+   *
+   * The previous version of this message named `${API_BASE_PATH}/` and nothing
+   * else, which was true for the REST host and actively misleading on the MCP
+   * one: a client that landed on the root was sent to `/v1/`, further from the
+   * endpoint it wanted rather than closer (#18). A hint that moves a caller away
+   * from what it is looking for is worse than no hint.
+   *
+   * It names paths and never hosts. Which hostname reaches which surface is a
+   * routing fact that lives in Cloudflare and Traefik, and `AGENTS.md` §9 keeps
+   * host names out of this repository entirely.
+   */
   app.setNotFoundHandler(async (request, reply) => {
     const error: ApiError = {
       code: 'not_found',
-      message: `No route for ${request.method} ${request.url}. Every public endpoint lives under ${API_BASE_PATH}/.`,
+      message:
+        `No route for ${request.method} ${request.url}. ` +
+        `The REST API lives under ${API_BASE_PATH}/; ` +
+        `the MCP surface answers POST at ${MCP_PATH} and ${MCP_ALIAS_PATH}.`,
     }
     return reply.status(ERROR_STATUS[error.code]).send(error)
   })

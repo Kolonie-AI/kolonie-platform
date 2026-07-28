@@ -12,7 +12,9 @@ import { buildApp } from './app.js'
 import {
   AUTHENTICATED_TOOLS,
   createMcpServer,
+  MCP_ALIAS_PATH,
   MCP_PATH,
+  MCP_PATHS,
   UNAUTHENTICATED_TOOLS,
   type McpDependencies,
 } from './mcp.js'
@@ -250,7 +252,7 @@ describe('kolonie.me', () => {
   })
 })
 
-describe(`POST ${MCP_PATH}`, () => {
+describe('the MCP surface over HTTP', () => {
   let app: FastifyInstance
 
   afterEach(async () => {
@@ -266,10 +268,11 @@ describe(`POST ${MCP_PATH}`, () => {
     method: string,
     params: Record<string, unknown>,
     headers: Record<string, string> = {},
+    url: string = MCP_PATH,
   ) => {
     const response = await app.inject({
       method: 'POST',
-      url: MCP_PATH,
+      url,
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
@@ -318,9 +321,69 @@ describe(`POST ${MCP_PATH}`, () => {
     })
     await app.ready()
 
-    const response = await app.inject({ method: 'POST', url: `/v1${MCP_PATH}` })
+    const response = await app.inject({ method: 'POST', url: `/v1${MCP_ALIAS_PATH}` })
 
     expect(response.statusCode).toBe(404)
+  })
+
+  /**
+   * #18: the guide tells an arriving agent to point its client at the hostname
+   * and write down nothing else. That was false — the server required `/mcp` and
+   * answered the root with a 404 recommending `/v1/`, which leads away from MCP.
+   *
+   * The test is on the *documented* address rather than the implemented one, so
+   * the guide and the server cannot drift apart again in silence.
+   */
+  it('completes the handshake at the address the agent guide documents', async () => {
+    app = buildApp({
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+    })
+    await app.ready()
+
+    const response = await rpc('initialize', handshake, {}, '/')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('kolonie')
+  })
+
+  it('still answers at /mcp, so a client configured before the change keeps working', async () => {
+    app = buildApp({
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+    })
+    await app.ready()
+
+    const response = await rpc('initialize', handshake, {}, MCP_ALIAS_PATH)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('kolonie')
+  })
+
+  it('offers the same tools whichever of its addresses is used', async () => {
+    app = buildApp({
+      registry: fakeRegistry(),
+      store: fakeStore(),
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+    })
+    await app.ready()
+
+    // An alias that drifts into a second surface is worse than no alias: two
+    // agents would be citizens of subtly different colonies.
+    const listed = await Promise.all(
+      MCP_PATHS.map(async (path) => {
+        await rpc('initialize', handshake, {}, path)
+        const tools = await rpc('tools/list', {}, {}, path)
+        return (tools.result as { tools: { name: string }[] }).tools.map((tool) => tool.name).sort()
+      }),
+    )
+
+    expect(new Set(listed.map((names) => names.join(','))).size).toBe(1)
   })
 
   it('greets a caller carrying no credential rather than rejecting it', async () => {

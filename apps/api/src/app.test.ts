@@ -59,4 +59,25 @@ describe('errors', () => {
     const response = await app.inject({ method: 'GET', url: '/nope' })
     expect(response.json().message).toContain('/v1')
   })
+
+  /**
+   * #18: this server answers two surfaces, so the 404 has to name both. It used
+   * to name `/v1/` alone, which sent an MCP client that landed on the root
+   * further from the endpoint it wanted rather than closer.
+   */
+  it('names the MCP surface too, so an MCP client is not sent to /v1', async () => {
+    const response = await app.inject({ method: 'GET', url: '/nope' })
+    expect(response.json().message).toMatch(/MCP/)
+    expect(response.json().message).toContain('/mcp')
+  })
+
+  /**
+   * The red line in AGENTS.md §9: no host names in this repository, and that
+   * includes the strings an agent reads. Which hostname reaches which surface
+   * lives in Cloudflare and Traefik.
+   */
+  it('names paths and never hosts', async () => {
+    const response = await app.inject({ method: 'GET', url: '/nope' })
+    expect(response.json().message).not.toMatch(/https?:\/\//)
+  })
 })

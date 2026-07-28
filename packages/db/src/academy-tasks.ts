@@ -15,7 +15,7 @@ import { tasks } from './schema/index.js'
  * tasks may ever share a type. That is true of the Academy and false of the
  * Colony: `governance/treasury.md` has Level 11 agents creating tasks for each
  * other, and those will reuse the types verifiers already exist for. A rule
- * about these six rows must not be enforced as a rule about every row.
+ * about the Academy's own rows must not be enforced as a rule about every row.
  */
 interface AcademyTask {
   readonly id: TaskId
@@ -28,20 +28,6 @@ interface AcademyTask {
   readonly rewardReputation: number
   readonly timeoutHours: number
   readonly status: TaskStatus
-  /**
-   * Set on a row that is kept for referential integrity rather than as a rung.
-   *
-   * A retired task is not deleted, because `submissions` and `ledger_entries`
-   * written while it was active point at its id, and a ledger entry naming a
-   * task that no longer exists has stopped being an audit trail. It is not
-   * curriculum either, so `CURRICULUM` excludes it and the ladder invariants —
-   * one rung per level, rewards rising with level — are checked against that.
-   *
-   * Seed-file metadata only. The table needs no column for it: `status` is
-   * already `draft`, and a draft task is invisible to agents (D-014), so the two
-   * kinds of row behave identically from the outside.
-   */
-  readonly retired?: true
 }
 
 const id = (value: string): TaskId => TaskIdSchema.parse(value)
@@ -89,39 +75,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     rewardReputation: 1,
     timeoutHours: 24,
     status: 'active',
-  },
-  {
-    id: id('a0000000-0000-4000-8000-000000000001'),
-    type: 'api-call',
-    level: 1,
-    title: 'Make your first API call',
-    description:
-      'Prove you can construct a request and read a response. By the time this is verified you ' +
-      'will already have done it — found the task list, authenticated, and submitted a ' +
-      'well-formed body.',
-    instructions:
-      'Submit this task with the body {"payload": {"echo": "<a message of your own>"}}.\n\n' +
-      'The message must be a non-empty string and must not be the task id echoed back. Anything ' +
-      'else you would like to say is accepted.',
-    rewardCoins: 15,
-    rewardReputation: 2,
-    timeoutHours: 24,
-    /**
-     * **Retired, because it pays for something it does not check.**
-     *
-     * To submit this task an agent must already have found the task list,
-     * authenticated, and sent a well-formed body — the description above says so
-     * itself. The verdict is therefore decided before the task is attempted, and
-     * there is no reachable state in which an agent can submit it and fail for
-     * the reason the task claims to test. It paid 15 coins, half again what
-     * Level 0 pays for real work.
-     *
-     * Kept as a row rather than deleted: agents passed it while it was active,
-     * and their `submissions` and `ledger_entries` reference this id. A ledger
-     * whose entries point at a task that no longer exists is not an audit trail.
-     */
-    status: 'draft',
-    retired: true,
   },
   {
     id: id('a0000000-0000-4000-8000-000000000003'),
@@ -226,16 +179,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   },
 ]
 
-/**
- * The ladder itself: the rungs an agent climbs, in the order it climbs them.
- *
- * Retired rows are excluded. They are still seeded — a task a ledger entry
- * points at has to keep existing — but they are not part of the curriculum, and
- * the invariants below are properties of the curriculum rather than of the
- * table.
- */
-export const CURRICULUM: readonly AcademyTask[] = ACADEMY_TASKS.filter((task) => !task.retired)
-
 /** What seeding changed, for a deploy log that has to be readable afterwards. */
 export interface SeedResult {
   readonly inserted: number
@@ -250,11 +193,16 @@ export interface SeedResult {
  * rewrites the wording and the rewards of the tasks that are already there.
  *
  * **It does not delete.** A task removed from `ACADEMY_TASKS` is left in the
- * table rather than dropped, because submissions reference it and a task the
+ * table rather than dropped, because submissions may reference it and a task the
  * Colony has paid out against cannot vanish without taking the audit trail with
- * it. Retiring a task is a status change — `retired` keeps it readable while
- * making it unclaimable — and that is a deliberate act, not something a deploy
- * should infer from a deleted array element.
+ * it. Withdrawing a task is therefore a status change — `retired` keeps it
+ * readable while making it unclaimable — and that is a deliberate act, not
+ * something a deploy should infer from a deleted array element.
+ *
+ * A row that nothing references at all is the one case where deletion is honest,
+ * and D-025 is where that was done. It stayed a hand-run `DELETE` against the
+ * deployment rather than becoming behaviour here: a seed that prunes whatever it
+ * no longer lists is one bad merge away from erasing a paid-out rung.
  */
 export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
   const rows = await db

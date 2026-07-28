@@ -7,6 +7,7 @@ import {
   type Submission,
   type SubmissionId,
   type TaskType,
+  type Verifier,
 } from '@kolonie-ai/core'
 import { startRunner, tick, type Log } from './loop.js'
 import type {
@@ -17,7 +18,30 @@ import type {
   SubmissionQueue,
 } from './queue.js'
 
-const API_CALL = TaskTypeSchema.parse('api-call')
+const EXAMPLE_TASK = TaskTypeSchema.parse('example-task')
+
+/**
+ * A verifier that exists for these tests and nowhere else.
+ *
+ * The loop's job is to claim a row, hand it to whatever can decide it, and
+ * always either write a verdict or put the row back. None of that is a statement
+ * about a particular verifier, so these tests carry their own and pass it in.
+ *
+ * Passing `verifiers` also fixes which task types are claimed — `tick` derives
+ * `taskTypes` from the registry's keys — which is how the runner wires itself in
+ * production. Before D-025 these tests named the type instead and let the
+ * registry default, so deleting `ApiCallVerifier` made every one of them claim a
+ * row nothing could decide.
+ */
+const stub: Verifier = {
+  taskType: EXAMPLE_TASK,
+  verify: async (submission) =>
+    submission.payload['echo'] === undefined
+      ? { status: 'fail', evidence: 'The payload carried no echo.' }
+      : { status: 'pass', evidence: 'Echoed.' },
+}
+
+const verifiers = new Map([[stub.taskType, stub]])
 
 const aSubmission = (
   id: string,
@@ -110,7 +134,7 @@ class FakeQueue implements SubmissionQueue {
   }
 }
 
-const claimed = (id: string, taskType = API_CALL): ClaimedSubmission => ({
+const claimed = (id: string, taskType = EXAMPLE_TASK): ClaimedSubmission => ({
   submission: aSubmission(id),
   taskType,
   agent: anAgent(),
@@ -121,13 +145,13 @@ const quiet: Log = { info: () => {}, warn: () => {}, error: () => {} }
 describe('tick', () => {
   it('reports idle when nothing is waiting', async () => {
     const queue = new FakeQueue()
-    expect(await tick({ queue, taskTypes: [API_CALL], log: quiet })).toEqual({ kind: 'idle' })
+    expect(await tick({ queue, verifiers, log: quiet })).toEqual({ kind: 'idle' })
   })
 
   it('writes a passing verdict with its evidence', async () => {
     const queue = new FakeQueue([claimed(FIRST)])
 
-    const outcome = await tick({ queue, taskTypes: [API_CALL], log: quiet })
+    const outcome = await tick({ queue, verifiers, log: quiet })
 
     expect(outcome).toEqual({ kind: 'decided', status: 'passed' })
     expect(queue.recorded).toHaveLength(1)
@@ -139,10 +163,10 @@ describe('tick', () => {
   /** Evidence is required on every verdict, not only the ones that pay out. */
   it('writes evidence on a failing verdict too', async () => {
     const queue = new FakeQueue([
-      { submission: aSubmission(FIRST, {}), taskType: API_CALL, agent: anAgent() },
+      { submission: aSubmission(FIRST, {}), taskType: EXAMPLE_TASK, agent: anAgent() },
     ])
 
-    await tick({ queue, taskTypes: [API_CALL], log: quiet })
+    await tick({ queue, verifiers, log: quiet })
 
     expect(queue.recorded[0]?.result.status).toBe('fail')
     expect(queue.recorded[0]?.result.evidence).toContain('echo')
@@ -158,7 +182,7 @@ describe('tick', () => {
     const unverifiable = TaskTypeSchema.parse('instagram-follow')
     const queue = new FakeQueue([claimed(FIRST, unverifiable)])
 
-    const outcome = await tick({ queue, taskTypes: [unverifiable], log: quiet })
+    const outcome = await tick({ queue, verifiers, taskTypes: [unverifiable], log: quiet })
 
     expect(outcome.kind).toBe('skipped')
     expect(queue.recorded).toEqual([])
@@ -172,7 +196,7 @@ describe('tick', () => {
     await expect(
       tick({
         queue,
-        taskTypes: [API_CALL],
+        verifiers,
         log: quiet,
         verify: () => Promise.reject(upstreamIsDown),
       }),
@@ -191,7 +215,7 @@ describe('tick', () => {
     const queue = new FakeQueue([claimed(FIRST)])
     queue.stale = true
 
-    const outcome = await tick({ queue, taskTypes: [API_CALL], log: quiet })
+    const outcome = await tick({ queue, verifiers, log: quiet })
 
     expect(outcome).toEqual({ kind: 'stale', status: 'timeout' })
     expect(queue.released).toEqual([])
@@ -208,7 +232,7 @@ describe('startRunner', () => {
 
   it('drains the queue and then idles', async () => {
     const queue = new FakeQueue([claimed(FIRST), claimed(SECOND)])
-    const runner = startRunner({ queue, taskTypes: [API_CALL], log: quiet }, immediately)
+    const runner = startRunner({ queue, verifiers, log: quiet }, immediately)
 
     await until(() => queue.recorded.length === 2)
     await runner.stop()
@@ -218,7 +242,7 @@ describe('startRunner', () => {
 
   it('sweeps for submissions past their deadline', async () => {
     const queue = new FakeQueue()
-    const runner = startRunner({ queue, taskTypes: [API_CALL], log: quiet }, immediately)
+    const runner = startRunner({ queue, verifiers, log: quiet }, immediately)
 
     await until(() => queue.sweeps > 0)
     await runner.stop()
@@ -238,7 +262,7 @@ describe('startRunner', () => {
     const waits: number[] = []
 
     const runner = startRunner(
-      { queue, taskTypes: [API_CALL], log: quiet },
+      { queue, verifiers, log: quiet },
       {
         pollIntervalMs: 1_000,
         maxBackoffMs: 8_000,
@@ -261,7 +285,7 @@ describe('startRunner', () => {
 
   it('reports itself unhealthy before the first poll completes, healthy after', async () => {
     const queue = new FakeQueue()
-    const runner = startRunner({ queue, taskTypes: [API_CALL], log: quiet }, immediately)
+    const runner = startRunner({ queue, verifiers, log: quiet }, immediately)
 
     await until(() => runner.health().lastPollAt !== null)
     expect(runner.health().running).toBe(true)
@@ -287,7 +311,7 @@ describe('startRunner', () => {
     const runner = startRunner(
       {
         queue,
-        taskTypes: [API_CALL],
+        verifiers,
         log: quiet,
         verify: async (submission) => {
           await verifying

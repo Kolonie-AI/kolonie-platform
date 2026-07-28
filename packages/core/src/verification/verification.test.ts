@@ -4,7 +4,7 @@ import { VerificationSchema } from './verification.js'
 const record = (overrides: Record<string, unknown> = {}) => ({
   id: '7d6c5b4a-3e2f-4a1b-8c9d-0e1f2a3b4c5d',
   submissionId: '9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
-  taskType: 'api-call',
+  taskType: 'example-task',
   status: 'pass',
   evidence: 'The payload carried a well-formed echo.',
   metadata: { attempt: 1 },
@@ -14,7 +14,7 @@ const record = (overrides: Record<string, unknown> = {}) => ({
 
 describe('VerificationSchema', () => {
   it('accepts a complete record', () => {
-    expect(VerificationSchema.parse(record()).taskType).toBe('api-call')
+    expect(VerificationSchema.parse(record()).taskType).toBe('example-task')
   })
 
   /**

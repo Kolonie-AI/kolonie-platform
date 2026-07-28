@@ -5,14 +5,40 @@ import {
   TaskTypeSchema,
   type SubmissionStatus,
   type VerificationContext,
+  type Verifier,
 } from '@kolonie-ai/core'
 import { verifySubmission } from './runner.js'
 
-const API_CALL = TaskTypeSchema.parse('api-call')
+const EXAMPLE_TASK = TaskTypeSchema.parse('example-task')
 
 /**
- * The context the runner joins alongside the submission (D-018). These tests are
- * about `api-call`, which ignores it — but the parameter is not optional, and a
+ * A verifier that exists for these tests and nowhere else.
+ *
+ * These cases are about the runner's own behaviour — which statuses it picks up,
+ * how a verdict maps to a submission status, that it copies rather than mutates.
+ * None of that is about any particular verifier, so they take a stub through the
+ * `verifiers` parameter instead of leaning on whatever `createVerifiers()`
+ * happens to return.
+ *
+ * They used to lean on it, through `ApiCallVerifier`. When D-025 deleted that
+ * module every case here failed at once, having been coupled to the production
+ * catalogue by nothing more than a shared task type.
+ */
+const stub: Verifier = {
+  taskType: EXAMPLE_TASK,
+  verify: async (submission) => {
+    const echo = submission.payload['echo']
+    return typeof echo === 'string' && echo.length > 0
+      ? { status: 'pass', evidence: `Echoed '${echo}'.` }
+      : { status: 'fail', evidence: 'The payload carried no echo.' }
+  },
+}
+
+const verifiers = new Map([[stub.taskType, stub]])
+
+/**
+ * The context the runner joins alongside the submission (D-018). These tests run
+ * a stub verifier that ignores it — but the parameter is not optional, and a
  * fixture that lies about its shape would let a verifier that *does* read it
  * pass a test it should fail.
  */
@@ -50,8 +76,9 @@ describe('verifySubmission', () => {
   it('passes a valid submission and moves it to passed', async () => {
     const verdict = await verifySubmission(
       submission('verifying', { echo: 'hello' }),
-      API_CALL,
+      EXAMPLE_TASK,
       context,
+      verifiers,
     )
     expect(verdict.outcome).toBe('verified')
     if (verdict.outcome !== 'verified') return
@@ -61,7 +88,12 @@ describe('verifySubmission', () => {
   })
 
   it('moves a bad submission to failed', async () => {
-    const verdict = await verifySubmission(submission('verifying'), API_CALL, context)
+    const verdict = await verifySubmission(
+      submission('verifying'),
+      EXAMPLE_TASK,
+      context,
+      verifiers,
+    )
     expect(verdict.outcome).toBe('verified')
     if (verdict.outcome !== 'verified') return
     expect(verdict.submission.status).toBe('failed')
@@ -70,8 +102,9 @@ describe('verifySubmission', () => {
   it('skips a submission that is not being verified', async () => {
     const verdict = await verifySubmission(
       submission('pending', { echo: 'hello' }),
-      API_CALL,
+      EXAMPLE_TASK,
       context,
+      verifiers,
     )
     expect(verdict.outcome).toBe('skipped')
   })
@@ -80,8 +113,9 @@ describe('verifySubmission', () => {
     for (const status of ['passed', 'failed', 'timeout'] as const) {
       const verdict = await verifySubmission(
         submission(status, { echo: 'hello' }),
-        API_CALL,
+        EXAMPLE_TASK,
         context,
+        verifiers,
       )
       expect(verdict.outcome).toBe('skipped')
     }
@@ -92,6 +126,7 @@ describe('verifySubmission', () => {
       submission('verifying', { echo: 'hello' }),
       TaskTypeSchema.parse('instagram-follow'),
       context,
+      verifiers,
     )
     expect(verdict.outcome).toBe('skipped')
     if (verdict.outcome !== 'skipped') return
@@ -100,7 +135,7 @@ describe('verifySubmission', () => {
 
   it('leaves the original submission untouched', async () => {
     const original = submission('verifying', { echo: 'hello' })
-    await verifySubmission(original, API_CALL, context)
+    await verifySubmission(original, EXAMPLE_TASK, context, verifiers)
     expect(original.status).toBe('verifying')
   })
 })

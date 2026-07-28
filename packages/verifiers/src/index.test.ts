@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TaskTypeSchema } from '@kolonie-ai/core'
 import {
-  ApiCallVerifier,
   createVerifiers,
   GithubContributionVerifier,
   ProfileCompleteVerifier,
@@ -10,7 +9,6 @@ import {
   type GitHubReader,
 } from './index.js'
 
-const API_CALL = TaskTypeSchema.parse('api-call')
 const PROFILE_COMPLETE = TaskTypeSchema.parse('profile-complete')
 const GITHUB_CONTRIBUTION = TaskTypeSchema.parse('github-contribution')
 
@@ -21,7 +19,6 @@ describe('createVerifiers', () => {
   it('always deploys the verifiers that need nothing from outside', () => {
     const verifiers = createVerifiers()
 
-    expect(verifierFor(API_CALL, verifiers)).toBeInstanceOf(ApiCallVerifier)
     expect(verifierFor(PROFILE_COMPLETE, verifiers)).toBeInstanceOf(ProfileCompleteVerifier)
   })
 

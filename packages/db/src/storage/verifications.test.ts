@@ -29,7 +29,7 @@ if (!target.available) {
   console.warn(`\n${target.reason}\n`)
 }
 
-const API_CALL = TaskTypeSchema.parse('api-call')
+const EXAMPLE_TASK = TaskTypeSchema.parse('example-task')
 
 describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
   let db: Database
@@ -148,14 +148,14 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
     })
 
     it('claims a pending submission and marks it verifying', async () => {
-      const taskId = await aTask({ type: 'api-call' })
+      const taskId = await aTask({ type: 'example-task' })
       const id = await aSubmission({ taskId })
 
       const claimed = await claimAny()
 
       expect(claimed?.submission.id).toBe(id)
       expect(claimed?.submission.status).toBe('verifying')
-      expect(claimed?.taskType).toBe(API_CALL)
+      expect(claimed?.taskType).toBe(EXAMPLE_TASK)
       expect((await statusOf(id)).status).toBe('verifying')
     })
 
@@ -184,20 +184,20 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       const taskId = await aTask({ type: 'instagram-follow' })
       const id = await aSubmission({ taskId })
 
-      expect(await claimNextSubmission(db, [API_CALL])).toBeUndefined()
+      expect(await claimNextSubmission(db, [EXAMPLE_TASK])).toBeUndefined()
       expect((await statusOf(id)).status).toBe('pending')
     })
 
     it('walks past it to a submission it can verify', async () => {
       const unverifiable = await aTask({ type: 'instagram-follow' })
       await aSubmission({ taskId: unverifiable, submittedAt: '2026-07-19T10:00:00.000Z' })
-      const verifiable = await aTask({ type: 'api-call' })
+      const verifiable = await aTask({ type: 'example-task' })
       const next = await aSubmission({
         taskId: verifiable,
         submittedAt: '2026-07-20T10:00:00.000Z',
       })
 
-      const claimed = await claimNextSubmission(db, [API_CALL])
+      const claimed = await claimNextSubmission(db, [EXAMPLE_TASK])
       expect(claimed?.submission.id).toBe(next)
     })
 
@@ -250,7 +250,7 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
     }
 
     it('books a pass with its evidence, in one transaction', async () => {
-      const taskId = await aTask({ type: 'api-call' })
+      const taskId = await aTask({ type: 'example-task' })
       const id = await aSubmission({ taskId })
       const claimed = await claim()
 
@@ -271,7 +271,7 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       expect(result.submission.verifiedAt).toBe('2026-07-28T12:00:00.000Z')
       expect(result.verification.evidence).toContain('5-character echo')
       expect(result.verification.metadata).toEqual({ attempt: 1 })
-      expect(result.verification.taskType).toBe(API_CALL)
+      expect(result.verification.taskType).toBe(EXAMPLE_TASK)
     })
 
     it('records evidence on a fail too', async () => {
@@ -350,7 +350,7 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
 
       const result = await recordVerdict(db, {
         submissionId: id,
-        taskType: API_CALL,
+        taskType: EXAMPLE_TASK,
         result: { status: 'pass', evidence: 'A slow verifier finally answered.' },
       })
 
@@ -376,7 +376,7 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       const claimed = await claimAny()
       await recordVerdict(db, {
         submissionId: id,
-        taskType: claimed?.taskType ?? API_CALL,
+        taskType: claimed?.taskType ?? EXAMPLE_TASK,
         result: { status: 'fail', evidence: 'Nothing usable in the payload.' },
       })
 
@@ -397,12 +397,12 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
     })
 
     it('times out a pending submission past its deadline, with evidence', async () => {
-      const taskId = await aTask({ type: 'api-call', timeoutHours: 1 })
+      const taskId = await aTask({ type: 'example-task', timeoutHours: 1 })
       const id = await aSubmission({ taskId, submittedAt: '2026-07-28T10:00:00.000Z' })
 
       const expired = await expireOverdueSubmissions(db, { now: NOW })
 
-      expect(expired).toEqual([{ submissionId: id, taskType: API_CALL, previousStatus: 'pending' }])
+      expect(expired).toEqual([{ submissionId: id, taskType: EXAMPLE_TASK, previousStatus: 'pending' }])
       const row = await statusOf(id)
       expect(row.status).toBe('timeout')
       expect(row.verifiedAt).toBe(NOW)
@@ -531,13 +531,13 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
 
     it('ignores a passing verdict for some other task type', async () => {
       const submissionId = await aSubmission({
-        taskId: await aTask({ type: 'api-call' }),
+        taskId: await aTask({ type: 'example-task' }),
         status: 'passed',
         ...terminalFields('passed'),
       })
       await db.insert(verifications).values({
         submissionId,
-        taskType: 'api-call',
+        taskType: 'example-task',
         status: 'pass',
         evidence: 'written by a fixture',
         metadata: { author: 'octocat' },

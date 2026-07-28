@@ -1,11 +1,9 @@
 import type { TaskType, Verifier } from '@kolonie-ai/core'
-import { ApiCallVerifier } from './api-call.js'
 import { ProfileCompleteVerifier } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
 import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import type { GitHubReader } from './github.js'
 
-export { ApiCallVerifier } from './api-call.js'
 export {
   BrowserCaptchaVerifier,
   type BrowserCaptchaDependencies,
@@ -67,7 +65,7 @@ export interface VerifierDependencies {
  * is the one place that supplies the rest, and it is the only place that should.
  */
 export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegistry {
-  const verifiers: Verifier[] = [new ProfileCompleteVerifier(), new ApiCallVerifier()]
+  const verifiers: Verifier[] = [new ProfileCompleteVerifier()]
 
   if (deps.gates !== undefined) {
     verifiers.push(new BrowserCaptchaVerifier({ gates: deps.gates }))

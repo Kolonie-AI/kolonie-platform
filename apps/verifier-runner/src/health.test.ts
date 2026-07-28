@@ -5,7 +5,7 @@ import { TaskTypeSchema } from '@kolonie-ai/core'
 import { createHealthServer, healthOf, HEALTH_PATH } from './health.js'
 import type { RunnerHealth } from './loop.js'
 
-const API_CALL = TaskTypeSchema.parse('api-call')
+const EXAMPLE_TASK = TaskTypeSchema.parse('example-task')
 const STALE_AFTER_MS = 15_000
 const AT = Date.parse('2026-07-28T12:00:00.000Z')
 
@@ -14,7 +14,7 @@ const health = (overrides: Partial<RunnerHealth> = {}): RunnerHealth => ({
   lastPollAt: '2026-07-28T11:59:55.000Z',
   consecutiveFailures: 0,
   inFlight: 0,
-  taskTypes: [API_CALL],
+  taskTypes: [EXAMPLE_TASK],
   ...overrides,
 })
 
@@ -73,7 +73,7 @@ describe('the health server', () => {
     const response = await fetch(`${base}${HEALTH_PATH}`)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ status: 'ok', verifiers: ['api-call'] })
+    expect(await response.json()).toMatchObject({ status: 'ok', verifiers: ['example-task'] })
   })
 
   /**

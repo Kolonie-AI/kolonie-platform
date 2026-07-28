@@ -25,7 +25,7 @@ if (!target.available) {
   console.warn(`\n${target.reason}\n`)
 }
 
-const API_CALL = TaskTypeSchema.parse('api-call')
+const EXAMPLE_TASK = TaskTypeSchema.parse('example-task')
 
 describe.skipIf(!target.available)('booking a passed submission', () => {
   let db: Database
@@ -61,7 +61,7 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
     const [row] = await db
       .insert(tasks)
       .values({
-        type: 'api-call',
+        type: 'example-task',
         level: options.level ?? 0,
         title: 'Make an API call',
         description: 'What this task is, for a human reading the catalogue.',
@@ -91,7 +91,7 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
 
     if (row === undefined) throw new Error('insert into submissions returned no row')
 
-    const claimed = await claimNextSubmission(db, [API_CALL])
+    const claimed = await claimNextSubmission(db, [EXAMPLE_TASK])
     if (claimed?.submission.id !== row.id) {
       throw new Error('the fixture claimed a submission other than the one it just created')
     }
@@ -101,14 +101,14 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
   const pass = (submissionId: SubmissionId) =>
     recordVerdict(db, {
       submissionId,
-      taskType: API_CALL,
+      taskType: EXAMPLE_TASK,
       result: { status: 'pass', evidence: 'The payload was well formed.' },
     })
 
   const fail = (submissionId: SubmissionId) =>
     recordVerdict(db, {
       submissionId,
-      taskType: API_CALL,
+      taskType: EXAMPLE_TASK,
       result: { status: 'fail', evidence: 'The payload had no echo.' },
     })
 
@@ -274,7 +274,7 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
 
       await recordVerdict(db, {
         submissionId,
-        taskType: API_CALL,
+        taskType: EXAMPLE_TASK,
         result: { status: 'pending', evidence: 'The transaction has not confirmed yet.' },
       })
 
@@ -318,7 +318,7 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       try {
         const verdict = {
           submissionId,
-          taskType: API_CALL,
+          taskType: EXAMPLE_TASK,
           result: { status: 'pass', evidence: 'The payload was well formed.' },
         } as const
 

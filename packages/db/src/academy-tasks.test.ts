@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { TASK_TYPE_PATTERN, type AcademyLevel } from '@kolonie-ai/core'
-import { ACADEMY_TASKS, CURRICULUM, seedAcademyTasks } from './academy-tasks.js'
+import { ACADEMY_TASKS, seedAcademyTasks } from './academy-tasks.js'
 import type { Database } from './client.js'
 import { tasks } from './schema/index.js'
 import { listTasks } from './storage/tasks.js'
@@ -27,8 +27,8 @@ describe('the Academy task definitions', () => {
   })
 
   it('climbs one rung per level, in dependency order', () => {
-    expect(CURRICULUM.map((task) => task.level)).toEqual([0, 1, 2, 3])
-    expect(CURRICULUM.map((task) => task.type)).toEqual([
+    expect(ACADEMY_TASKS.map((task) => task.level)).toEqual([0, 1, 2, 3])
+    expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
       'browser-captcha',
       'email-roundtrip',
@@ -44,16 +44,24 @@ describe('the Academy task definitions', () => {
    * the address that account is created with.
    */
   it('never places a rung below one it depends on', () => {
-    const levelOf = (type: string) => CURRICULUM.find((task) => task.type === type)?.level ?? -1
+    const levelOf = (type: string) => ACADEMY_TASKS.find((task) => task.type === type)?.level ?? -1
     expect(levelOf('browser-captcha')).toBeLessThan(levelOf('email-roundtrip'))
     expect(levelOf('email-roundtrip')).toBeLessThan(levelOf('github-contribution'))
   })
 
-  it('keeps a retired task seeded, so nothing in the ledger dangles', () => {
-    const retired = ACADEMY_TASKS.filter((task) => task.retired)
-    expect(retired.map((task) => task.type)).toEqual(['api-call'])
-    // Retired means invisible, not absent: D-014 hides a draft task from agents.
-    expect(retired.every((task) => task.status === 'draft')).toBe(true)
+  /**
+   * Every row here is a rung. There is no second kind.
+   *
+   * There was one for a while: `api-call` sat in this array drafted and flagged
+   * `retired`, kept — the comment said — because submissions and ledger entries
+   * referenced its id. Nothing ever did. It was deleted in D-025 after the
+   * deployed database was asked rather than assumed, and with it went the
+   * `retired` flag and the `CURRICULUM` filter that existed to route around that
+   * single row. This test is what stops the distinction growing back by accident.
+   */
+  it('carries no rows that are not curriculum', () => {
+    const levels = ACADEMY_TASKS.map((task) => task.level)
+    expect(new Set(levels).size).toBe(ACADEMY_TASKS.length)
   })
 
   it('names a task type that is a valid slug', () => {
@@ -74,12 +82,12 @@ describe('the Academy task definitions', () => {
   it('keeps every task the Colony cannot yet decide out of sight', () => {
     const undecidable = ['email-roundtrip', 'github-contribution']
     for (const type of undecidable) {
-      expect(CURRICULUM.find((task) => task.type === type)?.status).toBe('draft')
+      expect(ACADEMY_TASKS.find((task) => task.type === type)?.status).toBe('draft')
     }
   })
 
   it('pays more for the harder levels', () => {
-    const coins = CURRICULUM.map((task) => task.rewardCoins)
+    const coins = ACADEMY_TASKS.map((task) => task.rewardCoins)
     expect(coins).toEqual([...coins].sort((a, b) => a - b))
     expect(coins.every((amount) => amount > 0)).toBe(true)
   })
@@ -164,8 +172,8 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
      * **Two climbable rungs**, and this test is the ratchet that keeps the count
      * honest. It changed once already: before D-023 an agent at Level 1 was also
      * offered `api-call`, which paid 15 coins for a capability the submission
-     * itself had demonstrated. Retiring it left the list empty for a while, and
-     * that emptiness was asserted rather than hidden.
+     * itself had demonstrated. Withdrawing it left the list empty for a while,
+     * and that emptiness was asserted rather than hidden.
      *
      * `browser-captcha` went active only after the gate was cleared by a real
      * browser — the hCaptcha call is the one path no test can drive. The two
@@ -187,7 +195,7 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     it('hides every drafted rung from an agent that has reached it', async () => {
       const visible = (await listFor(3)).map((task) => task.type)
 
-      for (const drafted of ['api-call', 'email-roundtrip', 'github-contribution']) {
+      for (const drafted of ['email-roundtrip', 'github-contribution']) {
         expect(visible).not.toContain(drafted)
       }
     })
@@ -216,13 +224,13 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
  */
 describe('the instructions an agent is given', () => {
   it('shows the envelope the submissions endpoint requires', () => {
-    for (const task of CURRICULUM) {
+    for (const task of ACADEMY_TASKS) {
       expect(task.instructions).toContain('"payload"')
     }
   })
 
   it('never tells an agent to post a bare {}', () => {
-    for (const task of CURRICULUM) {
+    for (const task of ACADEMY_TASKS) {
       expect(task.instructions).not.toMatch(/payload \(\{\}\)/)
     }
   })

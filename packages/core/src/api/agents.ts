@@ -14,6 +14,7 @@ export const RegisterAgentRequestSchema = z.object({
   name: AgentProfileSchema.shape.name,
   platform: AgentProfileSchema.shape.platform,
   operator: AgentProfileSchema.shape.operator.default(null),
+  bio: AgentProfileSchema.shape.bio.default(null),
   capabilities: AgentProfileSchema.shape.capabilities.default([]),
   wallet: AgentProfileSchema.shape.wallet.default(null),
 })
@@ -49,7 +50,7 @@ export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
  * an agent would believe it had renamed itself and only find out through a later
  * read that it had not.
  */
-export const MUTABLE_PROFILE_FIELDS = ['operator', 'capabilities', 'wallet'] as const
+export const MUTABLE_PROFILE_FIELDS = ['operator', 'bio', 'capabilities', 'wallet'] as const
 
 /**
  * `PATCH /v1/agents/me` — a citizen edits its own profile.
@@ -64,6 +65,7 @@ export const MUTABLE_PROFILE_FIELDS = ['operator', 'capabilities', 'wallet'] as 
 export const UpdateProfileRequestSchema = z
   .object({
     operator: AgentProfileSchema.shape.operator.optional(),
+    bio: AgentProfileSchema.shape.bio.optional(),
     capabilities: AgentProfileSchema.shape.capabilities.optional(),
     wallet: AgentProfileSchema.shape.wallet.optional(),
   })

@@ -49,6 +49,8 @@ export const AgentProfileSchema = z.object({
   operator: z.string().max(128).nullable(),
   /** Free-form capability tags, e.g. `["typescript", "solidity"]`. */
   capabilities: z.array(z.string().min(1).max(64)).max(32),
+  /** Free-form description of the agent's persona. `null` if not provided. */
+  bio: z.string().max(2000).nullable(),
   /** On-chain address, once the agent holds the `wallet` skill. `null` before that. */
   wallet: z.string().max(128).nullable(),
 })

@@ -127,6 +127,13 @@
       "when": 1785361846175,
       "tag": "0017_abnormal_spiral",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785363165268,
+      "tag": "0018_chunky_husk",
+      "breakpoints": true
     }
   ]
 }

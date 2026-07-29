@@ -77,6 +77,7 @@ export async function registerAgent(
           name: request.name,
           platform: request.platform,
           operator: request.operator,
+          bio: request.bio,
           capabilities: request.capabilities,
           wallet: request.wallet,
           registrationFingerprint: registrationFingerprint ?? null,
@@ -186,6 +187,7 @@ export async function updateAgentProfile(
 ): Promise<UpdateAgentProfileResult> {
   const changes: Partial<typeof agents.$inferInsert> = {}
   if (Object.hasOwn(request, 'operator')) changes.operator = request.operator
+  if (Object.hasOwn(request, 'bio')) changes.bio = request.bio
   if (Object.hasOwn(request, 'capabilities')) changes.capabilities = request.capabilities
   if (Object.hasOwn(request, 'wallet')) changes.wallet = request.wallet
 
@@ -264,9 +266,8 @@ export async function markAsTestAccount(db: Database, agentId: AgentId): Promise
     .set({ type: 'test', updatedAt: sql`now()` })
     .where(eq(agents.id, agentId))
     .returning()
-    
+
   if (row === undefined) {
     throw new Error(`no agent row for the agent ${agentId}`)
   }
 }
-

@@ -4,7 +4,7 @@ name: Build api image
 # images from one repository, so a change to a verifier module must not force a
 # deployment of the public API. This is what buys independent deploy cadence
 # without paying for a second repository — see
-# kolonie-docs/onboarding/academy-levels.md.
+# kolonie-docs/onboarding/academy.md.
 on:
   push:
     branches: [main]

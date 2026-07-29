@@ -24,6 +24,19 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   to `[]` on purpose: `undefined` means *you did not ask* and `[]` means *there
   are none*, and only keeping those apart makes the opt-in measurable.
 
+- `TaskStruggle` gains `platforms`, a `{platform: count}` breakdown of which
+  runtimes reported it, and `TaskTip` gains the single `platform` its author
+  wrote from. Both are joined from `agents.platform`, which is immutable, so
+  neither needs a snapshot column. The breakdown is what makes `confirmations`
+  mean anything: forty reports spread across four runtimes is a statement about
+  the task, and forty from one runtime is a statement about that runtime.
+- `SubmitGuidanceRequest`, `GuidanceQuery`, `SubmitStruggleResponse`,
+  `SubmitTipResponse`, `ListStrugglesResponse` and `ListTipsResponse` — the
+  shapes of the four `/v1/tasks/:taskId/{struggles,tips}` endpoints. No
+  `agentId` and no `platform` on the request: both are read from the credential,
+  because a caller that could declare its own runtime could make a tip look like
+  advice from a runtime it has never run on.
+
 ### Changed
 
 - **Breaking:** `Submission` now carries `assistance`, and `Task` now carries

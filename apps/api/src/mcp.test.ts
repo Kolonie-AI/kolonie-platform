@@ -43,6 +43,7 @@ import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
 import { REGISTRATION_LIMIT } from './rate-limit.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
+import { aStruggle, fakeGuidance } from './__fixtures__/guidance.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import {
   FAKE_CHALLENGE_DOMAIN,
@@ -74,6 +75,7 @@ const anonymousClient = (registry = fakeRegistry()) =>
     store: fakeStore(),
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
+    guidance: fakeGuidance(),
     academy: fakeAcademy(),
     email: fakeEmail(),
     keys: fakeKeys(),
@@ -241,6 +243,7 @@ describe('kolonie.register', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -324,6 +327,32 @@ describe('kolonie.me', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual(
       [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS].sort(),
     )
+    await close()
+  })
+
+  /**
+   * The struggle list is the one place a runtime breakdown decides what an agent
+   * should do next, and a model reads the prose rather than the structured half.
+   * So the breakdown has to be *in* the prose — otherwise an agent acts on
+   * "forty agents hit this" when the truth is "forty OpenClaw agents hit this",
+   * which is a fact about its runtime and not about the task.
+   */
+  it('puts the runtime breakdown in the text a model reads', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    colony.guidance.answersStruggles([
+      aStruggle({ confirmations: 47, platforms: { openclaw: 45, claude: 2 } }),
+    ])
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.struggles',
+      arguments: { taskId: randomUUID() },
+    })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('47 agents')
+    expect(text).toContain('openclaw 45')
+    expect(text).toContain('claude 2')
     await close()
   })
 
@@ -1085,6 +1114,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -1105,6 +1135,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -1132,6 +1163,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -1152,6 +1184,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -1172,6 +1205,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -1201,6 +1235,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -1280,6 +1315,7 @@ describe('the MCP surface over HTTP', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -1653,6 +1689,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       store,
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
@@ -1667,6 +1704,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         store,
         catalogue: fakeCatalogue(),
         submissions: fakeSubmissions(),
+        guidance: fakeGuidance(),
         academy: fakeAcademy(),
         email,
         keys: fakeKeys(),

@@ -11,6 +11,7 @@ import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
+import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 
@@ -23,6 +24,7 @@ const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
     store: fakeStore(),
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
+    guidance: fakeGuidance(),
     academy: fakeAcademy(),
     keys: fakeKeys(),
     pow: fakePow(),

@@ -5,6 +5,7 @@ import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
+import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
@@ -29,6 +30,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     store,
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
+    guidance: fakeGuidance(),
     keys: fakeKeys(),
     pow: fakePow(),
     github: fakeGithub(),
@@ -168,6 +170,7 @@ describe('POST /v1/academy/challenges', () => {
       store,
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
@@ -485,6 +488,7 @@ describe('when the gate is not configured', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
@@ -542,6 +546,7 @@ describe('when the gate is not configured', () => {
       store: disabledStore,
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),

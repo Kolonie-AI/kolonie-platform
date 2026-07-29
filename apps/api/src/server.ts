@@ -3,6 +3,7 @@ import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
+import { databaseGuidance } from './guidance.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
@@ -89,6 +90,7 @@ const app = buildApp({
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
   submissions: databaseSubmissions(db),
+  guidance: databaseGuidance(db),
   // No configuration branch, because there is nothing to configure. The keypair
   // rung reads through nothing, so unlike every other Academy surface here it
   // cannot be half-wired.

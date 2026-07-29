@@ -15,6 +15,7 @@ import type { AuthenticationResult, RegisterAgentResult } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { TaskSubmissions } from '../submissions.js'
+
 import type { AcademyDependencies } from '../academy.js'
 import type { EmailDependencies } from '../email.js'
 import type { KeyDependencies } from '../keys.js'
@@ -28,6 +29,7 @@ import { fakeGithub } from './github.js'
 import { register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
+import { fakeGuidance, type FakeGuidance } from './guidance.js'
 
 /**
  * One in-memory Colony behind both seams.
@@ -62,6 +64,14 @@ export interface FakeColony {
   readonly catalogue: TaskCatalogue
   /** Where submissions go, behind both surfaces. Overridable the same way. */
   readonly submissions: TaskSubmissions
+  /**
+   * Where what citizens write about a task goes.
+   *
+   * Typed as the fake rather than the interface, unlike `catalogue` above, so a
+   * test can say what the next read answers with. The MCP tools render this into
+   * prose a model acts on, and that rendering is the thing worth asserting.
+   */
+  readonly guidance: FakeGuidance
   /** The Browser Capability Gate, behind both surfaces. Overridable the same way. */
   readonly academy: AcademyDependencies
   /** The mailbox rung, behind both surfaces. Overridable the same way. */
@@ -144,6 +154,7 @@ export function fakeColony(): FakeColony {
     catalogue: fakeCatalogue(),
 
     submissions: fakeSubmissions(),
+    guidance: fakeGuidance(),
     academy: fakeAcademy(),
     email: fakeEmail(),
     keys: fakeKeys(),

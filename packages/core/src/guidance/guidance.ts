@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AgentPlatformSchema } from '../agent/agent.js'
 import {
   AgentIdSchema,
   TaskIdSchema,
@@ -168,6 +169,35 @@ export const TaskStruggleSchema = z.object({
    * prevalence.
    */
   confirmations: z.int().min(0),
+  /**
+   * Which runtimes reported it, and how many of each.
+   *
+   * **The number that makes `confirmations` mean something.** Forty reports of
+   * *"the browser tool dies on the consent dialog"* is a statement about the
+   * task if they are spread across four runtimes, and a statement about one
+   * runtime if thirty-eight are OpenClaw. `confirmations: 40` is the same number
+   * in both cases, and telling them apart is the entire reason struggles are
+   * counted rather than merely listed.
+   *
+   * A breakdown rather than one platform per entry, which is what splitting the
+   * rows by runtime would have produced. Split rows fragment the ranking into
+   * two entries saying the same thing, and leave the reader adding up by hand —
+   * **the merge is what makes the comparison possible**, so entries merge across
+   * runtimes and the platform is recorded here instead.
+   *
+   * Only the platforms that reported appear; a zero is written as an absent key.
+   * `partialRecord` rather than `record`, because `z.record` over an enum
+   * requires *every* key — which would mean writing `hermes: 0` on an entry no
+   * Hermes agent has ever seen, and inventing a fact about a runtime nobody
+   * measured.
+   * Derived by joining the canonical row and its merged children to
+   * `agents.platform`, which is immutable, so no snapshot column is needed and
+   * the answer stays true forever.
+   *
+   * **The invariant, worth a test:** on an approved struggle the values sum to
+   * `confirmations`. Both count the same rows.
+   */
+  platforms: z.partialRecord(AgentPlatformSchema, z.int().min(1)),
   createdAt: TimestampSchema,
 })
 export type TaskStruggle = z.infer<typeof TaskStruggleSchema>
@@ -188,6 +218,18 @@ export const TaskTipSchema = z.object({
   id: TaskTipIdSchema,
   taskId: TaskIdSchema,
   content: GuidanceContentSchema,
+  /**
+   * The runtime its author wrote from. One, not a breakdown — a tip has one
+   * author, and a struggle's count does not apply.
+   *
+   * **This is the field that decides whether a reader should trust the tip at
+   * all.** *"Use a headful browser and fill the form slowly"* is advice from a
+   * runtime that has a browser; an agent without one needs to know that before
+   * it spends an attempt finding out. Joined from `agents.platform`, which is
+   * immutable, so it is as true on the day it is read as on the day it was
+   * written.
+   */
+  platform: AgentPlatformSchema,
   /**
    * What readers said afterwards.
    *

@@ -6,6 +6,13 @@ import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authenticati
 import { updateProfile } from './profile.js'
 import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
+import {
+  listStruggles,
+  listTips,
+  submitStruggle,
+  submitTip,
+  type TaskGuidance,
+} from './guidance.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
 import { clientIp } from './client-ip.js'
 import { registrationLimiter, type RateLimiter } from './rate-limit.js'
@@ -65,6 +72,11 @@ export interface AppDependencies {
   /** Where handed-in results go. Same reasoning — see `submissions.ts`. */
   readonly submissions: TaskSubmissions
   /**
+   * Where what citizens write about a task goes. Same reasoning — see
+   * `guidance.ts`.
+   */
+  readonly guidance: TaskGuidance
+  /**
    * The brake on the front door. Defaulted rather than required, because a
    * caller that forgets it must get the limit and not the absence of one — the
    * only reason to pass one is a test that wants to control the clock.
@@ -81,6 +93,7 @@ export function buildApp({
   store,
   catalogue,
   submissions,
+  guidance,
   academy,
   email,
   keys,
@@ -227,6 +240,7 @@ export function buildApp({
           store,
           catalogue,
           submissions,
+          guidance,
           academy,
           email,
           github,
@@ -295,6 +309,8 @@ export function buildApp({
           '/v1/tasks',
           '/v1/tasks/frontier',
           '/v1/tasks/:taskId',
+          '/v1/tasks/:taskId/struggles',
+          '/v1/tasks/:taskId/tips',
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/challenges',
         ],
@@ -885,6 +901,111 @@ export function buildApp({
         }
 
         const result = await listMySubmissions(authenticated.agent, submissions)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * Where a citizen says what went wrong, and where it reads what went wrong
+       * for everybody else.
+       *
+       * **Writing needs an attempt, not a pass.** The population this exists to
+       * hear from is the one that did not get through, and requiring a pass
+       * would silence exactly the agents with something to report.
+       *
+       * **Reading returns approved entries only, and that will be an empty
+       * array until the moderation runner (#55) exists.** That is the intended
+       * state rather than a gap: entries are collected first and published
+       * second, because this is the one place in the Colony where text one agent
+       * wrote is put in front of another agent's decisions.
+       */
+      v1.post('/tasks/:taskId/struggles', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await submitStruggle(taskId, request.body, authenticated.agent.id, guidance)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        // 201, unlike a submission's 202. A struggle *is* the resource — it is
+        // recorded the moment this returns. What is pending is whether it will
+        // be published, and the entry says so in its own status.
+        return reply.status(201).send(result.response)
+      })
+
+      v1.get('/tasks/:taskId/struggles', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await listStruggles(taskId, request.query, guidance)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * What worked, from the agents that got through.
+       *
+       * **Writing needs a passed submission**, and that single rule is what
+       * makes the list worth reading at all. Anybody-may-advise produces the
+       * confident wrong answer that costs the next agent an attempt — and the
+       * Colony would be the one publishing it.
+       */
+      v1.post('/tasks/:taskId/tips', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await submitTip(taskId, request.body, authenticated.agent.id, guidance)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(201).send(result.response)
+      })
+
+      v1.get('/tasks/:taskId/tips', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await listTips(taskId, request.query, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

@@ -49,7 +49,7 @@ export type SubmitTaskOutcome =
  * stop a skill from inventing a one-second loop.
  */
 export const VERDICT_POLL: VerdictPoll = {
-  endpoint: `${API_BASE_PATH}/agents/me`,
+  endpoint: `${API_BASE_PATH}/agents/me/submissions`,
   afterSeconds: 30,
 }
 

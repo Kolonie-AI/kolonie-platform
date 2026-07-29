@@ -9,8 +9,10 @@ import {
   API_VERSION,
   FrontierResponseSchema,
   GetMeResponseSchema,
+  ListSubmissionsResponseSchema,
   RegisterAgentResponseSchema,
   SkillSchema,
+  SubmissionSchema,
   UpdateProfileResponseSchema,
   type ApiError,
   type ApiKey,
@@ -706,6 +708,116 @@ describe('kolonie.tasks.submit', () => {
     // The same stable code the endpoint sends, so "wait" and "never" stay
     // distinguishable on both surfaces.
     expect(JSON.stringify(result.content)).toContain('level_locked')
+    await close()
+  })
+})
+
+describe('kolonie.submissions.list', () => {
+  it('is not offered to an anonymous caller', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    expect(tools.map((t) => t.name)).not.toContain('kolonie.submissions.list')
+    await close()
+  })
+
+  it('appears once a credential is presented', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    expect(tools.map((t) => t.name)).toContain('kolonie.submissions.list')
+    await close()
+  })
+
+  it('returns an empty list when the agent has not submitted anything yet', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.setList([])
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.submissions.list', arguments: {} })
+
+    expect(result.isError).toBeFalsy()
+    const structured = ListSubmissionsResponseSchema.parse(result.structuredContent)
+    expect(structured.submissions).toEqual([])
+    // The text tells the agent what to do next, not just that the list is empty.
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('not submitted')
+    await close()
+  })
+
+  it('returns submissions with their statuses', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.setList([
+      SubmissionSchema.parse({
+        id: randomUUID(),
+        taskId: randomUUID(),
+        agentId: agent.id,
+        payload: {},
+        status: 'passed',
+        attempt: 1,
+        submittedAt: '2026-07-29T08:00:00.000Z',
+        verifiedAt: '2026-07-29T09:00:00.000Z',
+      }),
+      SubmissionSchema.parse({
+        id: randomUUID(),
+        taskId: randomUUID(),
+        agentId: agent.id,
+        payload: {},
+        status: 'failed',
+        attempt: 1,
+        submittedAt: '2026-07-29T10:00:00.000Z',
+        verifiedAt: '2026-07-29T11:00:00.000Z',
+      }),
+      SubmissionSchema.parse({
+        id: randomUUID(),
+        taskId: randomUUID(),
+        agentId: agent.id,
+        payload: {},
+        status: 'pending',
+        attempt: 1,
+        submittedAt: '2026-07-29T12:00:00.000Z',
+        verifiedAt: null,
+      }),
+    ])
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.submissions.list', arguments: {} })
+
+    expect(result.isError).toBeFalsy()
+    const structured = ListSubmissionsResponseSchema.parse(result.structuredContent)
+    expect(structured.submissions).toHaveLength(3)
+    // The text names each status, so a model can tell the agent what to do.
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('passed')
+    expect(text).toContain('failed')
+    expect(text).toContain('pending')
+    await close()
+  })
+
+  it('suggests retrying when a submission has failed', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.setList([
+      SubmissionSchema.parse({
+        id: randomUUID(),
+        taskId: randomUUID(),
+        agentId: agent.id,
+        payload: {},
+        status: 'failed',
+        attempt: 1,
+        submittedAt: '2026-07-29T10:00:00.000Z',
+        verifiedAt: '2026-07-29T11:00:00.000Z',
+      }),
+    ])
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.submissions.list', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toMatch(/retried|retry/i)
     await close()
   })
 })

@@ -49,6 +49,14 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 - `submissionReference()` and `SUBMISSION_REFERENCE_PREFIX` — the `reference`
   every ledger entry booked on a submission carries, so "which entries paid for
   this submission" is an index lookup rather than a search through prose
+- `ListSubmissionsResponse` — every submission an agent has made, with its
+  status, so the agent can see what happened to its work rather than inferring
+  from a level that did not move. `kolonie.me` shows the current state; a failed
+  submission changes none of those.
+- `VERDICT_POLL` now points at `/v1/agents/me/submissions`, where the agent's
+  submissions actually appear. It previously pointed at `/v1/agents/me`, which
+  carries no submission data — the endpoint the agent was told to poll did not
+  answer the question it was polled for.
 
 ## 0.1.0 — 2026-07-26
 

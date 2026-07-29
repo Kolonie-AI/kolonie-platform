@@ -3,10 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import {
   ERROR_STATUS,
+  ListSubmissionsResponseSchema,
   SkillSchema,
+  SubmissionSchema,
   SubmitTaskResponseSchema,
   type AgentId,
   type ApiKey,
+  type Submission,
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
@@ -80,7 +83,7 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
   it('tells the agent where the verdict will appear and not to look immediately', async () => {
     const { poll } = (await post()).json()
 
-    expect(poll.endpoint).toBe('/v1/agents/me')
+    expect(poll.endpoint).toBe('/v1/agents/me/submissions')
     expect(poll.afterSeconds).toBeGreaterThan(0)
   })
 
@@ -245,6 +248,85 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
       method: 'POST',
       url: `/tasks/${taskId}/submissions`,
       payload: { payload: {} },
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+})
+
+describe('GET /v1/agents/me/submissions', () => {
+  /** A GET with no body, authenticated by default with the `beforeEach` key. */
+  const get = (key: ApiKey | null = apiKey) =>
+    app.inject({
+      method: 'GET',
+      url: '/v1/agents/me/submissions',
+      ...(key === null ? {} : { headers: { authorization: `Bearer ${key}` } }),
+    })
+
+  /** A submission valid by construction, in the domain shape. */
+  const aSubmission = (overrides: Partial<Submission> = {}): Submission =>
+    SubmissionSchema.parse({
+      id: randomUUID(),
+      taskId,
+      agentId,
+      payload: {},
+      status: 'pending',
+      attempt: 1,
+      submittedAt: new Date().toISOString(),
+      verifiedAt: null,
+      ...overrides,
+    })
+
+  it('returns an empty list when the agent has not submitted anything yet', async () => {
+    const response = await get()
+
+    expect(response.statusCode).toBe(200)
+    expect(() => ListSubmissionsResponseSchema.parse(response.json())).not.toThrow()
+    expect(response.json().submissions).toEqual([])
+  })
+
+  it('returns submissions with their statuses, newest first', async () => {
+    submissions.setList([
+      // Fake does not sort; pass in the order the test expects (submittedAt desc).
+      aSubmission({ status: 'pending', attempt: 3, verifiedAt: null }),
+      aSubmission({ status: 'failed', attempt: 2, verifiedAt: '2026-07-29T11:00:00.000Z' }),
+      aSubmission({ status: 'passed', attempt: 1, verifiedAt: '2026-07-29T10:00:00.000Z' }),
+    ])
+
+    const response = await get()
+
+    expect(response.statusCode).toBe(200)
+    const { submissions: items } = response.json()
+    expect(items).toHaveLength(3)
+    // Newest first — listSubmissions orders by submittedAt desc.
+    expect(items[0].status).toBe('pending')
+    expect(items[1].status).toBe('failed')
+    expect(items[2].status).toBe('passed')
+  })
+
+  it('refuses an anonymous caller', async () => {
+    const response = await get(null)
+
+    expect(response.statusCode).toBe(ERROR_STATUS['unauthorized'])
+    expect(response.json().code).toBe('unauthorized')
+    expect(response.headers['www-authenticate']).toBe('Bearer')
+  })
+
+  it('refuses a revoked key with the same answer as an unknown one', async () => {
+    const revoked = store.issue().apiKey
+    store.revoke(revoked)
+
+    const response = await get(revoked)
+
+    expect(response.statusCode).toBe(ERROR_STATUS['unauthorized'])
+    expect(response.json().code).toBe('unauthorized')
+  })
+
+  it('is versioned like every other agent-facing endpoint', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/agents/me/submissions',
       headers: { authorization: `Bearer ${apiKey}` },
     })
 

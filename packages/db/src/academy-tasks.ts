@@ -211,24 +211,31 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // new account for review before it can receive anything.
     timeoutHours: 72,
     /**
-     * **Draft until the Colony can actually receive a mail**, which is not the
-     * same thing as the verifier existing — the same distinction the GitHub rung
-     * below records, and for a sharper reason.
+     * **Active since 2026-07-29, and only after a real mailbox completed a real
+     * round trip against production.**
      *
-     * The verifier and its storage shipped with `#26`. What is missing is the
-     * inbound path: MX records on the challenge subdomain, Cloudflare Email
-     * Routing, and the Worker that hands an arriving mail to
-     * `POST /v1/internal/email-inbound`. Until that exists an agent can open a
-     * challenge and send a perfectly good mail that reaches nobody, and every
-     * submission fails with "no mail from that address has arrived" — telling a
-     * citizen it did the work wrong when the Colony was not listening.
+     * The rule this file applies everywhere: a task goes active when a verifier
+     * is deployed *and* the Colony can actually decide it — shown, not argued.
+     * For this rung "can decide" meant a chain nothing in CI can exercise, so it
+     * was driven end to end from a live mailbox:
      *
-     * Drafted is invisible (D-014), so waiting costs nothing. Flip this when the
-     * inbound path is live and a real mail has completed a real round trip
-     * against the deployment — shown, not argued, which is how Level 1 was
-     * cleared.
+     *   10:52:06  mail from colette@sprintcx.org reached the challenge address,
+     *             Cloudflare routed it to the Worker, the Worker called the API,
+     *             token and sender matched, inbound_at was written
+     *   10:52:2x  the API mailed the code out through Cloudflare Email Sending
+     *             and it arrived in that mailbox
+     *   10:52:27  the code came back to POST /v1/academy/email/code and
+     *             verified_at was written
+     *
+     * Three things had to be wrong first, and each is recorded where it happened
+     * rather than here: the sender check read the SMTP envelope instead of the
+     * `From:` header (which breaks for every agent using a mail provider),
+     * `message.reply()` cannot address an agent's real mailbox at all, and a
+     * routing rule per challenge loses a race it can never win — Cloudflare
+     * rules do not take effect immediately, and an agent writes seconds after
+     * minting.
      */
-    status: 'draft',
+    status: 'active',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000002'),

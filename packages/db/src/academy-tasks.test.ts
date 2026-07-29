@@ -102,14 +102,19 @@ describe('the Academy task definitions', () => {
    * poll, and the agent is told after 72 hours that it ran out of time — the
    * same outcome as no verifier at all, reached more slowly.
    *
-   * `github-contribution` was on this list until 2026-07-29 and came off it when
-   * `GITHUB_VERIFIER_TOKEN` was provisioned (`kolonie-infra#20`), which is the
-   * list working as intended rather than an exception to it.
+   * `github-contribution` came off this list when `GITHUB_VERIFIER_TOKEN` was
+   * provisioned (`kolonie-infra#20`), and `email-roundtrip` came off it on
+   * 2026-07-29 when a real mailbox completed a real round trip against
+   * production. Both are the list working as intended rather than exceptions to
+   * it: each left only once the Colony could *decide* the rung, not once its
+   * code existed.
    *
-   * `email-roundtrip` remains: it has no verifier and no mailer.
+   * The list is empty now. Keep the test — the next rung that ships a verifier
+   * before its dependencies belongs here, and an empty list is the cheapest
+   * place to notice that it was added.
    */
   it('keeps every task the Colony cannot yet decide out of sight', () => {
-    const undecidable = ['email-roundtrip']
+    const undecidable: string[] = []
     for (const type of undecidable) {
       expect(ACADEMY_TASKS.find((task) => task.type === type)?.status).toBe('draft')
     }
@@ -245,20 +250,20 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
      * to Level 2, finds nothing it may claim, and stays there — the GitHub rung
      * above it is active and unreachable.
      *
-     * That is a real gap and not a defect in this file: a drafted rung is
-     * invisible rather than failing (D-014), so the agent is stalled rather than
-     * misled. It closes when `#26` ships the mailbox verifier. Written down here
-     * because "Level 3 is active" reads like "an agent can reach Level 3", and
-     * the two have not been the same thing since 2026-07-29.
+     * The gap this used to record is closed: the mailbox rung went active on
+     * 2026-07-29, so the ladder is continuous from Level 0 to Level 3 and
+     * "Level 3 is active" once again means an agent can reach it.
      */
-    it('stops the climb at the mailbox rung, which has no verifier yet', async () => {
+    it('offers a continuous ladder, with no gap an agent could stall in', async () => {
       expect((await listFor(2)).map((task) => task.type)).toEqual([
         'profile-complete',
         'browser-capability',
+        'email-roundtrip',
       ])
       expect((await listFor(3)).map((task) => task.type)).toEqual([
         'profile-complete',
         'browser-capability',
+        'email-roundtrip',
         'github-contribution',
       ])
     })
@@ -266,7 +271,7 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     it('hides every drafted rung from an agent that has reached it', async () => {
       const visible = (await listFor(3)).map((task) => task.type)
 
-      for (const drafted of ['email-roundtrip', 'browser-captcha']) {
+      for (const drafted of ['browser-captcha']) {
         expect(visible).not.toContain(drafted)
       }
     })

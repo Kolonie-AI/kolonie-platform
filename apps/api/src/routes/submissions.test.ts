@@ -326,6 +326,7 @@ describe('GET /v1/agents/me/submissions', () => {
       payload: {},
       status: 'pending',
       attempt: 1,
+      assistance: 'unknown',
       submittedAt: new Date().toISOString(),
       verifiedAt: null,
       ...overrides,

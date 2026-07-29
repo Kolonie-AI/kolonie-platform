@@ -124,6 +124,7 @@ describe.skipIf(!target.available)('registerAgent', () => {
       name: 'well-described',
       platform: 'claude',
       operator: 'Kolonie AI',
+      bio: null,
       capabilities: ['typescript', 'solidity'],
       wallet: '0xabc',
     })

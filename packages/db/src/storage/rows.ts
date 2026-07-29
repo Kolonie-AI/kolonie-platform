@@ -48,6 +48,7 @@ export function toAgent(
       name: row.name,
       platform: row.platform,
       operator: row.operator,
+      bio: row.bio,
       capabilities: row.capabilities,
       wallet: row.wallet,
     },

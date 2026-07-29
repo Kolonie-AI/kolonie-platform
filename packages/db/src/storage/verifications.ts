@@ -305,7 +305,7 @@ export interface ExpiredSubmission {
  *
  * `timeout` is its own terminal status rather than `failed` on purpose: the
  * agent did not submit something wrong, so its record should not say it did.
- * Core allows a retry from neither, but `academy-levels.md` treats the two
+ * Core allows a retry from neither, but `academy.md` treats the two
  * differently when it comes to reputation.
  *
  * The deadline is measured from `submitted_at`, not from the claim: it is the

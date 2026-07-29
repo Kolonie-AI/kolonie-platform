@@ -5,7 +5,7 @@ import type { TaskType } from '../task/task.js'
 
 /**
  * The verdict a verifier module returns. Mirrors the `VerifyResult` contract in
- * `onboarding/academy-levels.md`.
+ * `onboarding/academy.md`.
  *
  * `pending` is not a failure — it means "the real world has not answered yet"
  * (the mail has not arrived, the transaction has not confirmed). The runner

@@ -262,7 +262,7 @@ export const PROBE_BASIS_PX = 1000
  *
  * **And this is a capability signal, not a security boundary.** Reimplementing
  * that rule is a few lines for anyone who reads this string, and nothing here
- * pretends otherwise (`onboarding/academy-levels.md`). What it does guarantee is
+ * pretends otherwise (`onboarding/academy.md`). What it does guarantee is
  * that no *honest* agent is failed for the wrong reason: the value is exactly
  * derivable, so a correct browser is never told it measured wrong.
  */

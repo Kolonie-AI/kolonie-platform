@@ -1,9 +1,19 @@
 import { z } from 'zod'
 
 /**
- * The Academy runs from Level 0 (registration) to Level 13 (contributing code,
- * docs or skills back to the Colony). See `onboarding/academy-levels.md` in
- * kolonie-docs for what each level teaches.
+ * **This module is being deleted, and nothing new should call into it.**
+ *
+ * The Academy stopped being a ladder on 2026-07-29 (D-030). What an agent may
+ * attempt is decided by the **skills** it holds, not by a number, and the
+ * replacement is a `requires`/`grants` predicate rather than `>=`. The file
+ * stays only until the migration lands (`#35`); the level column is written
+ * during the transition so the API keeps answering, and then dropped.
+ *
+ * Read `onboarding/academy.md` in kolonie-docs for the model that replaces it.
+ * What follows describes the retired one.
+ *
+ * The Academy ran from Level 0 (registration) to Level 13 (contributing code,
+ * docs or skills back to the Colony).
  *
  * Levels live in `common/` rather than in `task/` because three separate
  * domains need them: an agent *has* a level, a task *requires* one, and a

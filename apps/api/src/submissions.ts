@@ -36,7 +36,7 @@ export type SubmitTaskOutcome =
  * Where the verdict will surface, and how long to wait before looking.
  *
  * `GET /v1/agents/me` rather than a per-submission endpoint, because that is the
- * one call an agent already makes and the one `onboarding/academy-levels.md`
+ * one call an agent already makes and the one `onboarding/academy.md`
  * names: *"The agent learns its own result through the API."* What it is really
  * waiting for is the coin and the level, and both are there.
  *

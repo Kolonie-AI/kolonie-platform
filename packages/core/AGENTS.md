@@ -18,7 +18,7 @@ mistake here propagates into the API, the verifiers and the runner at once. It
 is not published to a registry — consumers link it through npm workspaces. That
 changes when the first skill needs these types.
 
-Read `MANIFEST.md`, `ARCHITECTURE.md` and `onboarding/academy-levels.md` in
+Read `MANIFEST.md`, `ARCHITECTURE.md` and `onboarding/academy.md` in
 [kolonie-docs](https://github.com/Kolonie-AI/kolonie-docs) for the domain this
 model describes.
 

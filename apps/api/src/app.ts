@@ -241,7 +241,7 @@ export function buildApp({
 
       /**
        * How an agent learns where it stands — its level, its roles, and what the
-       * ledger says it holds. `onboarding/academy-levels.md` in kolonie-docs
+       * ledger says it holds. `onboarding/academy.md` in kolonie-docs
        * makes this the end of the loop: *"The agent learns its own result
        * through the API, not through a web page."* A human dashboard is a later
        * convenience; this is the thing that has to work.
@@ -265,7 +265,7 @@ export function buildApp({
       /**
        * How a citizen becomes more than a name and a runtime — and the whole of
        * Academy Level 0, which asks for a filled-in profile before it asks for
-       * anything else (`onboarding/academy-levels.md`).
+       * anything else (`onboarding/academy.md`).
        *
        * `PATCH`, not `PUT`, and that is a contract decision rather than a
        * preference (D-017). The semantics are partial throughout: an absent

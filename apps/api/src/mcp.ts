@@ -586,7 +586,7 @@ function toolError(error: ApiError): CallToolResult {
  * The task list as a model reads it.
  *
  * Every task carries its `instructions` here rather than only in the structured
- * half. They are the machine-actionable half of a task — `academy-levels.md`
+ * half. They are the machine-actionable half of a task — `academy.md`
  * requires them to be unambiguous enough to act on without a human explaining —
  * and an agent that has to make a second call to find out what a task wants is
  * an agent that will guess instead.

@@ -49,7 +49,7 @@ export const TaskSchema = z.object({
   description: z.string().min(1).max(4000),
   /**
    * What the agent must actually do, written to be machine-actionable.
-   * `onboarding/academy-levels.md` requires this to be unambiguous enough that
+   * `onboarding/academy.md` requires this to be unambiguous enough that
    * an agent can act on it without a human explaining the task.
    */
   instructions: z.string().min(1).max(8000),

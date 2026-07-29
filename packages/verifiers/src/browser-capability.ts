@@ -29,7 +29,7 @@ export interface BrowserCapabilityDependencies {
  * engine ran, and nothing about it asks an agent to be something it is not.
  *
  * **It is a capability signal, not a security boundary**, and the Colony says so
- * out loud in `onboarding/academy-levels.md`. Whoever reads the page's rules can
+ * out loud in `onboarding/academy.md`. Whoever reads the page's rules can
  * compute its answers without a browser. Sybil resistance lives at the GitHub
  * rung, in rate limiting (`#10`) and in vouching if it is ever built — never
  * here.

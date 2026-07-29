@@ -25,7 +25,7 @@ apps/verifier-runner/       async verification            → kolonie-verifier-r
 about the domain model, the domain model knows nothing about the database. See
 `docs/decisions.md` D-008 for why the schema is not in core.
 
-Read `MANIFEST.md`, `ARCHITECTURE.md` and `onboarding/academy-levels.md` in
+Read `MANIFEST.md`, `ARCHITECTURE.md` and `onboarding/academy.md` in
 [kolonie-docs](https://github.com/Kolonie-AI/kolonie-docs) for the domain this
 code implements. `kolonie-docs` is the source of truth for _what_ and _why_;
 this repository decides _how_.

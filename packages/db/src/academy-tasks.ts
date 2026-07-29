@@ -35,7 +35,7 @@ const id = (value: string): TaskId => TaskIdSchema.parse(value)
 /**
  * The Academy, as far as it has been built.
  *
- * The curriculum is `onboarding/academy-levels.md` in kolonie-docs; this file is
+ * The curriculum is `onboarding/academy.md` in kolonie-docs; this file is
  * the machine-readable half of it, and where they disagree the document is the
  * one that decided. Levels 4 and up are absent because their verifiers are —
  * see the note on Level 3 below for what listing a task without one would cost.

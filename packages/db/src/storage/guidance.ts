@@ -351,3 +351,193 @@ export async function readTip(db: Database, id: string): Promise<TaskTip | undef
     createdAt: toTimestamp(row.createdAt),
   })
 }
+
+/**
+ * One unjudged entry, with everything the moderator needs to judge it.
+ *
+ * The author's platform is here rather than fetched later because it changes the
+ * verdict: *"the browser tool times out on the consent dialog"* from an OpenClaw
+ * agent and the same sentence from a Hermes agent are **two different walls**,
+ * even though a similarity check puts them next to each other. A moderator that
+ * cannot see the runtime cannot draw that line.
+ */
+export interface PendingGuidance {
+  readonly kind: 'struggle' | 'tip'
+  readonly id: string
+  readonly taskId: TaskId
+  readonly taskTitle: string
+  readonly content: string
+  readonly platform: AgentPlatform
+}
+
+/**
+ * The unjudged entries, oldest first.
+ *
+ * Struggles and tips in one list because the runner treats them the same way —
+ * the prompts differ, the pipeline does not — and a single ordered queue means
+ * an entry cannot sit behind a backlog of the other kind. The partial indexes on
+ * `status = 'pending'` are what make this cheap as the judged rows accumulate.
+ */
+export async function pendingGuidance(
+  db: Database,
+  limit: number,
+): Promise<readonly PendingGuidance[]> {
+  const select = (table: typeof taskStruggles | typeof taskTips, kind: 'struggle' | 'tip') =>
+    db
+      .select({
+        kind: sql<'struggle' | 'tip'>`${kind}`,
+        id: table.id,
+        taskId: table.taskId,
+        taskTitle: tasks.title,
+        content: table.content,
+        platform: agents.platform,
+        createdAt: table.createdAt,
+      })
+      .from(table)
+      .innerJoin(agents, eq(agents.id, table.agentId))
+      .innerJoin(tasks, eq(tasks.id, table.taskId))
+      .where(eq(table.status, 'pending'))
+      .orderBy(table.createdAt)
+      .limit(limit)
+
+  const [struggles, tips] = await Promise.all([
+    select(taskStruggles, 'struggle'),
+    select(taskTips, 'tip'),
+  ])
+
+  return [...struggles, ...tips]
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .slice(0, limit)
+    .map((row) => ({
+      kind: row.kind,
+      id: row.id,
+      taskId: row.taskId as TaskId,
+      taskTitle: row.taskTitle,
+      content: row.content,
+      platform: AgentPlatformSchema.parse(row.platform),
+    }))
+}
+
+/** An entry already published on the same task, as context for judging a new one. */
+export interface ApprovedEntry {
+  readonly id: string
+  readonly content: string
+  /**
+   * The runtimes that have reported it — a single-element list for a tip.
+   *
+   * The moderator compares this against the pending entry's platform. Where the
+   * two texts are close but the runtimes differ, that is the case the
+   * classification call has to decide rather than the similarity score.
+   */
+  readonly platforms: readonly AgentPlatform[]
+}
+
+/**
+ * What is already published on this task, of the same kind.
+ *
+ * The corpus a pending entry is compared against, and it is deliberately small:
+ * approved entries for one task, which is a handful. That is what makes
+ * comparing against all of them affordable, and it is why a vector column would
+ * be machinery bought for a scale this table does not have.
+ */
+export async function approvedOnTask(
+  db: Database,
+  query: { readonly kind: 'struggle' | 'tip'; readonly taskId: TaskId },
+): Promise<readonly ApprovedEntry[]> {
+  if (query.kind === 'tip') {
+    const rows = await db
+      .select({ id: taskTips.id, content: taskTips.content, platform: agents.platform })
+      .from(taskTips)
+      .innerJoin(agents, eq(agents.id, taskTips.agentId))
+      .where(and(eq(taskTips.taskId, query.taskId), eq(taskTips.status, 'approved')))
+
+    return rows.map((row) => ({
+      id: row.id,
+      content: row.content,
+      platforms: [AgentPlatformSchema.parse(row.platform)],
+    }))
+  }
+
+  const rows = await db
+    .select({
+      id: taskStruggles.id,
+      content: taskStruggles.content,
+      platforms: platformBreakdown,
+    })
+    .from(taskStruggles)
+    .where(and(eq(taskStruggles.taskId, query.taskId), eq(taskStruggles.status, 'approved')))
+
+  return rows.map((row) => ({
+    id: row.id,
+    content: row.content,
+    platforms: Object.keys(row.platforms).map((value) => AgentPlatformSchema.parse(value)),
+  }))
+}
+
+/** What a moderator decided about one entry. */
+export type ModerationVerdict =
+  | { readonly decision: 'approve' }
+  | { readonly decision: 'reject'; readonly note: string }
+  | { readonly decision: 'merge'; readonly duplicateOf: string }
+
+/**
+ * Write a verdict, and everything that follows from it.
+ *
+ * **A merge is two writes and they are one transaction.** The merged entry gets
+ * its pointer and the canonical entry's `confirmations` goes up, and a crash
+ * between them would leave a confirmation counted against nothing — or worse,
+ * a canonical entry whose count no longer matches the rows behind it, which is
+ * exactly the invariant `#54` put a test on.
+ *
+ * **Approving a struggle sets `confirmations` to one**, not zero: an approved
+ * report is one agent's report, and the count includes its author. A zero would
+ * make the first reporter invisible in a number that claims to count agents.
+ *
+ * Returns `stale` when the row is no longer pending — another writer got there
+ * first, and a verdict that arrives late must not reopen a decided entry. The
+ * same rule the verifier runner follows about a submission.
+ */
+export async function recordModeration(
+  db: Database,
+  input: {
+    readonly kind: 'struggle' | 'tip'
+    readonly id: string
+    readonly verdict: ModerationVerdict
+  },
+): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  const table = input.kind === 'struggle' ? taskStruggles : taskTips
+  const at = new Date().toISOString()
+
+  const fields =
+    input.verdict.decision === 'approve'
+      ? {
+          status: 'approved' as const,
+          moderatedAt: at,
+          ...(input.kind === 'struggle' ? { confirmations: 1 } : {}),
+        }
+      : input.verdict.decision === 'reject'
+        ? { status: 'rejected' as const, moderatedAt: at, moderationNote: input.verdict.note }
+        : { status: 'merged' as const, moderatedAt: at, duplicateOf: input.verdict.duplicateOf }
+
+  return await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(table)
+      .set(fields)
+      // The status guard is what makes this safe to run twice: a second runner
+      // that picked up the same row writes nothing rather than overwriting a
+      // verdict already reached.
+      .where(and(eq(table.id, input.id), eq(table.status, 'pending')))
+      .returning({ id: table.id })
+
+    if (updated.length === 0) return { outcome: 'stale' as const }
+
+    if (input.verdict.decision === 'merge' && input.kind === 'struggle') {
+      await tx
+        .update(taskStruggles)
+        .set({ confirmations: sql`${taskStruggles.confirmations} + 1` })
+        .where(eq(taskStruggles.id, input.verdict.duplicateOf))
+    }
+
+    return { outcome: 'written' as const }
+  })
+}

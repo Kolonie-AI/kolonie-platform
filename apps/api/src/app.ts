@@ -29,6 +29,7 @@ import {
   type EmailDependencies,
 } from './email.js'
 import { openKeyChallenge, submitKeySignature, type KeyDependencies } from './keys.js'
+import { openGithubChallenge, type GithubDependencies } from './github.js'
 
 export interface AppDependencies {
   /** The Browser Capability Gate — see `academy.ts` and D-024. */
@@ -43,6 +44,15 @@ export interface AppDependencies {
    * down while the rest of the API serves.
    */
   readonly keys: KeyDependencies
+  /**
+   * The GitHub rung — see `github.ts`.
+   *
+   * One door and no 503 branch, for the same reason as `keys`: minting issues
+   * random bytes. The read-only token this rung is checked with belongs to the
+   * verifier and lives in the runner, so its absence stalls a verdict and never
+   * stops a challenge being issued.
+   */
+  readonly github: GithubDependencies
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
@@ -71,6 +81,7 @@ export function buildApp({
   academy,
   email,
   keys,
+  github,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -213,6 +224,7 @@ export function buildApp({
           catalogue,
           submissions,
           academy,
+          github,
           keys,
           // Resolved here rather than inside the tool, so the MCP door and the
           // HTTP door agree on who is calling by construction. `McpDependencies`
@@ -565,6 +577,36 @@ export function buildApp({
         }
 
         const result = await openKeyChallenge(authenticated.agent.id, keys)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Mint a nonce for the GitHub rung — `github-account`.
+       *
+       * Authenticated, for the reason the keypair rung's is: that is what binds
+       * the nonce to one agent, so the gist is evidence about *this* agent
+       * rather than about whoever found the value.
+       *
+       * **There is no answering route, and there must not be one.** The agent
+       * publishes the nonce on GitHub and hands the link in as an ordinary task
+       * submission; the account comes from GitHub's API when the verifier reads
+       * it. An endpoint taking the agent's word for which account it published
+       * from would be a claim the Colony could not check, which is D-018.
+       *
+       * **No 503 branch**, like the keypair rung: this issues 32 random bytes.
+       */
+      v1.post('/academy/github/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openGithubChallenge(authenticated.agent.id, github)
 
         return reply.status(201).send(result.response)
       })

@@ -6,6 +6,7 @@ import { REGISTRATION_LIMIT, REGISTRATION_WINDOW_MS } from '../rate-limit.js'
 import type { AgentRegistry } from '../registration.js'
 import { brokenRegistry, DRIVER_FAILURE_MESSAGE, fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -23,6 +24,7 @@ const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
     keys: fakeKeys(),
+    github: fakeGithub(),
   })
   await app.ready()
   return app

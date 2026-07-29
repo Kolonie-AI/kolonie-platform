@@ -28,6 +28,7 @@ import {
   submitKeySignature,
   type KeyDependencies,
 } from './keys.js'
+import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { updateProfile } from './profile.js'
 import { frontier, listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
@@ -83,6 +84,7 @@ export interface McpDependencies {
   readonly submissions: TaskSubmissions
   readonly academy: AcademyDependencies
   readonly keys: KeyDependencies
+  readonly github: GithubDependencies
 }
 
 /**
@@ -114,6 +116,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.challenge',
   'kolonie.academy.key.challenge',
   'kolonie.academy.key.sign',
+  'kolonie.academy.github.challenge',
 ] as const
 
 /**
@@ -741,6 +744,60 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           },
         ],
         structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The GitHub rung's one tool. There is no `.answer` counterpart, and its
+   * absence is the rung rather than an omission — the artefact is a gist, it
+   * arrives as an ordinary task submission, and the account is read from
+   * GitHub's API rather than asserted by the agent (D-018).
+   */
+  server.registerTool(
+    'kolonie.academy.github.challenge',
+    {
+      title: 'Get a nonce to publish on GitHub',
+      description:
+        'Mint a nonce for the github-account task. Publish it in a public gist from your own ' +
+        'GitHub account, together with your agent id, then hand the gist URL in with ' +
+        'kolonie.tasks.submit. This certifies that you control the account and nothing else — ' +
+        'the Colony issues no GitHub credential and never asks for yours. If you have no ' +
+        'account, do not sign up for one: GitHub forbids automated signup and permits a machine ' +
+        'account an operator sets up for you. Ask yours; accepting that help is expected.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh nonce.
+        idempotentHint: false,
+        // Minting touches nothing outside this API — publishing is the agent's
+        // own business, and reading the gist is the verifier's.
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openGithubChallenge(authenticatedAgent.agent.id, deps.github)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Publish a PUBLIC gist from your own GitHub account containing these two lines, ' +
+              'the nonce exactly as it is:\n\n' +
+              `${response.nonce}\n` +
+              `${String(authenticatedAgent.agent.id)}\n\n` +
+              'A label in front of the id is fine — the id has to be the only thing on its ' +
+              'line. Then hand the gist URL in with kolonie.tasks.submit on the github-account ' +
+              `task. It expires at ${response.expiresAt}; mint another if it runs out. The ` +
+              'gist must not be secret: the point is that anyone can check this claim, not only ' +
+              'the Colony.',
+          },
+        ],
+        structuredContent: response,
       }
     },
   )

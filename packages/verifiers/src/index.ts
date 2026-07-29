@@ -1,6 +1,7 @@
 import type { TaskType, Verifier } from '@kolonie-ai/core'
 import { ProfileCompleteVerifier } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
+import { GithubAccountVerifier, type GithubChallenges } from './github-account.js'
 import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
 import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
@@ -38,12 +39,22 @@ export {
   type GithubContributionDependencies,
 } from './github-contribution.js'
 export {
+  GithubAccountVerifier,
+  type GithubAccountDependencies,
+  type GithubChallenges,
+} from './github-account.js'
+export { hasMarkerLine, isMarkerLine } from './marker.js'
+export {
   GITHUB_VERIFIER_TOKEN_VAR,
   httpGitHubReader,
+  resolveGistUrl,
   resolveGitHubUrl,
   type GitHubArtefact,
+  type GitHubGistArtefact,
+  type GitHubGistReadResult,
   type GitHubReader,
   type GitHubReadResult,
+  type ResolvedGistUrl,
   type ResolvedGitHubUrl,
 } from './github.js'
 
@@ -89,6 +100,13 @@ export interface VerifierDependencies {
    * wiring mistake answer one rung with another's evidence.
    */
   readonly keys?: SignedKeys
+  /**
+   * Answers which nonces the Colony has issued to an agent for the GitHub rung.
+   *
+   * Its own port for the same reason `roundtrips` and `keys` are: a shared one
+   * would let a wiring mistake answer one rung with another's evidence.
+   */
+  readonly githubChallenges?: GithubChallenges
 }
 
 /**
@@ -124,6 +142,16 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.github !== undefined && deps.authors !== undefined) {
     verifiers.push(new GithubContributionVerifier({ github: deps.github, authors: deps.authors }))
+
+    if (deps.githubChallenges !== undefined) {
+      verifiers.push(
+        new GithubAccountVerifier({
+          github: deps.github,
+          challenges: deps.githubChallenges,
+          authors: deps.authors,
+        }),
+      )
+    }
   }
 
   return new Map(verifiers.map((verifier) => [verifier.taskType, verifier]))

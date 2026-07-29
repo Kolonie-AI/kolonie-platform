@@ -84,7 +84,7 @@ describe.skipIf(!target.available)('schema', () => {
   }
 
   describe('the migration', () => {
-    it('creates exactly the eleven tables the MVP loop needs', async () => {
+    it('creates exactly the twelve tables the MVP loop needs', async () => {
       const rows = await db.execute<{ table_name: string }>(
         sql`select table_name from information_schema.tables
              where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -99,6 +99,10 @@ describe.skipIf(!target.available)('schema', () => {
         'browser_challenges',
         'credentials',
         'email_challenges',
+        // `github_challenges` joined with the account rung (D-031). It is the
+        // one challenge table with no answer columns: the artefact is a gist,
+        // it arrives as an ordinary submission, and the Colony reads it.
+        'github_challenges',
         // `key_challenges` joined with the keypair rung (#36): the Academy's
         // first browser-free root, and the only challenge table whose exchange
         // touches nothing outside this process.

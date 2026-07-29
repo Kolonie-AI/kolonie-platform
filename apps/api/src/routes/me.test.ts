@@ -10,6 +10,7 @@ import { buildApp } from '../app.js'
 import { bearerToken, UNAUTHENTICATED } from '../authentication.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -29,6 +30,7 @@ const withStore = async () => {
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
     keys: fakeKeys(),
+    github: fakeGithub(),
   })
   await app.ready()
   return store
@@ -227,6 +229,7 @@ describe('GET /v1/agents/me', () => {
         submissions: fakeSubmissions(),
         academy: fakeAcademy(),
         keys: fakeKeys(),
+        github: fakeGithub(),
       })
       await app.ready()
 

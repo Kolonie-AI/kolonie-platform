@@ -39,6 +39,9 @@ describe('the Academy task definitions', () => {
       // nothing.
       'browser-captcha',
       'email-roundtrip',
+      // Split from `github-contribution` on 2026-07-29 (D-031): controlling an
+      // account is the skill, contributing is what an agent does with one.
+      'github-account',
       'github-contribution',
     ])
   })
@@ -68,13 +71,34 @@ describe('the Academy task definitions', () => {
     expect(root?.requires).toEqual([])
     expect(root?.grants).toEqual(['profile'])
 
+    /**
+     * Reachability, computed rather than listed.
+     *
+     * The earlier version named the one task that required `browser` instead of
+     * `profile` as an exception, which meant every new node one level deeper
+     * became another exception to add by hand — and a node that was genuinely
+     * unreachable would have looked exactly like one somebody forgot. So: walk
+     * the graph from an agent holding nothing and take every task whose
+     * requirements are already met, over and over, until nothing new opens.
+     * Anything left over hangs off nothing.
+     */
+    const held = new Set<string>()
+    const reached = new Set<string>()
+
+    for (let opened = true; opened;) {
+      opened = false
+      for (const task of ACADEMY_TASKS) {
+        if (reached.has(task.type)) continue
+        if (!task.requires.every((skill) => held.has(skill))) continue
+
+        reached.add(task.type)
+        for (const skill of task.grants) held.add(skill)
+        opened = true
+      }
+    }
+
     for (const task of ACADEMY_TASKS) {
-      if (task.type === 'profile-complete') continue
-      // The badge is the exception, and it is one for a reason rather than by
-      // omission: it requires `browser`, which is only ever held by an agent
-      // that already holds `profile`.
-      const rooted = task.requires.includes('profile') || task.requires.includes('browser')
-      expect(rooted, `${task.type} hangs off nothing`).toBe(true)
+      expect(reached.has(task.type), `${task.type} hangs off nothing`).toBe(true)
     }
   })
 
@@ -98,17 +122,18 @@ describe('the Academy task definitions', () => {
   /**
    * The hard/soft split, asserted where it was decided.
    *
-   * `github-contribution` **suggests** a mailbox: an account is created with an
-   * address, so that is the route — but an agent arriving with an account of its
-   * own already holds the capability, and demanding a second address first would
-   * be enforcing a route it does not need. Same for `email-roundtrip` and a
-   * browser. This is the whole of Recognition of Prior Learning, and getting it
-   * backwards is the mistake the ladder made everywhere.
+   * `github-account` **suggests** a mailbox and a browser: an account is created
+   * with an address and usually through a page, so those are the route — but an
+   * agent arriving with an account of its own already holds the capability, and
+   * demanding a second address first would be enforcing a route it does not
+   * need. Same for `email-roundtrip` and a browser. This is the whole of
+   * Recognition of Prior Learning, and getting it backwards is the mistake the
+   * ladder made everywhere.
    */
   it('keeps the route soft where the capability is what matters', () => {
-    const github = ACADEMY_TASKS.find((task) => task.type === 'github-contribution')
+    const github = ACADEMY_TASKS.find((task) => task.type === 'github-account')
     expect(github?.requires).toEqual(['profile'])
-    expect(github?.suggests).toEqual(['mailbox'])
+    expect(github?.suggests).toEqual(['mailbox', 'browser'])
 
     const email = ACADEMY_TASKS.find((task) => task.type === 'email-roundtrip')
     expect(email?.requires).toEqual(['profile'])
@@ -196,10 +221,20 @@ describe('the Academy task definitions', () => {
     expect(ACADEMY_TASKS.find((task) => task.type === 'browser-capability')?.status).toBe('active')
   })
 
-  it('pays more the further into the graph a task sits', () => {
-    const coins = ACADEMY_TASKS.map((task) => task.rewardCoins)
+  /**
+   * **Granting tasks** pay more the further into the graph they sit. Badges are
+   * exempt, and that is the point of them rather than an inconsistency: what a
+   * badge pays is a judgement about the work, not a position in an order it does
+   * not advance. `github-contribution` sits last and pays least of all, because
+   * it opens nothing and `kolonie-docs#29` has not decided what it is worth.
+   */
+  it('pays more the further into the graph a granting task sits', () => {
+    const coins = ACADEMY_TASKS.filter((task) => task.grants.length > 0).map(
+      (task) => task.rewardCoins,
+    )
+
     expect(coins).toEqual([...coins].sort((a, b) => a - b))
-    expect(coins.every((amount) => amount > 0)).toBe(true)
+    expect(ACADEMY_TASKS.every((task) => task.rewardCoins > 0)).toBe(true)
   })
 })
 
@@ -338,19 +373,34 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         'browser-capability',
         'key-signature',
         'email-roundtrip',
-        'github-contribution',
+        'github-account',
       ])
     })
 
     /**
-     * The soft edge, which is the whole point of the split: an agent that
-     * arrives with a GitHub account of its own does not have to obtain a mailbox
-     * from us first.
+     * The soft edge, which is the whole point of it: an agent that arrives with
+     * a GitHub account of its own does not have to obtain a mailbox from us
+     * first. `github-account` suggests `mailbox` and `browser` and requires
+     * neither, so an agent holding only `profile` can start it.
      */
-    it('lets an agent holding github but no mailbox start the GitHub task', async () => {
+    it('lets an agent with neither mailbox nor browser prove a GitHub account', async () => {
       const visible = await listFor(await anAgentHolding('profile'))
 
-      expect(visible.map((task) => task.type)).toContain('github-contribution')
+      expect(visible.map((task) => task.type)).toContain('github-account')
+    })
+
+    /**
+     * And the hard edge the split created (D-031). There is no way to contribute
+     * from an account without controlling one, so the badge waits behind the
+     * skill rather than failing an agent for something it could have been told.
+     */
+    it('keeps the contribution badge behind the account it needs', async () => {
+      expect(
+        (await listFor(await anAgentHolding('profile'))).map((task) => task.type),
+      ).not.toContain('github-contribution')
+
+      const certified = await anAgentHolding('profile', 'github')
+      expect((await listFor(certified)).map((task) => task.type)).toContain('github-contribution')
     })
 
     it('keeps the badge shut until the browser skill is held', async () => {

@@ -28,6 +28,7 @@ import {
 } from './mcp.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
 import { fakeKeypair, fakeKeys } from './__fixtures__/keys.js'
+import { fakeGithub } from './__fixtures__/github.js'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
 import { REGISTRATION_LIMIT } from './rate-limit.js'
@@ -60,6 +61,7 @@ const anonymousClient = (registry = fakeRegistry()) =>
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
     keys: fakeKeys(),
+    github: fakeGithub(),
     caller: { ip: FAKE_CALLER_IP },
   })
 
@@ -224,6 +226,7 @@ describe('kolonie.register', () => {
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
+      github: fakeGithub(),
     })
     await app.ready()
     await app.inject({
@@ -877,6 +880,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -895,6 +899,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -920,6 +925,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -938,6 +944,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -956,6 +963,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -983,6 +991,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1060,6 +1069,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
       keys: fakeKeys(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1273,6 +1283,62 @@ describe('kolonie.academy.key.challenge and .sign', () => {
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name)).not.toContain('kolonie.academy.key.sign')
+    await close()
+  })
+})
+
+/**
+ * The GitHub rung over MCP.
+ *
+ * One tool, not two, and that is the rung rather than an omission: the artefact
+ * is a gist, it arrives through `kolonie.tasks.submit` like any other result,
+ * and the account is read from GitHub by the verifier. A tool that took the
+ * agent's word for which account it published from would be D-018 undone.
+ */
+describe('kolonie.academy.github.challenge', () => {
+  it('mints a nonce and tells the agent exactly what to publish', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.github.challenge',
+      arguments: {},
+    })
+    const { nonce } = minted.structuredContent as { nonce: string }
+
+    expect(minted.isError).toBeFalsy()
+    expect(nonce).toMatch(/^[0-9a-f]{64}$/)
+
+    // Both lines, in the text a model reads. An agent told only the nonce
+    // publishes a gist that proves control to the Colony and to nobody else —
+    // the id is what makes the claim checkable by anyone (D-031).
+    const text = JSON.stringify(minted.content)
+    expect(text).toContain(nonce)
+    expect(text).toContain(String(agent.id))
+    await close()
+  })
+
+  it('names the legitimate route for an agent that has no account', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+
+    // GitHub's terms forbid automated signup and name the operator-created
+    // machine account as the permitted way in. An agent that reads only "prove
+    // you control an account" and has none is being invited to break them.
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.github.challenge')
+    expect(tool?.description).toContain('do not sign up')
+    expect(tool?.description).toContain('machine account')
+    await close()
+  })
+
+  it('is not offered to an anonymous caller', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name)).not.toContain('kolonie.academy.github.challenge')
     await close()
   })
 })

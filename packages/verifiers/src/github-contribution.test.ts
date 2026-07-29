@@ -53,6 +53,10 @@ const realContribution = 'The migration is missing an index on submissions.agent
 /** A GitHub that answers one canned result. No network, ever (#19). */
 const githubAnswering = (result: GitHubReadResult): GitHubReader => ({
   read: async () => result,
+  // This verifier never reads a gist. Wired to throw rather than to answer, so
+  // a future edit that reached for the wrong door fails loudly here instead of
+  // quietly passing on a canned issue.
+  readGist: () => Promise.reject(new Error('the contribution node reads issues, not gists')),
 })
 
 const githubServing = (body: string, author = 'octocat'): GitHubReader =>

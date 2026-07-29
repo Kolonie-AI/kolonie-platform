@@ -11,7 +11,7 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
-import { submissions, tasks, verifications } from '../schema/index.js'
+import { agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
@@ -502,6 +502,25 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       })
     }
 
+    /**
+     * The grant itself, which is what the lookup reads.
+     *
+     * A pass and a grant are two rows and the fixtures keep them apart on
+     * purpose: an account is claimed by the skill actually having been
+     * conferred, not merely by a verdict having said `pass`.
+     */
+    const aGrant = async (agentId: AgentId, submissionId: SubmissionId, grantedAt?: string) => {
+      await db
+        .insert(agentSkills)
+        .values({
+          agentId,
+          skill: 'github',
+          submissionId,
+          ...(grantedAt === undefined ? {} : { grantedAt }),
+        })
+        .onConflictDoNothing()
+    }
+
     const passedWith = async (
       author: string,
       agentId?: AgentId,
@@ -515,6 +534,7 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
         ...terminalFields('passed'),
       })
       await aVerdict(submissionId, 'pass', { author }, undefined, taskType)
+      await aGrant(agent, submissionId)
       return agent
     }
 
@@ -549,6 +569,25 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       expect(await citizenForGithubAuthor(db, 'octocat')).toBeUndefined()
     })
 
+    it('ignores a non-pass row on a submission that did go on to grant', async () => {
+      const agent = await anAgent()
+      const submissionId = await aSubmission({
+        agentId: agent,
+        taskId: await aGrantingTask(GITHUB),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      // A submission carries every check made on it, not just the last. An
+      // earlier row naming a different account must not claim that account on
+      // the strength of a pass that came afterwards and named another.
+      await aVerdict(submissionId, 'fail', { author: 'ghost' }, '2026-07-01T00:00:00.000Z')
+      await aVerdict(submissionId, 'pass', { author: 'octocat' }, '2026-07-02T00:00:00.000Z')
+      await aGrant(agent, submissionId)
+
+      expect(await citizenForGithubAuthor(db, 'ghost')).toBeUndefined()
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBe(agent)
+    })
+
     it('ignores a passing verdict for a task that grants no github', async () => {
       const submissionId = await aSubmission({
         taskId: await aTask({ type: 'example-task' }),
@@ -580,6 +619,38 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       expect(await citizenForGithubAuthor(db, 'octocat')).toBe(agentId)
     })
 
+    it('keeps the claim when the task that granted it stops granting', async () => {
+      const agentId = await passedWith('octocat')
+
+      // `github-contribution` granted `github` until 2026-07-29 and is a badge
+      // now (D-031). A lookup keyed on what the task grants *today* would free
+      // every account certified before the split — the accounts of the agents
+      // who actually walked the rung — the moment the seed was edited. The
+      // grant happened, and the row recording it is what this reads.
+      await db.update(tasks).set({ grantsSkills: [] }).where(eq(tasks.type, GITHUB))
+
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBe(agentId)
+    })
+
+    it('stakes no claim when the pass granted the agent nothing new', async () => {
+      const agent = await passedWith('octocat')
+      const second = await aSubmission({
+        agentId: agent,
+        taskId: await aGrantingTask(GITHUB_ACCOUNT),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      await aVerdict(second, 'pass', { author: 'hubot' }, undefined, GITHUB_ACCOUNT)
+      // No grant row: the agent already held `github`, and `grantSkills` says
+      // `on conflict do nothing`.
+
+      // A deliberate narrowing rather than an oversight. Nothing was certified
+      // by `hubot`, so nothing is spoken for — one citizen does not reserve two
+      // accounts by passing twice.
+      expect(await citizenForGithubAuthor(db, 'hubot')).toBeUndefined()
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBe(agent)
+    })
+
     it('gives the account to whoever claimed it first across granting types', async () => {
       const first = await anAgent()
       const second = await anAgent()
@@ -603,10 +674,12 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
         GITHUB_ACCOUNT,
       )
       await aVerdict(secondSubmission, 'pass', { author: 'octocat' }, '2026-07-02T00:00:00.000Z')
+      await aGrant(first, firstSubmission, '2026-07-01T00:00:00.000Z')
+      await aGrant(second, secondSubmission, '2026-07-02T00:00:00.000Z')
 
-      // The ordering is over the whole granting set, not per type. "Whichever
-      // type was looked at first" is not an ordering, and the older claim is
-      // the one that has to survive.
+      // The ordering is over every grant of the skill, not per task type.
+      // "Whichever type was looked at first" is not an ordering, and the older
+      // claim is the one that has to survive.
       expect(await citizenForGithubAuthor(db, 'octocat')).toBe(first)
       expect(await citizenForGithubAuthor(db, 'octocat')).not.toBe(second)
     })
@@ -642,6 +715,8 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       })
       await aVerdict(firstSubmission, 'pass', { author: 'octocat' }, '2026-07-01T00:00:00.000Z')
       await aVerdict(secondSubmission, 'pass', { author: 'octocat' }, '2026-07-02T00:00:00.000Z')
+      await aGrant(first, firstSubmission, '2026-07-01T00:00:00.000Z')
+      await aGrant(second, secondSubmission, '2026-07-02T00:00:00.000Z')
 
       // Two agents racing one account is the abuse this exists to stop, and
       // "whoever asked most recently" would let the second take the first's

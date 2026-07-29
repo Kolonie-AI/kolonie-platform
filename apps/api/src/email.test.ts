@@ -5,6 +5,7 @@ import type { AgentId } from '@kolonie-ai/core'
 import { buildApp } from './app.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
 import { fakeKeys } from './__fixtures__/keys.js'
+import { fakeGithub } from './__fixtures__/github.js'
 import { fakeStore, type FakeStore } from './__fixtures__/store.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
@@ -45,6 +46,7 @@ const build = (inboundSecret: string | undefined) => {
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
     keys: fakeKeys(),
+    github: fakeGithub(),
     email: { ...fakeEmail(challenges, mailer), inboundSecret },
   })
 }

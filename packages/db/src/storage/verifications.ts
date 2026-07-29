@@ -21,6 +21,7 @@ import type { Database } from '../client.js'
 import { agents, submissions, tasks, verifications } from '../schema/index.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
 import { toAgent, toSubmission, toVerification } from './rows.js'
+import { heldSkillsSql } from './skills.js'
 
 /** Statuses a submission can sit in while it still awaits a verdict. */
 const OPEN_STATUSES = ['pending', 'verifying'] as const
@@ -90,7 +91,16 @@ export async function claimNextSubmission(
 
   return db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ submission: submissions, taskType: tasks.type, agent: agents })
+      // The skills travel with the agent, because a verifier is given an
+      // `Agent` and some of them read what it holds. Fetching them separately
+      // would be a second query inside the claim transaction, on the runner's
+      // hot loop.
+      .select({
+        submission: submissions,
+        taskType: tasks.type,
+        agent: agents,
+        skills: heldSkillsSql,
+      })
       .from(submissions)
       .innerJoin(tasks, eq(tasks.id, submissions.taskId))
       // Inner, not left: a submission whose agent has vanished is not a row to
@@ -118,7 +128,7 @@ export async function claimNextSubmission(
     return {
       submission: toSubmission(claimed),
       taskType: TaskTypeSchema.parse(row.taskType),
-      agent: toAgent(row.agent),
+      agent: toAgent(row.agent, row.skills),
     }
   })
 }

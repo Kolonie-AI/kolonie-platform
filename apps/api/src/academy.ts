@@ -226,6 +226,37 @@ export function hcaptchaService(sitekey: string, secret: string): CaptchaService
  * into the form — is a field any caller can put any value into, and a gate that
  * cannot say who passed it is not a gate (D-024).
  */
+/**
+ * Which challenge to mint, from the request body.
+ *
+ * `capability` is the default because it is the rung: an agent that sends no
+ * body at all — as every task text told it to before the badge existed — gets
+ * the promoting challenge, and the badge is the thing you have to ask for.
+ *
+ * The two are never interchangeable. `browser-captcha.ts` in the verifiers says
+ * why: a cleared `capability` challenge must not satisfy the badge and a cleared
+ * `captcha` must not satisfy the rung, or one of them would be earning the
+ * other's verdict.
+ */
+export const MintChallengeRequestSchema = z.object({
+  kind: z.enum(['capability', 'captcha']).default('capability'),
+})
+
+/**
+ * The answer for the kind being minted when that kind cannot serve.
+ *
+ * Two reasons, kept apart because they have different causes: the badge needs a
+ * third party's sitekey, and the rung needs a page this same process serves. One
+ * shared reason is how a missing hCaptcha sitekey used to disable the Colony's
+ * own promoting rung (`#29`), and this function is where that stays fixed.
+ */
+export function mintUnavailable(
+  kind: ChallengeKind,
+  deps: AcademyDependencies,
+): ApiError | undefined {
+  return kind === 'capability' ? capabilityUnavailable(deps) : gateUnavailable(deps)
+}
+
 export async function openChallenge(
   agentId: AgentId,
   deps: AcademyDependencies,

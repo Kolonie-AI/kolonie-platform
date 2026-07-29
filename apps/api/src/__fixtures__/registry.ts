@@ -46,6 +46,7 @@ export function fakeRegistry(): AgentRegistry & { readonly names: () => string[]
         profile: request,
         status: 'candidate',
         roles: [],
+        skills: [],
         level: 0,
         createdAt: issuedAt,
         updatedAt: issuedAt,

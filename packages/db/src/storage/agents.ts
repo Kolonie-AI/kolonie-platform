@@ -12,6 +12,7 @@ import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
 import { agents, credentials } from '../schema/index.js'
 import { toAgent } from './rows.js'
+import { heldSkillsSql, skillsOfAgent } from './skills.js'
 
 /**
  * What registration did.
@@ -108,7 +109,11 @@ export async function registerAgent(
 
       return {
         outcome: 'registered',
-        agent: toAgent(agentRow),
+        // A citizen registered a moment ago holds no skill: the first one is
+        // granted by passing `profile-complete`. Stated as a literal rather
+        // than read back, because there is nothing to read and a query that
+        // can only answer "none" is a query that hides that fact.
+        agent: toAgent(agentRow, []),
         credentials: {
           agentId: AgentIdSchema.parse(agentRow.id),
           credentialId: CredentialIdSchema.parse(credentialRow.id),
@@ -186,10 +191,14 @@ export async function updateAgentProfile(
   // than writing also keeps `updated_at` honest: nothing changed, so nothing
   // should claim to have changed.
   if (Object.keys(changes).length === 0) {
-    const [row] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1)
+    const [row] = await db
+      .select({ agent: agents, skills: heldSkillsSql })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .limit(1)
     return row === undefined
       ? { outcome: 'unknown-agent' }
-      : { outcome: 'updated', agent: toAgent(row) }
+      : { outcome: 'updated', agent: toAgent(row.agent, row.skills) }
   }
 
   try {
@@ -202,9 +211,13 @@ export async function updateAgentProfile(
       .where(eq(agents.id, agentId))
       .returning()
 
-    return row === undefined
-      ? { outcome: 'unknown-agent' }
-      : { outcome: 'updated', agent: toAgent(row) }
+    if (row === undefined) return { outcome: 'unknown-agent' }
+
+    // A second read rather than a subquery in `returning`: a profile edit
+    // cannot change which skills an agent holds, so this is a plain lookup of
+    // something the write did not touch, and keeping it out of the statement
+    // keeps the statement about the profile.
+    return { outcome: 'updated', agent: toAgent(row, await skillsOfAgent(db, agentId)) }
   } catch (error) {
     if (conflictingIndex(error) === 'wallet-taken') {
       return { outcome: 'wallet-taken', wallet: request.wallet ?? '' }

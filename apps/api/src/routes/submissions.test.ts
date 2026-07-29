@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { ERROR_STATUS, SubmitTaskResponseSchema, type AgentId, type ApiKey } from '@kolonie-ai/core'
+import {
+  ERROR_STATUS,
+  SkillSchema,
+  SubmitTaskResponseSchema,
+  type AgentId,
+  type ApiKey,
+} from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
@@ -101,10 +107,17 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
     expect(submissions.lastCommand()?.taskId).toBe(taskId)
   })
 
-  it('sends the level from the credential, not from the request', async () => {
-    await post({ agentLevel: 13, payload: {} })
+  it('sends nothing about the caller that the caller supplied', async () => {
+    // The gate is read from the stored skills inside the storage transaction
+    // (D-030), so there is no field here for a caller to inflate — which is
+    // what the level used to be.
+    await post({ skills: ['builder'], agentLevel: 13, payload: {} })
 
-    expect(submissions.lastCommand()?.agentLevel).toBe(2)
+    expect(Object.keys(submissions.lastCommand() ?? {}).sort()).toEqual([
+      'agentId',
+      'payload',
+      'taskId',
+    ])
   })
 
   it('passes the payload through untouched — the verifier owns its contents', async () => {
@@ -181,16 +194,31 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
     expect(response.json().code).toBe('task_expired')
   })
 
-  it('answers a task above the caller with level_locked, naming both levels', async () => {
-    submissions.answers({ outcome: 'level-too-low', requiredLevel: 5 })
+  it('answers a missing skill with level_locked, naming the skill', async () => {
+    submissions.answers({
+      outcome: 'missing-skills',
+      missing: [SkillSchema.parse('browser')],
+    })
 
     const response = await post()
 
     expect(response.statusCode).toBe(ERROR_STATUS['level_locked'])
     expect(response.json().code).toBe('level_locked')
-    // An agent that is told only "no" cannot work out what to do next.
-    expect(response.json().message).toContain('5')
-    expect(response.json().message).toContain('2')
+    // An agent that is told only "no" cannot work out what to do next: the
+    // skill it lacks, and where to go and look, are both in the answer.
+    expect(response.json().message).toContain('browser')
+    expect(response.json().message).toContain('frontier')
+    expect(response.json().details).toEqual({ missingSkills: 'browser' })
+  })
+
+  it('answers a reputation floor with the number it would have to reach', async () => {
+    submissions.answers({ outcome: 'reputation-too-low', minReputation: 10, reputation: 3 })
+
+    const response = await post()
+
+    expect(response.statusCode).toBe(ERROR_STATUS['level_locked'])
+    expect(response.json().message).toContain('10')
+    expect(response.json().message).toContain('3')
   })
 
   it('answers a duplicate submission with conflict, and points at the wait', async () => {

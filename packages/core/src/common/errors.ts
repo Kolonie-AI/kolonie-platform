@@ -14,6 +14,16 @@ export const ErrorCodeSchema = z.enum([
   'validation_failed',
   'conflict',
   'rate_limited',
+  /**
+   * The caller may not attempt this task yet.
+   *
+   * Named for the ladder D-030 retired, and kept under that name on purpose: a
+   * code is the stable half of the contract, and an agent branching on
+   * `level_locked` today would be broken by a rename it gains nothing from.
+   * What it now means is *"you are missing a skill this task requires, or you
+   * are under its reputation floor"* — the message says which, and `#35` is
+   * where the vocabulary is revisited if it is worth revisiting at all.
+   */
   'level_locked',
   'insufficient_coins',
   'task_expired',
@@ -28,7 +38,13 @@ export const ApiErrorSchema = z.object({
   message: z.string(),
   /**
    * Field-level detail for `validation_failed`, keyed by JSON path
-   * (e.g. `"profile.name"`). Empty for other codes.
+   * (e.g. `"profile.name"`).
+   *
+   * A few other codes carry a machine-readable detail here rather than leaving
+   * an agent to parse the prose: `level_locked` names the skills the caller is
+   * missing, and `rate_limited` carries `retryAfterSeconds` where no header
+   * exists to put it. The rule is that anything here is *additional* to the
+   * message, never the only place a fact appears.
    */
   details: z.record(z.string(), z.string()).optional(),
 })

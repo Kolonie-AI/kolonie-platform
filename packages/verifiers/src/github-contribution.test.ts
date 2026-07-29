@@ -30,6 +30,7 @@ const anAgent = (id: string = AGENT_ID): Agent =>
     },
     status: 'candidate',
     roles: [],
+    skills: [],
     level: 2,
     createdAt: '2026-07-28T10:00:00.000Z',
     updatedAt: '2026-07-28T10:00:00.000Z',

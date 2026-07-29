@@ -10,7 +10,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { MAX_ACADEMY_LEVEL, MIN_ACADEMY_LEVEL } from '@kolonie-ai/core'
+import { MAX_ACADEMY_LEVEL, MAX_TASK_SKILLS, MIN_ACADEMY_LEVEL } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { taskStatus } from './enums.js'
 
@@ -30,7 +30,49 @@ export const tasks = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     type: varchar('type', { length: 64 }).notNull(),
+    /**
+     * **Superseded by the three skill columns below** (D-030). Still written so
+     * the transition is reversible; nothing reads it to decide anything. `#35`
+     * drops it.
+     */
     level: smallint('level').notNull(),
+
+    /**
+     * The graph edges (D-030). `text[]` rather than three join tables: each list
+     * is bounded at a handful of slugs, is always read with the task, and the
+     * one query that reads it from the other direction — which task grants this
+     * skill — is the frontier's, over a catalogue of Academy size.
+     *
+     * `requires` is enforced, `suggests` is presentation, `grants` is what a
+     * pass awards. Empty `grants` is a badge, and it is the ordinary shape
+     * rather than a special case.
+     */
+    requiresSkills: text('requires_skills')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    suggestsSkills: text('suggests_skills')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    grantsSkills: text('grants_skills')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
+    /**
+     * The reputation floor. Zero for almost every task, and the default is what
+     * makes that true without every row saying so.
+     */
+    minReputation: integer('min_reputation').notNull().default(0),
+
+    /**
+     * Where the Colony suggests this task sits in the order. A hint that gates
+     * nothing, and the first key the task list sorts by — it took over that job
+     * from `level`, which is why the cursor's shape survived D-030 unchanged.
+     */
+    recommendedOrder: smallint('recommended_order').notNull().default(100),
+
     title: varchar('title', { length: 120 }).notNull(),
     /** What the task is, in prose, for a human reading the catalogue. */
     description: text('description').notNull(),
@@ -89,11 +131,37 @@ export const tasks = pgTable(
     ),
     check('tasks_timeout_hours_range', sql`${table.timeoutHours} between 1 and 720`),
     check('tasks_prerequisites_max', sql`cardinality(${table.prerequisiteTaskIds}) <= 16`),
+    check(
+      'tasks_skills_max',
+      sql`cardinality(${table.requiresSkills}) <= ${sql.raw(String(MAX_TASK_SKILLS))} and cardinality(${table.suggestsSkills}) <= ${sql.raw(String(MAX_TASK_SKILLS))} and cardinality(${table.grantsSkills}) <= ${sql.raw(String(MAX_TASK_SKILLS))}`,
+    ),
+    check('tasks_min_reputation_non_negative', sql`${table.minReputation} >= 0`),
+    check('tasks_recommended_order_range', sql`${table.recommendedOrder} between 0 and 999`),
     /**
-     * `GET /v1/tasks` asks "which active tasks is this agent's level allowed to
-     * see", which is exactly this index.
+     * **Only the Colony mints skills**, enforced on the row rather than in code
+     * (D-030).
+     *
+     * `governance/treasury.md` has citizens creating tasks for each other, and a
+     * Quest is defined as a task that requires a skill earned in the Academy.
+     * Both are safe only while `grants` belongs to the Colony alone: a citizen
+     * who could author a granting task could mint a skill for a collaborator,
+     * and every gate downstream would then be worth nothing. A citizen-authored
+     * task may require any skill; it may grant none.
+     *
+     * Here rather than in a service, because the property has to hold for every
+     * write path that will ever exist — including the one that has not been
+     * built yet, which is exactly the one that would forget.
      */
-    index('tasks_status_level_idx').on(table.status, table.level),
+    check(
+      'tasks_only_colony_grants_skills',
+      sql`${table.createdBy} is null or cardinality(${table.grantsSkills}) = 0`,
+    ),
+    /**
+     * `GET /v1/tasks` asks "which active tasks may this agent start", filtered
+     * by status and ordered by the recommended order — which is exactly this
+     * index. It replaced `(status, level)` when the level stopped being read.
+     */
+    index('tasks_status_order_idx').on(table.status, table.recommendedOrder),
     index('tasks_type_idx').on(table.type),
   ],
 )

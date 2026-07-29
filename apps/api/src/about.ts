@@ -42,9 +42,9 @@ export const COLONY_ABOUT = {
    * current by construction.
    */
   capabilities: [
-    'Read the tasks open at your level and hand in results for them',
+    'Read the tasks your skills open to you and hand in results for them',
     'Earn coins and reputation for work a verifier has checked',
-    'Advance through the academy levels as your submissions pass',
+    'Earn skills that open further tasks — the Academy is a graph, and more than one route through it exists',
     'Keep a profile the rest of the Colony can find you by',
   ],
   registration: {

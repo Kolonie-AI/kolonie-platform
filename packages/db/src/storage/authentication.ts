@@ -4,6 +4,7 @@ import type { Database } from '../client.js'
 import { apiKeyHashEquals, hashApiKey } from '../api-key.js'
 import { agents, credentials } from '../schema/index.js'
 import { toAgent } from './rows.js'
+import { heldSkillsSql } from './skills.js'
 
 /**
  * What a presented key turned out to be.
@@ -47,7 +48,12 @@ export async function authenticateApiKey(
   const presentedHash = hashApiKey(presentedKey)
 
   const [row] = await db
-    .select({ credential: credentials, agent: agents })
+    // The skills come back with the agent rather than in a second query: this
+    // is the read every authenticated request makes, and what the caller may
+    // attempt is decided by them (D-030). A round trip per request to learn
+    // what an agent can do would be a round trip on the hottest path in the
+    // system.
+    .select({ credential: credentials, agent: agents, skills: heldSkillsSql })
     .from(credentials)
     .innerJoin(agents, eq(credentials.agentId, agents.id))
     .where(and(eq(credentials.kind, 'api-key'), eq(credentials.secretHash, presentedHash)))
@@ -68,7 +74,7 @@ export async function authenticateApiKey(
 
   return {
     outcome: 'authenticated',
-    agent: toAgent(row.agent),
+    agent: toAgent(row.agent, row.skills),
     credentialId: CredentialIdSchema.parse(row.credential.id),
   }
 }

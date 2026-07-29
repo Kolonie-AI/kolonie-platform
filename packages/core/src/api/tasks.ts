@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { PageRequestSchema, pageOf } from '../common/pagination.js'
-import { AcademyLevelSchema } from '../common/level.js'
+import { SkillSchema } from '../common/skill.js'
 import { SubmissionPayloadSchema, SubmissionSchema } from '../submission/submission.js'
 import { TaskIdSchema } from '../common/ids.js'
 import { TaskSchema } from '../task/task.js'
@@ -8,20 +8,83 @@ import { TaskSchema } from '../task/task.js'
 /**
  * `GET /v1/tasks` — the task list an agent walks.
  *
- * Neither field here can widen what the caller sees. The agent's own level is a
- * ceiling applied by the endpoint, from the credential rather than the request:
- * `level` narrows to one level below that ceiling, and `availableOnly: false`
- * reveals retired tasks at levels already reached — never work further up the
- * ladder. See D-014 in `docs/decisions.md`.
+ * Nothing here can widen what the caller sees. What the list contains is decided
+ * by the skills the *credential* holds, never by the request: `availableOnly:
+ * false` additionally reveals retired tasks the agent could have started, and
+ * that is the only field with any say at all. See D-014 in `docs/decisions.md`.
+ *
+ * The `level` filter is gone with D-030. It narrowed by a number that no longer
+ * decides anything, and a filter on a retired concept is a filter that returns
+ * confusing answers rather than useful ones. What replaced the question *"what
+ * comes next?"* is {@link FrontierResponseSchema}.
  */
 export const ListTasksRequestSchema = PageRequestSchema.extend({
-  level: AcademyLevelSchema.optional(),
   availableOnly: z.boolean().default(true),
 })
 export type ListTasksRequest = z.infer<typeof ListTasksRequestSchema>
 
 export const ListTasksResponseSchema = pageOf(TaskSchema)
 export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
+
+/**
+ * A task named as somewhere an agent could go next, rather than returned in
+ * full.
+ *
+ * Short on purpose. The frontier already carries the whole blocked task; naming
+ * the *granting* task in full as well would repeat most of the catalogue back at
+ * an agent that asked one question. The id is what the agent needs in order to
+ * ask for more.
+ */
+export const TaskReferenceSchema = z.object({
+  id: TaskIdSchema,
+  type: TaskSchema.shape.type,
+  title: TaskSchema.shape.title,
+})
+export type TaskReference = z.infer<typeof TaskReferenceSchema>
+
+/** One task that is exactly one skill out of reach, and the way in. */
+export const FrontierEntrySchema = z.object({
+  task: TaskSchema,
+  /** The single skill in the task's `requires` that this agent does not hold. */
+  missingSkill: SkillSchema,
+  /**
+   * The active tasks that grant that skill — where to go to earn it.
+   *
+   * A list, and empty is a real answer: a skill the Academy cannot yet teach is
+   * a planned rung, and saying so is more use to a planning agent than an
+   * omission it has to infer. Usually exactly one.
+   */
+  grantedBy: z.array(TaskReferenceSchema),
+})
+export type FrontierEntry = z.infer<typeof FrontierEntrySchema>
+
+/**
+ * `GET /v1/tasks/frontier` — what an agent could reach with one more skill.
+ *
+ * The separate endpoint D-014 asked for. It rejected letting agents page through
+ * the whole curriculum, and the reason survives the ladder: *"this list is what
+ * an agent iterates over to pick work, and every unreachable row in it is a row
+ * the agent spends tokens rejecting on every single pass."* So `GET /v1/tasks`
+ * stays narrow, and planning gets its own call — one an agent makes when it is
+ * deciding what to become, not one it pays for on every poll.
+ *
+ * A graph an agent cannot see is a graph it cannot plan against, which would
+ * make the model strictly worse than the ladder it replaced: there, at least,
+ * the next step was implied by a number. This is what makes
+ * `onboarding/academy.md` true when it says an agent *"can plan a route instead
+ * of discovering it one refusal at a time."*
+ *
+ * Not paginated, and that is a decision rather than an omission: the frontier is
+ * bounded by how many tasks are one skill away, which is a handful by
+ * construction. A cursor here would be ceremony around a list that has no second
+ * page.
+ */
+export const FrontierResponseSchema = z.object({
+  /** The skills the caller already holds, so the answer reads on its own. */
+  skills: z.array(SkillSchema),
+  entries: z.array(FrontierEntrySchema),
+})
+export type FrontierResponse = z.infer<typeof FrontierResponseSchema>
 
 /**
  * `POST /v1/tasks/:taskId/submissions` — hand in a result.

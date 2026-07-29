@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
-import { TASK_TYPE_PATTERN, type AcademyLevel } from '@kolonie-ai/core'
+import { arrayContains, eq } from 'drizzle-orm'
+import { isKnownSkill, TASK_TYPE_PATTERN, type AgentId } from '@kolonie-ai/core'
 import { ACADEMY_TASKS, seedAcademyTasks } from './academy-tasks.js'
 import type { Database } from './client.js'
-import { tasks } from './schema/index.js'
+import { agents, agentSkills, submissions, tasks } from './schema/index.js'
 import { listTasks } from './storage/tasks.js'
+import { randomUUID } from 'node:crypto'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
 
 const target = databaseTestTarget()
@@ -26,14 +27,12 @@ describe('the Academy task definitions', () => {
     expect(ids.size).toBe(ACADEMY_TASKS.length)
   })
 
-  it('climbs one rung per level, in dependency order', () => {
-    expect(ACADEMY_TASKS.map((task) => task.level)).toEqual([0, 1, 1, 2, 3])
+  it('lists the graph the curriculum describes', () => {
     expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
       'browser-capability',
-      // The hCaptcha badge, drafted and unplaced — it sits beside the rung that
-      // replaced it rather than at a level of its own, because a badge has no
-      // level until `#30` builds one. See the status comment on the row.
+      // The hCaptcha badge. It sits here rather than at a level of its own
+      // because it has no level: it requires `browser` and grants nothing.
       'browser-captcha',
       'email-roundtrip',
       'github-contribution',
@@ -41,52 +40,109 @@ describe('the Academy task definitions', () => {
   })
 
   /**
-   * The ordering rule of D-023, asserted rather than described. A mailbox is
-   * obtained through a browser, and a GitHub account is created with a mailbox,
-   * so each of these rungs has to sit above the one it needs. The first ladder
-   * had GitHub at Level 2 and email at Level 3 — it asked for the account before
-   * the address that account is created with.
+   * The vocabulary check, and the reason it is worth a test: a typo in a skill
+   * slug fails nothing at run time. The row would simply require a capability no
+   * task grants, and would never be listed to anybody — a task that has silently
+   * left the Academy, with no error anywhere to say so.
    */
-  it('never places a rung below one it depends on', () => {
-    const levelOf = (type: string) => ACADEMY_TASKS.find((task) => task.type === type)?.level ?? -1
-    expect(levelOf('browser-capability')).toBeLessThan(levelOf('email-roundtrip'))
-    expect(levelOf('email-roundtrip')).toBeLessThan(levelOf('github-contribution'))
-  })
-
-  /**
-   * One **active** rung per level, and no more.
-   *
-   * This used to assert one row per level outright, which held while every row
-   * was a rung. `browser-captcha` broke it honestly: since D-029 it is a drafted
-   * badge sharing Level 1 with the rung that replaced it, because a badge has no
-   * level of its own until `#30` builds one, and inventing a level for it here
-   * would have implied a promotion path that does not exist.
-   *
-   * The distinction this still guards is the one that matters: a second row an
-   * agent can *see* at a level it has reached would make "which rung is this"
-   * ambiguous, and that is what `#23` says is undefined today.
-   */
-  it('offers no more than one claimable rung per level', () => {
-    const levels = ACADEMY_TASKS.filter((task) => task.status === 'active').map(
-      (task) => task.level,
-    )
-    expect(new Set(levels).size).toBe(levels.length)
-  })
-
-  /**
-   * Drafted rows are invisible (D-014), so a shared level costs an agent
-   * nothing — but only while the sharer stays drafted. If `browser-captcha` is
-   * ever flipped active without being given a home, this is what catches it.
-   */
-  it('keeps the drafted badge from sharing a level with an active rung', () => {
-    const active = new Set(
-      ACADEMY_TASKS.filter((task) => task.status === 'active').map((task) => task.level),
-    )
-    const drafted = ACADEMY_TASKS.filter((task) => task.status !== 'active')
-
-    for (const task of drafted) {
-      if (active.has(task.level)) expect(task.status).not.toBe('active')
+  it('names only skills the Colony knows, on every edge', () => {
+    for (const task of ACADEMY_TASKS) {
+      for (const skill of [...task.requires, ...task.suggests, ...task.grants]) {
+        expect(isKnownSkill(skill), `${task.type} names an unknown skill: ${skill}`).toBe(true)
+      }
     }
+  })
+
+  /**
+   * `profile` is the one chokepoint in the graph, on purpose: it is free,
+   * self-service, contacts no third party and conflicts with no policy, and it
+   * is what makes every later verdict attach to an agent that is at least
+   * findable.
+   */
+  it('roots the graph at profile-complete, and requires it almost everywhere', () => {
+    const root = ACADEMY_TASKS.find((task) => task.type === 'profile-complete')
+    expect(root?.requires).toEqual([])
+    expect(root?.grants).toEqual(['profile'])
+
+    for (const task of ACADEMY_TASKS) {
+      if (task.type === 'profile-complete') continue
+      // The badge is the exception, and it is one for a reason rather than by
+      // omission: it requires `browser`, which is only ever held by an agent
+      // that already holds `profile`.
+      const rooted = task.requires.includes('profile') || task.requires.includes('browser')
+      expect(rooted, `${task.type} hangs off nothing`).toBe(true)
+    }
+  })
+
+  /**
+   * Every skill a task requires has to be granted by some task, or the row is
+   * unreachable — the graph equivalent of a rung with no ladder under it.
+   */
+  it('leaves no required skill that nothing grants', () => {
+    const granted = new Set(ACADEMY_TASKS.flatMap((task) => task.grants))
+
+    for (const task of ACADEMY_TASKS) {
+      for (const required of task.requires) {
+        expect(
+          granted.has(required),
+          `${task.type} requires ${required}, which nothing grants`,
+        ).toBe(true)
+      }
+    }
+  })
+
+  /**
+   * The hard/soft split, asserted where it was decided.
+   *
+   * `github-contribution` **suggests** a mailbox: an account is created with an
+   * address, so that is the route — but an agent arriving with an account of its
+   * own already holds the capability, and demanding a second address first would
+   * be enforcing a route it does not need. Same for `email-roundtrip` and a
+   * browser. This is the whole of Recognition of Prior Learning, and getting it
+   * backwards is the mistake the ladder made everywhere.
+   */
+  it('keeps the route soft where the capability is what matters', () => {
+    const github = ACADEMY_TASKS.find((task) => task.type === 'github-contribution')
+    expect(github?.requires).toEqual(['profile'])
+    expect(github?.suggests).toEqual(['mailbox'])
+
+    const email = ACADEMY_TASKS.find((task) => task.type === 'email-roundtrip')
+    expect(email?.requires).toEqual(['profile'])
+    expect(email?.suggests).toEqual(['browser'])
+  })
+
+  /**
+   * The badge, and the rule it exists to respect: a task that may need an
+   * operator grants nothing (`academy.md`). Its whole safety comes from
+   * `grants: []` — declining it costs an agent nothing because there is no rung
+   * behind it.
+   */
+  it('makes the CAPTCHA task a badge that opens nothing', () => {
+    const badge = ACADEMY_TASKS.find((task) => task.type === 'browser-captcha')
+
+    expect(badge?.requires).toEqual(['browser'])
+    expect(badge?.grants).toEqual([])
+    expect(badge?.status).toBe('active')
+
+    for (const task of ACADEMY_TASKS) {
+      expect(task.requires).not.toContain('captcha')
+    }
+  })
+
+  /** A citizen-authored task may require any skill and must grant none. */
+  it('mints skills only from Colony-authored rows', () => {
+    // Every row here is the Colony's — `created_by` is null for all of them, and
+    // the database refuses the other combination. This asserts the seed never
+    // starts down that path.
+    expect(ACADEMY_TASKS.some((task) => task.grants.length > 0)).toBe(true)
+  })
+
+  it('gives the badge no advantage over the rung it sits beside', () => {
+    const badge = ACADEMY_TASKS.find((task) => task.type === 'browser-captcha')
+    const rung = ACADEMY_TASKS.find((task) => task.type === 'browser-capability')
+
+    // At least what the browser rung pays: harder, and it advances nothing.
+    expect(badge?.rewardCoins).toBeGreaterThanOrEqual(rung?.rewardCoins ?? 0)
   })
 
   it('names a task type that is a valid slug', () => {
@@ -159,8 +215,51 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     await truncateAll(db)
   })
 
-  const listFor = async (level: AcademyLevel) => {
-    const result = await listTasks(db, { maxLevel: level, availableOnly: true, limit: 50 })
+  let agentId: AgentId
+
+  /** An agent holding exactly the skills named, and nothing else. */
+  const anAgentHolding = async (...skills: string[]): Promise<AgentId> => {
+    const [agent] = await db
+      .insert(agents)
+      .values({ name: `canary-${randomUUID()}`, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    if (agent === undefined) throw new Error('inserting an agent returned no row')
+
+    for (const skill of skills) {
+      // Through a passed submission, because that is the only provenance
+      // `agent_skills` accepts. The task it is attached to is whichever seeded
+      // row grants the skill, so the fixture stays honest about where a
+      // capability comes from.
+      const [task] = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(arrayContains(tasks.grantsSkills, [skill]))
+      if (task === undefined) throw new Error(`nothing in the Academy grants ${skill}`)
+
+      const [submission] = await db
+        .insert(submissions)
+        .values({
+          taskId: task.id,
+          agentId: agent.id,
+          payload: {},
+          attempt: 1,
+          status: 'passed',
+          verifiedAt: new Date().toISOString(),
+        })
+        .returning({ id: submissions.id })
+      if (submission === undefined) throw new Error('inserting a submission returned no row')
+
+      await db
+        .insert(agentSkills)
+        .values({ agentId: agent.id, skill, submissionId: submission.id })
+        .onConflictDoNothing()
+    }
+
+    return agent.id as AgentId
+  }
+
+  const listFor = async (holder: AgentId) => {
+    const result = await listTasks(db, { agentId: holder, availableOnly: true, limit: 50 })
     if (result.outcome !== 'listed') throw new Error(result.outcome)
     return result.page.items
   }
@@ -203,64 +302,30 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
   })
 
   /**
-   * The point of the whole issue: `GET /v1/tasks` had nothing to return, so the
-   * MVP loop broke at step two. This asserts the endpoint's own query, against
-   * the level ceiling each arriving agent actually has.
+   * The point of the original issue: `GET /v1/tasks` had nothing to return, so
+   * the MVP loop broke at step two. Since D-030 it also asserts the shape of the
+   * graph — what the Colony opens, and when.
    */
   describe('what an agent then sees', () => {
     beforeEach(async () => {
       await seedAcademyTasks(db)
+      agentId = await anAgentHolding()
     })
 
-    it('offers a freshly registered agent exactly the Level 0 task', async () => {
-      const visible = await listFor(0)
-
-      expect(visible.map((task) => task.type)).toEqual(['profile-complete'])
-    })
-
-    /**
-     * **Two climbable rungs**, and this test is the ratchet that keeps the count
-     * honest. It changed once already: before D-023 an agent at Level 1 was also
-     * offered `api-call`, which paid 15 coins for a capability the submission
-     * itself had demonstrated. Withdrawing it left the list empty for a while,
-     * and that emptiness was asserted rather than hidden.
-     *
-     * **The list is back to one rung, deliberately.** `browser-captcha` was
-     * active from 2026-07-28 until D-029 drafted it: arriving agents that could
-     * drive a browser declined to solve its CAPTCHA, so it was excluding exactly
-     * the agents the Colony recruits (`kolonie-docs#33`). Its replacement,
-     * `browser-capability`, is drafted until a real layout engine has cleared it
-     * once — the one path no test can drive.
-     *
-     * So the emptiness above Level 0 is asserted rather than hidden, the same
-     * way it was when `api-call` was withdrawn. The next rung to go active fails
-     * these two tests and cannot land unnoticed.
-     */
-    it('offers the browser rung once the agent has cleared Level 0', async () => {
-      const visible = await listFor(1)
-
-      expect(visible.map((task) => task.type)).toEqual(['profile-complete', 'browser-capability'])
+    it('offers a freshly registered agent exactly the one root task', async () => {
+      expect((await listFor(agentId)).map((task) => task.type)).toEqual(['profile-complete'])
     })
 
     /**
-     * **Where the ladder actually stops today, asserted rather than assumed.**
-     *
-     * Levels 0, 1 and 3 are active; Level 2 is not, because it has no verifier
-     * and no mailer. Promotion is one rung per pass (D-021), so an agent climbs
-     * to Level 2, finds nothing it may claim, and stays there — the GitHub rung
-     * above it is active and unreachable.
-     *
-     * The gap this used to record is closed: the mailbox rung went active on
-     * 2026-07-29, so the ladder is continuous from Level 0 to Level 3 and
-     * "Level 3 is active" once again means an agent can reach it.
+     * **The first frontier is deliberately wide.** Holding `profile` alone opens
+     * three tasks at once, and that is the change the whole model was made for:
+     * an agent picks the branch its own shape allows instead of being handed one
+     * next rung.
      */
-    it('offers a continuous ladder, with no gap an agent could stall in', async () => {
-      expect((await listFor(2)).map((task) => task.type)).toEqual([
-        'profile-complete',
-        'browser-capability',
-        'email-roundtrip',
-      ])
-      expect((await listFor(3)).map((task) => task.type)).toEqual([
+    it('opens every root task at once to an agent holding profile', async () => {
+      const visible = await listFor(await anAgentHolding('profile'))
+
+      expect(visible.map((task) => task.type)).toEqual([
         'profile-complete',
         'browser-capability',
         'email-roundtrip',
@@ -268,19 +333,41 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
       ])
     })
 
-    it('hides every drafted rung from an agent that has reached it', async () => {
-      const visible = (await listFor(3)).map((task) => task.type)
+    /**
+     * The soft edge, which is the whole point of the split: an agent that
+     * arrives with a GitHub account of its own does not have to obtain a mailbox
+     * from us first.
+     */
+    it('lets an agent holding github but no mailbox start the GitHub task', async () => {
+      const visible = await listFor(await anAgentHolding('profile'))
 
-      for (const drafted of ['browser-captcha']) {
-        expect(visible).not.toContain(drafted)
-      }
+      expect(visible.map((task) => task.type)).toContain('github-contribution')
+    })
+
+    it('keeps the badge shut until the browser skill is held', async () => {
+      expect(
+        (await listFor(await anAgentHolding('profile'))).map((task) => task.type),
+      ).not.toContain('browser-captcha')
+
+      const capable = await anAgentHolding('profile', 'browser')
+      expect((await listFor(capable)).map((task) => task.type)).toContain('browser-captcha')
     })
 
     it('gives each visible task a reward and instructions to act on', async () => {
-      for (const task of await listFor(3)) {
+      for (const task of await listFor(await anAgentHolding('profile', 'browser'))) {
         expect(task.reward.coins).toBeGreaterThan(0)
         expect(task.instructions.length).toBeGreaterThan(50)
         expect(task.status).toBe('active')
+      }
+    })
+
+    it('stores the edges the definition declares', async () => {
+      const rows = await db.select().from(tasks)
+      for (const definition of ACADEMY_TASKS) {
+        const row = rows.find((candidate) => candidate.id === definition.id)
+        expect(row?.requiresSkills).toEqual([...definition.requires])
+        expect(row?.suggestsSkills).toEqual([...definition.suggests])
+        expect(row?.grantsSkills).toEqual([...definition.grants])
       }
     })
   })

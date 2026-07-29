@@ -52,9 +52,10 @@ const mint = async () => {
 /**
  * A challenge of the badge's kind, minted straight through the port.
  *
- * The route no longer produces one: `POST /v1/academy/challenges` mints the
- * capability rung since `#29`, which is the whole point of the rebuild. The
- * hCaptcha tests below still need their own kind, so they ask for it directly.
+ * Most of the hCaptcha tests below only need a challenge to exist, so they ask
+ * the port for one rather than going through the route. That the *route* can
+ * mint one — which it could not between `#29` and `#34`, leaving the badge
+ * unstartable — is asserted on its own below.
  */
 const mintCaptcha = async () => {
   const { agent } = store.issue()
@@ -107,6 +108,80 @@ describe('POST /v1/academy/challenges', () => {
 
     expect(cleared?.statusCode).toBe(200)
     expect(await academy.challenges.clearedAt(agent.id, 'capability')).toBeTruthy()
+  })
+
+  /**
+   * The badge's door. It had none between `#29` and `#34`: the rebuild pointed
+   * this route at the capability challenge and the hCaptcha row was drafted, so
+   * an active badge would have been a task nobody could start.
+   */
+  it('mints the badge’s challenge when the body asks for one', async () => {
+    const { apiKey } = store.issue()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/academy/challenges',
+      headers: { authorization: `Bearer ${apiKey}` },
+      payload: { kind: 'captcha' },
+    })
+
+    expect(response.statusCode).toBe(201)
+    // The badge's page, not the rung's — the two never satisfy each other.
+    expect(response.json().url).toContain('/captcha/')
+  })
+
+  it('mints the rung’s challenge when no kind is given', async () => {
+    const { response } = await mint()
+
+    expect(response.json().url).toContain('/browser/')
+  })
+
+  it('refuses a kind that is neither, rather than quietly choosing one', async () => {
+    const { apiKey } = store.issue()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/academy/challenges',
+      headers: { authorization: `Bearer ${apiKey}` },
+      payload: { kind: 'whatever' },
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().code).toBe('validation_failed')
+  })
+
+  /**
+   * The separation `#29` bought, asserted from both sides: the badge needs a
+   * third party's sitekey and the rung needs a page this process serves, so an
+   * unconfigured hCaptcha must not take the promoting rung down with it.
+   */
+  it('keeps the rung serving when the badge cannot', async () => {
+    const withoutCaptcha = buildApp({
+      email: fakeEmail(),
+      registry: fakeRegistry(),
+      store,
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+      academy: { ...academy, unavailableReason: 'HCAPTCHA_SITEKEY is not set' },
+    })
+    await withoutCaptcha.ready()
+    const { apiKey } = store.issue()
+
+    const badge = await withoutCaptcha.inject({
+      method: 'POST',
+      url: '/v1/academy/challenges',
+      headers: { authorization: `Bearer ${apiKey}` },
+      payload: { kind: 'captcha' },
+    })
+    const rung = await withoutCaptcha.inject({
+      method: 'POST',
+      url: '/v1/academy/challenges',
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+    await withoutCaptcha.close()
+
+    expect(badge.statusCode).toBe(503)
+    expect(rung.statusCode).toBe(201)
   })
 })
 

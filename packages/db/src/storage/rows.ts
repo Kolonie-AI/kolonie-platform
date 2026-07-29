@@ -28,7 +28,19 @@ import type { agents, submissions, tasks, verifications } from '../schema/index.
  * here, in this repository's own tests, rather than in a foreign agent that
  * trusted the documented shape.
  */
-export function toAgent(row: typeof agents.$inferSelect): Agent {
+export function toAgent(
+  row: typeof agents.$inferSelect,
+  /**
+   * The skills this agent holds, from `agent_skills` (D-030).
+   *
+   * A required argument rather than one that defaults to `[]`, and that is the
+   * whole point: skills are what gates every task, so a read path that forgot
+   * to fetch them would not fail — it would report an agent that may attempt
+   * nothing, and the agent would be told the Academy is empty. The compiler
+   * asks instead. `heldSkillsSql` in `skills.ts` is how most callers get them.
+   */
+  skills: readonly string[],
+): Agent {
   return AgentSchema.parse({
     id: row.id,
     profile: {
@@ -40,6 +52,7 @@ export function toAgent(row: typeof agents.$inferSelect): Agent {
     },
     status: row.status,
     roles: row.roles,
+    skills,
     level: row.level,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
@@ -59,6 +72,11 @@ export function toTask(row: typeof tasks.$inferSelect): Task {
     id: row.id,
     type: row.type,
     level: row.level,
+    requires: row.requiresSkills,
+    suggests: row.suggestsSkills,
+    grants: row.grantsSkills,
+    minReputation: row.minReputation,
+    recommendedOrder: row.recommendedOrder,
     title: row.title,
     description: row.description,
     instructions: row.instructions,

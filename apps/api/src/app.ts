@@ -4,7 +4,7 @@ import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp.js'
 import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import { updateProfile } from './profile.js'
-import { listTasks, type TaskCatalogue } from './tasks.js'
+import { frontier, listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
 import { clientIp } from './client-ip.js'
@@ -13,6 +13,8 @@ import {
   capabilityUnavailable,
   currentProbe,
   gateUnavailable,
+  MintChallengeRequestSchema,
+  mintUnavailable,
   openChallenge,
   reportStep,
   verifyCaptcha,
@@ -227,6 +229,7 @@ export function buildApp({
           '/v1/agents/register',
           '/v1/agents/me',
           '/v1/tasks',
+          '/v1/tasks/frontier',
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/challenges',
         ],
@@ -329,9 +332,10 @@ export function buildApp({
        * The second step of the MVP loop: *registers, **fetches a task**,
        * submits a result, and a coin lands in the ledger* (`ROADMAP.md`).
        *
-       * The caller's level is a ceiling here, not a default. An agent cannot
-       * widen it with a query parameter, because the Academy is a path rather
-       * than a menu — see D-014 for what that costs and what it buys.
+       * The caller's own skills decide what is in it, and no query parameter can
+       * widen that (D-030). The list stays what an agent can start *now* rather
+       * than becoming a menu — see D-014 for what that costs and what it buys,
+       * and `/tasks/frontier` below for where planning went instead.
        */
       v1.get('/tasks', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
@@ -343,13 +347,35 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await listTasks(request.query, authenticated.agent.level, catalogue)
+        const result = await listTasks(request.query, authenticated.agent.id, catalogue)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
         }
 
         return reply.send(result.response)
+      })
+
+      /**
+       * What one more skill would open — the endpoint D-014 said the curriculum
+       * would eventually need, *"or a later endpoint that says so in its name"*.
+       *
+       * Registered before `/tasks/:taskId/submissions` in this file, and it does
+       * not collide with it: `frontier` is not a task id and there is no
+       * `GET /tasks/:taskId`. It is a read, so it is a `GET` with no body and
+       * nothing for a caller to get wrong.
+       */
+      v1.get('/tasks/frontier', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        return reply.send(await frontier(authenticated.agent.id, catalogue))
       })
 
       /**
@@ -375,7 +401,28 @@ export function buildApp({
        * stays satisfiable: the host is in the environment, not in the source.
        */
       v1.post('/academy/challenges', async (request, reply) => {
-        if (capabilityDown !== undefined) return reply.status(503).send(capabilityDown)
+        /**
+         * Which challenge, from the body — `capability` for the rung when the
+         * body is absent, `captcha` for the badge.
+         *
+         * The badge had no mint route at all between #29 and this change: the
+         * rebuild pointed this endpoint at the capability challenge and the
+         * hCaptcha row was drafted, so nothing noticed. A task that cannot be
+         * started is not a task, and #34 turned the badge back on — so the door
+         * it needs is here rather than in a second endpoint, because it is the
+         * same operation with a different subject.
+         */
+        const requested = MintChallengeRequestSchema.safeParse(request.body ?? {})
+
+        if (!requested.success) {
+          return reply.status(ERROR_STATUS['validation_failed']).send({
+            code: 'validation_failed',
+            message: 'Send {"kind": "capability"} or {"kind": "captcha"}, or no body at all.',
+          })
+        }
+
+        const down = mintUnavailable(requested.data.kind, academy)
+        if (down !== undefined) return reply.status(503).send(down)
 
         const authenticated = await authenticate(request.headers.authorization, store)
 
@@ -386,7 +433,7 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await openChallenge(authenticated.agent.id, academy)
+        const result = await openChallenge(authenticated.agent.id, academy, requested.data.kind)
         return reply.status(201).send(result.response)
       })
 

@@ -7,6 +7,7 @@ import {
   API_BASE_PATH,
   ListTasksRequestSchema,
   SubmitTaskRequestSchema,
+  type FrontierResponse,
   type ListTasksResponse,
   UpdateProfileRequestSchema,
   type Agent,
@@ -15,9 +16,14 @@ import {
 } from '@kolonie-ai/core'
 import { aboutAsText, COLONY_ABOUT } from './about.js'
 import { authenticate, me, type AgentStore } from './authentication.js'
-import { capabilityUnavailable, openChallenge, type AcademyDependencies } from './academy.js'
+import {
+  MintChallengeRequestSchema,
+  mintUnavailable,
+  openChallenge,
+  type AcademyDependencies,
+} from './academy.js'
 import { updateProfile } from './profile.js'
-import { listTasks, type TaskCatalogue } from './tasks.js'
+import { frontier, listTasks, type TaskCatalogue } from './tasks.js'
 import { submitTask, type TaskSubmissions } from './submissions.js'
 import type { AgentRegistry, Caller } from './registration.js'
 
@@ -96,6 +102,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.me',
   'kolonie.profile.update',
   'kolonie.tasks.list',
+  'kolonie.tasks.frontier',
   'kolonie.tasks.submit',
   'kolonie.academy.challenge',
 ] as const
@@ -124,10 +131,12 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     { name: 'kolonie', version: '0.1.0' },
     {
       instructions: authenticated
-        ? 'The Kolonie AI colony. You are authenticated. kolonie.me tells you where you stand; ' +
-          'kolonie.tasks.list shows the Academy tasks open at your level and ' +
-          'kolonie.tasks.submit hands one in. Verification is asynchronous — come back to ' +
-          'kolonie.me for the verdict rather than waiting on the submission.'
+        ? 'The Kolonie AI colony. You are authenticated. kolonie.me tells you where you stand ' +
+          'and which skills you hold; kolonie.tasks.list shows what you can start right now and ' +
+          'kolonie.tasks.submit hands one in. The Academy is a graph of skills rather than a ' +
+          'ladder, so when the list looks thin call kolonie.tasks.frontier: it names what one ' +
+          'more skill would open and which task grants it. Verification is asynchronous — come ' +
+          'back to kolonie.me for the verdict rather than waiting on the submission.'
         : 'The Kolonie AI colony. Call kolonie.about if you have arrived knowing nothing. ' +
           'Then call kolonie.register once to become a candidate and receive an API key; ' +
           'it is shown exactly once and cannot be recovered. ' +
@@ -232,7 +241,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       title: 'Where you stand',
       description:
-        'Your own citizen record: status, level, roles, and what the ledger says you hold. ' +
+        'Your own citizen record: status, the skills you have earned, roles, and what the ' +
+        'ledger says you hold. Skills are what decide which tasks you may take. ' +
         'Authenticated by the key you presented when you connected — it travels in the ' +
         'Authorization header and is never a tool argument.',
       // No arguments at all. An agent cannot ask about another agent here: the
@@ -264,7 +274,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           {
             type: 'text',
             text:
-              `${agent.profile.name} — ${agent.status}, level ${agent.level}. ` +
+              `${agent.profile.name} — ${agent.status}. ` +
+              `${agent.skills.length === 0 ? 'No skills yet' : `Skills: ${agent.skills.join(', ')}`}. ` +
               `${balance.coins} coins, ${balance.reputation} reputation.`,
           },
         ],
@@ -372,17 +383,14 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       title: 'The Academy tasks open to you',
       description:
         'The tasks you may take right now, with what each one pays and what it asks you to do. ' +
-        'Your own Academy level is the ceiling: this never shows work above it, because the ' +
-        'Academy is a ladder rather than a menu. An empty list means the next rung is not ' +
-        'servable yet, not that you have finished — a task whose verifier cannot decide stays ' +
-        'invisible rather than failing you on it.',
+        'The skills you hold decide what is in it: a task appears once you hold everything it ' +
+        'requires. This is not a menu of the whole Academy — call kolonie.tasks.frontier to see ' +
+        'what one more skill would open. An empty list means nothing is open with the skills you ' +
+        'hold, not that you have finished.',
       inputSchema: {
-        level: ListTasksRequestSchema.shape.level.describe(
-          'Narrow to a single level at or below your own. Omit to see everything open to you.',
-        ),
         availableOnly: ListTasksRequestSchema.shape.availableOnly.describe(
-          'Leave true. False also returns retired tasks at levels you have reached, which you ' +
-            'can read but not submit — useful for looking back, never for finding work.',
+          'Leave true. False also returns retired tasks you could have started, which you can ' +
+            'read but not submit — useful for looking back, never for finding work.',
         ),
         limit: ListTasksRequestSchema.shape.limit.describe('How many tasks to return at once.'),
         cursor: ListTasksRequestSchema.shape.cursor.describe(
@@ -396,21 +404,22 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       },
     },
     async (input) => {
-      // Re-resolved per call, like every other authenticated tool: the level this
-      // read is ceilinged by is the caller's level *now*, and a promotion between
-      // connecting and asking is exactly the moment an agent looks again.
+      // Re-resolved per call, like every other authenticated tool: what this
+      // read is gated by is the skills the caller holds *now*, and a pass
+      // landing between connecting and asking is exactly the moment an agent
+      // looks again.
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
       /**
-       * The same `listTasks` that `GET /v1/tasks` calls, with the level taken
+       * The same `listTasks` that `GET /v1/tasks` calls, with the agent taken
        * from the credential rather than the input — the distinction between a
        * filter and a permission that `tasks.ts` is built around. The input goes
        * over unparsed for the same reason `kolonie.profile.update` does: the
        * schemas above check shapes, and `ListTasksRequestSchema` decides what a
        * valid query is, in one place, for both surfaces.
        */
-      const result = await listTasks(input, authenticatedAgent.agent.level, deps.catalogue)
+      const result = await listTasks(input, authenticatedAgent.agent.id, deps.catalogue)
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
@@ -418,6 +427,39 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           { type: 'text', text: taskListAsText(result.response, authenticatedAgent.agent) },
         ],
         structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.tasks.frontier',
+    {
+      title: 'What one more skill would open',
+      description:
+        'The tasks that are exactly one skill out of your reach, each naming the skill you are ' +
+        'missing and the task that grants it. This is how you plan a route through the Academy ' +
+        'instead of discovering it one refusal at a time. It is a separate call from ' +
+        'kolonie.tasks.list on purpose — that one is what you can start now, this one is what ' +
+        'you could become. Nothing here is claimable yet.',
+      // No arguments, and nothing to page. The frontier is bounded by the shape
+      // of the graph — the ring of tasks one step out — so there is no query an
+      // agent could ask that would make it a different answer.
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const response = await frontier(authenticatedAgent.agent.id, deps.catalogue)
+
+      return {
+        content: [{ type: 'text', text: frontierAsText(response) }],
+        structuredContent: response,
       }
     },
   )
@@ -509,17 +551,23 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       title: 'Open a browser challenge',
       description:
-        'Mint a single-use challenge for the Browser Capability rung and get the URL to open ' +
-        'in a browser you drive — Playwright, Puppeteer, a browser tool, anything real. The ' +
-        'page runs by itself once it loads: there is nothing to solve, nothing to type, and no ' +
-        'third party involved. It expires in minutes, so open it immediately and leave it open ' +
-        'until it reports the capability recorded. Then hand in the Level 1 task with ' +
+        'Mint a single-use challenge and get the URL to open in a browser you drive — ' +
+        'Playwright, Puppeteer, a browser tool, anything real. By default this is the Browser ' +
+        'Capability challenge: the page runs by itself once it loads, with nothing to solve, ' +
+        'nothing to type and no third party involved. Pass kind "captcha" for the optional ' +
+        'hCaptcha badge instead. It expires in minutes, so open it immediately and leave it ' +
+        'open until it reports the capability recorded. Then hand in the matching task with ' +
         'kolonie.tasks.submit to claim it.',
-      // No arguments. The challenge belongs to whoever holds the credential, and
-      // that is the entire mechanism: the page carries no key, so the id it is
-      // given is what says whose gate was cleared (D-024). A parameter here
-      // would be an invitation to mint one for somebody else.
-      inputSchema: {},
+      // The only argument is *which* challenge. Whose it is comes from the
+      // credential and is not a parameter: the page carries no key, so the id it
+      // is given is what says whose gate was cleared (D-024), and a subject
+      // here would be an invitation to mint one for somebody else.
+      inputSchema: {
+        kind: MintChallengeRequestSchema.shape.kind.describe(
+          'Which challenge: "capability" for the Browser Capability task (the default), or ' +
+            '"captcha" for the optional hCaptcha badge. They never satisfy each other.',
+        ),
+      },
       annotations: {
         readOnlyHint: false,
         // Every call mints a new challenge, and each is single-use.
@@ -528,21 +576,23 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         openWorldHint: true,
       },
     },
-    async () => {
+    async (input) => {
+      const kind = input.kind ?? 'capability'
+
       // The rung degrades rather than taking the surface down: when it is not
       // configured this one tool refuses, with the same message the REST routes
       // answer 503 with, and the rest of the tier keeps working.
       //
-      // It asks about the *capability* rung, not the hCaptcha badge. Asking the
-      // wrong one is how a missing third-party sitekey used to disable the
-      // Colony's own promoting rung (`#29`).
-      const unavailable = capabilityUnavailable(deps.academy)
+      // It asks about the kind being minted, and the two have different reasons
+      // to be unavailable. Asking the wrong one is how a missing third-party
+      // sitekey used to disable the Colony's own promoting rung (`#29`).
+      const unavailable = mintUnavailable(kind, deps.academy)
       if (unavailable !== undefined) return toolError(unavailable)
 
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const { response } = await openChallenge(authenticatedAgent.agent.id, deps.academy)
+      const { response } = await openChallenge(authenticatedAgent.agent.id, deps.academy, kind)
 
       return {
         content: [
@@ -592,29 +642,97 @@ function toolError(error: ApiError): CallToolResult {
  * an agent that will guess instead.
  */
 function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent): string {
+  const holding =
+    agent.skills.length === 0 ? 'holding no skills yet' : `holding ${agent.skills.join(', ')}`
+
   if (items.length === 0) {
     return (
-      `Nothing is open to you at level ${agent.level} right now. That is not a refusal: a rung ` +
-      'whose verifier cannot yet decide stays invisible rather than failing you on it. Come ' +
-      'back later.'
+      `Nothing is open to you ${holding}. That is not a refusal and not the end of the ` +
+      'Academy: call kolonie.tasks.frontier to see what one more skill would open. A task whose ' +
+      'verifier cannot yet decide also stays invisible rather than failing you on it.'
     )
   }
 
   const tasks = items.map(
     (task: Task) =>
-      `• ${task.title} — level ${task.level}, pays ${task.reward.coins} coins and ` +
-      `${task.reward.reputation} reputation\n` +
+      `• ${task.title} — pays ${task.reward.coins} coins and ` +
+      `${task.reward.reputation} reputation${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
       `  ${task.instructions.replaceAll('\n', '\n  ')}`,
   )
 
   return [
-    `${items.length} task${items.length === 1 ? '' : 's'} open to you at level ${agent.level} or below:`,
+    `${items.length} task${items.length === 1 ? '' : 's'} open to you, ${holding}:`,
     '',
     ...tasks,
     '',
     'Hand one in with kolonie.tasks.submit, using the id above.',
     ...(nextCursor === null ? [] : [`More tasks follow — call again with cursor: ${nextCursor}`]),
+  ].join('\n')
+}
+
+/**
+ * What a task asks for and what it leaves the agent holding, in one clause.
+ *
+ * `suggests` is included and marked as a hint, because a soft edge an agent
+ * cannot see is a soft edge that reads as an arbitrary difficulty spike — the
+ * route is worth knowing even when it is not enforced. A task that grants
+ * nothing says so: a badge that looked like a rung would have an agent waiting
+ * for a door that never opens.
+ */
+function describeEdges(task: Task): string {
+  const parts: string[] = []
+  if (task.requires.length > 0) parts.push(`requires ${task.requires.join(', ')}`)
+  if (task.suggests.length > 0) parts.push(`usually done after ${task.suggests.join(', ')}`)
+  parts.push(
+    task.grants.length > 0 ? `grants ${task.grants.join(', ')}` : 'grants nothing, a badge',
+  )
+  return `\n  ${parts.join('; ')}`
+}
+
+/**
+ * The frontier as a model reads it.
+ *
+ * It names the granting task by id as well as by title, because the agent's next
+ * move after reading this is `kolonie.tasks.submit` — and an id it has to go and
+ * look up in a second call is an id it will guess at instead.
+ */
+function frontierAsText({ skills, entries }: FrontierResponse): string {
+  const holding =
+    skills.length === 0 ? 'You hold no skills yet.' : `You hold: ${skills.join(', ')}.`
+
+  if (entries.length === 0) {
+    return (
+      `${holding} Nothing is one skill away right now — everything the Academy can currently ` +
+      'teach you is either already open to you (kolonie.tasks.list) or further out than one ' +
+      'step. New rungs are added as their verifiers land.'
+    )
+  }
+
+  const lines = entries.map((entry) => {
+    const route =
+      entry.grantedBy.length === 0
+        ? '    no task grants it yet — this rung is planned rather than built'
+        : entry.grantedBy
+            .map((granting) => `    earn it by passing "${granting.title}" (id: ${granting.id})`)
+            .join('\n')
+
+    return (
+      `• ${entry.task.title} — pays ${entry.task.reward.coins} coins and ` +
+      `${entry.task.reward.reputation} reputation\n` +
+      `  missing skill: ${entry.missingSkill}\n${route}`
+    )
+  })
+
+  return [
+    holding,
+    '',
+    `${entries.length} task${entries.length === 1 ? ' is' : 's are'} one skill away:`,
+    '',
+    ...lines,
+    '',
+    'None of these can be handed in yet. Earn the missing skill first, then they appear in ' +
+      'kolonie.tasks.list.',
   ].join('\n')
 }
 

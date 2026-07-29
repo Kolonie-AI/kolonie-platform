@@ -1,25 +1,33 @@
-import { and, asc, eq, inArray, lte, sql, type SQL } from 'drizzle-orm'
+import { and, arrayOverlaps, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import {
-  AcademyLevelSchema,
+  SkillSchema,
   TaskIdSchema,
-  type AcademyLevel,
+  type AgentId,
+  type FrontierEntry,
   type Page,
+  type Skill,
   type Task,
+  type TaskReference,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { tasks } from '../schema/index.js'
+import { agentSkills, reputationEvents, tasks } from '../schema/index.js'
 import { toTask } from './rows.js'
 
 /** What `GET /v1/tasks` asks the catalogue for. */
 export interface ListTasksQuery {
   /**
-   * The caller's own level. A hard ceiling, not a default: the Academy is a
-   * path, and a task above it is not listed under any combination of the other
-   * options.
+   * Whose skills decide what is listed.
+   *
+   * The whole permission, and it comes from the credential rather than from the
+   * request — the same rule the level ceiling followed before D-030, for the
+   * same reason: every other field here is the caller's preference, and this one
+   * is not negotiable no matter what it sends.
+   *
+   * An id rather than a list of skills, so the gate is answered from the stored
+   * rows inside the one query. A caller cannot hand this function a set of
+   * skills it does not hold, because there is no parameter to hand them in.
    */
-  readonly maxLevel: AcademyLevel
-  /** Narrow to a single level. Still capped by `maxLevel`. */
-  readonly level?: AcademyLevel | undefined
+  readonly agentId: AgentId
   /** `true` lists only what can be claimed now; `false` also lists retired tasks. */
   readonly availableOnly: boolean
   readonly limit: number
@@ -51,13 +59,53 @@ const VISIBLE_STATUSES = {
 } as const
 
 /**
+ * The skills one agent holds, as a scalar subquery.
+ *
+ * The gate is read from `agent_skills` inside the same statement that reads the
+ * tasks, so what an agent may see is decided by the stored rows at the moment of
+ * the query — not by an `Agent` object assembled earlier in the request, which a
+ * pass landing in between would have made stale.
+ */
+const skillsHeldBy = (agentId: AgentId): SQL =>
+  sql`(select coalesce(array_agg(${agentSkills.skill}::text), '{}'::text[]) from ${agentSkills} where ${agentSkills.agentId} = ${agentId})`
+
+/** The same, for the reputation floor: summed from the append-only log (D-012). */
+const reputationOf = (agentId: AgentId): SQL =>
+  sql`(select coalesce(sum(${reputationEvents.delta}), 0) from ${reputationEvents} where ${reputationEvents.agentId} = ${agentId})`
+
+/**
+ * The skills a task requires and this agent does not hold, as a SQL array.
+ *
+ * `missingSkills` in core is the same rule for a caller that already holds both
+ * sides in memory; this is the version the database can filter on. There is a
+ * test asserting the two agree on the same rows.
+ */
+const missingSkillsSql = (agentId: AgentId): SQL =>
+  sql`array(select unnest(${tasks.requiresSkills}) except select unnest(${skillsHeldBy(agentId)}))`
+
+/** Whether this agent may start a task, in the form a `where` clause takes. */
+const attemptableBy = (agentId: AgentId): SQL =>
+  sql`${tasks.requiresSkills} <@ ${skillsHeldBy(agentId)} and ${tasks.minReputation} <= ${reputationOf(agentId)}`
+
+/**
  * The list an agent walks, one page at a time.
  *
- * **Ordering is `(level, created_at, id)`, ascending.** The first key is the
- * Academy in the order it is meant to be climbed. The last is a tiebreak that
- * exists only to make the order total: without it two tasks created in the same
- * microsecond have no defined order between pages, and a paging agent can be
- * handed one of them twice and the other never — which is exactly what the
+ * **It answers "what can I start now?" and nothing else.** D-030 replaced the
+ * level ceiling with the skills held: a row is here when the agent holds every
+ * skill in `requires` and meets `minReputation`. Nothing reads a level, and
+ * {@link frontier} — not this call — is where an agent looks to plan.
+ *
+ * That division is D-014's, and it survived the ladder it was written for:
+ * *"this list is what an agent iterates over to pick work, and every
+ * unreachable row in it is a row the agent spends tokens rejecting on every
+ * single pass."*
+ *
+ * **Ordering is `(recommended_order, created_at, id)`, ascending.** The first
+ * key is the order the Colony suggests, which took that job over from the level
+ * — it gates nothing, and an agent is free to ignore it. The last is a tiebreak
+ * that exists only to make the order total: without it two tasks created in the
+ * same microsecond have no defined order between pages, and a paging agent can
+ * be handed one of them twice and the other never — which is exactly what the
  * cursor is supposed to prevent.
  *
  * **Keyset, not offset** (`PageRequestSchema` in core). Tasks are inserted while
@@ -71,21 +119,17 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
     inArray(tasks.status, [
       ...(query.availableOnly ? VISIBLE_STATUSES.available : VISIBLE_STATUSES.all),
     ]),
-    lte(tasks.level, query.maxLevel),
+    attemptableBy(query.agentId),
   ]
-
-  // Composes with the ceiling rather than overriding it: an agent asking for a
-  // level it has not reached gets an empty page, not someone else's curriculum.
-  if (query.level !== undefined) conditions.push(eq(tasks.level, query.level))
 
   if (after !== undefined) {
     // Row-wise comparison, which is the whole reason the sort key is a tuple:
     // Postgres compares it left to right in one predicate, so the index on
-    // (status, level) still leads and no `or` chain has to be written by hand.
-    // The casts are not decoration — an untyped parameter next to a smallint
-    // makes the comparison ambiguous.
+    // (status, recommended_order) still leads and no `or` chain has to be
+    // written by hand. The casts are not decoration — an untyped parameter next
+    // to a smallint makes the comparison ambiguous.
     conditions.push(
-      sql`(${tasks.level}, ${tasks.createdAt}, ${tasks.id}) > (${after.level}::smallint, ${after.createdAt}::timestamptz, ${after.id}::uuid)`,
+      sql`(${tasks.recommendedOrder}, ${tasks.createdAt}, ${tasks.id}) > (${after.recommendedOrder}::smallint, ${after.createdAt}::timestamptz, ${after.id}::uuid)`,
     )
   }
 
@@ -96,7 +140,7 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
     .select()
     .from(tasks)
     .where(and(...conditions))
-    .orderBy(asc(tasks.level), asc(tasks.createdAt), asc(tasks.id))
+    .orderBy(asc(tasks.recommendedOrder), asc(tasks.createdAt), asc(tasks.id))
     .limit(query.limit + 1)
 
   const page = rows.slice(0, query.limit)
@@ -111,9 +155,119 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
   }
 }
 
+/**
+ * How many tasks the frontier names at most.
+ *
+ * A ceiling rather than a page, because the frontier is bounded by the shape of
+ * the graph — the tasks exactly one skill away — and that is a handful by
+ * construction. The limit exists so a catalogue that grows in a way nobody
+ * predicted cannot turn a planning call into an unbounded read.
+ */
+export const FRONTIER_LIMIT = 25
+
+/** What is one step away from this agent, and how to get there. */
+export interface Frontier {
+  readonly skills: readonly Skill[]
+  readonly entries: readonly FrontierEntry[]
+}
+
+/**
+ * The tasks that are exactly one skill out of reach, and where that skill is
+ * earned.
+ *
+ * This is the endpoint D-014 pointed at — *"a curriculum overview is a document,
+ * or a later endpoint that says so in its name"* — and D-030 is what made it
+ * necessary rather than merely nice: a graph an agent cannot see is a graph it
+ * cannot plan against, and under the ladder the next step was at least implied
+ * by a number.
+ *
+ * **One skill, not two.** A task two skills away is not on the frontier: naming
+ * it would put the whole catalogue back in front of an agent, which is what
+ * D-014 refused. Passing the task that grants the missing skill brings the next
+ * ring into view — an agent walks the graph a step at a time, but it can see
+ * where the step leads before it takes it.
+ *
+ * **The reputation floor is applied, not reported.** A task the agent could not
+ * start even holding the missing skill does not belong on a list whose whole
+ * meaning is *"earn this and you may begin"*.
+ */
+export async function frontier(
+  db: Database,
+  query: { readonly agentId: AgentId; readonly limit?: number },
+): Promise<Frontier> {
+  const missing = missingSkillsSql(query.agentId)
+
+  const blocked = await db
+    .select({ task: tasks, missing: sql<string[]>`${missing}` })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.status, 'active'),
+        sql`cardinality(${missing}) = 1`,
+        sql`${tasks.minReputation} <= ${reputationOf(query.agentId)}`,
+      ),
+    )
+    .orderBy(asc(tasks.recommendedOrder), asc(tasks.createdAt), asc(tasks.id))
+    .limit(query.limit ?? FRONTIER_LIMIT)
+
+  const wanted = [...new Set(blocked.flatMap((row) => row.missing.slice(0, 1)))]
+  const granters = wanted.length === 0 ? [] : await grantingTasks(db, wanted)
+
+  const held = await db
+    .select({ skill: agentSkills.skill })
+    .from(agentSkills)
+    .where(eq(agentSkills.agentId, query.agentId))
+    .orderBy(asc(agentSkills.skill))
+
+  return {
+    skills: held.map((row) => SkillSchema.parse(row.skill)),
+    entries: blocked.map((row) => {
+      const missingSkill = SkillSchema.parse(row.missing[0])
+      return {
+        task: toTask(row.task),
+        missingSkill,
+        grantedBy: granters
+          .filter((granter) => granter.grants.includes(missingSkill))
+          .map((granter) => granter.reference),
+      }
+    }),
+  }
+}
+
+/**
+ * The active tasks that grant any of these skills, with what each one grants.
+ *
+ * One query for the whole frontier rather than one per entry: the answer is the
+ * same handful of rows however many entries ask for it, and a query inside a
+ * loop over a result set is how a planning call becomes a slow one.
+ */
+async function grantingTasks(
+  db: Database,
+  skills: readonly string[],
+): Promise<readonly { readonly reference: TaskReference; readonly grants: readonly string[] }[]> {
+  const rows = await db
+    .select({ id: tasks.id, type: tasks.type, title: tasks.title, grants: tasks.grantsSkills })
+    .from(tasks)
+    // `arrayOverlaps` rather than a hand-written `&&`: a JS array interpolated
+    // into a `sql` template is spread into one parameter per element, which
+    // Postgres then reads as a malformed array literal. Drizzle's operator
+    // builds the `ARRAY[...]` construction instead.
+    .where(and(eq(tasks.status, 'active'), arrayOverlaps(tasks.grantsSkills, [...skills])))
+    .orderBy(asc(tasks.recommendedOrder), asc(tasks.createdAt), asc(tasks.id))
+
+  return rows.map((row) => ({
+    reference: {
+      id: TaskIdSchema.parse(row.id),
+      type: row.type,
+      title: row.title,
+    } as TaskReference,
+    grants: row.grants,
+  }))
+}
+
 /** The sort key of the last row on a page, in the form the next query binds. */
 interface Cursor {
-  readonly level: number
+  readonly recommendedOrder: number
   readonly createdAt: string
   readonly id: string
 }
@@ -128,11 +282,16 @@ interface Cursor {
  * row it was built from — which returns that row a second time. A cursor is a
  * position in a storage ordering, so it carries what the storage layer sorts by.
  *
- * Base64 because it must not look addressable. An agent that reads `level=2` in
- * a cursor will eventually hand-craft one, and then the encoding is a contract.
+ * Base64 because it must not look addressable. An agent that reads a number in a
+ * cursor will eventually hand-craft one, and then the encoding is a contract.
+ * The first field used to be the level; since D-030 it is the recommended order,
+ * and that change was invisible to every agent that treated the string as opaque
+ * — which is the property the encoding was chosen for.
  */
 function encodeCursor(row: typeof tasks.$inferSelect): string {
-  return Buffer.from(`${row.level}|${row.createdAt}|${row.id}`, 'utf8').toString('base64url')
+  return Buffer.from(`${row.recommendedOrder}|${row.createdAt}|${row.id}`, 'utf8').toString(
+    'base64url',
+  )
 }
 
 /**
@@ -147,12 +306,17 @@ function decodeCursor(cursor: string | null | undefined): Cursor | undefined | '
 
   const parts = Buffer.from(cursor, 'base64url').toString('utf8').split('|')
   if (parts.length !== 3) return 'invalid'
-  const [rawLevel, createdAt, id] = parts as [string, string, string]
+  const [rawOrder, createdAt, id] = parts as [string, string, string]
 
-  const level = AcademyLevelSchema.safeParse(Number(rawLevel))
-  if (!level.success) return 'invalid'
+  const recommendedOrder = Number(rawOrder)
+  // The same range the column is constrained to. A value outside it cannot
+  // match a row, so accepting it would only mean paging from a position that
+  // does not exist.
+  if (!Number.isInteger(recommendedOrder) || recommendedOrder < 0 || recommendedOrder > 999) {
+    return 'invalid'
+  }
   if (createdAt === '' || Number.isNaN(Date.parse(createdAt))) return 'invalid'
   if (!TaskIdSchema.safeParse(id).success) return 'invalid'
 
-  return { level: level.data, createdAt, id }
+  return { recommendedOrder, createdAt, id }
 }

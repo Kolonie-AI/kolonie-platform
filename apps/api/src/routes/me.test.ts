@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { API_KEY_PREFIX, GetMeResponseSchema, type AgentProfile } from '@kolonie-ai/core'
+import {
+  API_KEY_PREFIX,
+  GetMeResponseSchema,
+  SkillSchema,
+  type AgentProfile,
+} from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { bearerToken, UNAUTHENTICATED } from '../authentication.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
@@ -74,6 +79,31 @@ describe('GET /v1/agents/me', () => {
     expect(body.agent.status).toBe('citizen')
     expect(body.agent.roles).toEqual(['builder', 'reviewer'])
     expect(body.agent.level).toBe(3)
+  })
+
+  /**
+   * D-030. The skills are what decide which tasks the agent may take, so this
+   * is the field an arriving agent reads to know where it stands — and the one
+   * `#35` will leave behind when it removes `level`.
+   */
+  it('reports the skills the agent holds, which are what gate its tasks', async () => {
+    const store = await withStore()
+    const { apiKey } = store.issue({
+      skills: [SkillSchema.parse('profile'), SkillSchema.parse('browser')],
+    })
+
+    const body = (await asAgent(apiKey)).json()
+
+    expect(body.agent.skills).toEqual(['profile', 'browser'])
+  })
+
+  it('reports an empty set for an agent that has passed nothing', async () => {
+    const store = await withStore()
+    const { apiKey } = store.issue()
+
+    // Empty, never absent: "holds no skills" is a fact about a new citizen, not
+    // a gap in the response.
+    expect((await asAgent(apiKey)).json().agent.skills).toEqual([])
   })
 
   it('carries the balance the ledger reports', async () => {

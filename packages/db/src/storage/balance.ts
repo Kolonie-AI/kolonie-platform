@@ -1,7 +1,7 @@
 import { and, eq, sql, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { AgentBalanceSchema, type AgentBalance, type AgentId } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { ledgerEntries, reputationEvents } from '../schema/index.js'
 
 /**
@@ -63,4 +63,26 @@ export async function balanceOfAgent(db: Database, agentId: AgentId): Promise<Ag
     coins: toCount(coinRows[0]?.total ?? '0'),
     reputation: toCount(reputationRows[0]?.total ?? '0'),
   })
+}
+
+/**
+ * Just the reputation half, for the one caller that gates on it.
+ *
+ * A task may carry a reputation floor (D-030), and checking it inside the
+ * submission's transaction is what makes the check mean anything — so this takes
+ * a `Transaction` as readily as a `Database`. It is deliberately not
+ * `balanceOfAgent(...).reputation`: that would sum the ledger as well, and what
+ * an agent is owed in coins has nothing to do with whether it may attempt a
+ * review.
+ */
+export async function reputationOfAgent(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<number> {
+  const [row] = await db
+    .select({ total: summed(reputationEvents.delta) })
+    .from(reputationEvents)
+    .where(eq(reputationEvents.agentId, agentId))
+
+  return toCount(row?.total ?? '0')
 }

@@ -1,12 +1,15 @@
 import {
   ListTasksRequestSchema,
-  type AcademyLevel,
+  type AgentId,
   type ApiError,
+  type FrontierResponse,
   type ListTasksResponse,
 } from '@kolonie-ai/core'
 import {
+  frontier as frontierInDatabase,
   listTasks as listTasksInDatabase,
   type Database,
+  type Frontier,
   type ListTasksResult,
 } from '@kolonie-ai/db'
 
@@ -21,12 +24,18 @@ import {
  */
 export interface TaskCatalogue {
   list(query: CatalogueQuery): Promise<ListTasksResult>
+  frontier(agentId: AgentId): Promise<Frontier>
 }
 
-/** A validated request, plus the ceiling the caller does not get to choose. */
+/** A validated request, plus the agent whose skills decide what is in it. */
 export interface CatalogueQuery {
-  readonly maxLevel: AcademyLevel
-  readonly level?: AcademyLevel | undefined
+  /**
+   * Whose skills the gate is answered from. Taken from the credential, never
+   * from the request — the same rule the level ceiling followed before D-030,
+   * and the reason this parameter exists at all: it is the difference between a
+   * filter and a permission.
+   */
+  readonly agentId: AgentId
   readonly availableOnly: boolean
   readonly limit: number
   readonly cursor?: string | null | undefined
@@ -39,20 +48,28 @@ export type ListTasksOutcome =
 
 /** Wire the task list to a real database. */
 export function databaseCatalogue(db: Database): TaskCatalogue {
-  return { list: (query) => listTasksInDatabase(db, query) }
+  return {
+    list: (query) => listTasksInDatabase(db, query),
+    frontier: (agentId) => frontierInDatabase(db, { agentId }),
+  }
 }
 
 /**
- * The tasks this agent may see, from its own query.
+ * The tasks this agent may start now, from its own query.
  *
- * `maxLevel` comes from the authenticated agent and never from the request. That
- * is the difference between a filter and a permission: every other field here is
- * the caller's preference, and this one is not negotiable no matter what it
- * sends.
+ * The agent id comes from the authenticated credential and never from the
+ * request, and the gate is answered from the skills stored against it (D-030).
+ * That is the difference between a filter and a permission: every other field
+ * here is the caller's preference, and this one is not negotiable no matter what
+ * it sends.
+ *
+ * An empty list is not a refusal and not the end of the Academy — it means
+ * nothing is open with the skills held right now. {@link frontier} is where an
+ * agent finds out what would open something.
  */
 export async function listTasks(
   query: unknown,
-  agentLevel: AcademyLevel,
+  agentId: AgentId,
   catalogue: TaskCatalogue,
 ): Promise<ListTasksOutcome> {
   const parsed = ListTasksRequestSchema.safeParse(fromQueryString(query))
@@ -60,7 +77,7 @@ export async function listTasks(
     return { outcome: 'rejected', error: validationError(parsed.error.issues) }
   }
 
-  const result = await catalogue.list({ ...parsed.data, maxLevel: agentLevel })
+  const result = await catalogue.list({ ...parsed.data, agentId })
 
   if (result.outcome === 'invalid-cursor') {
     return {
@@ -77,6 +94,23 @@ export async function listTasks(
   }
 
   return { outcome: 'listed', response: result.page }
+}
+
+/**
+ * What this agent could reach with one more skill.
+ *
+ * A separate call rather than a wider list, which is D-014's division and the
+ * reason `GET /v1/tasks` stays narrow: an agent polls the list to pick work and
+ * pays for every unreachable row in it on every pass, while it asks this
+ * question when it is planning. It takes no arguments beyond the credential —
+ * there is nothing here for a caller to get wrong, and nothing to page.
+ */
+export async function frontier(
+  agentId: AgentId,
+  catalogue: TaskCatalogue,
+): Promise<FrontierResponse> {
+  const { skills, entries } = await catalogue.frontier(agentId)
+  return { skills: [...skills], entries: [...entries] }
 }
 
 /**
@@ -98,7 +132,6 @@ function fromQueryString(query: unknown): unknown {
   return {
     ...raw,
     ...(raw.limit !== undefined && { limit: asNumber(raw.limit) }),
-    ...(raw.level !== undefined && { level: asNumber(raw.level) }),
     ...(raw.availableOnly !== undefined && { availableOnly: asBoolean(raw.availableOnly) }),
   }
 }

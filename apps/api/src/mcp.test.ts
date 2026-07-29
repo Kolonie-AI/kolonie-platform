@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -6,8 +7,10 @@ import {
   API_BASE_PATH,
   API_KEY_PREFIX,
   API_VERSION,
+  FrontierResponseSchema,
   GetMeResponseSchema,
   RegisterAgentResponseSchema,
+  SkillSchema,
   UpdateProfileResponseSchema,
   type ApiError,
   type ApiKey,
@@ -538,17 +541,21 @@ const registeredCitizen = async () => {
 }
 
 describe('kolonie.tasks.list', () => {
-  it('ceilings the list at the caller’s level, whatever the caller asks for', async () => {
-    const { colony, apiKey } = await registeredCitizen()
+  it('gates the list on the caller’s own skills, whatever the caller sends', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
     const catalogue = fakeCatalogue()
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
-    // Level 3 from an agent standing at 0. The argument narrows; it may not lift.
-    await client.callTool({ name: 'kolonie.tasks.list', arguments: { level: 3 } })
+    // A subject in the arguments is stripped by the input schema rather than
+    // honoured: there is no such parameter, on purpose.
+    await client.callTool({
+      name: 'kolonie.tasks.list',
+      arguments: { agentId: randomUUID(), skills: ['builder'] },
+    })
 
-    // The ceiling comes from the credential, exactly as `GET /v1/tasks` takes it
-    // — the difference between a filter and a permission (D-014).
-    expect(catalogue.lastQuery()).toMatchObject({ maxLevel: 0, level: 3 })
+    // The subject comes from the credential, exactly as `GET /v1/tasks` takes it
+    // — the difference between a filter and a permission (D-014, D-030).
+    expect(catalogue.lastQuery()?.agentId).toBe(agent.id)
     await close()
   })
 
@@ -581,6 +588,35 @@ describe('kolonie.tasks.list', () => {
     // A rung whose verifier cannot decide stays invisible. An agent told only
     // "0 tasks" concludes it has finished the Academy.
     expect(JSON.stringify(result.content)).toContain('not a refusal')
+    await close()
+  })
+
+  it('points at the frontier when there is nothing to start', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    // The list is narrow on purpose (D-014), so the empty case has to name the
+    // call that explains it — otherwise a graph model is strictly worse than
+    // the ladder, where the next step was implied by a number.
+    expect(JSON.stringify(result.content)).toContain('kolonie.tasks.frontier')
+    await close()
+  })
+
+  it('shows what each task requires and grants, so no second call is needed', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({ requires: [SkillSchema.parse('profile')], grants: [] })
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('requires profile')
+    // A badge says so rather than looking like a rung an agent is waiting on.
+    expect(text).toContain('grants nothing')
     await close()
   })
 
@@ -658,7 +694,7 @@ describe('kolonie.tasks.submit', () => {
   it('names a refusal an agent can branch on', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const submissions = fakeSubmissions()
-    submissions.answers({ outcome: 'level-too-low', requiredLevel: 3 })
+    submissions.answers({ outcome: 'missing-skills', missing: [SkillSchema.parse('browser')] })
     const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({
@@ -697,8 +733,10 @@ describe('kolonie.academy.challenge', () => {
     const { tools } = await client.listTools()
     const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
 
-    // A parameter here would be an invitation to mint one for somebody else.
-    expect(tool?.inputSchema.properties ?? {}).toEqual({})
+    // The only argument is *which* challenge. Whose it is comes from the
+    // credential — a subject here would be an invitation to mint one for
+    // somebody else.
+    expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(['kind'])
     await close()
   })
 
@@ -1022,5 +1060,103 @@ describe('the MCP surface over HTTP', () => {
     })
 
     expect(response.statusCode).toBe(401)
+  })
+})
+
+describe('kolonie.tasks.frontier', () => {
+  it('names the missing skill and the task that grants it', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const granting = aTask({ title: 'Prove you can drive a browser' })
+    catalogue.answersFrontier({
+      skills: [SkillSchema.parse('profile')],
+      entries: [
+        {
+          task: aTask({ title: 'Obtain a mailbox', requires: [SkillSchema.parse('browser')] }),
+          missingSkill: SkillSchema.parse('browser'),
+          grantedBy: [{ id: granting.id, type: granting.type, title: granting.title }],
+        },
+      ],
+    })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('browser')
+    expect(text).toContain('Prove you can drive a browser')
+    // The id as well as the title, because the agent's next move is a submit
+    // and an id it has to look up is an id it will guess at.
+    expect(text).toContain(String(granting.id))
+    expect(FrontierResponseSchema.parse(result.structuredContent).entries).toHaveLength(1)
+    await close()
+  })
+
+  it('asks on behalf of the credential — there is no subject to send', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.tasks.frontier',
+      arguments: { agentId: randomUUID() },
+    })
+
+    expect(catalogue.frontierQueries()).toEqual([agent.id])
+    await close()
+  })
+
+  it('answers the same thing the endpoint does, from the same call', async () => {
+    // D-026: a capability the REST surface has and MCP lacks is a capability
+    // foreign agents do not have, because they arrive through a skill that
+    // names no endpoints. One implementation, two doors.
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    catalogue.answersFrontier({
+      skills: [SkillSchema.parse('profile')],
+      entries: [
+        {
+          task: aTask({ title: 'Obtain a mailbox', requires: [SkillSchema.parse('browser')] }),
+          missingSkill: SkillSchema.parse('browser'),
+          grantedBy: [],
+        },
+      ],
+    })
+
+    const app = buildApp({ ...colony, catalogue })
+    await app.ready()
+    const overHttp = await app.inject({
+      method: 'GET',
+      url: '/v1/tasks/frontier',
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+    await app.close()
+
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+    const overMcp = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+    await close()
+
+    expect(overMcp.structuredContent).toEqual(overHttp.json())
+  })
+
+  it('says plainly when nothing is one step away', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+
+    expect(result.isError).toBeFalsy()
+    expect(JSON.stringify(result.content)).toContain('Nothing is one skill away')
+    await close()
+  })
+
+  it('is not offered to an anonymous caller', async () => {
+    const { colony } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony)
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name)).not.toContain('kolonie.tasks.frontier')
+    await close()
   })
 })

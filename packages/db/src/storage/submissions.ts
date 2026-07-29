@@ -1,31 +1,31 @@
 import { and, desc, eq } from 'drizzle-orm'
 import {
-  meetsLevel,
-  type AcademyLevel,
+  missingSkills,
   type AgentId,
+  type Skill,
   type Submission,
   type SubmissionPayload,
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, submissions, tasks } from '../schema/index.js'
+import { reputationOfAgent } from './balance.js'
 import { toSubmission } from './rows.js'
+import { skillsOfAgent, toSkills } from './skills.js'
 
 /** What an agent handing in a result asks the storage layer to do. */
 export interface CreateSubmissionCommand {
   readonly taskId: TaskId
   /** The authenticated agent. Never a value the caller sent. */
   readonly agentId: AgentId
-  /** The authenticated agent's level. A gate, not a preference — see D-014. */
-  readonly agentLevel: AcademyLevel
   readonly payload: SubmissionPayload
 }
 
 /**
  * What submitting did.
  *
- * Every refusal here is an ordinary thing for an agent to run into — the task
- * is above its level, it already handed this one in, it already passed. Modelled
+ * Every refusal here is an ordinary thing for an agent to run into — it lacks a
+ * skill the task requires, it already handed this one in, it already passed. Modelled
  * as outcomes rather than thrown errors for the same reason `registerAgent`
  * models a taken name that way: a thrown error is where genuine faults live, and
  * mixing the two forces the route to catch-and-inspect. A throw from this
@@ -41,7 +41,21 @@ export type CreateSubmissionResult =
   | { readonly outcome: 'accepted'; readonly submission: Submission }
   | { readonly outcome: 'unknown-task' }
   | { readonly outcome: 'task-retired' }
-  | { readonly outcome: 'level-too-low'; readonly requiredLevel: AcademyLevel }
+  /**
+   * The agent does not hold every skill the task requires (D-030).
+   *
+   * It carries what is missing rather than only that something is — the whole
+   * argument for a hard edge is that the Colony can say up front what a verifier
+   * would otherwise fail an agent for, and an error that does not name the skill
+   * says nothing the agent could not have guessed.
+   */
+  | { readonly outcome: 'missing-skills'; readonly missing: readonly Skill[] }
+  /** The task has a reputation floor and the agent is below it. */
+  | {
+      readonly outcome: 'reputation-too-low'
+      readonly minReputation: number
+      readonly reputation: number
+    }
   | { readonly outcome: 'already-open' }
   | { readonly outcome: 'already-passed' }
 
@@ -87,7 +101,11 @@ export async function createSubmission(
     }
 
     const [task] = await tx
-      .select({ level: tasks.level, status: tasks.status })
+      .select({
+        status: tasks.status,
+        requires: tasks.requiresSkills,
+        minReputation: tasks.minReputation,
+      })
       .from(tasks)
       .where(eq(tasks.id, command.taskId))
       .limit(1)
@@ -95,12 +113,36 @@ export async function createSubmission(
     if (task === undefined || task.status === 'draft') return { outcome: 'unknown-task' }
     if (task.status === 'retired') return { outcome: 'task-retired' }
 
-    // `task.level` is a smallint the schema constrains to the academy range; the
-    // domain rule that compares the two lives in core, so the ladder is defined
-    // in one place rather than re-derived as `>=` in every caller.
-    const requiredLevel = task.level as AcademyLevel
-    if (!meetsLevel(command.agentLevel, requiredLevel)) {
-      return { outcome: 'level-too-low', requiredLevel }
+    /**
+     * The gate, read inside the transaction rather than taken from the caller.
+     *
+     * It used to be `meetsLevel(command.agentLevel, task.level)`, with the level
+     * travelling from the credential through the API. The skills are read here
+     * instead, from `agent_skills`, and that is stricter in two ways: there is
+     * no parameter through which a caller could present skills it does not
+     * hold, and a pass that landed between authenticating and submitting counts
+     * — under the old shape it did not, because the level had already been
+     * copied out of the agent row.
+     *
+     * The comparison itself is `missingSkills` from core, so the rule that
+     * decides what the task list shows and the rule that decides what a
+     * submission is refused for are the same function.
+     */
+    const held = await skillsOfAgent(tx, command.agentId)
+    const missing = missingSkills(held, {
+      requires: toSkills(task.requires),
+      minReputation: task.minReputation,
+    })
+    if (missing.length > 0) return { outcome: 'missing-skills', missing }
+
+    // Only asked when there is a floor to clear, which is almost never: a task
+    // with `min_reputation = 0` cannot fail this, and summing an append-only log
+    // on every submission to prove `0 >= 0` is work nobody needs done.
+    if (task.minReputation > 0) {
+      const reputation = await reputationOfAgent(tx, command.agentId)
+      if (reputation < task.minReputation) {
+        return { outcome: 'reputation-too-low', minReputation: task.minReputation, reputation }
+      }
     }
 
     const history = await tx

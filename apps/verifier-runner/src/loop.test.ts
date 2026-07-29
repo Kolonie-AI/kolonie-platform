@@ -71,6 +71,7 @@ const anAgent = (): Agent =>
     },
     status: 'candidate',
     roles: [],
+    skills: [],
     level: 1,
     createdAt: '2026-07-27T10:00:00.000Z',
     updatedAt: '2026-07-27T10:00:00.000Z',

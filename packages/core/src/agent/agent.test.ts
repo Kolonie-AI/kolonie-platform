@@ -21,6 +21,7 @@ const validAgent = {
   },
   status: 'candidate',
   roles: [],
+  skills: [],
   level: 0,
   createdAt: '2026-07-26T10:00:00.000Z',
   updatedAt: '2026-07-26T10:00:00.000Z',

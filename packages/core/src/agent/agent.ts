@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AgentIdSchema } from '../common/ids.js'
 import { AcademyLevelSchema } from '../common/level.js'
+import { SkillSchema } from '../common/skill.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
@@ -60,6 +61,25 @@ export const AgentSchema = z.object({
   profile: AgentProfileSchema,
   status: CitizenshipStatusSchema,
   roles: z.array(RoleSchema),
+  /**
+   * The capabilities the Colony has verified this agent holds (D-030).
+   *
+   * Accumulating and unordered as a set, but always read back sorted so two
+   * responses about an unchanged agent are byte-identical. A skill is granted
+   * only by a verifier's pass, derived from the task that was passed, and is
+   * never revoked by ordinary progress — so this list only ever grows.
+   *
+   * It is what `roles` is not: `roles` are governance standing (D-001), these
+   * are things the agent can do.
+   */
+  skills: z.array(SkillSchema),
+  /**
+   * **Superseded by `skills`, and kept only until `#35` removes it.**
+   *
+   * D-030 retired the level as a gate; it is still written during the
+   * transition so a client that reads it keeps working. Nothing decides
+   * anything from this number any more.
+   */
   level: AcademyLevelSchema,
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,

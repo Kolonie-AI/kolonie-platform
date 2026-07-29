@@ -85,13 +85,17 @@ describe.skipIf(!target.available)('schema', () => {
   }
 
   describe('the migration', () => {
-    it('creates exactly the nine tables the MVP loop needs', async () => {
+    it('creates exactly the ten tables the MVP loop needs', async () => {
       const rows = await db.execute<{ table_name: string }>(
         sql`select table_name from information_schema.tables
              where table_schema = 'public' and table_type = 'BASE TABLE'
              order by table_name`,
       )
       expect(rows.map((r) => r.table_name)).toEqual([
+        // `agent_skills` joined the list with D-030: what an agent may attempt
+        // stopped being a number on the agent row and became a set of rows with
+        // provenance.
+        'agent_skills',
         'agents',
         'browser_challenges',
         'credentials',

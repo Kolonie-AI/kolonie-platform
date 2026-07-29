@@ -9,12 +9,14 @@ import {
   type AcademyLevel,
   type AgentId,
   type LedgerTransactionId,
+  type Skill,
   type SubmissionId,
   type TaskId,
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Transaction } from '../client.js'
 import { agents, ledgerEntries, reputationEvents, submissions, tasks } from '../schema/index.js'
+import { grantSkills } from './skills.js'
 
 /** What a passed submission was worth, once the books were written. */
 export interface BookedReward {
@@ -33,6 +35,14 @@ export interface BookedReward {
   /** The level the agent held before this pass, and the one it holds now. */
   readonly previousLevel: AcademyLevel
   readonly level: AcademyLevel
+  /**
+   * The skills this pass granted that the agent did not already hold.
+   *
+   * Empty for a badge, and empty for a task the agent has passed the equivalent
+   * of before — both are ordinary. It reports what *changed*, so a log line can
+   * say a capability was earned rather than that one was attempted.
+   */
+  readonly grantedSkills: readonly Skill[]
 }
 
 /**
@@ -68,6 +78,7 @@ export async function bookTaskReward(
       taskId: submissions.taskId,
       taskType: tasks.type,
       taskLevel: tasks.level,
+      taskGrants: tasks.grantsSkills,
       rewardCoins: tasks.rewardCoins,
       rewardReputation: tasks.rewardReputation,
       agentLevel: agents.level,
@@ -155,6 +166,28 @@ export async function bookTaskReward(
       .where(eq(agents.id, agentId))
   }
 
+  /**
+   * The skills the task grants, in the same transaction as the verdict and the
+   * coins (D-030).
+   *
+   * **Derived from the task row, never from anything a caller sent** — the same
+   * rule the level advance follows, and for a stronger reason: a skill decides
+   * what the agent may attempt *next*, so a grant somebody could supply is a
+   * caller choosing its own curriculum. Nothing the verifier returned reaches
+   * this line either; a verifier decides whether a submission passed, and the
+   * task decides what passing is worth.
+   *
+   * A task granting nothing is a badge, and that is the ordinary path here
+   * rather than a special case: `grantSkills` returns immediately on an empty
+   * list.
+   */
+  const { granted } = await grantSkills(tx, {
+    agentId,
+    submissionId: command.submissionId,
+    skills: row.taskGrants,
+    grantedAt: command.bookedAt,
+  })
+
   return {
     submissionId: command.submissionId,
     agentId,
@@ -164,5 +197,6 @@ export async function bookTaskReward(
     transactionId,
     previousLevel,
     level,
+    grantedSkills: granted,
   }
 }

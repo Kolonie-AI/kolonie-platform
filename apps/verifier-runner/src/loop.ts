@@ -110,8 +110,13 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   const booked =
     written.booking === undefined
       ? ''
-      : ` — booked ${written.booking.coins} coin(s) and ${written.booking.reputation} reputation, ` +
-        `agent now at level ${written.booking.level}`
+      : ` — booked ${written.booking.coins} coin(s) and ${written.booking.reputation} reputation` +
+        // What the pass *opened*, which is the half an operator cannot infer
+        // from the ledger. A badge grants nothing and says so, rather than
+        // looking like a grant that failed.
+        (written.booking.grantedSkills.length === 0
+          ? ', granting no new skill'
+          : `, granting ${written.booking.grantedSkills.join(', ')}`)
 
   log.info(`submission ${submission.id} → ${written.submission.status} (${taskType})${booked}`)
   return { kind: 'decided', status: written.submission.status }

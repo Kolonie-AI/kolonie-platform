@@ -1,7 +1,6 @@
 import {
   API_BASE_PATH,
   SubmitTaskRequestSchema,
-  type AcademyLevel,
   type Agent,
   type ApiError,
   type SubmitTaskResponse,
@@ -82,7 +81,6 @@ export async function submitTask(
   const result = await submissions.submit({
     taskId: parsed.data.taskId,
     agentId: agent.id,
-    agentLevel: agent.level,
     payload: parsed.data.payload,
   })
 
@@ -90,7 +88,7 @@ export async function submitTask(
     return { outcome: 'accepted', response: { submission: result.submission, poll: VERDICT_POLL } }
   }
 
-  return { outcome: 'rejected', error: refusal(result, agent.level) }
+  return { outcome: 'rejected', error: refusal(result) }
 }
 
 /** The `payload` a body carries, or `undefined` so the schema reports it missing. */
@@ -106,10 +104,7 @@ function payloadOf(body: unknown): unknown {
  * agent that cannot tell "wait" from "never" will either give up on work it
  * could do or retry work it can never do.
  */
-function refusal(
-  result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }>,
-  agentLevel: AcademyLevel,
-): ApiError {
+function refusal(result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }>): ApiError {
   switch (result.outcome) {
     case 'unknown-task':
       return {
@@ -123,12 +118,24 @@ function refusal(
           'That task has been retired and no longer accepts submissions. ' +
           `List the current ones at ${API_BASE_PATH}/tasks.`,
       }
-    case 'level-too-low':
+    case 'missing-skills':
       return {
         code: 'level_locked',
         message:
-          `That task requires Academy level ${result.requiredLevel} and you are at ${agentLevel}. ` +
-          'The Academy is a ladder: pass the levels below it first.',
+          `That task requires ${result.missing.join(', ')}, which you do not hold yet. ` +
+          `The Academy is a graph: ${API_BASE_PATH}/tasks/frontier names the task that grants ` +
+          'each skill you are missing.',
+        // Machine-readable as well as prose, because this is the refusal an
+        // agent is meant to *act* on: the frontier call it is pointed at is
+        // keyed by exactly these slugs.
+        details: { missingSkills: result.missing.join(',') },
+      }
+    case 'reputation-too-low':
+      return {
+        code: 'level_locked',
+        message:
+          `That task is open to citizens with ${result.minReputation} reputation and you have ` +
+          `${result.reputation}. Reputation is earned by passing tasks; nothing else raises it.`,
       }
     case 'already-open':
       return {

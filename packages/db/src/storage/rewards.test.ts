@@ -12,7 +12,14 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
-import { agents, ledgerEntries, reputationEvents, submissions, tasks } from '../schema/index.js'
+import {
+  agents,
+  agentSkills,
+  ledgerEntries,
+  reputationEvents,
+  submissions,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { balanceOfAgent } from './balance.js'
@@ -56,13 +63,14 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
   }
 
   const aTask = async (
-    options: { coins?: number; reputation?: number; level?: number } = {},
+    options: { coins?: number; reputation?: number; level?: number; grants?: string[] } = {},
   ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
         type: 'example-task',
         level: options.level ?? 0,
+        grantsSkills: options.grants ?? [],
         title: 'Make an API call',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
@@ -251,6 +259,102 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       // The reputation and the level advancement still happen.
       expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 0, reputation: 3 })
       expect(await levelOf(agentId)).toBe(1)
+    })
+  })
+
+  /**
+   * D-030: a pass grants the task's skills in the same transaction that writes
+   * the verdict and books the coins. Same rule the level advance followed —
+   * derived from the task, never supplied by a caller — and a stronger reason
+   * for it, because a skill decides what the agent may attempt next.
+   */
+  describe('the skills a pass grants', () => {
+    const heldBy = async (agentId: AgentId) =>
+      (
+        await db
+          .select({ skill: agentSkills.skill })
+          .from(agentSkills)
+          .where(eq(agentSkills.agentId, agentId))
+          .orderBy(agentSkills.skill)
+      ).map((row) => row.skill)
+
+    it('writes them with the verdict, and reports what changed', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ grants: ['browser'] })
+      const submissionId = await aClaimedSubmission({ taskId, agentId })
+
+      const written = await pass(submissionId)
+
+      expect(written.outcome).toBe('recorded')
+      if (written.outcome !== 'recorded') throw new Error(written.outcome)
+      expect(written.booking?.grantedSkills).toEqual(['browser'])
+      expect(await heldBy(agentId)).toEqual(['browser'])
+    })
+
+    it('records which submission earned the skill', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ grants: ['browser'] })
+      const submissionId = await aClaimedSubmission({ taskId, agentId })
+
+      await pass(submissionId)
+
+      const [row] = await db
+        .select({ submissionId: agentSkills.submissionId })
+        .from(agentSkills)
+        .where(eq(agentSkills.agentId, agentId))
+
+      expect(row?.submissionId).toBe(submissionId)
+    })
+
+    /**
+     * The badge, asserted on the stored rows rather than on a response field:
+     * `grants: []` is what makes a task pay without opening anything, and the
+     * proof is that nothing was written.
+     */
+    it('grants nothing for a badge, while still paying it', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ grants: [], coins: 25 })
+
+      const written = await pass(await aClaimedSubmission({ taskId, agentId }))
+
+      if (written.outcome !== 'recorded') throw new Error(written.outcome)
+      expect(written.booking?.coins).toBe(25)
+      expect(await heldBy(agentId)).toEqual([])
+    })
+
+    it('is idempotent — re-passing an equivalent task grants nothing new', async () => {
+      const agentId = await anAgent()
+      const first = await aTask({ grants: ['browser'] })
+      const second = await aTask({ grants: ['browser'] })
+
+      await pass(await aClaimedSubmission({ taskId: first, agentId }))
+      const again = await pass(await aClaimedSubmission({ taskId: second, agentId }))
+
+      if (again.outcome !== 'recorded') throw new Error(again.outcome)
+      // Nothing *new* was granted, and the skill is held exactly once. A skill
+      // held twice is not a stronger skill.
+      expect(again.booking?.grantedSkills).toEqual([])
+      expect(await heldBy(agentId)).toEqual(['browser'])
+    })
+
+    it('never revokes a skill, whatever happens afterwards', async () => {
+      const agentId = await anAgent()
+      const granting = await aTask({ grants: ['browser'] })
+      await pass(await aClaimedSubmission({ taskId: granting, agentId }))
+
+      await fail(await aClaimedSubmission({ taskId: await aTask(), agentId }))
+
+      expect(await heldBy(agentId)).toEqual(['browser'])
+    })
+
+    it('keeps one agent’s pass out of another agent’s record', async () => {
+      const holder = await anAgent()
+      const bystander = await anAgent()
+      const taskId = await aTask({ grants: ['browser'] })
+
+      await pass(await aClaimedSubmission({ taskId, agentId: holder }))
+
+      expect(await heldBy(bystander)).toEqual([])
     })
   })
 

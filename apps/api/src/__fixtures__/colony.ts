@@ -102,6 +102,7 @@ export function fakeColony(): FakeColony {
       profile: request,
       status: 'candidate',
       roles: [],
+      skills: [],
       level: 0,
       createdAt: issuedAt,
       updatedAt: issuedAt,

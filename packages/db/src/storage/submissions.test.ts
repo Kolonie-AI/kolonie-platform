@@ -5,7 +5,6 @@ import {
   RegisterAgentRequestSchema,
   SubmissionSchema,
   TaskIdSchema,
-  type AcademyLevel,
   type AgentId,
   type SubmissionStatus,
   type TaskId,
@@ -13,7 +12,7 @@ import {
 } from '@kolonie-ai/core'
 import { randomUUID } from 'node:crypto'
 import type { Database } from '../client.js'
-import { submissions, tasks } from '../schema/index.js'
+import { agentSkills, submissions, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { createSubmission } from './submissions.js'
@@ -51,12 +50,22 @@ describe.skipIf(!target.available)('createSubmission', () => {
     return result.agent.id
   }
 
-  const aTask = async (options: { level?: number; status?: TaskStatus } = {}): Promise<TaskId> => {
+  const aTask = async (
+    options: {
+      requires?: string[]
+      grants?: string[]
+      minReputation?: number
+      status?: TaskStatus
+    } = {},
+  ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
         type: `academy-task-${++seeded}`,
-        level: options.level ?? 0,
+        level: 0,
+        requiresSkills: options.requires ?? [],
+        grantsSkills: options.grants ?? [],
+        minReputation: options.minReputation ?? 0,
         title: 'Complete your profile',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
@@ -74,14 +83,41 @@ describe.skipIf(!target.available)('createSubmission', () => {
   const submit = (
     taskId: TaskId,
     agentId: AgentId,
-    options: { agentLevel?: AcademyLevel; payload?: Record<string, unknown> } = {},
+    options: { payload?: Record<string, unknown> } = {},
   ) =>
     createSubmission(db, {
       taskId,
       agentId,
-      agentLevel: options.agentLevel ?? 0,
       payload: options.payload ?? { result: 'done' },
     })
+
+  /**
+   * Give an agent a skill the way a pass does.
+   *
+   * Through a submission, because `agent_skills.submission_id` is `not null`:
+   * there is no way to conjure a capability from nowhere, and a fixture that
+   * could would be testing a system this one is not.
+   */
+  const grantSkill = async (agentId: AgentId, skill: string): Promise<void> => {
+    const taskId = await aTask({ grants: [skill], status: 'draft' })
+    const [row] = await db
+      .insert(submissions)
+      .values({
+        taskId,
+        agentId,
+        payload: {},
+        attempt: 1,
+        status: 'passed',
+        verifiedAt: new Date().toISOString(),
+      })
+      .returning({ id: submissions.id })
+    if (row === undefined) throw new Error('insert into submissions returned no row')
+
+    await db
+      .insert(agentSkills)
+      .values({ agentId, skill, submissionId: row.id })
+      .onConflictDoNothing()
+  }
 
   /** Force a verdict the way the runner (#7) and the ledger (#8) eventually will. */
   const decide = async (taskId: TaskId, agentId: AgentId, status: SubmissionStatus) => {
@@ -147,22 +183,48 @@ describe.skipIf(!target.available)('createSubmission', () => {
     expect((await submit(retired, agentId)).outcome).toBe('task-retired')
   })
 
-  it('refuses a task above the agent level, and says which level it needs', async () => {
+  it('refuses a task whose required skill the agent lacks, and names it', async () => {
     const agentId = await anAgent()
-    const taskId = await aTask({ level: 3 })
+    const taskId = await aTask({ requires: ['profile', 'browser'] })
+    await grantSkill(agentId, 'profile')
 
-    const result = await submit(taskId, agentId, { agentLevel: 1 })
+    const result = await submit(taskId, agentId)
 
-    expect(result).toEqual({ outcome: 'level-too-low', requiredLevel: 3 })
+    expect(result).toEqual({ outcome: 'missing-skills', missing: ['browser'] })
   })
 
-  it('lets an agent re-attempt a level it has already climbed past', async () => {
+  it('accepts the same task once the skill is held', async () => {
     const agentId = await anAgent()
-    const taskId = await aTask({ level: 1 })
+    const taskId = await aTask({ requires: ['browser'] })
 
-    // `meetsLevel` is a ladder, not a gate: the canary walks the whole thing on
-    // every run and must not be locked out of its own history.
-    expect((await submit(taskId, agentId, { agentLevel: 5 })).outcome).toBe('accepted')
+    expect((await submit(taskId, agentId)).outcome).toBe('missing-skills')
+
+    await grantSkill(agentId, 'browser')
+
+    expect((await submit(taskId, agentId)).outcome).toBe('accepted')
+  })
+
+  it('reads the skills as they are now, not as the caller believed them to be', async () => {
+    // The gate moved inside the transaction with D-030. There is no parameter
+    // through which a caller can present skills it does not hold, and a pass
+    // that landed a moment ago counts — under the old shape the level had
+    // already been copied out of the agent row before the request began.
+    const agentId = await anAgent()
+    const taskId = await aTask({ requires: ['keypair'] })
+    await grantSkill(agentId, 'keypair')
+
+    expect((await submit(taskId, agentId)).outcome).toBe('accepted')
+  })
+
+  it('refuses a task under its reputation floor, and says what the floor is', async () => {
+    const agentId = await anAgent()
+    const taskId = await aTask({ minReputation: 10 })
+
+    expect(await submit(taskId, agentId)).toEqual({
+      outcome: 'reputation-too-low',
+      minReputation: 10,
+      reputation: 0,
+    })
   })
 
   it('refuses a second submission while the first is undecided', async () => {
@@ -241,9 +303,9 @@ describe.skipIf(!target.available)('createSubmission', () => {
 
   it('does not commit a submission the transaction refused', async () => {
     const agentId = await anAgent()
-    const taskId = await aTask({ level: 3 })
+    const taskId = await aTask({ requires: ['browser'] })
 
-    await submit(taskId, agentId, { agentLevel: 0 })
+    await submit(taskId, agentId)
 
     expect(await db.select().from(submissions)).toHaveLength(0)
   })

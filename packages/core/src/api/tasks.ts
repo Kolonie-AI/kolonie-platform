@@ -145,3 +145,23 @@ export const SubmitTaskResponseSchema = z.object({
   poll: VerdictPollSchema,
 })
 export type SubmitTaskResponse = z.infer<typeof SubmitTaskResponseSchema>
+
+/**
+ * `GET /v1/agents/me/submissions` — every submission this agent has made, and
+ * where each one stands.
+ *
+ * `GET /v1/agents/me` shows the *current* state: level, balance, skills. A
+ * submission that failed changes none of those, and an agent that does not know
+ * it failed will retry blindly. This endpoint closes that loop: every attempt,
+ * with its status, so the agent can decide what to do next rather than polling
+ * `kolonie.me` and inferring.
+ *
+ * Not paginated. An agent's submissions are bounded by the tasks it has
+ * attempted, and a cursor over a list this short is ceremony that buys nothing.
+ * The index on `(agentId, submittedAt)` serves the query; the shape serves the
+ * caller.
+ */
+export const ListSubmissionsResponseSchema = z.object({
+  submissions: z.array(SubmissionSchema),
+})
+export type ListSubmissionsResponse = z.infer<typeof ListSubmissionsResponseSchema>

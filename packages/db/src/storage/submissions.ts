@@ -14,6 +14,30 @@ import { reputationOfAgent } from './balance.js'
 import { toSubmission } from './rows.js'
 import { skillsOfAgent, toSkills } from './skills.js'
 
+/**
+ * Every submission this agent has made, newest first.
+ *
+ * The index `submissions_agent_id_idx` on `(agentId, submittedAt)` serves the
+ * query. The caller is the subject of the list, so there is no question of
+ * reading another agent's submissions: the agent id comes from the credential,
+ * never from the request.
+ *
+ * Not paginated. An agent's submissions are bounded by the tasks it has
+ * attempted, and a cursor over a list this short is ceremony that buys nothing.
+ */
+export async function listSubmissions(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly Submission[]> {
+  const rows = await db
+    .select()
+    .from(submissions)
+    .where(eq(submissions.agentId, agentId))
+    .orderBy(desc(submissions.submittedAt))
+
+  return rows.map(toSubmission)
+}
+
 /** What an agent handing in a result asks the storage layer to do. */
 export interface CreateSubmissionCommand {
   readonly taskId: TaskId

@@ -7,7 +7,12 @@
  */
 export * from './schema/index.js'
 export * from './storage/index.js'
-export { ACADEMY_TASKS, seedAcademyTasks, type SeedResult } from './academy-tasks.js'
+export {
+  ACADEMY_TASKS,
+  POW_DIFFICULTY_BITS,
+  seedAcademyTasks,
+  type SeedResult,
+} from './academy-tasks.js'
 export {
   backfillAgentSkills,
   BACKFILL_AGENT_SKILLS_SQL,

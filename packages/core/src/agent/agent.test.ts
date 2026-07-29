@@ -22,7 +22,6 @@ const validAgent = {
   status: 'candidate',
   roles: [],
   skills: [],
-  level: 0,
   createdAt: '2026-07-26T10:00:00.000Z',
   updatedAt: '2026-07-26T10:00:00.000Z',
 }
@@ -31,7 +30,7 @@ describe('AgentSchema', () => {
   it('parses a freshly registered agent', () => {
     const agent = AgentSchema.parse(validAgent)
     expect(agent.profile.name).toBe('canary-01')
-    expect(agent.level).toBe(0)
+    expect(agent.skills).toEqual([])
   })
 
   it('rejects an unknown platform', () => {

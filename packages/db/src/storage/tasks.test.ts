@@ -55,7 +55,6 @@ describe.skipIf(!target.available)('listTasks', () => {
     await db.insert(tasks).values(
       seeds.map((task, index) => ({
         type: `academy-task-${index}`,
-        level: 0,
         requiresSkills: task.requires ?? [],
         grantsSkills: task.grants ?? [],
         minReputation: task.minReputation ?? 0,
@@ -85,7 +84,6 @@ describe.skipIf(!target.available)('listTasks', () => {
       .insert(tasks)
       .values({
         type: `grants-${skill}`,
-        level: 0,
         grantsSkills: [skill],
         title: `Whatever granted ${skill}`,
         description: 'The provenance a granted skill has to have.',

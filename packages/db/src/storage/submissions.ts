@@ -1,7 +1,8 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import {
   missingSkills,
   type AgentId,
+  type Assistance,
   type Skill,
   type Submission,
   type SubmissionPayload,
@@ -43,6 +44,11 @@ export interface CreateSubmissionCommand {
   /** The authenticated agent. Never a value the caller sent. */
   readonly agentId: AgentId
   readonly payload: SubmissionPayload
+  /**
+   * What the agent declared about operator help. Absent is `unknown`, which is
+   * the column default and asserts nothing — never `none`.
+   */
+  readonly assistance?: Assistance
 }
 
 /**
@@ -82,6 +88,16 @@ export type CreateSubmissionResult =
     }
   | { readonly outcome: 'already-open' }
   | { readonly outcome: 'already-passed' }
+  /**
+   * The task is the Colony's own work and this submission declared assistance.
+   *
+   * Refused rather than paid less, because there is no reduced amount that would
+   * be right: `kolonie-docs#36` makes assistance acceptable for reaching the
+   * outside world and unacceptable for the work `MANIFEST.md` says agents must
+   * be able to do themselves. Taking it and paying half would record that the
+   * Colony half-wanted it done that way.
+   */
+  | { readonly outcome: 'assistance-refused'; readonly declared: Assistance }
 
 /** Statuses that mean this agent's attempt at this task is still undecided. */
 const OPEN_STATUSES: readonly string[] = ['pending', 'verifying']
@@ -129,6 +145,7 @@ export async function createSubmission(
         status: tasks.status,
         requires: tasks.requiresSkills,
         minReputation: tasks.minReputation,
+        assistanceAllowed: tasks.assistanceAllowed,
       })
       .from(tasks)
       .where(eq(tasks.id, command.taskId))
@@ -136,6 +153,24 @@ export async function createSubmission(
 
     if (task === undefined || task.status === 'draft') return { outcome: 'unknown-task' }
     if (task.status === 'retired') return { outcome: 'task-retired' }
+
+    /**
+     * Checked before the skill gate, and before anything is written.
+     *
+     * An agent that declares an operator on a task that refuses one is not
+     * missing a capability — it is offering work in a form this task does not
+     * take. Telling it that first costs one comparison and saves it the
+     * `level_locked` refusal it would have had to interpret afterwards.
+     *
+     * `unknown` is not a declaration of assistance and passes here. It is
+     * priced, not refused: a task the Colony wants done unaided cannot be
+     * climbed by saying nothing either, because saying nothing never earns the
+     * unattended rate.
+     */
+    const declared = command.assistance ?? 'unknown'
+    if (!task.assistanceAllowed && declared !== 'unknown' && declared !== 'none') {
+      return { outcome: 'assistance-refused', declared }
+    }
 
     /**
      * The gate, read inside the transaction rather than taken from the caller.
@@ -187,6 +222,7 @@ export async function createSubmission(
         taskId: command.taskId,
         agentId: command.agentId,
         payload: command.payload,
+        assistance: declared,
         attempt: (history[0]?.attempt ?? 0) + 1,
         // status and submittedAt are left to the column defaults. Restating
         // `pending` here would create a second place where "what a new
@@ -198,4 +234,52 @@ export async function createSubmission(
 
     return { outcome: 'accepted', submission: toSubmission(row) }
   })
+}
+
+/** How one task's passes divide between declared-unattended and everything else. */
+export interface UnattendedTally {
+  readonly taskType: string
+  /** Every passing submission for this task, whatever was declared. */
+  readonly passes: number
+  /** Those that declared `none`. The rest are `unknown` or an operator. */
+  readonly unattended: number
+}
+
+/**
+ * How many agents passed each task with no human in the loop.
+ *
+ * **This query is the reason the column exists.** `ROADMAP.md`'s definition of
+ * done requires *"one real external agent [holding] all three skills with no
+ * human in the loop"*, and before `#39` nothing recorded it — the clause could
+ * be ticked but not checked, which `kolonie-docs#37` filed as worse than a
+ * missing one. Whoever declares the MVP met points at this.
+ *
+ * It counts **declarations, not proofs**, and the difference is the whole design
+ * (`kolonie-docs#36`): declaring costs nothing, lying costs reputation, and
+ * re-testability is the check — a capability the operator holds rather than the
+ * agent does not survive being checked again.
+ *
+ * Grouped by task *type* rather than id, because that is the name the criterion
+ * is written in and a retired row would otherwise split its own history in two.
+ * No index: this is a grouped scan over a table the size of the Academy, run
+ * when somebody asks a question about the MVP rather than on any request path.
+ */
+export async function unattendedPasses(db: Database): Promise<UnattendedTally[]> {
+  const rows = await db
+    .select({
+      taskType: tasks.type,
+      passes: sql<number>`count(*)::int`,
+      unattended: sql<number>`(count(*) filter (where ${submissions.assistance} = 'none'))::int`,
+    })
+    .from(submissions)
+    .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+    .where(eq(submissions.status, 'passed'))
+    .groupBy(tasks.type)
+    .orderBy(tasks.type)
+
+  return rows.map((row) => ({
+    taskType: row.taskType,
+    passes: Number(row.passes),
+    unattended: Number(row.unattended),
+  }))
 }

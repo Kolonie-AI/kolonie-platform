@@ -17,8 +17,14 @@ import type { TaskCatalogue } from '../tasks.js'
 import type { TaskSubmissions } from '../submissions.js'
 import type { AcademyDependencies } from '../academy.js'
 import type { EmailDependencies } from '../email.js'
+import type { KeyDependencies } from '../keys.js'
+import type { PowDependencies } from '../proof-of-work.js'
+import type { GithubDependencies } from '../github.js'
 import { fakeAcademy } from './academy.js'
 import { fakeEmail } from './email.js'
+import { fakeKeys } from './keys.js'
+import { fakePow } from './proof-of-work.js'
+import { fakeGithub } from './github.js'
 import { register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
@@ -60,6 +66,12 @@ export interface FakeColony {
   readonly academy: AcademyDependencies
   /** The mailbox rung, behind both surfaces. Overridable the same way. */
   readonly email: EmailDependencies
+  /** The keypair rung, behind both surfaces. Overridable the same way. */
+  readonly keys: KeyDependencies
+  /** The compute rung, behind both surfaces. Overridable the same way. */
+  readonly pow: PowDependencies
+  /** The GitHub rung, behind both surfaces. Overridable the same way. */
+  readonly github: GithubDependencies
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -103,7 +115,6 @@ export function fakeColony(): FakeColony {
       status: 'candidate',
       roles: [],
       skills: [],
-      level: 0,
       createdAt: issuedAt,
       updatedAt: issuedAt,
     }
@@ -135,6 +146,9 @@ export function fakeColony(): FakeColony {
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
     email: fakeEmail(),
+    keys: fakeKeys(),
+    pow: fakePow(),
+    github: fakeGithub(),
 
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {

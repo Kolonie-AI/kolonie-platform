@@ -13,6 +13,9 @@ import {
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
+import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions, type FakeSubmissions } from '../__fixtures__/submissions.js'
@@ -37,9 +40,12 @@ beforeEach(async () => {
     catalogue: fakeCatalogue(),
     submissions,
     academy: fakeAcademy(),
+    keys: fakeKeys(),
+    pow: fakePow(),
+    github: fakeGithub(),
   })
   await app.ready()
-  const issued = store.issue({ level: 2 })
+  const issued = store.issue({})
   apiKey = issued.apiKey
   agentId = issued.agent.id
 })
@@ -99,7 +105,7 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
     await post({ agentId: someoneElse, payload: { result: 'done' } })
 
     // The single most damaging thing this endpoint could get wrong: one agent
-    // farming levels in another's name.
+    // farming skills in another's name.
     expect(submissions.lastCommand()?.agentId).toBe(agentId)
     expect(submissions.lastCommand()?.agentId).not.toBe(someoneElse)
   })
@@ -113,11 +119,19 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
   it('sends nothing about the caller that the caller supplied', async () => {
     // The gate is read from the stored skills inside the storage transaction
     // (D-030), so there is no field here for a caller to inflate — which is
-    // what the level used to be.
+    // what the level used to be, and `agentLevel` is sent here to prove that a
+    // stray field is dropped rather than forwarded.
+    //
+    // `assistance` is in the list and is the one thing here the caller does
+    // supply. It is not an exception to the rule: it decides nothing about what
+    // the caller may attempt, only what its own pass is worth, and a caller
+    // that inflates it is claiming to have worked *alone* — a claim that costs
+    // reputation when re-testing finds otherwise (`#39`).
     await post({ skills: ['builder'], agentLevel: 13, payload: {} })
 
     expect(Object.keys(submissions.lastCommand() ?? {}).sort()).toEqual([
       'agentId',
+      'assistance',
       'payload',
       'taskId',
     ])
@@ -252,6 +266,45 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
     })
 
     expect(response.statusCode).toBe(404)
+  })
+
+  /**
+   * The declaration, over HTTP (`#39`). The MCP half is in `mcp.test.ts`; both
+   * have to accept and return it, or the count `ROADMAP.md` depends on is
+   * partial by surface.
+   */
+  describe('the assistance declaration', () => {
+    it('passes a declared value through to storage and returns it', async () => {
+      const response = await post({ payload: {}, assistance: 'operator-provided' })
+
+      expect(submissions.lastCommand()?.assistance).toBe('operator-provided')
+      expect(response.json().submission.assistance).toBe('operator-provided')
+    })
+
+    it('sends unknown when the body says nothing, never none', async () => {
+      await post({ payload: {} })
+
+      expect(submissions.lastCommand()?.assistance).toBe('unknown')
+    })
+
+    it('refuses a value outside the vocabulary rather than coercing it', async () => {
+      const response = await post({ payload: {}, assistance: 'a little bit' })
+
+      expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+      expect(response.json().details).toHaveProperty('assistance')
+    })
+
+    it('turns a refusal into its own code, naming what was declared', async () => {
+      submissions.answers({ outcome: 'assistance-refused', declared: 'operator-performed' })
+
+      const response = await post({ payload: {}, assistance: 'operator-performed' })
+
+      // Its own code, not `forbidden`: the task is open to this agent and the
+      // route it took is what was refused, which is a different next action.
+      expect(response.statusCode).toBe(ERROR_STATUS['assistance_refused'])
+      expect(response.json().code).toBe('assistance_refused')
+      expect(response.json().details).toEqual({ declared: 'operator-performed' })
+    })
   })
 })
 

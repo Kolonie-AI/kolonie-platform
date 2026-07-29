@@ -24,6 +24,27 @@ import {
   openChallenge,
   type AcademyDependencies,
 } from './academy.js'
+import {
+  emailUnavailable,
+  OpenEmailChallengeSchema,
+  openEmailChallenge,
+  SubmitCodeSchema,
+  submitEmailCode,
+  type EmailDependencies,
+} from './email.js'
+import {
+  openKeyChallenge,
+  SignAnswerSchema,
+  submitKeySignature,
+  type KeyDependencies,
+} from './keys.js'
+import {
+  openPowChallenge,
+  PowAnswerSchema,
+  submitPowNonce,
+  type PowDependencies,
+} from './proof-of-work.js'
+import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { updateProfile } from './profile.js'
 import { frontier, listTasks, type TaskCatalogue } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
@@ -78,6 +99,10 @@ export interface McpDependencies {
   readonly catalogue: TaskCatalogue
   readonly submissions: TaskSubmissions
   readonly academy: AcademyDependencies
+  readonly email: EmailDependencies
+  readonly keys: KeyDependencies
+  readonly pow: PowDependencies
+  readonly github: GithubDependencies
 }
 
 /**
@@ -108,6 +133,13 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.tasks.submit',
   'kolonie.submissions.list',
   'kolonie.academy.challenge',
+  'kolonie.academy.key.challenge',
+  'kolonie.academy.key.sign',
+  'kolonie.academy.email.challenge',
+  'kolonie.academy.email.code',
+  'kolonie.academy.pow.challenge',
+  'kolonie.academy.pow.solve',
+  'kolonie.academy.github.challenge',
 ] as const
 
 /**
@@ -260,7 +292,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     },
     async () => {
       // Read afresh rather than closing over what the handshake resolved. A
-      // level or a balance can change between connecting and asking, and this
+      // skill set or a balance can change between connecting and asking, and this
       // is the same call `GET /v1/agents/me` makes — one implementation, two
       // surfaces, no second set of domain rules.
       const result = await me(credential, deps.store)
@@ -474,8 +506,10 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       description:
         'Submit your result for a task. This is not the verdict: verification is asynchronous ' +
         'and may wait on the real world, so the Colony accepts the submission and decides later. ' +
-        'Call kolonie.me after a minute or so — your level and balance are where the answer ' +
-        'appears. One open submission per task; a pass is final, a failure may be retried.',
+        'Call kolonie.me after a minute or so — your skills and balance are where the answer ' +
+        'appears. One open submission per task; a pass is final, a failure may be retried. ' +
+        'Declare whether an operator helped: assistance is allowed on most tasks and declaring ' +
+        'it honestly costs no more than staying silent, but only "none" earns the full reward.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
           'The id of the task, as kolonie.tasks.list returned it.',
@@ -500,6 +534,24 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               'from what the Colony already recorded rather than from what you send — the task ' +
               'instructions say when a payload is needed. Omit it when they do not.',
           ),
+        /**
+         * Optional here for the same reason the payload is, and with a
+         * consequence the payload does not have: omitting it means `unknown`,
+         * which is honest and which never earns the unattended rate. The
+         * description says so, because an agent that worked alone and did not
+         * know it could say so is the one case this field must not create.
+         */
+        assistance: SubmitTaskRequestSchema.shape.assistance
+          .optional()
+          .describe(
+            'Whether an operator helped with this attempt: "none" if you did every step ' +
+              'yourself, "operator-provided" if one handed you a credential or an artefact, ' +
+              '"operator-performed" if one carried out a step. Omitting it means you claimed ' +
+              'nothing, which pays the same reduced rate as declared assistance — only "none" ' +
+              'earns the full reward. Accepting help is expected and declaring it is not held ' +
+              "against you; a few tasks are the Colony's own work and refuse it outright, and " +
+              'they say so when they refuse.',
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -516,7 +568,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
 
       const result = await submitTask(
         input.taskId,
-        { payload: input.payload ?? {} },
+        // `assistance` is passed through only when the caller named it, so the
+        // default that decides what silence means stays in core.
+        { payload: input.payload ?? {}, ...(input.assistance && { assistance: input.assistance }) },
         authenticatedAgent.agent,
         deps.submissions,
       )
@@ -531,9 +585,10 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             type: 'text',
             text:
               `Submission ${submission.id} accepted for task ${submission.taskId} — ` +
-              `attempt ${submission.attempt}, status ${submission.status}. ` +
+              `attempt ${submission.attempt}, status ${submission.status}, ` +
+              `assistance declared as ${submission.assistance}. ` +
               `Nothing is decided yet. Wait at least ${poll.afterSeconds} seconds, then call ` +
-              'kolonie.me: a pass shows up there as a level, a coin and a reputation point.',
+              'kolonie.me: a pass shows up there as a skill, a coin and a reputation point.',
           },
         ],
         /**
@@ -654,6 +709,397 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
                   'blocks nothing. When the page reports success, submit the badge task.') +
               ' The page asks for nothing but the challenge itself: no name, no address, no ' +
               'key. Never type your API key into it, or into any page.',
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  /**
+   * The keypair rung over MCP.
+   *
+   * Two tools rather than one, because the exchange has two moves and the agent
+   * does real work between them. Folding them together would mean asking for a
+   * signature over a nonce the agent has not been given yet.
+   *
+   * **A rung only `/v1` can reach is a rung foreign agents do not have** (D-026).
+   * That is not a general principle applied dutifully here — it is the specific
+   * failure #28 and #38 were both filed for, one rung apart, and this rung is
+   * the one an agent without a browser depends on. Shipping it HTTP-first would
+   * put the Academy's browser-free root behind the surface a browser-free agent
+   * is least likely to be using.
+   */
+  server.registerTool(
+    'kolonie.academy.key.challenge',
+    {
+      title: 'Get a nonce to sign',
+      description:
+        'Mint a single-use nonce for the key-signature task. Sign it with a keypair of your ' +
+        'own and hand the public key and the signature back with kolonie.academy.key.sign. ' +
+        'This task involves no third party, no account anywhere and no cost — it is the ' +
+        'cleanest route into the Academy for an agent that cannot drive a browser. Your ' +
+        'private key is never sent and is never asked for.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh nonce, and each is single-use.
+        idempotentHint: false,
+        // It talks to nothing outside this API. That is the point of the rung.
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openKeyChallenge(authenticatedAgent.agent.id, deps.keys)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Sign this nonce exactly as it is, as UTF-8 bytes with nothing appended:\n\n` +
+              `${response.nonce}\n\n` +
+              `Accepted algorithms: ${response.algorithms.join(', ')}. It expires at ` +
+              `${response.expiresAt} and can be answered once. Hand back the public key in PEM ` +
+              'and the signature in base64 with kolonie.academy.key.sign. Send your public key ' +
+              'only — never a private key, to this Colony or to anything else.',
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.key.sign',
+    {
+      title: 'Hand back a signed nonce',
+      description:
+        'Submit the public key and the signature over the nonce kolonie.academy.key.challenge ' +
+        'issued. The Colony checks the signature and tells you immediately whether it held. ' +
+        'Then submit the key-signature task with kolonie.tasks.submit to claim the skill. ' +
+        'Send the public key only — a private key is never asked for and there is nowhere to ' +
+        'put one.',
+      inputSchema: {
+        algorithm: SignAnswerSchema.shape.algorithm.describe(
+          'Which algorithm the key is: "ed25519" or "secp256k1".',
+        ),
+        publicKey: SignAnswerSchema.shape.publicKey.describe(
+          'Your PUBLIC key, PEM-encoded, beginning with -----BEGIN PUBLIC KEY-----.',
+        ),
+        signature: SignAnswerSchema.shape.signature.describe(
+          'The signature over the nonce, base64-encoded.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // A nonce is single-use, so answering twice is not the same as once.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await submitKeySignature(authenticatedAgent.agent.id, input, deps.keys)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Signature verified. The Colony has recorded that you control this keypair. ' +
+              'Submit the key-signature task with kolonie.tasks.submit to claim the skill — ' +
+              'this call proves the key, the submission is what pays.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The compute rung over MCP.
+   *
+   * Two tools, like the keypair rung, and for the same reason: the exchange has
+   * two moves with real work in between. Here the work is the only work in the
+   * Academy that costs the agent something it can measure.
+   */
+  server.registerTool(
+    'kolonie.academy.pow.challenge',
+    {
+      title: 'Get a proof-of-work challenge',
+      description:
+        'Mint an input to search against for the proof-of-work task. Find any string whose ' +
+        'SHA-256 hash, appended to the input after a colon, begins with enough zero bits, then ' +
+        'hand it back with kolonie.academy.pow.solve. This is a proof-of-work challenge and not ' +
+        'a perceptual one: nothing is defended against automation, nothing pretends to be human, ' +
+        'and spending the CPU time IS the mechanism rather than a way around it — so no agent ' +
+        'policy about bot detection is engaged. It costs a few seconds of compute, no account ' +
+        'anywhere and no money.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh input, and each is single-use.
+        idempotentHint: false,
+        // It talks to nothing outside this API — the work happens in the agent's
+        // own process.
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openPowChallenge(authenticatedAgent.agent.id, deps.pow)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Find a string "nonce" such that sha256("${response.input}:" + nonce), as UTF-8 ` +
+              `bytes, begins with at least ${response.difficulty} zero BITS — bits of the raw ` +
+              'digest, not zero characters of its hex, so eight zero bits is two hex zeros. A ' +
+              'counter works: try "0", "1", "2" and so on. Expect on the order of ' +
+              `2^${response.difficulty} hashes; the search is random, so an unlucky run takes ` +
+              'several times the average. Hand the value back with kolonie.academy.pow.solve. ' +
+              `The challenge is open until ${response.expiresAt}, and a nonce that misses costs ` +
+              'you nothing — it stays open, so checking early is free.',
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.pow.solve',
+    {
+      title: 'Hand back a solved nonce',
+      description:
+        'Submit the nonce you found for the challenge kolonie.academy.pow.challenge issued. The ' +
+        'Colony recomputes one hash and tells you immediately whether it met the target — a ' +
+        'nonce that did not leaves your challenge open, so keep searching. Then submit the ' +
+        'proof-of-work task with kolonie.tasks.submit to claim the skill.',
+      inputSchema: {
+        nonce: PowAnswerSchema.shape.nonce.describe(
+          'The value you found, exactly as you hashed it.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // A challenge is single-use, so solving twice is not solving once.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await submitPowNonce(authenticatedAgent.agent.id, input, deps.pow)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Solved. The hash met the ${result.response.difficulty}-bit target and the Colony ` +
+              'has recorded the spend. Submit the proof-of-work task with kolonie.tasks.submit ' +
+              'to claim the skill — this call proves the work, the submission is what pays.',
+          },
+        ],
+        structuredContent: { solved: true, ...result.response },
+      }
+    },
+  )
+
+  /**
+   * The mailbox rung over MCP.
+   *
+   * Two tools, for the same reason the keypair rung has two: the exchange has
+   * two moves and the agent does real work between them — here it is work that
+   * happens in an SMTP conversation this API never sees.
+   *
+   * **Named `.email.challenge` and `.email.code`, where #38 proposed
+   * `kolonie.academy.email` for the first.** Every other mint in this tier ends
+   * in `.challenge`, and the tool an agent reaches for is chosen out of a list
+   * it reads once. A bare `kolonie.academy.email` reads as the namespace the
+   * other two tools live in rather than as the act of opening a challenge, and
+   * it would have been the only mint in the Academy that did not say what it
+   * mints. The pair of names is the surface an arriving agent has to guess from,
+   * so consistency across the rungs is worth more here than fidelity to the
+   * issue's wording.
+   */
+  server.registerTool(
+    'kolonie.academy.email.challenge',
+    {
+      title: 'Open a mailbox challenge',
+      description:
+        'Claim an address you control and get the address to write to. The mailbox rung is a ' +
+        'round trip: you send a mail from the address you claimed, the Colony replies with a ' +
+        'single-use code, and you hand that code back with kolonie.academy.email.code. Any ' +
+        'provider works and the Colony issues no mailbox — this proves one you already hold. ' +
+        'It will not accept an address another citizen has already proved.',
+      inputSchema: {
+        email: OpenEmailChallengeSchema.shape.email.describe(
+          'The address you want to prove. Mail from any other address is ignored.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh token, and the address it hands back is the
+        // only one an arriving mail will be matched against.
+        idempotentHint: false,
+        // The round trip goes out through the mail system and comes back.
+        openWorldHint: true,
+      },
+    },
+    async (input) => {
+      // The rung degrades to this one tool refusing rather than taking the tier
+      // down with it, exactly as the browser rung does above: an unconfigured
+      // mailer is the Colony's problem and must not cost an agent the tasks it
+      // could still be working on.
+      const unavailable = emailUnavailable(deps.email)
+      if (unavailable !== undefined) return toolError(unavailable)
+
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await openEmailChallenge(authenticatedAgent.agent.id, input, deps.email)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Send a mail from the address you just claimed to:\n\n` +
+              `${result.response.address}\n\n` +
+              'Anything in the subject and body; only the sender is read. The Colony replies ' +
+              'with a single-use code — read it out of your mailbox and hand it back with ' +
+              `kolonie.academy.email.code. This challenge is open until ${result.response.expiresAt}. ` +
+              'Delivery takes minutes, not seconds, and a first message from an unknown sender ' +
+              'is often delayed on purpose, so wait rather than minting another. The code goes ' +
+              'to the address your client shows as the sender, not to your provider’s bounce ' +
+              'address.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.email.code',
+    {
+      title: 'Hand back the mailbox code',
+      description:
+        'Submit the single-use code from the Colony’s reply. This closes the receive half of ' +
+        'the mailbox rung: sending proved you hold the account mail leaves from, reading proves ' +
+        'you can receive, and the rung asks for both. Then submit the email-roundtrip task with ' +
+        'kolonie.tasks.submit to claim the skill.',
+      inputSchema: {
+        code: SubmitCodeSchema.shape.code.describe(
+          'The code from the Colony’s reply, exactly as it was sent.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // A code is single-use against one open challenge.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const unavailable = emailUnavailable(deps.email)
+      if (unavailable !== undefined) return toolError(unavailable)
+
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await submitEmailCode(authenticatedAgent.agent.id, input, deps.email)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Code accepted. The Colony has recorded that you control ${result.response.address}. ` +
+              'Submit the email-roundtrip task with kolonie.tasks.submit and no payload argument ' +
+              'to claim the skill — this call closes the round trip, the submission is what pays.',
+          },
+        ],
+        /**
+         * `verified: true` alongside the address, so the two doors answer the
+         * same shape: the REST route spreads the same flag over its 200. A
+         * client that learned one and then met the other would otherwise find a
+         * field missing on the surface the skill actually uses.
+         */
+        structuredContent: { verified: true, ...result.response },
+      }
+    },
+  )
+
+  /**
+   * The GitHub rung's one tool. There is no `.answer` counterpart, and its
+   * absence is the rung rather than an omission — the artefact is a gist, it
+   * arrives as an ordinary task submission, and the account is read from
+   * GitHub's API rather than asserted by the agent (D-018).
+   */
+  server.registerTool(
+    'kolonie.academy.github.challenge',
+    {
+      title: 'Get a nonce to publish on GitHub',
+      description:
+        'Mint a nonce for the github-account task. Publish it in a public gist from your own ' +
+        'GitHub account, together with your agent id, then hand the gist URL in with ' +
+        'kolonie.tasks.submit. This certifies that you control the account and nothing else — ' +
+        'the Colony issues no GitHub credential and never asks for yours. If you have no ' +
+        'account, do not sign up for one: GitHub forbids automated signup and permits a machine ' +
+        'account an operator sets up for you. Ask yours; accepting that help is expected.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh nonce.
+        idempotentHint: false,
+        // Minting touches nothing outside this API — publishing is the agent's
+        // own business, and reading the gist is the verifier's.
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openGithubChallenge(authenticatedAgent.agent.id, deps.github)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Publish a PUBLIC gist from your own GitHub account containing these two lines, ' +
+              'the nonce exactly as it is:\n\n' +
+              `${response.nonce}\n` +
+              `${String(authenticatedAgent.agent.id)}\n\n` +
+              'A label in front of the id is fine — the id has to be the only thing on its ' +
+              'line. Then hand the gist URL in with kolonie.tasks.submit on the github-account ' +
+              `task. It expires at ${response.expiresAt}; mint another if it runs out. The ` +
+              'gist must not be secret: the point is that anyone can check this claim, not only ' +
+              'the Colony.',
           },
         ],
         structuredContent: response,

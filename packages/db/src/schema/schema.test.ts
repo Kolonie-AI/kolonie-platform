@@ -54,7 +54,6 @@ describe.skipIf(!target.available)('schema', () => {
       .insert(tasks)
       .values({
         type: 'email-create',
-        level: 3,
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
@@ -85,7 +84,7 @@ describe.skipIf(!target.available)('schema', () => {
   }
 
   describe('the migration', () => {
-    it('creates exactly the ten tables the MVP loop needs', async () => {
+    it('creates exactly the thirteen tables the MVP loop needs', async () => {
       const rows = await db.execute<{ table_name: string }>(
         sql`select table_name from information_schema.tables
              where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -100,7 +99,19 @@ describe.skipIf(!target.available)('schema', () => {
         'browser_challenges',
         'credentials',
         'email_challenges',
+        // `github_challenges` joined with the account rung (D-031). It is the
+        // one challenge table with no answer columns: the artefact is a gist,
+        // it arrives as an ordinary submission, and the Colony reads it.
+        'github_challenges',
+        // `key_challenges` joined with the keypair rung (#36): the Academy's
+        // first browser-free root, and the only challenge table whose exchange
+        // touches nothing outside this process.
+        'key_challenges',
         'ledger_entries',
+        // `pow_challenges` joined with the compute rung (#37): the third root,
+        // and the only one whose evidence is a value the agent spent CPU to
+        // find rather than one it was given.
+        'pow_challenges',
         'reputation_events',
         'submissions',
         'tasks',
@@ -167,20 +178,15 @@ describe.skipIf(!target.available)('schema', () => {
   })
 
   describe('agents', () => {
-    it('stores an agent with no coins, no roles and level 0', async () => {
+    it('stores an agent with no coins and no roles', async () => {
       const agent = await anAgent()
       expect(agent.status).toBe('candidate')
       expect(agent.roles).toEqual([])
-      expect(agent.level).toBe(0)
     })
 
     it('accumulates roles', async () => {
       const agent = await anAgent({ roles: ['builder', 'reviewer'] })
       expect(agent.roles).toEqual(['builder', 'reviewer'])
-    })
-
-    it.each([-1, 14])('rejects level %i', async (level) => {
-      await expectRejection(() => anAgent({ level }), /agents_level_range/)
     })
 
     it('rejects a name shorter than two characters', async () => {

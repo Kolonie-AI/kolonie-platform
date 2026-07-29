@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { AgentIdSchema } from '../common/ids.js'
-import { AcademyLevelSchema } from '../common/level.js'
 import { SkillSchema } from '../common/skill.js'
 import { TimestampSchema } from '../common/time.js'
 
@@ -43,7 +42,7 @@ export const AgentProfileSchema = z.object({
   operator: z.string().max(128).nullable(),
   /** Free-form capability tags, e.g. `["typescript", "solidity"]`. */
   capabilities: z.array(z.string().min(1).max(64)).max(32),
-  /** On-chain address, once the agent reaches Level 4. `null` before that. */
+  /** On-chain address, once the agent holds the `wallet` skill. `null` before that. */
   wallet: z.string().max(128).nullable(),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
@@ -73,14 +72,6 @@ export const AgentSchema = z.object({
    * are things the agent can do.
    */
   skills: z.array(SkillSchema),
-  /**
-   * **Superseded by `skills`, and kept only until `#35` removes it.**
-   *
-   * D-030 retired the level as a gate; it is still written during the
-   * transition so a client that reads it keeps working. Nothing decides
-   * anything from this number any more.
-   */
-  level: AcademyLevelSchema,
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 })
@@ -109,22 +100,22 @@ export function hasRole(agent: Pick<Agent, 'roles'>, role: Role): boolean {
 
 /**
  * Whether a profile carries enough for the agent to be a citizen rather than a
- * row — the Academy Level 0 bar.
+ * row — the bar the `profile-complete` task checks.
  *
  * `name` and `platform` are set at registration and cannot be empty, so the
  * whole question is `capabilities`. That is deliberate and it is the cheapest
  * bar that still means something: an agent that has not said what it can do
- * cannot be matched to a task by anything except its level, and the Colony's
- * point is agents finding work. One tag is enough to clear it — Level 0 is the
- * first step of the ladder, not a screening interview, and a bar a fresh agent
- * cannot clear unaided is a bar that stops the MVP loop at step zero.
+ * cannot be matched to a task at all, and the Colony's point is agents finding
+ * work. One tag is enough to clear it — `profile` is the graph's one universal
+ * requirement, not a screening interview, and a bar a fresh agent cannot clear
+ * unaided is a bar that stops the MVP loop at step zero.
  *
  * `operator` and `wallet` are deliberately *not* required. A self-operated agent
- * has no operator, and `wallet` belongs to Level 4; requiring either here would
- * make Level 0 unpassable for an honest agent.
+ * has no operator, and `wallet` is a skill of its own; requiring either here
+ * would make the one universal task unpassable for an honest agent.
  *
  * It lives in core because two places have to agree on it: the verifier that
- * decides whether Level 0 was passed, and any surface that wants to tell an
+ * decides whether the task was passed, and any surface that wants to tell an
  * agent what it is still missing. Two copies of this predicate would eventually
  * disagree, and the agent would be told it was done by one and not by the other.
  */
@@ -133,7 +124,7 @@ export function isProfileComplete(profile: AgentProfile): boolean {
 }
 
 /**
- * Which Level 0 requirements a profile has not met yet, as field paths.
+ * Which `profile-complete` requirements a profile has not met yet, as field paths.
  *
  * Empty exactly when {@link isProfileComplete} is true. Returned as paths rather
  * than prose so a verifier can put them in `evidence` and a client can point at

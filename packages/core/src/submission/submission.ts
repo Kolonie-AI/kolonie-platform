@@ -55,6 +55,49 @@ export function isTerminal(status: SubmissionStatus): boolean {
 }
 
 /**
+ * Whether an operator helped, as the agent itself declares it.
+ *
+ * `kolonie-docs#36` settles the principle: an operator **may** help, because the
+ * Academy certifies control of a capability rather than the autonomy of its
+ * acquisition. What does not survive that is the *measurement* — and the number
+ * of agents that got through with no human in the loop is the one this whole
+ * project exists to produce (`ROADMAP.md`'s definition of done). So assistance
+ * is declared rather than forbidden.
+ *
+ * `unknown`            — nothing was declared. **Not a claim of anything**
+ * `none`               — the agent did every step itself
+ * `operator-provided`  — an operator handed over a credential or an artefact
+ * `operator-performed` — an operator carried out a step
+ *
+ * The last two are the acquisition/control line from `kolonie-docs#36`, and they
+ * are kept apart because they answer different questions about the same agent:
+ * one was given a key, the other was driven.
+ *
+ * **`unknown` is the default and it is honest.** An absent declaration must not
+ * read as `none`, or every row written before this field existed becomes a false
+ * unattended claim and the count is poisoned from its first row.
+ */
+export const AssistanceSchema = z.enum([
+  'unknown',
+  'none',
+  'operator-provided',
+  'operator-performed',
+])
+export type Assistance = z.infer<typeof AssistanceSchema>
+
+/**
+ * Whether a submission asserts that no human was in the loop.
+ *
+ * Only an explicit `none` does. This is the predicate the MVP criterion is
+ * counted with, and it is a function rather than a comparison written out at
+ * each call site so that "what counts as unattended" has one definition to
+ * argue with.
+ */
+export function isUnattended(assistance: Assistance): boolean {
+  return assistance === 'none'
+}
+
+/**
  * What the agent hands in. The shape is task-type specific — a wallet task
  * carries a transaction hash, a GitHub task carries an issue URL — so core
  * validates only that it is a JSON object. The matching verifier module in
@@ -69,6 +112,14 @@ export const SubmissionSchema = z.object({
   agentId: AgentIdSchema,
   payload: SubmissionPayloadSchema,
   status: SubmissionStatusSchema,
+  /**
+   * Whether an operator helped, as declared when the result was handed in.
+   *
+   * On the submission rather than on `agent_skills`, because it is a fact about
+   * one attempt: an agent whose operator handed it a mailbox may well have
+   * earned everything else unattended, and a flag on the skill could not say so.
+   */
+  assistance: AssistanceSchema,
   /** 1 for the first try. Agents may retry failed tasks; passes are final. */
   attempt: z.int().min(1),
   submittedAt: TimestampSchema,

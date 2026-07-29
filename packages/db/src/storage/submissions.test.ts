@@ -6,6 +6,7 @@ import {
   SubmissionSchema,
   TaskIdSchema,
   type AgentId,
+  type Assistance,
   type SubmissionStatus,
   type TaskId,
   type TaskStatus,
@@ -15,7 +16,7 @@ import type { Database } from '../client.js'
 import { agentSkills, submissions, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
-import { createSubmission } from './submissions.js'
+import { createSubmission, unattendedPasses } from './submissions.js'
 
 const target = databaseTestTarget()
 
@@ -56,13 +57,13 @@ describe.skipIf(!target.available)('createSubmission', () => {
       grants?: string[]
       minReputation?: number
       status?: TaskStatus
+      assistanceAllowed?: boolean
     } = {},
   ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
         type: `academy-task-${++seeded}`,
-        level: 0,
         requiresSkills: options.requires ?? [],
         grantsSkills: options.grants ?? [],
         minReputation: options.minReputation ?? 0,
@@ -71,6 +72,7 @@ describe.skipIf(!target.available)('createSubmission', () => {
         instructions: 'What the agent must actually do.',
         rewardCoins: 1,
         rewardReputation: 1,
+        assistanceAllowed: options.assistanceAllowed ?? true,
         timeoutHours: 24,
         status: options.status ?? 'active',
       })
@@ -83,12 +85,15 @@ describe.skipIf(!target.available)('createSubmission', () => {
   const submit = (
     taskId: TaskId,
     agentId: AgentId,
-    options: { payload?: Record<string, unknown> } = {},
+    options: { payload?: Record<string, unknown>; assistance?: Assistance } = {},
   ) =>
     createSubmission(db, {
       taskId,
       agentId,
       payload: options.payload ?? { result: 'done' },
+      // Passed through only when a test names it, so the default that decides
+      // what silence means is read from one place — the column.
+      ...(options.assistance !== undefined && { assistance: options.assistance }),
     })
 
   /**
@@ -317,5 +322,110 @@ describe.skipIf(!target.available)('createSubmission', () => {
     // query ago. If it ever happens, it is a deletion mid-request, and the agent
     // must not be told its task does not exist.
     await expectRejection(() => submit(taskId, AgentIdSchema.parse(randomUUID())), /no agent row/)
+  })
+
+  /**
+   * The declaration (`#39`).
+   *
+   * An operator may help, and the Academy certifies control of a capability
+   * rather than the autonomy of its acquisition (`kolonie-docs#36`). What that
+   * costs is measurement, and these are the rows the measurement is read from.
+   */
+  describe('the assistance declaration', () => {
+    it('records unknown when the agent declared nothing', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      const result = await submit(taskId, agentId)
+
+      // Not `none`. Every agent submitting today omits the field, and reading
+      // that silence as an unattended pass would manufacture the Colony's own
+      // MVP evidence.
+      expect(result).toMatchObject({ outcome: 'accepted', submission: { assistance: 'unknown' } })
+    })
+
+    it.each(['none', 'operator-provided', 'operator-performed'] as const)(
+      'stores %s exactly as it was declared',
+      async (assistance) => {
+        const agentId = await anAgent()
+        const taskId = await aTask()
+
+        const result = await submit(taskId, agentId, { assistance })
+
+        expect(result).toMatchObject({ outcome: 'accepted', submission: { assistance } })
+      },
+    )
+
+    it('refuses an assisted submission on a task that does not accept one', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ assistanceAllowed: false })
+
+      const result = await submit(taskId, agentId, { assistance: 'operator-performed' })
+
+      expect(result).toEqual({ outcome: 'assistance-refused', declared: 'operator-performed' })
+      // Refused before anything was written: the agent may come back and do the
+      // work itself without having burnt an attempt on the declaration.
+      expect(await db.select().from(submissions)).toHaveLength(0)
+    })
+
+    it('accepts an unattended submission on the same task', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ assistanceAllowed: false })
+
+      const result = await submit(taskId, agentId, { assistance: 'none' })
+
+      expect(result).toMatchObject({ outcome: 'accepted' })
+    })
+
+    /**
+     * Silence is not a declaration of assistance, so it is not refused here —
+     * it is priced. A task the Colony wants done unaided cannot be climbed by
+     * saying nothing either, because saying nothing never earns the unattended
+     * rate.
+     */
+    it('accepts a silent submission on a task that refuses assistance', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ assistanceAllowed: false })
+
+      const result = await submit(taskId, agentId)
+
+      expect(result).toMatchObject({ outcome: 'accepted', submission: { assistance: 'unknown' } })
+    })
+  })
+
+  /**
+   * The query `ROADMAP.md`'s definition of done is checked with — the reason the
+   * column exists at all (`kolonie-docs#37`).
+   */
+  describe('counting passes with no human in the loop', () => {
+    const passWith = async (taskId: TaskId, assistance: Assistance) => {
+      const agentId = await anAgent()
+      await submit(taskId, agentId, { assistance })
+      await decide(taskId, agentId, 'passed')
+    }
+
+    it('counts declared-unattended passes per task, and every pass alongside them', async () => {
+      const mailbox = await aTask()
+      await passWith(mailbox, 'none')
+      await passWith(mailbox, 'none')
+      await passWith(mailbox, 'operator-provided')
+      await passWith(mailbox, 'unknown')
+
+      const [tally] = await unattendedPasses(db)
+
+      expect(tally).toMatchObject({ passes: 4, unattended: 2 })
+    })
+
+    it('ignores submissions that never passed', async () => {
+      const taskId = await aTask()
+      const failed = await anAgent()
+      await submit(taskId, failed, { assistance: 'none' })
+      await decide(taskId, failed, 'failed')
+
+      const open = await anAgent()
+      await submit(taskId, open, { assistance: 'none' })
+
+      expect(await unattendedPasses(db)).toEqual([])
+    })
   })
 })

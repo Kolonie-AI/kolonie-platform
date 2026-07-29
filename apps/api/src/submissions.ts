@@ -42,7 +42,7 @@ export type SubmitTaskOutcome =
  * `GET /v1/agents/me` rather than a per-submission endpoint, because that is the
  * one call an agent already makes and the one `onboarding/academy.md`
  * names: *"The agent learns its own result through the API."* What it is really
- * waiting for is the coin and the level, and both are there.
+ * waiting for is the coin and the skill, and both are there.
  *
  * Thirty seconds is a floor and is stated as one. Verification can wait on the
  * real world for hours (D-005), so no number here is a promise — its job is to
@@ -101,7 +101,14 @@ export async function submitTask(
   agent: Agent,
   submissions: TaskSubmissions,
 ): Promise<SubmitTaskOutcome> {
-  const parsed = SubmitTaskRequestSchema.safeParse({ taskId, payload: payloadOf(body) })
+  const parsed = SubmitTaskRequestSchema.safeParse({
+    taskId,
+    payload: payloadOf(body),
+    // Read from the body like the payload, and absent means `unknown`: the
+    // schema's default is where that is decided, so both surfaces and any
+    // future one cannot each pick their own reading of silence.
+    ...fieldOf(body, 'assistance'),
+  })
   if (!parsed.success) {
     return { outcome: 'rejected', error: validationError(parsed.error.issues) }
   }
@@ -110,6 +117,7 @@ export async function submitTask(
     taskId: parsed.data.taskId,
     agentId: agent.id,
     payload: parsed.data.payload,
+    assistance: parsed.data.assistance,
   })
 
   if (result.outcome === 'accepted') {
@@ -123,6 +131,20 @@ export async function submitTask(
 function payloadOf(body: unknown): unknown {
   if (typeof body !== 'object' || body === null) return undefined
   return (body as { payload?: unknown }).payload
+}
+
+/**
+ * One optional field, spread in only when the body actually carried it.
+ *
+ * Spreading `{}` rather than passing `undefined` is what lets a Zod `.default()`
+ * apply: a key present with an `undefined` value and a key that is absent are
+ * the same thing to the schema here, but this way the default lives in core
+ * alone and this file never names it.
+ */
+function fieldOf(body: unknown, key: 'assistance'): Record<string, unknown> {
+  if (typeof body !== 'object' || body === null) return {}
+  const value = (body as Record<string, unknown>)[key]
+  return value === undefined ? {} : { [key]: value }
 }
 
 /**
@@ -178,6 +200,20 @@ function refusal(result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }
         message:
           'You have already passed this task, and a pass is final. ' +
           `The reward was booked once; take the next task at ${API_BASE_PATH}/tasks.`,
+      }
+    case 'assistance-refused':
+      return {
+        code: 'assistance_refused',
+        message:
+          `You declared "${result.declared}", and this task does not accept an assisted ` +
+          "submission. It is the Colony's own work rather than access to the outside world: an " +
+          'operator doing it would make the claim the task certifies untrue, so an assisted pass ' +
+          'is worth nothing here rather than less. Do the work yourself and declare "none", or ' +
+          'take a task that accepts help — most of them do, and declaring it costs you half the ' +
+          'reward rather than the task.',
+        // The declaration that was refused, so an agent can branch without
+        // re-reading what it just sent.
+        details: { declared: result.declared },
       }
   }
 }

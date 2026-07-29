@@ -18,7 +18,7 @@ import {
   type VerifyResult,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, submissions, tasks, verifications } from '../schema/index.js'
+import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
 import { toAgent, toSubmission, toVerification } from './rows.js'
 import { heldSkillsSql } from './skills.js'
@@ -27,12 +27,12 @@ import { heldSkillsSql } from './skills.js'
 const OPEN_STATUSES = ['pending', 'verifying'] as const
 
 /**
- * The Academy Level 2 task type, named here because one query has to filter on
- * it. It is a string rather than an import from `packages/verifiers` on purpose:
- * this package must not depend on that one, and a task type is a slug in the
- * data either way (`TaskTypeSchema` in core is a shape, never a list).
+ * The skill a GitHub account certifies, named here because one query reads the
+ * grants of it. A slug rather than an import from `packages/verifiers`: this
+ * package must not depend on that one, and a skill is a slug in the data either
+ * way (`SkillSchema` in core is a shape, never a list).
  */
-const GITHUB_CONTRIBUTION_TASK_TYPE = 'github-contribution'
+const GITHUB_SKILL = 'github'
 
 /** A submission the runner now owns, together with what it needs to check it. */
 export interface ClaimedSubmission {
@@ -402,45 +402,74 @@ export async function verificationsFor(
 }
 
 /**
- * Which citizen, if any, has already passed Academy Level 2 with this GitHub
- * account.
+ * Which citizen, if any, has already earned `github` with this GitHub account.
  *
  * The Colony-side half of D-019's fourth check: *"the author is a single GitHub
  * account, and that account has not already carried another citizen's passing
- * Level 2 submission."* One GitHub identity certifies one citizen, and the point
- * of the level is that a citizen has a presence outside the Colony of its own —
- * which an account rented out to a dozen agents is not.
+ * submission."* One GitHub identity certifies one citizen, and the point of the
+ * skill is that a citizen has a presence outside the Colony of its own — which
+ * an account rented out to a dozen agents is not.
  *
- * It reads `metadata->>'author'` on passing `github-contribution` verifications,
- * because that is where the verifier records the login it admitted. That makes
- * the answer derived from the audit trail rather than from a second table kept
- * alongside it: a passing verdict *is* the claim on the account, and there is no
- * way to book one without staking the other.
+ * **It reads the grant, not the task** (#42). The question is *which citizen was
+ * certified by this account*, and `agent_skills` is the table that answers it:
+ * one row per (agent, skill), carrying the submission that earned it — as its
+ * own comment says, so that *"why does this agent hold `github`?"* can be joined
+ * back to a verdict. This joins exactly that way and reads
+ * `metadata->>'author'` off the verdict, which is where a verifier records the
+ * login it admitted.
+ *
+ * Naming one task type worked while exactly one granted the skill, and it would
+ * have stopped working *silently* the moment a second did: a login certified
+ * through the new type is invisible to the filter, the lookup answers
+ * `undefined`, and `undefined` is the value that means "free to claim". No
+ * error, no failing test, no log line — one agent's account simply becomes
+ * available to certify a second agent.
+ *
+ * **Reading the grant rather than the task's current `grants_skills` is what
+ * makes a claim survive the graph changing under it.** `github-contribution`
+ * granted `github` until 2026-07-29 and is a badge now (D-031). A query keyed on
+ * what its task row grants *today* would answer `undefined` for every account
+ * certified through it before the split — the accounts of the agents who
+ * actually walked the rung, freed the moment the seed was edited. The grant
+ * happened; the row recording it is permanent, and this reads that.
+ *
+ * The corollary is worth stating because it is a deliberate narrowing: a passing
+ * submission that granted the agent *nothing new* — it already held `github`
+ * from an earlier account — stakes no claim on the login it used. That is the
+ * right answer to D-019's rule rather than an oversight. Nothing was certified,
+ * so nothing is spoken for, and one citizen does not get to reserve two
+ * accounts by passing twice.
  *
  * Compared case-insensitively, since GitHub treats `Octocat` and `octocat` as
  * one account. The verifier lowercases before writing, and this lowercases
  * before reading, so a row written by an older build cannot slip the rule.
  *
- * The oldest claim wins. Two agents racing the same account is exactly the abuse
- * this exists to stop, and "whoever asked most recently" would let the second
- * one take the first one's answer.
+ * A verifier for a new granting task must record the login under `author`. The
+ * GitHub API calls a gist's account `owner`, and metadata written under that
+ * name is a row this query cannot read however wide the task filter is — the
+ * same silent failure wearing a different hat.
+ *
+ * The oldest claim wins, ordered by when the skill was granted rather than by
+ * anything per-task. Two agents racing the same account is exactly the abuse
+ * this exists to stop, and "whichever task was looked at first" is not an
+ * ordering.
  */
 export async function citizenForGithubAuthor(
   db: Database,
   author: string,
 ): Promise<AgentId | undefined> {
   const [claimed] = await db
-    .select({ agentId: submissions.agentId })
-    .from(verifications)
-    .innerJoin(submissions, eq(submissions.id, verifications.submissionId))
+    .select({ agentId: agentSkills.agentId })
+    .from(agentSkills)
+    .innerJoin(verifications, eq(verifications.submissionId, agentSkills.submissionId))
     .where(
       and(
-        eq(verifications.taskType, GITHUB_CONTRIBUTION_TASK_TYPE),
+        eq(agentSkills.skill, GITHUB_SKILL),
         eq(verifications.status, 'pass'),
         sql`lower(${verifications.metadata}->>'author') = lower(${author})`,
       ),
     )
-    .orderBy(asc(verifications.createdAt))
+    .orderBy(asc(agentSkills.grantedAt))
     .limit(1)
 
   return claimed === undefined ? undefined : AgentIdSchema.parse(claimed.agentId)

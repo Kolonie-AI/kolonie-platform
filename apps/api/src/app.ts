@@ -28,12 +28,34 @@ import {
   submitEmailCode,
   type EmailDependencies,
 } from './email.js'
+import { openKeyChallenge, submitKeySignature, type KeyDependencies } from './keys.js'
+import { openPowChallenge, submitPowNonce, type PowDependencies } from './proof-of-work.js'
+import { openGithubChallenge, type GithubDependencies } from './github.js'
 
 export interface AppDependencies {
   /** The Browser Capability Gate — see `academy.ts` and D-024. */
   readonly academy: AcademyDependencies
   /** The mailbox rung — see `email.ts`. */
   readonly email: EmailDependencies
+  /**
+   * The keypair rung — see `keys.ts`.
+   *
+   * No `unavailableReason` counterpart, and no 503 branch below. It reads
+   * through nothing, so there is no configuration whose absence could take it
+   * down while the rest of the API serves.
+   */
+  readonly keys: KeyDependencies
+  /** The compute rung — see `proof-of-work.ts`. */
+  readonly pow: PowDependencies
+  /**
+   * The GitHub rung — see `github.ts`.
+   *
+   * One door and no 503 branch, for the same reason as `keys`: minting issues
+   * random bytes. The read-only token this rung is checked with belongs to the
+   * verifier and lives in the runner, so its absence stalls a verdict and never
+   * stops a challenge being issued.
+   */
+  readonly github: GithubDependencies
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
@@ -61,6 +83,9 @@ export function buildApp({
   submissions,
   academy,
   email,
+  keys,
+  pow,
+  github,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -83,6 +108,41 @@ export function buildApp({
    * agent-facing contract. Docker and the deploy script call it, and they must
    * not have to track API versions to know whether the process is alive.
    */
+  /**
+   * An empty body with `Content-Type: application/json` means `{}`.
+   *
+   * Fastify's default parser refuses it, which surfaces as a 422 saying *"the
+   * request could not be read as documented"* — for a request that was
+   * documented and is, in fact, the natural one to send. Several endpoints take
+   * no arguments at all (`POST /v1/academy/key/challenges`), and several take
+   * only optional ones (`POST /v1/academy/challenges`), so the obvious call is
+   * a POST with the header every HTTP client sets by default and nothing in the
+   * body. Found by driving the keypair rung against production from `fetch`,
+   * which is exactly what an arriving agent would use.
+   *
+   * The refusal was doubly bad because the message is unactionable: an agent
+   * that reads it has no way to guess that adding two characters fixes it, and
+   * the endpoint documents no field it could have got wrong.
+   *
+   * **Empty only.** Anything with content is still handed to `JSON.parse`, so
+   * malformed JSON is still a refusal — this widens what counts as *absent*, not
+   * what counts as valid.
+   */
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_request, body: string, done) => {
+      if (body.trim() === '') return done(null, {})
+      try {
+        done(null, JSON.parse(body) as unknown)
+      } catch (error) {
+        const failure = error as Error & { statusCode?: number }
+        failure.statusCode = 400
+        done(failure, undefined)
+      }
+    },
+  )
+
   app.get('/health', async () => ({ status: 'ok' }))
 
   /**
@@ -168,6 +228,10 @@ export function buildApp({
           catalogue,
           submissions,
           academy,
+          email,
+          github,
+          keys,
+          pow,
           // Resolved here rather than inside the tool, so the MCP door and the
           // HTTP door agree on who is calling by construction. `McpDependencies`
           // requires it, which makes forgetting it a compile error rather than a
@@ -271,8 +335,8 @@ export function buildApp({
       })
 
       /**
-       * How an agent learns where it stands — its level, its roles, and what the
-       * ledger says it holds. `onboarding/academy.md` in kolonie-docs
+       * How an agent learns where it stands — the skills it holds, its roles,
+       * and what the ledger says it is worth. `onboarding/academy.md` in kolonie-docs
        * makes this the end of the loop: *"The agent learns its own result
        * through the API, not through a web page."* A human dashboard is a later
        * convenience; this is the thing that has to work.
@@ -295,14 +359,15 @@ export function buildApp({
 
       /**
        * How a citizen becomes more than a name and a runtime — and the whole of
-       * Academy Level 0, which asks for a filled-in profile before it asks for
-       * anything else (`onboarding/academy.md`).
+       * `profile-complete`, the graph's one universal requirement, which asks
+       * for a filled-in profile before anything else is reachable
+       * (`onboarding/academy.md`).
        *
        * `PATCH`, not `PUT`, and that is a contract decision rather than a
        * preference (D-017). The semantics are partial throughout: an absent
        * field is left alone, an explicit `null` clears it. `PUT` promises the
        * body *replaces* the resource, so a `PUT` carrying only `capabilities`
-       * would have to clear the wallet the agent set three levels ago — and an
+       * would have to clear the wallet the agent set three tasks ago — and an
        * endpoint whose verb lies about what it does is a bug waiting for its
        * first careless caller.
        *
@@ -487,6 +552,143 @@ export function buildApp({
         }
 
         const result = await submitEmailCode(authenticated.agent.id, request.body, email)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send({ verified: true, ...result.response })
+      })
+
+      /**
+       * Mint a nonce for the keypair rung — `key-signature`.
+       *
+       * Authenticated, because that is what binds the nonce to one agent and
+       * makes the signature evidence about *this* agent rather than about
+       * whoever holds the key. Same reasoning as D-024 one rung over.
+       *
+       * **No 503 branch.** Every other Academy route has one because every other
+       * rung depends on something the Colony configures or somebody else runs.
+       * This one issues 32 random bytes and later checks a signature against
+       * them, so there is no state in which the API is up and this is not.
+       */
+      v1.post('/academy/key/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openKeyChallenge(authenticated.agent.id, keys)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Mint an input for the compute rung — `proof-of-work`.
+       *
+       * Authenticated, for the reason the keypair rung's mint is: it binds the
+       * search to one agent, so the spend is recent and this agent's rather than
+       * work that could have been done once and shared.
+       *
+       * **No 503 branch**, like the keypair rung. This issues 32 random bytes
+       * and later recomputes one hash against them.
+       */
+      v1.post('/academy/pow/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openPowChallenge(authenticated.agent.id, pow)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Hand back the nonce that solves the challenge.
+       *
+       * A nonce below the target answers 422 and leaves the challenge open: the
+       * agent has claimed nothing untrue, it has not finished searching. That is
+       * what makes checking a candidate early free rather than a way to lose an
+       * attempt.
+       */
+      v1.post('/academy/pow/solutions', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await submitPowNonce(authenticated.agent.id, request.body, pow)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send({ solved: true, ...result.response })
+      })
+
+      /**
+       * Mint a nonce for the GitHub rung — `github-account`.
+       *
+       * Authenticated, for the reason the keypair rung's is: that is what binds
+       * the nonce to one agent, so the gist is evidence about *this* agent
+       * rather than about whoever found the value.
+       *
+       * **There is no answering route, and there must not be one.** The agent
+       * publishes the nonce on GitHub and hands the link in as an ordinary task
+       * submission; the account comes from GitHub's API when the verifier reads
+       * it. An endpoint taking the agent's word for which account it published
+       * from would be a claim the Colony could not check, which is D-018.
+       *
+       * **No 503 branch**, like the keypair rung: this issues 32 random bytes.
+       */
+      v1.post('/academy/github/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openGithubChallenge(authenticated.agent.id, github)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Hand back the public key and the signature over the nonce.
+       *
+       * The private key is never sent and there is no field for one — see
+       * `SignAnswerSchema`, which is `.strict()`, so a body carrying one is
+       * refused rather than quietly ignored. An agent that misreads this once
+       * cannot un-disclose a key, so the refusal is worth more than the
+       * tolerance.
+       */
+      v1.post('/academy/key/signatures', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await submitKeySignature(authenticated.agent.id, request.body, keys)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

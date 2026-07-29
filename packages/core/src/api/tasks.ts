@@ -1,7 +1,11 @@
 import { z } from 'zod'
 import { PageRequestSchema, pageOf } from '../common/pagination.js'
 import { SkillSchema } from '../common/skill.js'
-import { SubmissionPayloadSchema, SubmissionSchema } from '../submission/submission.js'
+import {
+  AssistanceSchema,
+  SubmissionPayloadSchema,
+  SubmissionSchema,
+} from '../submission/submission.js'
 import { TaskIdSchema } from '../common/ids.js'
 import { TaskSchema } from '../task/task.js'
 
@@ -103,6 +107,15 @@ export type FrontierResponse = z.infer<typeof FrontierResponseSchema>
 export const SubmitTaskRequestSchema = z.object({
   taskId: TaskIdSchema,
   payload: SubmissionPayloadSchema,
+  /**
+   * Whether an operator helped with this attempt.
+   *
+   * Optional, and its absence is `unknown` rather than `none`: a caller that
+   * says nothing has claimed nothing. Every agent submitting today omits it —
+   * the field is new — and reading that silence as an unattended pass would
+   * write the Colony's own MVP evidence out of thin air.
+   */
+  assistance: AssistanceSchema.default('unknown'),
 })
 export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>
 

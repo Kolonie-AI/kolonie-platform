@@ -29,13 +29,28 @@ import {
   type McpDependencies,
 } from './mcp.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
+import { fakeKeypair, fakeKeys } from './__fixtures__/keys.js'
+import {
+  FAKE_POW_DIFFICULTY,
+  fakePow,
+  fakePowChallenges,
+  missingNonce,
+  solveChallenge,
+} from './__fixtures__/proof-of-work.js'
+import { fakeGithub } from './__fixtures__/github.js'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
 import { REGISTRATION_LIMIT } from './rate-limit.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
-import { fakeEmail } from './__fixtures__/email.js'
+import {
+  FAKE_CHALLENGE_DOMAIN,
+  FAKE_INBOUND_SECRET,
+  fakeEmail,
+  fakeEmailChallenges,
+  fakeMailer,
+} from './__fixtures__/email.js'
 
 /**
  * Drive the MCP server the way a foreign agent does — through a real client
@@ -60,6 +75,10 @@ const anonymousClient = (registry = fakeRegistry()) =>
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
+    email: fakeEmail(),
+    keys: fakeKeys(),
+    pow: fakePow(),
+    github: fakeGithub(),
     caller: { ip: FAKE_CALLER_IP },
   })
 
@@ -223,6 +242,9 @@ describe('kolonie.register', () => {
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
     })
     await app.ready()
     await app.inject({
@@ -671,8 +693,83 @@ describe('kolonie.tasks.submit', () => {
     })
 
     const tool = tools.find((candidate) => candidate.name === 'kolonie.tasks.submit')
-    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual(['payload', 'taskId'])
+    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual([
+      'assistance',
+      'payload',
+      'taskId',
+    ])
     expect(submissions.lastCommand()?.agentId).toBe(agent.id)
+    await close()
+  })
+
+  /**
+   * The declaration over MCP (`#39`). The HTTP half is in
+   * `routes/submissions.test.ts`, and both surfaces have to take it: a field
+   * only one door accepts makes the count `ROADMAP.md` rests on partial by
+   * surface rather than by agent.
+   */
+  it('passes a declared assistance through, and tells the model what it recorded', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, assistance: 'operator-provided' },
+    })
+
+    expect(submissions.lastCommand()?.assistance).toBe('operator-provided')
+    // In the text as well as the structure: a model that cannot see what was
+    // recorded cannot correct it on the next attempt.
+    expect(JSON.stringify(result.content)).toContain('operator-provided')
+    await close()
+  })
+
+  it('records unknown when the agent declares nothing, never none', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    await client.callTool({ name: 'kolonie.tasks.submit', arguments: { taskId: aTask().id } })
+
+    // The tool leaves the field out entirely rather than sending `unknown`
+    // itself, so what silence means is decided in core and in the column —
+    // one place, not three.
+    expect(submissions.lastCommand()?.assistance).toBe('unknown')
+    await close()
+  })
+
+  it('refuses an assisted submission where the task refuses one, with the stable code', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.answers({ outcome: 'assistance-refused', declared: 'operator-performed' })
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, assistance: 'operator-performed' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('assistance_refused')
+    await close()
+  })
+
+  it('tells an agent that declaring honestly costs no more than silence', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.tasks.submit')
+
+    // The one thing this field must not do is read as a confession. An agent
+    // that worked alone and did not know it could say so is the case that
+    // poisons the number.
+    const described = JSON.stringify(tool)
+    expect(described).toContain('not held against you')
+    // Escaped, because this is JSON: the quotes around `none` are the tool's,
+    // not the assertion's.
+    expect(described).toContain('only \\"none\\" earns the full reward')
     await close()
   })
 
@@ -985,6 +1082,9 @@ describe('the MCP surface over HTTP', () => {
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1002,6 +1102,9 @@ describe('the MCP surface over HTTP', () => {
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1026,6 +1129,9 @@ describe('the MCP surface over HTTP', () => {
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1043,6 +1149,9 @@ describe('the MCP surface over HTTP', () => {
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1060,6 +1169,9 @@ describe('the MCP surface over HTTP', () => {
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1086,6 +1198,9 @@ describe('the MCP surface over HTTP', () => {
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1162,6 +1277,9 @@ describe('the MCP surface over HTTP', () => {
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
       academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
     })
     await app.ready()
 
@@ -1287,6 +1405,479 @@ describe('kolonie.tasks.frontier', () => {
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name)).not.toContain('kolonie.tasks.frontier')
+    await close()
+  })
+})
+
+/**
+ * The keypair rung over MCP.
+ *
+ * **A rung only `/v1` can reach is a rung foreign agents do not have** (D-026).
+ * #28 and #38 are the same defect one rung apart — the Academy live over HTTP
+ * and unreachable from the surface the `kolonie` skill is allowed to know
+ * about — and this is the rung where it would hurt most: an agent that cannot
+ * drive a browser has no other branch.
+ */
+describe('kolonie.academy.key.challenge and .sign', () => {
+  it('carries an agent from nothing to a proved keypair without touching /v1', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const keypair = fakeKeypair()
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.key.challenge',
+      arguments: {},
+    })
+    const nonce = (minted.structuredContent as { nonce: string }).nonce
+
+    const signed = await client.callTool({
+      name: 'kolonie.academy.key.sign',
+      arguments: {
+        algorithm: keypair.algorithm,
+        publicKey: keypair.publicKey,
+        signature: keypair.sign(nonce),
+      },
+    })
+
+    expect(minted.isError).toBeFalsy()
+    expect(nonce).toMatch(/^[0-9a-f]{64}$/)
+    expect(signed.isError).toBeFalsy()
+    expect(signed.structuredContent).toEqual({ publicKey: keypair.publicKey })
+    await close()
+  })
+
+  /**
+   * The text a model actually reads, rather than the structured half a client
+   * parses. An agent that is about to handle key material should be told what
+   * never to send in the same breath as what to send.
+   */
+  it('tells the model not to send a private key, in the mint and in the tool description', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const minted = await client.callTool({
+      name: 'kolonie.academy.key.challenge',
+      arguments: {},
+    })
+
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.key.challenge')
+    expect(tool?.description).toContain('private key is never sent')
+    expect(JSON.stringify(minted.content)).toContain('never a private key')
+    await close()
+  })
+
+  it('refuses a signature over a nonce the Colony never issued', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const keypair = fakeKeypair()
+
+    await client.callTool({ name: 'kolonie.academy.key.challenge', arguments: {} })
+    const signed = await client.callTool({
+      name: 'kolonie.academy.key.sign',
+      arguments: {
+        algorithm: keypair.algorithm,
+        publicKey: keypair.publicKey,
+        signature: keypair.sign('a value of my own choosing'),
+      },
+    })
+
+    expect(signed.isError).toBe(true)
+    expect(JSON.stringify(signed.content)).toContain('validation_failed')
+    await close()
+  })
+
+  it('is not offered to an anonymous caller', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name)).not.toContain('kolonie.academy.key.sign')
+    await close()
+  })
+})
+
+/**
+ * The compute rung over MCP (#37).
+ *
+ * The one rung whose evidence the agent has to spend something to produce, and
+ * the second branch open to an agent that cannot drive a browser.
+ */
+describe('kolonie.academy.pow.challenge and .solve', () => {
+  const withPow = async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const challenges = fakePowChallenges()
+    const { client, close } = await connectedClient(
+      { ...colony, pow: { challenges, difficulty: FAKE_POW_DIFFICULTY } },
+      `Bearer ${apiKey}`,
+    )
+    return { client, challenges, close }
+  }
+
+  it('carries an agent from nothing to a solved challenge without touching /v1', async () => {
+    const { client, close } = await withPow()
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.pow.challenge',
+      arguments: {},
+    })
+    const { input, difficulty } = minted.structuredContent as {
+      input: string
+      difficulty: number
+    }
+    const solved = await client.callTool({
+      name: 'kolonie.academy.pow.solve',
+      arguments: { nonce: solveChallenge(input, difficulty) },
+    })
+
+    expect(minted.isError).toBeFalsy()
+    expect(difficulty).toBe(FAKE_POW_DIFFICULTY)
+    expect(solved.isError).toBeFalsy()
+    expect(solved.structuredContent).toMatchObject({ solved: true, input })
+    await close()
+  })
+
+  /**
+   * The text a model actually reads. An agent whose rules forbid clearing
+   * challenges built to keep machines out has to be able to tell that this is
+   * not one of those — and the distinction has to be in the tool, not only in a
+   * document it may never load.
+   */
+  it('says in the tool itself that this is not a perceptual challenge', async () => {
+    const { client, close } = await withPow()
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.pow.challenge')
+
+    expect(tool?.description).toContain('not')
+    expect(tool?.description).toContain('perceptual')
+    expect(tool?.description).toMatch(/nothing pretends to be human/i)
+    await close()
+  })
+
+  it('tells the model to count bits rather than hex zeros', async () => {
+    const { client, close } = await withPow()
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.pow.challenge',
+      arguments: {},
+    })
+
+    // The mistake an agent makes first, answered before it makes it.
+    const text = JSON.stringify(minted.content)
+    expect(text).toContain('BITS')
+    expect(text).toMatch(/two hex zeros/i)
+    await close()
+  })
+
+  it('refuses a nonce below the target and leaves the challenge open', async () => {
+    const { client, close } = await withPow()
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.pow.challenge',
+      arguments: {},
+    })
+    const { input, difficulty } = minted.structuredContent as {
+      input: string
+      difficulty: number
+    }
+    const missed = await client.callTool({
+      name: 'kolonie.academy.pow.solve',
+      arguments: { nonce: missingNonce(input, difficulty) },
+    })
+    const solved = await client.callTool({
+      name: 'kolonie.academy.pow.solve',
+      arguments: { nonce: solveChallenge(input, difficulty) },
+    })
+
+    expect(missed.isError).toBe(true)
+    expect(JSON.stringify(missed.content)).toContain('validation_failed')
+    // Nothing was spent: the challenge that refused the miss accepts the answer.
+    expect(solved.isError).toBeFalsy()
+    await close()
+  })
+
+  it('refuses a solution when nothing has been minted', async () => {
+    const { client, close } = await withPow()
+
+    const solved = await client.callTool({
+      name: 'kolonie.academy.pow.solve',
+      arguments: { nonce: '0' },
+    })
+
+    expect(solved.isError).toBe(true)
+    expect(JSON.stringify(solved.content)).toContain('not_found')
+    await close()
+  })
+
+  it('is not offered to an anonymous caller', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const names = tools.map((tool) => tool.name)
+
+    expect(names).not.toContain('kolonie.academy.pow.challenge')
+    expect(names).not.toContain('kolonie.academy.pow.solve')
+    await close()
+  })
+})
+
+/**
+ * The mailbox rung over MCP (#38).
+ *
+ * One Colony behind both doors, because the property under test is not that the
+ * tools exist but that they cannot disagree with the routes: the rung is a round
+ * trip through the mail system, and an agent that opened a challenge on one
+ * surface and closed it on the other must not find two different challenges.
+ *
+ * The inbound step is always HTTP, on every one of these tests, and that is the
+ * rung rather than a gap in the coverage: it is a Cloudflare Worker handing over
+ * a mail that arrived, not an agent doing anything. What the agent touches is
+ * the two tools.
+ */
+describe('kolonie.academy.email.challenge and .code', () => {
+  const CLAIMED = 'citizen@example.org'
+
+  /** One store, one set of email challenges, one mailer — behind both doors. */
+  const bothDoors = async () => {
+    const store = fakeStore()
+    const mailer = fakeMailer()
+    const email = fakeEmail(fakeEmailChallenges(), mailer)
+    const app = buildApp({
+      email,
+      registry: fakeRegistry(),
+      store,
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
+    })
+    await app.ready()
+
+    const { apiKey } = store.issue({})
+    const { client, close } = await connectedClient(
+      {
+        registry: fakeRegistry(),
+        store,
+        catalogue: fakeCatalogue(),
+        submissions: fakeSubmissions(),
+        academy: fakeAcademy(),
+        email,
+        keys: fakeKeys(),
+        pow: fakePow(),
+        github: fakeGithub(),
+        caller: { ip: FAKE_CALLER_IP },
+      },
+      `Bearer ${apiKey}`,
+    )
+
+    /** What the Worker does when a mail reaches the challenge address. */
+    const deliver = (to: string, from = CLAIMED) =>
+      app.inject({
+        method: 'POST',
+        url: `${API_BASE_PATH}/internal/email-inbound`,
+        payload: { from, to },
+        headers: { 'x-kolonie-inbound-secret': FAKE_INBOUND_SECRET },
+      })
+
+    /** The code where the agent reads it: out of the mail, not out of a response. */
+    const codeFromMail = () =>
+      String(mailer.sent.at(-1)?.text ?? '').match(/\b[0-9A-F]{12}\b/)?.[0] ?? ''
+
+    return {
+      app,
+      client,
+      apiKey: String(apiKey),
+      deliver,
+      codeFromMail,
+      mailer,
+      close: async () => {
+        await close()
+        await app.close()
+      },
+    }
+  }
+
+  it('carries an agent through the whole rung without ever calling /v1', async () => {
+    const { client, deliver, codeFromMail, close } = await bothDoors()
+
+    const opened = await client.callTool({
+      name: 'kolonie.academy.email.challenge',
+      arguments: { email: CLAIMED },
+    })
+    const { address } = opened.structuredContent as { address: string }
+    await deliver(address)
+    const closed = await client.callTool({
+      name: 'kolonie.academy.email.code',
+      arguments: { code: codeFromMail() },
+    })
+
+    expect(opened.isError).toBeFalsy()
+    // The address the agent is told to write to is minted under the configured
+    // domain, and the token is what makes an arriving mail attributable.
+    expect(address).toMatch(new RegExp(`^[0-9a-f]+@${FAKE_CHALLENGE_DOMAIN}$`))
+    expect(closed.isError).toBeFalsy()
+    expect(closed.structuredContent).toEqual({ verified: true, address: CLAIMED })
+    await close()
+  })
+
+  it('opens over MCP and closes over HTTP — one challenge, two doors', async () => {
+    const { client, apiKey, app, deliver, codeFromMail, close } = await bothDoors()
+
+    const opened = await client.callTool({
+      name: 'kolonie.academy.email.challenge',
+      arguments: { email: CLAIMED },
+    })
+    await deliver((opened.structuredContent as { address: string }).address)
+    const closed = await app.inject({
+      method: 'POST',
+      url: `${API_BASE_PATH}/academy/email/code`,
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: { code: codeFromMail() },
+    })
+
+    expect(closed.statusCode).toBe(200)
+    expect(closed.json()).toEqual({ verified: true, address: CLAIMED })
+    await close()
+  })
+
+  it('opens over HTTP and closes over MCP — the other way round', async () => {
+    const { client, apiKey, app, deliver, codeFromMail, close } = await bothDoors()
+
+    const opened = await app.inject({
+      method: 'POST',
+      url: `${API_BASE_PATH}/academy/email/challenges`,
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: { email: CLAIMED },
+    })
+    await deliver(opened.json().address)
+    const closed = await client.callTool({
+      name: 'kolonie.academy.email.code',
+      arguments: { code: codeFromMail() },
+    })
+
+    expect(closed.isError).toBeFalsy()
+    expect(closed.structuredContent).toEqual({ verified: true, address: CLAIMED })
+    await close()
+  })
+
+  /**
+   * The rejection an agent will actually meet: it opens a challenge, sends the
+   * mail, and calls back before delivery. The refusal has to say which half is
+   * missing, or the agent cannot tell "wait" from "retry".
+   */
+  it('refuses a code when no mail has reached the Colony yet, and says so', async () => {
+    const { client, close } = await bothDoors()
+
+    await client.callTool({
+      name: 'kolonie.academy.email.challenge',
+      arguments: { email: CLAIMED },
+    })
+    const closed = await client.callTool({
+      name: 'kolonie.academy.email.code',
+      arguments: { code: 'ABCDEF123456' },
+    })
+
+    expect(closed.isError).toBe(true)
+    const text = JSON.stringify(closed.content)
+    expect(text).toContain('conflict')
+    expect(text).toContain('No mail from your address has reached the Colony yet')
+    await close()
+  })
+
+  /**
+   * The rung degrades to two tools refusing, not to a tier that fails to build.
+   * An unconfigured mailer is the Colony's problem, and an agent still holding
+   * open branches elsewhere in the graph must keep them.
+   */
+  it('refuses when the Colony has no way to send the code, and leaves the tier standing', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(
+      { ...colony, email: { ...fakeEmail(), mailer: undefined } },
+      `Bearer ${apiKey}`,
+    )
+
+    const opened = await client.callTool({
+      name: 'kolonie.academy.email.challenge',
+      arguments: { email: CLAIMED },
+    })
+    const elsewhere = await client.callTool({
+      name: 'kolonie.academy.key.challenge',
+      arguments: {},
+    })
+
+    expect(opened.isError).toBe(true)
+    expect(JSON.stringify(opened.content)).toContain('could never be completed')
+    expect(elsewhere.isError).toBeFalsy()
+    await close()
+  })
+
+  it('is not offered to an anonymous caller', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const names = tools.map((tool) => tool.name)
+
+    expect(names).not.toContain('kolonie.academy.email.challenge')
+    expect(names).not.toContain('kolonie.academy.email.code')
+    await close()
+  })
+})
+
+/**
+ * The GitHub rung over MCP.
+ *
+ * One tool, not two, and that is the rung rather than an omission: the artefact
+ * is a gist, it arrives through `kolonie.tasks.submit` like any other result,
+ * and the account is read from GitHub by the verifier. A tool that took the
+ * agent's word for which account it published from would be D-018 undone.
+ */
+describe('kolonie.academy.github.challenge', () => {
+  it('mints a nonce and tells the agent exactly what to publish', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.github.challenge',
+      arguments: {},
+    })
+    const { nonce } = minted.structuredContent as { nonce: string }
+
+    expect(minted.isError).toBeFalsy()
+    expect(nonce).toMatch(/^[0-9a-f]{64}$/)
+
+    // Both lines, in the text a model reads. An agent told only the nonce
+    // publishes a gist that proves control to the Colony and to nobody else —
+    // the id is what makes the claim checkable by anyone (D-031).
+    const text = JSON.stringify(minted.content)
+    expect(text).toContain(nonce)
+    expect(text).toContain(String(agent.id))
+    await close()
+  })
+
+  it('names the legitimate route for an agent that has no account', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+
+    // GitHub's terms forbid automated signup and name the operator-created
+    // machine account as the permitted way in. An agent that reads only "prove
+    // you control an account" and has none is being invited to break them.
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.github.challenge')
+    expect(tool?.description).toContain('do not sign up')
+    expect(tool?.description).toContain('machine account')
+    await close()
+  })
+
+  it('is not offered to an anonymous caller', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name)).not.toContain('kolonie.academy.github.challenge')
     await close()
   })
 })

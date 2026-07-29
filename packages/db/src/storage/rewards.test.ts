@@ -7,13 +7,14 @@ import {
   SubmissionIdSchema,
   TaskIdSchema,
   TaskTypeSchema,
+  UNDECLARED_REWARD_PERCENT,
   type AgentId,
+  type Assistance,
   type SubmissionId,
   type TaskId,
 } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import {
-  agents,
   agentSkills,
   ledgerEntries,
   reputationEvents,
@@ -52,24 +53,22 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
 
   let seeded = 0
 
-  const anAgent = async (level = 0): Promise<AgentId> => {
+  const anAgent = async (): Promise<AgentId> => {
     const result = await registerAgent(
       db,
       RegisterAgentRequestSchema.parse({ name: `canary-${++seeded}`, platform: 'openclaw' }),
     )
     if (result.outcome !== 'registered') throw new Error(result.outcome)
-    if (level !== 0) await db.update(agents).set({ level }).where(eq(agents.id, result.agent.id))
     return result.agent.id
   }
 
   const aTask = async (
-    options: { coins?: number; reputation?: number; level?: number; grants?: string[] } = {},
+    options: { coins?: number; reputation?: number; grants?: string[] } = {},
   ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
         type: 'example-task',
-        level: options.level ?? 0,
         grantsSkills: options.grants ?? [],
         title: 'Make an API call',
         description: 'What this task is, for a human reading the catalogue.',
@@ -85,16 +84,30 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
     return TaskIdSchema.parse(row.id)
   }
 
-  /** A submission sitting in `verifying`, as the runner leaves it after claiming. */
+  /**
+   * A submission sitting in `verifying`, as the runner leaves it after claiming.
+   *
+   * **Declares `none` unless a test says otherwise**, so the amounts booked here
+   * are the task's stated reward and every assertion below is about the books
+   * rather than about the rate. What the declaration is worth has its own block
+   * at the end of this file — a fixture that quietly halved every number would
+   * have made those two questions impossible to tell apart.
+   */
   const aClaimedSubmission = async (
-    options: { taskId?: TaskId; agentId?: AgentId } = {},
+    options: { taskId?: TaskId; agentId?: AgentId; assistance?: Assistance } = {},
   ): Promise<SubmissionId> => {
     const taskId = options.taskId ?? (await aTask())
     const agentId = options.agentId ?? (await anAgent())
 
     const [row] = await db
       .insert(submissions)
-      .values({ taskId, agentId, payload: { echo: 'hello' }, status: 'pending' })
+      .values({
+        taskId,
+        agentId,
+        payload: { echo: 'hello' },
+        status: 'pending',
+        assistance: options.assistance ?? 'none',
+      })
       .returning({ id: submissions.id })
 
     if (row === undefined) throw new Error('insert into submissions returned no row')
@@ -125,15 +138,6 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       .select()
       .from(ledgerEntries)
       .where(eq(ledgerEntries.reference, submissionReference(submissionId)))
-
-  const levelOf = async (agentId: AgentId): Promise<number> => {
-    const [row] = await db
-      .select({ level: agents.level })
-      .from(agents)
-      .where(eq(agents.id, agentId))
-    if (row === undefined) throw new Error('agent vanished')
-    return row.level
-  }
 
   /** What the whole ledger sums to. Must be zero, always, whatever happened. */
   const ledgerTotal = async (): Promise<number> => {
@@ -206,28 +210,22 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       }
     })
 
-    it('advances the level, derived from the task that was passed', async () => {
+    /**
+     * The memo no longer names a number (`#35`). It still names the task type,
+     * which is the part an audit reads: an entry has to say what was paid for,
+     * and `Academy Level 3` said where the task sat rather than what it was.
+     */
+    it('writes a memo naming the task type, the rate it booked at, and no level', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ level: 0 })
-      const submissionId = await aClaimedSubmission({ taskId, agentId })
-
-      const written = await pass(submissionId)
-
-      expect(await levelOf(agentId)).toBe(1)
-      if (written.outcome === 'recorded') {
-        expect(written.booking?.previousLevel).toBe(0)
-        expect(written.booking?.level).toBe(1)
-      }
-    })
-
-    it('does not demote an agent that re-passes a level it already cleared', async () => {
-      const agentId = await anAgent(5)
-      const taskId = await aTask({ level: 0 })
+      const taskId = await aTask({ coins: 10 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       await pass(submissionId)
 
-      expect(await levelOf(agentId)).toBe(5)
+      for (const entry of await entriesFor(submissionId)) {
+        expect(entry.memo).toBe(`Academy — ${EXAMPLE_TASK} (unattended)`)
+        expect(entry.memo).not.toMatch(/Level/)
+      }
     })
 
     it('is visible to the balance read the moment it commits', async () => {
@@ -256,16 +254,15 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
 
       expect(await entriesFor(submissionId)).toHaveLength(0)
       if (written.outcome === 'recorded') expect(written.booking?.transactionId).toBeNull()
-      // The reputation and the level advancement still happen.
+      // The reputation still happens.
       expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 0, reputation: 3 })
-      expect(await levelOf(agentId)).toBe(1)
     })
   })
 
   /**
    * D-030: a pass grants the task's skills in the same transaction that writes
-   * the verdict and books the coins. Same rule the level advance followed —
-   * derived from the task, never supplied by a caller — and a stronger reason
+   * the verdict and books the coins. Same rule the retired level advance
+   * followed — derived from the task, never supplied by a caller — and a stronger reason
    * for it, because a skill decides what the agent may attempt next.
    */
   describe('the skills a pass grants', () => {
@@ -359,7 +356,7 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
   })
 
   describe('anything that is not a pass', () => {
-    it('books nothing on a fail, and leaves the level alone', async () => {
+    it('books nothing on a fail', async () => {
       const agentId = await anAgent()
       const submissionId = await aClaimedSubmission({ agentId })
 
@@ -369,7 +366,6 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       if (written.outcome === 'recorded') expect(written.booking).toBeUndefined()
       expect(await entriesFor(submissionId)).toHaveLength(0)
       expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 0, reputation: 0 })
-      expect(await levelOf(agentId)).toBe(0)
     })
 
     it('books nothing when a verifier answers pending', async () => {
@@ -383,7 +379,6 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       })
 
       expect(await entriesFor(submissionId)).toHaveLength(0)
-      expect(await levelOf(agentId)).toBe(0)
     })
   })
 
@@ -503,5 +498,111 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       .where(eq(ledgerEntries.accountKind, 'system'))
 
     expect(Number(minted?.total ?? '0')).toBe(-(7 + 41 + 7 + 41))
+  })
+  /**
+   * What the declaration is worth (`#39`).
+   *
+   * The Academy certifies control of a capability, not the autonomy of its
+   * acquisition (`kolonie-docs#36`) — so the skill is granted either way and
+   * only the payment differs. These tests are the mechanical half of that
+   * sentence.
+   */
+  describe('what the declaration is worth', () => {
+    it('pays the full reward for a pass declared unattended', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ coins: 10, reputation: 5 })
+      const submissionId = await aClaimedSubmission({ taskId, agentId, assistance: 'none' })
+
+      await pass(submissionId)
+
+      expect(await balanceOfAgent(db, agentId)).toMatchObject({ coins: 10, reputation: 5 })
+    })
+
+    it.each(['operator-provided', 'operator-performed', 'unknown'] as const)(
+      'pays the reduced rate for %s, and says so in the memo',
+      async (assistance) => {
+        const agentId = await anAgent()
+        const taskId = await aTask({ coins: 10, reputation: 5 })
+        const submissionId = await aClaimedSubmission({ taskId, agentId, assistance })
+
+        await pass(submissionId)
+
+        // Half of each, floored — the constant is core's, not restated here.
+        expect(await balanceOfAgent(db, agentId)).toMatchObject({
+          coins: Math.floor((10 * UNDECLARED_REWARD_PERCENT) / 100),
+          reputation: Math.floor((5 * UNDECLARED_REWARD_PERCENT) / 100),
+        })
+
+        // An entry that booked 5 where the task says 10 has to say why, or an
+        // audit has to go and reconstruct the reason from a submission row.
+        for (const entry of await entriesFor(submissionId)) {
+          expect(entry.memo).toContain(assistance)
+          expect(entry.memo).toContain(`${UNDECLARED_REWARD_PERCENT}%`)
+        }
+      },
+    )
+
+    /**
+     * Silence and honesty cost the same. This is the property that makes the
+     * field a declaration rather than a confession: an agent that says an
+     * operator helped is no worse off than one that says nothing, so the only
+     * thing declaring can cost it is the premium it was never entitled to.
+     */
+    it('charges the same for saying nothing as for admitting an operator', async () => {
+      const quiet = await anAgent()
+      const honest = await anAgent()
+      const taskId = await aTask({ coins: 10, reputation: 5 })
+
+      await pass(await aClaimedSubmission({ taskId, agentId: quiet, assistance: 'unknown' }))
+      await pass(
+        await aClaimedSubmission({ taskId, agentId: honest, assistance: 'operator-performed' }),
+      )
+
+      expect(await balanceOfAgent(db, quiet)).toMatchObject(
+        await balanceOfAgent(db, honest).then(({ coins, reputation }) => ({ coins, reputation })),
+      )
+    })
+
+    /**
+     * **The skill is granted either way**, and this is the assertion that keeps
+     * the Academy's own claim honest: it certifies that the capability is
+     * available to the agent, which an operator handing over a mailbox does not
+     * falsify. Only the premium is withheld.
+     */
+    it('grants the skill on an assisted pass, and still books the reduced coins', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ coins: 10, reputation: 5, grants: ['mailbox'] })
+      const submissionId = await aClaimedSubmission({
+        taskId,
+        agentId,
+        assistance: 'operator-provided',
+      })
+
+      const written = await db.transaction((tx) =>
+        bookTaskReward(tx, { submissionId, bookedAt: now() }),
+      )
+
+      expect(written.grantedSkills).toEqual(['mailbox'])
+      expect(written.coins).toBe(5)
+    })
+
+    /** The books still balance when the two rates are mixed. */
+    it('leaves the ledger summing to zero across both rates', async () => {
+      const taskId = await aTask({ coins: 11, reputation: 2 })
+
+      await pass(await aClaimedSubmission({ taskId, assistance: 'none' }))
+      await pass(await aClaimedSubmission({ taskId, assistance: 'unknown' }))
+      await pass(await aClaimedSubmission({ taskId, assistance: 'operator-performed' }))
+
+      expect(await ledgerTotal()).toBe(0)
+
+      const [minted] = await db
+        .select({ total: sql<string>`coalesce(sum(${ledgerEntries.amount}), 0)::text` })
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.accountKind, 'system'))
+
+      // 11 at the full rate, then 5 twice — floored, not rounded.
+      expect(Number(minted?.total ?? '0')).toBe(-(11 + 5 + 5))
+    })
   })
 })

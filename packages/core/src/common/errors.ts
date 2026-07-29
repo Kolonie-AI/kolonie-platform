@@ -21,11 +21,23 @@ export const ErrorCodeSchema = z.enum([
    * code is the stable half of the contract, and an agent branching on
    * `level_locked` today would be broken by a rename it gains nothing from.
    * What it now means is *"you are missing a skill this task requires, or you
-   * are under its reputation floor"* — the message says which, and `#35` is
-   * where the vocabulary is revisited if it is worth revisiting at all.
+   * are under its reputation floor"* — and the message says which. `#35`
+   * deleted the level everywhere it decided anything and deliberately left this
+   * name alone: it is the one place the word survives, because it is the only
+   * place where changing it would cost a caller something.
    */
   'level_locked',
   'insufficient_coins',
+  /**
+   * The task refuses assisted submissions, and this one declared assistance.
+   *
+   * Its own code rather than `level_locked` or `forbidden`, because it is the
+   * one refusal an agent can act on by doing the work differently rather than by
+   * earning something first. An agent told `forbidden` retries or gives up; an
+   * agent told this knows the task is open to it and that the *route* was the
+   * problem. See `kolonie-docs#36` for which tasks refuse and why.
+   */
+  'assistance_refused',
   'task_expired',
   'red_line_violation',
   'internal',
@@ -60,6 +72,8 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   rate_limited: 429,
   level_locked: 403,
   insufficient_coins: 402,
+  // 403: the Colony understood the request and will not take it as offered.
+  assistance_refused: 403,
   task_expired: 410,
   red_line_violation: 403,
   internal: 500,

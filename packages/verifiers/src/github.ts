@@ -32,9 +32,37 @@ export type GitHubReadResult =
   | { readonly outcome: 'not-found'; readonly reason: string }
   | { readonly outcome: 'unavailable'; readonly reason: string }
 
-/** The seam the verifier depends on, so its own tests need no network. */
+/**
+ * One public gist, reduced to what a proof of account control depends on.
+ *
+ * **`author`, though GitHub calls it `owner`.** The name is translated here, in
+ * the one place that reads the API, rather than at each verifier that writes a
+ * verdict. `citizenForGithubAuthor` answers one-account-one-citizen by reading
+ * `metadata->>'author'` across every task that grants `github`, so a verifier
+ * that recorded `owner` would write a row that query cannot see — a login
+ * silently free to certify a second agent, with every other check still passing
+ * (`kolonie-platform#42`). One name, translated once, is what makes that
+ * impossible rather than merely unlikely.
+ */
+export interface GitHubGistArtefact {
+  /** The address the agent submitted, echoed back so evidence can name it. */
+  readonly url: string
+  /** The account that owns it, lowercased — GitHub logins are case-insensitive. */
+  readonly author: string
+  /** Every file's content, joined by newlines. What the agent published. */
+  readonly body: string
+}
+
+/** What a gist read came to. The three outcomes mean what they do above. */
+export type GitHubGistReadResult =
+  | { readonly outcome: 'found'; readonly artefact: GitHubGistArtefact }
+  | { readonly outcome: 'not-found'; readonly reason: string }
+  | { readonly outcome: 'unavailable'; readonly reason: string }
+
+/** The seam the verifiers depend on, so their own tests need no network. */
 export interface GitHubReader {
   read(url: string): Promise<GitHubReadResult>
+  readGist(url: string): Promise<GitHubGistReadResult>
 }
 
 /**
@@ -118,10 +146,58 @@ export function resolveGitHubUrl(url: string): ResolvedGitHubUrl {
   return { kind: 'issue', apiUrl: `${GITHUB_API}/repos/${owner}/${repo}/issues/${number}` }
 }
 
+/**
+ * Where a gist URL lives in GitHub's API, or why it is not addressable.
+ *
+ * Both forms GitHub itself hands out are accepted: `gist.github.com/<id>` and
+ * `gist.github.com/<login>/<id>`. The login in the second is **not** read as
+ * evidence of anything — it is whatever the pasted link happened to contain, and
+ * the account this rung certifies comes from the API's `owner` (D-018). Parsing
+ * it out and ignoring it is the point.
+ */
+export type ResolvedGistUrl =
+  | { readonly kind: 'gist'; readonly apiUrl: string }
+  | { readonly kind: 'unaddressable'; readonly reason: string }
+
+export function resolveGistUrl(url: string): ResolvedGistUrl {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return { kind: 'unaddressable', reason: `\`${url}\` is not a URL.` }
+  }
+
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'gist.github.com') {
+    return {
+      kind: 'unaddressable',
+      reason: `\`${url}\` is not a https://gist.github.com address.`,
+    }
+  }
+
+  const path = /^\/(?:([^/]+)\/)?([0-9a-f]{5,})$/.exec(parsed.pathname)
+  if (path === null) {
+    return {
+      kind: 'unaddressable',
+      reason:
+        `\`${url}\` does not name a gist. Expected https://gist.github.com/<id>, ` +
+        'which is what GitHub shows in the address bar of a gist you just created.',
+    }
+  }
+
+  return { kind: 'gist', apiUrl: `${GITHUB_API}/gists/${path[2]}` }
+}
+
 /** The subset of GitHub's issue and comment payloads a verdict is built from. */
 interface GitHubPayload {
   readonly user?: { readonly login?: unknown }
   readonly body?: unknown
+}
+
+/** The subset of GitHub's gist payload a proof of account control is built from. */
+interface GitHubGistPayload {
+  readonly owner?: { readonly login?: unknown }
+  readonly public?: unknown
+  readonly files?: Record<string, { readonly content?: unknown } | null> | null
 }
 
 /**
@@ -145,70 +221,89 @@ export function httpGitHubReader(
   token: string | undefined,
   fetchImpl: typeof fetch = fetch,
 ): GitHubReader {
+  /**
+   * One authenticated GET, with the status mapping both read paths depend on.
+   *
+   * Shared because the mapping *is* the rule rather than plumbing: which
+   * statuses are the agent's problem and which are the Colony's is the whole of
+   * #19's "an agent must not lose an attempt to our outage", and two copies of
+   * it would be two chances to drift.
+   */
+  const get = async (
+    apiUrl: string,
+    url: string,
+  ): Promise<
+    | { readonly outcome: 'ok'; readonly payload: unknown }
+    | { readonly outcome: 'not-found'; readonly reason: string }
+    | { readonly outcome: 'unavailable'; readonly reason: string }
+  > => {
+    let response: Response
+    try {
+      response = await fetchImpl(apiUrl, {
+        headers: {
+          accept: 'application/vnd.github+json',
+          authorization: `Bearer ${token as string}`,
+          'x-github-api-version': '2022-11-28',
+          'user-agent': 'kolonie-verifier-runner',
+        },
+      })
+    } catch (error) {
+      // DNS, TLS, a dropped connection. The agent's work is unaffected by it.
+      return {
+        outcome: 'unavailable',
+        reason: `GitHub could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+
+    if (response.status === 404 || response.status === 410) {
+      return {
+        outcome: 'not-found',
+        reason: `GitHub answered ${response.status} for \`${url}\`.`,
+      }
+    }
+
+    /**
+     * Everything else that is not a 2xx is *ours*, not the agent's.
+     *
+     * 401 and 403 mean the Colony's token is wrong, expired or rate-limited;
+     * 429 and 5xx mean GitHub is having a moment. None of those is evidence
+     * about a contribution, so none of them may produce a `fail` — the agent
+     * did the work and must not lose the attempt to our outage (#19).
+     */
+    if (!response.ok) {
+      return {
+        outcome: 'unavailable',
+        reason: `GitHub answered ${response.status}; this is the Colony's problem, not the submission's.`,
+      }
+    }
+
+    try {
+      return { outcome: 'ok', payload: await response.json() }
+    } catch {
+      return { outcome: 'unavailable', reason: 'GitHub answered with something that is not JSON.' }
+    }
+  }
+
+  const missingToken = (): { readonly outcome: 'unavailable'; readonly reason: string } => ({
+    outcome: 'unavailable',
+    reason: `No ${GITHUB_VERIFIER_TOKEN_VAR} is configured, so GitHub cannot be read.`,
+  })
+
+  const hasToken = (): boolean => token !== undefined && token.trim() !== ''
+
   return {
     read: async (url) => {
-      if (token === undefined || token.trim() === '') {
-        return {
-          outcome: 'unavailable',
-          reason: `No ${GITHUB_VERIFIER_TOKEN_VAR} is configured, so GitHub cannot be read.`,
-        }
-      }
+      if (!hasToken()) return missingToken()
 
       const resolved = resolveGitHubUrl(url)
       if (resolved.kind === 'unaddressable') {
         return { outcome: 'not-found', reason: resolved.reason }
       }
 
-      let response: Response
-      try {
-        response = await fetchImpl(resolved.apiUrl, {
-          headers: {
-            accept: 'application/vnd.github+json',
-            authorization: `Bearer ${token}`,
-            'x-github-api-version': '2022-11-28',
-            'user-agent': 'kolonie-verifier-runner',
-          },
-        })
-      } catch (error) {
-        // DNS, TLS, a dropped connection. The agent's work is unaffected by it.
-        return {
-          outcome: 'unavailable',
-          reason: `GitHub could not be reached: ${error instanceof Error ? error.message : String(error)}`,
-        }
-      }
+      const result = await get(resolved.apiUrl, url)
+      if (result.outcome !== 'ok') return result
 
-      if (response.status === 404 || response.status === 410) {
-        return {
-          outcome: 'not-found',
-          reason: `GitHub answered ${response.status} for \`${url}\`.`,
-        }
-      }
-
-      /**
-       * Everything else that is not a 2xx is *ours*, not the agent's.
-       *
-       * 401 and 403 mean the Colony's token is wrong, expired or rate-limited;
-       * 429 and 5xx mean GitHub is having a moment. None of those is evidence
-       * about a contribution, so none of them may produce a `fail` — the agent
-       * did the work and must not lose the attempt to our outage (#19).
-       */
-      if (!response.ok) {
-        return {
-          outcome: 'unavailable',
-          reason: `GitHub answered ${response.status}; this is the Colony's problem, not the submission's.`,
-        }
-      }
-
-      let payload: GitHubPayload
-      try {
-        payload = (await response.json()) as GitHubPayload
-      } catch {
-        return {
-          outcome: 'unavailable',
-          reason: 'GitHub answered with something that is not JSON.',
-        }
-      }
-
+      const payload = result.payload as GitHubPayload
       const login = payload.user?.login
       if (typeof login !== 'string' || login === '') {
         // A 200 with no author is not something the Colony can reason about, and
@@ -224,6 +319,59 @@ export function httpGitHubReader(
           body: typeof payload.body === 'string' ? payload.body : '',
         },
       }
+    },
+
+    readGist: async (url) => {
+      if (!hasToken()) return missingToken()
+
+      const resolved = resolveGistUrl(url)
+      if (resolved.kind === 'unaddressable') {
+        return { outcome: 'not-found', reason: resolved.reason }
+      }
+
+      const result = await get(resolved.apiUrl, url)
+      if (result.outcome !== 'ok') return result
+
+      const payload = result.payload as GitHubGistPayload
+      const login = payload.owner?.login
+      if (typeof login !== 'string' || login === '') {
+        /**
+         * An anonymous gist. GitHub allows them and they have no owner at all,
+         * which makes them the one artefact that could look like a pass while
+         * proving nothing about any account — so this is `not-found` rather than
+         * `unavailable`: it is a fact about the submission, and retrying it
+         * until the timeout would tell the agent nothing.
+         */
+        return {
+          outcome: 'not-found',
+          reason:
+            `\`${url}\` names a gist with no owner. An anonymous gist proves nothing about ` +
+            'an account — publish it while signed in.',
+        }
+      }
+
+      /**
+       * **A secret gist is refused, and that is not pedantry about a checkbox.**
+       * The rung's second property is that the claim is checkable by anybody
+       * reading github.com rather than only by the Colony, which is why the gist
+       * carries the agent id as well as the nonce. A gist only the holder of the
+       * link can find keeps the proof private to us and quietly deletes that
+       * property (D-031).
+       */
+      if (payload.public !== true) {
+        return {
+          outcome: 'not-found',
+          reason:
+            `\`${url}\` is a secret gist. The proof has to be public, so that the claim on this ` +
+            'account is checkable by anyone and not only by the Colony.',
+        }
+      }
+
+      const body = Object.values(payload.files ?? {})
+        .map((file) => (typeof file?.content === 'string' ? file.content : ''))
+        .join('\n')
+
+      return { outcome: 'found', artefact: { url, author: login.toLowerCase(), body } }
     },
   }
 }

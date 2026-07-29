@@ -9,6 +9,9 @@ import {
 import { buildApp } from '../app.js'
 import { bearerToken, UNAUTHENTICATED } from '../authentication.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
+import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -27,6 +30,9 @@ const withStore = async () => {
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
+    keys: fakeKeys(),
+    pow: fakePow(),
+    github: fakeGithub(),
   })
   await app.ready()
   return store
@@ -72,19 +78,18 @@ describe('GET /v1/agents/me', () => {
 
   it('reports citizenship status and roles as separate fields (D-001)', async () => {
     const store = await withStore()
-    const { apiKey } = store.issue({ status: 'citizen', roles: ['builder', 'reviewer'], level: 3 })
+    const { apiKey } = store.issue({ status: 'citizen', roles: ['builder', 'reviewer'] })
 
     const body = (await asAgent(apiKey)).json()
 
     expect(body.agent.status).toBe('citizen')
     expect(body.agent.roles).toEqual(['builder', 'reviewer'])
-    expect(body.agent.level).toBe(3)
   })
 
   /**
    * D-030. The skills are what decide which tasks the agent may take, so this
-   * is the field an arriving agent reads to know where it stands — and the one
-   * `#35` will leave behind when it removes `level`.
+   * is the field an arriving agent reads to know where it stands — and since
+   * `#35` removed `level`, the only one.
    */
   it('reports the skills the agent holds, which are what gate its tasks', async () => {
     const store = await withStore()
@@ -225,6 +230,9 @@ describe('GET /v1/agents/me', () => {
         catalogue: fakeCatalogue(),
         submissions: fakeSubmissions(),
         academy: fakeAcademy(),
+        keys: fakeKeys(),
+        pow: fakePow(),
+        github: fakeGithub(),
       })
       await app.ready()
 

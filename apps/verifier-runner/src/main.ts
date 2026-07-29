@@ -3,8 +3,13 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   hasClearedGate,
+  lastGithubChallengeExpiry,
   latestEmailChallenge,
+  latestKeyChallenge,
+  latestPowChallenge,
+  openGithubNonces,
 } from '@kolonie-ai/db'
+import { AgentIdSchema } from '@kolonie-ai/core'
 import { createVerifiers, GITHUB_VERIFIER_TOKEN_VAR, httpGitHubReader } from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
 import { startRunner, type Log } from './loop.js'
@@ -64,6 +69,25 @@ const verifiers = createVerifiers({
   // halves were recorded in. That is what keeps a promoting rung independent of
   // any third party (kolonie-docs#33) — there is no vendor here to be down.
   roundtrips: { latest: (agentId) => latestEmailChallenge(db, agentId) },
+  // The one that reads through *nothing at all* — not a vendor, not a mail
+  // server, not even a page this process serves. It hands the verifier the
+  // stored nonce, public key and signature, and the verifier recomputes. That
+  // is what makes this the Academy's cleanest root: there is no configuration
+  // whose absence could disable a task an arriving agent needs early.
+  keys: { latest: (agentId) => latestKeyChallenge(db, AgentIdSchema.parse(agentId)) },
+  // Credential-free like the keypair rung, and cheaper than any of them: the
+  // verifier recomputes one SHA-256 against the stored input, nonce and target.
+  // The agent's spend does not become the Colony's, whatever it was.
+  work: { latest: (agentId) => latestPowChallenge(db, AgentIdSchema.parse(agentId)) },
+  // The GitHub rung's Colony-side half: which nonces this agent may currently
+  // publish. Credential-free like the three above — the *token* this rung needs
+  // is `github` up top, which reads the gist. Splitting the two means a missing
+  // token stalls the read as `pending` rather than making the nonce lookup
+  // answer wrongly about what the Colony asked for.
+  githubChallenges: {
+    openNonces: (agentId) => openGithubNonces(db, agentId),
+    lastExpiry: (agentId) => lastGithubChallengeExpiry(db, agentId),
+  },
 })
 
 const runner = startRunner(

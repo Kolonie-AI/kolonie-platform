@@ -12,6 +12,9 @@ import {
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
+import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -34,6 +37,9 @@ beforeEach(async () => {
     catalogue,
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
+    keys: fakeKeys(),
+    pow: fakePow(),
+    github: fakeGithub(),
   })
   await app.ready()
   const issued = store.issue()
@@ -80,7 +86,8 @@ describe('GET /v1/tasks', () => {
     // find out what to do has not been given a task, only a pointer to one.
     expect(task).toMatchObject({
       type: expect.any(String),
-      level: expect.any(Number),
+      requires: expect.any(Array),
+      grants: expect.any(Array),
       instructions: expect.any(String),
       reward: { coins: expect.any(Number), reputation: expect.any(Number) },
     })

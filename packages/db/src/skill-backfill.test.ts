@@ -57,10 +57,10 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
     await truncateAll(db)
   })
 
-  const anAgent = async (name: string, level: number) => {
+  const anAgent = async (name: string) => {
     const [row] = await db
       .insert(agents)
-      .values({ name, platform: 'openclaw', level })
+      .values({ name, platform: 'openclaw' })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
     return row.id
@@ -71,7 +71,6 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
       .insert(tasks)
       .values({
         type,
-        level: 0,
         grantsSkills: grants,
         title: `The ${type} rung`,
         description: 'What this task is, for a human reading the catalogue.',
@@ -110,14 +109,18 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
     ).map((row) => row.skill)
 
   /**
-   * **The assertion the whole issue turns on.** The agent's level says it
-   * climbed four rungs; its submissions say it passed two. The level is a
-   * synthesised position nobody can audit, so the backfill derives from the
-   * passes — and this agent comes out holding exactly what it proved, not what
-   * the number implied.
+   * **The assertion the whole issue turned on.** The backfill derives from the
+   * passes rather than from the level, and this agent comes out holding exactly
+   * what it proved.
+   *
+   * The contrast the test was written against is no longer expressible: `#35`
+   * dropped `agents.level`, so an agent whose number claimed more than its
+   * submissions did cannot be constructed here any more. What survives is the
+   * property that mattered — the derivation reads `submissions`, and an agent
+   * that passed two tasks holds two skills.
    */
-  it('grants what the passes prove, not what the level claims', async () => {
-    const agentId = await anAgent('over-levelled', 4)
+  it('grants what the passes prove', async () => {
+    const agentId = await anAgent('two-passes')
     await submitted(await aTask('profile-complete', ['profile']), agentId, 'passed')
     await submitted(await aTask('browser-capability', ['browser']), agentId, 'passed')
 
@@ -127,7 +130,7 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
   })
 
   it('grants nothing for a submission that did not pass', async () => {
-    const agentId = await anAgent('tried-once', 0)
+    const agentId = await anAgent('tried-once')
     await submitted(await aTask('browser-capability', ['browser']), agentId, 'failed')
 
     await backfillAgentSkills(db)
@@ -136,7 +139,7 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
   })
 
   it('grants nothing for a badge, however many agents passed it', async () => {
-    const agentId = await anAgent('badge-holder', 1)
+    const agentId = await anAgent('badge-holder')
     await submitted(await aTask('browser-captcha', []), agentId, 'passed')
 
     await backfillAgentSkills(db)
@@ -145,7 +148,7 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
   })
 
   it('grants every skill a task lists, not just the first', async () => {
-    const agentId = await anAgent('multi', 0)
+    const agentId = await anAgent('multi')
     await submitted(await aTask('two-at-once', ['profile', 'compute']), agentId, 'passed')
 
     await backfillAgentSkills(db)
@@ -154,7 +157,7 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
   })
 
   it('attributes the skill to the earliest pass that proved it', async () => {
-    const agentId = await anAgent('twice', 0)
+    const agentId = await anAgent('twice')
     const first = await aTask('browser-capability', ['browser'])
     const second = await aTask('browser-again', ['browser'])
     const earliest = await submitted(first, agentId, 'passed', '2026-01-01T00:00:00.000Z')
@@ -171,7 +174,7 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
   })
 
   it('is safe to run twice, which is what makes it safe to run by hand', async () => {
-    const agentId = await anAgent('repeatable', 0)
+    const agentId = await anAgent('repeatable')
     await submitted(await aTask('profile-complete', ['profile']), agentId, 'passed')
 
     await backfillAgentSkills(db)
@@ -181,8 +184,8 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
   })
 
   it('keeps one agent’s passes out of another agent’s record', async () => {
-    const holder = await anAgent('holder', 0)
-    const bystander = await anAgent('bystander', 3)
+    const holder = await anAgent('holder')
+    const bystander = await anAgent('bystander')
     await submitted(await aTask('profile-complete', ['profile']), holder, 'passed')
 
     await backfillAgentSkills(db)
@@ -218,7 +221,6 @@ describe.skipIf(!target.available)('who may mint a skill', () => {
   const insertTask = (createdBy: string | null, grants: string[]) =>
     db.insert(tasks).values({
       type: `citizen-task-${randomUUID().slice(0, 8)}`,
-      level: 0,
       grantsSkills: grants,
       createdBy,
       title: 'A task somebody wrote',

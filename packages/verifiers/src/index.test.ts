@@ -12,7 +12,10 @@ import {
 const PROFILE_COMPLETE = TaskTypeSchema.parse('profile-complete')
 const GITHUB_CONTRIBUTION = TaskTypeSchema.parse('github-contribution')
 
-const github: GitHubReader = { read: async () => ({ outcome: 'not-found', reason: 'stub' }) }
+const github: GitHubReader = {
+  read: async () => ({ outcome: 'not-found', reason: 'stub' }),
+  readGist: async () => ({ outcome: 'not-found', reason: 'stub' }),
+}
 const authors: ContributionAuthors = { citizenFor: async () => undefined }
 
 describe('createVerifiers', () => {

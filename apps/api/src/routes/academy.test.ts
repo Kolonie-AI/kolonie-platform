@@ -5,6 +5,9 @@ import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
+import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { expectedWidth, probeFor } from '../academy.js'
@@ -26,6 +29,9 @@ const build = (answer: CaptchaCheck = 'passed') => {
     store,
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
+    keys: fakeKeys(),
+    pow: fakePow(),
+    github: fakeGithub(),
     academy,
   })
 }
@@ -162,6 +168,9 @@ describe('POST /v1/academy/challenges', () => {
       store,
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
       academy: { ...academy, unavailableReason: 'HCAPTCHA_SITEKEY is not set' },
     })
     await withoutCaptcha.ready()
@@ -476,6 +485,9 @@ describe('when the gate is not configured', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
       academy: { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY not set' },
     })
 
@@ -530,6 +542,9 @@ describe('when the gate is not configured', () => {
       store: disabledStore,
       catalogue: fakeCatalogue(),
       submissions: fakeSubmissions(),
+      keys: fakeKeys(),
+      pow: fakePow(),
+      github: fakeGithub(),
       academy: { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY not set' },
     })
     await disabled.ready()

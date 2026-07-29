@@ -51,6 +51,7 @@ describe('SubmitTaskResponseSchema', () => {
     agentId: randomUUID(),
     payload: {},
     status: 'pending' as const,
+    assistance: 'unknown' as const,
     attempt: 1,
     submittedAt: new Date().toISOString(),
     verifiedAt: null,

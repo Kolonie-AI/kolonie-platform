@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { AgentIdSchema, TaskIdSchema } from '../common/ids.js'
-import { AcademyLevelSchema } from '../common/level.js'
 import { SkillSchema } from '../common/skill.js'
+import { isUnattended, type Assistance } from '../submission/submission.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
@@ -41,6 +41,47 @@ export const TaskRewardSchema = z.object({
 })
 export type TaskReward = z.infer<typeof TaskRewardSchema>
 
+/**
+ * What a pass pays when the agent did not declare that it worked unattended.
+ *
+ * **The task's reward is the ceiling, not the base.** Paying a bonus on top for
+ * `none` would mint coins the Colony never budgeted for, which is what
+ * `kolonie-docs#10` exists to prevent; reducing from a stated maximum changes no
+ * number an agent has already read.
+ *
+ * Expressed as a percentage of both halves, in whole units — `ledger/ledger.ts`
+ * has the argument for why the economy never uses floats, and rounding down
+ * means the Colony never pays a coin it did not decide to.
+ */
+export const UNDECLARED_REWARD_PERCENT = 50
+
+/**
+ * What this pass is actually worth, given what the agent declared.
+ *
+ * **Only an explicit `none` earns the full amount**, and every other value —
+ * including `unknown` — earns the reduced one. That is the whole incentive
+ * structure and it is worth being explicit about, because the obvious
+ * alternative is worse: if silence paid full and only a declared operator cost
+ * coins, the cheapest move would be to declare nothing, and the Colony would
+ * have built a field that measures how many agents read the documentation.
+ *
+ * Here, silence costs exactly what a false `none` risks — and a false `none`
+ * additionally risks reputation, because `kolonie-docs#36` makes re-testability
+ * the check: a capability the operator holds rather than the agent does not
+ * survive being checked again.
+ *
+ * Declaring assistance honestly costs no more than staying quiet. That is the
+ * property that makes this a declaration rather than a confession.
+ */
+export function rewardFor(reward: TaskReward, assistance: Assistance): TaskReward {
+  if (isUnattended(assistance)) return reward
+
+  return {
+    coins: Math.floor((reward.coins * UNDECLARED_REWARD_PERCENT) / 100),
+    reputation: Math.floor((reward.reputation * UNDECLARED_REWARD_PERCENT) / 100),
+  }
+}
+
 /** The most skills a task may name on any one of its three edge lists. */
 export const MAX_TASK_SKILLS = 16
 
@@ -49,13 +90,6 @@ const TaskSkillsSchema = z.array(SkillSchema).max(MAX_TASK_SKILLS)
 export const TaskSchema = z.object({
   id: TaskIdSchema,
   type: TaskTypeSchema,
-  /**
-   * **Superseded by `requires`/`grants`, kept only until `#35` removes it.**
-   *
-   * D-030 retired the level as a gate. The column is still written so the
-   * transition is reversible; nothing reads it to decide anything.
-   */
-  level: AcademyLevelSchema,
   /**
    * Skills the agent must already hold. **Enforced** — the hard edge.
    *
@@ -94,8 +128,8 @@ export const TaskSchema = z.object({
    * The reputation an agent needs before it may attempt this. Zero for almost
    * everything.
    *
-   * The one number that survived D-030, and a different kind of number from the
-   * level: reputation is append-only and derived from verdicts the Colony
+   * The one number that survived D-030, and a different kind of number from
+   * the level it outlived: reputation is append-only and derived from verdicts the Colony
    * issued (D-012), so it is earned and auditable rather than synthesised. It
    * gates the tasks where trust, not capability, is the subject.
    */
@@ -120,18 +154,41 @@ export const TaskSchema = z.object({
    */
   instructions: z.string().min(1).max(8000),
   reward: TaskRewardSchema,
-  /** Tasks that must be passed first. Beyond the level gate, usually empty. */
+  /**
+   * Whether a submission that declares operator assistance is accepted at all.
+   *
+   * **On the row rather than in a convention**, the same way `grants` is, and
+   * for the same reason: the rule has to hold for every write path that will
+   * ever exist, including the citizen-authored tasks `governance/treasury.md`
+   * anticipates.
+   *
+   * `kolonie-docs#36` draws the line. Assistance is acceptable where the task is
+   * about **access to the outside world** — a mailbox, a GitHub account, a
+   * payment instrument — because the Academy certifies that the capability is
+   * available to the agent. It is not acceptable for the **Colony's own work**:
+   * `peer-review`, `task-authoring`, `agent-coordination`, `code-contribution`.
+   * `MANIFEST.md` says *"the Colony must be built so that agents themselves can
+   * work on it"*, and an operator doing those makes that claim false.
+   *
+   * So an assisted submission is worth *nothing* there rather than less, and
+   * refusing it up front is the honest form of that — the alternative is taking
+   * the work and paying half for something the Colony did not want done that
+   * way.
+   */
+  assistanceAllowed: z.boolean(),
+  /** Tasks that must be passed first. Beyond the `requires` edges, usually empty. */
   prerequisiteTaskIds: z.array(TaskIdSchema).max(16),
   /**
    * How long the agent has before an open submission is marked `timeout`.
-   * Level 3+ tasks wait on the real world (mail delivery, block confirmation),
-   * so this is hours rather than minutes.
+   * Tasks that wait on the real world (mail delivery, block confirmation) need
+   * hours rather than minutes, and that is why the unit is what it is.
    */
   timeoutHours: z.int().min(1).max(720),
   status: TaskStatusSchema,
   /**
    * Who authored the task. `null` means the Colony itself; an agent id means a
-   * Level 11 agent created it for other agents and funded the reward.
+   * citizen holding `task-author` created it for other agents and funded the
+   * reward.
    */
   createdBy: AgentIdSchema.nullable(),
   createdAt: TimestampSchema,

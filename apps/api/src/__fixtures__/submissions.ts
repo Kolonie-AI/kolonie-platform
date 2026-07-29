@@ -11,7 +11,7 @@ import type { TaskSubmissions } from '../submissions.js'
  * is responsible for three things here — validating the request, taking the task
  * from the path and the agent from the credential rather than from the body, and
  * turning each refusal into a stable error code. All three are about what it
- * *asks for*. A fake that also enforced levels and attempt numbers would let a
+ * *asks for*. A fake that also enforced skills and attempt numbers would let a
  * test pass while the route sent someone else's agent id, because the fake would
  * quietly use the right one. Whether the attempt number is assigned without a
  * race is asserted in `packages/db`, against a real Postgres.
@@ -58,7 +58,7 @@ export function fakeSubmissions(): FakeSubmissions {
  * checked something it did not.
  */
 export function aSubmission(
-  command: Pick<CreateSubmissionCommand, 'taskId' | 'agentId' | 'payload'>,
+  command: Pick<CreateSubmissionCommand, 'taskId' | 'agentId' | 'payload' | 'assistance'>,
   overrides: Partial<Submission> = {},
 ): Submission {
   return SubmissionSchema.parse({
@@ -67,6 +67,10 @@ export function aSubmission(
     agentId: command.agentId,
     payload: command.payload,
     status: 'pending',
+    // Echoed from the command, so a route test can see its own declaration come
+    // back rather than a value the fixture chose. Absent is `unknown`, which is
+    // what storage writes when nothing was declared (`#39`).
+    assistance: command.assistance ?? 'unknown',
     attempt: 1,
     submittedAt: new Date().toISOString(),
     verifiedAt: null,

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { GITHUB_VERIFIER_TOKEN_VAR, httpGitHubReader, resolveGitHubUrl } from './github.js'
+import {
+  GITHUB_VERIFIER_TOKEN_VAR,
+  httpGitHubReader,
+  resolveGistUrl,
+  resolveGitHubUrl,
+} from './github.js'
 
 const ISSUE = 'https://github.com/Kolonie-AI/kolonie-docs/issues/42'
 const COMMENT = `${ISSUE}#issuecomment-987654`
@@ -160,6 +165,113 @@ describe('httpGitHubReader', () => {
     // A malformed submission is decided here, without a request. Sending it
     // would be an outbound call to a host an agent chose.
     expect(result).toMatchObject({ outcome: 'not-found' })
+    expect(calls).toEqual([])
+  })
+})
+
+describe('resolveGistUrl', () => {
+  it('addresses a gist by id, with or without the owner in the path', () => {
+    expect(resolveGistUrl('https://gist.github.com/aa11bb22cc33')).toEqual({
+      kind: 'gist',
+      apiUrl: 'https://api.github.com/gists/aa11bb22cc33',
+    })
+    expect(resolveGistUrl('https://gist.github.com/octocat/aa11bb22cc33')).toEqual({
+      kind: 'gist',
+      apiUrl: 'https://api.github.com/gists/aa11bb22cc33',
+    })
+  })
+
+  it('ignores the login in the path, because the API is what names the owner', () => {
+    // The login here is whatever the pasted link happened to contain. Reading it
+    // as evidence would be D-018 exactly: an account named by the submission.
+    const honest = resolveGistUrl('https://gist.github.com/octocat/aa11bb22cc33')
+    const lying = resolveGistUrl('https://gist.github.com/someone-else/aa11bb22cc33')
+
+    expect(honest).toEqual(lying)
+  })
+
+  it.each([
+    'https://github.com/octocat/aa11bb22cc33',
+    'https://gist.github.com/',
+    'https://gist.github.com/octocat/not-hex',
+    'http://gist.github.com/aa11bb22cc33',
+    'not a url at all',
+  ])('refuses %s without a request', (url) => {
+    expect(resolveGistUrl(url)).toMatchObject({ kind: 'unaddressable' })
+  })
+})
+
+describe('httpGitHubReader.readGist', () => {
+  const GIST = 'https://gist.github.com/octocat/aa11bb22cc33'
+
+  const gist = (over: Record<string, unknown> = {}) => ({
+    owner: { login: 'Octocat' },
+    public: true,
+    files: { 'kolonie.txt': { content: 'the nonce' } },
+    ...over,
+  })
+
+  it('returns the owner lowercased and every file joined', async () => {
+    const { fetch, calls } = answering(
+      200,
+      gist({ files: { 'a.txt': { content: 'one' }, 'b.txt': { content: 'two' } } }),
+    )
+
+    const result = await httpGitHubReader(TOKEN, fetch).readGist(GIST)
+
+    expect(result).toEqual({
+      outcome: 'found',
+      artefact: { url: GIST, author: 'octocat', body: 'one\ntwo' },
+    })
+    expect(calls).toEqual(['https://api.github.com/gists/aa11bb22cc33'])
+  })
+
+  it('calls the owner `author`, which is the name the anti-farming query reads', async () => {
+    const { fetch } = answering(200, gist())
+
+    const result = await httpGitHubReader(TOKEN, fetch).readGist(GIST)
+
+    // GitHub says `owner`; the Colony says `author` everywhere, because
+    // `citizenForGithubAuthor` reads `metadata->>'author'`. Translating once,
+    // here, is what stops a verifier writing a row that query cannot see (#42).
+    expect(result).toMatchObject({ artefact: { author: 'octocat' } })
+  })
+
+  it('refuses a secret gist as not-found', async () => {
+    const { fetch } = answering(200, gist({ public: false }))
+
+    const result = await httpGitHubReader(TOKEN, fetch).readGist(GIST)
+
+    // The rung's second property is that the claim is checkable by anybody, not
+    // only by the Colony. A gist only the link-holder can find deletes it.
+    expect(result).toMatchObject({ outcome: 'not-found' })
+  })
+
+  it('refuses an anonymous gist as not-found rather than unavailable', async () => {
+    const { fetch } = answering(200, gist({ owner: undefined }))
+
+    const result = await httpGitHubReader(TOKEN, fetch).readGist(GIST)
+
+    // It has no owner at all, so it proves nothing about any account — a fact
+    // about the submission. Retrying it until the timeout would tell the agent
+    // nothing it could act on.
+    expect(result).toMatchObject({ outcome: 'not-found' })
+  })
+
+  it('reports a 404 as not-found and a 503 as unavailable, like the issue path', async () => {
+    const missing = await httpGitHubReader(TOKEN, answering(404).fetch).readGist(GIST)
+    const ours = await httpGitHubReader(TOKEN, answering(503).fetch).readGist(GIST)
+
+    expect(missing).toMatchObject({ outcome: 'not-found' })
+    expect(ours).toMatchObject({ outcome: 'unavailable' })
+  })
+
+  it('reads nothing at all without a token', async () => {
+    const { fetch, calls } = answering(200, gist())
+
+    const result = await httpGitHubReader(undefined, fetch).readGist(GIST)
+
+    expect(result).toMatchObject({ outcome: 'unavailable' })
     expect(calls).toEqual([])
   })
 })

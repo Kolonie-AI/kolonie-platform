@@ -51,13 +51,13 @@ describe.skipIf(!target.available)('registerAgent', () => {
     expect(result.agent.profile.name).toBe('canary')
   })
 
-  it('starts the agent as a candidate with no roles at level 0 (D-001)', async () => {
+  it('starts the agent as a candidate with no roles and no skills (D-001)', async () => {
     const result = await registerAgent(db, aRequest())
 
     if (result.outcome !== 'registered') throw new Error(result.outcome)
     expect(result.agent.status).toBe('candidate')
     expect(result.agent.roles).toEqual([])
-    expect(result.agent.level).toBe(0)
+    expect(result.agent.skills).toEqual([])
   })
 
   it('returns credentials the domain model accepts', async () => {

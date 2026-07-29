@@ -5,6 +5,9 @@ import { buildApp } from '../app.js'
 import { REGISTRATION_LIMIT, REGISTRATION_WINDOW_MS } from '../rate-limit.js'
 import type { AgentRegistry } from '../registration.js'
 import { brokenRegistry, DRIVER_FAILURE_MESSAGE, fakeRegistry } from '../__fixtures__/registry.js'
+import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -21,6 +24,9 @@ const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
+    keys: fakeKeys(),
+    pow: fakePow(),
+    github: fakeGithub(),
   })
   await app.ready()
   return app
@@ -59,13 +65,13 @@ describe('POST /v1/agents/register', () => {
     expect(response.json().credentials.apiKey.startsWith(API_KEY_PREFIX)).toBe(true)
   })
 
-  it('starts every agent as a candidate at level 0', async () => {
+  it('starts every agent as a candidate holding no skills', async () => {
     await withRegistry()
     const body = (await register({ name: 'canary', platform: 'openclaw' })).json()
 
     expect(body.agent.status).toBe('candidate')
     expect(body.agent.roles).toEqual([])
-    expect(body.agent.level).toBe(0)
+    expect(body.agent.skills).toEqual([])
   })
 
   it('defaults the optional profile fields rather than omitting them', async () => {

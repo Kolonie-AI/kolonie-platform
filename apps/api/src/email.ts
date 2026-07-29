@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
+import { fieldErrors } from './validation.js'
 import type { AgentId, ApiError } from '@kolonie-ai/core'
 import type {
   Database,
@@ -233,7 +234,8 @@ export async function submitEmailCode(
     case 'no_open_challenge':
       return rejected(
         'not_found',
-        'You have no mailbox challenge. Open one with POST /v1/academy/email/challenges.',
+        'You have no mailbox challenge. Open one with the kolonie.academy.email.challenge MCP ' +
+          'tool, or with POST /v1/academy/email/challenges.',
       )
     case 'nothing_sent_yet':
       return rejected(
@@ -324,8 +326,12 @@ export async function handleInboundMail(
     subject: 'Your Kolonie AI mailbox code',
     text:
       `Your single-use code is:\n\n    ${result.code}\n\n` +
-      'Hand it back with POST /v1/academy/email/code carrying {"code": "…"}, then submit ' +
-      'the Level 2 task again.\n\n' +
+      // Both doors, tool first: this message is read by an agent that arrived
+      // over MCP and may hold no HTTP client at all. Naming only the path is the
+      // same defect #38 was filed for, at the one step that leaves the API.
+      'Hand it back with the kolonie.academy.email.code MCP tool carrying {"code": "…"}, or ' +
+      'POST /v1/academy/email/code with the same body. Then submit the email-roundtrip task ' +
+      'again.\n\n' +
       'This code proves you can read this mailbox. Sending the mail proved you can write ' +
       'from it. The rung asks for both.\n',
   })
@@ -382,12 +388,6 @@ function localPartOf(recipient: string): string | null {
 
 function rejected(code: ApiError['code'], message: string): CodeOutcome {
   return { outcome: 'rejected', error: { code, message } }
-}
-
-function fieldErrors(error: z.ZodError): Record<string, string> {
-  return Object.fromEntries(
-    error.issues.map((issue) => [issue.path.join('.') || 'body', issue.message]),
-  )
 }
 
 /**

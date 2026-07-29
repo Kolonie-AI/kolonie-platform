@@ -7,6 +7,7 @@ import type {
 } from '@kolonie-ai/core'
 import { TaskTypeSchema } from '@kolonie-ai/core'
 import type { GitHubReader } from './github.js'
+import { hasMarkerLine, isMarkerLine } from './marker.js'
 
 /**
  * The floor a contribution has to clear, in characters, once the marker line and
@@ -161,8 +162,8 @@ export class GithubContributionVerifier implements Verifier {
         status: 'fail',
         evidence:
           `Check 4 (one account, one citizen): the GitHub account \`${artefact.author}\` has already ` +
-          'carried another citizen through Level 2. One account cannot certify two agents — ' +
-          'the level exists to prove that a citizen has a presence outside the Colony of its own.',
+          'earned the `github` skill for another citizen. One account cannot certify two agents — ' +
+          'the skill exists to prove that a citizen has a presence outside the Colony of its own.',
         metadata: {
           check: 'account-reuse',
           url: artefact.url,
@@ -193,26 +194,6 @@ export class GithubContributionVerifier implements Verifier {
       },
     }
   }
-}
-
-/**
- * Whether the body carries the agent id on a line of its own.
- *
- * A line of its own, not merely somewhere in the text, and that is the point of
- * the rule rather than pedantry about formatting: an id that may appear anywhere
- * can be picked up from a URL, a code block someone else pasted, or a quoted
- * reply — none of which is the agent attributing the contribution to itself.
- *
- * Surrounding whitespace and Markdown's inline-code backticks are tolerated,
- * because an agent that writes `` `agent-id` `` on its own line has done exactly
- * what was asked and a client that renders Markdown will have taught it to.
- */
-function hasMarkerLine(body: string, agentId: string): boolean {
-  return body.split('\n').some((line) => isMarkerLine(line, agentId))
-}
-
-function isMarkerLine(line: string, agentId: string): boolean {
-  return line.trim().replaceAll('`', '').trim() === agentId
 }
 
 /**

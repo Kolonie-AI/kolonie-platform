@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm'
 import {
-  AcademyLevelSchema,
   AgentIdSchema,
-  levelAfterCompleting,
+  isUnattended,
   LedgerTransactionIdSchema,
+  rewardFor,
   submissionReference,
   TaskIdSchema,
-  type AcademyLevel,
+  UNDECLARED_REWARD_PERCENT,
   type AgentId,
   type LedgerTransactionId,
   type Skill,
@@ -32,9 +32,6 @@ export interface BookedReward {
    * coins and there was therefore nothing to group.
    */
   readonly transactionId: LedgerTransactionId | null
-  /** The level the agent held before this pass, and the one it holds now. */
-  readonly previousLevel: AcademyLevel
-  readonly level: AcademyLevel
   /**
    * The skills this pass granted that the agent did not already hold.
    *
@@ -47,7 +44,7 @@ export interface BookedReward {
 
 /**
  * Pay for a passed submission: coins from the mint, reputation to the agent,
- * and whatever level the pass earned.
+ * and whatever skills the task grants.
  *
  * **Called inside the transaction that writes the verdict, never on its own.**
  * That is why it takes a `Transaction` rather than a `Database` — the signature
@@ -76,12 +73,11 @@ export async function bookTaskReward(
     .select({
       agentId: submissions.agentId,
       taskId: submissions.taskId,
+      assistance: submissions.assistance,
       taskType: tasks.type,
-      taskLevel: tasks.level,
       taskGrants: tasks.grantsSkills,
       rewardCoins: tasks.rewardCoins,
       rewardReputation: tasks.rewardReputation,
-      agentLevel: agents.level,
     })
     .from(submissions)
     .innerJoin(tasks, eq(tasks.id, submissions.taskId))
@@ -90,12 +86,11 @@ export async function bookTaskReward(
     // Only the agent is locked. The submission is already locked by the caller,
     // and the task must not be: locking it would serialise every agent that
     // happens to be passing the same Academy task at that moment — which, at
-    // Level 0, is most of them.
+    // `profile-complete`, is most of them.
     //
-    // The agent lock is what makes the level update safe. Two submissions of one
-    // agent finishing at once would otherwise both read the old level, both
-    // compute the same successor, and the higher of the two passes would be
-    // silently discarded.
+    // The agent lock outlived the level update it was taken for (`#35`). It is
+    // kept because it also orders two of one agent's submissions finishing at
+    // once, and `grantSkills` below writes a set that both of them read.
     .for('update', { of: agents })
     .limit(1)
 
@@ -108,17 +103,41 @@ export async function bookTaskReward(
 
   const agentId = AgentIdSchema.parse(row.agentId)
   const taskId = TaskIdSchema.parse(row.taskId)
-  const previousLevel = AcademyLevelSchema.parse(row.agentLevel)
-  const taskLevel = AcademyLevelSchema.parse(row.taskLevel)
-  const level = levelAfterCompleting(previousLevel, taskLevel)
-
   const reference = submissionReference(command.submissionId)
-  const memo = `Academy Level ${taskLevel} — ${row.taskType}`
+
+  /**
+   * What this pass is worth, given what the agent declared (`#39`).
+   *
+   * Read from the submission and the task, and computed by core — the same rule
+   * the amount itself follows. Nothing the verifier returned reaches this line:
+   * a verifier decides whether a submission passed, the task decides what
+   * passing is worth, and the declaration decides which of the two rates that
+   * task pays at.
+   */
+  const paid = rewardFor(
+    { coins: row.rewardCoins, reputation: row.rewardReputation },
+    row.assistance,
+  )
+
+  /**
+   * The rate is in the memo, on every entry, because the ledger is where an
+   * audit reads what the Colony paid and why.
+   *
+   * An entry that recorded 15 coins where the task says 30 and did not say which
+   * rate it booked at is a discrepancy a reviewer has to go and resolve against
+   * a submission row — and D-002's whole argument is that the books must be
+   * readable without reconstructing state from somewhere else.
+   *
+   * The number is gone from the memo with the level itself (`#35`). Entries
+   * written before that still read `Academy Level 3 — github-contribution`, and
+   * they stay that way: the ledger is append-only, and a memo records what was
+   * said at the time rather than what is true now.
+   */
+  const memo = `Academy — ${row.taskType} (${isUnattended(row.assistance) ? 'unattended' : `declared ${row.assistance}, ${UNDECLARED_REWARD_PERCENT}%`})`
 
   // Generated here rather than by the database: both entries of one booking must
   // carry the *same* id, and a column default would give each of them its own.
-  const transactionId =
-    row.rewardCoins > 0 ? LedgerTransactionIdSchema.parse(crypto.randomUUID()) : null
+  const transactionId = paid.coins > 0 ? LedgerTransactionIdSchema.parse(crypto.randomUUID()) : null
 
   if (transactionId !== null) {
     // Both sides in one statement. `ledger_entries_amount_non_zero` is why a
@@ -129,7 +148,7 @@ export async function bookTaskReward(
         transactionId,
         accountKind: 'system',
         systemAccount: 'mint',
-        amount: -row.rewardCoins,
+        amount: -paid.coins,
         type: 'task_reward',
         memo,
         reference,
@@ -139,7 +158,7 @@ export async function bookTaskReward(
         transactionId,
         accountKind: 'agent',
         agentId,
-        amount: row.rewardCoins,
+        amount: paid.coins,
         type: 'task_reward',
         memo,
         reference,
@@ -148,10 +167,10 @@ export async function bookTaskReward(
     ])
   }
 
-  if (row.rewardReputation > 0) {
+  if (paid.reputation > 0) {
     await tx.insert(reputationEvents).values({
       agentId,
-      delta: row.rewardReputation,
+      delta: paid.reputation,
       reason: 'task_passed',
       submissionId: command.submissionId,
       memo,
@@ -159,19 +178,12 @@ export async function bookTaskReward(
     })
   }
 
-  if (level !== previousLevel) {
-    await tx
-      .update(agents)
-      .set({ level, updatedAt: command.bookedAt })
-      .where(eq(agents.id, agentId))
-  }
-
   /**
    * The skills the task grants, in the same transaction as the verdict and the
    * coins (D-030).
    *
    * **Derived from the task row, never from anything a caller sent** — the same
-   * rule the level advance follows, and for a stronger reason: a skill decides
+   * rule the retired level advance followed, and for a stronger reason: a skill decides
    * what the agent may attempt *next*, so a grant somebody could supply is a
    * caller choosing its own curriculum. Nothing the verifier returned reaches
    * this line either; a verifier decides whether a submission passed, and the
@@ -192,11 +204,9 @@ export async function bookTaskReward(
     submissionId: command.submissionId,
     agentId,
     taskId,
-    coins: row.rewardCoins,
-    reputation: row.rewardReputation,
+    coins: paid.coins,
+    reputation: paid.reputation,
     transactionId,
-    previousLevel,
-    level,
     grantedSkills: granted,
   }
 }

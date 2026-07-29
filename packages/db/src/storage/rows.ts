@@ -53,7 +53,6 @@ export function toAgent(
     status: row.status,
     roles: row.roles,
     skills,
-    level: row.level,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   })
@@ -71,7 +70,6 @@ export function toTask(row: typeof tasks.$inferSelect): Task {
   return TaskSchema.parse({
     id: row.id,
     type: row.type,
-    level: row.level,
     requires: row.requiresSkills,
     suggests: row.suggestsSkills,
     grants: row.grantsSkills,
@@ -81,6 +79,7 @@ export function toTask(row: typeof tasks.$inferSelect): Task {
     description: row.description,
     instructions: row.instructions,
     reward: { coins: row.rewardCoins, reputation: row.rewardReputation },
+    assistanceAllowed: row.assistanceAllowed,
     prerequisiteTaskIds: row.prerequisiteTaskIds,
     timeoutHours: row.timeoutHours,
     status: row.status,
@@ -106,6 +105,7 @@ export function toSubmission(row: typeof submissions.$inferSelect): Submission {
     agentId: row.agentId,
     payload: row.payload,
     status: row.status,
+    assistance: row.assistance,
     attempt: row.attempt,
     submittedAt: toTimestamp(row.submittedAt),
     verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),

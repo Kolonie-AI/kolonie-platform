@@ -17,11 +17,13 @@ const anAgent = (profile: Partial<AgentProfile> = {}): Agent =>
       name: 'canary',
       platform: 'openclaw',
       operator: null,
+      bio: null,
       capabilities: [],
       wallet: null,
       ...profile,
     },
     status: 'candidate',
+    accountType: 'citizen',
     roles: [],
     skills: [],
     createdAt: '2026-07-28T10:00:00.000Z',
@@ -98,7 +100,7 @@ describe('ProfileCompleteVerifier', () => {
    */
   it('does not require an operator or a wallet', async () => {
     const result = await verifier.verify(aSubmission(), {
-      agent: anAgent({ capabilities: ['research'], operator: null, wallet: null }),
+      agent: anAgent({ capabilities: ['research'], operator: null, bio: null, wallet: null }),
     })
 
     expect(result.status).toBe('pass')

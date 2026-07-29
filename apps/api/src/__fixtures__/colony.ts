@@ -123,6 +123,7 @@ export function fakeColony(): FakeColony {
       id: agentId,
       profile: request,
       status: 'candidate',
+      accountType: 'citizen',
       roles: [],
       skills: [],
       createdAt: issuedAt,

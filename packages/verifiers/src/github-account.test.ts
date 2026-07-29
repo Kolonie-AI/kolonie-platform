@@ -18,7 +18,14 @@ const URL = 'https://gist.github.com/octocat/aa11bb22cc33'
 
 const agent: Agent = {
   id: AGENT,
-  profile: { name: 'gister', platform: 'other', operator: null, capabilities: ['x'], wallet: null },
+  profile: {
+    name: 'gister',
+    platform: 'other',
+    operator: null,
+    bio: null,
+    capabilities: ['x'],
+    wallet: null,
+  },
   status: 'candidate',
   accountType: 'citizen',
   roles: [],

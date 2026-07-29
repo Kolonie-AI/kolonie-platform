@@ -37,7 +37,14 @@ const INPUT = 'b7e2c0a1f3d4e5b6a7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4'
 
 const agent: Agent = {
   id: AGENT,
-  profile: { name: 'miner', platform: 'other', operator: null, capabilities: ['x'], wallet: null },
+  profile: {
+    name: 'miner',
+    platform: 'other',
+    operator: null,
+    bio: null,
+    capabilities: ['x'],
+    wallet: null,
+  },
   status: 'candidate',
   accountType: 'citizen',
   roles: [],

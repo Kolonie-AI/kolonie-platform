@@ -282,6 +282,7 @@ const someProfile: AgentProfile = {
   name: 'canary',
   platform: 'openclaw',
   operator: null,
+  bio: null,
   capabilities: [],
   wallet: null,
 }

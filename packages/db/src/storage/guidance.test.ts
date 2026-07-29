@@ -1,10 +1,27 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
-import type { AgentId, AgentPlatform, TaskId } from '@kolonie-ai/core'
+import { and, eq } from 'drizzle-orm'
+import { noStagesRun, type AgentId, type AgentPlatform, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, submissions, taskStruggles, taskTips, tasks } from '../schema/index.js'
+import {
+  agentSkills,
+  agents,
+  submissions,
+  taskStruggles,
+  taskTips,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { fileStruggle, fileTip, listStruggles, listTips } from './guidance.js'
+import {
+  countStruggles,
+  fileStruggle,
+  fileTip,
+  listOwnStruggles,
+  listOwnTips,
+  listStruggles,
+  listTips,
+  moderationsOf,
+  recordModeration,
+} from './guidance.js'
 
 const target = databaseTestTarget()
 
@@ -49,12 +66,54 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     return row!.id as TaskId
   }
 
-  const anAgent = async (name: string, platform: AgentPlatform = 'openclaw') => {
+  /**
+   * An agent holding `profile`, which is what entitles it to report anything.
+   *
+   * Granted by default because it is the floor for every write path here and
+   * `onboarding/academy.md` makes it the graph's one universal requirement — a
+   * test that had to remember it would be a test that silently checked the gate
+   * instead of the thing it was written for. The one test about the gate itself
+   * passes `profile: false`.
+   */
+  const anAgent = async (
+    name: string,
+    platform: AgentPlatform = 'openclaw',
+    { profile = true }: { profile?: boolean } = {},
+  ) => {
     const [row] = await db.insert(agents).values({ name, platform }).returning({ id: agents.id })
-    return row!.id as AgentId
+    const agentId = row!.id as AgentId
+    if (profile) await grantProfile(agentId)
+    return agentId
   }
 
-  /** An attempt, in whatever state. What entitles an agent to file a struggle. */
+  /**
+   * `profile`, granted the way a pass grants it.
+   *
+   * `agent_skills.submission_id` is `not null` on purpose — a capability whose
+   * provenance was removed is one the Colony cannot explain — so this mints the
+   * passing submission that earned it rather than working around the column.
+   */
+  const grantProfile = async (agentId: AgentId) => {
+    const profileTaskId = await aTask(`profile-complete-${randomSlug()}`)
+    const [submission] = await db
+      .insert(submissions)
+      .values({
+        taskId: profileTaskId,
+        agentId,
+        payload: {},
+        attempt: 1,
+        status: 'passed',
+        verifiedAt: new Date().toISOString(),
+      })
+      .returning({ id: submissions.id })
+    await db.insert(agentSkills).values({ agentId, skill: 'profile', submissionId: submission!.id })
+  }
+
+  /** Task types are unique per row here only by convention; keep them distinct. */
+  let slug = 0
+  const randomSlug = () => String(++slug)
+
+  /** An attempt on the task under test, in whatever state. */
   const attempt = async (
     agentId: AgentId,
     status: 'pending' | 'failed' | 'passed',
@@ -130,26 +189,51 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       )
     })
 
-    it('refuses one from an agent that has only read the description', async () => {
-      const agentId = await anAgent('bystander')
+    /**
+     * The rule this issue exists to change, and the case the old gate got most
+     * wrong. An agent that read the instructions, checked its own runtime and
+     * found it cannot comply submits nothing — and it is the only party that can
+     * tell the Colony the exclusion exists. `state/decisions.md`, *Who may say
+     * that a task is broken*.
+     */
+    it('accepts one from an agent that never submitted anything', async () => {
+      const agentId = await anAgent('cannot-even-start')
 
-      expect((await fileStruggle(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
-        'not-entitled',
-      )
+      const result = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+
+      expect(result.outcome).toBe('recorded')
     })
 
-    it('does not count an attempt on a different task', async () => {
+    it('accepts one from an agent whose only attempt was on a different task', async () => {
       const agentId = await anAgent('attempted-elsewhere')
       await attempt(agentId, 'failed', otherTaskId)
 
       expect((await fileStruggle(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
+        'recorded',
+      )
+    })
+
+    /**
+     * `profile` is the floor, and it is the only one. Not because it filters
+     * usefully — it costs one call and excludes nobody — but because a struggle is
+     * published to third parties and should have a findable author.
+     */
+    it('refuses one from an agent that does not hold profile', async () => {
+      const agentId = await anAgent('nameless', 'openclaw', { profile: false })
+      await attempt(agentId, 'failed')
+
+      expect((await fileStruggle(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
         'not-entitled',
       )
     })
 
-    it('refuses a second one from the same agent on the same task', async () => {
+    /**
+     * One per agent per task, which is now the only thing bounding volume — the
+     * gate used to be the other. A second write is a revision rather than a
+     * refusal, and the row count is what proves the rule still holds.
+     */
+    it('keeps one row per agent per task when the same agent writes twice', async () => {
       const agentId = await anAgent('persistent')
-      await attempt(agentId, 'failed')
       await fileStruggle(db, { taskId, agentId, content: CONTENT })
 
       const second = await fileStruggle(db, {
@@ -158,7 +242,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         content: 'A second thought about the very same wall, from the same agent.',
       })
 
-      expect(second.outcome).toBe('already-written')
+      expect(second.outcome).toBe('revised')
+      const rows = await db
+        .select({ id: taskStruggles.id })
+        .from(taskStruggles)
+        .where(and(eq(taskStruggles.taskId, taskId), eq(taskStruggles.agentId, agentId)))
+      expect(rows).toHaveLength(1)
     })
 
     it('refuses one on a task that does not exist', async () => {
@@ -274,13 +363,76 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       name: string,
       content: string,
       platform: AgentPlatform = 'openclaw',
+      { attempted = true }: { attempted?: boolean } = {},
     ): Promise<string> => {
       const agentId = await anAgent(name, platform)
-      await attempt(agentId, 'failed')
+      if (attempted) await attempt(agentId, 'failed')
       const result = await fileStruggle(db, { taskId, agentId, content })
       if (result.outcome !== 'recorded') throw new Error(result.outcome)
       return result.entry.id
     }
+
+    /**
+     * The provenance that replaced the gate. Both cases are in one test because
+     * the number only means anything as a contrast: *four of four reporters tried
+     * this* and *none of six did* are two different findings, and a list that
+     * cannot separate them is the list the gate used to produce.
+     */
+    describe('how many reporters had attempted the task', () => {
+      it('counts the reporters that attempted, and only those', async () => {
+        const canonical = await filed('tried-it', CONTENT, 'openclaw')
+        const alsoTried = await filed('tried-too', 'The same wall again.', 'openclaw')
+        const neverTried = await filed('read-and-left', 'The same wall, unattempted.', 'claude', {
+          attempted: false,
+        })
+
+        await mergeInto(canonical, alsoTried)
+        await mergeInto(canonical, neverTried)
+        await approve(canonical, 3)
+
+        const [struggle] = await listStruggles(db, { taskId })
+
+        expect(struggle?.confirmations).toBe(3)
+        expect(struggle?.attemptedCount).toBe(2)
+      })
+
+      /**
+       * The invariant `#71` asks for, and it is the same one the `platforms` sum
+       * satisfies: both count the canonical row and its merged children, so on an
+       * approved entry neither can exceed the confirmation count. If it does, the
+       * merge path wrote something the counts cannot reproduce.
+       */
+      it('never exceeds the confirmation count', async () => {
+        const canonical = await filed('one', CONTENT, 'openclaw')
+        const two = await filed('two', 'The very same wall, reported once more.', 'openclaw')
+        await mergeInto(canonical, two)
+        await approve(canonical, 2)
+
+        const [struggle] = await listStruggles(db, { taskId })
+
+        expect(struggle!.attemptedCount).toBeLessThanOrEqual(struggle!.confirmations)
+      })
+
+      /** An agent that retried four times is one agent, not four. */
+      it('counts an agent once however often it attempted', async () => {
+        const agentId = await anAgent('retried-a-lot')
+        for (const attemptNumber of [1, 2, 3]) {
+          await db.insert(submissions).values({
+            taskId,
+            agentId,
+            payload: {},
+            attempt: attemptNumber,
+            status: 'failed',
+            verifiedAt: new Date().toISOString(),
+          })
+        }
+        const result = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+        if (result.outcome !== 'recorded') throw new Error(result.outcome)
+        await approve(result.entry.id, 1)
+
+        expect((await listStruggles(db, { taskId }))[0]?.attemptedCount).toBe(1)
+      })
+    })
 
     describe('the platform breakdown', () => {
       /**
@@ -439,6 +591,413 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
         expect(await listTips(db, { taskId })).toEqual([])
       })
+
+      /**
+       * The asymmetry, asserted rather than left to the comment. A tip is followed
+       * rather than weighed, so an editable approved tip is the moderator bypass in
+       * its more dangerous form.
+       */
+      it('refuses a second tip from the same agent rather than revising it', async () => {
+        const agentId = await anAgent('learned-more')
+        await attempt(agentId, 'passed')
+        await fileTip(db, { taskId, agentId, content: TIP })
+
+        const second = await fileTip(db, {
+          taskId,
+          agentId,
+          content: 'Actually the approach I described before stopped working entirely.',
+        })
+
+        expect(second.outcome).toBe('already-written')
+      })
+    })
+
+    describe('how many reports a task has', () => {
+      it('counts the published ones, and not the unjudged', async () => {
+        const published = await filed('published', CONTENT)
+        await filed('unjudged', 'Something nothing has looked at yet at all.')
+        await approve(published, 1)
+
+        expect(await countStruggles(db, taskId)).toBe(1)
+      })
+
+      it('is zero on a task nobody has written about', async () => {
+        expect(await countStruggles(db, otherTaskId)).toBe(0)
+      })
+    })
+  })
+
+  /**
+   * `#74`: an author can read its own entry in any state, and correct it.
+   *
+   * The two halves are one issue because the first is what makes the second
+   * usable: a rejection reason nobody can read is a correction nobody can make.
+   */
+  describe('what an author can see and change', () => {
+    const fileFor = async (agentId: AgentId, content = CONTENT, on: TaskId = taskId) => {
+      const result = await fileStruggle(db, { taskId: on, agentId, content })
+      if (result.outcome !== 'recorded') throw new Error(result.outcome)
+      return result.entry.id
+    }
+
+    const reject = async (id: string, note: string) => {
+      await db
+        .update(taskStruggles)
+        .set({ status: 'rejected', moderationNote: note, moderatedAt: new Date().toISOString() })
+        .where(eq(taskStruggles.id, id))
+    }
+
+    describe('reading its own entries', () => {
+      /** The column that had no reader. This is the test that gives it one. */
+      it('tells the author why its report was rejected', async () => {
+        const agentId = await anAgent('turned-down')
+        const id = await fileFor(agentId)
+        await reject(id, 'Name the provider and the step it failed at.')
+
+        const [own] = await listOwnStruggles(db, agentId)
+
+        expect(own?.status).toBe('rejected')
+        expect(own?.moderationNote).toBe('Name the provider and the step it failed at.')
+      })
+
+      it('serves a pending entry to its author and to nobody else', async () => {
+        const agentId = await anAgent('waiting')
+        await fileFor(agentId)
+
+        expect((await listOwnStruggles(db, agentId)).map((s) => s.status)).toEqual(['pending'])
+        expect(await listStruggles(db, { taskId })).toEqual([])
+      })
+
+      it('never shows one agent another agent’s entries', async () => {
+        const author = await anAgent('author')
+        const stranger = await anAgent('stranger')
+        await fileFor(author)
+
+        expect(await listOwnStruggles(db, stranger)).toEqual([])
+      })
+
+      it('reads an author’s own tips in every status, with the reason', async () => {
+        const agentId = await anAgent('tip-author')
+        await attempt(agentId, 'passed')
+        const result = await fileTip(db, { taskId, agentId, content: TIP })
+        if (result.outcome !== 'recorded') throw new Error(result.outcome)
+        await db
+          .update(taskTips)
+          .set({
+            status: 'rejected',
+            moderationNote: 'Say which tool, not just that it worked.',
+            moderatedAt: new Date().toISOString(),
+          })
+          .where(eq(taskTips.id, result.entry.id))
+
+        const [own] = await listOwnTips(db, agentId)
+
+        expect(own?.status).toBe('rejected')
+        expect(own?.moderationNote).toBe('Say which tool, not just that it worked.')
+      })
+    })
+
+    describe('revising', () => {
+      const REVISED = 'The provider demands a phone number, and only on the second page.'
+
+      it('replaces the text and says it was a revision', async () => {
+        const agentId = await anAgent('corrector')
+        await fileFor(agentId)
+
+        const result = await fileStruggle(db, { taskId, agentId, content: REVISED })
+
+        expect(result.outcome).toBe('revised')
+        expect(result.outcome === 'revised' && result.entry.content).toBe(REVISED)
+      })
+
+      /**
+       * The rule that is not negotiable. An approved entry editable in place is a
+       * moderator that can be walked around: file something innocuous, wait for
+       * approval, then write anything.
+       */
+      it('unpublishes an approved entry until it has been judged again', async () => {
+        const agentId = await anAgent('sneaky')
+        const id = await fileFor(agentId)
+        await approve(id, 1)
+        expect(await listStruggles(db, { taskId })).toHaveLength(1)
+
+        await fileStruggle(db, { taskId, agentId, content: REVISED })
+
+        expect(await listStruggles(db, { taskId })).toEqual([])
+        const [own] = await listOwnStruggles(db, agentId)
+        expect(own?.status).toBe('pending')
+      })
+
+      /** The previous verdict has to be cleared coherently, not half-cleared. */
+      it('clears the previous verdict and the confirmation count', async () => {
+        const agentId = await anAgent('rejected-then-fixed')
+        const id = await fileFor(agentId)
+        await reject(id, 'Too vague to act on.')
+
+        await fileStruggle(db, { taskId, agentId, content: REVISED })
+
+        const [row] = await db
+          .select({
+            status: taskStruggles.status,
+            moderatedAt: taskStruggles.moderatedAt,
+            moderationNote: taskStruggles.moderationNote,
+            confirmations: taskStruggles.confirmations,
+          })
+          .from(taskStruggles)
+          .where(eq(taskStruggles.id, id))
+
+        expect(row).toEqual({
+          status: 'pending',
+          moderatedAt: null,
+          moderationNote: null,
+          confirmations: 0,
+        })
+      })
+
+      /**
+       * An entry belongs to its author until another agent confirms it. After that
+       * the canonical text describes their observation too, and rewriting it would
+       * change what they were counted as confirming.
+       */
+      it('refuses a revision once another agent has confirmed it, leaving the text alone', async () => {
+        const author = await anAgent('first-reporter')
+        const id = await fileFor(author)
+        const second = await anAgent('second-reporter')
+        const secondId = await fileFor(second)
+        await mergeInto(id, secondId)
+        await approve(id, 2)
+
+        const result = await fileStruggle(db, { taskId, agentId: author, content: REVISED })
+
+        expect(result.outcome).toBe('not-revisable')
+        expect(result.outcome === 'not-revisable' && result.because).toBe('confirmed-by-others')
+        const [own] = await listOwnStruggles(db, author)
+        expect(own?.content).toBe(CONTENT)
+        expect(own?.status).toBe('approved')
+      })
+
+      /** Its content is never served; it is a pointer and a counted confirmation. */
+      it('refuses a revision of a merged entry', async () => {
+        const canonical = await anAgent('canonical-author')
+        const canonicalId = await fileFor(canonical)
+        const author = await anAgent('merged-author')
+        const mergedId = await fileFor(author, 'The same wall, said again.')
+        await mergeInto(canonicalId, mergedId)
+
+        const result = await fileStruggle(db, { taskId, agentId: author, content: REVISED })
+
+        expect(result.outcome).toBe('not-revisable')
+        expect(result.outcome === 'not-revisable' && result.because).toBe('merged-into-another')
+      })
+
+      /**
+       * The boundary is per task, not per agent. An author refused on one task is
+       * still the sole owner of what it said about another.
+       */
+      it('leaves the same author’s entry on another task revisable', async () => {
+        const agentId = await anAgent('two-reports')
+        const here = await fileFor(agentId)
+        await fileFor(agentId, 'A different wall, on the other task.', otherTaskId)
+        const other = await anAgent('confirmer')
+        await mergeInto(here, await fileFor(other, 'The same wall as the first.'))
+        await approve(here, 2)
+
+        expect((await fileStruggle(db, { taskId, agentId, content: REVISED })).outcome).toBe(
+          'not-revisable',
+        )
+        expect(
+          (await fileStruggle(db, { taskId: otherTaskId, agentId, content: REVISED })).outcome,
+        ).toBe('revised')
+      })
+    })
+  })
+
+  /**
+   * `#70`: every verdict leaves a record of what decided it.
+   *
+   * Written through `recordModeration` rather than by inserting rows directly,
+   * because the thing under test is that the verdict and its grounds are written
+   * together — a test that wrote the record itself would assert nothing about that.
+   */
+  describe('what decided a moderation verdict', () => {
+    const MODEL = 'vendor/some-model-v1'
+
+    const pendingStruggle = async (name: string, content = CONTENT) => {
+      const agentId = await anAgent(name)
+      const result = await fileStruggle(db, { taskId, agentId, content })
+      if (result.outcome !== 'recorded') throw new Error(result.outcome)
+      return result.entry.id
+    }
+
+    const stagesRejectedAtRedLine = () => ({
+      ...noStagesRun(),
+      redLine: { outcome: 'crossed', reason: 'Tells the reader to paste its API key.' },
+    })
+
+    const stagesApproved = () => ({
+      redLine: { outcome: 'clear' },
+      quality: { outcome: 'approve' },
+      dedup: { outcome: 'distinct' },
+    })
+
+    it('records one row per verdict, naming the stage that rejected it', async () => {
+      const id = await pendingStruggle('red-lined')
+
+      await recordModeration(db, {
+        kind: 'struggle',
+        id,
+        content: CONTENT,
+        verdict: { decision: 'reject', note: 'Tells the reader to paste its API key.' },
+        model: MODEL,
+        stages: stagesRejectedAtRedLine(),
+      })
+
+      const [record, ...rest] = await moderationsOf(db, { kind: 'struggle', id })
+
+      expect(rest).toEqual([])
+      expect(record?.decision).toBe('rejected')
+      expect(record?.stages.redLine.outcome).toBe('crossed')
+      // The stages that never ran say so, rather than saying nothing — otherwise
+      // *the quality check passed it* and *the quality check never looked* are the
+      // same row.
+      expect(record?.stages.quality.outcome).toBe('not-run')
+      expect(record?.stages.dedup.outcome).toBe('not-run')
+    })
+
+    /**
+     * The argument `verifications.task_type` makes: changing the configured model
+     * must not silently restate which model judged last week.
+     */
+    it('records the model as it was configured at the time', async () => {
+      const id = await pendingStruggle('judged-by-a-model')
+
+      await recordModeration(db, {
+        kind: 'struggle',
+        id,
+        content: CONTENT,
+        verdict: { decision: 'approve' },
+        model: MODEL,
+        stages: stagesApproved(),
+      })
+
+      expect((await moderationsOf(db, { kind: 'struggle', id }))[0]?.model).toBe(MODEL)
+    })
+
+    it('names what a merge folded the entry into, and survives a later change to the canonical entry', async () => {
+      const canonicalId = await pendingStruggle('canonical')
+      const duplicateId = await pendingStruggle('duplicate', 'The same wall, worded differently.')
+      await approve(canonicalId, 1)
+
+      await recordModeration(db, {
+        kind: 'struggle',
+        id: duplicateId,
+        content: 'The same wall, worded differently.',
+        verdict: { decision: 'merge', duplicateOf: canonicalId },
+        model: MODEL,
+        stages: { ...stagesApproved(), dedup: { outcome: canonicalId, reason: 'Same provider.' } },
+      })
+
+      // The canonical entry changes afterwards — which the record must not veto
+      // and must not follow.
+      await db
+        .update(taskStruggles)
+        .set({ content: 'The provider’s signup flow now demands a phone number on page two.' })
+        .where(eq(taskStruggles.id, canonicalId))
+
+      const [record] = await moderationsOf(db, { kind: 'struggle', id: duplicateId })
+
+      expect(record?.decision).toBe('merged')
+      expect(record?.duplicateOf).toBe(canonicalId)
+    })
+
+    /**
+     * Append-only, like `verifications` when a verifier answers `pending` twice.
+     * A revision is what produces the second verdict, so this is also the shape
+     * `#70` and `#74` had to agree on.
+     */
+    it('accumulates a row per verdict without erasing the first', async () => {
+      const agentId = await anAgent('revises-after-rejection')
+      const first = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      if (first.outcome !== 'recorded') throw new Error(first.outcome)
+      const id = first.entry.id
+
+      await recordModeration(db, {
+        kind: 'struggle',
+        id,
+        content: CONTENT,
+        verdict: { decision: 'reject', note: 'Too vague to act on.' },
+        model: MODEL,
+        stages: { ...stagesApproved(), quality: { outcome: 'reject', reason: 'No observation.' } },
+      })
+
+      const REVISED = 'The provider demands a phone number, and only on the second page.'
+      await fileStruggle(db, { taskId, agentId, content: REVISED })
+      await recordModeration(db, {
+        kind: 'struggle',
+        id,
+        content: REVISED,
+        verdict: { decision: 'approve' },
+        model: 'vendor/some-model-v2',
+        stages: stagesApproved(),
+      })
+
+      const records = await moderationsOf(db, { kind: 'struggle', id })
+
+      expect(records.map((r) => r.decision)).toEqual(['rejected', 'approved'])
+      expect(records[0]?.model).toBe(MODEL)
+      // The digests differ, which is what makes the trail readable across a
+      // revision: each verdict says which text it was about.
+      expect(records[0]?.contentSha256).not.toBe(records[1]?.contentSha256)
+    })
+
+    /**
+     * The hole revision opens, and the clause that closes it. A revision leaves the
+     * status `pending`, so the older guard alone would let a verdict reached against
+     * the replaced text be applied to text no moderator has seen — file something
+     * innocuous, wait for the runner to pick it up, revise during the model call.
+     */
+    it('refuses a verdict whose text has changed since the moderator read it', async () => {
+      const agentId = await anAgent('revises-mid-flight')
+      const filed = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+
+      // The moderator has read CONTENT and is deciding. The author replaces it.
+      await fileStruggle(db, { taskId, agentId, content: 'Something else entirely, unjudged.' })
+
+      const written = await recordModeration(db, {
+        kind: 'struggle',
+        id: filed.entry.id,
+        content: CONTENT,
+        verdict: { decision: 'approve' },
+        model: MODEL,
+        stages: stagesApproved(),
+      })
+
+      expect(written.outcome).toBe('stale')
+      expect(await listStruggles(db, { taskId })).toEqual([])
+      expect(await moderationsOf(db, { kind: 'struggle', id: filed.entry.id })).toEqual([])
+    })
+
+    it('records a tip verdict against the tip and not against a struggle', async () => {
+      const agentId = await anAgent('tip-writer')
+      await attempt(agentId, 'passed')
+      const written = await fileTip(db, { taskId, agentId, content: TIP })
+      if (written.outcome !== 'recorded') throw new Error(written.outcome)
+
+      await recordModeration(db, {
+        kind: 'tip',
+        id: written.entry.id,
+        content: TIP,
+        verdict: { decision: 'approve' },
+        model: MODEL,
+        stages: stagesApproved(),
+      })
+
+      const [record] = await moderationsOf(db, { kind: 'tip', id: written.entry.id })
+
+      expect(record?.subjectKind).toBe('tip')
+      expect(record?.subjectId).toBe(written.entry.id)
+      expect(await moderationsOf(db, { kind: 'struggle', id: written.entry.id })).toEqual([])
     })
   })
 })

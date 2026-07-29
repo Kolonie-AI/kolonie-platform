@@ -134,6 +134,13 @@
       "when": 1785363165268,
       "tag": "0018_chunky_husk",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785368173425,
+      "tag": "0019_sour_cargill",
+      "breakpoints": true
     }
   ]
 }

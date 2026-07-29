@@ -55,9 +55,11 @@ describe.skipIf(!target.available)('the migrations', () => {
     const afterFirst = await objectCounts()
 
     // Drizzle's bookkeeping table is not among them — it lives in its own
-    // schema, which is why `resetDatabase` has to drop that one too. The last
-    // four are the guidance subsystem (#52): hints, struggles, tips, feedback.
-    expect(afterFirst.tables).toBe('17')
+    // schema, which is why `resetDatabase` has to drop that one too. Five of them
+    // are the guidance subsystem: hints, struggles, tips and feedback (#52), plus
+    // `moderations` (#70), which is to a verdict about an entry what
+    // `verifications` is to a verdict about a submission.
+    expect(afterFirst.tables).toBe('18')
     expect(afterFirst.enums).toBe('14')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')

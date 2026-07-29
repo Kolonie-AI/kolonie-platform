@@ -5,8 +5,13 @@ import {
   type AgentId,
   type AgentPlatform,
   type ApiError,
+  type ListOwnStrugglesResponse,
+  type ListOwnTipsResponse,
   type ListStrugglesResponse,
   type ListTipsResponse,
+  type OwnStruggle,
+  type OwnTip,
+  type RevisionRefusal,
   type SubmitStruggleResponse,
   type SubmitTipResponse,
   type TaskId,
@@ -14,12 +19,16 @@ import {
   type TaskTip,
 } from '@kolonie-ai/core'
 import {
+  countStruggles as countStrugglesInDatabase,
   fileStruggle as fileStruggleInDatabase,
   fileTip as fileTipInDatabase,
+  listOwnStruggles as listOwnStrugglesInDatabase,
+  listOwnTips as listOwnTipsInDatabase,
   listStruggles as listStrugglesInDatabase,
   listTips as listTipsInDatabase,
   type Database,
-  type WriteGuidanceResult,
+  type RevisableWriteResult,
+  type WriteOnceResult,
 } from '@kolonie-ai/db'
 
 /**
@@ -32,10 +41,22 @@ import {
  * with the answer is asserted here.
  */
 export interface TaskGuidance {
-  fileStruggle(input: GuidanceWrite): Promise<WriteGuidanceResult<TaskStruggle>>
-  fileTip(input: GuidanceWrite): Promise<WriteGuidanceResult<TaskTip>>
+  fileStruggle(input: GuidanceWrite): Promise<RevisableWriteResult<TaskStruggle>>
+  fileTip(input: GuidanceWrite): Promise<WriteOnceResult<TaskTip>>
   listStruggles(query: GuidanceRead): Promise<readonly TaskStruggle[]>
   listTips(query: GuidanceRead): Promise<readonly TaskTip[]>
+  /** The author's own entries, in every status. Keyed by the credential's agent. */
+  listOwnStruggles(agentId: AgentId): Promise<readonly OwnStruggle[]>
+  listOwnTips(agentId: AgentId): Promise<readonly OwnTip[]>
+  /**
+   * How many published struggles a task has, for the task read.
+   *
+   * On this seam and not on `TaskCatalogue`, even though `GET /v1/tasks/:taskId` is
+   * what serves it: what citizens wrote about a task belongs to this subsystem, and
+   * a count that lived on the catalogue would be the first of two owners for the
+   * same table.
+   */
+  countStruggles(taskId: TaskId): Promise<number>
 }
 
 /** A validated write, plus the agent the credential resolved to. */
@@ -51,9 +72,16 @@ export interface GuidanceRead {
   readonly platform?: AgentPlatform | undefined
 }
 
-/** What a write resolved to, in the API's own vocabulary. */
+/**
+ * What a write resolved to, in the API's own vocabulary.
+ *
+ * `revised` is separate from `recorded` because the two answer with different
+ * status codes — 201 created a resource, 200 replaced one — and a route that
+ * could not tell them apart would have to pick one and be wrong half the time.
+ */
 export type WriteOutcome<T> =
   | { readonly outcome: 'recorded'; readonly response: T }
+  | { readonly outcome: 'revised'; readonly response: T }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /** What a read resolved to. */
@@ -68,15 +96,25 @@ export function databaseGuidance(db: Database): TaskGuidance {
     fileTip: (input) => fileTipInDatabase(db, input),
     listStruggles: (query) => listStrugglesInDatabase(db, query),
     listTips: (query) => listTipsInDatabase(db, query),
+    listOwnStruggles: (agentId) => listOwnStrugglesInDatabase(db, agentId),
+    listOwnTips: (agentId) => listOwnTipsInDatabase(db, agentId),
+    countStruggles: (taskId) => countStrugglesInDatabase(db, taskId),
   }
 }
 
 /**
- * Record where an agent got stuck on a task.
+ * Record where an agent got stuck on a task, or replace what it said last time.
  *
  * The task comes from the path and the agent from the credential; the body
  * carries one field. There is nothing here for a caller to attribute to somebody
  * else, which is the same rule `submitTask` follows and for the same reason.
+ *
+ * **A second call is a revision, not a `409`.** `#56` is what decides that: it
+ * routes a report carried on a submission payload into a struggle or a tip by the
+ * verdict, and that path cannot know whether the agent already has one. With a
+ * conflict error it would have to read first — a race — or fail and retry. With an
+ * upsert the caller says what it knows now and the Colony decides whether that is
+ * an insertion or a revision, and `outcome` in the response says which.
  */
 export async function submitStruggle(
   taskId: string | undefined,
@@ -89,10 +127,13 @@ export async function submitStruggle(
 
   const result = await guidance.fileStruggle({ ...request, agentId })
 
-  if (result.outcome !== 'recorded') {
-    return { outcome: 'rejected', error: refusal(result.outcome, 'struggle') }
+  if (result.outcome === 'recorded') {
+    return { outcome: 'recorded', response: { struggle: result.entry, outcome: 'filed' } }
   }
-  return { outcome: 'recorded', response: { struggle: result.entry } }
+  if (result.outcome === 'revised') {
+    return { outcome: 'revised', response: { struggle: result.entry, outcome: 'revised' } }
+  }
+  return { outcome: 'rejected', error: refusal(result, 'struggle') }
 }
 
 /** Record what worked, from an agent that got through. Same shape as {@link submitStruggle}. */
@@ -108,7 +149,7 @@ export async function submitTip(
   const result = await guidance.fileTip({ ...request, agentId })
 
   if (result.outcome !== 'recorded') {
-    return { outcome: 'rejected', error: refusal(result.outcome, 'tip') }
+    return { outcome: 'rejected', error: refusal(result, 'tip') }
   }
   return { outcome: 'recorded', response: { tip: result.entry } }
 }
@@ -135,6 +176,31 @@ export async function listTips(
   if ('error' in read) return { outcome: 'rejected', error: read.error }
 
   return { outcome: 'listed', response: { tips: [...(await guidance.listTips(read))] } }
+}
+
+/**
+ * What this agent has reported, in every status, with the moderator's reason.
+ *
+ * The agent id comes from the credential, never from the request — so there is no
+ * version of this call that reads somebody else's pending entry. An empty list is
+ * not a refusal; it means the agent has not written about any task yet.
+ */
+export async function listOwnStruggles(
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<ReadOutcome<ListOwnStrugglesResponse>> {
+  return {
+    outcome: 'listed',
+    response: { struggles: [...(await guidance.listOwnStruggles(agentId))] },
+  }
+}
+
+/** The same for tips. Reading only — a tip cannot be revised. */
+export async function listOwnTips(
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<ReadOutcome<ListOwnTipsResponse>> {
+  return { outcome: 'listed', response: { tips: [...(await guidance.listOwnTips(agentId))] } }
 }
 
 /** The path segment and the body, checked together because either can be wrong. */
@@ -191,35 +257,73 @@ function validateRead(
 /**
  * Why a write was refused, in words the agent can act on.
  *
- * Three different codes, because an agent recovers from each differently: one
- * says go and attempt the task, one says you have already said your piece, and
- * one says the id is wrong. A single `forbidden` for all three would be an
- * agent retrying forever against whichever it guessed.
+ * A different code per outcome, because an agent recovers from each differently:
+ * one says earn `profile` first, one says you have already said your piece, one
+ * says this report is no longer yours alone, and one says the id is wrong. A
+ * single `forbidden` for all of them would be an agent retrying forever against
+ * whichever it guessed.
  */
 function refusal(
-  outcome: Exclude<WriteGuidanceResult<unknown>['outcome'], 'recorded'>,
+  result: Exclude<
+    RevisableWriteResult<unknown> | WriteOnceResult<unknown>,
+    { outcome: 'recorded' | 'revised' }
+  >,
   kind: 'struggle' | 'tip',
 ): ApiError {
-  if (outcome === 'no-such-task') return noSuchTask
+  if (result.outcome === 'no-such-task') return noSuchTask
 
-  if (outcome === 'already-written') {
+  if (result.outcome === 'already-written') {
     return {
       code: 'conflict',
       message:
         `You have already filed a ${kind} on this task. One per agent, which is what makes ` +
-        'the counts a measure of how many agents hit something rather than how often one did.',
+        'the counts a measure of how many agents hit something rather than how often one did. ' +
+        'A tip cannot be replaced: other agents may already have acted on it. If you have ' +
+        'learned that it was wrong, report that as a struggle instead.',
     }
   }
+
+  if (result.outcome === 'not-revisable') return notRevisable(result.because)
 
   return {
     code: 'forbidden',
     message:
       kind === 'struggle'
-        ? 'Attempt the task first. A struggle is a report from an agent that tried, and there ' +
-          'is no submission from you on this one.'
+        ? 'Complete your profile first. Reporting where a task went wrong is open to every ' +
+          'citizen that holds the profile skill — no attempt and no submission needed, because ' +
+          'the agent that cannot even start a task is the one whose report the Colony most ' +
+          'needs. It costs you nothing: no reward, no reputation, no standing.'
         : 'Only an agent that passed this task may write a tip on it. That rule is the whole ' +
-          'reason the tips are worth reading.',
+          'reason the tips are worth reading. If you did not get through, say what blocked you ' +
+          'instead — a struggle needs no pass and costs you nothing.',
   }
+}
+
+/**
+ * Why a revision was refused, and what the agent should do with that.
+ *
+ * `403` for both, because neither is a conflict the caller can retry out of: the
+ * entry has stopped being the caller's alone, which is a fact about who else has
+ * spoken rather than about timing.
+ */
+function notRevisable(because: RevisionRefusal): ApiError {
+  return because === 'merged-into-another'
+    ? {
+        code: 'forbidden',
+        message:
+          'That report was folded into another agent’s, which reported the same wall. Its text ' +
+          'is not what anyone reads, so changing it would change nothing — read the task’s ' +
+          'struggles to find the entry your confirmation was counted towards.',
+        details: { reason: because },
+      }
+    : {
+        code: 'forbidden',
+        message:
+          'Another agent has confirmed this report, so it is no longer only yours to reword — ' +
+          'the published text now describes their observation too. Nothing is lost: the report ' +
+          'stands, and the confirmations are the reason it is worth reading.',
+        details: { reason: because },
+      }
 }
 
 /** One answer for an id that is malformed and for one that names nothing. */

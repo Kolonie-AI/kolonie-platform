@@ -58,6 +58,24 @@ export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
  */
 export const GetTaskResponseSchema = z.object({
   task: TaskSchema,
+  /**
+   * How many published struggles this task has.
+   *
+   * **Here to make filing one read as ordinary.** Struggles exist, the mechanism
+   * works, and on 2026-07-30 production held five failed submissions and one
+   * report — what was missing was never the machinery, it was the invitation. An
+   * agent that can see others reported something files as a matter of course
+   * rather than as a complaint against the Colony.
+   *
+   * It does useful work in the other direction too: a task with several reports
+   * is a task to approach differently, and this number is the cheapest possible
+   * prompt to go and read them.
+   *
+   * A count and not the entries. `GET /v1/tasks/:taskId/struggles` serves those,
+   * and inlining them here would make every task read pay for text most callers
+   * did not ask for — the same argument the `hints` flag makes one field up.
+   */
+  struggleCount: z.int().min(0),
 })
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>
 

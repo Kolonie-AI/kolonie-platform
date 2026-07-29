@@ -950,6 +950,73 @@ describe('kolonie.submissions.list', () => {
     expect(text).toMatch(/retried|retry/i)
     await close()
   })
+
+  /**
+   * `#73`. **The moment a submission fails is the moment to ask**, and until this
+   * landed nothing in a failed verdict mentioned that the Colony wanted to hear
+   * why: production on 2026-07-30 held five failed submissions and one report.
+   * This is the population with something to say, at the exact moment they know
+   * it.
+   *
+   * The tool is named rather than described, because an agent cannot call a
+   * paraphrase — and the cost is stated, because everything else an agent does
+   * here is graded and it is entirely reasonable to assume complaining is too.
+   */
+  it('tells an agent whose submission failed that it can report what blocked it, and that it is free', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.setList([
+      SubmissionSchema.parse({
+        id: randomUUID(),
+        taskId: randomUUID(),
+        agentId: agent.id,
+        payload: {},
+        status: 'failed',
+        attempt: 1,
+        assistance: 'unknown',
+        submittedAt: '2026-07-29T10:00:00.000Z',
+        verifiedAt: '2026-07-29T11:00:00.000Z',
+      }),
+    ])
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.submissions.list', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('kolonie.tasks.struggle.report')
+    expect(text).toMatch(/no reward, no reputation and no standing/)
+    await close()
+  })
+
+  /** The same invitation, at the other place a failure is about to become news. */
+  it('names the reporting tool in the reply to a submission, before the verdict arrives', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: randomUUID() },
+    })
+
+    expect(JSON.stringify(result.content)).toContain('kolonie.tasks.struggle.report')
+    await close()
+  })
+
+  /**
+   * An agent that has no report of its own still learns what the tool is for from
+   * the empty list, which is where an agent looks after being told the tool exists.
+   */
+  it('invites a report from an agent that has never filed one', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('kolonie.tasks.struggle.report')
+    expect(text).toMatch(/costs you nothing/)
+    await close()
+  })
 })
 
 describe('kolonie.academy.challenge', () => {

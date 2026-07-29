@@ -1,12 +1,19 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import type { ApprovedEntry, ModerationVerdict, PendingGuidance } from '@kolonie-ai/db'
-import type { TaskId } from '@kolonie-ai/core'
+import type { ModerationStages, TaskId } from '@kolonie-ai/core'
 import { judge, tick, type ModerationStore } from './loop.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 
 let model: FakeModel
-let written: { kind: string; id: string; verdict: ModerationVerdict }[]
+let written: {
+  kind: string
+  id: string
+  content: string
+  verdict: ModerationVerdict
+  model: string
+  stages: ModerationStages
+}[]
 let approved: ApprovedEntry[]
 let queue: PendingGuidance[]
 let stale = false
@@ -103,6 +110,94 @@ describe('judging one entry', () => {
     await judge(anEntry(), deps())
 
     expect(model.calls()).toHaveLength(2)
+  })
+})
+
+const SAME_WALL_TEXT = 'The signup form demands a telephone number before it will submit.'
+
+/**
+ * `#70`: what the verdict carries with it, so *why is this being served?* is a
+ * query months later rather than a `grep` against a container that has been
+ * replaced.
+ */
+describe('what the verdict records about how it was reached', () => {
+  it('records every stage that ran, with its own verdict', async () => {
+    clearAndUseful()
+
+    await judge(anEntry(), deps())
+
+    expect(written[0]?.stages).toEqual({
+      redLine: { outcome: 'clear' },
+      quality: { outcome: 'approve' },
+      dedup: { outcome: 'distinct', reason: 'nothing published yet' },
+    })
+  })
+
+  /**
+   * The acceptance criterion that is easy to get wrong by omission: an entry
+   * refused on a red line must record that the other two *never ran*, rather than
+   * recording nothing about them. Silence would make *the quality check passed it*
+   * and *the quality check never looked* the same row.
+   */
+  it('records the stages that never ran as not having run', async () => {
+    model.answers({ decision: 'crossed', reason: 'Asks the reader to paste its API key.' })
+
+    await judge(anEntry(), deps())
+
+    expect(written[0]?.stages).toEqual({
+      redLine: { outcome: 'crossed', reason: 'Asks the reader to paste its API key.' },
+      quality: { outcome: 'not-run' },
+      dedup: { outcome: 'not-run' },
+    })
+  })
+
+  it('names what a merge decided, in the dedup stage as well as in the verdict', async () => {
+    const canonical = {
+      id: randomUUID(),
+      content: SAME_WALL_TEXT,
+      platforms: ['openclaw' as const],
+    }
+    approved = [canonical]
+    model.embedsAs(SAME_WALL_TEXT, [1, 0, 0])
+    model.embedsAs(SAME_WALL_TEXT, [1, 0, 0])
+    clearAndUseful()
+    model.answers({ decision: canonical.id, reason: 'The same provider behaviour.' })
+
+    await judge(anEntry({ content: SAME_WALL_TEXT }), deps())
+
+    expect(written[0]?.verdict).toEqual({ decision: 'merge', duplicateOf: canonical.id })
+    expect(written[0]?.stages.dedup).toEqual({
+      outcome: canonical.id,
+      reason: 'The same provider behaviour.',
+    })
+  })
+
+  /**
+   * The model as configured, not the default constant. A test that expected
+   * `MODERATION_MODEL` would pass whether the runner read the configuration or
+   * hard-coded it — which is exactly the confusion the column exists to prevent.
+   */
+  it('records the model that answered', async () => {
+    clearAndUseful()
+
+    await judge(anEntry(), deps())
+
+    expect(written[0]?.model).toBe(model.name)
+  })
+
+  /**
+   * The text the moderator judged goes with the verdict, because `recordModeration`
+   * refuses to apply one to text that has changed since. A revision leaves the entry
+   * `pending`, so the content is the only thing that separates a verdict about *this*
+   * report from one about the report it replaced.
+   */
+  it('sends the text it judged, so a verdict cannot land on a report it never read', async () => {
+    clearAndUseful()
+    const entry = anEntry()
+
+    await judge(entry, deps())
+
+    expect(written[0]?.content).toBe(entry.content)
   })
 })
 

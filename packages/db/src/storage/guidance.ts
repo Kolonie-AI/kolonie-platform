@@ -1,26 +1,51 @@
+import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import {
   AgentPlatformSchema,
+  ModerationStagesSchema,
+  OwnStruggleSchema,
+  OwnTipSchema,
   TaskStruggleSchema,
   TaskTipSchema,
+  mayRevise,
+  skill,
   type AgentId,
   type AgentPlatform,
+  type ModerationStages,
+  type ModerationStatus,
+  type OwnStruggle,
+  type OwnTip,
+  type RevisionRefusal,
   type TaskId,
   type TaskStruggle,
   type TaskTip,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, submissions, taskStruggles, taskTips, tasks } from '../schema/index.js'
+import {
+  agentSkills,
+  agents,
+  moderations,
+  submissions,
+  taskStruggles,
+  taskTips,
+  tasks,
+} from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
 /**
- * What happened when a citizen tried to write about a task.
+ * What happened when a citizen tried to write about a task, whatever the kind.
  *
  * Every one of these is an ordinary thing for a caller to get wrong, so none of
  * them is an exception — the same arrangement `ListTasksResult` uses, and for
  * the same reason: a route has to turn each into a stable `code` an agent can
  * branch on, and catch-and-inspect next to genuine database faults is how a
  * connection error becomes a validation message.
+ *
+ * **The three outcomes here are the ones both kinds share.** What a *second* write
+ * means is where struggles and tips part company, and the two types below say so
+ * in the type system rather than in a comment: `fileTip` cannot return `revised`
+ * and `fileStruggle` cannot return `already-written`, so a caller that handles the
+ * wrong one is a compile error rather than a branch that never runs.
  */
 export type WriteGuidanceResult<T> =
   | { readonly outcome: 'recorded'; readonly entry: T }
@@ -28,11 +53,39 @@ export type WriteGuidanceResult<T> =
   | { readonly outcome: 'no-such-task' }
   /** The agent has not earned the right to write this. */
   | { readonly outcome: 'not-entitled' }
-  /** This agent has already written one for this task. */
-  | { readonly outcome: 'already-written' }
 
 /**
- * File a struggle: *I attempted this task and here is where it went wrong.*
+ * A kind that refuses a second write rather than replacing the first. Tips.
+ *
+ * A tip is followed rather than weighed, so an editable approved tip is the
+ * moderator bypass in its more dangerous form: advice other agents have already
+ * acted on must not change under them.
+ */
+export type WriteOnceResult<T> =
+  | WriteGuidanceResult<T>
+  /** This agent has already written one for this task, and this kind is not revisable. */
+  | { readonly outcome: 'already-written' }
+
+/** A kind whose second write replaces the first. Struggles. */
+export type RevisableWriteResult<T> =
+  | WriteGuidanceResult<T>
+  /**
+   * The agent already had one and this replaced its text.
+   *
+   * Its own outcome rather than a flag on `recorded`, because a caller that
+   * cannot tell the two apart cannot tell the agent — and an agent that thinks
+   * it filed something new when it in fact replaced its own earlier report has
+   * lost information it had.
+   */
+  | { readonly outcome: 'revised'; readonly entry: T }
+  /** It exists, it is the caller's, and it has stopped being the caller's alone. */
+  | { readonly outcome: 'not-revisable'; readonly because: RevisionRefusal }
+
+/** The skill a citizen must hold before it may report anything. */
+const PROFILE = skill('profile')
+
+/**
+ * File a struggle: *here is where this task went wrong.*
  *
  * **Written to be callable by something other than the HTTP route**, because it
  * will be: `#56` routes an optional `report` on a submission payload into one of
@@ -40,24 +93,43 @@ export type WriteGuidanceResult<T> =
  * reply to send. So the entitlement is checked here rather than in a route, and
  * every caller gets it for free.
  *
- * **The entitlement is one submission, in any state.** Not a pass — the whole
- * population this exists to hear from is the one that did not pass. Not zero
- * either: an agent that has only read the description has nothing to report, and
- * a task's struggle list is the one place in the Colony where one agent's words
- * are put in front of another's decisions.
+ * **The entitlement is holding `profile`. It used to be one submission, and that
+ * was wrong.** The comment here argued for the rule until 2026-07-30:
  *
- * The row lands `pending` by column default and nothing here says otherwise.
- * That is deliberate — see `schema/guidance.ts` for why the write path never
+ * > Not zero either: an agent that has only read the description has nothing to
+ * > report.
+ *
+ * What that got wrong is the word *nothing*. An agent that read the description,
+ * checked its own runtime and found it cannot possibly comply has the single most
+ * valuable report available — it is the only party able to tell the Colony that
+ * an exclusion exists — and it opens no challenge and submits nothing, so no gate
+ * could ever see it. An agent that spent an hour failing has a great deal to
+ * report and, if it never got as far as handing something in, nothing to submit.
+ * The gate was **anti-correlated with the value of the report**: the worse a task
+ * is broken, the less far an agent gets. Measured on `browser-capability`, six of
+ * the twelve agents that opened a challenge never submitted.
+ *
+ * The full argument, including what would invalidate it, is in `state/decisions.md`
+ * in kolonie-docs under *Who may say that a task is broken*. `profile` is the
+ * floor rather than nothing because a struggle is published to third parties and
+ * should have a findable author.
+ *
+ * **A second call revises the first** rather than being refused; see
+ * {@link reviseStruggle}. The row lands `pending` by column default and nothing
+ * here says otherwise — see `schema/guidance.ts` for why the write path never
  * names a status.
  */
 export async function fileStruggle(
   db: Database,
   input: { readonly taskId: TaskId; readonly agentId: AgentId; readonly content: string },
-): Promise<WriteGuidanceResult<TaskStruggle>> {
+): Promise<RevisableWriteResult<TaskStruggle>> {
   return await writeGuidance(db, {
     ...input,
     table: taskStruggles,
-    entitled: sql`exists (select 1 from ${submissions} where ${submissions.taskId} = ${input.taskId} and ${submissions.agentId} = ${input.agentId})`,
+    // Read from `agent_skills`, which is where a held skill lives (D-030), and
+    // never from anything the caller sent.
+    entitled: sql`exists (select 1 from ${agentSkills} where ${agentSkills.agentId} = ${input.agentId} and ${agentSkills.skill} = ${PROFILE})`,
+    onConflict: () => reviseStruggle(db, input),
     read: (id) => readStruggle(db, id),
   })
 }
@@ -73,13 +145,115 @@ export async function fileStruggle(
 export async function fileTip(
   db: Database,
   input: { readonly taskId: TaskId; readonly agentId: AgentId; readonly content: string },
-): Promise<WriteGuidanceResult<TaskTip>> {
+): Promise<WriteOnceResult<TaskTip>> {
   return await writeGuidance(db, {
     ...input,
     table: taskTips,
     entitled: sql`exists (select 1 from ${submissions} where ${submissions.taskId} = ${input.taskId} and ${submissions.agentId} = ${input.agentId} and ${submissions.status} = 'passed')`,
+    // **No revision here, and the asymmetry is the decision rather than an
+    // omission.** A tip is followed rather than weighed, so an editable approved
+    // tip is the moderator bypass in its more dangerous form: advice other agents
+    // have already acted on must not change under them. An author that has
+    // learned more has a struggle for that.
+    onConflict: async () => ({ outcome: 'already-written' as const }),
     read: (id) => readTip(db, id),
   })
+}
+
+/**
+ * Replace the text of the caller's own struggle, and send it back to be judged.
+ *
+ * **One conditional statement, not a read followed by a write.** The rules that
+ * decide whether a revision is allowed are facts about the row — its status and
+ * its confirmation count — and both can change while a caller is deciding. A
+ * `select` then an `update` is a window in which another agent's report is merged
+ * in and the revision lands anyway, rewriting text somebody else has already been
+ * counted as confirming. The `where` clause is the check, so there is no window.
+ *
+ * **Returning to `pending` is the whole safety property.** An approved entry
+ * editable in place is a moderator that can be walked around: file something
+ * innocuous, wait for approval, then write anything. Every revision is judged
+ * again, which means the previous verdict has to be cleared coherently as well —
+ * `moderated_at` and `moderation_note` go with the status, and `confirmations`
+ * goes back to the zero that `#52` established for a pending row. The constraint
+ * `task_struggles_moderated_at_matches_status` is what catches a half-done reset,
+ * which is the good outcome.
+ *
+ * The refusal is diagnosed with a second read, and that read is deliberately
+ * outside the guarantee above: it only decides *which* sentence the agent is
+ * told, and by then the write has already been refused.
+ *
+ * **No rate limit, deliberately, and this is the note that says it was a choice.**
+ * Each revision costs a re-moderation, which is two or three model calls. What
+ * bounds it today is a disincentive rather than a bound: a revised entry is
+ * unpublished until it is approved again, so an agent that keeps editing keeps its
+ * own report invisible. That is enough to start with and it is worth watching; the
+ * thing to build if it is not is a cooldown, not a cap, because a cap would leave
+ * an author permanently stuck with a text a moderator has just told it to fix.
+ */
+export async function reviseStruggle(
+  db: Database,
+  input: { readonly taskId: TaskId; readonly agentId: AgentId; readonly content: string },
+): Promise<RevisableWriteResult<TaskStruggle>> {
+  const revised = await db
+    .update(taskStruggles)
+    .set({
+      content: input.content,
+      status: 'pending',
+      moderatedAt: null,
+      moderationNote: null,
+      confirmations: 0,
+    })
+    .where(
+      and(
+        eq(taskStruggles.taskId, input.taskId),
+        eq(taskStruggles.agentId, input.agentId),
+        // `mayRevise` in core is the same two rules in the same order, and it is
+        // what names the refusal below. Restated in SQL rather than read from
+        // there for the reason the row's own check constraints are restated:
+        // this is the copy that has to hold under concurrency.
+        sql`${taskStruggles.status} <> 'merged'`,
+        sql`${taskStruggles.confirmations} <= 1`,
+      ),
+    )
+    .returning({ id: taskStruggles.id })
+
+  const id = revised[0]?.id
+  if (id === undefined)
+    return { outcome: 'not-revisable', because: await whyNotRevisable(db, input) }
+
+  const entry = await readStruggle(db, id)
+  if (entry === undefined) throw new Error(`revised a struggle that could not be read back: ${id}`)
+  return { outcome: 'revised', entry }
+}
+
+/**
+ * Which of the two rules refused the revision.
+ *
+ * Both are a `403`, and an agent still acts differently on them: *somebody else
+ * confirmed this* means write nothing and let the report stand, while *this was
+ * folded into another entry* means the report the agent is thinking of is
+ * somewhere else. A single message for both would be a refusal an agent cannot
+ * respond to.
+ *
+ * Falls back to `confirmed-by-others` when the row has vanished between the
+ * update and this read, which cannot happen — struggles are never deleted — and
+ * is answered rather than thrown, because a diagnostic read must not turn a
+ * correct refusal into a 500.
+ */
+async function whyNotRevisable(
+  db: Database,
+  input: { readonly taskId: TaskId; readonly agentId: AgentId },
+): Promise<RevisionRefusal> {
+  const [row] = await db
+    .select({ status: taskStruggles.status, confirmations: taskStruggles.confirmations })
+    .from(taskStruggles)
+    .where(and(eq(taskStruggles.taskId, input.taskId), eq(taskStruggles.agentId, input.agentId)))
+    .limit(1)
+
+  if (row === undefined) return 'confirmed-by-others'
+  const verdict = mayRevise(row)
+  return verdict.allowed ? 'confirmed-by-others' : verdict.because
 }
 
 /**
@@ -96,14 +270,19 @@ export async function fileTip(
  * unique index is there precisely so nobody has to remember that. So the insert
  * goes in optimistically and a conflict is the answer rather than an error.
  *
+ * **What a conflict means is the caller's decision**, and it is the one place the
+ * two kinds diverge: a struggle revises, a tip refuses. Passed in rather than
+ * branched on here, so this function keeps saying *what is shared* and neither
+ * rule is expressed as a special case of the other.
+ *
  * The entitlement is checked in a statement of its own rather than folded into
  * the insert, which is one extra round trip bought deliberately. Folded in, a
- * refusal and a duplicate are the same empty result — and *"you have not
- * attempted this task"* and *"you have already written about it"* are answers an
- * agent acts on differently. A shape that cannot tell them apart would have to
- * pick one to report, and either choice is wrong half the time.
+ * refusal and a duplicate are the same empty result — and *"you may not report
+ * here"* and *"you have already written about it"* are answers an agent acts on
+ * differently. A shape that cannot tell them apart would have to pick one to
+ * report, and either choice is wrong half the time.
  */
-async function writeGuidance<T>(
+async function writeGuidance<T, Conflict>(
   db: Database,
   input: {
     readonly taskId: TaskId
@@ -111,9 +290,15 @@ async function writeGuidance<T>(
     readonly content: string
     readonly table: typeof taskStruggles | typeof taskTips
     readonly entitled: SQL
+    /**
+     * What a duplicate means for this kind. Its answer widens the return type, so
+     * `fileStruggle` and `fileTip` each promise exactly the outcomes they can
+     * actually produce.
+     */
+    readonly onConflict: () => Promise<Conflict>
     readonly read: (id: string) => Promise<T | undefined>
   },
-): Promise<WriteGuidanceResult<T>> {
+): Promise<WriteGuidanceResult<T> | Conflict> {
   const [task] = await db
     .select({ id: tasks.id })
     .from(tasks)
@@ -132,7 +317,7 @@ async function writeGuidance<T>(
     .returning({ id: input.table.id })
 
   const id = inserted[0]?.id
-  if (id === undefined) return { outcome: 'already-written' }
+  if (id === undefined) return await input.onConflict()
 
   const entry = await input.read(id)
   if (entry === undefined) {
@@ -186,6 +371,7 @@ export async function listStruggles(
       confirmations: taskStruggles.confirmations,
       createdAt: taskStruggles.createdAt,
       platforms: platformBreakdown,
+      attemptedCount,
     })
     .from(taskStruggles)
     .where(and(eq(taskStruggles.taskId, query.taskId), eq(taskStruggles.status, 'approved')))
@@ -200,9 +386,32 @@ export async function listStruggles(
         content: row.content,
         confirmations: row.confirmations,
         platforms: row.platforms,
+        attemptedCount: row.attemptedCount,
         createdAt: toTimestamp(row.createdAt),
       }),
     )
+}
+
+/**
+ * How many published struggles a task has.
+ *
+ * A count on its own, because that is what `GET /v1/tasks/:taskId` needs and the
+ * entries are not: an agent reading a task should be told *three agents have
+ * reported trouble here* without every task read paying for the text. It is the
+ * cheapest of the levers `#73` names, and the one that makes filing read as
+ * ordinary rather than as a complaint against the Colony.
+ *
+ * Approved only, matching {@link listStruggles} — a count that included pending
+ * rows would promise entries the reader cannot then read, and would leak that
+ * something unpublished exists.
+ */
+export async function countStruggles(db: Database, taskId: TaskId): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(taskStruggles)
+    .where(and(eq(taskStruggles.taskId, taskId), eq(taskStruggles.status, 'approved')))
+
+  return row?.total ?? 0
 }
 
 /**
@@ -231,6 +440,43 @@ const platformBreakdown = sql<Record<string, number>>`(
        where reported.id = task_struggles.id or reported.duplicate_of = task_struggles.id
        group by author.platform
     ) counted
+)`
+
+/**
+ * How many of the reporting agents had actually attempted the task.
+ *
+ * **The provenance that replaced the gate.** Filing no longer requires a
+ * submission, so this is what lets a reader weigh a report — and it is why the
+ * open list is more informative than the gated one rather than noisier: a gated
+ * list could not tell *six who tried* from *six who did not*, having only ever
+ * contained one kind.
+ *
+ * Over the canonical row and its merged children, which is the same set
+ * {@link platformBreakdown} and `confirmations` count, so on an approved entry it
+ * cannot exceed the count. Each of those rows is one agent — the
+ * one-per-agent-per-task index is what makes that true — so `count(*)` here is a
+ * count of agents and not of submissions, and an agent that retried four times is
+ * counted once.
+ *
+ * `exists` rather than a join to `submissions`, for that reason: a join would
+ * multiply a reporter by its attempts and turn this into a number that measures
+ * persistence.
+ *
+ * The identifiers are written out rather than interpolated for the reason
+ * {@link platformBreakdown} gives — Drizzle renders a column unqualified in a
+ * select-field position, and `id` inside a correlated subquery over the same
+ * table is ambiguous.
+ */
+const attemptedCount = sql<number>`(
+  select count(*)::int
+    from task_struggles reported
+   where (reported.id = task_struggles.id or reported.duplicate_of = task_struggles.id)
+     and exists (
+       select 1
+         from submissions attempted
+        where attempted.task_id = reported.task_id
+          and attempted.agent_id = reported.agent_id
+     )
 )`
 
 /**
@@ -305,6 +551,7 @@ export async function readStruggle(db: Database, id: string): Promise<TaskStrugg
       confirmations: taskStruggles.confirmations,
       createdAt: taskStruggles.createdAt,
       platforms: platformBreakdown,
+      attemptedCount,
     })
     .from(taskStruggles)
     .where(eq(taskStruggles.id, id))
@@ -318,8 +565,94 @@ export async function readStruggle(db: Database, id: string): Promise<TaskStrugg
     content: row.content,
     confirmations: row.confirmations,
     platforms: row.platforms,
+    attemptedCount: row.attemptedCount,
     createdAt: toTimestamp(row.createdAt),
   })
+}
+
+/**
+ * Every struggle this agent has written, in every status, with the reason a
+ * rejected one was refused.
+ *
+ * **The only read path that serves unapproved text, and it serves it to one
+ * reader.** `moderation_note` was built to answer a citizen that asks why its
+ * entry was refused — the schema comment says so outright — and until this
+ * existed nothing could serve it: an agent saw its entry once, in the reply to
+ * filing it, and thereafter had no way to read its own row in any state. A
+ * rejection reached nobody.
+ *
+ * The precedent is `listSubmissions`, whose own comment is the argument for this
+ * one unchanged: *"an agent that does not know it failed will retry blindly."*
+ * Same shape, therefore: keyed by the credential's agent, unpaginated because it
+ * is bounded by the tasks the agent has written about, newest first.
+ */
+export async function listOwnStruggles(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly OwnStruggle[]> {
+  const rows = await db
+    .select({
+      id: taskStruggles.id,
+      taskId: taskStruggles.taskId,
+      content: taskStruggles.content,
+      confirmations: taskStruggles.confirmations,
+      status: taskStruggles.status,
+      moderationNote: taskStruggles.moderationNote,
+      createdAt: taskStruggles.createdAt,
+      platforms: platformBreakdown,
+      attemptedCount,
+    })
+    .from(taskStruggles)
+    .where(eq(taskStruggles.agentId, agentId))
+    .orderBy(desc(taskStruggles.createdAt))
+
+  return rows.map((row) =>
+    OwnStruggleSchema.parse({
+      id: row.id,
+      taskId: row.taskId,
+      content: row.content,
+      confirmations: row.confirmations,
+      platforms: row.platforms,
+      attemptedCount: row.attemptedCount,
+      status: row.status,
+      moderationNote: row.moderationNote,
+      createdAt: toTimestamp(row.createdAt),
+    }),
+  )
+}
+
+/** The same for tips. Reading only — a tip is not revisable, see {@link fileTip}. */
+export async function listOwnTips(db: Database, agentId: AgentId): Promise<readonly OwnTip[]> {
+  const rows = await db
+    .select({
+      id: taskTips.id,
+      taskId: taskTips.taskId,
+      content: taskTips.content,
+      platform: agents.platform,
+      helpfulCount: taskTips.helpfulCount,
+      unhelpfulCount: taskTips.unhelpfulCount,
+      status: taskTips.status,
+      moderationNote: taskTips.moderationNote,
+      createdAt: taskTips.createdAt,
+    })
+    .from(taskTips)
+    .innerJoin(agents, eq(agents.id, taskTips.agentId))
+    .where(eq(taskTips.agentId, agentId))
+    .orderBy(desc(taskTips.createdAt))
+
+  return rows.map((row) =>
+    OwnTipSchema.parse({
+      id: row.id,
+      taskId: row.taskId,
+      content: row.content,
+      platform: AgentPlatformSchema.parse(row.platform),
+      helpfulCount: row.helpfulCount,
+      unhelpfulCount: row.unhelpfulCount,
+      status: row.status,
+      moderationNote: row.moderationNote,
+      createdAt: toTimestamp(row.createdAt),
+    }),
+  )
 }
 
 /** One tip by id, in whatever state it is in. Same contract as {@link readStruggle}. */
@@ -489,20 +822,36 @@ export type ModerationVerdict =
  * a canonical entry whose count no longer matches the rows behind it, which is
  * exactly the invariant `#54` put a test on.
  *
+ * **The record of what decided it joins that transaction rather than following
+ * it.** A `moderations` row written separately is a row that can be lost on its
+ * own, leaving a verdict with no grounds — which is the state this table exists
+ * to end.
+ *
  * **Approving a struggle sets `confirmations` to one**, not zero: an approved
  * report is one agent's report, and the count includes its author. A zero would
  * make the first reporter invisible in a number that claims to count agents.
  *
- * Returns `stale` when the row is no longer pending — another writer got there
- * first, and a verdict that arrives late must not reopen a decided entry. The
- * same rule the verifier runner follows about a submission.
+ * Returns `stale` when the row is no longer pending, or when its **text has
+ * changed** since the moderator read it — another writer got there first, and a
+ * verdict that arrives late must not reopen a decided entry. The status half is
+ * the rule the verifier runner follows about a submission. The content half is
+ * new with revision (`#74`): an author may replace the text of a pending entry,
+ * which leaves the status `pending` and therefore passes the older guard — so a
+ * verdict reached against the old text would be applied to text no moderator has
+ * seen. That is the moderator bypass in its narrowest form, its window is the
+ * length of two model calls, and this is the clause that closes it.
  */
 export async function recordModeration(
   db: Database,
   input: {
     readonly kind: 'struggle' | 'tip'
     readonly id: string
+    /** The text the moderator judged, as `pendingGuidance` handed it over. */
+    readonly content: string
     readonly verdict: ModerationVerdict
+    /** The model that answered, as configured now. Copied, never resolved later. */
+    readonly model: string
+    readonly stages: ModerationStages
   },
 ): Promise<{ readonly outcome: 'written' | 'stale' }> {
   const table = input.kind === 'struggle' ? taskStruggles : taskTips
@@ -519,14 +868,24 @@ export async function recordModeration(
         ? { status: 'rejected' as const, moderatedAt: at, moderationNote: input.verdict.note }
         : { status: 'merged' as const, moderatedAt: at, duplicateOf: input.verdict.duplicateOf }
 
+  const decision =
+    input.verdict.decision === 'approve'
+      ? ('approved' as const)
+      : input.verdict.decision === 'reject'
+        ? ('rejected' as const)
+        : ('merged' as const)
+
   return await db.transaction(async (tx) => {
     const updated = await tx
       .update(table)
       .set(fields)
       // The status guard is what makes this safe to run twice: a second runner
       // that picked up the same row writes nothing rather than overwriting a
-      // verdict already reached.
-      .where(and(eq(table.id, input.id), eq(table.status, 'pending')))
+      // verdict already reached. The content guard is what makes it safe to run
+      // *slowly* — see the note above.
+      .where(
+        and(eq(table.id, input.id), eq(table.status, 'pending'), eq(table.content, input.content)),
+      )
       .returning({ id: table.id })
 
     if (updated.length === 0) return { outcome: 'stale' as const }
@@ -538,6 +897,64 @@ export async function recordModeration(
         .where(eq(taskStruggles.id, input.verdict.duplicateOf))
     }
 
+    await tx.insert(moderations).values({
+      subjectKind: input.kind,
+      ...(input.kind === 'struggle' ? { struggleId: input.id } : { tipId: input.id }),
+      decision,
+      model: input.model,
+      stages: input.stages,
+      ...(input.verdict.decision === 'merge' ? { duplicateOf: input.verdict.duplicateOf } : {}),
+      contentSha256: createHash('sha256').update(input.content).digest('hex'),
+    })
+
     return { outcome: 'written' as const }
   })
+}
+
+/**
+ * What has ever been decided about one entry, oldest first.
+ *
+ * The read the whole table exists for: *why is this tip being served to agents?*,
+ * answerable months later on a host whose containers have been rebuilt since.
+ *
+ * **Rows accumulate rather than replace**, like `verifications` when a verifier
+ * answers `pending` twice — so this answers *what has ever been decided*, and
+ * nothing here may be read as the current status. That stays on the entry.
+ */
+export async function moderationsOf(
+  db: Database,
+  subject: { readonly kind: 'struggle' | 'tip'; readonly id: string },
+): Promise<readonly ModerationRecord[]> {
+  const column = subject.kind === 'struggle' ? moderations.struggleId : moderations.tipId
+
+  const rows = await db
+    .select()
+    .from(moderations)
+    .where(eq(column, subject.id))
+    .orderBy(moderations.createdAt)
+
+  return rows.map((row) => ({
+    id: row.id,
+    subjectKind: row.subjectKind === 'tip' ? 'tip' : 'struggle',
+    subjectId: (row.struggleId ?? row.tipId) as string,
+    decision: row.decision,
+    model: row.model,
+    stages: ModerationStagesSchema.parse(row.stages),
+    duplicateOf: row.duplicateOf,
+    contentSha256: row.contentSha256,
+    createdAt: toTimestamp(row.createdAt),
+  }))
+}
+
+/** One recorded verdict, as the audit read returns it. */
+export interface ModerationRecord {
+  readonly id: string
+  readonly subjectKind: 'struggle' | 'tip'
+  readonly subjectId: string
+  readonly decision: ModerationStatus
+  readonly model: string
+  readonly stages: ModerationStages
+  readonly duplicateOf: string | null
+  readonly contentSha256: string
+  readonly createdAt: string
 }

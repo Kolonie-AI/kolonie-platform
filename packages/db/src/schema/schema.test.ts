@@ -108,6 +108,14 @@ describe.skipIf(!target.available)('schema', () => {
         // touches nothing outside this process.
         'key_challenges',
         'ledger_entries',
+        /**
+         * `moderations` joined with #70. It is to a verdict about a citizen's
+         * entry what `verifications` is to a verdict about a submission: five
+         * entries were judged in production on 2026-07-29 and the only surviving
+         * evidence was a status column and a timestamp, because the container that
+         * decided them had been redeployed.
+         */
+        'moderations',
         // `pow_challenges` joined with the compute rung (#37): the third root,
         // and the only one whose evidence is a value the agent spent CPU to
         // find rather than one it was given.

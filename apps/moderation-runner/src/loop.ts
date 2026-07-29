@@ -1,4 +1,4 @@
-import { MODERATION_NOTE_MAX_LENGTH } from '@kolonie-ai/core'
+import { MODERATION_NOTE_MAX_LENGTH, noStagesRun, type ModerationStages } from '@kolonie-ai/core'
 import type { ApprovedEntry, ModerationVerdict, PendingGuidance } from '@kolonie-ai/db'
 import { findDuplicate } from './dedup.js'
 import { judgeQuality } from './quality.js'
@@ -15,7 +15,10 @@ export interface ModerationStore {
   record(input: {
     readonly kind: 'struggle' | 'tip'
     readonly id: string
+    readonly content: string
     readonly verdict: ModerationVerdict
+    readonly model: string
+    readonly stages: ModerationStages
   }): Promise<{ readonly outcome: 'written' | 'stale' }>
 }
 
@@ -67,22 +70,45 @@ export type Judgement =
  * still being `pending`, so a second runner that picked up the same entry writes
  * nothing rather than overwriting a verdict — the same rule the verifier runner
  * follows about a submission whose verdict arrived late.
+ *
+ * **Every stage's answer is accumulated as it goes, and the ones that never ran
+ * say so.** `stages` starts as three `not-run` entries and each stage fills in its
+ * own, so an entry refused on a red line records that quality and dedup were never
+ * reached — rather than recording nothing about them, which would make *the
+ * quality check passed it* and *the quality check never looked* the same row.
  */
 export async function judge(entry: PendingGuidance, deps: LoopDependencies): Promise<Judgement> {
   const { store, model, log = silentLog } = deps
+  let stages = noStagesRun()
 
   try {
     const redLine = await checkRedLines(entry, model)
+    stages = {
+      ...stages,
+      redLine:
+        redLine.kind === 'clear'
+          ? { outcome: 'clear' }
+          : { outcome: 'crossed', reason: note(redLine.reason) },
+    }
+
     if (redLine.kind === 'crossed') {
-      return await write(entry, { decision: 'reject', note: note(redLine.reason) }, store, {
+      return await write(entry, { decision: 'reject', note: note(redLine.reason) }, deps, stages, {
         kind: 'rejected',
         reason: redLine.reason,
       })
     }
 
     const quality = await judgeQuality(entry, model)
+    stages = {
+      ...stages,
+      quality:
+        quality.kind === 'useful'
+          ? { outcome: 'approve' }
+          : { outcome: 'reject', reason: note(quality.reason) },
+    }
+
     if (quality.kind === 'useless') {
-      return await write(entry, { decision: 'reject', note: note(quality.reason) }, store, {
+      return await write(entry, { decision: 'reject', note: note(quality.reason) }, deps, stages, {
         kind: 'rejected',
         reason: quality.reason,
       })
@@ -90,32 +116,63 @@ export async function judge(entry: PendingGuidance, deps: LoopDependencies): Pro
 
     const approved = await store.approvedOn({ kind: entry.kind, taskId: entry.taskId })
     const duplicate = await findDuplicate(entry, approved, model)
+    stages = {
+      ...stages,
+      dedup:
+        duplicate.kind === 'distinct'
+          ? // `distinct` with nothing to compare against is not the same answer as
+            // `distinct` after the model was asked, and a reader reconstructing a
+            // decision needs to know which. The corpus size is what separates them.
+            {
+              outcome: 'distinct',
+              ...(approved.length === 0 && { reason: 'nothing published yet' }),
+            }
+          : { outcome: duplicate.of, reason: note(duplicate.reason) },
+    }
 
     if (duplicate.kind === 'duplicate') {
-      return await write(entry, { decision: 'merge', duplicateOf: duplicate.of }, store, {
+      return await write(entry, { decision: 'merge', duplicateOf: duplicate.of }, deps, stages, {
         kind: 'merged',
         into: duplicate.of,
       })
     }
 
-    return await write(entry, { decision: 'approve' }, store, { kind: 'approved' })
+    return await write(entry, { decision: 'approve' }, deps, stages, { kind: 'approved' })
   } catch (error) {
     // The row stays `pending`, so nothing is served and the next poll tries
     // again. A model that is down means entries accumulate unpublished, which is
-    // visible and reversible — unlike a verdict written from a failed call.
+    // visible and reversible — unlike a verdict written from a failed call. The
+    // stages accumulated so far go with it: they explain nothing that was decided,
+    // because nothing was.
     log.error(`could not moderate ${entry.kind} ${entry.id}`, error)
     return { kind: 'failed', error }
   }
 }
 
-/** Write the verdict, and report `stale` if somebody else got there first. */
+/**
+ * Write the verdict, and report `stale` if somebody else got there first.
+ *
+ * `entry.content` goes with it, and not as a convenience: it is what the moderator
+ * actually judged, and `recordModeration` refuses to apply a verdict to text that
+ * has changed since. An author may revise a pending entry (`#74`), which leaves the
+ * status `pending` — so the text is the only thing that can tell a verdict reached
+ * about *this* report from one reached about the report it replaced.
+ */
 async function write(
   entry: PendingGuidance,
   verdict: ModerationVerdict,
-  store: ModerationStore,
+  deps: LoopDependencies,
+  stages: ModerationStages,
   judgement: Judgement,
 ): Promise<Judgement> {
-  const written = await store.record({ kind: entry.kind, id: entry.id, verdict })
+  const written = await deps.store.record({
+    kind: entry.kind,
+    id: entry.id,
+    content: entry.content,
+    verdict,
+    model: deps.model.name,
+    stages,
+  })
   return written.outcome === 'stale' ? { kind: 'stale' } : judgement
 }
 

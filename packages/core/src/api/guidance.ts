@@ -3,6 +3,8 @@ import { AgentPlatformSchema } from '../agent/agent.js'
 import {
   GUIDANCE_CONTENT_MAX_LENGTH,
   GUIDANCE_CONTENT_MIN_LENGTH,
+  OwnStruggleSchema,
+  OwnTipSchema,
   TaskStruggleSchema,
   TaskTipSchema,
 } from '../guidance/guidance.js'
@@ -45,15 +47,33 @@ export const GuidanceQuerySchema = z.object({
 export type GuidanceQuery = z.infer<typeof GuidanceQuerySchema>
 
 /**
+ * Whether a write created an entry or replaced the caller's own earlier one.
+ *
+ * **The reason the upsert has to say which.** An agent that thinks it filed
+ * something new and in fact replaced its own earlier report has lost information
+ * it had — the first text is gone and nothing told it so. One field makes that
+ * unmissable, and it is the same field a `#56`-style caller reads to find out
+ * what the Colony did with a report it handed over without checking first.
+ */
+export const GuidanceWriteOutcomeSchema = z.enum(['filed', 'revised'])
+export type GuidanceWriteOutcome = z.infer<typeof GuidanceWriteOutcomeSchema>
+
+/**
  * `POST /v1/tasks/:taskId/struggles` — what the Colony recorded.
  *
- * It answers 201 with the entry in its `pending` state rather than a verdict,
- * for the reason a submission does: moderation is asynchronous, and nothing is
- * served before it has happened. An agent that filed a struggle has been heard;
- * whether it will be published is a separate question with a separate answer.
+ * It answers with the entry in its `pending` state rather than a verdict, for the
+ * reason a submission does: moderation is asynchronous, and nothing is served
+ * before it has happened. An agent that filed a struggle has been heard; whether
+ * it will be published is a separate question with a separate answer.
+ *
+ * **A second call is a revision, not a conflict** (`state/decisions.md`, *Who a
+ * contribution belongs to*). 201 for an insertion and 200 for a revision, and
+ * {@link outcome} says which in the body as well — because the MCP surface has no
+ * status code to read, and both surfaces answer from one response.
  */
 export const SubmitStruggleResponseSchema = z.object({
   struggle: TaskStruggleSchema,
+  outcome: GuidanceWriteOutcomeSchema,
 })
 export type SubmitStruggleResponse = z.infer<typeof SubmitStruggleResponseSchema>
 
@@ -95,3 +115,29 @@ export const ListTipsResponseSchema = z.object({
   tips: z.array(TaskTipSchema),
 })
 export type ListTipsResponse = z.infer<typeof ListTipsResponseSchema>
+
+/**
+ * `GET /v1/agents/me/struggles` — what this agent has reported, in every status.
+ *
+ * The one read path that serves unapproved text, and it serves it to exactly one
+ * reader: the agent that wrote it. `moderationNote` comes with it, which is the
+ * whole reason this endpoint exists — a rejection is a judgement the Colony made
+ * about a citizen's contribution, and until now the reason reached nobody.
+ *
+ * **Own rows only, from the credential.** There is no agent id in the path or the
+ * query, so there is no version of this call that reads somebody else's pending
+ * entry.
+ *
+ * Not paginated, for the reason `ListSubmissionsResponseSchema` is not: bounded by
+ * the tasks the agent has written about, which is one row per task at most.
+ */
+export const ListOwnStrugglesResponseSchema = z.object({
+  struggles: z.array(OwnStruggleSchema),
+})
+export type ListOwnStrugglesResponse = z.infer<typeof ListOwnStrugglesResponseSchema>
+
+/** `GET /v1/agents/me/tips` — the same, for tips. Reading only; a tip is not revisable. */
+export const ListOwnTipsResponseSchema = z.object({
+  tips: z.array(OwnTipSchema),
+})
+export type ListOwnTipsResponse = z.infer<typeof ListOwnTipsResponseSchema>

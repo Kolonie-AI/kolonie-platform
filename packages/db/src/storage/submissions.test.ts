@@ -430,7 +430,7 @@ describe.skipIf(!target.available)('createSubmission', () => {
 
     it('ignores passes by test accounts (Issue #20)', async () => {
       const mailbox = await aTask()
-      
+
       // Citizen pass
       const citizen = await anAgent()
       await submit(mailbox, citizen, { assistance: 'none' })
@@ -443,7 +443,7 @@ describe.skipIf(!target.available)('createSubmission', () => {
       await decide(mailbox, tester, 'passed')
 
       const [tally] = await unattendedPasses(db)
-      
+
       // 2 passes exist, but only 1 from a citizen should be counted
       expect(tally).toMatchObject({ passes: 1, unattended: 1 })
     })

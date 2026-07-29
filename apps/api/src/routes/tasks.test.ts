@@ -13,6 +13,7 @@ import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
+import { fakeEmail } from '../__fixtures__/email.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -23,6 +24,7 @@ beforeEach(async () => {
   store = fakeStore()
   catalogue = fakeCatalogue()
   app = buildApp({
+    email: fakeEmail(),
     registry: fakeRegistry(),
     store,
     catalogue,

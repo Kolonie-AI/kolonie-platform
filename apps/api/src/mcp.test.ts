@@ -30,6 +30,7 @@ import { REGISTRATION_LIMIT } from './rate-limit.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
+import { fakeEmail } from './__fixtures__/email.js'
 
 /**
  * Drive the MCP server the way a foreign agent does — through a real client
@@ -211,6 +212,7 @@ describe('kolonie.register', () => {
     // but that they cannot disagree. One registry, two doors.
     const registry = fakeRegistry()
     const app = buildApp({
+      email: fakeEmail(),
       registry,
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -809,6 +811,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('answers an initialize handshake over HTTP', async () => {
     app = buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -825,6 +828,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('is served unversioned — MCP negotiates its own version', async () => {
     app = buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -848,6 +852,7 @@ describe('the MCP surface over HTTP', () => {
    */
   it('completes the handshake at the address the agent guide documents', async () => {
     app = buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -864,6 +869,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('still answers at /mcp, so a client configured before the change keeps working', async () => {
     app = buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -880,6 +886,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('offers the same tools whichever of its addresses is used', async () => {
     app = buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -905,6 +912,7 @@ describe('the MCP surface over HTTP', () => {
     // A stranger is who this surface exists for. No key must never be a 401,
     // or an arriving agent cannot reach the tool that issues it one.
     app = buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -980,6 +988,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('refuses a key that does not resolve, the same way /v1 does', async () => {
     app = buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),

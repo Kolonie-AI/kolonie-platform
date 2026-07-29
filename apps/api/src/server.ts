@@ -5,6 +5,7 @@ import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
+import { databaseEmailChallenges } from './email.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -85,6 +86,16 @@ const app = buildApp({
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
   submissions: databaseSubmissions(db),
+  email: {
+    challenges: databaseEmailChallenges(db),
+    // Configuration, not a constant: AGENTS.md §3 keeps host names out of this
+    // repository, so the domain challenge addresses are minted under arrives in
+    // the environment exactly as the page urls above do.
+    challengeDomain: process.env['EMAIL_CHALLENGE_DOMAIN'] ?? '',
+    // Absent means the inbound route is not mounted. See app.ts for why this one
+    // fails closed where every other Academy surface degrades to a 503.
+    inboundSecret: process.env['EMAIL_INBOUND_SECRET'] || undefined,
+  },
   academy: {
     challenges: databaseChallenges(db),
     ...(typeof gate === 'string'

@@ -18,10 +18,20 @@ import {
   verifyCaptcha,
   type AcademyDependencies,
 } from './academy.js'
+import {
+  emailUnavailable,
+  handleInboundMail,
+  inboundAuthorised,
+  openEmailChallenge,
+  submitEmailCode,
+  type EmailDependencies,
+} from './email.js'
 
 export interface AppDependencies {
   /** The Browser Capability Gate — see `academy.ts` and D-024. */
   readonly academy: AcademyDependencies
+  /** The mailbox rung — see `email.ts`. */
+  readonly email: EmailDependencies
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
@@ -48,6 +58,7 @@ export function buildApp({
   catalogue,
   submissions,
   academy,
+  email,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -188,6 +199,23 @@ export function buildApp({
    * nobody noticing.
    */
   const capabilityDown = capabilityUnavailable(academy)
+
+  /** The mailbox rung's own answer, separate for the same reason as the one above. */
+  const emailDown = emailUnavailable(email)
+
+  /**
+   * Whether the inbound route is mounted at all.
+   *
+   * **Absent secret means absent route**, not an open one. Everything else in
+   * this file degrades to a 503 when it is unconfigured, and that is right for a
+   * rung an agent is trying to climb. It is wrong here: this endpoint is what
+   * turns "a mail arrived" into a fact the Colony will pay a reward for, and a
+   * version of it that answered without checking a secret would let anyone on
+   * the internet pass the mailbox rung for any agent, by asserting a delivery
+   * that never happened. So it fails closed — and `server.ts` says so at startup
+   * rather than leaving the absence to be discovered.
+   */
+  const inboundSecret = email.inboundSecret
 
   app.register(
     async (v1) => {
@@ -361,6 +389,95 @@ export function buildApp({
         const result = await openChallenge(authenticated.agent.id, academy)
         return reply.status(201).send(result.response)
       })
+
+      /**
+       * Open a mailbox challenge — Academy Level 2, the send half.
+       *
+       * Answers with the address to write to, composed from the token storage
+       * minted and the domain in configuration. The agent authenticates here
+       * because everything after it happens in an SMTP conversation where no
+       * credential exists — the same shape as the browser rung above, and the
+       * reason an arriving mail is attributable to anyone at all.
+       */
+      v1.post('/academy/email/challenges', async (request, reply) => {
+        if (emailDown !== undefined) return reply.status(503).send(emailDown)
+
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openEmailChallenge(authenticated.agent.id, request.body, email)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Hand back the code from the Colony's reply — the receive half.
+       *
+       * Authenticated, and matched against this agent's own open challenge. A
+       * code is twelve characters; looked up by code alone, anyone holding one
+       * could close somebody else's rung.
+       */
+      v1.post('/academy/email/code', async (request, reply) => {
+        if (emailDown !== undefined) return reply.status(503).send(emailDown)
+
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await submitEmailCode(authenticated.agent.id, request.body, email)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send({ verified: true, ...result.response })
+      })
+
+      /**
+       * Where a Cloudflare Email Worker hands over a mail that arrived at a
+       * challenge address, and is told what to reply with.
+       *
+       * **Not an agent-facing route**, despite living under `/v1/`. It is under
+       * `/internal/` and behind a shared secret, and it is mounted only when
+       * that secret exists — see `inboundSecret` above for why this one fails
+       * closed where every other Academy route degrades to a 503.
+       *
+       * It always answers 200, whatever it decided. The caller is a mail
+       * handler, and a non-2xx would make Cloudflare retry a message the Colony
+       * has already judged — a mail from an unknown sender would then be
+       * redelivered for hours. What varies is whether the body carries a reply.
+       */
+      if (inboundSecret !== undefined) {
+        v1.post('/internal/email-inbound', async (request, reply) => {
+          const presented = request.headers['x-kolonie-inbound-secret']
+
+          if (
+            !inboundAuthorised(typeof presented === 'string' ? presented : undefined, inboundSecret)
+          ) {
+            return reply
+              .status(ERROR_STATUS.unauthorized)
+              .send({ code: 'unauthorized', message: 'This endpoint is not for agents.' })
+          }
+
+          const result = await handleInboundMail(request.body, email)
+          return reply.status(200).send(result)
+        })
+      }
 
       /**
        * The step the capability challenge is on, and the declaration to measure.

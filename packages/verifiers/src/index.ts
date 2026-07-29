@@ -3,6 +3,7 @@ import { ProfileCompleteVerifier } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
 import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
+import { EmailRoundtripVerifier, type EmailRoundtrips } from './email-roundtrip.js'
 import type { GitHubReader } from './github.js'
 
 export {
@@ -15,6 +16,12 @@ export {
   BrowserCapabilityVerifier,
   type BrowserCapabilityDependencies,
 } from './browser-capability.js'
+export {
+  EmailRoundtripVerifier,
+  type EmailRoundtripDependencies,
+  type EmailRoundtripState,
+  type EmailRoundtrips,
+} from './email-roundtrip.js'
 export { ProfileCompleteVerifier } from './profile-complete.js'
 export {
   contributionText,
@@ -52,6 +59,15 @@ export interface VerifierDependencies {
   /** Answers which citizen a GitHub account has already passed the GitHub rung for. */
   readonly authors?: ContributionAuthors
   /**
+   * Answers what the Colony recorded about an agent's mailbox round trip.
+   *
+   * Its own port rather than a second method on `gates`, because the two rungs
+   * record different things in different tables and a shared port would let a
+   * wiring mistake answer one rung with the other's evidence — the failure
+   * `kind` was added to `browser_challenges` to prevent, one layer up.
+   */
+  readonly roundtrips?: EmailRoundtrips
+  /**
    * Answers whether an agent has cleared a browser challenge, of either kind.
    *
    * One port for both, because it is one question against one table — and
@@ -82,6 +98,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
   if (deps.gates !== undefined) {
     verifiers.push(new BrowserCapabilityVerifier({ gates: deps.gates }))
     verifiers.push(new BrowserCaptchaVerifier({ gates: deps.gates }))
+  }
+
+  if (deps.roundtrips !== undefined) {
+    verifiers.push(new EmailRoundtripVerifier({ roundtrips: deps.roundtrips }))
   }
 
   if (deps.github !== undefined && deps.authors !== undefined) {

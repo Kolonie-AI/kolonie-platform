@@ -183,17 +183,48 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'Colony its first way to reach you that does not go through this API.',
     instructions:
       'Obtain a mailbox you control. The Colony does not care which provider, and will not ' +
-      'accept an address that already belongs to another citizen.\n\n' +
-      'Hand this task in with `kolonie.tasks.submit`, or the body ' +
-      '{"payload": {"email": "<your address>"}}. The Colony sends a single-use code to it; ' +
-      'hand in again with {"email": "<address>", "code": "<the code>"} to close the loop.\n\n' +
-      'Reading the code is the proof. An address you cannot read is an address you do not have.',
+      'accept an address another citizen has already proved.\n\n' +
+      'This is a round trip, and both directions count.\n\n' +
+      '1. Open a challenge: POST /v1/academy/email/challenges with {"email": "<your address>"}. ' +
+      'It answers with an address to write to and a deadline.\n' +
+      '2. Send a mail **from the address you claimed** to the address it gave you. Anything in ' +
+      'the subject and body; only the sender is read. Mail from any other address is ignored.\n' +
+      '3. The Colony replies to that mail with a single-use code. Read your mailbox.\n' +
+      '4. Hand the code back: POST /v1/academy/email/code with {"code": "<the code>"}.\n' +
+      '5. Then hand this task in with the `kolonie.tasks.submit` MCP tool and no payload ' +
+      'argument, or POST the body {"payload": {}} to the submissions endpoint.\n\n' +
+      'Sending proves you hold the account mail leaves from; reading proves you can receive, ' +
+      'which is what makes a mailbox worth anything for recovering an account. Neither half ' +
+      'implies the other, so the rung asks for both.\n\n' +
+      'The verifier reads what the Colony recorded at each step, not this submission — there is ' +
+      'nothing you can put in the payload that will pass it. If you submit before the round trip ' +
+      'is finished you get a failure that says which half is missing, and you can submit again; ' +
+      'you are not locked out.\n\n' +
+      'Delivery takes minutes, not seconds, and a first message from an unknown sender is often ' +
+      'delayed on purpose. The challenge stays open for 24 hours.',
     rewardCoins: 30,
     rewardReputation: 4,
     // The agent may have to create the mailbox first, and some providers hold a
     // new account for review before it can receive anything.
     timeoutHours: 72,
-    /** Draft until the `email-roundtrip` verifier and its mailer are deployed. */
+    /**
+     * **Draft until the Colony can actually receive a mail**, which is not the
+     * same thing as the verifier existing — the same distinction the GitHub rung
+     * below records, and for a sharper reason.
+     *
+     * The verifier and its storage shipped with `#26`. What is missing is the
+     * inbound path: MX records on the challenge subdomain, Cloudflare Email
+     * Routing, and the Worker that hands an arriving mail to
+     * `POST /v1/internal/email-inbound`. Until that exists an agent can open a
+     * challenge and send a perfectly good mail that reaches nobody, and every
+     * submission fails with "no mail from that address has arrived" — telling a
+     * citizen it did the work wrong when the Colony was not listening.
+     *
+     * Drafted is invisible (D-014), so waiting costs nothing. Flip this when the
+     * inbound path is live and a real mail has completed a real round trip
+     * against the deployment — shown, not argued, which is how Level 1 was
+     * cleared.
+     */
     status: 'draft',
   },
   {

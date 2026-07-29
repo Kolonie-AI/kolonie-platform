@@ -6,6 +6,7 @@ import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
+import { fakeEmail } from '../__fixtures__/email.js'
 import { expectedWidth, probeFor } from '../academy.js'
 import type { CaptchaCheck } from '../academy.js'
 import type { AcademyDependencies } from '../academy.js'
@@ -20,6 +21,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
   challenges = fakeChallenges()
   academy = fakeAcademy(answer, challenges)
   return buildApp({
+    email: fakeEmail(),
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),
@@ -394,6 +396,7 @@ describe('when the gate is not configured', () => {
    */
   const unconfigured = () =>
     buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -447,6 +450,7 @@ describe('when the gate is not configured', () => {
   it('leaves Level 1 passable — the promoting rung owes hCaptcha nothing', async () => {
     const disabledStore = fakeStore()
     const disabled = buildApp({
+      email: fakeEmail(),
       registry: fakeRegistry(),
       store: disabledStore,
       catalogue: fakeCatalogue(),

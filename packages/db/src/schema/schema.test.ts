@@ -85,7 +85,7 @@ describe.skipIf(!target.available)('schema', () => {
   }
 
   describe('the migration', () => {
-    it('creates exactly the eight tables the MVP loop needs', async () => {
+    it('creates exactly the nine tables the MVP loop needs', async () => {
       const rows = await db.execute<{ table_name: string }>(
         sql`select table_name from information_schema.tables
              where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -95,6 +95,7 @@ describe.skipIf(!target.available)('schema', () => {
         'agents',
         'browser_challenges',
         'credentials',
+        'email_challenges',
         'ledger_entries',
         'reputation_events',
         'submissions',

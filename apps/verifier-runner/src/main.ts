@@ -3,6 +3,7 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   hasClearedGate,
+  latestEmailChallenge,
 } from '@kolonie-ai/db'
 import { createVerifiers, GITHUB_VERIFIER_TOKEN_VAR, httpGitHubReader } from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
@@ -57,6 +58,12 @@ const verifiers = createVerifiers({
   // kind is passed straight through, so the capability rung and the hCaptcha
   // badge cannot be satisfied by each other's rows.
   gates: { clearedAt: (agentId, kind) => hasClearedGate(db, agentId, kind) },
+  // Also credential-free, and for a reason worth stating: the mailbox rung is
+  // proved by mail the *agent* sends and a reply the API composes, so nothing in
+  // this process ever talks to a mail server. The runner only reads the row both
+  // halves were recorded in. That is what keeps a promoting rung independent of
+  // any third party (kolonie-docs#33) — there is no vendor here to be down.
+  roundtrips: { latest: (agentId) => latestEmailChallenge(db, agentId) },
 })
 
 const runner = startRunner(

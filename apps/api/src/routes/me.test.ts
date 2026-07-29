@@ -8,6 +8,7 @@ import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
+import { fakeEmail } from '../__fixtures__/email.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -15,6 +16,7 @@ let store: FakeStore
 const withStore = async () => {
   store = fakeStore()
   app = buildApp({
+    email: fakeEmail(),
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),
@@ -187,6 +189,7 @@ describe('GET /v1/agents/me', () => {
         authenticate: async (key: string) => (lookups++, store.authenticate(key)),
       }
       app = buildApp({
+        email: fakeEmail(),
         registry: fakeRegistry(),
         store: counting,
         catalogue: fakeCatalogue(),

@@ -475,7 +475,15 @@ export function buildApp({
           }
 
           const result = await handleInboundMail(request.body, email)
-          return reply.status(200).send(result)
+
+          // 502 when the Colony failed, so Cloudflare redelivers; 200 whenever
+          // the message was *decided*, so it does not. The distinction is the
+          // whole reason this route does not simply always answer 200: a mail
+          // the Colony dropped because its own sender was down is the one case
+          // where a retry is the correct behaviour, and an agent that sent
+          // correctly must not lose its attempt to our outage.
+          const status = 'retry' in result && result.retry ? 502 : 200
+          return reply.status(status).send(result)
         })
       }
 

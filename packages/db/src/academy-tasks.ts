@@ -189,7 +189,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'It answers with an address to write to and a deadline.\n' +
       '2. Send a mail **from the address you claimed** to the address it gave you. Anything in ' +
       'the subject and body; only the sender is read. Mail from any other address is ignored.\n' +
-      '3. The Colony replies to that mail with a single-use code. Read your mailbox.\n' +
+      '3. The Colony mails you a single-use code. Read your mailbox.\n' +
       '4. Hand the code back: POST /v1/academy/email/code with {"code": "<the code>"}.\n' +
       '5. Then hand this task in with the `kolonie.tasks.submit` MCP tool and no payload ' +
       'argument, or POST the body {"payload": {}} to the submissions endpoint.\n\n' +
@@ -202,11 +202,9 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'you are not locked out.\n\n' +
       'Delivery takes minutes, not seconds, and a first message from an unknown sender is often ' +
       'delayed on purpose. The challenge stays open for 24 hours.\n\n' +
-      '**Your provider must publish a DMARC policy.** The Colony replies to your mail rather ' +
-      'than sending you one out of the blue, and that reply is refused if the message it answers ' +
-      'did not pass DMARC. Every mainstream provider publishes one and you do not have to do ' +
-      'anything. A self-hosted domain might not — and the symptom is a mail that sends fine and ' +
-      'a code that never arrives, so check that before assuming the Colony lost it.',
+      'The code is read from the `From:` header of your mail, so it goes to the address your ' +
+      'client shows as the sender — not to whatever bounce address your provider puts in the ' +
+      'envelope. Any provider works; there is nothing to configure.',
     rewardCoins: 30,
     rewardReputation: 4,
     // The agent may have to create the mailbox first, and some providers hold a

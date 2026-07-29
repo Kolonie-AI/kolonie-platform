@@ -5,7 +5,7 @@ import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
-import { databaseEmailChallenges } from './email.js'
+import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -88,6 +88,20 @@ const app = buildApp({
   submissions: databaseSubmissions(db),
   email: {
     challenges: databaseEmailChallenges(db),
+    // Present only when all three are configured. Absent, the rung answers 503
+    // rather than minting a challenge nobody could ever complete — the code
+    // would have nowhere to go.
+    ...(process.env['CLOUDFLARE_ACCOUNT_ID'] &&
+    process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'] &&
+    process.env['ACADEMY_SENDER_ADDRESS']
+      ? {
+          mailer: cloudflareMailer({
+            accountId: process.env['CLOUDFLARE_ACCOUNT_ID'],
+            token: process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'],
+            sender: process.env['ACADEMY_SENDER_ADDRESS'],
+          }),
+        }
+      : {}),
     // Configuration, not a constant: AGENTS.md §3 keeps host names out of this
     // repository, so the domain challenge addresses are minted under arrives in
     // the environment exactly as the page urls above do.

@@ -6,7 +6,7 @@ import type {
   EmailRedemption,
   InboundOutcome,
 } from '@kolonie-ai/db'
-import type { EmailChallenges, EmailDependencies } from '../email.js'
+import type { EmailChallenges, EmailDependencies, Mailer } from '../email.js'
 
 /** The domain challenge addresses are minted under in tests. Reserved by RFC 2606. */
 export const FAKE_CHALLENGE_DOMAIN = 'challenge.example'
@@ -148,9 +148,37 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
   }
 }
 
-export function fakeEmail(challenges: EmailChallenges = fakeEmailChallenges()): EmailDependencies {
+/** Records what the Colony tried to send, and can be told to fail. */
+export interface FakeMailer extends Mailer {
+  readonly sent: { to: string; subject: string; text: string }[]
+  /** Make the next and every following send fail, as an outage would. */
+  readonly breakIt: () => void
+}
+
+export function fakeMailer(): FakeMailer {
+  const sent: { to: string; subject: string; text: string }[] = []
+  let broken = false
+
+  return {
+    sent,
+    breakIt() {
+      broken = true
+    },
+    async send(message) {
+      if (broken) return { delivered: false, reason: 'mailer is down' }
+      sent.push({ ...message })
+      return { delivered: true }
+    },
+  }
+}
+
+export function fakeEmail(
+  challenges: EmailChallenges = fakeEmailChallenges(),
+  mailer: Mailer = fakeMailer(),
+): EmailDependencies {
   return {
     challenges,
+    mailer,
     challengeDomain: FAKE_CHALLENGE_DOMAIN,
     inboundSecret: FAKE_INBOUND_SECRET,
   }

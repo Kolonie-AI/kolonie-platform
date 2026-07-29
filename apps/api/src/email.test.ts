@@ -11,14 +11,17 @@ import { fakeAcademy } from './__fixtures__/academy.js'
 import {
   fakeEmail,
   fakeEmailChallenges,
+  fakeMailer,
   FAKE_CHALLENGE_DOMAIN,
   FAKE_INBOUND_SECRET,
   type FakeEmailChallenges,
+  type FakeMailer,
 } from './__fixtures__/email.js'
 
 let app: FastifyInstance
 let store: FakeStore
 let challenges: FakeEmailChallenges
+let mailer: FakeMailer
 let apiKey: string
 let agentId: AgentId
 
@@ -33,13 +36,14 @@ let agentId: AgentId
 const build = (inboundSecret: string | undefined) => {
   store = fakeStore()
   challenges = fakeEmailChallenges()
+  mailer = fakeMailer()
   return buildApp({
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
-    email: { ...fakeEmail(challenges), inboundSecret },
+    email: { ...fakeEmail(challenges, mailer), inboundSecret },
   })
 }
 
@@ -75,8 +79,10 @@ const deliver = (to: string, from: string, secret = FAKE_INBOUND_SECRET) =>
 const climb = async (address: string) => {
   const opened = await open(address)
   const { address: challengeAddress } = opened.json()
-  const delivered = await deliver(challengeAddress, address)
-  const code = String(delivered.json().reply.text).match(/\b[0-9A-F]{12}\b/)?.[0] ?? ''
+  await deliver(challengeAddress, address)
+  // The code reaches the agent by mail now, so the test reads it where the
+  // agent would: out of what the Colony sent, not out of an HTTP response.
+  const code = String(mailer.sent.at(-1)?.text ?? '').match(/\b[0-9A-F]{12}\b/)?.[0] ?? ''
   return { challengeAddress, code, handedBack: await handBack(code) }
 }
 
@@ -129,12 +135,15 @@ describe('POST /v1/academy/email/challenges', () => {
 })
 
 describe('the inbound handler', () => {
-  it('replies with a code when the sender matches the claim', async () => {
+  it('mails a code to the address that wrote in, when the sender matches', async () => {
     const opened = await open('citizen@example.org')
     const response = await deliver(opened.json().address, 'citizen@example.org')
 
     expect(response.statusCode).toBe(200)
-    expect(response.json().reply.text).toMatch(/\b[0-9A-F]{12}\b/)
+    expect(response.json()).toEqual({ delivered: true })
+    expect(mailer.sent).toHaveLength(1)
+    expect(mailer.sent[0]?.to).toBe('citizen@example.org')
+    expect(mailer.sent[0]?.text).toMatch(/\b[0-9A-F]{12}\b/)
   })
 
   /**
@@ -146,13 +155,18 @@ describe('the inbound handler', () => {
     const response = await deliver(opened.json().address, 'attacker@example.net')
 
     expect(response.statusCode).toBe(200)
-    expect(response.json().reply).toBeNull()
+    expect(response.json()).toEqual({
+      delivered: false,
+      reason: 'sender is not the claimed address',
+    })
+    expect(mailer.sent).toHaveLength(0)
   })
 
-  it('does not reply to a token it never minted', async () => {
+  it('sends nothing for a token it never minted', async () => {
     const response = await deliver(`deadbeef@${FAKE_CHALLENGE_DOMAIN}`, 'citizen@example.org')
 
-    expect(response.json().reply).toBeNull()
+    expect(response.json()).toEqual({ delivered: false, reason: 'unknown token' })
+    expect(mailer.sent).toHaveLength(0)
   })
 
   /** A plus-tag added by a forwarder must not hide the token. */
@@ -165,7 +179,7 @@ describe('the inbound handler', () => {
       'citizen@example.org',
     )
 
-    expect(response.json().reply).not.toBeNull()
+    expect(response.json()).toEqual({ delivered: true })
   })
 
   it('refuses a caller that does not hold the secret', async () => {
@@ -213,18 +227,31 @@ describe('the inbound handler', () => {
    * SMTP retries are normal, and Cloudflare will redeliver on a non-2xx. A
    * second delivery must answer with the code the agent already read.
    */
-  it('answers a redelivered mail with the same code', async () => {
+  it('mails the same code again when a message is redelivered', async () => {
     const opened = await open('citizen@example.org')
-    const first = await deliver(opened.json().address, 'citizen@example.org')
-    const second = await deliver(opened.json().address, 'citizen@example.org')
+    await deliver(opened.json().address, 'citizen@example.org')
+    await deliver(opened.json().address, 'citizen@example.org')
 
-    const codeOf = (body: { reply: { text: string } }) =>
-      body.reply.text.match(/\b[0-9A-F]{12}\b/)?.[0]
-
-    expect(codeOf(second.json())).toBe(codeOf(first.json()))
+    const codes = mailer.sent.map((m) => m.text.match(/\b[0-9A-F]{12}\b/)?.[0])
+    expect(codes).toHaveLength(2)
+    expect(codes[1]).toBe(codes[0])
   })
 
-  it('answers 200 even when it decides to do nothing, so nothing is redelivered', async () => {
+  /**
+   * The one case where the Worker must retry: the Colony's own sender failed,
+   * so the agent did nothing wrong and must not lose its attempt.
+   */
+  it('asks for redelivery when the mailer is down, and not otherwise', async () => {
+    const opened = await open('citizen@example.org')
+    mailer.breakIt()
+
+    const response = await deliver(opened.json().address, 'citizen@example.org')
+
+    expect(response.statusCode).toBe(502)
+    expect(response.json()).toMatchObject({ delivered: false, retry: true })
+  })
+
+  it('answers 200 when it decided to do nothing, so nothing is redelivered', async () => {
     const response = await deliver(`deadbeef@${FAKE_CHALLENGE_DOMAIN}`, 'someone@example.net')
 
     expect(response.statusCode).toBe(200)

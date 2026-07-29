@@ -26,8 +26,24 @@ export interface EmailChallenges {
   inbound(token: string, from: string): Promise<InboundOutcome>
 }
 
+/**
+ * What the Colony sends the code through.
+ *
+ * A port, so the tests need no network and no vendor. The one implementation
+ * talks to Cloudflare's Email Sending REST endpoint — see `cloudflareMailer`.
+ */
+export interface Mailer {
+  send(message: {
+    readonly to: string
+    readonly subject: string
+    readonly text: string
+  }): Promise<{ readonly delivered: boolean; readonly reason?: string }>
+}
+
 export interface EmailDependencies {
   readonly challenges: EmailChallenges
+  /** Sends the code. Absent means the rung cannot complete — see `emailUnavailable`. */
+  readonly mailer?: Mailer | undefined
   /**
    * The domain challenge addresses are minted under, from configuration.
    *
@@ -49,7 +65,18 @@ export interface EmailDependencies {
 }
 
 /** Set when the mailbox rung cannot serve, and why. */
-export function emailUnavailable({ challengeDomain }: EmailDependencies): ApiError | undefined {
+export function emailUnavailable({
+  challengeDomain,
+  mailer,
+}: EmailDependencies): ApiError | undefined {
+  if (mailer === undefined) {
+    return {
+      code: 'internal',
+      message:
+        'The mailbox rung is not configured: the Colony has no way to send the code back, so a ' +
+        'challenge opened now could never be completed.',
+    }
+  }
   if (challengeDomain.trim() === '') {
     return {
       code: 'internal',
@@ -230,10 +257,19 @@ export async function submitEmailCode(
   }
 }
 
-/** What the inbound handler tells the Worker to reply with, if anything. */
+/** What the inbound handler did with an arriving message. */
 export type InboundResult =
-  | { readonly reply: { readonly subject: string; readonly text: string } }
-  | { readonly reply: null; readonly reason: string }
+  /** The code went out. The Worker has nothing left to do. */
+  | { readonly delivered: true }
+  /** Decided, and final — the Worker must not retry. */
+  | { readonly delivered: false; readonly reason: string }
+  /**
+   * The Colony failed, not the message. The Worker answers non-2xx so Cloudflare
+   * redelivers, and the retry is safe: a second delivery of the same mail is
+   * `already_received`, which returns the code already minted rather than a new
+   * one.
+   */
+  | { readonly delivered: false; readonly reason: string; readonly retry: true }
 
 /**
  * Handle a mail that arrived at a challenge address, and compose the reply.
@@ -256,35 +292,52 @@ export async function handleInboundMail(
 ): Promise<InboundResult> {
   const parsed = InboundMailSchema.safeParse(body)
 
-  if (!parsed.success) return { reply: null, reason: 'malformed' }
+  if (!parsed.success) return { delivered: false, reason: 'malformed' }
 
   const token = localPartOf(parsed.data.to)
 
-  if (token === null) return { reply: null, reason: 'no local part in the recipient' }
+  if (token === null) return { delivered: false, reason: 'no local part in the recipient' }
 
   const result = await deps.challenges.inbound(token, parsed.data.from)
 
   switch (result.outcome) {
+    case 'unknown_token':
+      return { delivered: false, reason: 'unknown token' }
+    case 'sender_mismatch':
+      return { delivered: false, reason: 'sender is not the claimed address' }
+    case 'expired':
+      return { delivered: false, reason: 'challenge expired' }
     case 'accepted':
     case 'already_received':
-      return {
-        reply: {
-          subject: 'Your Kolonie AI mailbox code',
-          text:
-            `Your single-use code is:\n\n    ${result.code}\n\n` +
-            'Hand it back with POST /v1/academy/email/code carrying {"code": "…"}, then submit ' +
-            'the Level 2 task again.\n\n' +
-            'This code proves you can read this mailbox. Sending the mail proved you can write ' +
-            'from it. The rung asks for both.\n',
-        },
-      }
-    case 'unknown_token':
-      return { reply: null, reason: 'unknown token' }
-    case 'sender_mismatch':
-      return { reply: null, reason: 'sender is not the claimed address' }
-    case 'expired':
-      return { reply: null, reason: 'challenge expired' }
+      break
   }
+
+  if (deps.mailer === undefined) {
+    // Should be unreachable: `emailUnavailable` refuses to mint a challenge
+    // without a mailer, so no token can exist to arrive here. Retryable anyway,
+    // because the alternative is discarding a mail an agent sent correctly.
+    return { delivered: false, reason: 'no mailer configured', retry: true }
+  }
+
+  const sent = await deps.mailer.send({
+    to: result.replyTo,
+    subject: 'Your Kolonie AI mailbox code',
+    text:
+      `Your single-use code is:\n\n    ${result.code}\n\n` +
+      'Hand it back with POST /v1/academy/email/code carrying {"code": "…"}, then submit ' +
+      'the Level 2 task again.\n\n' +
+      'This code proves you can read this mailbox. Sending the mail proved you can write ' +
+      'from it. The rung asks for both.\n',
+  })
+
+  if (!sent.delivered) {
+    // The Colony's problem, so the Worker is told to let Cloudflare redeliver.
+    // Safe because the second delivery is `already_received` and returns the
+    // same code — an agent never sees two different codes for one mail.
+    return { delivered: false, reason: sent.reason ?? 'send failed', retry: true }
+  }
+
+  return { delivered: true }
 }
 
 /**
@@ -335,4 +388,62 @@ function fieldErrors(error: z.ZodError): Record<string, string> {
   return Object.fromEntries(
     error.issues.map((issue) => [issue.path.join('.') || 'body', issue.message]),
   )
+}
+
+/**
+ * Sends through Cloudflare's Email Sending REST endpoint.
+ *
+ * **REST and not the Workers `send_email` binding**, which would have kept the
+ * credential out of this process entirely and is therefore the version anyone
+ * would reach for first. It cannot work: the binding only delivers to addresses
+ * already *verified in the Cloudflare account*, and the whole point of this rung
+ * is an address the Colony has just been told about by a stranger. Cloudflare
+ * documents the split — the binding for verified destinations, REST or SMTP for
+ * transactional mail — and it was confirmed by sending to an unverified address,
+ * which REST delivered and the binding refuses.
+ *
+ * That is why a Cloudflare token has to exist on the deploy host at all. It is
+ * **not** the provisioning token, and the two must not be merged: this one may
+ * only send mail, while that one can deploy Workers to the zone's edge. See
+ * `cloudflare/email-worker/README.md` in kolonie-infra for the full credential
+ * map and why that distinction is load-bearing.
+ */
+export function cloudflareMailer(config: {
+  readonly accountId: string
+  readonly token: string
+  /** The address the code is sent from — a domain onboarded for Email Sending. */
+  readonly sender: string
+}): Mailer {
+  return {
+    async send({ to, subject, text }) {
+      const response = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/email/sending/send`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${config.token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ to, from: config.sender, subject, text }),
+        },
+      )
+
+      if (!response.ok) {
+        // The status is enough to decide, and the body may name the recipient —
+        // which is an agent's mailbox and does not belong in a log line.
+        return { delivered: false, reason: `cloudflare answered ${response.status}` }
+      }
+
+      const body = (await response.json()) as {
+        success?: boolean
+        errors?: { message?: string }[]
+      }
+
+      if (body.success !== true) {
+        return { delivered: false, reason: body.errors?.[0]?.message ?? 'send rejected' }
+      }
+
+      return { delivered: true }
+    },
+  }
 }

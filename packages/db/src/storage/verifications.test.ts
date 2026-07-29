@@ -58,11 +58,17 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
     return result.agent.id
   }
 
-  const aTask = async (options: { type?: string; timeoutHours?: number } = {}): Promise<TaskId> => {
+  const aTask = async (
+    options: { type?: string; timeoutHours?: number; grants?: readonly string[] } = {},
+  ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
         type: options.type ?? `academy-task-${++seeded}`,
+        // What a task grants is not decoration in these tests:
+        // `citizenForGithubAuthor` reads this column to decide which passes
+        // stake a claim on a GitHub account (#42).
+        grantsSkills: [...(options.grants ?? [])],
         title: 'Complete your profile',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
@@ -469,6 +475,14 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
 
   describe('citizenForGithubAuthor', () => {
     const GITHUB = 'github-contribution'
+    /**
+     * A second task type granting the same skill — the shape `kolonie-docs#39`
+     * proposes, and the one this lookup used to be blind to.
+     */
+    const GITHUB_ACCOUNT = 'github-account'
+
+    /** A task that grants `github`, which is what stakes a claim on an account. */
+    const aGrantingTask = (type: string): Promise<TaskId> => aTask({ type, grants: ['github'] })
 
     /** A recorded verdict, written straight to the table the audit read uses. */
     const aVerdict = async (
@@ -476,10 +490,11 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       status: 'pass' | 'fail',
       metadata: Record<string, unknown> | null,
       createdAt?: string,
+      taskType: string = GITHUB,
     ) => {
       await db.insert(verifications).values({
         submissionId,
-        taskType: GITHUB,
+        taskType,
         status,
         evidence: 'written by a fixture',
         metadata,
@@ -487,15 +502,19 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       })
     }
 
-    const passedWith = async (author: string, agentId?: AgentId): Promise<AgentId> => {
+    const passedWith = async (
+      author: string,
+      agentId?: AgentId,
+      taskType: string = GITHUB,
+    ): Promise<AgentId> => {
       const agent = agentId ?? (await anAgent())
       const submissionId = await aSubmission({
         agentId: agent,
-        taskId: await aTask({ type: GITHUB }),
+        taskId: await aGrantingTask(taskType),
         status: 'passed',
         ...terminalFields('passed'),
       })
-      await aVerdict(submissionId, 'pass', { author })
+      await aVerdict(submissionId, 'pass', { author }, undefined, taskType)
       return agent
     }
 
@@ -519,7 +538,7 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
 
     it('ignores a verdict that did not pass', async () => {
       const submissionId = await aSubmission({
-        taskId: await aTask({ type: GITHUB }),
+        taskId: await aGrantingTask(GITHUB),
         status: 'failed',
         ...terminalFields('failed'),
       })
@@ -530,7 +549,7 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       expect(await citizenForGithubAuthor(db, 'octocat')).toBeUndefined()
     })
 
-    it('ignores a passing verdict for some other task type', async () => {
+    it('ignores a passing verdict for a task that grants no github', async () => {
       const submissionId = await aSubmission({
         taskId: await aTask({ type: 'example-task' }),
         status: 'passed',
@@ -544,12 +563,57 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
         metadata: { author: 'octocat' },
       })
 
+      // A task that grants nothing stakes no claim, however its metadata is
+      // shaped. `author` in the blob of an unrelated verdict must not lock an
+      // account out — the rule is about the skill, not about a JSON key.
       expect(await citizenForGithubAuthor(db, 'octocat')).toBeUndefined()
+    })
+
+    it('sees an account certified by a second granting task type', async () => {
+      const agentId = await passedWith('octocat', undefined, GITHUB_ACCOUNT)
+
+      // The regression #42 exists for, and the reason it was worth writing
+      // before any second granting type shipped: a filter naming one task type
+      // answers `undefined` here, `undefined` means "free to claim", and every
+      // other check in the verifier still passes. No error, no log line — one
+      // agent's account quietly available to certify a second.
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBe(agentId)
+    })
+
+    it('gives the account to whoever claimed it first across granting types', async () => {
+      const first = await anAgent()
+      const second = await anAgent()
+      const firstSubmission = await aSubmission({
+        agentId: first,
+        taskId: await aGrantingTask(GITHUB_ACCOUNT),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      const secondSubmission = await aSubmission({
+        agentId: second,
+        taskId: await aGrantingTask(GITHUB),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      await aVerdict(
+        firstSubmission,
+        'pass',
+        { author: 'octocat' },
+        '2026-07-01T00:00:00.000Z',
+        GITHUB_ACCOUNT,
+      )
+      await aVerdict(secondSubmission, 'pass', { author: 'octocat' }, '2026-07-02T00:00:00.000Z')
+
+      // The ordering is over the whole granting set, not per type. "Whichever
+      // type was looked at first" is not an ordering, and the older claim is
+      // the one that has to survive.
+      expect(await citizenForGithubAuthor(db, 'octocat')).toBe(first)
+      expect(await citizenForGithubAuthor(db, 'octocat')).not.toBe(second)
     })
 
     it('is unbothered by a verdict that recorded no metadata at all', async () => {
       const submissionId = await aSubmission({
-        taskId: await aTask({ type: GITHUB }),
+        taskId: await aGrantingTask(GITHUB),
         status: 'passed',
         ...terminalFields('passed'),
       })
@@ -566,13 +630,13 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       const second = await anAgent()
       const firstSubmission = await aSubmission({
         agentId: first,
-        taskId: await aTask({ type: GITHUB }),
+        taskId: await aGrantingTask(GITHUB),
         status: 'passed',
         ...terminalFields('passed'),
       })
       const secondSubmission = await aSubmission({
         agentId: second,
-        taskId: await aTask({ type: GITHUB }),
+        taskId: await aGrantingTask(GITHUB),
         status: 'passed',
         ...terminalFields('passed'),
       })

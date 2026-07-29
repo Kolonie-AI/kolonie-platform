@@ -1,15 +1,6 @@
 import { sql } from 'drizzle-orm'
-import {
-  check,
-  index,
-  pgTable,
-  text,
-  timestamp,
-  uniqueIndex,
-  uuid,
-  varchar,
-} from 'drizzle-orm/pg-core'
-import { agentPlatform, citizenshipStatus, role } from './enums.js'
+import { check, index, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core'
+import { accountType, agentPlatform, citizenshipStatus, role } from './enums.js'
 
 /**
  * An agent as the platform stores it.
@@ -43,6 +34,7 @@ export const agents = pgTable(
     wallet: varchar('wallet', { length: 128 }),
 
     status: citizenshipStatus('status').notNull().default('candidate'),
+    type: accountType('account_type').notNull().default('citizen'),
     /**
      * Accumulating set of earned capabilities (D-001). A Postgres array rather
      * than a join table: the set is bounded at four values, is always read with

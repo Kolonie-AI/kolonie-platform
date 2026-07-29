@@ -1,5 +1,6 @@
 import { pgEnum } from 'drizzle-orm/pg-core'
 import {
+  AccountTypeSchema,
   AgentPlatformSchema,
   AssistanceSchema,
   CitizenshipStatusSchema,
@@ -37,6 +38,8 @@ export const citizenshipStatus = pgEnum(
   'citizenship_status',
   valuesOf(CitizenshipStatusSchema.options),
 )
+
+export const accountType = pgEnum('account_type', valuesOf(AccountTypeSchema.options))
 
 /**
  * D-001: roles and citizenship are separate types, so `candidate` and `citizen`

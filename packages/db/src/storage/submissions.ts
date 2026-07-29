@@ -273,7 +273,8 @@ export async function unattendedPasses(db: Database): Promise<UnattendedTally[]>
     })
     .from(submissions)
     .innerJoin(tasks, eq(tasks.id, submissions.taskId))
-    .where(eq(submissions.status, 'passed'))
+    .innerJoin(agents, eq(agents.id, submissions.agentId))
+    .where(and(eq(submissions.status, 'passed'), eq(agents.type, 'citizen')))
     .groupBy(tasks.type)
     .orderBy(tasks.type)
 

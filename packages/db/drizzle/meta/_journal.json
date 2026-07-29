@@ -120,6 +120,13 @@
       "when": 1785350900823,
       "tag": "0016_purple_carmella_unuscione",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785361846175,
+      "tag": "0017_abnormal_spiral",
+      "breakpoints": true
     }
   ]
 }

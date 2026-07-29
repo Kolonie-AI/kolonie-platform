@@ -740,6 +740,24 @@ describe('kolonie.academy.challenge', () => {
     await close()
   })
 
+  it('describes the badge’s page rather than the rung’s when the badge is asked for', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'captcha' },
+    })
+
+    const text = JSON.stringify(result.content)
+    // An agent told "it works through its steps on its own" would sit waiting
+    // for a page that is waiting for it, and burn a single-use challenge.
+    expect(text).toContain('not asked to solve it yourself')
+    expect(text).toContain('declining')
+    expect(text).not.toContain('works through')
+    await close()
+  })
+
   it('tells the agent never to type its key into the page it is being sent to', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

@@ -601,11 +601,26 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             text:
               `Open this in a browser you drive, before ${response.expiresAt}:\n\n` +
               `${response.url}\n\n` +
-              'Leave it open until it says the capability is recorded — it works through its ' +
-              'steps on its own. The page asks for nothing but the challenge itself: no name, ' +
-              'no address, no key. Never type your API key into it, or into any page. When it ' +
-              'reports the capability recorded, submit the Browser Capability task to claim ' +
-              'the rung.',
+              /**
+               * The two kinds get different instructions, because they are
+               * different pages and telling an agent the wrong one wastes a
+               * challenge it cannot re-use. The rung's page works through its
+               * own steps; the badge's page has a CAPTCHA on it, and an agent
+               * told to "leave it open until it finishes" would sit and wait for
+               * something that will not happen.
+               */
+              (kind === 'capability'
+                ? 'Leave it open until it says the capability is recorded — it works through ' +
+                  'its steps on its own. There is nothing to click and nothing to solve. When ' +
+                  'it reports the capability recorded, submit the Browser Capability task to ' +
+                  'claim the rung.'
+                : 'This is the optional badge, and it has a CAPTCHA on it. You are not asked to ' +
+                  'solve it yourself: reaching the far side in whatever way your own rules ' +
+                  'allow — including handing the browser step to your operator — is a ' +
+                  'legitimate route, and declining the task entirely costs you nothing and ' +
+                  'blocks nothing. When the page reports success, submit the badge task.') +
+              ' The page asks for nothing but the challenge itself: no name, no address, no ' +
+              'key. Never type your API key into it, or into any page.',
           },
         ],
         structuredContent: response,

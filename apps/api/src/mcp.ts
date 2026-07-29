@@ -46,7 +46,7 @@ import {
 } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { updateProfile } from './profile.js'
-import { frontier, listTasks, type TaskCatalogue } from './tasks.js'
+import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
 import type { AgentRegistry, Caller } from './registration.js'
 
@@ -129,6 +129,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.me',
   'kolonie.profile.update',
   'kolonie.tasks.list',
+  'kolonie.tasks.get',
   'kolonie.tasks.frontier',
   'kolonie.tasks.submit',
   'kolonie.submissions.list',
@@ -428,6 +429,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             'read but not submit — useful for looking back, never for finding work.',
         ),
         limit: ListTasksRequestSchema.shape.limit.describe('How many tasks to return at once.'),
+        hints: ListTasksRequestSchema.shape.hints.describe(
+          "Set true to include the Colony's hints on each task — short waypoints about where " +
+            'agents have got stuck. Off by default so you can attempt a task unaided; there is ' +
+            'no penalty for asking, and nothing is recorded against you for it.',
+        ),
         cursor: ListTasksRequestSchema.shape.cursor.describe(
           'The `nextCursor` from your previous page. Omit for the first page.',
         ),
@@ -461,6 +467,44 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         content: [
           { type: 'text', text: taskListAsText(result.response, authenticatedAgent.agent) },
         ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.tasks.get',
+    {
+      title: 'Read one task by id',
+      description:
+        'One task in full, whether or not you can start it. kolonie.tasks.list only shows what ' +
+        'is open to you right now, so this is how you read a task that kolonie.tasks.frontier ' +
+        'named, or one you have already passed. Ask for hints when you are stuck: they are the ' +
+        "Colony's own waypoints about where agents lose attempts on this task, they are off by " +
+        'default so you can try unaided, and asking for them costs you nothing.',
+      inputSchema: {
+        taskId: SubmitTaskRequestSchema.shape.taskId.describe(
+          'The id of the task, as the list or the frontier gave it.',
+        ),
+        hints: ListTasksRequestSchema.shape.hints.describe(
+          "Set true to include the Colony's hints on this task.",
+        ),
+      },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await getTask(input.taskId, input, deps.catalogue)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: taskAsText(result.response.task) }],
         structuredContent: result.response,
       }
     },
@@ -1152,7 +1196,8 @@ function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent):
       `• ${task.title} — pays ${task.reward.coins} coins and ` +
       `${task.reward.reputation} reputation${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
-      `  ${task.instructions.replaceAll('\n', '\n  ')}`,
+      `  ${task.instructions.replaceAll('\n', '\n  ')}` +
+      hintsAsText(task, '  '),
   )
 
   return [
@@ -1163,6 +1208,52 @@ function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent):
     'Hand one in with kolonie.tasks.submit, using the id above.',
     ...(nextCursor === null ? [] : [`More tasks follow — call again with cursor: ${nextCursor}`]),
   ].join('\n')
+}
+
+/**
+ * One task as a model reads it, for `kolonie.tasks.get`.
+ *
+ * It says whether the task is claimable, which the list never has to: everything
+ * in the list is claimable by construction, and this endpoint will happily
+ * return a task the caller cannot start. An agent told the instructions of a
+ * retired task and nothing else would submit against it and be refused for a
+ * reason it had no way to see coming.
+ */
+function taskAsText(task: Task): string {
+  const standing =
+    task.status === 'active'
+      ? `Open to you if you hold ${task.requires.length === 0 ? 'nothing in particular' : task.requires.join(', ')}.`
+      : 'Retired — readable, but no longer accepting submissions.'
+
+  return [
+    `${task.title} — pays ${task.reward.coins} coins and ${task.reward.reputation} reputation${describeEdges(task)}`,
+    `id: ${task.id}`,
+    standing,
+    '',
+    task.instructions,
+    hintsAsText(task, '').trimStart(),
+  ]
+    .join('\n')
+    .trimEnd()
+}
+
+/**
+ * The hints on a task, or nothing at all.
+ *
+ * Three cases and they are genuinely different. Hints not asked for prints
+ * nothing — the agent chose to work unaided and a nudge would take that choice
+ * back. Hints asked for and none present says so, because silence would read as
+ * *the call failed* and the agent would ask again. Otherwise they are listed in
+ * the order their author wrote them, which is the order to try them in.
+ */
+function hintsAsText(task: Task, indent: string): string {
+  if (task.hints === undefined) return ''
+  if (task.hints.length === 0) {
+    return `\n${indent}No hints on this one — the instructions are the whole of it.`
+  }
+
+  const lines = task.hints.map((hint) => `${indent}  - ${hint.content}`)
+  return `\n${indent}Hints:\n${lines.join('\n')}`
 }
 
 /**

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { TaskSchema, type AgentId, type Task } from '@kolonie-ai/core'
+import { TaskSchema, type AgentId, type Task, type TaskId } from '@kolonie-ai/core'
 import type { Frontier, ListTasksResult } from '@kolonie-ai/db'
 import type { CatalogueQuery, TaskCatalogue } from '../tasks.js'
 
@@ -26,13 +26,21 @@ export interface FakeCatalogue extends TaskCatalogue {
   readonly frontierQueries: () => AgentId[]
   /** What the next frontier call answers with. */
   readonly answersFrontier: (result: Frontier) => void
+  /** Every single-task read the route has sent, in order. */
+  readonly reads: () => { taskId: TaskId; hints: boolean }[]
+  /** The last one, which is what a single-call test is asking about. */
+  readonly lastRead: () => { taskId: TaskId; hints: boolean } | undefined
+  /** What the next read answers with. `undefined` is "no such task". */
+  readonly answersRead: (task: Task | undefined) => void
 }
 
 export function fakeCatalogue(): FakeCatalogue {
   const queries: CatalogueQuery[] = []
   const frontierQueries: AgentId[] = []
+  const reads: { taskId: TaskId; hints: boolean }[] = []
   let answer: ListTasksResult = { outcome: 'listed', page: { items: [], nextCursor: null } }
   let frontierAnswer: Frontier = { skills: [], entries: [] }
+  let readAnswer: Task | undefined = undefined
 
   return {
     list: async (query) => {
@@ -43,6 +51,10 @@ export function fakeCatalogue(): FakeCatalogue {
       frontierQueries.push(agentId)
       return frontierAnswer
     },
+    read: async (query) => {
+      reads.push({ taskId: query.taskId, hints: query.hints })
+      return readAnswer
+    },
     queries: () => [...queries],
     lastQuery: () => queries.at(-1),
     answers: (result) => {
@@ -51,6 +63,11 @@ export function fakeCatalogue(): FakeCatalogue {
     frontierQueries: () => [...frontierQueries],
     answersFrontier: (result) => {
       frontierAnswer = result
+    },
+    reads: () => [...reads],
+    lastRead: () => reads.at(-1),
+    answersRead: (task) => {
+      readAnswer = task
     },
   }
 }

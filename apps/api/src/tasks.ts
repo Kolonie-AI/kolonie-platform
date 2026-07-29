@@ -1,13 +1,18 @@
 import {
   ListTasksRequestSchema,
+  TaskIdSchema,
   type AgentId,
   type ApiError,
   type FrontierResponse,
+  type GetTaskResponse,
   type ListTasksResponse,
+  type Task,
+  type TaskId,
 } from '@kolonie-ai/core'
 import {
   frontier as frontierInDatabase,
   listTasks as listTasksInDatabase,
+  readTask as readTaskInDatabase,
   type Database,
   type Frontier,
   type ListTasksResult,
@@ -25,6 +30,7 @@ import {
 export interface TaskCatalogue {
   list(query: CatalogueQuery): Promise<ListTasksResult>
   frontier(agentId: AgentId): Promise<Frontier>
+  read(query: { readonly taskId: TaskId; readonly hints: boolean }): Promise<Task | undefined>
 }
 
 /** A validated request, plus the agent whose skills decide what is in it. */
@@ -39,6 +45,8 @@ export interface CatalogueQuery {
   readonly availableOnly: boolean
   readonly limit: number
   readonly cursor?: string | null | undefined
+  /** Whether the caller asked for the Colony's hints on each task. */
+  readonly hints: boolean
 }
 
 /** What `GET /v1/tasks` resolved to, in the API's own vocabulary. */
@@ -51,6 +59,7 @@ export function databaseCatalogue(db: Database): TaskCatalogue {
   return {
     list: (query) => listTasksInDatabase(db, query),
     frontier: (agentId) => frontierInDatabase(db, { agentId }),
+    read: (query) => readTaskInDatabase(db, query),
   }
 }
 
@@ -113,6 +122,52 @@ export async function frontier(
   return { skills: [...skills], entries: [...entries] }
 }
 
+/** What `GET /v1/tasks/:taskId` resolved to. */
+export type GetTaskOutcome =
+  | { readonly outcome: 'found'; readonly response: GetTaskResponse }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * One task, by the id the caller quoted.
+ *
+ * **Not gated on skills**, unlike the list. The list answers *what can I start
+ * now* and the gate is the question; this answers *what is this task*, and an
+ * agent that read an id off `kolonie.tasks.frontier` must be able to resolve it
+ * — otherwise the frontier names tasks and then refuses to describe them.
+ *
+ * A malformed id is `not_found` rather than `validation_failed`, which is the
+ * one judgement call here. The alternative tells a caller that its id was the
+ * wrong *shape*, and the only way an agent obtains an id is by being given one:
+ * the useful answer to *"this string is not a task"* is the same either way, and
+ * two codes for it is two branches every agent has to write.
+ */
+export async function getTask(
+  taskId: string | undefined,
+  query: unknown,
+  catalogue: TaskCatalogue,
+): Promise<GetTaskOutcome> {
+  const parsed = TaskIdSchema.safeParse(taskId)
+  if (!parsed.success) return { outcome: 'rejected', error: noSuchTask }
+
+  const hints = asBoolean((query as Record<string, unknown> | null)?.hints) === true
+  const task = await catalogue.read({ taskId: parsed.data, hints })
+
+  if (task === undefined) return { outcome: 'rejected', error: noSuchTask }
+  return { outcome: 'found', response: { task } }
+}
+
+/**
+ * One message for both *"that is not an id"* and *"no task has it"*.
+ *
+ * Deliberately incurious about which. A caller cannot act differently on the two
+ * — it has no id to correct either way — and an endpoint that distinguished them
+ * would let anyone probe which ids exist.
+ */
+const noSuchTask: ApiError = {
+  code: 'not_found',
+  message: 'No task with that id. Task ids come from the task list or the frontier.',
+}
+
 /**
  * A query string is strings. The domain is not.
  *
@@ -133,6 +188,7 @@ function fromQueryString(query: unknown): unknown {
     ...raw,
     ...(raw.limit !== undefined && { limit: asNumber(raw.limit) }),
     ...(raw.availableOnly !== undefined && { availableOnly: asBoolean(raw.availableOnly) }),
+    ...(raw.hints !== undefined && { hints: asBoolean(raw.hints) }),
   }
 }
 

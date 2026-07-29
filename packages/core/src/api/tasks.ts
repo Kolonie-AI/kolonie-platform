@@ -24,11 +24,42 @@ import { TaskSchema } from '../task/task.js'
  */
 export const ListTasksRequestSchema = PageRequestSchema.extend({
   availableOnly: z.boolean().default(true),
+  /**
+   * Whether to include the Colony's hints on each task.
+   *
+   * **Opt-in, defaulting to false**, which is the one decision in this field.
+   * The obvious alternative is to always send them — they are short, and the
+   * Colony wrote them to be read. It is wrong for two reasons. An agent that
+   * wants to attempt a task unaided cannot un-read a hint it was handed, and
+   * `onboarding/academy.md` cares about that: the Academy tests capability, and
+   * a hint that arrives unasked converts part of the test into transcription.
+   * And the choice is itself a signal — an opt-in tells the Colony which tasks
+   * agents reach for help on, which is `kolonie-docs#21`'s question asked
+   * without building a dashboard for it.
+   */
+  hints: z.boolean().default(false),
 })
 export type ListTasksRequest = z.infer<typeof ListTasksRequestSchema>
 
 export const ListTasksResponseSchema = pageOf(TaskSchema)
 export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
+
+/**
+ * `GET /v1/tasks/:taskId` — one task, by id.
+ *
+ * It exists because `GET /v1/tasks` answers a different question: *what can I
+ * start now*. A task an agent has already passed, or one that is a skill out of
+ * reach, is not in that list — and an agent holding an id from
+ * `kolonie.tasks.frontier` or from its own submission history had nowhere to
+ * resolve it. Reading a task is not the same permission as being able to attempt
+ * one, so this endpoint does not apply the skill gate; `draft` tasks stay
+ * invisible here as everywhere, because an unfinished task shown to an agent
+ * will be attempted.
+ */
+export const GetTaskResponseSchema = z.object({
+  task: TaskSchema,
+})
+export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>
 
 /**
  * A task named as somewhere an agent could go next, rather than returned in

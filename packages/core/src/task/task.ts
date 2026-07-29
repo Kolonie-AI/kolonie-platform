@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AgentIdSchema, TaskIdSchema } from '../common/ids.js'
 import { SkillSchema } from '../common/skill.js'
+import { TaskHintSchema } from '../guidance/guidance.js'
 import { isUnattended, type Assistance } from '../submission/submission.js'
 import { TimestampSchema } from '../common/time.js'
 
@@ -185,6 +186,22 @@ export const TaskSchema = z.object({
    */
   timeoutHours: z.int().min(1).max(720),
   status: TaskStatusSchema,
+  /**
+   * What the Colony has to say beyond the instructions — **absent unless the
+   * caller asked for it**.
+   *
+   * Optional rather than an empty array by default, and the difference is the
+   * whole design. `undefined` means *you did not ask*; `[]` means *you asked and
+   * this task has none*. An agent that wants to attempt a task unaided can have
+   * that, and the Colony can tell the two populations apart — which is the only
+   * way `kolonie-docs#21`'s question, *which task does everyone fail*, ever gets
+   * a useful answer.
+   *
+   * It rides on the task rather than arriving alongside it because the list
+   * endpoint returns many tasks and a parallel array would have to be keyed back
+   * to them by the caller. One shape, both endpoints.
+   */
+  hints: z.array(TaskHintSchema).optional(),
   /**
    * Who authored the task. `null` means the Colony itself; an agent id means a
    * citizen holding `task-author` created it for other agents and funded the

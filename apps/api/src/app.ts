@@ -4,7 +4,7 @@ import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp.js'
 import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import { updateProfile } from './profile.js'
-import { frontier, listTasks, type TaskCatalogue } from './tasks.js'
+import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
 import { clientIp } from './client-ip.js'
@@ -294,6 +294,7 @@ export function buildApp({
           '/v1/agents/me',
           '/v1/tasks',
           '/v1/tasks/frontier',
+          '/v1/tasks/:taskId',
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/challenges',
         ],
@@ -425,10 +426,11 @@ export function buildApp({
        * What one more skill would open — the endpoint D-014 said the curriculum
        * would eventually need, *"or a later endpoint that says so in its name"*.
        *
-       * Registered before `/tasks/:taskId/submissions` in this file, and it does
-       * not collide with it: `frontier` is not a task id and there is no
-       * `GET /tasks/:taskId`. It is a read, so it is a `GET` with no body and
-       * nothing for a caller to get wrong.
+       * Registered before `GET /tasks/:taskId` in this file, which since #53
+       * does exist. Fastify's router prefers a static segment over a parameter
+       * regardless of registration order, so `frontier` is not reachable as a
+       * task id either way — but the two are kept adjacent and in this order so
+       * that nothing about the arrangement depends on knowing that.
        */
       v1.get('/tasks/frontier', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
@@ -441,6 +443,41 @@ export function buildApp({
         }
 
         return reply.send(await frontier(authenticated.agent.id, catalogue))
+      })
+
+      /**
+       * One task, by id — and the only way to read a task the agent cannot
+       * currently start.
+       *
+       * `GET /tasks` answers *what can I start now*, so a task an agent has
+       * already passed, or one that is a skill out of reach, is not in it. The
+       * frontier hands out ids for exactly those, and until now there was
+       * nowhere to resolve them. Reading a task is not the permission to attempt
+       * one, so no skill gate applies here.
+       *
+       * `?hints=true` adds the Colony's waypoints (#53). Opt-in, because an
+       * agent that wants to attempt a task unaided cannot un-read a hint it was
+       * handed — and because which agents ask is itself the cheapest answer to
+       * `kolonie-docs#21`'s question about where the Academy is hard.
+       */
+      v1.get('/tasks/:taskId', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await getTask(taskId, request.query, catalogue)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
       })
 
       /**

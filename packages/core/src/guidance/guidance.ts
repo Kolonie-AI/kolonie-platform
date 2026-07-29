@@ -1,10 +1,9 @@
 import { z } from 'zod'
 import {
   AgentIdSchema,
-  TaskHintIdSchema,
+  TaskIdSchema,
   TaskStruggleIdSchema,
   TaskTipIdSchema,
-  TaskIdSchema,
 } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 
@@ -129,15 +128,17 @@ export const MODERATION_NOTE_MAX_LENGTH = 500
  * agent that wants to try unaided asks for the task and gets the task; an agent
  * that is stuck asks for the hints. Neither costs the other anything, and the
  * Colony learns something from which one an agent chose.
+ *
+ * **No id, and that is not an omission.** Nothing references a hint — it is not
+ * moderated, not voted on, not linked to from anywhere. Its whole identity is
+ * its position in one task's list, which is what the database's unique index
+ * says too. A branded id here would be a value every caller carries and no
+ * caller ever uses.
  */
 export const TaskHintSchema = z.object({
-  id: TaskHintIdSchema,
-  taskId: TaskIdSchema,
   content: z.string().min(1).max(GUIDANCE_CONTENT_MAX_LENGTH),
   /** Ascending. The order the author put them in, which is usually the order to try them in. */
   sortOrder: z.int().min(0),
-  createdAt: TimestampSchema,
-  updatedAt: TimestampSchema,
 })
 export type TaskHint = z.infer<typeof TaskHintSchema>
 

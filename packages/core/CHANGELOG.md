@@ -10,12 +10,19 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 ### Added
 
 - A `guidance` module: `ModerationStatus`, `TaskHint`, `TaskStruggle`, `TaskTip`
-  and `TipFeedback`, with `TaskHintId`, `TaskStruggleId` and `TaskTipId` in
-  `common/ids.ts`. Additive — nothing existing changed shape. This is what a
+  and `TipFeedback`, with `TaskStruggleId` and `TaskTipId` in `common/ids.ts`.
+  `TaskHint` deliberately has no id — nothing references a hint, and its identity
+  is its position in one task's list. Additive — nothing existing changed shape. This is what a
   task knows about itself beyond its instructions: what the Colony wrote, where
   citizens got stuck, and what worked for the ones that got through. `pending`
   is the default status and the only one a write path may produce, so no
   unjudged text ever reaches a reader.
+
+- `Task` gains an optional `hints`, `ListTasksRequest` gains `hints` (default
+  `false`), and `GetTaskResponse` names the shape of the new
+  `GET /v1/tasks/:taskId`. Additive. `hints` is optional rather than defaulting
+  to `[]` on purpose: `undefined` means *you did not ask* and `[]` means *there
+  are none*, and only keeping those apart makes the opt-in measurable.
 
 ### Changed
 

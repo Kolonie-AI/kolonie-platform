@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { arrayContains, eq } from 'drizzle-orm'
+import { arrayContains, asc, eq } from 'drizzle-orm'
 import { isKnownSkill, TASK_TYPE_PATTERN, type AgentId } from '@kolonie-ai/core'
 import { ACADEMY_TASKS, seedAcademyTasks } from './academy-tasks.js'
 import type { Database } from './client.js'
-import { agents, agentSkills, submissions, tasks } from './schema/index.js'
+import { agents, agentSkills, submissions, taskHints, tasks } from './schema/index.js'
 import { listTasks } from './storage/tasks.js'
 import { randomUUID } from 'node:crypto'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
@@ -309,7 +309,7 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
   it('inserts every task on an empty database', async () => {
     const result = await seedAcademyTasks(db)
 
-    expect(result).toEqual({ inserted: ACADEMY_TASKS.length, updated: 0 })
+    expect(result).toMatchObject({ inserted: ACADEMY_TASKS.length, updated: 0 })
     expect(await db.$count(tasks)).toBe(ACADEMY_TASKS.length)
   })
 
@@ -317,7 +317,7 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     await seedAcademyTasks(db)
     const second = await seedAcademyTasks(db)
 
-    expect(second).toEqual({ inserted: 0, updated: ACADEMY_TASKS.length })
+    expect(second).toMatchObject({ inserted: 0, updated: ACADEMY_TASKS.length })
     expect(await db.$count(tasks)).toBe(ACADEMY_TASKS.length)
   })
 
@@ -471,6 +471,28 @@ describe('the instructions an agent is given', () => {
    * holding only tools, told to call a path, is in exactly the position the
    * bare-`{}` instruction put the first one in.
    */
+  /**
+   * A hint says what the instructions cannot. If a sentence would be true of
+   * the task on the day it was written and every day after, it belongs in
+   * `instructions`, where every agent reads it without asking.
+   */
+  it('gives the tasks that touch the outside world something to say', () => {
+    const withHints = ACADEMY_TASKS.filter((task) => (task.hints ?? []).length > 0)
+
+    expect(withHints.map((task) => task.type)).toContain('email-roundtrip')
+    expect(withHints.map((task) => task.type)).toContain('browser-capability')
+    expect(withHints.map((task) => task.type)).toContain('github-account')
+  })
+
+  it('keeps every hint inside the length the column allows', () => {
+    for (const task of ACADEMY_TASKS) {
+      for (const hint of task.hints ?? []) {
+        expect(hint.length).toBeGreaterThan(0)
+        expect(hint.length).toBeLessThanOrEqual(2000)
+      }
+    }
+  })
+
   it('names the MCP tool as well as the endpoint, because agents arrive holding tools', () => {
     for (const task of ACADEMY_TASKS) {
       expect(task.instructions).toContain('kolonie.tasks.submit')
@@ -494,5 +516,114 @@ describe('the instructions an agent is given', () => {
       if (!task.instructions.includes('/v1/academy/')) continue
       expect(task.instructions).toContain('kolonie.academy.')
     }
+  })
+})
+
+describe.skipIf(!target.available)('seeding the hints', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const hintsOn = async (type: string): Promise<string[]> => {
+    const rows = await db
+      .select({ content: taskHints.content, sortOrder: taskHints.sortOrder })
+      .from(taskHints)
+      .innerJoin(tasks, eq(tasks.id, taskHints.taskId))
+      .where(eq(tasks.type, type))
+      .orderBy(asc(taskHints.sortOrder))
+    return rows.map((row) => row.content)
+  }
+
+  it('writes each task’s hints in the order they are declared', async () => {
+    await seedAcademyTasks(db)
+
+    const declared = ACADEMY_TASKS.find((task) => task.type === 'email-roundtrip')?.hints ?? []
+    expect(await hintsOn('email-roundtrip')).toEqual([...declared])
+  })
+
+  it('reports how many hints the Academy is serving', async () => {
+    const declared = ACADEMY_TASKS.reduce((total, task) => total + (task.hints ?? []).length, 0)
+
+    expect((await seedAcademyTasks(db)).hints).toBe(declared)
+  })
+
+  /**
+   * The property the whole `(task_id, sort_order)` identity exists for. Seeding
+   * runs on every deploy, and a hint list that grew by its own length each time
+   * would be unusable within a week.
+   */
+  it('is idempotent — a second run rewrites rather than duplicates', async () => {
+    await seedAcademyTasks(db)
+    const first = await hintsOn('github-account')
+
+    await seedAcademyTasks(db)
+
+    expect(await hintsOn('github-account')).toEqual(first)
+  })
+
+  /**
+   * The one place hint seeding differs from task seeding, and the reason is the
+   * opposite failure mode. A task removed from the array is left alone because
+   * a paid-out rung cannot vanish; a hint removed from the array must go,
+   * because otherwise advice that has stopped being true has no way to be
+   * withdrawn.
+   */
+  it('withdraws a hint that has been taken out of the array', async () => {
+    await seedAcademyTasks(db)
+    const [task] = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.type, 'email-roundtrip'))
+
+    // A hint from an earlier deploy, past the end of what is declared now.
+    await db.insert(taskHints).values({
+      taskId: task!.id,
+      content: 'Advice from an older version of this task, no longer true.',
+      sortOrder: 90,
+    })
+
+    await seedAcademyTasks(db)
+
+    expect(await hintsOn('email-roundtrip')).not.toContain(
+      'Advice from an older version of this task, no longer true.',
+    )
+  })
+
+  it('leaves hints on tasks it does not know about alone', async () => {
+    await seedAcademyTasks(db)
+
+    const [foreign] = await db
+      .insert(tasks)
+      .values({
+        type: 'citizen-authored',
+        title: 'Something a citizen wrote',
+        description: 'Not part of the Academy seed.',
+        instructions: 'Whatever its author asked for.',
+        rewardCoins: 1,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active' as const,
+      })
+      .returning({ id: tasks.id })
+    await db.insert(taskHints).values({
+      taskId: foreign!.id,
+      content: 'A hint the Academy seed never wrote.',
+      sortOrder: 0,
+    })
+
+    await seedAcademyTasks(db)
+
+    expect(await hintsOn('citizen-authored')).toEqual(['A hint the Academy seed never wrote.'])
   })
 })

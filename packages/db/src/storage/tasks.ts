@@ -7,10 +7,12 @@ import {
   type Page,
   type Skill,
   type Task,
+  type TaskHint,
+  type TaskId,
   type TaskReference,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills, reputationEvents, tasks } from '../schema/index.js'
+import { agentSkills, reputationEvents, taskHints, tasks } from '../schema/index.js'
 import { toTask } from './rows.js'
 
 /** What `GET /v1/tasks` asks the catalogue for. */
@@ -33,6 +35,8 @@ export interface ListTasksQuery {
   readonly limit: number
   /** An opaque cursor from a previous page's `nextCursor`. */
   readonly cursor?: string | null | undefined
+  /** Whether to attach each task's hints. Absent is the same as `false`. */
+  readonly hints?: boolean | undefined
 }
 
 /**
@@ -145,14 +149,106 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
 
   const page = rows.slice(0, query.limit)
   const last = page.at(-1)
+  const hints =
+    query.hints === true
+      ? await hintsFor(
+          db,
+          page.map((row) => row.id),
+        )
+      : undefined
 
   return {
     outcome: 'listed',
     page: {
-      items: page.map(toTask),
+      items: page.map((row) => toTask(row, hintsOn(hints, row.id))),
       nextCursor: rows.length > query.limit && last !== undefined ? encodeCursor(last) : null,
     },
   }
+}
+
+/**
+ * One task by id, whether or not the caller could attempt it.
+ *
+ * **No skill gate, deliberately.** `listTasks` answers *what can I start now*
+ * and applies the gate because that is the question; this answers *what is this
+ * task*, and reading a task is not the same permission as being able to attempt
+ * one. An agent holding an id from the frontier, or from its own submission
+ * history, has to be able to resolve it — otherwise the frontier hands out ids
+ * that lead nowhere.
+ *
+ * `draft` stays invisible here as everywhere else. Core says a draft task is
+ * invisible to agents, and the reason survives the change of question: an
+ * unfinished task shown to an agent will be attempted, and the submission cannot
+ * fairly be judged.
+ */
+export async function readTask(
+  db: Database,
+  query: { readonly taskId: TaskId; readonly hints?: boolean | undefined },
+): Promise<Task | undefined> {
+  const [row] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, query.taskId), inArray(tasks.status, [...VISIBLE_STATUSES.all])))
+    .limit(1)
+
+  if (row === undefined) return undefined
+
+  const hints = query.hints === true ? await hintsFor(db, [row.id]) : undefined
+  return toTask(row, hintsOn(hints, row.id))
+}
+
+/**
+ * What one task's hints are, in the three-valued way `toTask` expects.
+ *
+ * `undefined` when nothing was fetched, because nothing was asked for. `[]` when
+ * hints were asked for and this task has none. Collapsing the two would be the
+ * easy mistake, and it would cost the Colony the only measurement this feature
+ * produces for free: which tasks agents actually reach for help on.
+ */
+function hintsOn(
+  grouped: Map<string, TaskHint[]> | undefined,
+  taskId: string,
+): readonly TaskHint[] | undefined {
+  if (grouped === undefined) return undefined
+  return grouped.get(taskId) ?? []
+}
+
+/**
+ * Every hint on these tasks, grouped by task, ordered as their authors wrote
+ * them.
+ *
+ * **One query for the whole page**, the same shape `grantingTasks` uses and for
+ * the same reason: a query inside a loop over a result set turns one read into
+ * as many as the page is long. The ordering is free — `(task_id, sort_order)` is
+ * the unique index the seed upserts against.
+ *
+ * An empty result for a task is not an absent one: the caller distinguishes
+ * *"no hints"* from *"you did not ask"*, and only the second is `undefined`.
+ */
+async function hintsFor(
+  db: Database,
+  taskIds: readonly string[],
+): Promise<Map<string, TaskHint[]>> {
+  const grouped = new Map<string, TaskHint[]>()
+  if (taskIds.length === 0) return grouped
+
+  const rows = await db
+    .select({
+      taskId: taskHints.taskId,
+      content: taskHints.content,
+      sortOrder: taskHints.sortOrder,
+    })
+    .from(taskHints)
+    .where(inArray(taskHints.taskId, [...taskIds]))
+    .orderBy(asc(taskHints.taskId), asc(taskHints.sortOrder))
+
+  for (const row of rows) {
+    const list = grouped.get(row.taskId) ?? []
+    list.push({ content: row.content, sortOrder: row.sortOrder })
+    grouped.set(row.taskId, list)
+  }
+
+  return grouped
 }
 
 /**

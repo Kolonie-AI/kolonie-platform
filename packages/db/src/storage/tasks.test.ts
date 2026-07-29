@@ -1,10 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { TaskSchema, type AgentId, type Task, type TaskStatus } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
-import { agents, agentSkills, reputationEvents, submissions, tasks } from '../schema/index.js'
+import { TaskSchema, type AgentId, type Task, type TaskId, type TaskStatus } from '@kolonie-ai/core'
+import { createDatabase, type Database } from '../client.js'
+import {
+  agents,
+  agentSkills,
+  reputationEvents,
+  submissions,
+  taskHints,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { frontier, listTasks, type ListTasksQuery } from './tasks.js'
+import { frontier, listTasks, readTask, type ListTasksQuery } from './tasks.js'
 
 const target = databaseTestTarget()
 
@@ -442,6 +449,157 @@ describe.skipIf(!target.available)('listTasks', () => {
       await seed({ title: 'Open now' })
 
       expect((await frontier(db, { agentId })).entries).toEqual([])
+    })
+  })
+})
+
+describe.skipIf(!target.available)('hints', () => {
+  let db: Database
+  let agentId: AgentId
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const [row] = await db
+      .insert(agents)
+      .values({ name: 'reader', platform: 'openclaw' })
+      .returning({ id: agents.id })
+    agentId = row!.id as AgentId
+  })
+
+  const aTaskWith = async (hints: string[], overrides: Record<string, unknown> = {}) => {
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        type: 'email-roundtrip',
+        title: 'Prove you hold a mailbox',
+        description: 'Send and receive.',
+        instructions: 'Write to the address you are given, then read the reply.',
+        rewardCoins: 1,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active' as const,
+        ...overrides,
+      })
+      .returning()
+
+    if (hints.length > 0) {
+      await db
+        .insert(taskHints)
+        .values(hints.map((content, index) => ({ taskId: task!.id, content, sortOrder: index })))
+    }
+    return task!.id as TaskId
+  }
+
+  describe('reading one task', () => {
+    it('finds a task the agent could not attempt', async () => {
+      const taskId = await aTaskWith([], { requiresSkills: ['mailbox'] })
+
+      const task = await readTask(db, { taskId })
+
+      // The point of the endpoint: no skill gate. The same task would not
+      // appear in `listTasks` for this agent, and asserting that here is what
+      // stops the gate being copied over later by analogy.
+      expect(task?.id).toBe(taskId)
+      const listed = await listTasks(db, { agentId, availableOnly: true, limit: 10 })
+      expect(listed.outcome === 'listed' && listed.page.items).toEqual([])
+    })
+
+    it('does not find a draft task', async () => {
+      const taskId = await aTaskWith([], { status: 'draft' as const })
+
+      expect(await readTask(db, { taskId })).toBeUndefined()
+    })
+
+    it('finds a retired task, so an old submission still resolves', async () => {
+      const taskId = await aTaskWith([], { status: 'retired' as const })
+
+      expect((await readTask(db, { taskId }))?.status).toBe('retired')
+    })
+
+    it('leaves hints off unless they were asked for', async () => {
+      const taskId = await aTaskWith(['The first waypoint.'])
+
+      expect((await readTask(db, { taskId }))?.hints).toBeUndefined()
+      expect((await readTask(db, { taskId, hints: true }))?.hints).toEqual([
+        { content: 'The first waypoint.', sortOrder: 0 },
+      ])
+    })
+
+    it('answers an empty list for a task that has none', async () => {
+      const taskId = await aTaskWith([])
+
+      expect((await readTask(db, { taskId, hints: true }))?.hints).toEqual([])
+    })
+
+    it('returns them in the order their author wrote them', async () => {
+      const taskId = await aTaskWith(['First.', 'Second.', 'Third.'])
+
+      const task = await readTask(db, { taskId, hints: true })
+
+      expect(task?.hints?.map((hint) => hint.content)).toEqual(['First.', 'Second.', 'Third.'])
+    })
+  })
+
+  describe('listing tasks', () => {
+    /**
+     * The property that keeps this cheap. A hint lookup per task would turn one
+     * read into as many as the page is long, and the page is what an agent polls.
+     */
+    it('fetches every task’s hints in one query', async () => {
+      const statements: string[] = []
+      const watched = createDatabase(target.available ? target.url : '', {
+        max: 1,
+        onnotice: () => {},
+        debug: (_connection, query) => statements.push(query),
+      })
+
+      try {
+        await aTaskWith(['One.'], { type: 'task-a', recommendedOrder: 1 })
+        await aTaskWith(['Two.', 'Three.'], { type: 'task-b', recommendedOrder: 2 })
+
+        statements.length = 0
+        const listed = await listTasks(watched, {
+          agentId,
+          availableOnly: true,
+          limit: 10,
+          hints: true,
+        })
+
+        expect(listed.outcome === 'listed' && listed.page.items).toHaveLength(2)
+
+        // Only what this call asked of our own tables. The driver runs a type
+        // catalogue query on its first connection, which is not the subject.
+        const ours = statements.filter((sql) => /"(tasks|task_hints)"/.test(sql))
+
+        // The task query plus the hint query. Two, whatever the page length —
+        // one lookup per task is what this assertion exists to catch.
+        expect(ours).toHaveLength(2)
+        expect(ours.filter((sql) => sql.includes('task_hints'))).toHaveLength(1)
+      } finally {
+        await watched.close()
+      }
+    })
+
+    it('attaches each task’s own hints and nobody else’s', async () => {
+      await aTaskWith(['Only on A.'], { type: 'task-a', recommendedOrder: 1 })
+      await aTaskWith([], { type: 'task-b', recommendedOrder: 2 })
+
+      const listed = await listTasks(db, { agentId, availableOnly: true, limit: 10, hints: true })
+      if (listed.outcome !== 'listed') throw new Error(listed.outcome)
+
+      expect(listed.page.items.map((task) => task.hints)).toEqual([
+        [{ content: 'Only on A.', sortOrder: 0 }],
+        [],
+      ])
     })
   })
 })

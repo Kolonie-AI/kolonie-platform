@@ -6,6 +6,7 @@ import {
   type Agent,
   type Submission,
   type Task,
+  type TaskHint,
   type Verification,
 } from '@kolonie-ai/core'
 import type { agents, submissions, tasks, verifications } from '../schema/index.js'
@@ -66,7 +67,18 @@ export function toAgent(
  * is the single place that reassembly happens, so a route can never hand an
  * agent a task whose reward it assembled slightly differently.
  */
-export function toTask(row: typeof tasks.$inferSelect): Task {
+export function toTask(
+  row: typeof tasks.$inferSelect,
+  /**
+   * The task's hints, when the caller asked for them.
+   *
+   * `undefined` and `[]` are different answers and both reach the agent as
+   * written: *you did not ask* against *you asked and there are none*. Merging
+   * them would cost the Colony the one thing this field measures — which tasks
+   * agents reach for help on.
+   */
+  hints?: readonly TaskHint[] | undefined,
+): Task {
   return TaskSchema.parse({
     id: row.id,
     type: row.type,
@@ -83,6 +95,7 @@ export function toTask(row: typeof tasks.$inferSelect): Task {
     prerequisiteTaskIds: row.prerequisiteTaskIds,
     timeoutHours: row.timeoutHours,
     status: row.status,
+    ...(hints === undefined ? {} : { hints }),
     createdBy: row.createdBy,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),

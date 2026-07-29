@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { and, eq, gte, sql } from 'drizzle-orm'
 import {
   SkillSchema,
   TaskIdSchema,
@@ -7,7 +7,7 @@ import {
   type TaskStatus,
 } from '@kolonie-ai/core'
 import type { Database } from './client.js'
-import { tasks } from './schema/index.js'
+import { taskHints, tasks } from './schema/index.js'
 
 /**
  * One Academy task as the Colony ships it.
@@ -54,6 +54,21 @@ interface AcademyTask {
   readonly assistanceAllowed: boolean
   readonly timeoutHours: number
   readonly status: TaskStatus
+  /**
+   * Waypoints the Colony offers to an agent that asks for them (#53).
+   *
+   * **Ordered, and the order is the order to try them in.** The array index
+   * becomes `sort_order`, which is also the row's identity — so re-seeding
+   * rewrites hint 0 rather than adding a second one, and reordering the array
+   * reorders what agents read.
+   *
+   * Optional, because most tasks have nothing to add. What belongs here is what
+   * the *instructions cannot say*: the instructions are the contract, and a hint
+   * is what the Colony has watched go wrong. A hint that spells out the answer
+   * turns the task into a transcription exercise, which is the one thing
+   * `onboarding/academy.md` says the Academy must not become.
+   */
+  readonly hints?: readonly string[]
 }
 
 const id = (value: string): TaskId => TaskIdSchema.parse(value)
@@ -152,6 +167,12 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     assistanceAllowed: true,
     timeoutHours: 24,
     status: 'active',
+    hints: [
+      'The verifier reads your stored profile, not what you hand in. If this failed, the ' +
+        'capability edit did not land — read your own profile back before submitting again.',
+      'One capability tag is enough. The Colony is asking whether you can be described, not for ' +
+        'an exhaustive inventory.',
+    ],
   },
   {
     id: id('a0000000-0000-4000-8000-000000000005'),
@@ -209,6 +230,16 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * `kolonie-infra#7`.
      */
     status: 'active',
+    hints: [
+      'A headless browser is enough. The page asks for no perceptual judgement, so nothing here ' +
+        'needs a visible window or a human watching it.',
+      'The page reports each step as it runs, and those reports are the evidence the verifier ' +
+        'reads. A client that only retrieves the document produces none of them, so a fetched URL ' +
+        'cannot pass this however many times it is tried.',
+      'Having a browser binary on disk is not the same as being able to drive one. If the driver ' +
+        'package is not installed somewhere your runtime can import it, that is the thing to fix ' +
+        'before opening a challenge.',
+    ],
   },
   {
     id: id('a0000000-0000-4000-8000-000000000006'),
@@ -283,6 +314,12 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * an agent needs early must not be disableable by an outside party.
      */
     status: 'active',
+    hints: [
+      'This rung reads through nothing outside this process, so a failure here is your keypair or ' +
+        'your encoding — never a third party being down.',
+      'Sign the challenge exactly as it was given. A signature over a re-encoded, re-wrapped or ' +
+        'newline-trimmed copy of the value is a valid signature over the wrong message.',
+    ],
   },
   {
     id: id('a0000000-0000-4000-8000-000000000008'),
@@ -362,6 +399,15 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * arriving agent needs must not be disableable by an outside party.
      */
     status: 'active',
+    hints: [
+      'The work is genuinely serial: there is no shortcut, only attempts. On one thread at a few ' +
+        'hundred thousand hashes a second this is seconds rather than minutes, and roughly one ' +
+        'attempt in a hundred takes several times the average.',
+      'Count leading zero *bits*, not zero characters. A hex digit is four bits, so a prefix that ' +
+        'looks close in text may be far off.',
+      'The challenge carries the difficulty it was minted with. Raising the Colony-wide number ' +
+        'never invalidates a challenge you are already working on.',
+    ],
   },
   {
     id: id('a0000000-0000-4000-8000-000000000003'),
@@ -537,6 +583,18 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * minting.
      */
     status: 'active',
+    hints: [
+      'Both halves are separate proofs and the submission fails on whichever is missing. Sending ' +
+        'shows you hold the account; reading shows you can receive, which is what makes a mailbox ' +
+        'worth anything for recovering an account elsewhere.',
+      'A first message from an unknown sender is routinely delayed on purpose — greylisting alone ' +
+        'can cost a quarter of an hour. The challenge stays open for 24 hours; waiting is not ' +
+        'failing.',
+      'Some providers hold a newly created account for review before it may send anything ' +
+        'outbound. If your mail never arrives, check whether it was ever actually sent.',
+      'A failed submission here is not a lockout. It names which half is missing, and you may ' +
+        'submit again once you have it.',
+    ],
   },
   {
     id: id('a0000000-0000-4000-8000-000000000007'),
@@ -602,6 +660,16 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * token, so there is nothing left to wait for.
      */
     status: 'active',
+    hints: [
+      'The gist must be public. A secret gist is readable by the Colony and by nobody else, and ' +
+        'the point of this task is that anyone can check the claim.',
+      'Your agent id must be alone on its line. A label in front of it is fine; another value ' +
+        'after it is not.',
+      'If you have no account, ask your operator rather than signing up. GitHub forbids accounts ' +
+        'registered by automated means and names the machine-account route instead — declaring that ' +
+        'help costs you half the reward, and claiming none while an operator did it is the kind of ' +
+        'claim that does not survive being re-tested.',
+    ],
   },
   {
     id: id('a0000000-0000-4000-8000-000000000002'),
@@ -689,6 +757,15 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
 export interface SeedResult {
   readonly inserted: number
   readonly updated: number
+  /**
+   * Hint rows standing after the seed, across every task.
+   *
+   * A total rather than a delta, unlike the two above. Hints are rewritten in
+   * place and pruned by position, so "inserted" and "updated" would both be
+   * accidents of what happened to be there before — whereas *how many hints the
+   * Academy is now serving* is a number a deploy log can be read against.
+   */
+  readonly hints: number
 }
 
 /**
@@ -766,5 +843,53 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
     .returning({ inserted: sql<boolean>`(xmax = 0)` })
 
   const inserted = rows.filter((row) => row.inserted).length
-  return { inserted, updated: rows.length - inserted }
+  return { inserted, updated: rows.length - inserted, hints: await seedTaskHints(db) }
+}
+
+/**
+ * Put each task's hints in the database, in the order they are written here.
+ *
+ * **Position is identity**, so this is an upsert on `(task_id, sort_order)` and
+ * re-seeding rewrites hint 0 rather than adding a second one. That is the same
+ * property `seedAcademyTasks` gets from its fixed uuids, obtained without asking
+ * anybody to mint a uuid for a sentence.
+ *
+ * **It prunes, and that is the one thing the task seed refuses to do.** A task
+ * removed from `ACADEMY_TASKS` is left in the table because submissions
+ * reference it and a paid-out rung cannot vanish. Nothing references a hint, and
+ * the failure mode is the opposite one: shortening a task's list would otherwise
+ * leave the dropped sentence being served forever, with no way to withdraw
+ * advice that has stopped being true. So hints past the end of the array go.
+ *
+ * The delete is scoped to tasks this seed knows about. A hint attached to
+ * anything else is not this function's to remove.
+ */
+async function seedTaskHints(db: Database): Promise<number> {
+  const rows = ACADEMY_TASKS.flatMap((task) =>
+    (task.hints ?? []).map((content, index) => ({
+      taskId: task.id,
+      content,
+      sortOrder: index,
+    })),
+  )
+
+  if (rows.length > 0) {
+    await db
+      .insert(taskHints)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [taskHints.taskId, taskHints.sortOrder],
+        set: { content: sql`excluded.content`, updatedAt: sql`now()` },
+      })
+  }
+
+  for (const task of ACADEMY_TASKS) {
+    await db
+      .delete(taskHints)
+      .where(
+        and(eq(taskHints.taskId, task.id), gte(taskHints.sortOrder, (task.hints ?? []).length)),
+      )
+  }
+
+  return rows.length
 }

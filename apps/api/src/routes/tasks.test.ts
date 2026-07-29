@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'node:crypto'
 import {
   DEFAULT_PAGE_SIZE,
   ERROR_STATUS,
   FrontierResponseSchema,
+  GetTaskResponseSchema,
   ListTasksResponseSchema,
   MAX_PAGE_SIZE,
   SkillSchema,
@@ -137,6 +139,18 @@ describe('whose skills the list is gated by', () => {
 })
 
 describe('the query', () => {
+  /**
+   * Opt-in, and the default has to stay false: an agent that wants to attempt a
+   * task unaided cannot un-read a hint it was handed.
+   */
+  it('does not ask for hints unless the caller says so', async () => {
+    await get('/v1/tasks')
+    expect(catalogue.lastQuery()?.hints).toBe(false)
+
+    await get('/v1/tasks?hints=true')
+    expect(catalogue.lastQuery()?.hints).toBe(true)
+  })
+
   it('defaults to one page of what the agent can attempt', async () => {
     await get()
 
@@ -266,9 +280,10 @@ describe('GET /v1/tasks/frontier', () => {
   })
 
   it('does not collide with the task path that follows it', async () => {
-    // `frontier` is a literal segment and there is no `GET /v1/tasks/:taskId`,
-    // so the two cannot be confused — asserted rather than assumed, because a
-    // route that starts matching task ids would break silently.
+    // `GET /v1/tasks/:taskId` exists since #53, so `frontier` is now a literal
+    // segment competing with a parameter. Fastify prefers the literal, and this
+    // asserts it rather than assuming it: the failure would be silent, and it
+    // would turn every planning call into a 404.
     const response = await app.inject({
       method: 'GET',
       url: '/v1/tasks/frontier',
@@ -277,5 +292,84 @@ describe('GET /v1/tasks/frontier', () => {
 
     expect(response.statusCode).toBe(200)
     expect(catalogue.frontierQueries()).toHaveLength(1)
+  })
+})
+
+describe('GET /v1/tasks/:taskId', () => {
+  /**
+   * The reason this endpoint exists. The list is gated on skills because it
+   * answers *what can I start now*; an id from the frontier names a task the
+   * agent explicitly cannot start yet, and it has to resolve to something.
+   */
+  it('returns a task the caller could not start', async () => {
+    const task = aTask({ requires: [SkillSchema.parse('mailbox')] })
+    catalogue.answersRead(task)
+
+    const response = await get(`/v1/tasks/${task.id}`)
+
+    expect(response.statusCode).toBe(200)
+    expect(() => GetTaskResponseSchema.parse(response.json())).not.toThrow()
+    expect(response.json().task.id).toBe(task.id)
+  })
+
+  it('omits hints unless they were asked for', async () => {
+    const task = aTask()
+    catalogue.answersRead(task)
+
+    await get(`/v1/tasks/${task.id}`)
+
+    expect(catalogue.lastRead()?.hints).toBe(false)
+    expect((await get(`/v1/tasks/${task.id}`)).json().task.hints).toBeUndefined()
+  })
+
+  it('asks for hints when the caller does', async () => {
+    const task = aTask({ hints: [{ content: 'A waypoint, not a tutorial.', sortOrder: 0 }] })
+    catalogue.answersRead(task)
+
+    const response = await get(`/v1/tasks/${task.id}?hints=true`)
+
+    expect(catalogue.lastRead()?.hints).toBe(true)
+    expect(response.json().task.hints).toEqual([
+      { content: 'A waypoint, not a tutorial.', sortOrder: 0 },
+    ])
+  })
+
+  /**
+   * The distinction the whole opt-in rests on: an empty array is an answer, and
+   * it is not the same answer as the field being absent.
+   */
+  it('answers an empty list for a task with no hints, rather than omitting the field', async () => {
+    const task = aTask({ hints: [] })
+    catalogue.answersRead(task)
+
+    expect((await get(`/v1/tasks/${task.id}?hints=true`)).json().task.hints).toEqual([])
+  })
+
+  it('answers not_found for an id no task carries', async () => {
+    catalogue.answersRead(undefined)
+
+    const response = await get(`/v1/tasks/${randomUUID()}`)
+
+    expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+    expect(response.json().code).toBe('not_found')
+  })
+
+  /**
+   * A malformed id gets the same answer as an unknown one, and never reaches
+   * the catalogue. Two codes would be two branches every agent has to write for
+   * a situation it recovers from identically.
+   */
+  it('answers not_found for something that is not an id at all, without asking', async () => {
+    const response = await get('/v1/tasks/not-a-uuid')
+
+    expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+    expect(catalogue.reads()).toEqual([])
+  })
+
+  it('refuses an anonymous caller', async () => {
+    const response = await get(`/v1/tasks/${randomUUID()}`, null)
+
+    expect(response.statusCode).toBe(401)
+    expect(catalogue.reads()).toEqual([])
   })
 })

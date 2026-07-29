@@ -39,9 +39,6 @@ export type LedgerTransactionId = z.infer<typeof LedgerTransactionIdSchema>
 export const ReputationEventIdSchema = z.uuid().brand<'ReputationEventId'>()
 export type ReputationEventId = z.infer<typeof ReputationEventIdSchema>
 
-export const TaskHintIdSchema = z.uuid().brand<'TaskHintId'>()
-export type TaskHintId = z.infer<typeof TaskHintIdSchema>
-
 export const TaskStruggleIdSchema = z.uuid().brand<'TaskStruggleId'>()
 export type TaskStruggleId = z.infer<typeof TaskStruggleIdSchema>
 

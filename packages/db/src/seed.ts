@@ -18,8 +18,11 @@ import { createDatabase, databaseUrlFromEnv } from './client.js'
 async function main(): Promise<void> {
   const db = createDatabase(databaseUrlFromEnv(), { max: 1, onnotice: () => {} })
   try {
-    const { inserted, updated } = await seedAcademyTasks(db)
-    console.log(`academy tasks: ${inserted} inserted, ${updated} already present and refreshed`)
+    const { inserted, updated, hints } = await seedAcademyTasks(db)
+    console.log(
+      `academy tasks: ${inserted} inserted, ${updated} already present and refreshed, ` +
+        `${hints} hints serving`,
+    )
   } finally {
     await db.close()
   }

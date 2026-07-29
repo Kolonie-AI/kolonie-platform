@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
+import { fieldErrors } from './validation.js'
 import type { AgentId, ApiError } from '@kolonie-ai/core'
 import type {
   Database,
@@ -382,12 +383,6 @@ function localPartOf(recipient: string): string | null {
 
 function rejected(code: ApiError['code'], message: string): CodeOutcome {
   return { outcome: 'rejected', error: { code, message } }
-}
-
-function fieldErrors(error: z.ZodError): Record<string, string> {
-  return Object.fromEntries(
-    error.issues.map((issue) => [issue.path.join('.') || 'body', issue.message]),
-  )
 }
 
 /**

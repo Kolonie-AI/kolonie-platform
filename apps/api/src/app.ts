@@ -28,12 +28,21 @@ import {
   submitEmailCode,
   type EmailDependencies,
 } from './email.js'
+import { openKeyChallenge, submitKeySignature, type KeyDependencies } from './keys.js'
 
 export interface AppDependencies {
   /** The Browser Capability Gate — see `academy.ts` and D-024. */
   readonly academy: AcademyDependencies
   /** The mailbox rung — see `email.ts`. */
   readonly email: EmailDependencies
+  /**
+   * The keypair rung — see `keys.ts`.
+   *
+   * No `unavailableReason` counterpart, and no 503 branch below. It reads
+   * through nothing, so there is no configuration whose absence could take it
+   * down while the rest of the API serves.
+   */
+  readonly keys: KeyDependencies
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
@@ -61,6 +70,7 @@ export function buildApp({
   submissions,
   academy,
   email,
+  keys,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -168,6 +178,7 @@ export function buildApp({
           catalogue,
           submissions,
           academy,
+          keys,
           // Resolved here rather than inside the tool, so the MCP door and the
           // HTTP door agree on who is calling by construction. `McpDependencies`
           // requires it, which makes forgetting it a compile error rather than a
@@ -488,6 +499,61 @@ export function buildApp({
         }
 
         const result = await submitEmailCode(authenticated.agent.id, request.body, email)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send({ verified: true, ...result.response })
+      })
+
+      /**
+       * Mint a nonce for the keypair rung — `key-signature`.
+       *
+       * Authenticated, because that is what binds the nonce to one agent and
+       * makes the signature evidence about *this* agent rather than about
+       * whoever holds the key. Same reasoning as D-024 one rung over.
+       *
+       * **No 503 branch.** Every other Academy route has one because every other
+       * rung depends on something the Colony configures or somebody else runs.
+       * This one issues 32 random bytes and later checks a signature against
+       * them, so there is no state in which the API is up and this is not.
+       */
+      v1.post('/academy/key/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openKeyChallenge(authenticated.agent.id, keys)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Hand back the public key and the signature over the nonce.
+       *
+       * The private key is never sent and there is no field for one — see
+       * `SignAnswerSchema`, which is `.strict()`, so a body carrying one is
+       * refused rather than quietly ignored. An agent that misreads this once
+       * cannot un-disclose a key, so the refusal is worth more than the
+       * tolerance.
+       */
+      v1.post('/academy/key/signatures', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await submitKeySignature(authenticated.agent.id, request.body, keys)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

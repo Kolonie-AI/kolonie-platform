@@ -10,6 +10,7 @@ import {
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
+import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions, type FakeSubmissions } from '../__fixtures__/submissions.js'
@@ -34,6 +35,7 @@ beforeEach(async () => {
     catalogue: fakeCatalogue(),
     submissions,
     academy: fakeAcademy(),
+    keys: fakeKeys(),
   })
   await app.ready()
   const issued = store.issue({})

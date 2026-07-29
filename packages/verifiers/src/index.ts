@@ -3,6 +3,7 @@ import { ProfileCompleteVerifier } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
 import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
+import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { EmailRoundtripVerifier, type EmailRoundtrips } from './email-roundtrip.js'
 import type { GitHubReader } from './github.js'
 
@@ -16,6 +17,12 @@ export {
   BrowserCapabilityVerifier,
   type BrowserCapabilityDependencies,
 } from './browser-capability.js'
+export {
+  KeySignatureVerifier,
+  type KeyAttempt,
+  type KeySignatureDependencies,
+  type SignedKeys,
+} from './key-signature.js'
 export {
   EmailRoundtripVerifier,
   type EmailRoundtripDependencies,
@@ -75,6 +82,13 @@ export interface VerifierDependencies {
    * rung to the badge's record by picking the wrong dependency.
    */
   readonly gates?: ClearedGates
+  /**
+   * Answers what the Colony recorded about an agent's key challenge.
+   *
+   * Its own port for the same reason `roundtrips` is: a shared one would let a
+   * wiring mistake answer one rung with another's evidence.
+   */
+  readonly keys?: SignedKeys
 }
 
 /**
@@ -98,6 +112,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
   if (deps.gates !== undefined) {
     verifiers.push(new BrowserCapabilityVerifier({ gates: deps.gates }))
     verifiers.push(new BrowserCaptchaVerifier({ gates: deps.gates }))
+  }
+
+  if (deps.keys !== undefined) {
+    verifiers.push(new KeySignatureVerifier({ keys: deps.keys }))
   }
 
   if (deps.roundtrips !== undefined) {

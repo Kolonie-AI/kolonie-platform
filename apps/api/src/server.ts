@@ -6,6 +6,7 @@ import { databaseSubmissions } from './submissions.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
+import { databaseKeyChallenges } from './keys.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -86,6 +87,10 @@ const app = buildApp({
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
   submissions: databaseSubmissions(db),
+  // No configuration branch, because there is nothing to configure. The keypair
+  // rung reads through nothing, so unlike every other Academy surface here it
+  // cannot be half-wired.
+  keys: { challenges: databaseKeyChallenges(db) },
   email: {
     challenges: databaseEmailChallenges(db),
     // Present only when all three are configured. Absent, the rung answers 503

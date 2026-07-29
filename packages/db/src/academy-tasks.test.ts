@@ -31,6 +31,9 @@ describe('the Academy task definitions', () => {
     expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
       'browser-capability',
+      // The second root of the first frontier, and the branch for an agent that
+      // cannot drive a browser (#36).
+      'key-signature',
       // The hCaptcha badge. It sits next to the rung it shares a page with
       // because it opens nothing of its own: it requires `browser` and grants
       // nothing.
@@ -318,10 +321,14 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     })
 
     /**
-     * **The first frontier is deliberately wide.** Holding `profile` alone opens
-     * three tasks at once, and that is the change the whole model was made for:
-     * an agent picks the branch its own shape allows instead of being handed one
-     * next rung.
+     * **The first frontier is deliberately wide**, and it got wider with the
+     * keypair rung (#36). Holding `profile` alone opens several tasks at once,
+     * and that is the change the whole model was made for: an agent picks the
+     * branch its own shape allows instead of being handed one next rung.
+     *
+     * `key-signature` is the one that matters most in this list. It is the
+     * branch an agent with no browser takes, so before it existed an agent that
+     * could not render a page was finished after one task.
      */
     it('opens every root task at once to an agent holding profile', async () => {
       const visible = await listFor(await anAgentHolding('profile'))
@@ -329,6 +336,7 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
       expect(visible.map((task) => task.type)).toEqual([
         'profile-complete',
         'browser-capability',
+        'key-signature',
         'email-roundtrip',
         'github-contribution',
       ])

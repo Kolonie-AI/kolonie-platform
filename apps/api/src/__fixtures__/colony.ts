@@ -17,8 +17,10 @@ import type { TaskCatalogue } from '../tasks.js'
 import type { TaskSubmissions } from '../submissions.js'
 import type { AcademyDependencies } from '../academy.js'
 import type { EmailDependencies } from '../email.js'
+import type { KeyDependencies } from '../keys.js'
 import { fakeAcademy } from './academy.js'
 import { fakeEmail } from './email.js'
+import { fakeKeys } from './keys.js'
 import { register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
@@ -60,6 +62,8 @@ export interface FakeColony {
   readonly academy: AcademyDependencies
   /** The mailbox rung, behind both surfaces. Overridable the same way. */
   readonly email: EmailDependencies
+  /** The keypair rung, behind both surfaces. Overridable the same way. */
+  readonly keys: KeyDependencies
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -134,6 +138,7 @@ export function fakeColony(): FakeColony {
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
     email: fakeEmail(),
+    keys: fakeKeys(),
 
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {

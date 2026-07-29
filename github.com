@@ -1,0 +1,228 @@
+"""
+Academy Skill: bounty-hunter
+Verifies on-chain SOL or USDC bounty payout transactions on Solana to certify agents.
+"""
+
+import asyncio
+import logging
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, Optional, Tuple
+import httpx
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("bounty-hunter-skill")
+
+DEFAULT_SOLANA_RPC = "https://api.mainnet-beta.solana.com"
+USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTD"
+LAMPORTS_PER_SOL = 1_000_000_000
+USDC_DECIMALS = 6
+
+
+@dataclass
+class CertificationResult:
+    is_certified: bool
+    skill_id: str
+    agent_wallet: str
+    tx_signature: str
+    earned_amount: float
+    currency: str  # "SOL" or "USDC"
+    block_time: Optional[int]
+    platform: str
+    message: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class BountyHunterSkill:
+    """
+    Academy skill implementation for certifying an autonomous agent as a Bounty Hunter.
+    """
+
+    SKILL_ID = "bounty-hunter"
+
+    def __init__(self, rpc_url: str = DEFAULT_SOLANA_RPC):
+        self.rpc_url = rpc_url
+
+    async def verify_and_certify(
+        self, agent_wallet: str, tx_signature: str
+    ) -> CertificationResult:
+        """
+        Verifies a given payout transaction signature against an agent's wallet address.
+        Grants certification if valid net positive bounty earnings (SOL or USDC) are found.
+        """
+        try:
+            tx_data = await self._fetch_transaction(tx_signature)
+            if not tx_data:
+                return self._build_failure(
+                    agent_wallet, tx_signature, "Transaction not found or not finalized."
+                )
+
+            meta = tx_data.get("meta", {})
+            if meta.get("err") is not None:
+                return self._build_failure(
+                    agent_wallet, tx_signature, "Transaction failed on-chain (meta.err present)."
+                )
+
+            block_time = tx_data.get("blockTime")
+
+            usdc_amount = self._verify_usdc_payout(tx_data, agent_wallet)
+            if usdc_amount > 0:
+                platform = self._detect_platform(tx_data)
+                return CertificationResult(
+                    is_certified=True,
+                    skill_id=self.SKILL_ID,
+                    agent_wallet=agent_wallet,
+                    tx_signature=tx_signature,
+                    earned_amount=usdc_amount,
+                    currency="USDC",
+                    block_time=block_time,
+                    platform=platform,
+                    message=f"Successfully certified! Earned {usdc_amount} USDC on {platform}.",
+                )
+
+            sol_amount = self._verify_sol_payout(tx_data, agent_wallet)
+            if sol_amount > 0:
+                platform = self._detect_platform(tx_data)
+                return CertificationResult(
+                    is_certified=True,
+                    skill_id=self.SKILL_ID,
+                    agent_wallet=agent_wallet,
+                    tx_signature=tx_signature,
+                    earned_amount=sol_amount,
+                    currency="SOL",
+                    block_time=block_time,
+                    platform=platform,
+                    message=f"Successfully certified! Earned {sol_amount} SOL on {platform}.",
+                )
+
+            return self._build_failure(
+                agent_wallet,
+                tx_signature,
+                "No positive SOL or USDC transfer to agent wallet detected in transaction.",
+            )
+
+        except Exception as e:
+            logger.exception("Error verifying payout transaction")
+            return self._build_failure(
+                agent_wallet, tx_signature, f"Verification exception: {str(e)}"
+            )
+
+    async def _fetch_transaction(self, tx_signature: str) -> Optional[Dict[str, Any]]:
+        """Fetches parsed transaction metadata from Solana RPC."""
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTransaction",
+            "params": [
+                tx_signature,
+                {
+                    "encoding": "jsonParsed",
+                    "maxSupportedTransactionVersion": 0,
+                    "commitment": "confirmed",
+                },
+            ],
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(self.rpc_url, json=payload)
+            res_json = response.json()
+            return res_json.get("result")
+
+    def _verify_sol_payout(self, tx_data: Dict[str, Any], agent_wallet: str) -> float:
+        """Calculates net positive SOL balance change for the agent's wallet."""
+        transaction = tx_data.get("transaction", {})
+        message = transaction.get("message", {})
+        account_keys = message.get("accountKeys", [])
+
+        # Find index of agent wallet in account keys
+        agent_index = -1
+        for idx, acc in enumerate(account_keys):
+            pubkey = acc.get("pubkey") if isinstance(acc, dict) else acc
+            if pubkey == agent_wallet:
+                agent_index = idx
+                break
+
+        if agent_index == -1:
+            return 0.0
+
+        meta = tx_data.get("meta", {})
+        pre_balances = meta.get("preBalances", [])
+        post_balances = meta.get("postBalances", [])
+
+        if agent_index < len(pre_balances) and agent_index < len(post_balances):
+            diff = post_balances[agent_index] - pre_balances[agent_index]
+            if diff > 0:
+                return diff / LAMPORTS_PER_SOL
+
+        return 0.0
+
+    def _verify_usdc_payout(self, tx_data: Dict[str, Any], agent_wallet: str) -> float:
+        """Calculates net positive USDC SPL token change for the agent's wallet."""
+        meta = tx_data.get("meta", {})
+        pre_token_balances = meta.get("preTokenBalances", [])
+        post_token_balances = meta.get("postTokenBalances", [])
+
+        pre_amount = 0.0
+        post_amount = 0.0
+
+        for b in pre_token_balances:
+            if b.get("owner") == agent_wallet and b.get("mint") == USDC_MINT:
+                ui_amount = (
+                    b.get("uiTokenAmount", {}).get("uiAmount") or 0.0
+                )
+                pre_amount += float(ui_amount)
+
+        for b in post_token_balances:
+            if b.get("owner") == agent_wallet and b.get("mint") == USDC_MINT:
+                ui_amount = (
+                    b.get("uiTokenAmount", {}).get("uiAmount") or 0.0
+                )
+                post_amount += float(ui_amount)
+
+        net_usdc = post_amount - pre_amount
+        return net_usdc if net_usdc > 0 else 0.0
+
+    def _detect_platform(self, tx_data: Dict[str, Any]) -> str:
+        """Infers bounty platform based on transaction logs or program accounts."""
+        log_messages = tx_data.get("meta", {}).get("logMessages", [])
+        log_str = " ".join(log_messages).lower()
+
+        if "superteam" in log_str:
+            return "Superteam Earn"
+        elif "lulo" in log_str:
+            return "Lulo"
+        elif "escrow" in log_str:
+            return "Solana Escrow Protocol"
+        else:
+            return "External Solana Platform"
+
+    def _build_failure(
+        self, agent_wallet: str, tx_signature: str, reason: str
+    ) -> CertificationResult:
+        return CertificationResult(
+            is_certified=False,
+            skill_id=self.SKILL_ID,
+            agent_wallet=agent_wallet,
+            tx_signature=tx_signature,
+            earned_amount=0.0,
+            currency="NONE",
+            block_time=None,
+            platform="Unknown",
+            message=reason,
+        )
+
+
+async def main():
+    verifier = BountyHunterSkill()
+
+    test_agent_wallet = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q544fKrF"
+    test_tx_signature = "5wHuG42GzYp8b3zG4m1G8G42GzYp8b3zG4m1G8G42GzYp8b3zG4m1G8G42GzYp8b"
+
+    print(f"Verifying Bounty Hunter skill for Agent: {test_agent_wallet}")
+    result = await verifier.verify_and_certify(test_agent_wallet, test_tx_signature)
+    print("Certification Result:")
+    print(result.to_dict())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

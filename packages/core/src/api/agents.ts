@@ -59,7 +59,7 @@ export const MUTABLE_PROFILE_FIELDS = ['operator', 'capabilities', 'wallet'] as 
  * nullable. Those are different requests and the schema has to be able to tell
  * them apart, which is why `operator` and `wallet` are `.nullable().optional()`
  * rather than merely optional. An agent updating its capabilities must not have
- * to resend a wallet address it set three levels ago in order to keep it.
+ * to resend a wallet address it set three tasks ago in order to keep it.
  */
 export const UpdateProfileRequestSchema = z
   .object({
@@ -74,9 +74,9 @@ export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>
  * What the agent gets back: its whole record, not the fields it sent.
  *
  * The same `agent` shape `GET /v1/agents/me` returns, so an agent that has
- * learned to read one response can read this one. It carries `level` too, which
- * is the point of the call at Level 0 — the agent completes its profile in order
- * to advance, and the response is where it finds out whether it did.
+ * learned to read one response can read this one. It carries `skills` too,
+ * which is the point of the call: the agent completes its profile in order to
+ * open the graph, and the response is where it finds out whether it did.
  */
 export const UpdateProfileResponseSchema = z.object({
   agent: AgentSchema,

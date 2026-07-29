@@ -13,7 +13,6 @@ import {
 } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import {
-  agents,
   agentSkills,
   ledgerEntries,
   reputationEvents,
@@ -52,24 +51,22 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
 
   let seeded = 0
 
-  const anAgent = async (level = 0): Promise<AgentId> => {
+  const anAgent = async (): Promise<AgentId> => {
     const result = await registerAgent(
       db,
       RegisterAgentRequestSchema.parse({ name: `canary-${++seeded}`, platform: 'openclaw' }),
     )
     if (result.outcome !== 'registered') throw new Error(result.outcome)
-    if (level !== 0) await db.update(agents).set({ level }).where(eq(agents.id, result.agent.id))
     return result.agent.id
   }
 
   const aTask = async (
-    options: { coins?: number; reputation?: number; level?: number; grants?: string[] } = {},
+    options: { coins?: number; reputation?: number; grants?: string[] } = {},
   ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
         type: 'example-task',
-        level: options.level ?? 0,
         grantsSkills: options.grants ?? [],
         title: 'Make an API call',
         description: 'What this task is, for a human reading the catalogue.',
@@ -125,15 +122,6 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       .select()
       .from(ledgerEntries)
       .where(eq(ledgerEntries.reference, submissionReference(submissionId)))
-
-  const levelOf = async (agentId: AgentId): Promise<number> => {
-    const [row] = await db
-      .select({ level: agents.level })
-      .from(agents)
-      .where(eq(agents.id, agentId))
-    if (row === undefined) throw new Error('agent vanished')
-    return row.level
-  }
 
   /** What the whole ledger sums to. Must be zero, always, whatever happened. */
   const ledgerTotal = async (): Promise<number> => {
@@ -206,28 +194,22 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       }
     })
 
-    it('advances the level, derived from the task that was passed', async () => {
+    /**
+     * The memo no longer names a number (`#35`). It still names the task type,
+     * which is the part an audit reads: an entry has to say what was paid for,
+     * and `Academy Level 3` said where the task sat rather than what it was.
+     */
+    it('writes a memo naming the task type and no level', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ level: 0 })
-      const submissionId = await aClaimedSubmission({ taskId, agentId })
-
-      const written = await pass(submissionId)
-
-      expect(await levelOf(agentId)).toBe(1)
-      if (written.outcome === 'recorded') {
-        expect(written.booking?.previousLevel).toBe(0)
-        expect(written.booking?.level).toBe(1)
-      }
-    })
-
-    it('does not demote an agent that re-passes a level it already cleared', async () => {
-      const agentId = await anAgent(5)
-      const taskId = await aTask({ level: 0 })
+      const taskId = await aTask({ coins: 10 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       await pass(submissionId)
 
-      expect(await levelOf(agentId)).toBe(5)
+      for (const entry of await entriesFor(submissionId)) {
+        expect(entry.memo).toBe(`Academy — ${EXAMPLE_TASK}`)
+        expect(entry.memo).not.toMatch(/Level/)
+      }
     })
 
     it('is visible to the balance read the moment it commits', async () => {
@@ -256,16 +238,15 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
 
       expect(await entriesFor(submissionId)).toHaveLength(0)
       if (written.outcome === 'recorded') expect(written.booking?.transactionId).toBeNull()
-      // The reputation and the level advancement still happen.
+      // The reputation still happens.
       expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 0, reputation: 3 })
-      expect(await levelOf(agentId)).toBe(1)
     })
   })
 
   /**
    * D-030: a pass grants the task's skills in the same transaction that writes
-   * the verdict and books the coins. Same rule the level advance followed —
-   * derived from the task, never supplied by a caller — and a stronger reason
+   * the verdict and books the coins. Same rule the retired level advance
+   * followed — derived from the task, never supplied by a caller — and a stronger reason
    * for it, because a skill decides what the agent may attempt next.
    */
   describe('the skills a pass grants', () => {
@@ -359,7 +340,7 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
   })
 
   describe('anything that is not a pass', () => {
-    it('books nothing on a fail, and leaves the level alone', async () => {
+    it('books nothing on a fail', async () => {
       const agentId = await anAgent()
       const submissionId = await aClaimedSubmission({ agentId })
 
@@ -369,7 +350,6 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       if (written.outcome === 'recorded') expect(written.booking).toBeUndefined()
       expect(await entriesFor(submissionId)).toHaveLength(0)
       expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 0, reputation: 0 })
-      expect(await levelOf(agentId)).toBe(0)
     })
 
     it('books nothing when a verifier answers pending', async () => {
@@ -383,7 +363,6 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       })
 
       expect(await entriesFor(submissionId)).toHaveLength(0)
-      expect(await levelOf(agentId)).toBe(0)
     })
   })
 

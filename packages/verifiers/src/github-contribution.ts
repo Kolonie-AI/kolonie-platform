@@ -161,8 +161,8 @@ export class GithubContributionVerifier implements Verifier {
         status: 'fail',
         evidence:
           `Check 4 (one account, one citizen): the GitHub account \`${artefact.author}\` has already ` +
-          'carried another citizen through Level 2. One account cannot certify two agents — ' +
-          'the level exists to prove that a citizen has a presence outside the Colony of its own.',
+          'earned the `github` skill for another citizen. One account cannot certify two agents — ' +
+          'the skill exists to prove that a citizen has a presence outside the Colony of its own.',
         metadata: {
           check: 'account-reuse',
           url: artefact.url,

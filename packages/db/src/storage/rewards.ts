@@ -1,12 +1,9 @@
 import { eq } from 'drizzle-orm'
 import {
-  AcademyLevelSchema,
   AgentIdSchema,
-  levelAfterCompleting,
   LedgerTransactionIdSchema,
   submissionReference,
   TaskIdSchema,
-  type AcademyLevel,
   type AgentId,
   type LedgerTransactionId,
   type Skill,
@@ -32,9 +29,6 @@ export interface BookedReward {
    * coins and there was therefore nothing to group.
    */
   readonly transactionId: LedgerTransactionId | null
-  /** The level the agent held before this pass, and the one it holds now. */
-  readonly previousLevel: AcademyLevel
-  readonly level: AcademyLevel
   /**
    * The skills this pass granted that the agent did not already hold.
    *
@@ -47,7 +41,7 @@ export interface BookedReward {
 
 /**
  * Pay for a passed submission: coins from the mint, reputation to the agent,
- * and whatever level the pass earned.
+ * and whatever skills the task grants.
  *
  * **Called inside the transaction that writes the verdict, never on its own.**
  * That is why it takes a `Transaction` rather than a `Database` — the signature
@@ -77,11 +71,9 @@ export async function bookTaskReward(
       agentId: submissions.agentId,
       taskId: submissions.taskId,
       taskType: tasks.type,
-      taskLevel: tasks.level,
       taskGrants: tasks.grantsSkills,
       rewardCoins: tasks.rewardCoins,
       rewardReputation: tasks.rewardReputation,
-      agentLevel: agents.level,
     })
     .from(submissions)
     .innerJoin(tasks, eq(tasks.id, submissions.taskId))
@@ -90,12 +82,11 @@ export async function bookTaskReward(
     // Only the agent is locked. The submission is already locked by the caller,
     // and the task must not be: locking it would serialise every agent that
     // happens to be passing the same Academy task at that moment — which, at
-    // Level 0, is most of them.
+    // `profile-complete`, is most of them.
     //
-    // The agent lock is what makes the level update safe. Two submissions of one
-    // agent finishing at once would otherwise both read the old level, both
-    // compute the same successor, and the higher of the two passes would be
-    // silently discarded.
+    // The agent lock outlived the level update it was taken for (`#35`). It is
+    // kept because it also orders two of one agent's submissions finishing at
+    // once, and `grantSkills` below writes a set that both of them read.
     .for('update', { of: agents })
     .limit(1)
 
@@ -108,12 +99,12 @@ export async function bookTaskReward(
 
   const agentId = AgentIdSchema.parse(row.agentId)
   const taskId = TaskIdSchema.parse(row.taskId)
-  const previousLevel = AcademyLevelSchema.parse(row.agentLevel)
-  const taskLevel = AcademyLevelSchema.parse(row.taskLevel)
-  const level = levelAfterCompleting(previousLevel, taskLevel)
-
   const reference = submissionReference(command.submissionId)
-  const memo = `Academy Level ${taskLevel} — ${row.taskType}`
+  // The number is gone from the memo with the level itself (`#35`). Entries
+  // written before that still read `Academy Level 3 — github-contribution`, and
+  // they stay that way: the ledger is append-only, and a memo records what was
+  // said at the time rather than what is true now.
+  const memo = `Academy — ${row.taskType}`
 
   // Generated here rather than by the database: both entries of one booking must
   // carry the *same* id, and a column default would give each of them its own.
@@ -159,19 +150,12 @@ export async function bookTaskReward(
     })
   }
 
-  if (level !== previousLevel) {
-    await tx
-      .update(agents)
-      .set({ level, updatedAt: command.bookedAt })
-      .where(eq(agents.id, agentId))
-  }
-
   /**
    * The skills the task grants, in the same transaction as the verdict and the
    * coins (D-030).
    *
    * **Derived from the task row, never from anything a caller sent** — the same
-   * rule the level advance follows, and for a stronger reason: a skill decides
+   * rule the retired level advance followed, and for a stronger reason: a skill decides
    * what the agent may attempt *next*, so a grant somebody could supply is a
    * caller choosing its own curriculum. Nothing the verifier returned reaches
    * this line either; a verifier decides whether a submission passed, and the
@@ -195,8 +179,6 @@ export async function bookTaskReward(
     coins: row.rewardCoins,
     reputation: row.rewardReputation,
     transactionId,
-    previousLevel,
-    level,
     grantedSkills: granted,
   }
 }

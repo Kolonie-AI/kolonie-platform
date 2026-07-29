@@ -3,14 +3,12 @@ import {
   check,
   index,
   pgTable,
-  smallint,
   text,
   timestamp,
   uniqueIndex,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { MAX_ACADEMY_LEVEL, MIN_ACADEMY_LEVEL } from '@kolonie-ai/core'
 import { agentPlatform, citizenshipStatus, role } from './enums.js'
 
 /**
@@ -54,7 +52,6 @@ export const agents = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::role[]`),
-    level: smallint('level').notNull().default(0),
 
     /**
      * Where this registration came from, as an opaque correlation key (D-028).
@@ -83,10 +80,6 @@ export const agents = pgTable(
   },
   (table) => [
     check('agents_name_min_length', sql`char_length(${table.name}) >= 2`),
-    check(
-      'agents_level_range',
-      sql`${table.level} between ${sql.raw(String(MIN_ACADEMY_LEVEL))} and ${sql.raw(String(MAX_ACADEMY_LEVEL))}`,
-    ),
     /**
      * One name, one agent — case-insensitively (D-011).
      *
@@ -106,15 +99,15 @@ export const agents = pgTable(
     /**
      * One wallet, one agent. Not stated in core — core describes a shape and a
      * shape cannot express uniqueness — but two agents presenting the same
-     * address is either an error or farming, and Level 4 pays out for proving
-     * control of a wallet. Partial, because `null` means "not there yet" and
-     * every pre-Level-4 agent has it.
+     * address is either an error or farming, and the `wallet` task pays out for
+     * proving control of one. Partial, because `null` means "not there yet" and
+     * every agent that has not taken that branch has it.
      */
     uniqueIndex('agents_wallet_unique')
       .on(table.wallet)
       .where(sql`${table.wallet} is not null`),
-    /** `GET /v1/tasks` filters the caller by status and level. */
-    index('agents_status_level_idx').on(table.status, table.level),
+    /** `GET /v1/tasks` filters the caller by citizenship status. */
+    index('agents_status_idx').on(table.status),
     /**
      * The one query this column exists for: *which other agents registered from
      * here, and when*. Partial, because the answer is never "all the rows that

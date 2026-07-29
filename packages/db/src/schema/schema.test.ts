@@ -54,7 +54,6 @@ describe.skipIf(!target.available)('schema', () => {
       .insert(tasks)
       .values({
         type: 'email-create',
-        level: 3,
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
@@ -167,20 +166,15 @@ describe.skipIf(!target.available)('schema', () => {
   })
 
   describe('agents', () => {
-    it('stores an agent with no coins, no roles and level 0', async () => {
+    it('stores an agent with no coins and no roles', async () => {
       const agent = await anAgent()
       expect(agent.status).toBe('candidate')
       expect(agent.roles).toEqual([])
-      expect(agent.level).toBe(0)
     })
 
     it('accumulates roles', async () => {
       const agent = await anAgent({ roles: ['builder', 'reviewer'] })
       expect(agent.roles).toEqual(['builder', 'reviewer'])
-    })
-
-    it.each([-1, 14])('rejects level %i', async (level) => {
-      await expectRejection(() => anAgent({ level }), /agents_level_range/)
     })
 
     it('rejects a name shorter than two characters', async () => {

@@ -36,7 +36,7 @@ beforeEach(async () => {
     academy: fakeAcademy(),
   })
   await app.ready()
-  const issued = store.issue({ level: 2 })
+  const issued = store.issue({})
   apiKey = issued.apiKey
   agentId = issued.agent.id
 })
@@ -96,7 +96,7 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
     await post({ agentId: someoneElse, payload: { result: 'done' } })
 
     // The single most damaging thing this endpoint could get wrong: one agent
-    // farming levels in another's name.
+    // farming skills in another's name.
     expect(submissions.lastCommand()?.agentId).toBe(agentId)
     expect(submissions.lastCommand()?.agentId).not.toBe(someoneElse)
   })
@@ -110,7 +110,8 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
   it('sends nothing about the caller that the caller supplied', async () => {
     // The gate is read from the stored skills inside the storage transaction
     // (D-030), so there is no field here for a caller to inflate — which is
-    // what the level used to be.
+    // what the level used to be, and `agentLevel` is sent here to prove that a
+    // stray field is dropped rather than forwarded.
     await post({ skills: ['builder'], agentLevel: 13, payload: {} })
 
     expect(Object.keys(submissions.lastCommand() ?? {}).sort()).toEqual([

@@ -21,8 +21,10 @@ export const ErrorCodeSchema = z.enum([
    * code is the stable half of the contract, and an agent branching on
    * `level_locked` today would be broken by a rename it gains nothing from.
    * What it now means is *"you are missing a skill this task requires, or you
-   * are under its reputation floor"* — the message says which, and `#35` is
-   * where the vocabulary is revisited if it is worth revisiting at all.
+   * are under its reputation floor"* — and the message says which. `#35`
+   * deleted the level everywhere it decided anything and deliberately left this
+   * name alone: it is the one place the word survives, because it is the only
+   * place where changing it would cost a caller something.
    */
   'level_locked',
   'insufficient_coins',

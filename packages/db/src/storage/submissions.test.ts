@@ -62,7 +62,6 @@ describe.skipIf(!target.available)('createSubmission', () => {
       .insert(tasks)
       .values({
         type: `academy-task-${++seeded}`,
-        level: 0,
         requiresSkills: options.requires ?? [],
         grantsSkills: options.grants ?? [],
         minReputation: options.minReputation ?? 0,

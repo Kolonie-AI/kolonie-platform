@@ -1311,6 +1311,13 @@ does not require, one of which may be impassable.
 - `MAX_ACADEMY_LEVEL`, `meetsLevel` and `levelAfterCompleting` are deleted, not
   reinterpreted. The `level` column survives migration only as a derived display
   number and is dropped when nothing reads it.
+  **Done on 2026-07-29 by `#35`:** `packages/core/src/common/level.ts` is gone,
+  `agents.level` and `tasks.level` are dropped with their check constraints, and
+  the ledger memo reads `Academy — <type>`. One name survives on purpose — the
+  `level_locked` error code, because it is the only place where a rename would
+  cost a caller something. Ledger entries written before that day still say
+  `Academy Level 3`; the ledger is append-only and a memo records what was said
+  at the time.
 
 ### Two kinds of edge, and the soft one is not a weak version of the hard one
 

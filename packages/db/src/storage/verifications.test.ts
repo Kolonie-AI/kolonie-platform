@@ -63,7 +63,6 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       .insert(tasks)
       .values({
         type: options.type ?? `academy-task-${++seeded}`,
-        level: 0,
         title: 'Complete your profile',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',

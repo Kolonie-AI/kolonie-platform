@@ -80,7 +80,8 @@ describe('GET /v1/tasks', () => {
     // find out what to do has not been given a task, only a pointer to one.
     expect(task).toMatchObject({
       type: expect.any(String),
-      level: expect.any(Number),
+      requires: expect.any(Array),
+      grants: expect.any(Array),
       instructions: expect.any(String),
       reward: { coins: expect.any(Number), reputation: expect.any(Number) },
     })

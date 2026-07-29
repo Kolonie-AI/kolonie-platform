@@ -18,8 +18,8 @@ if (!target.available) {
  * Everything the seed says about itself, checked without a database.
  *
  * These run everywhere, including on a machine with no Postgres, because a typo
- * in a task id or a level outside the ladder is not a storage problem and should
- * not need storage to be caught.
+ * in a task id or a skill slug no task grants is not a storage problem and
+ * should not need storage to be caught.
  */
 describe('the Academy task definitions', () => {
   it('gives every task a distinct, fixed id', () => {
@@ -31,8 +31,9 @@ describe('the Academy task definitions', () => {
     expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
       'browser-capability',
-      // The hCaptcha badge. It sits here rather than at a level of its own
-      // because it has no level: it requires `browser` and grants nothing.
+      // The hCaptcha badge. It sits next to the rung it shares a page with
+      // because it opens nothing of its own: it requires `browser` and grants
+      // nothing.
       'browser-captcha',
       'email-roundtrip',
       'github-contribution',
@@ -192,7 +193,7 @@ describe('the Academy task definitions', () => {
     expect(ACADEMY_TASKS.find((task) => task.type === 'browser-capability')?.status).toBe('active')
   })
 
-  it('pays more for the harder levels', () => {
+  it('pays more the further into the graph a task sits', () => {
     const coins = ACADEMY_TASKS.map((task) => task.rewardCoins)
     expect(coins).toEqual([...coins].sort((a, b) => a - b))
     expect(coins.every((amount) => amount > 0)).toBe(true)

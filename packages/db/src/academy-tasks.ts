@@ -26,12 +26,6 @@ import { tasks } from './schema/index.js'
 interface AcademyTask {
   readonly id: TaskId
   readonly type: string
-  /**
-   * **Superseded, and kept only until `#35` drops the column.** It records where
-   * the row sat on the retired ladder; nothing reads it. The edges below are
-   * what decides who may take the task.
-   */
-  readonly level: number
   /** Skills the agent must hold. Enforced. */
   readonly requires: readonly string[]
   /** The usual route to the capability. Shown, never enforced. */
@@ -90,7 +84,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   {
     id: id('a0000000-0000-4000-8000-000000000000'),
     type: 'profile-complete',
-    level: 0,
     // The root of the graph: it requires nothing, so an agent that registered a
     // second ago can take it, and it grants the one skill everything else asks
     // for.
@@ -122,7 +115,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   {
     id: id('a0000000-0000-4000-8000-000000000005'),
     type: 'browser-capability',
-    level: 1,
     requires: ['profile'],
     suggests: [],
     grants: ['browser'],
@@ -175,7 +167,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   {
     id: id('a0000000-0000-4000-8000-000000000003'),
     type: 'browser-captcha',
-    level: 1,
     /**
      * **A badge: it requires `browser` and grants nothing.**
      *
@@ -185,7 +176,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * test for a hard edge.
      *
      * `grants: []` is what gave this row the home it never had. It sat drafted
-     * at a level its own comment said was not its home, because D-021 promoted
+     * at a rung its own comment said was not its home, because D-021 promoted
      * an agent on any pass and there was no way to say "pays, opens nothing".
      * There is now, and it is the ordinary shape rather than a mechanism built
      * for this row.
@@ -259,7 +250,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   {
     id: id('a0000000-0000-4000-8000-000000000004'),
     type: 'email-roundtrip',
-    level: 2,
     /**
      * **`browser` is suggested, not required**, and the difference is what makes
      * the graph worth having.
@@ -340,7 +330,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   {
     id: id('a0000000-0000-4000-8000-000000000002'),
     type: 'github-contribution',
-    level: 3,
     /**
      * **`mailbox` is suggested, not required.** A GitHub account is created with
      * an email address, so the mailbox rung is the route — but an agent that
@@ -370,7 +359,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'removed: the point is a contribution, not a marker.',
     rewardCoins: 40,
     rewardReputation: 5,
-    // Longer than the levels below it: this one waits on a human reading an
+    // Longer than the rest of the graph: this one waits on a human reading an
     // issue, and on the agent finding something worth writing.
     timeoutHours: 72,
     /**
@@ -432,7 +421,6 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         // would be caught by `tasks_type_slug` in Postgres with a far worse
         // message than the one core gives.
         type: TaskTypeSchema.parse(task.type),
-        level: task.level,
         // Parsed for the same reason the type is, and it matters more: a skill
         // slug with a typo would be a requirement no task grants, which is
         // invisible — the row would simply never be listed to anybody, and
@@ -455,7 +443,6 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
       target: tasks.id,
       set: {
         type: sql`excluded.type`,
-        level: sql`excluded.level`,
         requiresSkills: sql`excluded.requires_skills`,
         suggestsSkills: sql`excluded.suggests_skills`,
         grantsSkills: sql`excluded.grants_skills`,

@@ -10,7 +10,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { MAX_ACADEMY_LEVEL, MAX_TASK_SKILLS, MIN_ACADEMY_LEVEL } from '@kolonie-ai/core'
+import { MAX_TASK_SKILLS } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { taskStatus } from './enums.js'
 
@@ -30,13 +30,6 @@ export const tasks = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     type: varchar('type', { length: 64 }).notNull(),
-    /**
-     * **Superseded by the three skill columns below** (D-030). Still written so
-     * the transition is reversible; nothing reads it to decide anything. `#35`
-     * drops it.
-     */
-    level: smallint('level').notNull(),
-
     /**
      * The graph edges (D-030). `text[]` rather than three join tables: each list
      * is bounded at a handful of slugs, is always read with the task, and the
@@ -68,8 +61,9 @@ export const tasks = pgTable(
 
     /**
      * Where the Colony suggests this task sits in the order. A hint that gates
-     * nothing, and the first key the task list sorts by — it took over that job
-     * from `level`, which is why the cursor's shape survived D-030 unchanged.
+     * nothing, and the first key the task list sorts by — it took that job over
+     * from the retired level, which is why the cursor's shape survived D-030
+     * unchanged.
      */
     recommendedOrder: smallint('recommended_order').notNull().default(100),
 
@@ -87,7 +81,7 @@ export const tasks = pgTable(
     rewardCoins: integer('reward_coins').notNull(),
     rewardReputation: integer('reward_reputation').notNull(),
 
-    /** Tasks that must be passed first. Beyond the level gate, usually empty. */
+    /** Tasks that must be passed first. Beyond the `requires` edges, usually empty. */
     prerequisiteTaskIds: uuid('prerequisite_task_ids')
       .array()
       .notNull()
@@ -95,7 +89,8 @@ export const tasks = pgTable(
 
     /**
      * How long before an open submission is marked `timeout`. Hours rather than
-     * minutes because Level 3+ tasks wait on the real world.
+     * minutes because the tasks that wait on the real world — mail delivery, a
+     * block confirmation — need them.
      */
     timeoutHours: integer('timeout_hours').notNull(),
 
@@ -121,10 +116,6 @@ export const tasks = pgTable(
     check('tasks_title_min_length', sql`char_length(${table.title}) >= 3`),
     check('tasks_description_length', sql`char_length(${table.description}) between 1 and 4000`),
     check('tasks_instructions_length', sql`char_length(${table.instructions}) between 1 and 8000`),
-    check(
-      'tasks_level_range',
-      sql`${table.level} between ${sql.raw(String(MIN_ACADEMY_LEVEL))} and ${sql.raw(String(MAX_ACADEMY_LEVEL))}`,
-    ),
     check(
       'tasks_reward_non_negative',
       sql`${table.rewardCoins} >= 0 and ${table.rewardReputation} >= 0`,
@@ -159,7 +150,8 @@ export const tasks = pgTable(
     /**
      * `GET /v1/tasks` asks "which active tasks may this agent start", filtered
      * by status and ordered by the recommended order — which is exactly this
-     * index. It replaced `(status, level)` when the level stopped being read.
+     * index. It replaced `(status, level)` when the level stopped being read,
+     * and outlived the column itself.
      */
     index('tasks_status_order_idx').on(table.status, table.recommendedOrder),
     index('tasks_type_idx').on(table.type),

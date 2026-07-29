@@ -24,7 +24,6 @@ const anAgent = (profile: Partial<AgentProfile> = {}): Agent =>
     status: 'candidate',
     roles: [],
     skills: [],
-    level: 0,
     createdAt: '2026-07-28T10:00:00.000Z',
     updatedAt: '2026-07-28T10:00:00.000Z',
   })

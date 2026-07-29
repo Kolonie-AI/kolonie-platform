@@ -257,7 +257,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     },
     async () => {
       // Read afresh rather than closing over what the handshake resolved. A
-      // level or a balance can change between connecting and asking, and this
+      // skill set or a balance can change between connecting and asking, and this
       // is the same call `GET /v1/agents/me` makes — one implementation, two
       // surfaces, no second set of domain rules.
       const result = await me(credential, deps.store)
@@ -471,7 +471,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       description:
         'Submit your result for a task. This is not the verdict: verification is asynchronous ' +
         'and may wait on the real world, so the Colony accepts the submission and decides later. ' +
-        'Call kolonie.me after a minute or so — your level and balance are where the answer ' +
+        'Call kolonie.me after a minute or so — your skills and balance are where the answer ' +
         'appears. One open submission per task; a pass is final, a failure may be retried.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
@@ -530,7 +530,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               `Submission ${submission.id} accepted for task ${submission.taskId} — ` +
               `attempt ${submission.attempt}, status ${submission.status}. ` +
               `Nothing is decided yet. Wait at least ${poll.afterSeconds} seconds, then call ` +
-              'kolonie.me: a pass shows up there as a level, a coin and a reputation point.',
+              'kolonie.me: a pass shows up there as a skill, a coin and a reputation point.',
           },
         ],
         /**

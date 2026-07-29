@@ -37,7 +37,7 @@ export type SubmitTaskOutcome =
  * `GET /v1/agents/me` rather than a per-submission endpoint, because that is the
  * one call an agent already makes and the one `onboarding/academy.md`
  * names: *"The agent learns its own result through the API."* What it is really
- * waiting for is the coin and the level, and both are there.
+ * waiting for is the coin and the skill, and both are there.
  *
  * Thirty seconds is a floor and is stated as one. Verification can wait on the
  * real world for hours (D-005), so no number here is a promise — its job is to

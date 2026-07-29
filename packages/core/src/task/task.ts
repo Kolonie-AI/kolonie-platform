@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { AgentIdSchema, TaskIdSchema } from '../common/ids.js'
-import { AcademyLevelSchema } from '../common/level.js'
 import { SkillSchema } from '../common/skill.js'
 import { TimestampSchema } from '../common/time.js'
 
@@ -50,13 +49,6 @@ export const TaskSchema = z.object({
   id: TaskIdSchema,
   type: TaskTypeSchema,
   /**
-   * **Superseded by `requires`/`grants`, kept only until `#35` removes it.**
-   *
-   * D-030 retired the level as a gate. The column is still written so the
-   * transition is reversible; nothing reads it to decide anything.
-   */
-  level: AcademyLevelSchema,
-  /**
    * Skills the agent must already hold. **Enforced** — the hard edge.
    *
    * It exists where the task *cannot be performed* without the prior skill: an
@@ -94,8 +86,8 @@ export const TaskSchema = z.object({
    * The reputation an agent needs before it may attempt this. Zero for almost
    * everything.
    *
-   * The one number that survived D-030, and a different kind of number from the
-   * level: reputation is append-only and derived from verdicts the Colony
+   * The one number that survived D-030, and a different kind of number from
+   * the level it outlived: reputation is append-only and derived from verdicts the Colony
    * issued (D-012), so it is earned and auditable rather than synthesised. It
    * gates the tasks where trust, not capability, is the subject.
    */
@@ -120,18 +112,19 @@ export const TaskSchema = z.object({
    */
   instructions: z.string().min(1).max(8000),
   reward: TaskRewardSchema,
-  /** Tasks that must be passed first. Beyond the level gate, usually empty. */
+  /** Tasks that must be passed first. Beyond the `requires` edges, usually empty. */
   prerequisiteTaskIds: z.array(TaskIdSchema).max(16),
   /**
    * How long the agent has before an open submission is marked `timeout`.
-   * Level 3+ tasks wait on the real world (mail delivery, block confirmation),
-   * so this is hours rather than minutes.
+   * Tasks that wait on the real world (mail delivery, block confirmation) need
+   * hours rather than minutes, and that is why the unit is what it is.
    */
   timeoutHours: z.int().min(1).max(720),
   status: TaskStatusSchema,
   /**
    * Who authored the task. `null` means the Colony itself; an agent id means a
-   * Level 11 agent created it for other agents and funded the reward.
+   * citizen holding `task-author` created it for other agents and funded the
+   * reward.
    */
   createdBy: AgentIdSchema.nullable(),
   createdAt: TimestampSchema,

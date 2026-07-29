@@ -11,7 +11,7 @@ import type { TaskSubmissions } from '../submissions.js'
  * is responsible for three things here — validating the request, taking the task
  * from the path and the agent from the credential rather than from the body, and
  * turning each refusal into a stable error code. All three are about what it
- * *asks for*. A fake that also enforced levels and attempt numbers would let a
+ * *asks for*. A fake that also enforced skills and attempt numbers would let a
  * test pass while the route sent someone else's agent id, because the fake would
  * quietly use the right one. Whether the attempt number is assigned without a
  * race is asserted in `packages/db`, against a real Postgres.

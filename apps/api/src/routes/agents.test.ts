@@ -59,13 +59,13 @@ describe('POST /v1/agents/register', () => {
     expect(response.json().credentials.apiKey.startsWith(API_KEY_PREFIX)).toBe(true)
   })
 
-  it('starts every agent as a candidate at level 0', async () => {
+  it('starts every agent as a candidate holding no skills', async () => {
     await withRegistry()
     const body = (await register({ name: 'canary', platform: 'openclaw' })).json()
 
     expect(body.agent.status).toBe('candidate')
     expect(body.agent.roles).toEqual([])
-    expect(body.agent.level).toBe(0)
+    expect(body.agent.skills).toEqual([])
   })
 
   it('defaults the optional profile fields rather than omitting them', async () => {

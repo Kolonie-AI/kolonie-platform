@@ -53,7 +53,6 @@ export function toAgent(
     status: row.status,
     roles: row.roles,
     skills,
-    level: row.level,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   })
@@ -71,7 +70,6 @@ export function toTask(row: typeof tasks.$inferSelect): Task {
   return TaskSchema.parse({
     id: row.id,
     type: row.type,
-    level: row.level,
     requires: row.requiresSkills,
     suggests: row.suggestsSkills,
     grants: row.grantsSkills,

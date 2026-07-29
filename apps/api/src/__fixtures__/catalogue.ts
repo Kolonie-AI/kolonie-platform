@@ -67,7 +67,6 @@ export function aTask(overrides: Partial<Task> = {}): Task {
   return TaskSchema.parse({
     id: randomUUID(),
     type: 'profile-complete',
-    level: 0,
     requires: [],
     suggests: [],
     grants: ['profile'],

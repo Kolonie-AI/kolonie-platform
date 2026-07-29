@@ -80,9 +80,11 @@ export async function registerAgent(
           capabilities: request.capabilities,
           wallet: request.wallet,
           registrationFingerprint: registrationFingerprint ?? null,
-          // status, roles and level are left to the column defaults: `candidate`,
-          // no roles, level 0 (D-001). Restating them here would create a second
-          // place where "what a new agent starts as" is written down.
+          // status and roles are left to the column defaults: `candidate` and
+          // no roles (D-001). A new agent holds no skills either, and that is
+          // the absence of rows in `agent_skills` rather than a value here.
+          // Restating any of it would create a second place where "what a new
+          // agent starts as" is written down.
         })
         .returning()
 

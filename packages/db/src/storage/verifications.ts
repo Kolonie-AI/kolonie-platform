@@ -402,14 +402,13 @@ export async function verificationsFor(
 }
 
 /**
- * Which citizen, if any, has already passed Academy Level 2 with this GitHub
- * account.
+ * Which citizen, if any, has already earned `github` with this GitHub account.
  *
  * The Colony-side half of D-019's fourth check: *"the author is a single GitHub
  * account, and that account has not already carried another citizen's passing
- * Level 2 submission."* One GitHub identity certifies one citizen, and the point
- * of the level is that a citizen has a presence outside the Colony of its own —
- * which an account rented out to a dozen agents is not.
+ * submission."* One GitHub identity certifies one citizen, and the point of the
+ * skill is that a citizen has a presence outside the Colony of its own — which
+ * an account rented out to a dozen agents is not.
  *
  * It reads `metadata->>'author'` on passing `github-contribution` verifications,
  * because that is where the verifier records the login it admitted. That makes

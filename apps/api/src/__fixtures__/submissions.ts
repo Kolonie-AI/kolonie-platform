@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { SubmissionSchema, type Submission } from '@kolonie-ai/core'
+import { SubmissionSchema, type AgentId, type Submission } from '@kolonie-ai/core'
 import type { CreateSubmissionCommand, CreateSubmissionResult } from '@kolonie-ai/db'
 import type { TaskSubmissions } from '../submissions.js'
 
@@ -23,21 +23,28 @@ export interface FakeSubmissions extends TaskSubmissions {
   readonly lastCommand: () => CreateSubmissionCommand | undefined
   /** What the next call answers with. */
   readonly answers: (result: CreateSubmissionResult) => void
+  /** Submissions the list endpoint returns. Defaults to empty. */
+  readonly setList: (submissions: Submission[]) => void
 }
 
 export function fakeSubmissions(): FakeSubmissions {
   const commands: CreateSubmissionCommand[] = []
   let answer: CreateSubmissionResult | undefined
+  let listed: Submission[] = []
 
   return {
     submit: async (command) => {
       commands.push(command)
       return answer ?? { outcome: 'accepted', submission: aSubmission(command) }
     },
+    list: async (_agentId: AgentId) => [...listed],
     commands: () => [...commands],
     lastCommand: () => commands.at(-1),
     answers: (result) => {
       answer = result
+    },
+    setList: (submissions) => {
+      listed = [...submissions]
     },
   }
 }

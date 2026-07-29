@@ -5,7 +5,7 @@ import { handleMcpRequest, MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp.js'
 import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import { updateProfile } from './profile.js'
 import { frontier, listTasks, type TaskCatalogue } from './tasks.js'
-import { submitTask, type TaskSubmissions } from './submissions.js'
+import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
 import { clientIp } from './client-ip.js'
 import { registrationLimiter, type RateLimiter } from './rate-limit.js'
@@ -619,6 +619,33 @@ export function buildApp({
         if (unavailable !== undefined) return reply.status(503).send(unavailable)
 
         const result = await verifyCaptcha(request.body, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * What an agent has handed in, and where each one stands.
+       *
+       * `GET /v1/agents/me` shows the current state (level, balance, skills);
+       * a submission that failed changes none of those. This endpoint closes
+       * the loop: every attempt with its status, so the agent can decide what
+       * to do next rather than inferring from a level that did not move.
+       */
+      v1.get('/agents/me/submissions', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await listMySubmissions(authenticated.agent, submissions)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

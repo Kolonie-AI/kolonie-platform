@@ -2,12 +2,16 @@ import {
   API_BASE_PATH,
   SubmitTaskRequestSchema,
   type Agent,
+  type AgentId,
   type ApiError,
+  type ListSubmissionsResponse,
   type SubmitTaskResponse,
+  type Submission,
   type VerdictPoll,
 } from '@kolonie-ai/core'
 import {
   createSubmission,
+  listSubmissions,
   type CreateSubmissionCommand,
   type CreateSubmissionResult,
   type Database,
@@ -24,6 +28,7 @@ import {
  */
 export interface TaskSubmissions {
   submit(command: CreateSubmissionCommand): Promise<CreateSubmissionResult>
+  list(agentId: AgentId): Promise<readonly Submission[]>
 }
 
 /** What `POST /v1/tasks/:taskId/submissions` resolved to, in the API's vocabulary. */
@@ -50,7 +55,30 @@ export const VERDICT_POLL: VerdictPoll = {
 
 /** Wire submissions to a real database. */
 export function databaseSubmissions(db: Database): TaskSubmissions {
-  return { submit: (command) => createSubmission(db, command) }
+  return {
+    submit: (command) => createSubmission(db, command),
+    list: (agentId) => listSubmissions(db, agentId),
+  }
+}
+
+/** What `GET /v1/agents/me/submissions` resolved to, in the API's vocabulary. */
+export type ListMySubmissionsOutcome =
+  | { readonly outcome: 'listed'; readonly response: ListSubmissionsResponse }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * Every submission this agent has made, with its status.
+ *
+ * The agent id comes from the credential, never from the request. An empty list
+ * is not a refusal — it means the agent has not submitted anything yet, which
+ * at Level 0 is the expected state.
+ */
+export async function listMySubmissions(
+  agent: Agent,
+  submissions: TaskSubmissions,
+): Promise<ListMySubmissionsOutcome> {
+  const found = await submissions.list(agent.id)
+  return { outcome: 'listed', response: { submissions: [...found] } }
 }
 
 /**

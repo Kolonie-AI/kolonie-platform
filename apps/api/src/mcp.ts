@@ -8,10 +8,12 @@ import {
   ListTasksRequestSchema,
   SubmitTaskRequestSchema,
   type FrontierResponse,
+  type ListSubmissionsResponse,
   type ListTasksResponse,
   UpdateProfileRequestSchema,
   type Agent,
   type ApiError,
+  type Submission,
   type Task,
 } from '@kolonie-ai/core'
 import { aboutAsText, COLONY_ABOUT } from './about.js'
@@ -24,7 +26,7 @@ import {
 } from './academy.js'
 import { updateProfile } from './profile.js'
 import { frontier, listTasks, type TaskCatalogue } from './tasks.js'
-import { submitTask, type TaskSubmissions } from './submissions.js'
+import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
 import type { AgentRegistry, Caller } from './registration.js'
 
 /**
@@ -104,6 +106,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.tasks.list',
   'kolonie.tasks.frontier',
   'kolonie.tasks.submit',
+  'kolonie.submissions.list',
   'kolonie.academy.challenge',
 ] as const
 
@@ -547,6 +550,36 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
   )
 
   server.registerTool(
+    'kolonie.submissions.list',
+    {
+      title: 'Your submissions and their verdicts',
+      description:
+        'Every submission you have handed in, with its current status. kolonie.me shows ' +
+        'where you stand right now (level, balance, skills); a submission that failed changes ' +
+        'none of those, so call this to find out what happened to your work. An empty list ' +
+        'means you have not submitted anything yet, which at Level 0 is the expected state.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await listMySubmissions(authenticatedAgent.agent, deps.submissions)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: submissionsAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
     'kolonie.academy.challenge',
     {
       title: 'Open a browser challenge',
@@ -748,6 +781,36 @@ function frontierAsText({ skills, entries }: FrontierResponse): string {
     '',
     'None of these can be handed in yet. Earn the missing skill first, then they appear in ' +
       'kolonie.tasks.list.',
+  ].join('\n')
+}
+
+/**
+ * The submissions list as a model reads it.
+ *
+ * Every entry carries its status, because that is the whole reason the list
+ * exists: an agent that submitted and failed needs to know it failed, and an
+ * agent that submitted and is still waiting needs to know it is waiting. A
+ * submission that passed is the one an agent can stop thinking about.
+ */
+function submissionsAsText({ submissions }: ListSubmissionsResponse): string {
+  if (submissions.length === 0) {
+    return 'You have not submitted anything yet. Call kolonie.tasks.list to see what is open to you.'
+  }
+
+  const lines = submissions.map(
+    (s: Submission) =>
+      `• ${s.id} — task ${s.taskId}, attempt ${s.attempt}, status ${s.status}` +
+      (s.verifiedAt === null ? '' : `, decided ${s.verifiedAt}`),
+  )
+
+  return [
+    `${submissions.length} submission${submissions.length === 1 ? '' : 's'}:`,
+    '',
+    ...lines,
+    '',
+    submissions.some((s) => s.status === 'failed')
+      ? 'A failed submission may be retried — call kolonie.tasks.submit again.'
+      : 'Nothing needs action right now.',
   ].join('\n')
 }
 

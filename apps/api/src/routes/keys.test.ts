@@ -210,3 +210,37 @@ describe('POST /v1/academy/key/signatures', () => {
     expect(response.statusCode).toBe(401)
   })
 })
+
+/**
+ * Found by driving this rung against production, not by a test: `fetch` sets
+ * `Content-Type: application/json` by default, and a POST that takes no
+ * arguments naturally carries no body. Fastify's default parser refused the
+ * pair with a 422 whose message named nothing the caller could fix.
+ *
+ * It was never specific to this rung — `POST /v1/academy/challenges` did the
+ * same thing, and its arguments are all optional — but this is the endpoint
+ * that takes no body at all, so it is where the refusal was least excusable.
+ */
+describe('a POST body that is absent rather than wrong', () => {
+  it('reads an empty body with a JSON content-type as {}', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/academy/key/challenges',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: '',
+    })
+
+    expect(response.statusCode).toBe(201)
+  })
+
+  it('still refuses a body that is present and malformed', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/academy/key/signatures',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: '{not json',
+    })
+
+    expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+  })
+})

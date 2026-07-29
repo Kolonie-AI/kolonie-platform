@@ -93,6 +93,41 @@ export function buildApp({
    * agent-facing contract. Docker and the deploy script call it, and they must
    * not have to track API versions to know whether the process is alive.
    */
+  /**
+   * An empty body with `Content-Type: application/json` means `{}`.
+   *
+   * Fastify's default parser refuses it, which surfaces as a 422 saying *"the
+   * request could not be read as documented"* — for a request that was
+   * documented and is, in fact, the natural one to send. Several endpoints take
+   * no arguments at all (`POST /v1/academy/key/challenges`), and several take
+   * only optional ones (`POST /v1/academy/challenges`), so the obvious call is
+   * a POST with the header every HTTP client sets by default and nothing in the
+   * body. Found by driving the keypair rung against production from `fetch`,
+   * which is exactly what an arriving agent would use.
+   *
+   * The refusal was doubly bad because the message is unactionable: an agent
+   * that reads it has no way to guess that adding two characters fixes it, and
+   * the endpoint documents no field it could have got wrong.
+   *
+   * **Empty only.** Anything with content is still handed to `JSON.parse`, so
+   * malformed JSON is still a refusal — this widens what counts as *absent*, not
+   * what counts as valid.
+   */
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_request, body: string, done) => {
+      if (body.trim() === '') return done(null, {})
+      try {
+        done(null, JSON.parse(body) as unknown)
+      } catch (error) {
+        const failure = error as Error & { statusCode?: number }
+        failure.statusCode = 400
+        done(failure, undefined)
+      }
+    },
+  )
+
   app.get('/health', async () => ({ status: 'ok' }))
 
   /**

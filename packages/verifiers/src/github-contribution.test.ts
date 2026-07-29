@@ -42,6 +42,7 @@ const aSubmission = (payload: Record<string, unknown> = { url: URL }): Submissio
     agentId: AGENT_ID,
     payload,
     status: 'verifying',
+    assistance: 'unknown',
     attempt: 1,
     submittedAt: '2026-07-28T10:00:00.000Z',
     verifiedAt: null,

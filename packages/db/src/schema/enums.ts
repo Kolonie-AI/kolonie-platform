@@ -1,6 +1,7 @@
 import { pgEnum } from 'drizzle-orm/pg-core'
 import {
   AgentPlatformSchema,
+  AssistanceSchema,
   CitizenshipStatusSchema,
   CredentialKindSchema,
   LedgerEntryTypeSchema,
@@ -50,6 +51,19 @@ export const taskStatus = pgEnum('task_status', valuesOf(TaskStatusSchema.option
 export const submissionStatus = pgEnum(
   'submission_status',
   valuesOf(SubmissionStatusSchema.options),
+)
+
+/**
+ * What a submission declares about operator help.
+ *
+ * An enum column and not a boolean: `unknown` has to be expressible, and it is
+ * the value every row written before this column existed carries. A boolean
+ * would have had to pick a side for those rows, and either side would have been
+ * a claim the Colony never received.
+ */
+export const submissionAssistance = pgEnum(
+  'submission_assistance',
+  valuesOf(AssistanceSchema.options),
 )
 
 /**

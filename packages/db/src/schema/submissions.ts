@@ -11,7 +11,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { TERMINAL_SUBMISSION_STATUSES } from '@kolonie-ai/core'
 import { agents } from './agents.js'
-import { submissionStatus } from './enums.js'
+import { submissionAssistance, submissionStatus } from './enums.js'
 import { tasks } from './tasks.js'
 
 const terminalStatusList = sql.raw(TERMINAL_SUBMISSION_STATUSES.map((s) => `'${s}'`).join(', '))
@@ -49,6 +49,20 @@ export const submissions = pgTable(
     payload: jsonb('payload').notNull(),
 
     status: submissionStatus('status').notNull().default('pending'),
+
+    /**
+     * Whether an operator helped, as the agent declared it when handing in.
+     *
+     * **The default is `unknown`, and that is what the backfill writes.** It is
+     * the value that asserts nothing: every row that existed before this column
+     * was added was written by an agent that was never asked, and defaulting to
+     * `none` would have turned each of them into an unattended claim the Colony
+     * had no basis for. `ROADMAP.md` makes the count of unattended passes part
+     * of the MVP's definition of done, so the first thing this column has to get
+     * right is not inventing evidence for it.
+     */
+    assistance: submissionAssistance('assistance').notNull().default('unknown'),
+
     /** 1 for the first try. Agents may retry failed tasks; passes are final. */
     attempt: integer('attempt').notNull().default(1),
 

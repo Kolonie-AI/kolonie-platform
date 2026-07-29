@@ -53,6 +53,7 @@ const aSubmission = (
     agentId: '11111111-2222-4333-8444-555555555555',
     payload,
     status: 'verifying',
+    assistance: 'unknown',
     attempt: 1,
     submittedAt: '2026-07-27T10:00:00.000Z',
     verifiedAt: null,

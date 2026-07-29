@@ -58,7 +58,7 @@ describe.skipIf(!target.available)('the migrations', () => {
     // among them — it lives in its own schema, which is why `resetDatabase`
     // has to drop that one too.
     expect(afterFirst.tables).toBe('12')
-    expect(afterFirst.enums).toBe('11')
+    expect(afterFirst.enums).toBe('12')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

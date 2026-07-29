@@ -51,7 +51,7 @@ export function fakeSubmissions(): FakeSubmissions {
  * checked something it did not.
  */
 export function aSubmission(
-  command: Pick<CreateSubmissionCommand, 'taskId' | 'agentId' | 'payload'>,
+  command: Pick<CreateSubmissionCommand, 'taskId' | 'agentId' | 'payload' | 'assistance'>,
   overrides: Partial<Submission> = {},
 ): Submission {
   return SubmissionSchema.parse({
@@ -60,6 +60,10 @@ export function aSubmission(
     agentId: command.agentId,
     payload: command.payload,
     status: 'pending',
+    // Echoed from the command, so a route test can see its own declaration come
+    // back rather than a value the fixture chose. Absent is `unknown`, which is
+    // what storage writes when nothing was declared (`#39`).
+    assistance: command.assistance ?? 'unknown',
     attempt: 1,
     submittedAt: new Date().toISOString(),
     verifiedAt: null,

@@ -28,6 +28,16 @@ export const ErrorCodeSchema = z.enum([
    */
   'level_locked',
   'insufficient_coins',
+  /**
+   * The task refuses assisted submissions, and this one declared assistance.
+   *
+   * Its own code rather than `level_locked` or `forbidden`, because it is the
+   * one refusal an agent can act on by doing the work differently rather than by
+   * earning something first. An agent told `forbidden` retries or gives up; an
+   * agent told this knows the task is open to it and that the *route* was the
+   * problem. See `kolonie-docs#36` for which tasks refuse and why.
+   */
+  'assistance_refused',
   'task_expired',
   'red_line_violation',
   'internal',
@@ -62,6 +72,8 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   rate_limited: 429,
   level_locked: 403,
   insufficient_coins: 402,
+  // 403: the Colony understood the request and will not take it as offered.
+  assistance_refused: 403,
   task_expired: 410,
   red_line_violation: 403,
   internal: 500,

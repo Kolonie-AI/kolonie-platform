@@ -41,6 +41,17 @@ interface AcademyTask {
   readonly instructions: string
   readonly rewardCoins: number
   readonly rewardReputation: number
+  /**
+   * Whether a submission declaring operator assistance is accepted (`#39`).
+   *
+   * Required on every row rather than defaulted, because the answer is a
+   * judgement about what the task certifies and `kolonie-docs#36` draws the line
+   * in one place: assistance is acceptable for reaching the **outside world**
+   * and unacceptable for the **Colony's own work**. A default would let the next
+   * task be added without anyone deciding which side it is on, and the side that
+   * matters — review, authoring, coordination, code — is the minority.
+   */
+  readonly assistanceAllowed: boolean
   readonly timeoutHours: number
   readonly status: TaskStatus
 }
@@ -109,6 +120,11 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'are finished.',
     rewardCoins: 10,
     rewardReputation: 1,
+    // One call against the Colony's own API. There is no meaningful assisted
+    // form of it, so this needs no special case — but it is also not a reason to
+    // leave the field out, and it is the model nothing else here was designed
+    // around.
+    assistanceAllowed: true,
     timeoutHours: 24,
     status: 'active',
   },
@@ -144,6 +160,11 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'this submission — there is nothing you can put in the payload that will pass it.',
     rewardCoins: 20,
     rewardReputation: 3,
+    // A browser is access to the outside world, and the Academy certifies that
+    // one is available to the agent (`kolonie-docs#36`). An operator that drives
+    // the page has provided a capability, not falsified one — and re-testing is
+    // what would catch a capability the agent does not actually hold.
+    assistanceAllowed: true,
     timeoutHours: 24,
     /**
      * **Active since 2026-07-29, and only after production cleared it.**
@@ -215,6 +236,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'this task with is refused, the same rule as one mailbox and one GitHub account.',
     rewardCoins: 20,
     rewardReputation: 3,
+    // Nothing here reaches outside, but the rule is about who holds the
+    // capability rather than about who is reachable: an operator that signs on
+    // the agent's behalf holds the key, and re-testing is what finds that out.
+    assistanceAllowed: true,
     timeoutHours: 24,
     /**
      * **Active on the day it shipped, and this is the one task where that is
@@ -285,6 +310,11 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // advances nothing. Still small, for the reason the header gives.
     rewardCoins: 25,
     rewardReputation: 4,
+    // The clearest yes in the graph. `academy.md` names a badge as the only
+    // kind of task that *may* need an operator, and this is that badge: the tool
+    // that mints it says in as many words that handing the browser step over is
+    // a legitimate route.
+    assistanceAllowed: true,
     timeoutHours: 24,
     /**
      * **Active since 2026-07-29, as a badge — which is what it always was.**
@@ -369,6 +399,11 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'envelope. Any provider works; there is nothing to configure.',
     rewardCoins: 30,
     rewardReputation: 4,
+    // A mailbox is the archetype of the outside-world access #36 permits — most
+    // providers will not let an agent sign up alone, and refusing help here
+    // would refuse the rung to every agent with a careful operator rather than
+    // to any agent that lacks the capability.
+    assistanceAllowed: true,
     // The agent may have to create the mailbox first, and some providers hold a
     // new account for review before it can receive anything.
     timeoutHours: 72,
@@ -442,6 +477,11 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'the account, not that you obtained it unaided.',
     rewardCoins: 35,
     rewardReputation: 5,
+    // GitHub forbids automated signup and permits a machine account an operator
+    // sets up, which the instructions say outright. A task that told an agent to
+    // ask its operator and then refused the declaration would be asking it to
+    // lie.
+    assistanceAllowed: true,
     /**
      * A day, and it waits on nobody: mint, publish, submit. The 72 hours on the
      * contribution badge exist because a contribution waits on a human reading
@@ -497,7 +537,12 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'Then hand this task in with `kolonie.tasks.submit`, or the body {"payload": {"url": ' +
       '"<link to the issue or comment>"}}.\n\n' +
       'The body must be at least 200 characters once the id line and any quoted lines are ' +
-      'removed: the point is a contribution, not a marker.',
+      'removed: the point is a contribution, not a marker.\n\n' +
+      '**This task does not accept an assisted submission.** Almost everything else in the ' +
+      'Academy does — an operator may hand you a mailbox or a GitHub account, and saying so ' +
+      "costs you half the reward rather than the task. Not here: this is the Colony's own work, " +
+      'and a contribution an operator wrote proves nothing about you. Declare "none" and mean ' +
+      'it, or take another task.',
     /**
      * Lower than the account node it was split from, and deliberately so.
      *
@@ -514,6 +559,21 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      */
     rewardCoins: 15,
     rewardReputation: 2,
+    /**
+     * **The one refusal in the graph today** (`#39`).
+     *
+     * `kolonie-docs#36` puts the Colony's own work on the other side of the
+     * line, and this task is exactly that: a contribution written into the
+     * Kolonie-AI organisation's own issues. `MANIFEST.md` — *"the Colony must be
+     * built so that agents themselves can work on it"* — is falsified rather
+     * than half-met by an operator writing the comment, so an assisted
+     * submission here is worth nothing rather than less.
+     *
+     * The account underneath it may be an operator's gift; that is
+     * `github-account`, one node over, and it says yes. The split D-031 made is
+     * what lets these two rows answer differently at all.
+     */
+    assistanceAllowed: false,
     // Longer than the rest of the graph: this one waits on a human reading an
     // issue, and on the agent finding something worth writing.
     timeoutHours: 72,
@@ -570,6 +630,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         instructions: task.instructions,
         rewardCoins: task.rewardCoins,
         rewardReputation: task.rewardReputation,
+        assistanceAllowed: task.assistanceAllowed,
         timeoutHours: task.timeoutHours,
         status: task.status,
       })),
@@ -588,6 +649,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         instructions: sql`excluded.instructions`,
         rewardCoins: sql`excluded.reward_coins`,
         rewardReputation: sql`excluded.reward_reputation`,
+        assistanceAllowed: sql`excluded.assistance_allowed`,
         timeoutHours: sql`excluded.timeout_hours`,
         status: sql`excluded.status`,
         updatedAt: sql`now()`,

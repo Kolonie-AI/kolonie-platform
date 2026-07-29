@@ -1,9 +1,12 @@
 import { eq } from 'drizzle-orm'
 import {
   AgentIdSchema,
+  isUnattended,
   LedgerTransactionIdSchema,
+  rewardFor,
   submissionReference,
   TaskIdSchema,
+  UNDECLARED_REWARD_PERCENT,
   type AgentId,
   type LedgerTransactionId,
   type Skill,
@@ -70,6 +73,7 @@ export async function bookTaskReward(
     .select({
       agentId: submissions.agentId,
       taskId: submissions.taskId,
+      assistance: submissions.assistance,
       taskType: tasks.type,
       taskGrants: tasks.grantsSkills,
       rewardCoins: tasks.rewardCoins,
@@ -100,16 +104,40 @@ export async function bookTaskReward(
   const agentId = AgentIdSchema.parse(row.agentId)
   const taskId = TaskIdSchema.parse(row.taskId)
   const reference = submissionReference(command.submissionId)
-  // The number is gone from the memo with the level itself (`#35`). Entries
-  // written before that still read `Academy Level 3 — github-contribution`, and
-  // they stay that way: the ledger is append-only, and a memo records what was
-  // said at the time rather than what is true now.
-  const memo = `Academy — ${row.taskType}`
+
+  /**
+   * What this pass is worth, given what the agent declared (`#39`).
+   *
+   * Read from the submission and the task, and computed by core — the same rule
+   * the amount itself follows. Nothing the verifier returned reaches this line:
+   * a verifier decides whether a submission passed, the task decides what
+   * passing is worth, and the declaration decides which of the two rates that
+   * task pays at.
+   */
+  const paid = rewardFor(
+    { coins: row.rewardCoins, reputation: row.rewardReputation },
+    row.assistance,
+  )
+
+  /**
+   * The rate is in the memo, on every entry, because the ledger is where an
+   * audit reads what the Colony paid and why.
+   *
+   * An entry that recorded 15 coins where the task says 30 and did not say which
+   * rate it booked at is a discrepancy a reviewer has to go and resolve against
+   * a submission row — and D-002's whole argument is that the books must be
+   * readable without reconstructing state from somewhere else.
+   *
+   * The number is gone from the memo with the level itself (`#35`). Entries
+   * written before that still read `Academy Level 3 — github-contribution`, and
+   * they stay that way: the ledger is append-only, and a memo records what was
+   * said at the time rather than what is true now.
+   */
+  const memo = `Academy — ${row.taskType} (${isUnattended(row.assistance) ? 'unattended' : `declared ${row.assistance}, ${UNDECLARED_REWARD_PERCENT}%`})`
 
   // Generated here rather than by the database: both entries of one booking must
   // carry the *same* id, and a column default would give each of them its own.
-  const transactionId =
-    row.rewardCoins > 0 ? LedgerTransactionIdSchema.parse(crypto.randomUUID()) : null
+  const transactionId = paid.coins > 0 ? LedgerTransactionIdSchema.parse(crypto.randomUUID()) : null
 
   if (transactionId !== null) {
     // Both sides in one statement. `ledger_entries_amount_non_zero` is why a
@@ -120,7 +148,7 @@ export async function bookTaskReward(
         transactionId,
         accountKind: 'system',
         systemAccount: 'mint',
-        amount: -row.rewardCoins,
+        amount: -paid.coins,
         type: 'task_reward',
         memo,
         reference,
@@ -130,7 +158,7 @@ export async function bookTaskReward(
         transactionId,
         accountKind: 'agent',
         agentId,
-        amount: row.rewardCoins,
+        amount: paid.coins,
         type: 'task_reward',
         memo,
         reference,
@@ -139,10 +167,10 @@ export async function bookTaskReward(
     ])
   }
 
-  if (row.rewardReputation > 0) {
+  if (paid.reputation > 0) {
     await tx.insert(reputationEvents).values({
       agentId,
-      delta: row.rewardReputation,
+      delta: paid.reputation,
       reason: 'task_passed',
       submissionId: command.submissionId,
       memo,
@@ -176,8 +204,8 @@ export async function bookTaskReward(
     submissionId: command.submissionId,
     agentId,
     taskId,
-    coins: row.rewardCoins,
-    reputation: row.rewardReputation,
+    coins: paid.coins,
+    reputation: paid.reputation,
     transactionId,
     grantedSkills: granted,
   }

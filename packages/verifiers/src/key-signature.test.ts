@@ -29,6 +29,7 @@ const submission: Submission = {
   agentId: AGENT,
   payload: {},
   status: 'pending',
+  assistance: 'unknown',
   attempt: 1,
   submittedAt: '2026-07-29T10:00:00.000Z',
   verifiedAt: null,

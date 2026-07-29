@@ -67,6 +67,7 @@ const submission = (status: SubmissionStatus, payload: Record<string, unknown> =
     agentId: '11111111-2222-4333-8444-555555555555',
     payload,
     status,
+    assistance: 'unknown',
     attempt: 1,
     submittedAt: '2026-07-27T10:00:00.000Z',
     verifiedAt: null,

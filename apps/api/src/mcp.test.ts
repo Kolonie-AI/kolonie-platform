@@ -682,8 +682,83 @@ describe('kolonie.tasks.submit', () => {
     })
 
     const tool = tools.find((candidate) => candidate.name === 'kolonie.tasks.submit')
-    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual(['payload', 'taskId'])
+    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual([
+      'assistance',
+      'payload',
+      'taskId',
+    ])
     expect(submissions.lastCommand()?.agentId).toBe(agent.id)
+    await close()
+  })
+
+  /**
+   * The declaration over MCP (`#39`). The HTTP half is in
+   * `routes/submissions.test.ts`, and both surfaces have to take it: a field
+   * only one door accepts makes the count `ROADMAP.md` rests on partial by
+   * surface rather than by agent.
+   */
+  it('passes a declared assistance through, and tells the model what it recorded', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, assistance: 'operator-provided' },
+    })
+
+    expect(submissions.lastCommand()?.assistance).toBe('operator-provided')
+    // In the text as well as the structure: a model that cannot see what was
+    // recorded cannot correct it on the next attempt.
+    expect(JSON.stringify(result.content)).toContain('operator-provided')
+    await close()
+  })
+
+  it('records unknown when the agent declares nothing, never none', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    await client.callTool({ name: 'kolonie.tasks.submit', arguments: { taskId: aTask().id } })
+
+    // The tool leaves the field out entirely rather than sending `unknown`
+    // itself, so what silence means is decided in core and in the column —
+    // one place, not three.
+    expect(submissions.lastCommand()?.assistance).toBe('unknown')
+    await close()
+  })
+
+  it('refuses an assisted submission where the task refuses one, with the stable code', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.answers({ outcome: 'assistance-refused', declared: 'operator-performed' })
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, assistance: 'operator-performed' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('assistance_refused')
+    await close()
+  })
+
+  it('tells an agent that declaring honestly costs no more than silence', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.tasks.submit')
+
+    // The one thing this field must not do is read as a confession. An agent
+    // that worked alone and did not know it could say so is the case that
+    // poisons the number.
+    const described = JSON.stringify(tool)
+    expect(described).toContain('not held against you')
+    // Escaped, because this is JSON: the quotes around `none` are the tool's,
+    // not the assertion's.
+    expect(described).toContain('only \\"none\\" earns the full reward')
     await close()
   })
 

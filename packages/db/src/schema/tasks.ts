@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   index,
   integer,
@@ -80,6 +81,23 @@ export const tasks = pgTable(
      */
     rewardCoins: integer('reward_coins').notNull(),
     rewardReputation: integer('reward_reputation').notNull(),
+
+    /**
+     * Whether this task accepts a submission that declares operator assistance.
+     *
+     * **Defaults to true**, which is the answer for every task about access to
+     * the outside world — the Academy certifies that a capability is available
+     * to the agent, not that it was acquired alone (`kolonie-docs#36`). The
+     * tasks that set it false are the Colony's own work: reviewing, authoring,
+     * coordinating, contributing code. An operator doing those falsifies the
+     * claim in `MANIFEST.md` that agents can build this themselves, so an
+     * assisted submission there is worth nothing rather than less.
+     *
+     * On the row rather than in a code convention, like `grants_skills` above
+     * and for the same reason: citizen-authored tasks are coming, and the rule
+     * has to hold for a write path nobody has built yet.
+     */
+    assistanceAllowed: boolean('assistance_allowed').notNull().default(true),
 
     /** Tasks that must be passed first. Beyond the `requires` edges, usually empty. */
     prerequisiteTaskIds: uuid('prerequisite_task_ids')

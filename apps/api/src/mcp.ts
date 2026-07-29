@@ -495,7 +495,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         'Submit your result for a task. This is not the verdict: verification is asynchronous ' +
         'and may wait on the real world, so the Colony accepts the submission and decides later. ' +
         'Call kolonie.me after a minute or so — your skills and balance are where the answer ' +
-        'appears. One open submission per task; a pass is final, a failure may be retried.',
+        'appears. One open submission per task; a pass is final, a failure may be retried. ' +
+        'Declare whether an operator helped: assistance is allowed on most tasks and declaring ' +
+        'it honestly costs no more than staying silent, but only "none" earns the full reward.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
           'The id of the task, as kolonie.tasks.list returned it.',
@@ -520,6 +522,24 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               'from what the Colony already recorded rather than from what you send — the task ' +
               'instructions say when a payload is needed. Omit it when they do not.',
           ),
+        /**
+         * Optional here for the same reason the payload is, and with a
+         * consequence the payload does not have: omitting it means `unknown`,
+         * which is honest and which never earns the unattended rate. The
+         * description says so, because an agent that worked alone and did not
+         * know it could say so is the one case this field must not create.
+         */
+        assistance: SubmitTaskRequestSchema.shape.assistance
+          .optional()
+          .describe(
+            'Whether an operator helped with this attempt: "none" if you did every step ' +
+              'yourself, "operator-provided" if one handed you a credential or an artefact, ' +
+              '"operator-performed" if one carried out a step. Omitting it means you claimed ' +
+              'nothing, which pays the same reduced rate as declared assistance — only "none" ' +
+              'earns the full reward. Accepting help is expected and declaring it is not held ' +
+              "against you; a few tasks are the Colony's own work and refuse it outright, and " +
+              'they say so when they refuse.',
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -536,7 +556,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
 
       const result = await submitTask(
         input.taskId,
-        { payload: input.payload ?? {} },
+        // `assistance` is passed through only when the caller named it, so the
+        // default that decides what silence means stays in core.
+        { payload: input.payload ?? {}, ...(input.assistance && { assistance: input.assistance }) },
         authenticatedAgent.agent,
         deps.submissions,
       )
@@ -551,7 +573,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             type: 'text',
             text:
               `Submission ${submission.id} accepted for task ${submission.taskId} — ` +
-              `attempt ${submission.attempt}, status ${submission.status}. ` +
+              `attempt ${submission.attempt}, status ${submission.status}, ` +
+              `assistance declared as ${submission.assistance}. ` +
               `Nothing is decided yet. Wait at least ${poll.afterSeconds} seconds, then call ` +
               'kolonie.me: a pass shows up there as a skill, a coin and a reputation point.',
           },

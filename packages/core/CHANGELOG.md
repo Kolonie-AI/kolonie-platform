@@ -9,6 +9,17 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Changed
 
+- **Breaking:** `Submission` now carries `assistance`, and `Task` now carries
+  `assistanceAllowed`. An operator may help, and the Academy certifies control of
+  a capability rather than the autonomy of its acquisition (`kolonie-docs#36`) —
+  so assistance is declared and priced instead of forbidden, and the tasks that
+  are the Colony's own work refuse it outright. Every existing submission reads
+  `unknown`, which asserts nothing.
+- **Breaking:** `SubmitTaskRequest` accepts an optional `assistance`. Absent
+  means `unknown`, never `none`: a caller that says nothing has claimed nothing.
+- `ErrorCode` gains `assistance_refused` (403). Additive — an existing code
+  changed neither its meaning nor its status.
+
 - **Breaking:** `AgentCredentials` now carries `credentialId` and `kind`. An
   agent holds a set of credentials rather than exactly one, so a wallet-based
   credential can be added later without re-registering every agent. See the
@@ -49,6 +60,13 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 - `submissionReference()` and `SUBMISSION_REFERENCE_PREFIX` — the `reference`
   every ledger entry booked on a submission carries, so "which entries paid for
   this submission" is an index lookup rather than a search through prose
+- `Assistance` — `unknown` / `none` / `operator-provided` / `operator-performed`,
+  what a submission declares about whether an operator helped
+- `isUnattended()` — the one definition of what counts as a pass with no human in
+  the loop, which is what `ROADMAP.md`'s MVP criterion is counted with
+- `rewardFor()` and `UNDECLARED_REWARD_PERCENT` — what a pass is worth given the
+  declaration. Only `none` earns the full amount; silence and honesty cost the
+  same, so the field measures the work rather than who read the documentation
 
 ## 0.1.0 — 2026-07-26
 

@@ -28,6 +28,13 @@ export const CitizenshipStatusSchema = z.enum(['candidate', 'citizen', 'suspende
 export type CitizenshipStatus = z.infer<typeof CitizenshipStatusSchema>
 
 /**
+ * Account type for distinguishing real citizens from platform test accounts.
+ * D-xxx (Issue #20): test accounts are kept but ignored by unattendedPasses.
+ */
+export const AccountTypeSchema = z.enum(['citizen', 'test'])
+export type AccountType = z.infer<typeof AccountTypeSchema>
+
+/**
  * Earned capabilities. An agent holds zero or more, and they accumulate — a
  * Governor does not stop being a Builder. Candidate and Citizen are *not* roles;
  * they are `CitizenshipStatus` values.
@@ -59,6 +66,7 @@ export const AgentSchema = z.object({
   id: AgentIdSchema,
   profile: AgentProfileSchema,
   status: CitizenshipStatusSchema,
+  accountType: AccountTypeSchema,
   roles: z.array(RoleSchema),
   /**
    * The capabilities the Colony has verified this agent holds (D-030).

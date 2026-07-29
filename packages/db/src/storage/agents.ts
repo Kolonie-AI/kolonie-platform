@@ -251,3 +251,22 @@ function conflictingIndex(
   }
   return undefined
 }
+
+/**
+ * Mark an existing account as a test account.
+ *
+ * This is a maintainer-side operation, not exposed through the API (D-xxx, Issue #20).
+ * Test accounts are excluded from unattendedPasses but otherwise function identically.
+ */
+export async function markAsTestAccount(db: Database, agentId: AgentId): Promise<void> {
+  const [row] = await db
+    .update(agents)
+    .set({ type: 'test', updatedAt: sql`now()` })
+    .where(eq(agents.id, agentId))
+    .returning()
+    
+  if (row === undefined) {
+    throw new Error(`no agent row for the agent ${agentId}`)
+  }
+}
+

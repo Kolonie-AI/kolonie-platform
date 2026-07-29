@@ -52,6 +52,7 @@ export function toAgent(
       wallet: row.wallet,
     },
     status: row.status,
+    accountType: row.type,
     roles: row.roles,
     skills,
     createdAt: toTimestamp(row.createdAt),

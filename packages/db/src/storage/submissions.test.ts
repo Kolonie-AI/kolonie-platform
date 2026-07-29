@@ -13,7 +13,7 @@ import {
 } from '@kolonie-ai/core'
 import { randomUUID } from 'node:crypto'
 import type { Database } from '../client.js'
-import { agentSkills, submissions, tasks } from '../schema/index.js'
+import { agents, agentSkills, submissions, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { createSubmission, listSubmissions, unattendedPasses } from './submissions.js'
@@ -426,6 +426,26 @@ describe.skipIf(!target.available)('createSubmission', () => {
       await submit(taskId, open, { assistance: 'none' })
 
       expect(await unattendedPasses(db)).toEqual([])
+    })
+
+    it('ignores passes by test accounts (Issue #20)', async () => {
+      const mailbox = await aTask()
+      
+      // Citizen pass
+      const citizen = await anAgent()
+      await submit(mailbox, citizen, { assistance: 'none' })
+      await decide(mailbox, citizen, 'passed')
+
+      // Test pass
+      const tester = await anAgent()
+      await db.update(agents).set({ type: 'test' }).where(eq(agents.id, tester))
+      await submit(mailbox, tester, { assistance: 'none' })
+      await decide(mailbox, tester, 'passed')
+
+      const [tally] = await unattendedPasses(db)
+      
+      // 2 passes exist, but only 1 from a citizen should be counted
+      expect(tally).toMatchObject({ passes: 1, unattended: 1 })
     })
   })
 

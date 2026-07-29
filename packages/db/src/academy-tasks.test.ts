@@ -127,8 +127,8 @@ describe('the Academy task definitions', () => {
    * Kept as its own test so that flipping it active for the wrong reason — "the
    * verifier exists, so ship it" — fails here with the actual condition named.
    */
-  it('keeps the browser rung drafted while the host cannot serve its page', () => {
-    expect(ACADEMY_TASKS.find((task) => task.type === 'browser-capability')?.status).toBe('draft')
+  it('serves the browser rung, now that the host can serve its page', () => {
+    expect(ACADEMY_TASKS.find((task) => task.type === 'browser-capability')?.status).toBe('active')
   })
 
   it('pays more for the harder levels', () => {
@@ -231,33 +231,42 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
      * way it was when `api-call` was withdrawn. The next rung to go active fails
      * these two tests and cannot land unnoticed.
      */
-    it('offers nothing above Level 0 while the browser rung is drafted', async () => {
+    it('offers the browser rung once the agent has cleared Level 0', async () => {
       const visible = await listFor(1)
 
-      expect(visible.map((task) => task.type)).toEqual(['profile-complete'])
+      expect(visible.map((task) => task.type)).toEqual(['profile-complete', 'browser-capability'])
     })
 
     /**
-     * Level 3 went active on 2026-07-29 once its token existed, so an agent that
-     * had somehow reached Level 3 would see it. **No agent can**, and that is
-     * the state worth asserting rather than hiding: Level 1 is drafted pending
-     * `kolonie-infra#23`, promotion is one rung per pass (D-021), so nothing
-     * currently climbs past Level 0. An active rung above an invisible one is
-     * inert, not broken — but it stops being inert the moment Level 1 ships, and
-     * this is where that is noticed.
+     * **Where the ladder actually stops today, asserted rather than assumed.**
+     *
+     * Levels 0, 1 and 3 are active; Level 2 is not, because it has no verifier
+     * and no mailer. Promotion is one rung per pass (D-021), so an agent climbs
+     * to Level 2, finds nothing it may claim, and stays there — the GitHub rung
+     * above it is active and unreachable.
+     *
+     * That is a real gap and not a defect in this file: a drafted rung is
+     * invisible rather than failing (D-014), so the agent is stalled rather than
+     * misled. It closes when `#26` ships the mailbox verifier. Written down here
+     * because "Level 3 is active" reads like "an agent can reach Level 3", and
+     * the two have not been the same thing since 2026-07-29.
      */
-    it('shows the GitHub rung only to a level no agent can currently reach', async () => {
+    it('stops the climb at the mailbox rung, which has no verifier yet', async () => {
+      expect((await listFor(2)).map((task) => task.type)).toEqual([
+        'profile-complete',
+        'browser-capability',
+      ])
       expect((await listFor(3)).map((task) => task.type)).toEqual([
         'profile-complete',
+        'browser-capability',
         'github-contribution',
       ])
-      expect((await listFor(1)).map((task) => task.type)).toEqual(['profile-complete'])
     })
 
     it('hides every drafted rung from an agent that has reached it', async () => {
       const visible = (await listFor(3)).map((task) => task.type)
 
-      for (const drafted of ['email-roundtrip', 'browser-capability', 'browser-captcha']) {
+      for (const drafted of ['email-roundtrip', 'browser-captcha']) {
         expect(visible).not.toContain(drafted)
       }
     })

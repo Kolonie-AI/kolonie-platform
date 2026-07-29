@@ -112,23 +112,23 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     rewardReputation: 3,
     timeoutHours: 24,
     /**
-     * **A real browser has cleared this end to end** — one headless Firefox
-     * session, all three declarations resolved against the container, 623ms,
-     * `steps = 3` and `verified_at` set. That was the condition this file
-     * normally waits on, and it is met.
+     * **Active since 2026-07-29, and only after production cleared it.**
      *
-     * **Draft anyway, for a reason that is not this repository's.**
-     * `CAPABILITY_PAGE_URL` is unset on the deployment host
-     * (`kolonie-infra#23`), so `POST /v1/academy/challenges` answers 503 there.
-     * An active task an agent cannot start is worse than a drafted one it
-     * cannot see (D-014): the first tells it the Colony is broken, the second
-     * tells it nothing and costs it nothing.
+     * The rule this file applies everywhere: a task goes active when a verifier
+     * is deployed *and* can decide — and "can decide" means shown to, not
+     * argued to. The one path no test can drive is a real layout engine
+     * resolving a real declaration, so this waited for one.
      *
-     * Flip this line when that variable is set on the host, and verify by
-     * minting a challenge against production rather than by reasoning about the
-     * deploy.
+     * It was verified twice. Locally: one headless Firefox session, three
+     * declarations, 623ms. Then **against production**, after
+     * `kolonie-infra#23` set `CAPABILITY_PAGE_URL` on the host — an agent
+     * registered through the public API, minted a challenge, and a browser
+     * cleared it in 864ms, with the deployed database showing
+     * `kind = 'capability'`, `steps = 3`, `verified_at` set. The host was asked
+     * rather than reasoned about, which is the standing lesson of
+     * `kolonie-infra#7`.
      */
-    status: 'draft',
+    status: 'active',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000003'),

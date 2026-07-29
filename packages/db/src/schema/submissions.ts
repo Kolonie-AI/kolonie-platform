@@ -98,7 +98,7 @@ export const submissions = pgTable(
     index('submissions_open_queue_idx')
       .on(table.status, table.submittedAt)
       .where(sql`${table.status} in ('pending', 'verifying')`),
-    /** `GET /v1/agents/me` lists an agent's own submissions. */
+    /** `GET /v1/agents/me/submissions` lists an agent's own submissions. */
     index('submissions_agent_id_idx').on(table.agentId, table.submittedAt),
   ],
 )

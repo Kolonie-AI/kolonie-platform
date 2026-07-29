@@ -16,7 +16,7 @@ import type { Database } from '../client.js'
 import { agentSkills, submissions, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
-import { createSubmission, unattendedPasses } from './submissions.js'
+import { createSubmission, listSubmissions, unattendedPasses } from './submissions.js'
 
 const target = databaseTestTarget()
 
@@ -426,6 +426,58 @@ describe.skipIf(!target.available)('createSubmission', () => {
       await submit(taskId, open, { assistance: 'none' })
 
       expect(await unattendedPasses(db)).toEqual([])
+    })
+  })
+
+  /**
+   * What `GET /v1/agents/me/submissions` reads.
+   *
+   * The order is the part worth a database to test. The API tests drive a fake
+   * that hands back its list untouched, so they would stay green if the
+   * `order by` were deleted — only a real table can tell whether "newest first"
+   * is true. The timestamps here are written explicitly rather than left to
+   * `defaultNow()`, so the assertion rests on the query and not on how fast
+   * three inserts happen to run.
+   */
+  describe('listSubmissions', () => {
+    const submittedAt = async (agentId: AgentId, at: string): Promise<TaskId> => {
+      const taskId = await aTask()
+      await db.insert(submissions).values({
+        taskId,
+        agentId,
+        payload: {},
+        attempt: 1,
+        status: 'pending',
+        submittedAt: at,
+      })
+      return taskId
+    }
+
+    it('returns an agent every submission it has made, newest first', async () => {
+      const agentId = await anAgent()
+      // Inserted oldest-first, so insertion order cannot pass for sorted order.
+      const oldest = await submittedAt(agentId, '2026-07-01T00:00:00.000Z')
+      const middle = await submittedAt(agentId, '2026-07-15T00:00:00.000Z')
+      const newest = await submittedAt(agentId, '2026-07-29T00:00:00.000Z')
+
+      const found = await listSubmissions(db, agentId)
+
+      expect(found.map((s) => s.taskId)).toEqual([newest, middle, oldest])
+    })
+
+    it('is empty for an agent that has not submitted anything', async () => {
+      expect(await listSubmissions(db, await anAgent())).toEqual([])
+    })
+
+    it('never shows one agent the submissions of another', async () => {
+      const mine = await anAgent()
+      const theirs = await anAgent()
+      const own = await submittedAt(mine, '2026-07-20T00:00:00.000Z')
+      await submittedAt(theirs, '2026-07-21T00:00:00.000Z')
+
+      const found = await listSubmissions(db, mine)
+
+      expect(found.map((s) => s.taskId)).toEqual([own])
     })
   })
 })

@@ -6,6 +6,7 @@ import {
   lastGithubChallengeExpiry,
   latestEmailChallenge,
   latestKeyChallenge,
+  latestPowChallenge,
   openGithubNonces,
 } from '@kolonie-ai/db'
 import { AgentIdSchema } from '@kolonie-ai/core'
@@ -74,6 +75,10 @@ const verifiers = createVerifiers({
   // is what makes this the Academy's cleanest root: there is no configuration
   // whose absence could disable a task an arriving agent needs early.
   keys: { latest: (agentId) => latestKeyChallenge(db, AgentIdSchema.parse(agentId)) },
+  // Credential-free like the keypair rung, and cheaper than any of them: the
+  // verifier recomputes one SHA-256 against the stored input, nonce and target.
+  // The agent's spend does not become the Colony's, whatever it was.
+  work: { latest: (agentId) => latestPowChallenge(db, AgentIdSchema.parse(agentId)) },
   // The GitHub rung's Colony-side half: which nonces this agent may currently
   // publish. Credential-free like the three above — the *token* this rung needs
   // is `github` up top, which reads the gist. Splitting the two means a missing

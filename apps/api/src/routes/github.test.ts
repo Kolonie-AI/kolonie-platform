@@ -8,6 +8,7 @@ import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithubChallenges, type FakeGithubChallenges } from '../__fixtures__/github.js'
 
 let app: FastifyInstance
@@ -26,6 +27,7 @@ beforeEach(async () => {
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     keys: fakeKeys(),
+    pow: fakePow(),
     academy: fakeAcademy(),
     github: { challenges },
   })

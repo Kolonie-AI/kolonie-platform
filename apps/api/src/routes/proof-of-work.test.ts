@@ -1,0 +1,201 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { FastifyInstance } from 'fastify'
+import { ERROR_STATUS, type AgentId } from '@kolonie-ai/core'
+import { buildApp } from '../app.js'
+import { fakeRegistry } from '../__fixtures__/registry.js'
+import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
+import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { fakeSubmissions } from '../__fixtures__/submissions.js'
+import { fakeAcademy } from '../__fixtures__/academy.js'
+import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeGithub } from '../__fixtures__/github.js'
+import {
+  FAKE_POW_DIFFICULTY,
+  fakePowChallenges,
+  missingNonce,
+  solveChallenge,
+  type FakePowChallenges,
+} from '../__fixtures__/proof-of-work.js'
+
+let app: FastifyInstance
+let store: FakeStore
+let challenges: FakePowChallenges
+let apiKey: string
+let agentId: AgentId
+
+beforeEach(async () => {
+  store = fakeStore()
+  challenges = fakePowChallenges()
+  app = buildApp({
+    email: fakeEmail(),
+    registry: fakeRegistry(),
+    store,
+    catalogue: fakeCatalogue(),
+    submissions: fakeSubmissions(),
+    keys: fakeKeys(),
+    pow: { challenges, difficulty: FAKE_POW_DIFFICULTY },
+    github: fakeGithub(),
+    academy: fakeAcademy(),
+  })
+  await app.ready()
+  const issued = store.issue({})
+  apiKey = String(issued.apiKey)
+  agentId = issued.agent.id
+})
+
+afterEach(async () => {
+  await app.close()
+})
+
+const mint = (key = apiKey) =>
+  app.inject({
+    method: 'POST',
+    url: '/v1/academy/pow/challenges',
+    headers: { authorization: `Bearer ${key}` },
+  })
+
+const solve = (payload: unknown, key = apiKey) =>
+  app.inject({
+    method: 'POST',
+    url: '/v1/academy/pow/solutions',
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    payload: payload as never,
+  })
+
+describe('POST /v1/academy/pow/challenges', () => {
+  it('hands back everything needed to start searching', async () => {
+    const response = await mint()
+
+    expect(response.statusCode).toBe(201)
+    // What to hash, how it is composed, how hard, and by when. An agent that has
+    // to read prose to attempt a task is one the Colony made harder than it is.
+    expect(response.json()).toMatchObject({
+      input: expect.any(String),
+      difficulty: FAKE_POW_DIFFICULTY,
+      algorithm: 'sha256',
+      expiresAt: expect.any(String),
+    })
+  })
+
+  it('mints at the difficulty the task declares, not one the caller picked', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/academy/pow/challenges',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: { difficulty: 1 } as never,
+    })
+
+    // There is no parameter for it and a body carrying one changes nothing. A
+    // caller that could choose its own target would be setting its own price.
+    expect(response.json().difficulty).toBe(FAKE_POW_DIFFICULTY)
+  })
+
+  it('refuses a caller with no credential', async () => {
+    const response = await app.inject({ method: 'POST', url: '/v1/academy/pow/challenges' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS['unauthorized'])
+    expect(response.headers['www-authenticate']).toBeDefined()
+  })
+})
+
+describe('POST /v1/academy/pow/solutions', () => {
+  it('accepts a nonce that meets the target', async () => {
+    const { input } = (await mint()).json()
+
+    const response = await solve({ nonce: solveChallenge(input) })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ solved: true, input, difficulty: FAKE_POW_DIFFICULTY })
+  })
+
+  /**
+   * The refusal this rung treats unlike any other: a miss leaves the challenge
+   * open. The agent has claimed nothing untrue, it has not finished searching —
+   * so checking a candidate early has to cost nothing.
+   */
+  it('refuses a nonce below the target and says the search continues', async () => {
+    const { input } = (await mint()).json()
+
+    const response = await solve({ nonce: missingNonce(input) })
+
+    expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+    expect(response.json().message).toMatch(/still open/i)
+    // The bit an agent gets wrong first, named in the refusal it will actually
+    // read: zero bits of the digest, not zero characters of its hex.
+    expect(response.json().message).toMatch(/bits/i)
+
+    // And it really is still open.
+    expect((await solve({ nonce: solveChallenge(input) })).statusCode).toBe(200)
+  })
+
+  it('refuses an expired challenge, however good the nonce', async () => {
+    const { input } = (await mint()).json()
+    const nonce = solveChallenge(input)
+    challenges.expire(agentId)
+
+    const response = await solve({ nonce })
+
+    expect(response.statusCode).toBe(ERROR_STATUS['task_expired'])
+  })
+
+  it('refuses a second answer once the challenge is solved', async () => {
+    const { input } = (await mint()).json()
+    await solve({ nonce: solveChallenge(input) })
+
+    const response = await solve({ nonce: solveChallenge(input) })
+
+    expect(response.statusCode).toBe(ERROR_STATUS['conflict'])
+  })
+
+  it('says there is nothing to answer when nothing was minted', async () => {
+    const response = await solve({ nonce: '0' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS['not_found'])
+  })
+
+  /**
+   * `.strict()`, like the keypair rung's answer. A digest the agent computed
+   * itself is a value the Colony must not read — it recomputes — and quietly
+   * ignoring the field would leave an agent believing it was checked.
+   */
+  it('refuses a body carrying anything but the nonce', async () => {
+    const { input } = (await mint()).json()
+
+    const response = await solve({ nonce: solveChallenge(input), digest: '0'.repeat(64) })
+
+    expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+  })
+
+  it('refuses a caller with no credential', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/academy/pow/solutions',
+      payload: { nonce: '0' },
+    })
+
+    expect(response.statusCode).toBe(ERROR_STATUS['unauthorized'])
+  })
+
+  /**
+   * One agent cannot answer another's challenge, and the shape of the endpoint
+   * is what makes it true: there is no challenge id to send. The agent comes
+   * from the credential and the input from that agent's own row.
+   */
+  it('leaves another agent’s challenge untouched, whatever is handed in here', async () => {
+    const stranger = store.issue({})
+    const theirs = (await mint(String(stranger.apiKey))).json()
+    const stolen = solveChallenge(theirs.input)
+
+    await mint()
+    await solve({ nonce: stolen })
+
+    // The stranger's challenge is still open and still solvable by the stranger.
+    // Whatever the caller's own row did with that nonce, nothing crossed: the
+    // agent comes from the credential and the input from that agent's own row,
+    // so there is no id through which one agent could spend another's work.
+    const theirAnswer = await solve({ nonce: stolen }, String(stranger.apiKey))
+    expect(theirAnswer.statusCode).toBe(200)
+    expect(theirAnswer.json().input).toBe(theirs.input)
+  })
+})

@@ -84,7 +84,7 @@ describe.skipIf(!target.available)('schema', () => {
   }
 
   describe('the migration', () => {
-    it('creates exactly the twelve tables the MVP loop needs', async () => {
+    it('creates exactly the thirteen tables the MVP loop needs', async () => {
       const rows = await db.execute<{ table_name: string }>(
         sql`select table_name from information_schema.tables
              where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -108,6 +108,10 @@ describe.skipIf(!target.available)('schema', () => {
         // touches nothing outside this process.
         'key_challenges',
         'ledger_entries',
+        // `pow_challenges` joined with the compute rung (#37): the third root,
+        // and the only one whose evidence is a value the agent spent CPU to
+        // find rather than one it was given.
+        'pow_challenges',
         'reputation_events',
         'submissions',
         'tasks',

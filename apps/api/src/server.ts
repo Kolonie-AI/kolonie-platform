@@ -7,6 +7,7 @@ import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseKeyChallenges } from './keys.js'
+import { databasePowChallenges } from './proof-of-work.js'
 import { databaseGithubChallenges } from './github.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
@@ -92,6 +93,10 @@ const app = buildApp({
   // rung reads through nothing, so unlike every other Academy surface here it
   // cannot be half-wired.
   keys: { challenges: databaseKeyChallenges(db) },
+  // Same again, plus the difficulty the task declares — read from
+  // `academy-tasks.ts` rather than from anything this process configures, so the
+  // number an agent is set is the one the task was written with.
+  pow: databasePowChallenges(db),
   // Same shape and the same reason: minting is 32 random bytes against the
   // database, so there is nothing here that can be half-wired either.
   github: { challenges: databaseGithubChallenges(db) },

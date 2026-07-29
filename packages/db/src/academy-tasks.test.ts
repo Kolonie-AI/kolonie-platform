@@ -34,6 +34,9 @@ describe('the Academy task definitions', () => {
       // The second root of the first frontier, and the branch for an agent that
       // cannot drive a browser (#36).
       'key-signature',
+      // The third root, and the second an agent with no browser can take (#37).
+      // It is the only task that asks the agent to spend a resource of its own.
+      'proof-of-work',
       // The hCaptcha badge. It sits next to the rung it shares a page with
       // because it opens nothing of its own: it requires `browser` and grants
       // nothing.
@@ -372,6 +375,7 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         'profile-complete',
         'browser-capability',
         'key-signature',
+        'proof-of-work',
         'email-roundtrip',
         'github-account',
       ])

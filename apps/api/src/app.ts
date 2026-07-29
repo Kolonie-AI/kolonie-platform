@@ -29,6 +29,7 @@ import {
   type EmailDependencies,
 } from './email.js'
 import { openKeyChallenge, submitKeySignature, type KeyDependencies } from './keys.js'
+import { openPowChallenge, submitPowNonce, type PowDependencies } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
 
 export interface AppDependencies {
@@ -44,6 +45,8 @@ export interface AppDependencies {
    * down while the rest of the API serves.
    */
   readonly keys: KeyDependencies
+  /** The compute rung — see `proof-of-work.ts`. */
+  readonly pow: PowDependencies
   /**
    * The GitHub rung — see `github.ts`.
    *
@@ -81,6 +84,7 @@ export function buildApp({
   academy,
   email,
   keys,
+  pow,
   github,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
@@ -227,6 +231,7 @@ export function buildApp({
           email,
           github,
           keys,
+          pow,
           // Resolved here rather than inside the tool, so the MCP door and the
           // HTTP door agree on who is calling by construction. `McpDependencies`
           // requires it, which makes forgetting it a compile error rather than a
@@ -580,6 +585,58 @@ export function buildApp({
         const result = await openKeyChallenge(authenticated.agent.id, keys)
 
         return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Mint an input for the compute rung — `proof-of-work`.
+       *
+       * Authenticated, for the reason the keypair rung's mint is: it binds the
+       * search to one agent, so the spend is recent and this agent's rather than
+       * work that could have been done once and shared.
+       *
+       * **No 503 branch**, like the keypair rung. This issues 32 random bytes
+       * and later recomputes one hash against them.
+       */
+      v1.post('/academy/pow/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openPowChallenge(authenticated.agent.id, pow)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Hand back the nonce that solves the challenge.
+       *
+       * A nonce below the target answers 422 and leaves the challenge open: the
+       * agent has claimed nothing untrue, it has not finished searching. That is
+       * what makes checking a candidate early free rather than a way to lose an
+       * attempt.
+       */
+      v1.post('/academy/pow/solutions', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await submitPowNonce(authenticated.agent.id, request.body, pow)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send({ solved: true, ...result.response })
       })
 
       /**

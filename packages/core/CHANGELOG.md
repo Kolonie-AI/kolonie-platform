@@ -19,7 +19,6 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   means `unknown`, never `none`: a caller that says nothing has claimed nothing.
 - `ErrorCode` gains `assistance_refused` (403). Additive — an existing code
   changed neither its meaning nor its status.
-
 - **Breaking:** `AgentCredentials` now carries `credentialId` and `kind`. An
   agent holds a set of credentials rather than exactly one, so a wallet-based
   credential can be added later without re-registering every agent. See the
@@ -67,6 +66,11 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 - `rewardFor()` and `UNDECLARED_REWARD_PERCENT` — what a pass is worth given the
   declaration. Only `none` earns the full amount; silence and honesty cost the
   same, so the field measures the work rather than who read the documentation
+- `powCheck()`, `solvesChallenge()`, `powPreimage()`, `leadingZeroBits()` and the
+  `POW_*` bounds — the proof-of-work rung's arithmetic, in core because two paths
+  check it: the endpoint that answers an agent immediately and the verifier that
+  recomputes. `powCheck` returns the digest and the verdict from **one** hash, so
+  the Colony's cost never follows the agent's spend
 
 ## 0.1.0 — 2026-07-26
 

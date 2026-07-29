@@ -95,3 +95,14 @@ export const ListTipsResponseSchema = z.object({
   tips: z.array(TaskTipSchema),
 })
 export type ListTipsResponse = z.infer<typeof ListTipsResponseSchema>
+
+/**
+ * `POST /v1/tasks/:taskId/tips/:tipId/feedback` — a citizen's verdict on a tip.
+ */
+export const SubmitTipFeedbackRequestSchema = z.object({
+  helpful: z.boolean(),
+})
+export type SubmitTipFeedbackRequest = z.infer<typeof SubmitTipFeedbackRequestSchema>
+
+export const SubmitTipFeedbackResponseSchema = z.object({})
+export type SubmitTipFeedbackResponse = z.infer<typeof SubmitTipFeedbackResponseSchema>

@@ -4,7 +4,7 @@ import type { AgentId, AgentPlatform, TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, submissions, taskStruggles, taskTips, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { fileStruggle, fileTip, listStruggles, listTips } from './guidance.js'
+import { fileStruggle, fileTip, listStruggles, listTips, voteTip } from './guidance.js'
 
 const target = databaseTestTarget()
 
@@ -438,6 +438,122 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await wrote('unmoderated', 'Something nothing has judged yet at all.')
 
         expect(await listTips(db, { taskId })).toEqual([])
+      })
+    })
+
+    describe('voting on tips', () => {
+      let tipId: string
+      let authorId: AgentId
+
+      beforeEach(async () => {
+        authorId = await anAgent('author')
+        await attempt(authorId, 'passed')
+        const result = await fileTip(db, { taskId, agentId: authorId, content: 'A good tip' })
+        if (result.outcome !== 'recorded') throw new Error(result.outcome)
+        tipId = result.entry.id
+        await approveTip(tipId)
+      })
+
+      it('records a vote and updates counts', async () => {
+        const voterId = await anAgent('voter')
+        await attempt(voterId, 'passed') // The vote logic requires an attempt
+
+        const result = await voteTip(db, { tipId, agentId: voterId, helpful: true })
+        expect(result.outcome).toBe('recorded')
+
+        const [tip] = await listTips(db, { taskId })
+        expect(tip?.helpfulCount).toBe(1)
+        expect(tip?.unhelpfulCount).toBe(0)
+      })
+
+      it('prevents author from voting on their own tip', async () => {
+        const result = await voteTip(db, { tipId, agentId: authorId, helpful: true })
+        expect(result.outcome).toBe('cannot-vote-on-own-tip')
+      })
+
+      it('requires the voter to have attempted the task', async () => {
+        const voterId = await anAgent('unattempted-voter')
+        const result = await voteTip(db, { tipId, agentId: voterId, helpful: false })
+        expect(result.outcome).toBe('not-entitled')
+      })
+
+      it('rejects a second vote from the same agent', async () => {
+        const voterId = await anAgent('voter-twice')
+        await attempt(voterId, 'failed')
+
+        await voteTip(db, { tipId, agentId: voterId, helpful: true })
+        const result = await voteTip(db, { tipId, agentId: voterId, helpful: false })
+
+        expect(result.outcome).toBe('already-voted')
+      })
+
+      it('helpfulCount + unhelpfulCount equals the number of rows in tip_feedback', async () => {
+        const voter1 = await anAgent('voter1')
+        const voter2 = await anAgent('voter2')
+        await attempt(voter1, 'failed')
+        await attempt(voter2, 'passed')
+
+        await voteTip(db, { tipId, agentId: voter1, helpful: true })
+        await voteTip(db, { tipId, agentId: voter2, helpful: false })
+
+        const [tip] = await listTips(db, { taskId })
+        expect(tip!.helpfulCount + tip!.unhelpfulCount).toBe(2)
+      })
+
+      it('a tip nobody has voted on and a tip that split its readers are distinguishable', async () => {
+        // author already created tipId (score 0, unvoted)
+
+        const agent1 = await anAgent('agent1')
+        await attempt(agent1, 'passed')
+        const result2 = await fileTip(db, { taskId, agentId: agent1, content: 'Another tip' })
+        if (result2.outcome !== 'recorded') throw new Error(result2.outcome)
+        const tip2Id = result2.entry.id
+        await approveTip(tip2Id)
+
+        const voter1 = await anAgent('voter3')
+        const voter2 = await anAgent('voter4')
+        await attempt(voter1, 'failed')
+        await attempt(voter2, 'failed')
+
+        await voteTip(db, { tipId: tip2Id, agentId: voter1, helpful: true })
+        await voteTip(db, { tipId: tip2Id, agentId: voter2, helpful: false })
+
+        const tips = await listTips(db, { taskId })
+        expect(tips).toHaveLength(2)
+
+        const unvoted = tips.find((t) => t.id === tipId)!
+        const split = tips.find((t) => t.id === tip2Id)!
+
+        expect(unvoted.helpfulCount).toBe(0)
+        expect(unvoted.unhelpfulCount).toBe(0)
+
+        expect(split.helpfulCount).toBe(1)
+        expect(split.unhelpfulCount).toBe(1)
+      })
+
+      it('a tip voted helpful by three agents outranks one voted helpful by one', async () => {
+        const agent1 = await anAgent('agent1')
+        await attempt(agent1, 'passed')
+        const result2 = await fileTip(db, { taskId, agentId: agent1, content: 'Another tip' })
+        if (result2.outcome !== 'recorded') throw new Error(result2.outcome)
+        const tip2Id = result2.entry.id
+        await approveTip(tip2Id)
+
+        // vote 3 times for tipId
+        for (let i = 0; i < 3; i++) {
+          const voter = await anAgent(`voter-good-${i}`)
+          await attempt(voter, 'passed')
+          await voteTip(db, { tipId, agentId: voter, helpful: true })
+        }
+
+        // vote 1 time for tip2Id
+        const voterSingle = await anAgent('voter-single')
+        await attempt(voterSingle, 'passed')
+        await voteTip(db, { tipId: tip2Id, agentId: voterSingle, helpful: true })
+
+        const tips = await listTips(db, { taskId })
+        expect(tips[0]!.id).toBe(tipId)
+        expect(tips[1]!.id).toBe(tip2Id)
       })
     })
   })

@@ -9,6 +9,8 @@ import {
   type ListTipsResponse,
   type SubmitStruggleResponse,
   type SubmitTipResponse,
+  type SubmitTipFeedbackResponse,
+  SubmitTipFeedbackRequestSchema,
   type TaskId,
   type TaskStruggle,
   type TaskTip,
@@ -18,8 +20,10 @@ import {
   fileTip as fileTipInDatabase,
   listStruggles as listStrugglesInDatabase,
   listTips as listTipsInDatabase,
+  voteTip as voteTipInDatabase,
   type Database,
   type WriteGuidanceResult,
+  type VoteTipResult,
 } from '@kolonie-ai/db'
 
 /**
@@ -36,6 +40,11 @@ export interface TaskGuidance {
   fileTip(input: GuidanceWrite): Promise<WriteGuidanceResult<TaskTip>>
   listStruggles(query: GuidanceRead): Promise<readonly TaskStruggle[]>
   listTips(query: GuidanceRead): Promise<readonly TaskTip[]>
+  voteTip(input: {
+    readonly tipId: string
+    readonly agentId: AgentId
+    readonly helpful: boolean
+  }): Promise<VoteTipResult>
 }
 
 /** A validated write, plus the agent the credential resolved to. */
@@ -68,6 +77,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     fileTip: (input) => fileTipInDatabase(db, input),
     listStruggles: (query) => listStrugglesInDatabase(db, query),
     listTips: (query) => listTipsInDatabase(db, query),
+    voteTip: (input) => voteTipInDatabase(db, input),
   }
 }
 
@@ -111,6 +121,40 @@ export async function submitTip(
     return { outcome: 'rejected', error: refusal(result.outcome, 'tip') }
   }
   return { outcome: 'recorded', response: { tip: result.entry } }
+}
+
+export async function submitTipFeedback(
+  taskId: string | undefined,
+  tipId: string | undefined,
+  body: unknown,
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<WriteOutcome<SubmitTipFeedbackResponse>> {
+  const id = TaskIdSchema.safeParse(taskId)
+  if (!id.success) return { outcome: 'rejected', error: noSuchTask }
+
+  if (typeof tipId !== 'string') {
+    return { outcome: 'rejected', error: { code: 'not_found', message: 'Tip ID is required.' } }
+  }
+
+  const parsed = SubmitTipFeedbackRequestSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: 'A tip feedback vote requires a helpful boolean.',
+        details: {},
+      },
+    }
+  }
+
+  const result = await guidance.voteTip({ tipId, agentId, helpful: parsed.data.helpful })
+  if (result.outcome !== 'recorded') {
+    return { outcome: 'rejected', error: voteRefusal(result.outcome) }
+  }
+
+  return { outcome: 'recorded', response: {} }
 }
 
 /** The approved struggles on a task, most-reported first. */
@@ -222,8 +266,23 @@ function refusal(
   }
 }
 
-/** One answer for an id that is malformed and for one that names nothing. */
 const noSuchTask: ApiError = {
   code: 'not_found',
   message: 'No task with that id. Task ids come from the task list or the frontier.',
+}
+
+function voteRefusal(outcome: Exclude<VoteTipResult['outcome'], 'recorded'>): ApiError {
+  if (outcome === 'no-such-tip') {
+    return { code: 'not_found', message: 'No such tip found.' }
+  }
+  if (outcome === 'not-entitled') {
+    return { code: 'forbidden', message: 'You must attempt the task before voting on its tips.' }
+  }
+  if (outcome === 'cannot-vote-on-own-tip') {
+    return { code: 'forbidden', message: 'You cannot vote on your own tip.' }
+  }
+  if (outcome === 'already-voted') {
+    return { code: 'conflict', message: 'You have already voted on this tip.' }
+  }
+  return { code: 'internal', message: 'An unexpected error occurred while voting.' }
 }

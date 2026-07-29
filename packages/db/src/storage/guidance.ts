@@ -588,12 +588,13 @@ export async function voteTip(
 
     if (inserted.length === 0) return { outcome: 'already-voted' }
 
-    await tx.execute(sql`
-      update ${taskTips}
-         set ${taskTips.helpfulCount} = (select count(*)::int from ${tipFeedback} where ${tipFeedback.tipId} = ${input.tipId} and ${tipFeedback.helpful} = true),
-             ${taskTips.unhelpfulCount} = (select count(*)::int from ${tipFeedback} where ${tipFeedback.tipId} = ${input.tipId} and ${tipFeedback.helpful} = false)
-       where ${taskTips.id} = ${input.tipId}
-    `)
+    await tx
+      .update(taskTips)
+      .set({
+        helpfulCount: sql`(select count(*)::int from ${tipFeedback} where ${tipFeedback.tipId} = ${input.tipId} and ${tipFeedback.helpful} = true)`,
+        unhelpfulCount: sql`(select count(*)::int from ${tipFeedback} where ${tipFeedback.tipId} = ${input.tipId} and ${tipFeedback.helpful} = false)`,
+      })
+      .where(eq(taskTips.id, input.tipId))
 
     return { outcome: 'recorded' }
   })

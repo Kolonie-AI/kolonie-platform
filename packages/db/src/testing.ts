@@ -82,10 +82,18 @@ export async function connectForTests(url: string): Promise<Database> {
   return db
 }
 
-/** Empty every table, leaving the schema in place. */
+/**
+ * Empty every table, leaving the schema in place.
+ *
+ * Every table is named even though `cascade` would reach most of them through a
+ * foreign key. A table that is only truncated by cascade is one that silently
+ * stops being truncated the day somebody adds it without a reference to
+ * anything here — and a table that keeps rows between tests fails a later test
+ * for a reason that is nowhere near it.
+ */
 export async function truncateAll(db: Database): Promise<void> {
   await db.execute(
-    sql`truncate table reputation_events, ledger_entries, verifications, submissions, credentials, tasks, agents restart identity cascade`,
+    sql`truncate table tip_feedback, task_tips, task_struggles, task_hints, reputation_events, ledger_entries, verifications, submissions, credentials, tasks, agents restart identity cascade`,
   )
 }
 

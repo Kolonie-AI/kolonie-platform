@@ -84,7 +84,7 @@ describe.skipIf(!target.available)('schema', () => {
   }
 
   describe('the migration', () => {
-    it('creates exactly the thirteen tables the MVP loop needs', async () => {
+    it('creates exactly the tables the MVP loop and the guidance subsystem need', async () => {
       const rows = await db.execute<{ table_name: string }>(
         sql`select table_name from information_schema.tables
              where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -114,7 +114,14 @@ describe.skipIf(!target.available)('schema', () => {
         'pow_challenges',
         'reputation_events',
         'submissions',
+        // The four that carry what is known about a task beyond its
+        // instructions (#52). `task_hints` is the Colony's own voice;
+        // the other three are citizens', and nothing serves those unjudged.
+        'task_hints',
+        'task_struggles',
+        'task_tips',
         'tasks',
+        'tip_feedback',
         'verifications',
       ])
     })

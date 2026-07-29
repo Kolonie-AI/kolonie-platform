@@ -5,6 +5,7 @@ import {
   CitizenshipStatusSchema,
   CredentialKindSchema,
   LedgerEntryTypeSchema,
+  ModerationStatusSchema,
   ReputationReasonSchema,
   RoleSchema,
   SubmissionStatusSchema,
@@ -92,3 +93,17 @@ export const ledgerEntryType = pgEnum('ledger_entry_type', valuesOf(LedgerEntryT
  * the flattening honest — see the check constraint on `ledger_entries`.
  */
 export const ledgerAccountKind = pgEnum('ledger_account_kind', ['agent', 'system'])
+
+/**
+ * Where a citizen-written struggle or tip stands with the moderator.
+ *
+ * An enum column rather than a boolean pair, because `merged` is a third
+ * outcome and not a shade of the other two: the entry is neither served nor
+ * refused, it was the same thing somebody already said. A `visible` boolean
+ * would have had to call that either — and both answers lose the reason a
+ * canonical entry's confirmation count went up.
+ */
+export const moderationStatus = pgEnum(
+  'moderation_status',
+  valuesOf(ModerationStatusSchema.options),
+)

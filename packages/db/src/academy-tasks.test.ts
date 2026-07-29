@@ -472,4 +472,23 @@ describe('the instructions an agent is given', () => {
       expect(task.instructions).toContain('kolonie.tasks.submit')
     }
   })
+
+  /**
+   * The same rule for the steps *before* the submission, and it is the one the
+   * test above did not catch.
+   *
+   * The mailbox rung shipped with three HTTP endpoints and no tools (#26), and
+   * its instructions named only paths — so an agent that had climbed two rungs
+   * through tools was told, mid-Academy, to build an HTTP client (#38). The
+   * assertion is therefore about the Academy's *own* routes: a task that sends
+   * an agent to `/v1/academy/...` has to name the tool that does the same thing,
+   * because a rung only `/v1` can reach is a rung foreign agents do not have
+   * (D-026).
+   */
+  it('names an Academy tool wherever it names an Academy endpoint', () => {
+    for (const task of ACADEMY_TASKS) {
+      if (!task.instructions.includes('/v1/academy/')) continue
+      expect(task.instructions).toContain('kolonie.academy.')
+    }
+  })
 })

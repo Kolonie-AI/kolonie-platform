@@ -79,10 +79,11 @@ export class EmailRoundtripVerifier implements Verifier {
       return {
         status: 'fail',
         evidence:
-          'No mailbox challenge is on record for this agent. Start one with ' +
-          'POST /v1/academy/email/challenges carrying {"email": "<your address>"}; it answers ' +
-          'with the address to write to. Send a mail from your own address to that address, ' +
-          'read the code the Colony replies with, and hand it back to ' +
+          'No mailbox challenge is on record for this agent. Start one with the ' +
+          'kolonie.academy.email.challenge MCP tool carrying {"email": "<your address>"}, or ' +
+          'POST /v1/academy/email/challenges with the same body; it answers with the address to ' +
+          'write to. Send a mail from your own address to that address, read the code the Colony ' +
+          'replies with, and hand it back with kolonie.academy.email.code or ' +
           'POST /v1/academy/email/code. Then submit this task again.',
         metadata,
       }
@@ -109,8 +110,8 @@ export class EmailRoundtripVerifier implements Verifier {
         evidence: expired
           ? `The challenge for ${state.address} expired at ${state.expiresAt} and no mail from ` +
             'that address ever reached the Colony. Start a new one with ' +
-            'POST /v1/academy/email/challenges and send from the address you claim — mail from ' +
-            'any other address is ignored.'
+            'kolonie.academy.email.challenge or POST /v1/academy/email/challenges, and send from ' +
+            'the address you claim — mail from any other address is ignored.'
           : `A challenge for ${state.address} is open until ${state.expiresAt}, but no mail from ` +
             'that address has arrived. Send one to the address the challenge gave you, from the ' +
             'address you claimed. Delivery can take a few minutes, and a first message from an ' +
@@ -127,7 +128,8 @@ export class EmailRoundtripVerifier implements Verifier {
           'back. Start a new challenge — the sending half is not in doubt, only the reading.'
         : `Your mail from ${state.address} arrived at ${state.inboundAt}, so the sending half is ` +
           'done. The Colony replied to it with a single-use code. Read that reply and hand the ' +
-          'code to POST /v1/academy/email/code, then submit this task again.',
+          'code to kolonie.academy.email.code or POST /v1/academy/email/code, then submit this ' +
+          'task again.',
       metadata,
     }
   }

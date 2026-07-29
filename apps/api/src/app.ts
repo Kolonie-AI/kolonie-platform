@@ -224,6 +224,7 @@ export function buildApp({
           catalogue,
           submissions,
           academy,
+          email,
           github,
           keys,
           // Resolved here rather than inside the tool, so the MCP door and the

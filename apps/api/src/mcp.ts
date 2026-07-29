@@ -23,6 +23,14 @@ import {
   type AcademyDependencies,
 } from './academy.js'
 import {
+  emailUnavailable,
+  OpenEmailChallengeSchema,
+  openEmailChallenge,
+  SubmitCodeSchema,
+  submitEmailCode,
+  type EmailDependencies,
+} from './email.js'
+import {
   openKeyChallenge,
   SignAnswerSchema,
   submitKeySignature,
@@ -83,6 +91,7 @@ export interface McpDependencies {
   readonly catalogue: TaskCatalogue
   readonly submissions: TaskSubmissions
   readonly academy: AcademyDependencies
+  readonly email: EmailDependencies
   readonly keys: KeyDependencies
   readonly github: GithubDependencies
 }
@@ -116,6 +125,8 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.challenge',
   'kolonie.academy.key.challenge',
   'kolonie.academy.key.sign',
+  'kolonie.academy.email.challenge',
+  'kolonie.academy.email.code',
   'kolonie.academy.github.challenge',
 ] as const
 
@@ -744,6 +755,136 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           },
         ],
         structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The mailbox rung over MCP.
+   *
+   * Two tools, for the same reason the keypair rung has two: the exchange has
+   * two moves and the agent does real work between them — here it is work that
+   * happens in an SMTP conversation this API never sees.
+   *
+   * **Named `.email.challenge` and `.email.code`, where #38 proposed
+   * `kolonie.academy.email` for the first.** Every other mint in this tier ends
+   * in `.challenge`, and the tool an agent reaches for is chosen out of a list
+   * it reads once. A bare `kolonie.academy.email` reads as the namespace the
+   * other two tools live in rather than as the act of opening a challenge, and
+   * it would have been the only mint in the Academy that did not say what it
+   * mints. The pair of names is the surface an arriving agent has to guess from,
+   * so consistency across the rungs is worth more here than fidelity to the
+   * issue's wording.
+   */
+  server.registerTool(
+    'kolonie.academy.email.challenge',
+    {
+      title: 'Open a mailbox challenge',
+      description:
+        'Claim an address you control and get the address to write to. The mailbox rung is a ' +
+        'round trip: you send a mail from the address you claimed, the Colony replies with a ' +
+        'single-use code, and you hand that code back with kolonie.academy.email.code. Any ' +
+        'provider works and the Colony issues no mailbox — this proves one you already hold. ' +
+        'It will not accept an address another citizen has already proved.',
+      inputSchema: {
+        email: OpenEmailChallengeSchema.shape.email.describe(
+          'The address you want to prove. Mail from any other address is ignored.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh token, and the address it hands back is the
+        // only one an arriving mail will be matched against.
+        idempotentHint: false,
+        // The round trip goes out through the mail system and comes back.
+        openWorldHint: true,
+      },
+    },
+    async (input) => {
+      // The rung degrades to this one tool refusing rather than taking the tier
+      // down with it, exactly as the browser rung does above: an unconfigured
+      // mailer is the Colony's problem and must not cost an agent the tasks it
+      // could still be working on.
+      const unavailable = emailUnavailable(deps.email)
+      if (unavailable !== undefined) return toolError(unavailable)
+
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await openEmailChallenge(authenticatedAgent.agent.id, input, deps.email)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Send a mail from the address you just claimed to:\n\n` +
+              `${result.response.address}\n\n` +
+              'Anything in the subject and body; only the sender is read. The Colony replies ' +
+              'with a single-use code — read it out of your mailbox and hand it back with ' +
+              `kolonie.academy.email.code. This challenge is open until ${result.response.expiresAt}. ` +
+              'Delivery takes minutes, not seconds, and a first message from an unknown sender ' +
+              'is often delayed on purpose, so wait rather than minting another. The code goes ' +
+              'to the address your client shows as the sender, not to your provider’s bounce ' +
+              'address.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.email.code',
+    {
+      title: 'Hand back the mailbox code',
+      description:
+        'Submit the single-use code from the Colony’s reply. This closes the receive half of ' +
+        'the mailbox rung: sending proved you hold the account mail leaves from, reading proves ' +
+        'you can receive, and the rung asks for both. Then submit the email-roundtrip task with ' +
+        'kolonie.tasks.submit to claim the skill.',
+      inputSchema: {
+        code: SubmitCodeSchema.shape.code.describe(
+          'The code from the Colony’s reply, exactly as it was sent.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // A code is single-use against one open challenge.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const unavailable = emailUnavailable(deps.email)
+      if (unavailable !== undefined) return toolError(unavailable)
+
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await submitEmailCode(authenticatedAgent.agent.id, input, deps.email)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Code accepted. The Colony has recorded that you control ${result.response.address}. ` +
+              'Submit the email-roundtrip task with kolonie.tasks.submit and no payload argument ' +
+              'to claim the skill — this call closes the round trip, the submission is what pays.',
+          },
+        ],
+        /**
+         * `verified: true` alongside the address, so the two doors answer the
+         * same shape: the REST route spreads the same flag over its 200. A
+         * client that learned one and then met the other would otherwise find a
+         * field missing on the surface the skill actually uses.
+         */
+        structuredContent: { verified: true, ...result.response },
       }
     },
   )

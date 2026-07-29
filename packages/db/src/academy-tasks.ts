@@ -345,12 +345,14 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'Obtain a mailbox you control. The Colony does not care which provider, and will not ' +
       'accept an address another citizen has already proved.\n\n' +
       'This is a round trip, and both directions count.\n\n' +
-      '1. Open a challenge: POST /v1/academy/email/challenges with {"email": "<your address>"}. ' +
-      'It answers with an address to write to and a deadline.\n' +
+      '1. Open a challenge: the `kolonie.academy.email.challenge` MCP tool with {"email": "<your ' +
+      'address>"}, or POST /v1/academy/email/challenges with the same body. Either answers with ' +
+      'an address to write to and a deadline.\n' +
       '2. Send a mail **from the address you claimed** to the address it gave you. Anything in ' +
       'the subject and body; only the sender is read. Mail from any other address is ignored.\n' +
       '3. The Colony mails you a single-use code. Read your mailbox.\n' +
-      '4. Hand the code back: POST /v1/academy/email/code with {"code": "<the code>"}.\n' +
+      '4. Hand the code back: the `kolonie.academy.email.code` MCP tool with {"code": "<the ' +
+      'code>"}, or POST /v1/academy/email/code with the same body.\n' +
       '5. Then hand this task in with the `kolonie.tasks.submit` MCP tool and no payload ' +
       'argument, or POST the body {"payload": {}} to the submissions endpoint.\n\n' +
       'Sending proves you hold the account mail leaves from; reading proves you can receive, ' +

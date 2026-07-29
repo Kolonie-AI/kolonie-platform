@@ -35,7 +35,13 @@ import { REGISTRATION_LIMIT } from './rate-limit.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
-import { fakeEmail } from './__fixtures__/email.js'
+import {
+  FAKE_CHALLENGE_DOMAIN,
+  FAKE_INBOUND_SECRET,
+  fakeEmail,
+  fakeEmailChallenges,
+  fakeMailer,
+} from './__fixtures__/email.js'
 
 /**
  * Drive the MCP server the way a foreign agent does — through a real client
@@ -60,6 +66,7 @@ const anonymousClient = (registry = fakeRegistry()) =>
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     academy: fakeAcademy(),
+    email: fakeEmail(),
     keys: fakeKeys(),
     github: fakeGithub(),
     caller: { ip: FAKE_CALLER_IP },
@@ -1283,6 +1290,208 @@ describe('kolonie.academy.key.challenge and .sign', () => {
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name)).not.toContain('kolonie.academy.key.sign')
+    await close()
+  })
+})
+
+/**
+ * The mailbox rung over MCP (#38).
+ *
+ * One Colony behind both doors, because the property under test is not that the
+ * tools exist but that they cannot disagree with the routes: the rung is a round
+ * trip through the mail system, and an agent that opened a challenge on one
+ * surface and closed it on the other must not find two different challenges.
+ *
+ * The inbound step is always HTTP, on every one of these tests, and that is the
+ * rung rather than a gap in the coverage: it is a Cloudflare Worker handing over
+ * a mail that arrived, not an agent doing anything. What the agent touches is
+ * the two tools.
+ */
+describe('kolonie.academy.email.challenge and .code', () => {
+  const CLAIMED = 'citizen@example.org'
+
+  /** One store, one set of email challenges, one mailer — behind both doors. */
+  const bothDoors = async () => {
+    const store = fakeStore()
+    const mailer = fakeMailer()
+    const email = fakeEmail(fakeEmailChallenges(), mailer)
+    const app = buildApp({
+      email,
+      registry: fakeRegistry(),
+      store,
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+      academy: fakeAcademy(),
+      keys: fakeKeys(),
+      github: fakeGithub(),
+    })
+    await app.ready()
+
+    const { apiKey } = store.issue({})
+    const { client, close } = await connectedClient(
+      {
+        registry: fakeRegistry(),
+        store,
+        catalogue: fakeCatalogue(),
+        submissions: fakeSubmissions(),
+        academy: fakeAcademy(),
+        email,
+        keys: fakeKeys(),
+        github: fakeGithub(),
+        caller: { ip: FAKE_CALLER_IP },
+      },
+      `Bearer ${apiKey}`,
+    )
+
+    /** What the Worker does when a mail reaches the challenge address. */
+    const deliver = (to: string, from = CLAIMED) =>
+      app.inject({
+        method: 'POST',
+        url: `${API_BASE_PATH}/internal/email-inbound`,
+        payload: { from, to },
+        headers: { 'x-kolonie-inbound-secret': FAKE_INBOUND_SECRET },
+      })
+
+    /** The code where the agent reads it: out of the mail, not out of a response. */
+    const codeFromMail = () =>
+      String(mailer.sent.at(-1)?.text ?? '').match(/\b[0-9A-F]{12}\b/)?.[0] ?? ''
+
+    return {
+      app,
+      client,
+      apiKey: String(apiKey),
+      deliver,
+      codeFromMail,
+      mailer,
+      close: async () => {
+        await close()
+        await app.close()
+      },
+    }
+  }
+
+  it('carries an agent through the whole rung without ever calling /v1', async () => {
+    const { client, deliver, codeFromMail, close } = await bothDoors()
+
+    const opened = await client.callTool({
+      name: 'kolonie.academy.email.challenge',
+      arguments: { email: CLAIMED },
+    })
+    const { address } = opened.structuredContent as { address: string }
+    await deliver(address)
+    const closed = await client.callTool({
+      name: 'kolonie.academy.email.code',
+      arguments: { code: codeFromMail() },
+    })
+
+    expect(opened.isError).toBeFalsy()
+    // The address the agent is told to write to is minted under the configured
+    // domain, and the token is what makes an arriving mail attributable.
+    expect(address).toMatch(new RegExp(`^[0-9a-f]+@${FAKE_CHALLENGE_DOMAIN}$`))
+    expect(closed.isError).toBeFalsy()
+    expect(closed.structuredContent).toEqual({ verified: true, address: CLAIMED })
+    await close()
+  })
+
+  it('opens over MCP and closes over HTTP — one challenge, two doors', async () => {
+    const { client, apiKey, app, deliver, codeFromMail, close } = await bothDoors()
+
+    const opened = await client.callTool({
+      name: 'kolonie.academy.email.challenge',
+      arguments: { email: CLAIMED },
+    })
+    await deliver((opened.structuredContent as { address: string }).address)
+    const closed = await app.inject({
+      method: 'POST',
+      url: `${API_BASE_PATH}/academy/email/code`,
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: { code: codeFromMail() },
+    })
+
+    expect(closed.statusCode).toBe(200)
+    expect(closed.json()).toEqual({ verified: true, address: CLAIMED })
+    await close()
+  })
+
+  it('opens over HTTP and closes over MCP — the other way round', async () => {
+    const { client, apiKey, app, deliver, codeFromMail, close } = await bothDoors()
+
+    const opened = await app.inject({
+      method: 'POST',
+      url: `${API_BASE_PATH}/academy/email/challenges`,
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: { email: CLAIMED },
+    })
+    await deliver(opened.json().address)
+    const closed = await client.callTool({
+      name: 'kolonie.academy.email.code',
+      arguments: { code: codeFromMail() },
+    })
+
+    expect(closed.isError).toBeFalsy()
+    expect(closed.structuredContent).toEqual({ verified: true, address: CLAIMED })
+    await close()
+  })
+
+  /**
+   * The rejection an agent will actually meet: it opens a challenge, sends the
+   * mail, and calls back before delivery. The refusal has to say which half is
+   * missing, or the agent cannot tell "wait" from "retry".
+   */
+  it('refuses a code when no mail has reached the Colony yet, and says so', async () => {
+    const { client, close } = await bothDoors()
+
+    await client.callTool({
+      name: 'kolonie.academy.email.challenge',
+      arguments: { email: CLAIMED },
+    })
+    const closed = await client.callTool({
+      name: 'kolonie.academy.email.code',
+      arguments: { code: 'ABCDEF123456' },
+    })
+
+    expect(closed.isError).toBe(true)
+    const text = JSON.stringify(closed.content)
+    expect(text).toContain('conflict')
+    expect(text).toContain('No mail from your address has reached the Colony yet')
+    await close()
+  })
+
+  /**
+   * The rung degrades to two tools refusing, not to a tier that fails to build.
+   * An unconfigured mailer is the Colony's problem, and an agent still holding
+   * open branches elsewhere in the graph must keep them.
+   */
+  it('refuses when the Colony has no way to send the code, and leaves the tier standing', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(
+      { ...colony, email: { ...fakeEmail(), mailer: undefined } },
+      `Bearer ${apiKey}`,
+    )
+
+    const opened = await client.callTool({
+      name: 'kolonie.academy.email.challenge',
+      arguments: { email: CLAIMED },
+    })
+    const elsewhere = await client.callTool({
+      name: 'kolonie.academy.key.challenge',
+      arguments: {},
+    })
+
+    expect(opened.isError).toBe(true)
+    expect(JSON.stringify(opened.content)).toContain('could never be completed')
+    expect(elsewhere.isError).toBeFalsy()
+    await close()
+  })
+
+  it('is not offered to an anonymous caller', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const names = tools.map((tool) => tool.name)
+
+    expect(names).not.toContain('kolonie.academy.email.challenge')
+    expect(names).not.toContain('kolonie.academy.email.code')
     await close()
   })
 })

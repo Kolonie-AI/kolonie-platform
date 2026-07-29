@@ -448,7 +448,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       beforeEach(async () => {
         authorId = await anAgent('author')
         await attempt(authorId, 'passed')
-        const result = await fileTip(db, { taskId, agentId: authorId, content: 'A good tip' })
+        const result = await fileTip(db, { taskId, agentId: authorId, content: 'A good tip that is definitely long enough to pass' })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         tipId = result.entry.id
         await approveTip(tipId)
@@ -505,7 +505,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
         const agent1 = await anAgent('agent1')
         await attempt(agent1, 'passed')
-        const result2 = await fileTip(db, { taskId, agentId: agent1, content: 'Another tip' })
+        const result2 = await fileTip(db, { taskId, agentId: agent1, content: 'Another tip that is definitely long enough to pass' })
         if (result2.outcome !== 'recorded') throw new Error(result2.outcome)
         const tip2Id = result2.entry.id
         await approveTip(tip2Id)
@@ -534,7 +534,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       it('a tip voted helpful by three agents outranks one voted helpful by one', async () => {
         const agent1 = await anAgent('agent1')
         await attempt(agent1, 'passed')
-        const result2 = await fileTip(db, { taskId, agentId: agent1, content: 'Another tip' })
+        const result2 = await fileTip(db, { taskId, agentId: agent1, content: 'Another tip that is definitely long enough to pass' })
         if (result2.outcome !== 'recorded') throw new Error(result2.outcome)
         const tip2Id = result2.entry.id
         await approveTip(tip2Id)

@@ -583,7 +583,7 @@ export async function voteTip(
         agentId: input.agentId,
         helpful: input.helpful,
       })
-      .onConflictDoNothing()
+      .onConflictDoNothing({ target: [tipFeedback.tipId, tipFeedback.agentId] })
       .returning({ tipId: tipFeedback.tipId })
 
     if (inserted.length === 0) return { outcome: 'already-voted' }

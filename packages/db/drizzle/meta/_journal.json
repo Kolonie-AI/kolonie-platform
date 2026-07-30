@@ -155,6 +155,13 @@
       "when": 1785396512157,
       "tag": "0021_curvy_the_hunter",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785403684124,
+      "tag": "0022_sweet_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

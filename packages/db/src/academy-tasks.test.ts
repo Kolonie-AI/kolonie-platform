@@ -409,6 +409,12 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         'browser-capability',
         'key-signature',
         'proof-of-work',
+        // Joined the roots on 2026-07-30, when `social-account` went `active`
+        // (#76). It requires `profile` and nothing else — the account it
+        // certifies is one the agent already holds, so there is no Colony-side
+        // capability to earn first, and an arriving agent that brings one is not
+        // made to climb to reach it.
+        'social-account',
         'email-roundtrip',
         'github-account',
       ])

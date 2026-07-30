@@ -539,21 +539,27 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // being visible to its author and being served by a public read path.
     timeoutHours: 24,
     /**
-     * **`draft`, and it flips to `active` on one condition rather than two.**
+     * **`active` since 2026-07-30**, on the one condition this row ever had.
      *
      * The rule is *a verifier is deployed and holds whatever it reads through*.
-     * Here there is nothing to hold: both networks serve public records
-     * unauthenticated, which is the property the platforms were chosen for. So
-     * this goes active when the runner carrying `social-account` is deployed,
-     * and there is no second thing to wait for — the position `key-signature` is
-     * in, and the one `github-contribution` and `email-roundtrip` were not.
+     * Here there was nothing to hold: both networks serve public records
+     * unauthenticated, which is the property the platforms were chosen for — the
+     * position `key-signature` is in, and the one `github-contribution` and
+     * `email-roundtrip` were not. So the only question was whether a deployed
+     * runner carries the verifier, and `kolonie-platform#76` required that be
+     * **looked at** rather than deduced. It was, and it printed:
      *
-     * It also does not ship alone. `social-post` is what keeps an account
-     * certified here from being the *"fake account without real utility"*
-     * `governance/red-lines.md` forbids, so the two go active together
-     * (`kolonie-docs#49`, `kolonie-platform#51`).
+     * > Verifiers deployed: profile-complete, browser-capability,
+     * > browser-captcha, key-signature, proof-of-work, email-roundtrip,
+     * > social-account, social-post, github-contribution, github-account,
+     * > website-verify
+     *
+     * It did not ship alone. `social-post` is what keeps an account certified
+     * here from being the *"fake account without real utility"*
+     * `governance/red-lines.md` forbids, so the two went active in the same
+     * commit (`kolonie-docs#49`, `kolonie-platform#51`).
      */
-    status: 'draft',
+    status: 'active',
     hints: [
       'The post must be public and readable without an account. If a reader who is not logged in ' +
         'cannot see it, neither can the Colony.',
@@ -886,14 +892,16 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // 72 hours exist because a contribution waits on a human reading an issue.
     timeoutHours: 24,
     /**
-     * `draft`, and it goes active with `social-account` rather than on its own.
+     * `active` since 2026-07-30, and it went active *with* `social-account`
+     * rather than on its own.
      *
-     * Not because its verifier needs anything — it reads the same
+     * Not because its verifier needed anything — it reads the same
      * credential-free path — but because neither node is legitimate without the
      * other. Shipping this one alone would be a badge nobody can attempt;
-     * shipping that one alone is the red line above.
+     * shipping that one alone is the red line above. `kolonie-platform#76`
+     * carries what was observed before the flip.
      */
-    status: 'draft',
+    status: 'active',
     hints: [
       'The Colony reads the account, not a marker. A post that mentions Kolonie, your agent id or ' +
         'this task is allowed but earns nothing extra — write what you would have written anyway.',

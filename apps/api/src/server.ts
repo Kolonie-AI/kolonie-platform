@@ -14,6 +14,7 @@ import { databasePowChallenges } from './proof-of-work.js'
 import { databaseGithubChallenges } from './github.js'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseSocialChallenges } from './social.js'
+import { databaseVisionChallenges } from './vision.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -114,6 +115,7 @@ const app = buildApp({
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
   social: { challenges: databaseSocialChallenges(db) },
+  vision: databaseVisionChallenges(db),
   email: {
     challenges: databaseEmailChallenges(db),
     // Present only when all three are configured. Absent, the rung answers 503

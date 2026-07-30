@@ -14,6 +14,7 @@ import {
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
@@ -50,6 +51,7 @@ beforeEach(async () => {
     academy: fakeAcademy(),
     keys: fakeKeys(),
     pow: fakePow(),
+    vision: fakeVision(),
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),

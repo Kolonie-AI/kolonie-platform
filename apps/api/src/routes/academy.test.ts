@@ -9,6 +9,7 @@ import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { support } from '../support.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
@@ -39,6 +40,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: fakeKeys(),
     pow: fakePow(),
+    vision: fakeVision(),
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),
@@ -183,6 +185,7 @@ describe('POST /v1/academy/challenges', () => {
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),
       pow: fakePow(),
+    vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -505,6 +508,7 @@ describe('when the gate is not configured', () => {
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),
       pow: fakePow(),
+    vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -567,6 +571,7 @@ describe('when the gate is not configured', () => {
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),
       pow: fakePow(),
+    vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),

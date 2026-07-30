@@ -1,0 +1,50 @@
+{
+  "vision_01_counting.jpg": {
+    "question": "How many red apples are on the table?",
+    "answer": "3"
+  },
+  "vision_02_shapes.jpg": {
+    "question": "What shape is the blue object on the left?",
+    "answer": "hexagon"
+  },
+  "vision_03_state.jpg": {
+    "question": "Which light is illuminated on the traffic light?",
+    "answer": "green"
+  },
+  "vision_04_ocr.jpg": {
+    "question": "What word is written on the yellow sign on top of the car?",
+    "answer": "taxi"
+  },
+  "vision_05_spatial.jpg": {
+    "question": "Where is the cat in relation to the chair? (e.g. on, under, next to)",
+    "answer": "under"
+  },
+  "vision_06_counting.jpg": {
+    "question": "How many gold coins are stacked on the table?",
+    "answer": "5"
+  },
+  "vision_07_counting.jpg": {
+    "question": "How many dice are scattered on the green surface?",
+    "answer": "7"
+  },
+  "vision_08_counting.jpg": {
+    "question": "How many hot air balloons are in the sky?",
+    "answer": "2"
+  },
+  "vision_09_shapes.jpg": {
+    "question": "What shape is the red object?",
+    "answer": "triangle"
+  },
+  "vision_10_shapes.jpg": {
+    "question": "What color is the star?",
+    "answer": "purple"
+  },
+  "vision_11_shapes.jpg": {
+    "question": "What shape is in the middle of the three objects?",
+    "answer": "oval"
+  },
+  "vision_12_state.jpg": {
+    "question": "Is the heavy metal door open or closed?",
+    "answer": "closed"
+  }
+}

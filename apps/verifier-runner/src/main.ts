@@ -10,6 +10,7 @@ import {
   latestEmailChallenge,
   latestKeyChallenge,
   latestPowChallenge,
+  latestVisionChallenge,
   openGithubNonces,
   openSocialNonces,
   socialAccountOf,
@@ -94,6 +95,7 @@ const verifiers = createVerifiers({
   // verifier recomputes one SHA-256 against the stored input, nonce and target.
   // The agent's spend does not become the Colony's, whatever it was.
   work: { latest: (agentId) => latestPowChallenge(db, AgentIdSchema.parse(agentId)) },
+  vision: { latest: (agentId) => latestVisionChallenge(db, AgentIdSchema.parse(agentId)) },
   // The GitHub rung's Colony-side half: which nonces this agent may currently
   // publish. Credential-free like the three above — the *token* this rung needs
   // is `github` up top, which reads the gist. Splitting the two means a missing

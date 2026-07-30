@@ -6,6 +6,7 @@ import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
 import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
+import { VisionCapabilityVerifier, type VisionChallenges } from './vision-capability.js'
 import { EmailRoundtripVerifier, type EmailRoundtrips } from './email-roundtrip.js'
 import {
   SocialAccountVerifier,
@@ -39,6 +40,12 @@ export {
   type ProofOfWorkDependencies,
   type SolvedChallenges,
 } from './proof-of-work.js'
+export {
+  VisionCapabilityVerifier,
+  type VisionAttempt,
+  type VisionCapabilityDependencies,
+  type VisionChallenges,
+} from './vision-capability.js'
 export {
   EmailRoundtripVerifier,
   type EmailRoundtripDependencies,
@@ -157,6 +164,7 @@ export interface VerifierDependencies {
    * mistake answer one rung with another's evidence.
    */
   readonly work?: SolvedChallenges
+  readonly vision?: VisionChallenges
   /**
    * Answers which nonces the Colony has issued to an agent for the GitHub rung.
    *
@@ -226,6 +234,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.work !== undefined) {
     verifiers.push(new ProofOfWorkVerifier({ work: deps.work }))
+  }
+
+  if (deps.vision !== undefined) {
+    verifiers.push(new VisionCapabilityVerifier({ vision: deps.vision }))
   }
 
   if (deps.roundtrips !== undefined) {

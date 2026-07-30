@@ -25,6 +25,7 @@ import type { PowDependencies } from '../proof-of-work.js'
 import type { GithubDependencies } from '../github.js'
 import type { WebsiteDependencies } from '../website.js'
 import type { SocialDependencies } from '../social.js'
+import type { VisionDependencies } from '../vision.js'
 import { fakeAcademy } from './academy.js'
 import { fakeEmail } from './email.js'
 import { fakeKeys } from './keys.js'
@@ -32,6 +33,7 @@ import { fakePow } from './proof-of-work.js'
 import { fakeGithub } from './github.js'
 import { fakeSocial } from './social.js'
 import { fakeWebsite } from './website.js'
+import { fakeVision } from './vision.js'
 import { register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
@@ -105,6 +107,7 @@ export interface FakeColony {
   readonly github: GithubDependencies
   readonly social: SocialDependencies
   readonly website: WebsiteDependencies
+  readonly vision: VisionDependencies
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -215,6 +218,7 @@ export function fakeColony(): FakeColony {
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),
+    vision: fakeVision(),
 
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {

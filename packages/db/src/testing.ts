@@ -75,6 +75,16 @@ export function databaseTestTarget(
  * is far cheaper than re-migrating, and leaves the schema exactly as the
  * migration built it — which is the thing under test.
  */
+/**
+ * **One call per test file, and never two in the same one.** It drops `public`
+ * before it migrates, so a second `connectForTests` in a file that already has a
+ * connection pulls the schema out from under the suite still using it. What that
+ * looks like is not an error here — it is a lock wait and then a failing insert
+ * in *another* file entirely, which is a long way from the change that caused
+ * it. A second suite in one file shares the first suite's `db`, or moves to a
+ * file of its own; `fileParallelism` is off, so a new file costs a reconnection
+ * and nothing else.
+ */
 export async function connectForTests(url: string): Promise<Database> {
   const db = createDatabase(url, { max: 1, onnotice: () => {} })
   await resetDatabase(db)

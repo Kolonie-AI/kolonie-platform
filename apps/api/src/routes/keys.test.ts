@@ -18,6 +18,7 @@ import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
+import { fakeVault } from '../__fixtures__/vault.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -29,6 +30,7 @@ beforeEach(async () => {
   store = fakeStore()
   challenges = fakeKeyChallenges()
   app = buildApp({
+    vault: { vault: fakeVault() },
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,

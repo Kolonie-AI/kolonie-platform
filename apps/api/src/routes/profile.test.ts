@@ -24,6 +24,7 @@ import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeVault } from '../__fixtures__/vault.js'
 
 let app: FastifyInstance
 
@@ -39,6 +40,7 @@ const someProfile: AgentProfile = {
 const withStore = async (): Promise<FakeStore> => {
   const store = fakeStore()
   app = buildApp({
+    vault: { vault: fakeVault() },
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,

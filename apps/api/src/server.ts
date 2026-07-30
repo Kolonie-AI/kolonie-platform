@@ -16,6 +16,7 @@ import { databaseGithubChallenges } from './github.js'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseSocialChallenges } from './social.js'
 import { databaseVisionChallenges } from './vision.js'
+import { databaseVault } from './vault.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -121,6 +122,10 @@ const app = buildApp({
   // either, so nothing about it can be half-configured on either side.
   social: { challenges: databaseSocialChallenges(db) },
   vision: databaseVisionChallenges(db),
+  // No configuration and no credential of the Colony's, deliberately: the vault
+  // is sealed with the caller's own key, which arrives in the request that uses
+  // it. There is no master key to provision here and none to leak (#98).
+  vault: { vault: databaseVault(db) },
   email: {
     challenges: databaseEmailChallenges(db),
     // Present only when all three are configured. Absent, the rung answers 503

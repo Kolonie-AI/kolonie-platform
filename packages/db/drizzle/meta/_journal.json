@@ -253,6 +253,13 @@
       "when": 1785445766764,
       "tag": "0035_the_erasure_confirmation",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785446615466,
+      "tag": "0036_agent_vault",
+      "breakpoints": true
     }
   ]
 }

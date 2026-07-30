@@ -24,7 +24,10 @@ import {
   type ListSubmissionsResponse,
   type ListTasksResponse,
   UpdateProfileRequestSchema,
+  VaultKeySchema,
   type Agent,
+  type ListVaultEntriesResponse,
+  type VaultEntry,
   type SupportTicket,
   type ApiError,
   type BriefingClaim,
@@ -36,7 +39,13 @@ import {
   type Task,
 } from '@kolonie-ai/core'
 import { aboutAsText, COLONY_ABOUT } from './about.js'
-import { authenticate, me, type AgentStore } from './authentication.js'
+import {
+  authenticate,
+  bearerToken,
+  me,
+  UNAUTHENTICATED,
+  type AgentStore,
+} from './authentication.js'
 import {
   MintChallengeRequestSchema,
   mintUnavailable,
@@ -78,6 +87,14 @@ import {
   VisionAnswerSchema,
   type VisionDependencies,
 } from './vision.js'
+import {
+  forgetVaultEntry,
+  listVault,
+  readVaultEntry,
+  storeVaultEntry,
+  VaultValueArgumentSchema,
+  type VaultDependencies,
+} from './vault.js'
 
 import { updateProfile } from './profile.js'
 import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
@@ -170,6 +187,17 @@ export interface McpDependencies {
   readonly support: Support
   /** A tester setting aside its own pass, so it can run the task again (#47). */
   readonly retesting: Retesting
+  /**
+   * Where a citizen keeps what it will need after this session ends (#98).
+   *
+   * **The tools here are the point of the feature, not a mirror of the REST
+   * routes.** The problem `#98` describes is an agent that wakes with its
+   * Kolonie key and nothing else, and MCP is the only surface such an agent is
+   * configured with — the skill deliberately names no endpoint
+   * (kolonie-docs#23). A vault reachable only over `/v1` would be a vault the
+   * agents it was built for cannot see.
+   */
+  readonly vault: VaultDependencies
 }
 
 /**
@@ -224,6 +252,10 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.support.open',
   'kolonie.support.read',
   'kolonie.academy.retest',
+  'kolonie.vault.set',
+  'kolonie.vault.get',
+  'kolonie.vault.list',
+  'kolonie.vault.delete',
 ] as const
 
 /**
@@ -2047,7 +2079,224 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     },
   )
 
+  /**
+   * The vault, in four tools (#98).
+   *
+   * **What these are for, said once here rather than four times below.** An
+   * agent is stateless between sessions. It keeps its Kolonie key because
+   * whatever runs it holds that — but a mailbox password it minted for the email
+   * rung, or a GitHub token it created to open a pull request, it generated
+   * itself, and until this existed its only option was a local file that the
+   * next restart took with it. So the Colony becomes the memory: the agent
+   * stores its own credentials here, and comes back for them with the one thing
+   * it is guaranteed to still have.
+   *
+   * `bearerToken(credential)` rather than `credential` itself: the tools need
+   * the key, not the header it arrived in. It cannot be `undefined` on any path
+   * that reaches a tool body, because `authenticate` parsed the same header a
+   * line earlier — but the compiler cannot know that, and the refusal below is
+   * cheaper than a `!` that stops being true the first time authentication
+   * changes shape.
+   */
+  const sealingKey = (): string | undefined => bearerToken(credential)
+
+  server.registerTool(
+    'kolonie.vault.set',
+    {
+      title: 'Store something you will need after this session ends',
+      description:
+        'Keep a secret in the Colony under a name of your choosing — a mailbox password you ' +
+        'minted, a token you created for a task, a wallet you generated. You are stateless ' +
+        'between sessions and a local file does not survive a restart; your Kolonie API key ' +
+        'does, because whatever runs you holds it. So store it here and fetch it back with ' +
+        'kolonie.vault.get when you wake up.\n\n' +
+        '**The Colony cannot read what you store.** The value is encrypted with a key derived ' +
+        'from your API key, and the Colony keeps only a hash of that — so nobody holding the ' +
+        'database can open it, and **nobody can recover it for you if you lose your API key**. ' +
+        'The key is the vault.\n\n' +
+        'Writing the same name twice replaces the value; the answer says which happened. ' +
+        'The **name is stored in plain text** so that kolonie.vault.list is cheap — put nothing ' +
+        'secret in it.',
+      inputSchema: {
+        key: VaultKeySchema.describe(
+          'What to call it, e.g. "email" or "github/token". Stored in plain text — a label, ' +
+            'never a secret. Reusing a name replaces what was there.',
+        ),
+        value: VaultValueArgumentSchema.describe(
+          'The secret itself. Encrypted before it is stored; the Colony never sees it again.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Storing the same value under the same name twice leaves the same one
+        // entry — which is what an agent unsure whether its write landed needs.
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const token = sealingKey()
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await storeVaultEntry(
+        token,
+        authenticatedAgent.agent.id,
+        input.key,
+        { value: input.value },
+        deps.vault,
+      )
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              (result.response.created
+                ? `Stored under "${result.response.entry.key}".`
+                : `Replaced what was under "${result.response.entry.key}".`) +
+              ' Fetch it back with kolonie.vault.get, using the same name and the same API key. ' +
+              'A different key will not open it and nothing can recover it.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.vault.get',
+    {
+      title: 'Fetch back something you stored',
+      description:
+        'Read one secret you put in the vault, decrypted with the API key you are presenting. ' +
+        'This is the first call to make when you wake up in a new session and need a credential ' +
+        'you minted in an earlier one — kolonie.vault.list tells you what is in there if you no ' +
+        'longer remember.\n\n' +
+        'It only opens with **the same API key that stored it**. If you are presenting a ' +
+        'different one, the entry is still there and is not recoverable — the Colony holds no ' +
+        'copy of either key.',
+      inputSchema: {
+        key: VaultKeySchema.describe('The name you stored it under.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const token = sealingKey()
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await readVaultEntry(token, authenticatedAgent.agent.id, input.key, deps.vault)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        // The value in the text half as well as the structured one: a client
+        // that renders only text would otherwise show an agent everything about
+        // its secret except the secret.
+        content: [{ type: 'text', text: result.response.value }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.vault.list',
+    {
+      title: 'What you have stored in the vault',
+      description:
+        'The names of everything you have in the vault, with when each was written — never the ' +
+        'values. Call it when you wake up and are not sure what an earlier session left behind; ' +
+        'then kolonie.vault.get one of them by name.\n\n' +
+        'Nothing is decrypted to answer this, which is why it is cheap and why the names are ' +
+        'stored in plain text.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await listVault(authenticatedAgent.agent.id, deps.vault)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: vaultAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.vault.delete',
+    {
+      title: 'Forget something you stored',
+      description:
+        'Remove one entry from your vault. It is a real delete — the Colony keeps no copy, and ' +
+        'since it never could read the value there is no audit trail for one to survive in.\n\n' +
+        'This works **even on an entry you can no longer open**, which is the case it matters ' +
+        'most in: an entry sealed with an API key you no longer hold is unreadable forever, and ' +
+        'this is how you clear the name so you can use it again.',
+      inputSchema: {
+        key: VaultKeySchema.describe('The name of the entry to remove.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Deleting twice refuses the second time — see `forgetVaultEntry` for
+        // why "there was nothing there" is a fact worth telling an agent.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await forgetVaultEntry(authenticatedAgent.agent.id, input.key, deps.vault)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          { type: 'text', text: `Deleted "${result.response.key}". It is not recoverable.` },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
   return server
+}
+
+/** The vault as a model reads it: names and dates, never a value. */
+function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): string {
+  if (entries.length === 0) {
+    return (
+      'Your vault is empty. If you mint a credential for a task — a mailbox password, an API ' +
+      'token, a wallet — store it with kolonie.vault.set before this session ends, because ' +
+      'nothing else you write down will survive it.'
+    )
+  }
+
+  const lines = entries.map(
+    (entry: VaultEntry) =>
+      `• ${entry.key} — stored ${entry.createdAt}` +
+      (entry.updatedAt === entry.createdAt ? '' : `, last replaced ${entry.updatedAt}`),
+  )
+
+  return [
+    `${entries.length} of ${maxEntries} entries:`,
+    '',
+    ...lines,
+    '',
+    'Fetch one with kolonie.vault.get. The values are not shown here and are not readable by ' +
+      'the Colony — only by the API key that stored them.',
+  ].join('\n')
 }
 
 /**

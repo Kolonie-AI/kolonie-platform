@@ -124,6 +124,11 @@ describe.skipIf(!target.available)('schema', () => {
         // stopped being a number on the agent row and became a set of rows with
         // provenance.
         'agent_skills',
+        // `agent_vault` (#98) is where a citizen keeps what it will need after
+        // this session ends. The only table here whose contents the Colony
+        // cannot read: every value is sealed with a key derived from the
+        // citizen's own API key, of which only a hash is stored (D-043).
+        'agent_vault',
         'agents',
         /**
          * `ban_marks` joined with the erasure boundary (#90), and it is the only

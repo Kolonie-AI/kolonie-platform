@@ -19,6 +19,7 @@ import {
   verifications,
 } from '../schema/index.js'
 import { eraseAgent } from './erasure.js'
+import { setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
 
@@ -311,6 +312,29 @@ describe.skipIf(!target.available)('erasing a citizen', () => {
       if (result.outcome !== 'erased') return
       expect(result.receipt.banMarksWritten).toBe(0)
       expect(await countIn('ban_marks')).toBe(0)
+    })
+
+    /**
+     * The vault goes with the account (`#98`), by the cascade and not by a line
+     * in `eraseAgent`.
+     *
+     * Asserted rather than assumed, because *"everything else cascades"* is a
+     * claim about every table that exists **now** — including the ones added
+     * after `#90` was written. A vault row surviving its citizen would be the
+     * worst possible leftover: ciphertext nobody can open, tied to an agent id
+     * that no longer names anyone, and `erasure.md` §4 promises *nothing at
+     * all*. It is also the one table whose contents the Colony could not
+     * inspect to discover the mistake.
+     */
+    it('takes the citizen’s vault with it', async () => {
+      const agent = await anAgent({ status: 'citizen' })
+      await setVaultEntry(db, 'a-token', agent.id as AgentId, 'email', 'hunter2')
+      expect(await countIn('agent_vault')).toBe(1)
+
+      const result = await eraseAgent(db, { agentId: agent.id as AgentId, banSalt: SALT })
+
+      expect(result.outcome).toBe('erased')
+      expect(await countIn('agent_vault')).toBe(0)
     })
 
     /**

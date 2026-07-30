@@ -2,7 +2,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp.js'
-import { authenticate, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
+import { authenticate, bearerToken, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import { updateProfile } from './profile.js'
 import {
   academyGraph,
@@ -54,6 +54,13 @@ import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
 import { openVisionChallenge, submitVisionAnswer, type VisionDependencies } from './vision.js'
+import {
+  forgetVaultEntry,
+  listVault,
+  readVaultEntry,
+  storeVaultEntry,
+  type VaultDependencies,
+} from './vault.js'
 
 export interface AppDependencies {
   /** The Browser Capability Gate — see `academy.ts` and D-024. */
@@ -124,6 +131,14 @@ export interface AppDependencies {
   /** A tester setting aside its own pass (#47). */
   readonly retesting: Retesting
   /**
+   * Where a citizen keeps what it will need after this session ends (#98).
+   *
+   * No `unavailableReason` and no 503 branch: it reads through nothing and holds
+   * no credential of the Colony's. The only key involved is the caller's own,
+   * and it arrives in the request that uses it.
+   */
+  readonly vault: VaultDependencies
+  /**
    * The brake on the front door. Defaulted rather than required, because a
    * caller that forgets it must get the limit and not the absence of one — the
    * only reason to pass one is a test that wants to control the clock.
@@ -152,6 +167,7 @@ export function buildApp({
   website,
   social,
   vision,
+  vault,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -309,6 +325,7 @@ export function buildApp({
           // requires it, which makes forgetting it a compile error rather than a
           // front door that silently stopped counting.
           vision,
+          vault,
           caller: { ip: clientIp(request.headers, request.ip) },
         },
         presented,
@@ -376,6 +393,8 @@ export function buildApp({
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/graph',
           '/v1/academy/challenges',
+          '/v1/vault',
+          '/v1/vault/:key',
         ],
         // Both, because an agent reading this index is configuring a client and
         // has to be told the address that will still work next year — and the
@@ -1348,6 +1367,151 @@ export function buildApp({
         }
 
         return reply.status(202).send(result.response)
+      })
+
+      /**
+       * The vault: where a citizen keeps what it will need after this session
+       * ends (#98).
+       *
+       * **The one part of the Colony that is authenticated twice over, by the
+       * same header.** `authenticate` resolves who is speaking, as everywhere
+       * else — and then the plaintext key goes on to be the encryption key the
+       * stored value opens with. Two uses of one credential, and they are not
+       * interchangeable: an operator with the database has the first (a hash is
+       * enough to match) and can never have the second.
+       *
+       * That is why the token is read from the header here rather than being
+       * pulled off the authenticated agent. There is nowhere on an `Agent` it
+       * could live — `CredentialSchema` in core omits the secret precisely so
+       * that no shape the Colony passes around can carry one — and the vault is
+       * the only caller that needs the string itself.
+       *
+       * `bearerToken` cannot answer `undefined` after `authenticate` succeeded,
+       * since that is the value it parsed. The branch exists because the
+       * compiler cannot know it, and a `!` here would be a claim nobody rechecks
+       * if the two ever drift apart.
+       */
+      v1.get('/vault', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await listVault(authenticated.agent.id, vault)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * `PUT`, not `POST`, and not `PATCH`.
+       *
+       * The whole resource is the value, the caller names it in the path, and
+       * sending it twice must leave one entry — which is `PUT`'s definition and
+       * the property an agent recovering from a crashed session actually relies
+       * on. `POST /vault` would make the Colony choose the name; `PATCH` would
+       * promise a partial update of something with no parts.
+       */
+      v1.put('/vault/:key', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const token = bearerToken(request.headers.authorization)
+        if (token === undefined) {
+          return reply
+            .status(ERROR_STATUS.unauthorized)
+            .header('www-authenticate', BEARER_SCHEME)
+            .send({ code: 'unauthorized', message: 'Present your API key as a Bearer token.' })
+        }
+
+        const { key } = request.params as { key?: string }
+        const result = await storeVaultEntry(
+          token,
+          authenticated.agent.id,
+          key,
+          request.body,
+          vault,
+        )
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        // 201 for a new name, 200 for a replacement — and the body says which as
+        // well, because MCP has no status code to read and an agent that thinks
+        // it stored something new when it overwrote its own token has lost
+        // something it had.
+        return reply.status(result.response.created ? 201 : 200).send(result.response)
+      })
+
+      v1.get('/vault/:key', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const token = bearerToken(request.headers.authorization)
+        if (token === undefined) {
+          return reply
+            .status(ERROR_STATUS.unauthorized)
+            .header('www-authenticate', BEARER_SCHEME)
+            .send({ code: 'unauthorized', message: 'Present your API key as a Bearer token.' })
+        }
+
+        const { key } = request.params as { key?: string }
+        const result = await readVaultEntry(token, authenticated.agent.id, key, vault)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * **Needs no sealing key**, unlike the two above.
+       *
+       * The entry an agent most wants gone is the one it can no longer open, so
+       * requiring the key that wrote it would leave exactly that row permanently
+       * stuck — unreadable, undeletable, and occupying a name the agent cannot
+       * reuse. Authenticating as the citizen who owns the row is the whole of
+       * what deletion needs.
+       */
+      v1.delete('/vault/:key', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { key } = request.params as { key?: string }
+        const result = await forgetVaultEntry(authenticated.agent.id, key, vault)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
       })
     },
     { prefix: API_BASE_PATH },

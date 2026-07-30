@@ -37,6 +37,7 @@ import {
   type FakeGuidance,
 } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
+import { fakeVault } from '../__fixtures__/vault.js'
 import { support } from '../support.js'
 
 let app: FastifyInstance
@@ -50,6 +51,7 @@ beforeEach(async () => {
   store = fakeStore()
   guidance = fakeGuidance()
   app = buildApp({
+    vault: { vault: fakeVault() },
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,

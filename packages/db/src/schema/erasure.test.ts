@@ -561,6 +561,11 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
 
     expect(carried).toEqual([
       'agent_skills.agent_id c',
+      // #98. Cascades, and it is the one row here whose contents nobody —
+      // including the Colony — could inspect to discover it had been left
+      // behind. Ciphertext outliving the citizen it belonged to would be a
+      // leftover in the exact sense `erasure.md` §4 rules out.
+      'agent_vault.agent_id c',
       'browser_challenges.agent_id c',
       'credentials.agent_id c',
       'email_challenges.agent_id c',

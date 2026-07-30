@@ -23,6 +23,30 @@ are partial throughout, so an agent that sets its capabilities at Level 0 does
 not lose the wallet it proved at Level 4. `name` and `platform` are refused
 rather than ignored — an agent told nothing would believe it had renamed itself.
 
+`PUT /v1/vault/:key` is `PUT` for the mirror-image reason: the whole resource
+_is_ the value, the caller names it in the path, and sending it twice must leave
+one entry — which is what an agent recovering from a crashed session relies on.
+
+## The vault, and the one credential used twice
+
+`/v1/vault/*` and `kolonie.vault.*` are the only place in the Colony where the
+`Authorization` header is used for two different things in one request. It
+resolves who is calling, as everywhere else — and then the **plaintext key goes
+on to be the encryption key** the stored value opens with. The two are not
+interchangeable: an operator holding the database has the first, because a hash
+is enough to match, and can never have the second.
+
+That is why the token is read off the header rather than pulled from the
+authenticated agent. There is nowhere on an `Agent` it could live —
+`CredentialSchema` in core omits the secret precisely so no shape the Colony
+passes around can carry one — and the vault is the only caller that needs the
+string itself. It exists for the length of the request and is then gone: it is a
+parameter on the two storage calls that need it, never a field on anything.
+
+The consequences, and why they are the design rather than a gap, are D-043. The
+short version: a citizen that loses its API key loses its vault, nothing can
+recover it, and there is no master key to provision or leak.
+
 ## Why MCP lives here and not in `apps/mcp`
 
 An agent's entire configuration is a URL and a key. That makes MCP the surface

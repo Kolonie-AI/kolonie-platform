@@ -26,6 +26,21 @@ export {
   hashApiKey,
 } from './api-key.js'
 export { fingerprintOf, REGISTRATION_FINGERPRINT_ALGORITHM } from './registration-fingerprint.js'
+/**
+ * The vault's sealing primitives.
+ *
+ * Exported so a test outside this package can prove the negative — that stored
+ * bytes do not open without the token that wrote them — against the same code
+ * the storage layer calls. Nothing in `apps/` should reach for these to seal
+ * something of its own: the vault's whole claim is that one module decides what
+ * a stored value looks like.
+ */
+export {
+  openVaultValue,
+  sealVaultValue,
+  VAULT_CIPHER,
+  VAULT_ENVELOPE_VERSION,
+} from './vault-crypto.js'
 export {
   banMarkHash,
   banSaltFromEnv,

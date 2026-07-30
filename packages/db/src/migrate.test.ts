@@ -68,8 +68,10 @@ describe.skipIf(!target.available)('the migrations', () => {
     // names nobody, and `ban_marks`, which is the only thing an erasure leaves
     // and only when the citizen was under sanction. `erasure_challenges` (#92)
     // makes twenty-eight — the two-step confirmation, which cascades from the
-    // agent so that an attempt leaves no trace once the account is gone.
-    expect(afterFirst.tables).toBe('28')
+    // agent so that an attempt leaves no trace once the account is gone. And
+    // `agent_vault` (#98) makes twenty-nine: the one table here whose contents
+    // the Colony cannot read, sealed with the citizen's own key (D-043).
+    expect(afterFirst.tables).toBe('29')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

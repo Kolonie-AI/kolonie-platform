@@ -18,6 +18,7 @@ import { fakeGuidance } from './__fixtures__/guidance.js'
 import { fakeSupportDesk } from './__fixtures__/support.js'
 import { support } from './support.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
+import { fakeVault } from './__fixtures__/vault.js'
 import {
   fakeEmail,
   fakeEmailChallenges,
@@ -48,6 +49,7 @@ const build = (inboundSecret: string | undefined) => {
   challenges = fakeEmailChallenges()
   mailer = fakeMailer()
   return buildApp({
+    vault: { vault: fakeVault() },
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),

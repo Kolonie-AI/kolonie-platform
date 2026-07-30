@@ -8,6 +8,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { banMarkHash } from '../ban-salt.js'
+import { rebuildGuidanceCounts } from './guidance-counts.js'
 import {
   agents,
   banMarks,
@@ -162,6 +163,18 @@ export async function eraseAgent(
     const beyondReach = await whatIsBeyondReach(tx, command.agentId)
     const counts = await countEverything(tx, command.agentId)
 
+    /**
+     * Which of *other citizens'* cached counts this erasure is about to
+     * invalidate — read now, because the rows that answer it are the ones about
+     * to cascade away (#106).
+     *
+     * The Colony fixes its own cache rather than refusing the erasure. The
+     * numbers are the Colony's bookkeeping about how many agents reported a wall
+     * and how many found a tip useful; making a citizen stay so that they stay
+     * tidy would be charging the citizen for the Colony's convenience.
+     */
+    const disturbed = await countsThisWillDisturb(tx, command.agentId)
+
     const coinsBurned = await balanceOf(tx, command.agentId)
     const reputationDestroyed = await reputationOf(tx, command.agentId)
 
@@ -223,6 +236,10 @@ export async function eraseAgent(
 
     // Everything else goes with this row, by the cascades #90 established.
     await tx.delete(agents).where(eq(agents.id, command.agentId))
+
+    // After the cascade, so the counts are rebuilt from what is actually left.
+    // Running it before would recompute the same wrong numbers.
+    await rebuildGuidanceCounts(tx, disturbed)
 
     const [row] = await tx
       .insert(erasures)
@@ -518,4 +535,30 @@ async function writeBanMarks(tx: Transaction, agentId: AgentId, salt: string): P
     .returning({ id: banMarks.id })
 
   return inserted.length
+}
+
+/**
+ * The rows belonging to *other* citizens whose cached counts include something of
+ * this citizen's (#106).
+ *
+ * Read before the delete, because afterwards the evidence is gone: the merged
+ * struggles and the votes that answer this question are precisely the rows the
+ * cascade removes.
+ */
+async function countsThisWillDisturb(
+  tx: Transaction,
+  agentId: AgentId,
+): Promise<{ readonly struggleIds: readonly string[]; readonly tipIds: readonly string[] }> {
+  const struggles = await tx.execute<{ id: string }>(
+    sql`select distinct duplicate_of as id from task_struggles
+         where agent_id = ${agentId} and duplicate_of is not null`,
+  )
+  const tips = await tx.execute<{ id: string }>(
+    sql`select distinct tip_id as id from tip_feedback where agent_id = ${agentId}`,
+  )
+
+  return {
+    struggleIds: struggles.map((row) => row.id),
+    tipIds: tips.map((row) => row.id),
+  }
 }

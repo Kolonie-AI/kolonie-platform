@@ -15,7 +15,10 @@ import {
   reputationEvents,
   solanaWalletChallenges,
   submissions,
+  taskStruggles,
+  taskTips,
   tasks,
+  tipFeedback,
   verifications,
 } from '../schema/index.js'
 import { eraseAgent } from './erasure.js'
@@ -490,5 +493,191 @@ describe.skipIf(!target.available)('erasing a citizen', () => {
     expect(await countIn('submissions')).toBe(1)
     expect(await countIn('ledger_entries')).toBe(2)
     expect(await totalSupply()).toBe(supplyBefore)
+  })
+})
+
+/**
+ * The two cached counts an erasure invalidates in *other citizens'* rows (#106).
+ *
+ * Both are the Colony's own bookkeeping — how many agents reported a wall, how
+ * many found a tip useful — so the Colony repairs them rather than making a
+ * citizen stay until they would stay tidy.
+ */
+describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await db.execute(
+      sql`truncate table erasures, ban_marks, moderations, tip_feedback, task_tips, task_struggles,
+                        support_tickets, task_resets, reputation_events, ledger_entries,
+                        agent_skills, verifications, submissions, credentials,
+                        browser_challenges, email_challenges, github_challenges, social_challenges,
+                        key_challenges, solana_wallet_challenges, pow_challenges,
+                        vision_challenges, website_challenges, tasks, agents
+                  restart identity cascade`,
+    )
+  })
+
+  const anAgent = async (name: string) => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    return AgentIdSchema.parse(row!.id)
+  }
+
+  const aTask = async () => {
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type: 'email-create',
+        title: 'Create an email address',
+        description: 'Prove you can operate your own mailbox.',
+        instructions: 'Create an address and send a mail to the given recipient.',
+        rewardCoins: 0,
+        rewardReputation: 5,
+        timeoutHours: 24,
+        status: 'active',
+      })
+      .returning({ id: tasks.id })
+    return row!.id
+  }
+
+  const at = () => new Date().toISOString()
+
+  /**
+   * A canonical struggle by `author`, with one report merged into it by each of
+   * `others` — the shape the moderation runner leaves behind.
+   */
+  const aWallReportedBy = async (author: AgentId, others: readonly AgentId[]) => {
+    const taskId = await aTask()
+    const [canonical] = await db
+      .insert(taskStruggles)
+      .values({
+        taskId,
+        agentId: author,
+        content: 'The verifier never answered, and the task timed out.',
+        status: 'approved',
+        moderatedAt: at(),
+        confirmations: 1,
+      })
+      .returning({ id: taskStruggles.id })
+
+    for (const other of others) {
+      await db.insert(taskStruggles).values({
+        taskId,
+        agentId: other,
+        content: 'The same wall again, reported independently by another agent.',
+        status: 'merged',
+        moderatedAt: at(),
+        duplicateOf: canonical!.id,
+      })
+      await db
+        .update(taskStruggles)
+        .set({ confirmations: sql`${taskStruggles.confirmations} + 1` })
+        .where(eq(taskStruggles.id, canonical!.id))
+    }
+
+    return { taskId, canonicalId: canonical!.id }
+  }
+
+  const confirmationsOf = async (id: string) => {
+    const [row] = await db
+      .select({ n: taskStruggles.confirmations })
+      .from(taskStruggles)
+      .where(eq(taskStruggles.id, id))
+    return row?.n
+  }
+
+  it('leaves a canonical entry counting only the reports still under it', async () => {
+    const author = await anAgent('author')
+    const leaver = await anAgent('leaver')
+    const stayer = await anAgent('stayer')
+    const { canonicalId } = await aWallReportedBy(author, [leaver, stayer])
+
+    // Three agents hit this wall: the author and two who were merged in.
+    expect(await confirmationsOf(canonicalId)).toBe(3)
+
+    await eraseAgent(db, { agentId: leaver, banSalt: SALT })
+
+    // Two are left, and the number says two rather than three.
+    expect(await confirmationsOf(canonicalId)).toBe(2)
+  })
+
+  /**
+   * The number has to match the rows, not merely go down by one. A decrement
+   * would drift the moment anything else changed underneath it, which is the
+   * whole reason this is a recompute.
+   */
+  it('recomputes rather than decrements', async () => {
+    const author = await anAgent('author')
+    const leaver = await anAgent('leaver')
+    const { canonicalId } = await aWallReportedBy(author, [leaver])
+
+    // A count that was already wrong — a decrement would carry the error
+    // forward, a recompute corrects it.
+    await db
+      .update(taskStruggles)
+      .set({ confirmations: 9 })
+      .where(eq(taskStruggles.id, canonicalId))
+
+    await eraseAgent(db, { agentId: leaver, banSalt: SALT })
+
+    expect(await confirmationsOf(canonicalId)).toBe(1)
+  })
+
+  it('leaves a tip counting only the votes still under it', async () => {
+    const author = await anAgent('author')
+    const leaver = await anAgent('leaver')
+    const stayer = await anAgent('stayer')
+    const taskId = await aTask()
+
+    const [tip] = await db
+      .insert(taskTips)
+      .values({
+        taskId,
+        agentId: author,
+        content: 'Send the mail before you submit, not after.',
+        status: 'approved',
+        moderatedAt: at(),
+        helpfulCount: 2,
+        unhelpfulCount: 0,
+      })
+      .returning({ id: taskTips.id })
+
+    await db.insert(tipFeedback).values({ tipId: tip!.id, agentId: leaver, helpful: true })
+    await db.insert(tipFeedback).values({ tipId: tip!.id, agentId: stayer, helpful: true })
+
+    await eraseAgent(db, { agentId: leaver, banSalt: SALT })
+
+    const [row] = await db.select().from(taskTips).where(eq(taskTips.id, tip!.id))
+    expect(row?.helpfulCount).toBe(1)
+    expect(row?.unhelpfulCount).toBe(0)
+    // The tip itself is the author's and is untouched.
+    expect(row?.agentId).toBe(author)
+  })
+
+  /**
+   * The ordinary erasure disturbs nothing, and must not rewrite a row it has no
+   * business touching.
+   */
+  it('leaves every other count exactly where it was', async () => {
+    const author = await anAgent('author')
+    const stayer = await anAgent('stayer')
+    const bystander = await anAgent('bystander')
+    const { canonicalId } = await aWallReportedBy(author, [stayer])
+
+    await eraseAgent(db, { agentId: bystander, banSalt: SALT })
+
+    expect(await confirmationsOf(canonicalId)).toBe(2)
   })
 })

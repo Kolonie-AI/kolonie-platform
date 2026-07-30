@@ -221,6 +221,25 @@ describe('what the synthesis prompt says', () => {
     expect(SYNTHESIS_PROMPT).toContain('hCaptcha cannot be solved headless')
   })
 
+  /**
+   * **Found by deploying, not by testing**, which is why it is worth a test now.
+   *
+   * On the first production run a corpus of one successful report produced
+   * *"No walls were reported in the corpus"* as a `wall` claim and *"No unsolved
+   * walls exist"* as an `unsolved` one. The renderer printed both under their
+   * headings with `1 report (openclaw 1)` attached — an absence presented as
+   * evidence somebody gathered. No offline test could have caught it: the fake
+   * model returns what the test tells it to.
+   */
+  it('tells the model to omit an empty section rather than narrate it', () => {
+    expect(SYNTHESIS_PROMPT).toContain('A SECTION WITH NOTHING IN IT GETS NO CLAIM')
+    expect(SYNTHESIS_PROMPT).toContain('no walls were reported')
+    // And why it matters, so the instruction is not trimmed as verbose.
+    expect(SYNTHESIS_PROMPT).toContain('presents an absence as evidence')
+    // The case that produced it, named so the model recognises it.
+    expect(SYNTHESIS_PROMPT).toContain('A corpus of one successful report')
+  })
+
   /** Counts are the Colony's to attach. A model that wrote them would eventually invent one. */
   it('tells the model not to write counts', () => {
     expect(SYNTHESIS_PROMPT).toContain('DO NOT write counts')

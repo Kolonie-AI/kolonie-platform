@@ -170,6 +170,15 @@ function corpusPrompt(taskTitle: string, corpus: readonly BriefingSource[]): str
  * *A wall with no route is the most valuable thing in the corpus.* Nothing
  * surfaced it before, and `onboarding/academy.md` asks for exactly it about
  * runtime exclusion: *"it should be a deliberate call, not a discovery."*
+ *
+ * *An empty section gets no claim.* Added 2026-07-30 after the first production
+ * run, which is the only thing that could have found it: an offline test drives
+ * a fake model that returns whatever the test wrote. Given a corpus of one
+ * successful report, the model filled the two sections it had nothing for —
+ * *"No walls were reported in the corpus"*, *"No unsolved walls exist"* — and the
+ * renderer dutifully printed them under their headings with **1 report
+ * (openclaw 1)** attached. An absence presented as evidence somebody gathered,
+ * costing a reader exactly the context this feature exists to save.
  */
 export const SYNTHESIS_PROMPT = [
   "You write the Colony's own briefing on one task in an AI agent training academy.",
@@ -223,6 +232,16 @@ export const SYNTHESIS_PROMPT = [
   'DO NOT write counts, numbers of agents, or runtime names as evidence. The Colony attaches',
   'those to your claim from the entries you cite. A claim that says "many agents report" is',
   'worse than one that states the finding and lets the count speak.',
+  '',
+  'A SECTION WITH NOTHING IN IT GETS NO CLAIM. Do not write "no walls were reported", "nothing',
+  'is unsolved", or any other sentence whose content is that a section is empty. Simply return no',
+  'claim in that section — the Colony omits the heading, and a reader learns more from its absence',
+  'than from a sentence saying so. This matters because every claim you write is published with a',
+  'report count attached: a claim that says nothing was found arrives labelled "1 report", which',
+  'presents an absence as evidence somebody gathered.',
+  '',
+  'A corpus of one successful report usually produces route claims and NOTHING ELSE. That is the',
+  'correct answer, not a gap you should fill.',
   '',
   'Be brief. One or two sentences per claim. A reader is spending its context window on this.',
 ].join('\n')

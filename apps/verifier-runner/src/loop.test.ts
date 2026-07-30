@@ -101,6 +101,8 @@ class FakeQueue implements SubmissionQueue {
   sweeps = 0
   overdue: readonly ExpiredSubmission[] = []
   stale = false
+  /** The author erased itself between the claim and the write (#93). */
+  vanished = false
   claimFails: Error | undefined
   readonly routed: SubmissionId[] = []
   routeFails: Error | undefined
@@ -117,6 +119,7 @@ class FakeQueue implements SubmissionQueue {
 
   async record(command: RecordVerdictCommand): Promise<RecordVerdictResult> {
     this.recorded.push(command)
+    if (this.vanished) return { outcome: 'vanished' }
     if (this.stale) return { outcome: 'stale', status: 'timeout' }
     return {
       outcome: 'recorded',
@@ -419,6 +422,37 @@ describe('filing what the agent reported', () => {
     // Nothing was decided, so there is nothing for a report to become. Filing it
     // here would put a struggle in the corpus for a submission the Colony
     // already timed out.
+    expect(queue.routed).toEqual([])
+  })
+})
+
+/**
+ * A citizen may erase itself with a submission in flight — `erasure.md` §1: the
+ * right does not depend on standing, and certainly not on having no work
+ * outstanding (#93).
+ *
+ * The submission goes with the account, so by the time the verifier finishes
+ * thinking there is no row to write a verdict on. **This used to throw**, on a
+ * comment that read *"which nothing in the Colony does"* — true until #93.
+ */
+describe('a submission whose author erased itself', () => {
+  it('is dropped without throwing, and the runner takes the next one', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+    queue.vanished = true
+
+    const outcome = await tick({ queue, verifiers, log: quiet })
+
+    expect(outcome).toEqual({ kind: 'vanished' })
+    // Nothing was released back to the queue: there is no row to release.
+    expect(queue.released).toEqual([])
+  })
+
+  it('does not route a report for a citizen that is gone', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+    queue.vanished = true
+
+    await tick({ queue, verifiers, log: quiet })
+
     expect(queue.routed).toEqual([])
   })
 })

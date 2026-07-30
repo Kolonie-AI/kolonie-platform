@@ -21,6 +21,8 @@ import { fakeVault } from '../__fixtures__/vault.js'
 import { expectedWidth, probeFor } from '../academy.js'
 import type { CaptchaCheck } from '../academy.js'
 import type { AcademyDependencies } from '../academy.js'
+import { fakeErasureDesk } from '../__fixtures__/erasure.js'
+import { erasure } from '../erasure.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -40,6 +42,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: fakeKeys(),
     solana: fakeSolana(),
@@ -187,6 +190,7 @@ describe('POST /v1/academy/challenges', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),
       solana: fakeSolana(),
@@ -512,6 +516,7 @@ describe('when the gate is not configured', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),
       solana: fakeSolana(),
@@ -577,6 +582,7 @@ describe('when the gate is not configured', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),
       solana: fakeSolana(),

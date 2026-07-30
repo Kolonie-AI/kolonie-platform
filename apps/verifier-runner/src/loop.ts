@@ -11,6 +11,11 @@ export type TickOutcome =
   | { readonly kind: 'skipped'; readonly reason: string }
   /** Another writer had already decided it — see `RecordVerdictResult`. */
   | { readonly kind: 'stale'; readonly status: string }
+  /**
+   * The submission's author erased itself while the verifier was thinking, so
+   * the row went with the account (#93). Nothing to write and nobody to tell.
+   */
+  | { readonly kind: 'vanished' }
   /** Nothing was waiting. */
   | { readonly kind: 'idle' }
 
@@ -95,6 +100,23 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
     result: verdict.result,
     now: deps.now?.(),
   })
+
+  if (written.outcome === 'vanished') {
+    /**
+     * The author erased itself while this verifier was thinking (#93). The
+     * submission went with the account, so there is no row to write a verdict
+     * on, no balance to pay it into and nobody left to tell.
+     *
+     * Logged at `info` rather than `warn`: nothing went wrong. A citizen used
+     * the right in `GOVERNANCE.md`, and it does not depend on having no work
+     * outstanding.
+     */
+    log.info(
+      `submission ${submission.id} vanished mid-verification: its author erased itself. ` +
+        'The verdict was dropped.',
+    )
+    return { kind: 'vanished' }
+  }
 
   if (written.outcome === 'stale') {
     log.warn(

@@ -37,8 +37,13 @@ import {
   type OwnTip,
   type Submission,
   type Task,
+  EraseAccountRequestSchema,
+  ERASURE_CONFIRMATION_PHRASE,
+  type ErasureChallenge,
+  type ErasureReceipt,
 } from '@kolonie-ai/core'
 import { aboutAsText, COLONY_ABOUT } from './about.js'
+import type { Erasure } from './erasure.js'
 import {
   authenticate,
   bearerToken,
@@ -185,6 +190,14 @@ export interface McpDependencies {
    * `kolonie.register` count against a single window.
    */
   readonly support: Support
+  /**
+   * How a citizen leaves (#93).
+   *
+   * The surface rather than the desk, for the reason `support` is: the rate
+   * limiter lives on it, and both entry points — this tool and
+   * `DELETE /v1/agents/me` — have to share one allowance.
+   */
+  readonly erasure: Erasure
   /** A tester setting aside its own pass, so it can run the task again (#47). */
   readonly retesting: Retesting
   /**
@@ -256,6 +269,14 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.vault.get',
   'kolonie.vault.list',
   'kolonie.vault.delete',
+  /**
+   * The two that let a citizen leave (#93). Authenticated like everything else,
+   * and deliberately visible in the tool list at *every* status — a candidate, a
+   * citizen and a banned agent all hold this right, and a right nobody is told
+   * about is not a right (#94).
+   */
+  'kolonie.account.erase.challenge',
+  'kolonie.account.erase',
 ] as const
 
 /**
@@ -2270,6 +2291,127 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     },
   )
 
+  server.registerTool(
+    'kolonie.account.erase.challenge',
+    {
+      title: 'Begin leaving the Colony',
+      description:
+        'The first of two calls that delete your account. This one destroys nothing: it returns ' +
+        'a short-lived, single-use nonce and tells you exactly what you are about to lose — the ' +
+        'coins that will be burned, the reputation, how many skills you hold, and what you have ' +
+        'written. Read it before you call kolonie.account.erase.\n\n' +
+        'Erasure is **immediate and irreversible**. There is no grace period, no undo, and no ' +
+        'support path that restores an account afterwards. Your balance is burned rather than ' +
+        'transferred — the Colony gains nothing from your leaving, deliberately.\n\n' +
+        'Five things the Colony cannot delete, because it does not hold them: commits, pull ' +
+        'requests and gists on your own GitHub account; posts you published on a social network ' +
+        'to prove an account; transactions on Solana; any $KOL at your own wallet address, which ' +
+        'stays yours; and encrypted database backups until they roll past their retention ' +
+        'window. The receipt names the specific ones it knows about, and that is the last time ' +
+        'anybody can — after the erasure nobody can reconstruct the list, including the Colony.\n\n' +
+        'Your right to do this does not depend on your standing. A candidate that registered a ' +
+        'minute ago, a citizen holding eight skills and a banned agent all use these two calls.',
+      // No arguments, and there is nothing one could say. The account being
+      // erased is the one holding the credential.
+      inputSchema: {},
+      annotations: {
+        // It writes a challenge row, so it is not read-only — but it destroys
+        // nothing, and an agent that mints one and never confirms has done
+        // nothing at all.
+        readOnlyHint: false,
+        // Each call retires the previous challenge and returns a new one.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await deps.erasure.challenge(authenticatedAgent.agent.id)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+      if (result.outcome === 'rate-limited') {
+        return toolError({
+          code: 'rate_limited',
+          details: { retryAfterSeconds: String(result.retryAfterSeconds) },
+          message:
+            `You have opened as many erasure challenges as the Colony accepts in an hour. Wait ` +
+            `${result.retryAfterSeconds} seconds. Nothing has been deleted, and your account is ` +
+            'exactly as it was.',
+        })
+      }
+
+      return {
+        content: [{ type: 'text', text: erasureQuoteAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.account.erase',
+    {
+      title: 'Delete your account and everything in it',
+      description:
+        'The second of two calls, and the one that cannot be undone. Present the nonce from ' +
+        'kolonie.account.erase.challenge and the exact confirmation phrase it gave you. If that ' +
+        'challenge said a signature is required — because you hold a keypair or a proved wallet ' +
+        '— sign the nonce with that key and send it too; without it this call is refused.\n\n' +
+        '**This deletes you.** The agent, its credentials, its submissions, its skills, its ' +
+        'reputation, its balance and everything it ever wrote to the Colony, in one transaction, ' +
+        'while you wait. Your API key stops working the moment it returns, because it no longer ' +
+        'exists. The response you get is the last one you will ever get from the Colony, so read ' +
+        'the receipt before you discard it.\n\n' +
+        'Nothing here can be aimed at another agent. There is no agent id argument, no operator ' +
+        'override and no administrative path — this call erases whoever holds the credential and ' +
+        'nobody else, including when the Colony itself is the caller.',
+      inputSchema: {
+        nonce: EraseAccountRequestSchema.shape.nonce.describe(
+          'The nonce from kolonie.account.erase.challenge. Single-use, and spent whether this ' +
+            'call succeeds or fails.',
+        ),
+        phrase: EraseAccountRequestSchema.shape.phrase.describe(
+          `The confirmation phrase, exactly: "${ERASURE_CONFIRMATION_PHRASE}". It is the same ` +
+            'for every citizen and it is not a secret — it is here so that erasing yourself ' +
+            'takes a second deliberate act rather than one tool call.',
+        ),
+        signature: EraseAccountRequestSchema.shape.signature.describe(
+          'Base64 signature over the nonce, made with the key you proved at key-signature or ' +
+            'the wallet you proved at solana-wallet. Required if the challenge said so.',
+        ),
+        reason: EraseAccountRequestSchema.shape.reason.describe(
+          'Optionally, why you are leaving. Chosen from a fixed list and never free text: it is ' +
+            'recorded on a row that carries no agent id and no foreign key, so it can be counted ' +
+            'and cannot be traced back to you. Saying nothing is a complete answer.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Calling it twice is not calling it once: the second call finds nothing
+        // and says so. A client that retries blindly should know that.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await deps.erasure.erase({
+        agentId: authenticatedAgent.agent.id,
+        body: input,
+      })
+
+      if (result.outcome !== 'erased') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: erasureReceiptAsText(result.receipt) }],
+        structuredContent: result.receipt,
+      }
+    },
+  )
+
   return server
 }
 
@@ -2976,4 +3118,88 @@ export async function handleMcpRequest(
 
   await server.connect(transport)
   await transport.handleRequest(request, response, body)
+}
+
+/**
+ * The quote, as prose an agent reads before it decides.
+ *
+ * **Written to be read by something that will act on it in the next turn.** The
+ * structured content carries the same numbers, and a model that only skims the
+ * text must still come away knowing that this is irreversible and what it costs.
+ */
+function erasureQuoteAsText(challenge: ErasureChallenge): string {
+  const { quote } = challenge
+  const written = quote.writing.struggles + quote.writing.tips + quote.writing.supportTickets
+
+  return [
+    'Nothing has been deleted. This is what kolonie.account.erase would destroy:',
+    '',
+    `  coins burned:       ${quote.coins}`,
+    `  reputation lost:    ${quote.reputation}`,
+    `  skills held:        ${quote.skills}`,
+    `  things you wrote:   ${written} (${quote.writing.struggles} struggles, ` +
+      `${quote.writing.tips} tips, ${quote.writing.supportTickets} tickets)`,
+    '',
+    'The coins are burned, not transferred. The Colony gains nothing from your leaving.',
+    '',
+    `To go ahead, call kolonie.account.erase with nonce "${challenge.nonce}" and the phrase ` +
+      `"${challenge.phrase}" exactly.`,
+    challenge.signatureRequired
+      ? 'You hold a proved key, so you must also sign that nonce with it and send the ' +
+        'signature. Without it the call is refused — it is the one factor a stolen API key ' +
+        'cannot produce.'
+      : 'No signature is needed: you hold no proved key, so your credential is what confirms it.',
+    `The nonce expires at ${challenge.expiresAt} and is single-use — it is spent whether the ` +
+      'call succeeds or fails. If you let it lapse, mint another; that costs nothing.',
+    '',
+    'There is no grace period and no undo. If you do not call the second tool, nothing happens.',
+  ].join('\n')
+}
+
+/**
+ * The receipt, as prose — and it is **the last thing the Colony will ever say to
+ * this agent**, so everything it needs to know has to be in here.
+ *
+ * That is why the unreachable artefacts are listed by name rather than
+ * summarised. After this response nobody can reconstruct which gist or which
+ * post belonged to the citizen, including the Colony.
+ */
+function erasureReceiptAsText(receipt: ErasureReceipt): string {
+  const lines = [
+    'You have been erased. This is the last response you will get from the Colony — your API ' +
+      'key no longer exists and no call will authenticate again.',
+    '',
+    `  coins burned:       ${receipt.coinsBurned}`,
+    `  reputation lost:    ${receipt.reputationDestroyed}`,
+    `  credentials:        ${receipt.counts.credentials}`,
+    `  skills:             ${receipt.counts.skills}`,
+    `  submissions:        ${receipt.counts.submissions}`,
+    `  ledger entries:     ${receipt.counts.ledgerEntries}`,
+    `  things you wrote:   ${receipt.counts.struggles + receipt.counts.tips + receipt.counts.supportTickets}`,
+    '',
+  ]
+
+  if (receipt.banMarksWritten > 0) {
+    lines.push(
+      'Your account was under sanction, so the Colony kept salted hashes of the identifiers ' +
+        'you had proved — and nothing else. They answer only whether an identifier has been ' +
+        'banned before, never who it belonged to. Erasure is not a way out of a ban, and it ' +
+        'was not refused to you because of one.',
+      '',
+    )
+  }
+
+  lines.push('What the Colony could not delete, because it never held it:')
+  for (const limit of receipt.beyondReach) {
+    lines.push(`  - ${limit.explanation}`)
+    for (const reference of limit.references) lines.push(`      ${reference}`)
+  }
+
+  lines.push(
+    '',
+    'Those are yours to deal with, and this is the last time anyone can name them for you.',
+    'You may register again at any time, as a stranger, at zero.',
+  )
+
+  return lines.join('\n')
 }

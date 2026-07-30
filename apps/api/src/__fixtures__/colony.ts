@@ -44,6 +44,8 @@ import { fakeSubmissions } from './submissions.js'
 import { fakeGuidance, type FakeGuidance } from './guidance.js'
 import { fakeSupportDesk, type FakeSupportDesk } from './support.js'
 import { support as supportSurface, type Support } from '../support.js'
+import { fakeErasureDesk, type FakeErasureDesk } from './erasure.js'
+import { erasure as erasureSurface, type Erasure } from '../erasure.js'
 import type { Retesting } from '../retest.js'
 import type { ResetResult } from '@kolonie-ai/db'
 
@@ -96,6 +98,15 @@ export interface FakeColony {
    */
   readonly support: Support
   readonly desk: FakeSupportDesk
+  /**
+   * The erasure surface, plus the desk behind it.
+   *
+   * Both, for the reason `support` gives: `erasure` is what the tools and routes
+   * are wired to, and `erasureDesk` is how a test says *refuse the next
+   * confirmation* or asserts which agent id actually reached the transaction.
+   */
+  readonly erasure: Erasure
+  readonly erasureDesk: FakeErasureDesk
   readonly retesting: Retesting
   /** What the next reset answers. Defaults to `not-a-tester`. */
   readonly allowRetest: (outcome: ResetResult) => void
@@ -144,6 +155,7 @@ export interface FakeColony {
 export function fakeColony(): FakeColony {
   const byKey = new Map<string, { agent: Agent; revoked: boolean }>()
   const desk = fakeSupportDesk()
+  const erasureDesk = fakeErasureDesk()
   let resets: ResetResult = { outcome: 'not-a-tester' }
   const balances = new Map<string, AgentBalance>()
   // Held rather than built inline, because two things read it: the wallet
@@ -209,6 +221,8 @@ export function fakeColony(): FakeColony {
     guidance: fakeGuidance(),
     support: supportSurface({ desk }),
     desk,
+    erasure: erasureSurface({ desk: erasureDesk }),
+    erasureDesk,
     /**
      * Re-testing, in memory. Refuses everything by default: `not-a-tester` is what an
      * ordinary agent gets, so a test that does not care about the tester role never

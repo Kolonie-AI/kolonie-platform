@@ -14,6 +14,8 @@ import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
 import { fakeGuidance } from './__fixtures__/guidance.js'
 import { fakeSupportDesk } from './__fixtures__/support.js'
+import { fakeErasureDesk } from './__fixtures__/erasure.js'
+import { erasure } from './erasure.js'
 import { support } from './support.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeEmail } from './__fixtures__/email.js'
@@ -30,6 +32,7 @@ beforeAll(async () => {
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     keys: fakeKeys(),

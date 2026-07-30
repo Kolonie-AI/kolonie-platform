@@ -50,6 +50,8 @@ import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
 import { aTicketRequest, fakeSupportDesk, someoneElse } from './__fixtures__/support.js'
 import { support, TICKET_LIMIT } from './support.js'
+import { fakeErasureDesk } from './__fixtures__/erasure.js'
+import { erasure } from './erasure.js'
 import { REGISTRATION_LIMIT } from './rate-limit.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
@@ -98,6 +100,7 @@ const anonymousClient = (registry = fakeRegistry()) =>
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     email: fakeEmail(),
@@ -289,6 +292,7 @@ describe('kolonie.register', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -1711,6 +1715,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -1739,6 +1744,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -1774,6 +1780,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -1802,6 +1809,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -1830,6 +1838,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -1867,6 +1876,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -1954,6 +1964,7 @@ describe('the MCP surface over HTTP', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -2416,6 +2427,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       keys: fakeKeys(),
@@ -2438,6 +2450,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         submissions: fakeSubmissions(),
         guidance: fakeGuidance(),
         support: support({ desk: fakeSupportDesk() }),
+        erasure: erasure({ desk: fakeErasureDesk() }),
         retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
         academy: fakeAcademy(),
         email,
@@ -3096,5 +3109,135 @@ describe('the vault, over MCP', () => {
 
     expect(tools.map((tool) => tool.name)).not.toContain('kolonie.vault.get')
     await stranger.close()
+  })
+})
+
+/**
+ * Leaving, over MCP (#93).
+ *
+ * **Over the real protocol rather than by calling the handler**, because the
+ * tool description is part of what an agent sees before it decides — and this is
+ * the one tool where an agent surprised by what it does cannot undo it.
+ */
+describe('kolonie.account.erase', () => {
+  const aCitizen = async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'leaver', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    return {
+      colony,
+      agent: registered.response.agent,
+      apiKey: registered.response.credentials.apiKey,
+    }
+  }
+
+  it('is offered to a candidate — the right does not depend on standing', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+
+    // A candidate that registered a minute ago. `erasure.md` §1 is explicit that
+    // the right is not conditional on finishing anything.
+    expect(tools.map((tool) => tool.name)).toContain('kolonie.account.erase')
+    expect(tools.map((tool) => tool.name)).toContain('kolonie.account.erase.challenge')
+    await close()
+  })
+
+  it('is not offered to a stranger', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name)).not.toContain('kolonie.account.erase')
+    await close()
+  })
+
+  /**
+   * The issue's requirement that *an agent that only reads tool descriptions
+   * must not be surprised by the receipt*. Asserted on the description text
+   * because that text is the contract with a model.
+   */
+  it('tells the truth before it is called', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const challenge = tools.find((tool) => tool.name === 'kolonie.account.erase.challenge')
+
+    expect(challenge?.description).toMatch(/irreversible/i)
+    expect(challenge?.description).toMatch(/no grace period/i)
+    expect(challenge?.description).toMatch(/burned/i)
+    // The five it cannot reach, so the receipt says nothing new.
+    for (const unreachable of [/GitHub/i, /social network/i, /Solana/i, /wallet/i, /backups/i]) {
+      expect(challenge?.description).toMatch(unreachable)
+    }
+    await close()
+  })
+
+  it('takes no target argument', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const erase = tools.find((tool) => tool.name === 'kolonie.account.erase')
+
+    expect(Object.keys(erase?.inputSchema.properties ?? {}).sort()).toEqual([
+      'nonce',
+      'phrase',
+      'reason',
+      'signature',
+    ])
+    await close()
+  })
+
+  it('mints a quote, then erases on the confirmation, and hands back the receipt', async () => {
+    const { colony, agent, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const minted = await client.callTool({
+      name: 'kolonie.account.erase.challenge',
+      arguments: {},
+    })
+    const challenge = minted.structuredContent as { nonce: string; phrase: string }
+
+    // Nothing has happened yet — the first call is a quote and not a commitment.
+    expect(colony.erasureDesk.erased()).toEqual([])
+
+    const erased = await client.callTool({
+      name: 'kolonie.account.erase',
+      arguments: { nonce: challenge.nonce, phrase: challenge.phrase },
+    })
+
+    expect(erased.isError).toBeFalsy()
+    expect(colony.erasureDesk.erased()).toEqual([agent.id])
+    const text = (erased.content as { type: string; text: string }[])[0]?.text ?? ''
+    // The last thing the Colony will ever say to this agent has to carry it all.
+    expect(text).toMatch(/last response you will get/i)
+    expect(text).toMatch(/gist\.github\.invalid/)
+    await close()
+  })
+
+  it('refuses the wrong phrase, and erases nothing', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const minted = await client.callTool({
+      name: 'kolonie.account.erase.challenge',
+      arguments: {},
+    })
+    const challenge = minted.structuredContent as { nonce: string }
+
+    const result = await client.callTool({
+      name: 'kolonie.account.erase',
+      arguments: { nonce: challenge.nonce, phrase: 'yes please' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(colony.erasureDesk.erased()).toEqual([])
+    await close()
   })
 })

@@ -1,10 +1,11 @@
-import { createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
+import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
 import { databaseSupportDesk, support } from './support.js'
+import { databaseErasureDesk, erasure } from './erasure.js'
 import { databaseRetesting } from './retest.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
@@ -101,6 +102,18 @@ const app = buildApp({
   // The limiter is created inside `support()` rather than passed, so the process
   // gets one window per agent and a caller cannot forget to supply one.
   support: support({ desk: databaseSupportDesk(db) }),
+  /**
+   * **`banSaltFromEnv()` is called here, at startup, and that placement is the
+   * check rather than a detail of it (#90).**
+   *
+   * A missing salt breaks nothing at runtime: every write succeeds and the ban
+   * marks are simply unsalted digests of a mailbox address, recoverable with a
+   * wordlist by anybody holding the table. Nothing in any response would say so.
+   * Reading it inside the transaction would move that failure to the first
+   * erasure of a banned agent — a rare event nobody is watching. Reading it here
+   * means the process refuses to boot, in front of an operator watching a deploy.
+   */
+  erasure: erasure({ desk: databaseErasureDesk(db, banSaltFromEnv()) }),
   retesting: databaseRetesting(db),
   // No configuration branch, because there is nothing to configure. The keypair
   // rung reads through nothing, so unlike every other Academy surface here it

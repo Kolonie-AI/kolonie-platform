@@ -18,6 +18,8 @@ import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocialChallenges, type FakeSocialChallenges } from '../__fixtures__/social.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeVault } from '../__fixtures__/vault.js'
+import { fakeErasureDesk } from '../__fixtures__/erasure.js'
+import { erasure } from '../erasure.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -37,6 +39,7 @@ beforeEach(async () => {
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: fakeKeys(),
     solana: fakeSolana(),

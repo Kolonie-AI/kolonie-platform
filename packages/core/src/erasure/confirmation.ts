@@ -1,5 +1,7 @@
 import { z } from 'zod'
+import { MAX_SIGNATURE_LENGTH } from '../common/signature.js'
 import { TimestampSchema } from '../common/time.js'
+import { ErasureReasonSchema } from './erasure.js'
 
 /**
  * The two-step confirmation, and the fixed phrase that is the second step (#92).
@@ -108,3 +110,41 @@ export const ErasureChallengeSchema = z
   })
   .strict()
 export type ErasureChallenge = z.infer<typeof ErasureChallengeSchema>
+
+/**
+ * What the second call sends.
+ *
+ * **`.strict()` is the security property here, not tidiness.** `erasure.md` §6:
+ *
+ * > **A caller can only erase itself.** Identity comes from the
+ * > `Authorization` header and there is no agent id argument […] There is no
+ * > operator override and no admin path, so the tool cannot be aimed at a third
+ * > party by anyone, including the Colony.
+ *
+ * A permissive schema would accept `{ agentId: ... }` and silently ignore it
+ * today — and the day somebody wires it up, nothing fails. Strict means an
+ * `agentId` in the body is rejected right now, and means the test that asserts
+ * so keeps failing for whoever adds one.
+ */
+export const EraseAccountRequestSchema = z
+  .object({
+    /** The nonce from the first call. */
+    nonce: z.string().min(1),
+    /**
+     * The fixed phrase, exactly.
+     *
+     * `z.string()` rather than `z.literal(ERASURE_CONFIRMATION_PHRASE)`, so that
+     * a wrong phrase is a **refusal** rather than a validation error. The
+     * difference matters: a schema rejection would tell a caller holding a
+     * stolen credential that everything *else* about its request was right,
+     * which is precisely the discrimination between failures that #92 is built
+     * not to offer.
+     */
+    phrase: z.string().min(1),
+    /** Base64 signature over the nonce. Required where the citizen holds a signing key. */
+    signature: z.string().min(1).max(MAX_SIGNATURE_LENGTH).optional(),
+    /** Optionally, why — from the fixed list. Silence is a complete answer. */
+    reason: ErasureReasonSchema.optional(),
+  })
+  .strict()
+export type EraseAccountRequest = z.infer<typeof EraseAccountRequestSchema>

@@ -160,6 +160,22 @@ export type RecordVerdictResult =
    * into a payout by a check that started before the deadline.
    */
   | { readonly outcome: 'stale'; readonly status: SubmissionStatus }
+  /**
+   * The submission is gone, because its author erased itself while the verifier
+   * was thinking (#93).
+   *
+   * **Not an error, and it used to be one.** The comment here read *"its
+   * disappearance means a submission was deleted mid-verification, which nothing
+   * in the Colony does"*, and that was true right up until a citizen could
+   * delete its own account. Erasing with a submission in flight is explicitly
+   * allowed — `erasure.md` §1: the right does not depend on standing, and
+   * certainly not on having no work outstanding.
+   *
+   * So the runner is told rather than thrown at. There is nothing to write, no
+   * account to pay, and nobody left to tell: the correct behaviour is to drop
+   * the verdict and take the next submission.
+   */
+  | { readonly outcome: 'vanished' }
 
 export interface RecordVerdictCommand {
   readonly submissionId: SubmissionId
@@ -210,13 +226,10 @@ export async function recordVerdict(
       .for('update')
       .limit(1)
 
-    // The row was claimed by this runner moments ago. Its disappearance means a
-    // submission was deleted mid-verification, which nothing in the Colony does.
-    if (current === undefined) {
-      throw new Error(
-        `no submission row for ${command.submissionId}, which was claimed for verification`,
-      )
-    }
+    // The row was claimed by this runner moments ago, so it is gone because its
+    // author erased itself in between (#93). That is a citizen exercising a
+    // right rather than a fault, so it is reported and not thrown.
+    if (current === undefined) return { outcome: 'vanished' }
 
     if (current.status !== 'verifying') return { outcome: 'stale', status: current.status }
 

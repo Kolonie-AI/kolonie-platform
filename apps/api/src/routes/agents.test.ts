@@ -21,6 +21,8 @@ import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeVault } from '../__fixtures__/vault.js'
+import { fakeErasureDesk } from '../__fixtures__/erasure.js'
+import { erasure } from '../erasure.js'
 
 let app: FastifyInstance
 
@@ -34,6 +36,7 @@ const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     keys: fakeKeys(),

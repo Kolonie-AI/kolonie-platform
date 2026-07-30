@@ -16,6 +16,7 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
   citizenForGithubAuthor,
+  citizenForPaymentTxid,
   claimNextSubmission,
   expireOverdueSubmissions,
   recordVerdict,
@@ -723,6 +724,129 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       // answer — turning the rule into a way of stealing a level rather than a
       // way of preventing one being farmed.
       expect(await citizenForGithubAuthor(db, 'octocat')).toBe(first)
+    })
+  })
+
+  describe('one payment certifies one earning', () => {
+    const TXID = '5wHu1qwD4kLmNbVcXzAsDfGhJkLpQwErTyUiOpAsDfGhJkLzXcVbNmQwErTyUiOp'
+    const OTHER_TXID = '3zZzQqWwEeRrTtYyUuIiOoPpAaSsDdFfGgHhJjKkLlZzXxCcVvBbNnMm11223344'
+
+    /** A task granting `payment`, which is what all four earning rungs grant. */
+    const anEarningTask = (type: string): Promise<TaskId> => aTask({ type, grants: ['payment'] })
+
+    const earnedWith = async (options: {
+      readonly txid: string
+      readonly agentId?: AgentId
+      readonly taskType?: string
+      readonly status?: 'pass' | 'fail'
+      readonly createdAt?: string
+      readonly grant?: boolean
+    }): Promise<AgentId> => {
+      const agent = options.agentId ?? (await anAgent())
+      const taskType = options.taskType ?? 'api-monetize'
+      const status = options.status ?? 'pass'
+      const submissionId = await aSubmission({
+        agentId: agent,
+        taskId: await anEarningTask(taskType),
+        status: status === 'pass' ? 'passed' : 'failed',
+        ...terminalFields(status === 'pass' ? 'passed' : 'failed'),
+      })
+      await db.insert(verifications).values({
+        submissionId,
+        taskType,
+        status,
+        evidence: 'written by a fixture',
+        metadata: { txid: options.txid },
+        ...(options.createdAt === undefined ? {} : { createdAt: options.createdAt }),
+      })
+      if (options.grant !== false) {
+        await db
+          .insert(agentSkills)
+          .values({ agentId: agent, skill: 'payment', submissionId })
+          .onConflictDoNothing()
+      }
+      return agent
+    }
+
+    it('answers with nobody for a transaction never submitted here', async () => {
+      expect(await citizenForPaymentTxid(db, TXID)).toBeUndefined()
+    })
+
+    it('names the citizen a transaction has already earned for', async () => {
+      const agentId = await earnedWith({ txid: TXID })
+
+      expect(await citizenForPaymentTxid(db, TXID)).toBe(agentId)
+    })
+
+    /**
+     * **The reason this reads verdicts and not grants**, and the case that would
+     * be silently wrong if it did.
+     *
+     * Four tasks share one skill. A citizen granted `payment` by `api-monetize`
+     * is granted nothing new when it clears `bounty-hunter`, so no
+     * `agent_skills` row is written for the second — `grantSkills` is
+     * `on conflict do nothing`. A guard reading grants the way
+     * `citizenForGithubAuthor` does would never learn that the second
+     * transaction was spent, and `workflow-seller` would take it again.
+     */
+    it('spends a transaction even when the pass granted nothing new', async () => {
+      const agentId = await earnedWith({ txid: TXID })
+      await earnedWith({
+        txid: OTHER_TXID,
+        agentId,
+        taskType: 'bounty-hunter',
+        // The agent already holds `payment`. This is what the real path writes.
+        grant: false,
+      })
+
+      expect(await citizenForPaymentTxid(db, OTHER_TXID)).toBe(agentId)
+    })
+
+    it('ignores a verdict that did not pass', async () => {
+      await earnedWith({ txid: TXID, status: 'fail', grant: false })
+
+      // A failed attempt does not spend the transaction. An agent that
+      // submitted a txid before it confirmed must be able to submit it again.
+      expect(await citizenForPaymentTxid(db, TXID)).toBeUndefined()
+    })
+
+    it('does not fold case, because base58 is case-sensitive', async () => {
+      await earnedWith({ txid: TXID })
+
+      // Unlike a GitHub login. `5wHu…` and `5WHU…` are different signatures,
+      // and treating them as one would refuse an honest second payment.
+      expect(await citizenForPaymentTxid(db, TXID.toUpperCase())).toBeUndefined()
+    })
+
+    it('gives the transaction to whoever claimed it first', async () => {
+      const first = await earnedWith({ txid: TXID, createdAt: '2026-07-01T00:00:00.000Z' })
+      const second = await earnedWith({
+        txid: TXID,
+        taskType: 'workflow-seller',
+        createdAt: '2026-07-02T00:00:00.000Z',
+      })
+
+      expect(await citizenForPaymentTxid(db, TXID)).toBe(first)
+      expect(await citizenForPaymentTxid(db, TXID)).not.toBe(second)
+    })
+
+    it('is unbothered by a verdict that recorded no metadata at all', async () => {
+      const submissionId = await aSubmission({
+        taskId: await anEarningTask('api-monetize'),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      await db.insert(verifications).values({
+        submissionId,
+        taskType: 'api-monetize',
+        status: 'pass',
+        evidence: 'written by a fixture',
+        metadata: null,
+      })
+
+      // `metadata` is nullable and `->>` on null is null rather than an error.
+      // A query that threw here would take down every earning verdict at once.
+      expect(await citizenForPaymentTxid(db, TXID)).toBeUndefined()
     })
   })
 })

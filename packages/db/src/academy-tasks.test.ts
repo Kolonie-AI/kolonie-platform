@@ -46,6 +46,17 @@ describe('the Academy task definitions', () => {
        * could never say where the funds came from.
        */
       'solana-wallet',
+      /**
+       * The first earning rung, directly above the wallet it reads payments at
+       * (#61). It is one of four tasks that will grant the single `payment`
+       * skill — the Colony cannot tell an API payment from a bounty payout
+       * on-chain, so four skills would be four claims minted from one fact.
+       *
+       * `draft` until the runner can reach an RPC endpoint. Unlike the rung
+       * below, "deployed" and "can decide" are two facts here, because a payment
+       * cannot be proved without reading the chain.
+       */
+      'api-monetize',
       // The third root, and the second an agent with no browser can take (#37).
       // It is the only task that asks the agent to spend a resource of its own.
       'proof-of-work',

@@ -495,6 +495,60 @@ export async function citizenForGithubAuthor(
 }
 
 /**
+ * Which citizen, if any, has already cleared an earning rung on this payment.
+ *
+ * One transaction is one earning. `api-monetize`, `bounty-hunter`,
+ * `workflow-seller` and `solana-trader` all read a payment landing at the
+ * address `solana-wallet` established, and without this a citizen offers the
+ * same transaction to each of them in turn.
+ *
+ * **It reads verdicts and not grants, which is the opposite of
+ * {@link citizenForGithubAuthor}, and the difference is worth stating because
+ * the two look like they should match.** That query reads `agent_skills`
+ * because on the GitHub rung one account claim coincides with one grant, so the
+ * grant is a complete record of which logins are spoken for. Here four tasks
+ * share one skill: a citizen granted `payment` by `api-monetize` is granted
+ * nothing new when it passes `bounty-hunter`, no `agent_skills` row is written,
+ * and a guard reading grants would never learn that the second transaction was
+ * spent. The third rung would accept it again, silently — the failure mode #42
+ * was filed about, arriving by the other door.
+ *
+ * **There is no task filter at all**, and that is not laxity. A signature is
+ * globally unique and namespaced by nothing, so there is no second meaning of
+ * "this transaction" for a filter to keep apart, and a query with no filter has
+ * nothing that can drift when the graph changes under it — which is the property
+ * `citizenForGithubAuthor` needs three paragraphs to buy by other means.
+ *
+ * No case folding: base58 is case-sensitive and `Abc…` and `abc…` are different
+ * signatures, unlike GitHub logins.
+ *
+ * The oldest claim wins. Two citizens racing the same transaction is what this
+ * exists to stop, and "whichever row was looked at first" is not an ordering.
+ */
+export async function citizenForPaymentTxid(
+  db: Database,
+  txid: string,
+): Promise<AgentId | undefined> {
+  const [claimed] = await db
+    .select({ agentId: submissions.agentId, createdAt: verifications.createdAt })
+    .from(verifications)
+    .innerJoin(submissions, eq(submissions.id, verifications.submissionId))
+    .where(
+      and(
+        eq(verifications.status, 'pass'),
+        // The key is `txid`, and `PAYMENT_TXID_KEY` in `packages/verifiers` is
+        // where the verifier writes it. The two cannot be typechecked against
+        // each other, so they are commented at each other instead.
+        sql`${verifications.metadata}->>'txid' = ${txid}`,
+      ),
+    )
+    .orderBy(asc(verifications.createdAt))
+    .limit(1)
+
+  return claimed === undefined ? undefined : AgentIdSchema.parse(claimed.agentId)
+}
+
+/**
  * Which citizen, if any, has already earned `social` with this account.
  *
  * `citizenForGithubAuthor` one function up, for the rung `kolonie-docs#49` added,

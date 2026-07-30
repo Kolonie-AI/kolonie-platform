@@ -6,6 +6,8 @@ import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
 import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
+import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
+import type { PaymentClaims, SolanaAddresses, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
 import { VisionCapabilityVerifier, type VisionChallenges } from './vision-capability.js'
 import { EmailRoundtripVerifier, type EmailRoundtrips } from './email-roundtrip.js'
@@ -107,6 +109,24 @@ export {
   type SocialReader,
   type SocialReadResult,
 } from './social.js'
+export { EARNING_RUNGS, SolanaEarningVerifier, type EarningRung } from './solana-earning.js'
+export {
+  creditTo,
+  formatAmount,
+  isTransactionSignature,
+  MINIMUM_LAMPORTS,
+  MINIMUM_USDC_UNITS,
+  PAYMENT_TXID_KEY,
+  USDC_MINT,
+  type CreditOutcome,
+  type PaymentClaims,
+  type SolanaAddresses,
+  type SolanaReadResult,
+  type SolanaRpc,
+  type SolanaTokenBalance,
+  type SolanaTransaction,
+} from './solana-payment.js'
+export { DEFAULT_SOLANA_RPC_URL, httpSolanaRpc, SOLANA_RPC_URL_VAR } from './solana-rpc.js'
 export { hasMarkerLine, isMarkerLine } from './marker.js'
 export {
   GITHUB_VERIFIER_TOKEN_VAR,
@@ -173,6 +193,22 @@ export interface VerifierDependencies {
    * would hand out a `wallet` skill for a PEM key that never touched a chain.
    */
   readonly wallets?: SolanaWallets
+  /**
+   * Reads a transaction on Solana. Needs no credential, unlike every other
+   * outward reader here — see `solana-rpc.ts` for why that matters.
+   */
+  readonly solana?: SolanaRpc
+  /**
+   * Answers which address a citizen proved at the wallet rung.
+   *
+   * Its own port rather than a method on `wallets`, which answers about a
+   * *challenge* for the rung below. These are the two halves of the same table
+   * read for different rungs, and keeping them apart is what stops an earning
+   * verdict resting on an unverified attempt.
+   */
+  readonly solanaAddresses?: SolanaAddresses
+  /** Answers whether a transaction has already carried somebody past an earning rung. */
+  readonly paymentClaims?: PaymentClaims
   /**
    * Answers what the Colony recorded about an agent's proof-of-work challenge.
    *
@@ -250,6 +286,28 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.wallets !== undefined) {
     verifiers.push(new SolanaWalletVerifier({ wallets: deps.wallets }))
+  }
+
+  /**
+   * All three or none. An earning verdict rests on the chain saying a payment
+   * landed, on the Colony knowing which address is the citizen's, and on the
+   * transaction not having been spent already — and a rung built without the
+   * last of those would pass the same payment four times.
+   */
+  if (
+    deps.solana !== undefined &&
+    deps.solanaAddresses !== undefined &&
+    deps.paymentClaims !== undefined
+  ) {
+    for (const rung of EARNING_RUNGS) {
+      verifiers.push(
+        new SolanaEarningVerifier(rung, {
+          rpc: deps.solana,
+          addresses: deps.solanaAddresses,
+          claims: deps.paymentClaims,
+        }),
+      )
+    }
   }
 
   if (deps.work !== undefined) {

@@ -1,5 +1,6 @@
 import {
   citizenForGithubAuthor,
+  citizenForPaymentTxid,
   citizenForSocialAccount,
   createDatabase,
   databaseUrlFromEnv,
@@ -16,6 +17,7 @@ import {
   openSocialNonces,
   socialAccountOf,
   openWebsiteTokens,
+  verifiedSolanaAddress,
 } from '@kolonie-ai/db'
 import { AgentIdSchema } from '@kolonie-ai/core'
 import {
@@ -24,9 +26,11 @@ import {
   GITHUB_VERIFIER_TOKEN_VAR,
   httpGitHubReader,
   httpSocialReader,
+  httpSolanaRpc,
   MASTODON_INSTANCES_VAR,
   mastodonAdapter,
   parseMastodonInstances,
+  SOLANA_RPC_URL_VAR,
 } from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
 import { startRunner, type Log } from './loop.js'
@@ -98,6 +102,26 @@ const verifiers = createVerifiers({
   // an outage could take down — which is what the earlier testnet design, where
   // the agent had to send a funded transaction, could not offer.
   wallets: { latest: (agentId) => latestSolanaChallenge(db, AgentIdSchema.parse(agentId)) },
+  /**
+   * The earning rungs above the wallet, and the one place in the Academy that
+   * reads the chain (`#61`, `#63`, `#64`).
+   *
+   * **Unconfigured is a working default here, unlike the GitHub token**, because
+   * Solana's public mainnet endpoint needs no credential. That is what lets
+   * these rungs ship without an infra ticket in front of them. It is
+   * rate-limited, and when the Colony outgrows it the symptom is `unavailable`
+   * — which re-queues the submission rather than failing an agent — so the fix
+   * is a deploy and never an incident.
+   *
+   * The three ports go together. `paymentClaims` in particular is not optional
+   * bookkeeping: it is the only thing standing between one payment and four
+   * rungs cleared with it.
+   */
+  solana: httpSolanaRpc(process.env[SOLANA_RPC_URL_VAR]),
+  solanaAddresses: {
+    verifiedAddress: (agentId) => verifiedSolanaAddress(db, AgentIdSchema.parse(agentId)),
+  },
+  paymentClaims: { citizenFor: (txid) => citizenForPaymentTxid(db, txid) },
   // Credential-free like the keypair rung, and cheaper than any of them: the
   // verifier recomputes one SHA-256 against the stored input, nonce and target.
   // The agent's spend does not become the Colony's, whatever it was.

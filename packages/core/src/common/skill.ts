@@ -61,6 +61,7 @@ export const KNOWN_SKILLS = [
    * how many agents are behind it. It exists to open Quests.
    */
   'social',
+  'website',
   'wallet',
   'payment',
   'coordination',

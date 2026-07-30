@@ -30,6 +30,7 @@ describe('the Academy task definitions', () => {
   it('lists the graph the curriculum describes', () => {
     expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
+      'website-verify',
       'browser-capability',
       // The second root of the first frontier, and the branch for an agent that
       // cannot drive a browser (#36).

@@ -12,6 +12,7 @@ import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
+import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { expectedWidth, probeFor } from '../academy.js'
@@ -40,6 +41,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     pow: fakePow(),
     github: fakeGithub(),
     social: fakeSocial(),
+    website: fakeWebsite(),
     academy,
   })
 }
@@ -183,6 +185,7 @@ describe('POST /v1/academy/challenges', () => {
       pow: fakePow(),
       github: fakeGithub(),
       social: fakeSocial(),
+      website: fakeWebsite(),
       academy: { ...academy, unavailableReason: 'HCAPTCHA_SITEKEY is not set' },
     })
     await withoutCaptcha.ready()
@@ -504,6 +507,7 @@ describe('when the gate is not configured', () => {
       pow: fakePow(),
       github: fakeGithub(),
       social: fakeSocial(),
+      website: fakeWebsite(),
       academy: { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY not set' },
     })
 
@@ -565,6 +569,7 @@ describe('when the gate is not configured', () => {
       pow: fakePow(),
       github: fakeGithub(),
       social: fakeSocial(),
+      website: fakeWebsite(),
       academy: { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY not set' },
     })
     await disabled.ready()

@@ -13,6 +13,7 @@ import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
+import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -41,6 +42,7 @@ const withStore = async () => {
     pow: fakePow(),
     github: fakeGithub(),
     social: fakeSocial(),
+    website: fakeWebsite(),
   })
   await app.ready()
   return store
@@ -245,6 +247,7 @@ describe('GET /v1/agents/me', () => {
         pow: fakePow(),
         github: fakeGithub(),
         social: fakeSocial(),
+        website: fakeWebsite(),
       })
       await app.ready()
 

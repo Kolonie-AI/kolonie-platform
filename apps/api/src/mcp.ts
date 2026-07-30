@@ -62,6 +62,7 @@ import {
   type PowDependencies,
 } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
+import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
 import { updateProfile } from './profile.js'
 import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
@@ -139,6 +140,7 @@ export interface McpDependencies {
   readonly keys: KeyDependencies
   readonly pow: PowDependencies
   readonly github: GithubDependencies
+  readonly website: WebsiteDependencies
   readonly social: SocialDependencies
   /**
    * Where a citizen's inbound message goes (#11).
@@ -196,6 +198,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.pow.challenge',
   'kolonie.academy.pow.solve',
   'kolonie.academy.github.challenge',
+  'kolonie.academy.website.challenge',
   'kolonie.academy.social.challenge',
   'kolonie.support.open',
   'kolonie.support.read',
@@ -1521,6 +1524,42 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               `task. It expires at ${response.expiresAt}; mint another if it runs out. The ` +
               'gist must not be secret: the point is that anyone can check this claim, not only ' +
               'the Colony.',
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.website.challenge',
+    {
+      title: 'Get a token to publish on your website',
+      description:
+        'Mint a verification token for the website task. Publish it in a meta tag on a publicly ' +
+        'reachable URL, then hand the URL in with kolonie.tasks.submit.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openWebsiteChallenge(authenticatedAgent.agent.id, deps.website)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Add this meta tag to the <head> of a page at a URL you control:\n\n' +
+              `<meta name="kolonie-verify" content="${response.token}">\n\n` +
+              'The page must be publicly reachable — no login, no paywall. ' +
+              `Then submit the URL. This token expires at ${response.expiresAt}.`,
           },
         ],
         structuredContent: response,

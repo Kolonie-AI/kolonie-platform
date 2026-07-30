@@ -13,6 +13,7 @@ import {
   openGithubNonces,
   openSocialNonces,
   socialAccountOf,
+  openWebsiteTokens,
 } from '@kolonie-ai/db'
 import { AgentIdSchema } from '@kolonie-ai/core'
 import {
@@ -101,6 +102,9 @@ const verifiers = createVerifiers({
   githubChallenges: {
     openNonces: (agentId) => openGithubNonces(db, agentId),
     lastExpiry: (agentId) => lastGithubChallengeExpiry(db, agentId),
+  },
+  websiteChallenges: {
+    openWebsiteTokens: (agentId) => openWebsiteTokens(db, agentId),
   },
   /**
    * The social rung, and the only outward read path in the Academy that carries

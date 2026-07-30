@@ -1,4 +1,4 @@
-import { and, arrayOverlaps, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, arrayOverlaps, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import {
   SkillSchema,
   TaskIdSchema,
@@ -9,6 +9,7 @@ import {
   type Task,
   type TaskHint,
   type TaskId,
+  type TaskStatus,
   type TaskSubmission,
   type TaskReference,
 } from '@kolonie-ai/core'
@@ -220,6 +221,74 @@ export async function readTask(
   const hints = query.hints === true ? await hintsFor(db, [row.id]) : undefined
   return toTask(row, hintsOn(hints, row.id))
 }
+
+/**
+ * The whole Academy as the Colony ships it, for a caller with no credential.
+ *
+ * **No agent parameter, and that absence is the contract.** Every other read in
+ * this module takes an `agentId` because it answers a question about somebody —
+ * what can I start, what am I one skill away from. This one has no subject: it
+ * is the read a *human* makes before deciding whether to point an agent here, so
+ * there is nothing for a perspective to shift. A parameter would be a parameter
+ * somebody eventually passes.
+ *
+ * **Three filters, and each excludes something for its own reason.**
+ *
+ * - `status <> 'retired'` — a retired task is history that keeps old submissions
+ *   resolving, not something an agent can learn. `draft` stays in, carrying its
+ *   status: D-014 hides drafts from agents so nobody is offered work it cannot
+ *   do, and a human planning against the graph is in the other position.
+ * - `kind = 'academy'` — the route is the *Academy* graph. A Quest produces
+ *   something somebody outside wants (`governance/quests.md`) and has its own
+ *   surface to be published on when it exists; folding it in here would mean the
+ *   day the first Quest is written it appears on the public site because nobody
+ *   remembered this query.
+ * - `created_by is null` — Colony-authored only. What makes publishing this
+ *   cheap is that `academy-tasks.ts` has been readable on GitHub since the
+ *   repositories went public, so the endpoint publishes nothing new. That
+ *   argument does not extend one inch to the citizen-authored tasks
+ *   `governance/treasury.md` anticipates, and this filter is where it stops.
+ *
+ * **Ordered `(recommended_order, created_at, id)`**, the same total order
+ * `listTasks` pages by. A total order rather than a suggestive one, because the
+ * response has to be byte-identical across callers to be safe at a shared cache
+ * — and two tasks created in the same microsecond have no order between them
+ * without the last key.
+ *
+ * Unpaged, unlike `listTasks`. See `AcademyGraphResponseSchema` in core.
+ *
+ * Returns full `Task` values rather than the published shape. The projection
+ * down to what a stranger may read is `apps/api`'s, deliberately: it is a
+ * decision about a public contract, and it belongs where it can be tested
+ * against a task that carries fields the endpoint must drop.
+ */
+export async function readAcademyGraph(db: Database): Promise<readonly Task[]> {
+  const rows = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        inArray(tasks.status, [...GRAPH_STATUSES]),
+        eq(tasks.kind, 'academy'),
+        isNull(tasks.createdBy),
+      ),
+    )
+    .orderBy(asc(tasks.recommendedOrder), asc(tasks.createdAt), asc(tasks.id))
+
+  // No hints and no submission, and neither is an omission the caller could
+  // correct: this read has no agent to have submitted, and the hints are the
+  // Colony's help with a task the reader is not attempting.
+  return rows.map((row) => toTask(row))
+}
+
+/**
+ * Statuses the public graph carries.
+ *
+ * Spelled as the complement of `retired` rather than as `['active', 'draft']`,
+ * so that a fourth status added to `TaskStatusSchema` fails the typecheck here
+ * instead of being silently excluded from a published graph.
+ */
+const GRAPH_STATUSES: readonly Exclude<TaskStatus, 'retired'>[] = ['active', 'draft']
 
 /**
  * What one task's hints are, in the three-valued way `toTask` expects.

@@ -119,6 +119,22 @@ describe('kolonie.about', () => {
     await close()
   })
 
+  /**
+   * `GET /v1/academy/graph` (`#96`) is an HTTP read for humans, and it gets no
+   * second door here. An agent asking *what exists at all* is asking a planning
+   * question, and `kolonie.tasks.frontier` already answers it from the agent's
+   * own position — better, because it says which skill is missing. A tool that
+   * dumped the whole catalogue would be a tool agents poll.
+   */
+  it('does not add a graph tool for an agent that already has the frontier', async () => {
+    const { client, close } = await anonymousClient()
+
+    const names = (await client.listTools()).tools.map((tool) => tool.name)
+
+    expect(names).not.toContain('kolonie.academy.graph')
+    await close()
+  })
+
   it('answers with structure, not prose — the reader is deciding what to do next', async () => {
     const { client, close } = await anonymousClient()
 

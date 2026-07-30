@@ -1,6 +1,8 @@
 import {
+  AcademyGraphNodeSchema,
   ListTasksRequestSchema,
   TaskIdSchema,
+  type AcademyGraphResponse,
   type AgentId,
   type ApiError,
   type FrontierResponse,
@@ -12,6 +14,7 @@ import {
 import {
   frontier as frontierInDatabase,
   listTasks as listTasksInDatabase,
+  readAcademyGraph as readAcademyGraphInDatabase,
   readTask as readTaskInDatabase,
   type Database,
   type Frontier,
@@ -32,6 +35,16 @@ export interface TaskCatalogue {
   list(query: CatalogueQuery): Promise<ListTasksResult>
   frontier(agentId: AgentId): Promise<Frontier>
   read(query: { readonly taskId: TaskId; readonly hints: boolean }): Promise<Task | undefined>
+  /**
+   * The whole Academy, with nobody's skills consulted.
+   *
+   * On this interface rather than behind a seam of its own, because it is the
+   * same catalogue read a fourth way — and a second dependency on
+   * `AppDependencies` would have to be threaded through every caller of
+   * `buildApp` to add one method. It takes no argument at all, which is what
+   * distinguishes it from the other three: there is no subject to get wrong.
+   */
+  graph(): Promise<readonly Task[]>
 }
 
 /** A validated request, plus the agent whose skills decide what is in it. */
@@ -61,6 +74,72 @@ export function databaseCatalogue(db: Database): TaskCatalogue {
     list: (query) => listTasksInDatabase(db, query),
     frontier: (agentId) => frontierInDatabase(db, { agentId }),
     read: (query) => readTaskInDatabase(db, query),
+    graph: () => readAcademyGraphInDatabase(db),
+  }
+}
+
+/**
+ * How long the Academy graph may be held at a cache, in seconds.
+ *
+ * The catalogue changes when the Colony deploys a seed, which is not a thing
+ * that happens between two page loads. Five minutes is short enough that a new
+ * rung is visible on the public site the same afternoon and long enough that the
+ * site being linked somewhere does not become traffic on the database.
+ *
+ * It is safe to cache *at all* only because the response has no subject: see
+ * {@link academyGraph}.
+ */
+export const ACADEMY_GRAPH_MAX_AGE_SECONDS = 300
+
+/**
+ * The whole Academy, to a caller presenting nothing.
+ *
+ * **This function is where the public shape is decided**, rather than in
+ * `packages/db`, and that is the point of it being here at all: the storage read
+ * returns full `Task` values and every field a stranger may see is named below,
+ * in one place, by hand. Two properties fall out of writing it this way.
+ *
+ * A field added to `Task` later — the way `hints` and `submission` were — cannot
+ * reach this endpoint by inheriting into it. It has to be added here, which is a
+ * decision somebody makes rather than one that happens to them. That is the
+ * difference between this and returning the task with a few keys deleted.
+ *
+ * And the answer is a pure function of the catalogue: nothing here reads a
+ * credential, a header or a request. There is no branch an authenticated caller
+ * could take, which is what makes *"a valid credential receives byte-identical
+ * bytes"* a property of the shape rather than a test that happens to pass. The
+ * test exists anyway, in `routes/academy-graph.test.ts`, because a future
+ * refactor is exactly the thing that would introduce the first branch.
+ *
+ * **No hints, and two independent reasons hold.** `#83` cut the output path for
+ * anything a citizen wrote, so struggles and tips have no business here at all.
+ * Hints are Colony-written and already public in the source, so excluding them
+ * is not secrecy — it is that a page placing the task and its waypoints side by
+ * side turns the Academy into a transcription exercise, which
+ * `onboarding/academy.md` says it must not become.
+ */
+export async function academyGraph(catalogue: TaskCatalogue): Promise<AcademyGraphResponse> {
+  const tasks = await catalogue.graph()
+
+  return {
+    nodes: tasks.map((task) =>
+      AcademyGraphNodeSchema.parse({
+        id: task.id,
+        type: task.type,
+        title: task.title,
+        description: task.description,
+        instructions: task.instructions,
+        requires: task.requires,
+        suggests: task.suggests,
+        grants: task.grants,
+        minReputation: task.minReputation,
+        // Flattened out of `reward`, whose other half is zero on every Academy
+        // task by constraint (`tasks_academy_pays_no_coins`).
+        rewardReputation: task.reward.reputation,
+        recommendedOrder: task.recommendedOrder,
+        status: task.status,
+      }),
+    ),
   }
 }
 

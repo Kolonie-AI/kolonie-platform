@@ -11,7 +11,7 @@ import {
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { frontier, listTasks, readTask, type ListTasksQuery } from './tasks.js'
+import { frontier, listTasks, readAcademyGraph, readTask, type ListTasksQuery } from './tasks.js'
 
 const target = databaseTestTarget()
 
@@ -800,5 +800,151 @@ describe.skipIf(!target.available)('hints', () => {
         [],
       ])
     })
+  })
+})
+
+describe.skipIf(!target.available)('readAcademyGraph', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  interface GraphSeed {
+    readonly title: string
+    readonly status?: TaskStatus
+    readonly kind?: 'academy' | 'quest'
+    readonly order?: number
+    readonly createdBy?: AgentId
+    readonly createdAt?: string
+  }
+
+  const seedGraph = async (...seeds: GraphSeed[]): Promise<void> => {
+    await db.insert(tasks).values(
+      seeds.map((task, index) => ({
+        type: `graph-task-${index}`,
+        title: task.title,
+        description: 'What this task is, for a human reading the catalogue.',
+        instructions: 'What the agent must actually do.',
+        rewardCoins: 0,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        recommendedOrder: task.order ?? 0,
+        status: task.status ?? ('active' as const),
+        kind: task.kind ?? ('academy' as const),
+        ...(task.createdBy === undefined ? {} : { createdBy: task.createdBy }),
+        ...(task.createdAt === undefined ? {} : { createdAt: task.createdAt }),
+      })),
+    )
+  }
+
+  const titles = async (): Promise<string[]> =>
+    (await readAcademyGraph(db)).map((task) => task.title)
+
+  it('answers with the Academy as the Colony ships it', async () => {
+    await seedGraph({ title: 'Complete your profile' })
+
+    const [task] = await readAcademyGraph(db)
+
+    expect(task).toMatchObject({
+      title: 'Complete your profile',
+      status: 'active',
+      kind: 'academy',
+      reward: { coins: 0, reputation: 1 },
+    })
+  })
+
+  /** The rejection case #96 names: a retired task is history, not a rung. */
+  it('leaves out a retired task', async () => {
+    await seedGraph(
+      { title: 'still taught', status: 'active' },
+      { title: 'wallet-testnet, replaced', status: 'retired' },
+    )
+
+    expect(await titles()).toEqual(['still taught'])
+  })
+
+  it('carries a drafted task, so the graph is not thinner than the design', async () => {
+    await seedGraph({ title: 'live', status: 'active', order: 0 })
+    await seedGraph({ title: 'designed', status: 'draft', order: 1 })
+
+    const graph = await readAcademyGraph(db)
+
+    // Included *with* its status, which is what keeps the two apart for a reader.
+    // D-014 keeps it away from agents; this reader is not one.
+    expect(graph.map((task) => [task.title, task.status])).toEqual([
+      ['live', 'active'],
+      ['designed', 'draft'],
+    ])
+  })
+
+  /**
+   * The Academy graph, not the task table. What makes publishing this cheap is
+   * that `academy-tasks.ts` is already readable on GitHub — an argument that
+   * covers neither a Quest nor a task a citizen wrote.
+   */
+  it('leaves out a Quest', async () => {
+    await seedGraph({ title: 'a rung' }, { title: 'paid work', kind: 'quest' })
+
+    expect(await titles()).toEqual(['a rung'])
+  })
+
+  it('leaves out a task a citizen authored', async () => {
+    const [author] = await db
+      .insert(agents)
+      .values({ name: 'task-author', platform: 'openclaw' })
+      .returning({ id: agents.id })
+
+    await seedGraph(
+      { title: 'the Colony wrote this' },
+      { title: 'a citizen wrote this', createdBy: author!.id as AgentId },
+    )
+
+    expect(await titles()).toEqual(['the Colony wrote this'])
+  })
+
+  /**
+   * The response is held at a shared cache and has to be byte-identical across
+   * callers, which a partial order cannot promise: two tasks created in the same
+   * microsecond would have no order between them.
+   */
+  it('orders by (recommended order, created at, id), totally', async () => {
+    const sameInstant = '2026-07-30T12:00:00.000Z'
+    await seedGraph(
+      { title: 'third', order: 20, createdAt: sameInstant },
+      { title: 'first', order: 0, createdAt: sameInstant },
+      { title: 'second-b', order: 10, createdAt: '2026-07-30T12:00:01.000Z' },
+      { title: 'second-a', order: 10, createdAt: sameInstant },
+    )
+
+    expect(await titles()).toEqual(['first', 'second-a', 'second-b', 'third'])
+
+    const twice = await Promise.all([readAcademyGraph(db), readAcademyGraph(db)])
+    expect(JSON.stringify(twice[0])).toBe(JSON.stringify(twice[1]))
+  })
+
+  it('carries no hints, having been asked for none', async () => {
+    await seedGraph({ title: 'a rung with waypoints' })
+    const [row] = await db.select({ id: tasks.id }).from(tasks)
+    await db.insert(taskHints).values({ taskId: row!.id, content: 'A waypoint.', sortOrder: 0 })
+
+    const [task] = await readAcademyGraph(db)
+
+    // `undefined` rather than `[]`: nobody asked. The endpoint drops the field
+    // either way, and this is where it never gets loaded in the first place.
+    expect(task?.hints).toBeUndefined()
+  })
+
+  it('is an empty list when the Academy is empty, not an error', async () => {
+    expect(await readAcademyGraph(db)).toEqual([])
   })
 })

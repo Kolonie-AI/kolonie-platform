@@ -32,6 +32,18 @@ export interface FakeCatalogue extends TaskCatalogue {
   readonly lastRead: () => { taskId: TaskId; hints: boolean } | undefined
   /** What the next read answers with. `undefined` is "no such task". */
   readonly answersRead: (task: Task | undefined) => void
+  /** How many times the public graph has been read. */
+  readonly graphReads: () => number
+  /**
+   * What the next graph read answers with, as full `Task` values.
+   *
+   * Full tasks rather than published nodes, because the projection down to what
+   * a stranger may see is the route's job and this fixture must be able to hand
+   * it a task carrying fields the endpoint has to drop — a `hints` array is the
+   * case that matters, and a fake that had already dropped it would let that
+   * test pass without asserting anything.
+   */
+  readonly answersGraph: (tasks: readonly Task[]) => void
 }
 
 export function fakeCatalogue(): FakeCatalogue {
@@ -41,8 +53,18 @@ export function fakeCatalogue(): FakeCatalogue {
   let answer: ListTasksResult = { outcome: 'listed', page: { items: [], nextCursor: null } }
   let frontierAnswer: Frontier = { skills: [], entries: [] }
   let readAnswer: Task | undefined = undefined
+  let graphAnswer: readonly Task[] = []
+  let graphReads = 0
 
   return {
+    graph: async () => {
+      graphReads += 1
+      return graphAnswer
+    },
+    graphReads: () => graphReads,
+    answersGraph: (tasks) => {
+      graphAnswer = tasks
+    },
     list: async (query) => {
       queries.push(query)
       return answer

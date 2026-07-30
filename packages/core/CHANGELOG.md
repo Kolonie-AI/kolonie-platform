@@ -9,6 +9,23 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- `AcademyGraphNode` and `AcademyGraphResponse` — the shape of
+  `GET /v1/academy/graph`, the whole Academy to a caller presenting nothing
+  (`kolonie-platform#96`). Additive; nothing existing changed shape.
+
+  **A separate shape from `Task`, deliberately.** Serving `Task` on a public
+  unauthenticated route would work today and leak tomorrow: `hints` and
+  `submission` already ride on it, and the next optional field added to a task
+  would appear on that route the day it merged. Every field here is taken from
+  `TaskSchema.shape`, so the constraints cannot drift — what is not shared is the
+  *set* of fields, which is the part that should need a decision.
+
+  It carries `minReputation`, which `#96` did not originally list. A reputation
+  floor is a requirement in exactly the sense a required skill is, and the page
+  consuming this (`Kolonie-AI/kolonie-website#1`) promises to show what a task
+  requires. Zero on every task the Colony ships today, which is why it is free to
+  add now and a breaking change to add later.
+
 - `GetMeResponse` gains `verifiedSolanaAddress`: the address the citizen proved
   at the `solana-wallet` rung, or `null`. Additive. It sits on the `/me` envelope
   rather than inside `AgentSchema` **on purpose** — `AgentSchema` is what the

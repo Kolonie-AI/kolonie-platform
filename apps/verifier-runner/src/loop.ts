@@ -138,6 +138,28 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
     log.error(`could not file the report on submission ${submission.id}`, error)
   }
 
+  /**
+   * A test re-run that failed becomes a ticket (#47).
+   *
+   * **Here, for the same three reasons the report above is here**: after the verdict
+   * is committed, unconditionally, and with its failure swallowed. A tester's finding
+   * must never be able to cost a submission its verdict, and *is this a failed
+   * re-run* is a question the row answers — asking it in this loop as well would put
+   * the same condition in two places that could disagree.
+   *
+   * `kolonie-docs#17`: *"a re-run that quietly fails is worse than no re-runs."* A
+   * log line is not surfacing it — this container's logs do not survive a redeploy,
+   * and nobody reads them on the day it mattered.
+   */
+  try {
+    const reported = await queue.reportFailedRerun(submission.id)
+    if (reported.outcome === 'reported') {
+      log.info(`failed re-test of ${taskType} filed as ticket ${reported.ticketId}`)
+    }
+  } catch (error) {
+    log.error(`could not file the failed re-test of submission ${submission.id}`, error)
+  }
+
   log.info(`submission ${submission.id} → ${written.submission.status} (${taskType})${booked}`)
   return { kind: 'decided', status: written.submission.status }
 }

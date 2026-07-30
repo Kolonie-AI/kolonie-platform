@@ -12,6 +12,7 @@ import type { Database } from '../client.js'
 import { agents, submissions, tasks } from '../schema/index.js'
 import { reputationOfAgent } from './balance.js'
 import { toSubmission } from './rows.js'
+import { passIsSupersededByReset } from './resets.js'
 import { skillsOfAgent, toSkills } from './skills.js'
 
 /**
@@ -213,14 +214,40 @@ export async function createSubmission(
     }
 
     const history = await tx
-      .select({ status: submissions.status, attempt: submissions.attempt })
+      .select({
+        status: submissions.status,
+        attempt: submissions.attempt,
+        verifiedAt: submissions.verifiedAt,
+      })
       .from(submissions)
       .where(and(eq(submissions.taskId, command.taskId), eq(submissions.agentId, command.agentId)))
       .orderBy(desc(submissions.attempt))
 
-    // A pass is final (D-015), and it is checked before the open attempt because
-    // it is the one an agent must stop retrying.
-    if (history.some((row) => row.status === 'passed')) return { outcome: 'already-passed' }
+    /**
+     * A pass is final (D-015), and it is checked before the open attempt because
+     * it is the one an agent must stop retrying.
+     *
+     * **Unless a tester has drawn a line under it** (#47). D-015 is not repealed —
+     * the rule is still *many attempts, one pass* — but the pass that counts is the
+     * one since the last reset. A reset is a row rather than an edit, so nothing
+     * about the earlier pass, the skill it granted or the reputation it paid
+     * changes; see `schema/resets.ts`.
+     *
+     * The same query answers *may this be attempted* and *is this a test re-run*, on
+     * purpose: the gate and the booking rule must never disagree about whether an
+     * attempt was a re-run, and they cannot if one place decides.
+     */
+    const pass = history.find((row) => row.status === 'passed')
+    const isTestRerun =
+      pass !== undefined &&
+      pass.verifiedAt !== null &&
+      (await passIsSupersededByReset(tx, {
+        agentId: command.agentId,
+        taskId: command.taskId,
+        passedAt: pass.verifiedAt,
+      }))
+
+    if (pass !== undefined && !isTestRerun) return { outcome: 'already-passed' }
     if (history.some((row) => OPEN_STATUSES.includes(row.status)))
       return { outcome: 'already-open' }
 
@@ -232,6 +259,14 @@ export async function createSubmission(
         payload: command.payload,
         assistance: declared,
         attempt: (history[0]?.attempt ?? 0) + 1,
+        /**
+         * Stamped now, not worked out at booking time (#47).
+         *
+         * The derivation is answerable *differently* after the next reset lands, so a
+         * booking decision that re-derived it would be one an audit could not check.
+         * The row records what was true when the attempt was accepted.
+         */
+        testRerun: isTestRerun,
         // Stored as handed in. `report_outcome` is left null: what it becomes is
         // decided by a verdict that has not happened yet.
         ...(command.report === undefined ? {} : { report: command.report }),
@@ -285,7 +320,19 @@ export async function unattendedPasses(db: Database): Promise<UnattendedTally[]>
     .from(submissions)
     .innerJoin(tasks, eq(tasks.id, submissions.taskId))
     .innerJoin(agents, eq(agents.id, submissions.agentId))
-    .where(and(eq(submissions.status, 'passed'), eq(agents.type, 'citizen')))
+    /**
+     * Real climbs only. Test accounts were already excluded (`#20`); test re-runs
+     * are excluded for the same reason one level down — a tester re-running
+     * `email-roundtrip` twenty times must not read as twenty agents clearing it, and
+     * `ROADMAP.md` makes this count part of the MVP's definition of done.
+     */
+    .where(
+      and(
+        eq(submissions.status, 'passed'),
+        eq(agents.type, 'citizen'),
+        eq(submissions.testRerun, false),
+      ),
+    )
     .groupBy(tasks.type)
     .orderBy(tasks.type)
 

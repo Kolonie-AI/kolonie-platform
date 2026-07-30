@@ -1,6 +1,6 @@
 {
-  "id": "250c1b1b-0f33-4f43-867c-bae5c806c994",
-  "prevId": "d64b650c-2686-4875-bc2d-face6e567cab",
+  "id": "19ffd55d-36bc-4458-a90c-fc9c34c0650a",
+  "prevId": "19e1ab3c-3890-4316-a34d-7232e0bd3039",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -50,6 +50,12 @@
         "bio": {
           "name": "bio",
           "type": "varchar(2000)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avatar_url": {
+          "name": "avatar_url",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -605,6 +611,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "test_rerun": {
+          "name": "test_rerun",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "submitted_at": {
           "name": "submitted_at",
           "type": "timestamp with time zone",
@@ -740,6 +753,125 @@
           "value": "(\"submissions\".\"status\" in ('passed', 'failed', 'timeout')) = (\"submissions\".\"verified_at\" is not null)"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.task_resets": {
+      "name": "task_resets",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "superseded_submission_id": {
+          "name": "superseded_submission_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "task_resets_agent_id_task_id_created_at_idx": {
+          "name": "task_resets_agent_id_task_id_created_at_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "task_resets_agent_id_agents_id_fk": {
+          "name": "task_resets_agent_id_agents_id_fk",
+          "tableFrom": "task_resets",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "task_resets_task_id_tasks_id_fk": {
+          "name": "task_resets_task_id_tasks_id_fk",
+          "tableFrom": "task_resets",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "task_resets_superseded_submission_id_submissions_id_fk": {
+          "name": "task_resets_superseded_submission_id_submissions_id_fk",
+          "tableFrom": "task_resets",
+          "tableTo": "submissions",
+          "columnsFrom": [
+            "superseded_submission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.agent_skills": {
@@ -2902,6 +3034,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "submission_id": {
+          "name": "submission_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2939,6 +3077,22 @@
           "method": "btree",
           "with": {}
         },
+        "support_tickets_one_per_submission": {
+          "name": "support_tickets_one_per_submission",
+          "columns": [
+            {
+              "expression": "submission_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"support_tickets\".\"submission_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "support_tickets_open_idx": {
           "name": "support_tickets_open_idx",
           "columns": [
@@ -2968,6 +3122,19 @@
             "id"
           ],
           "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "support_tickets_submission_id_submissions_id_fk": {
+          "name": "support_tickets_submission_id_submissions_id_fk",
+          "tableFrom": "support_tickets",
+          "tableTo": "submissions",
+          "columnsFrom": [
+            "submission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -3096,7 +3263,8 @@
         "builder",
         "reviewer",
         "judge",
-        "governor"
+        "governor",
+        "tester"
       ]
     },
     "public.submission_assistance": {

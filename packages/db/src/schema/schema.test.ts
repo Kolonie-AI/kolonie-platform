@@ -129,10 +129,27 @@ describe.skipIf(!target.available)('schema', () => {
          */
         'social_challenges',
         'submissions',
+        /**
+         * `support_tickets` joined with #11, and it is the one table here that is
+         * about the Colony rather than about a task.
+         *
+         * Deliberately not a widening of `task_struggles`: a struggle is moderated
+         * and then **served to other citizens**, which is what the whole moderation
+         * subsystem exists for; a ticket is read by the Colony and by nobody else, so
+         * it has no moderation column and nothing to publish wrongly.
+         */
+        'support_tickets',
         // The four that carry what is known about a task beyond its
         // instructions (#52). `task_hints` is the Colony's own voice;
         // the other three are citizens', and nothing serves those unjudged.
         'task_hints',
+        /**
+         * `task_resets` joined with #47. A tester setting aside its own pass, as a row
+         * rather than as an edit: the one-pass gate (D-015) reads *since the last
+         * reset* instead of *ever*, so nothing about the earlier pass, the skill it
+         * granted or the reputation it paid has to be rewritten.
+         */
+        'task_resets',
         'task_struggles',
         'task_tips',
         'tasks',

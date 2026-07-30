@@ -34,6 +34,10 @@ import { register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
 import { fakeGuidance, type FakeGuidance } from './guidance.js'
+import { fakeSupportDesk, type FakeSupportDesk } from './support.js'
+import { support as supportSurface, type Support } from '../support.js'
+import type { Retesting } from '../retest.js'
+import type { ResetResult } from '@kolonie-ai/db'
 
 /**
  * One in-memory Colony behind both seams.
@@ -76,6 +80,17 @@ export interface FakeColony {
    * prose a model acts on, and that rendering is the thing worth asserting.
    */
   readonly guidance: FakeGuidance
+  /**
+   * The support surface, plus the desk behind it.
+   *
+   * Both, because the tests need each: `support` is what the MCP tools are wired to,
+   * and `desk` is how a test puts a ticket into a state no citizen can write.
+   */
+  readonly support: Support
+  readonly desk: FakeSupportDesk
+  readonly retesting: Retesting
+  /** What the next reset answers. Defaults to `not-a-tester`. */
+  readonly allowRetest: (outcome: ResetResult) => void
   /** The Browser Capability Gate, behind both surfaces. Overridable the same way. */
   readonly academy: AcademyDependencies
   /** The mailbox rung, behind both surfaces. Overridable the same way. */
@@ -114,6 +129,8 @@ export interface FakeColony {
 
 export function fakeColony(): FakeColony {
   const byKey = new Map<string, { agent: Agent; revoked: boolean }>()
+  const desk = fakeSupportDesk()
+  let resets: ResetResult = { outcome: 'not-a-tester' }
   const balances = new Map<string, AgentBalance>()
   const takenNames = new Set<string>()
   const takenWallets = new Set<string>()
@@ -177,6 +194,17 @@ export function fakeColony(): FakeColony {
 
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
+    support: supportSurface({ desk }),
+    desk,
+    /**
+     * Re-testing, in memory. Refuses everything by default: `not-a-tester` is what an
+     * ordinary agent gets, so a test that does not care about the tester role never
+     * has to say so.
+     */
+    retesting: { reset: async () => resets },
+    allowRetest: (outcome) => {
+      resets = outcome
+    },
     academy: fakeAcademy(),
     email: fakeEmail(),
     keys: fakeKeys(),

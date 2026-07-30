@@ -21,6 +21,8 @@ import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions, type FakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
+import { fakeSupportDesk } from '../__fixtures__/support.js'
+import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 
@@ -42,6 +44,8 @@ beforeEach(async () => {
     catalogue: fakeCatalogue(),
     submissions,
     guidance: fakeGuidance(),
+    support: support({ desk: fakeSupportDesk() }),
+    retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     keys: fakeKeys(),
     pow: fakePow(),

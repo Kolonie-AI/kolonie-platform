@@ -87,6 +87,7 @@ export async function bookTaskReward(
       taskGrants: tasks.grantsSkills,
       rewardCoins: tasks.rewardCoins,
       rewardReputation: tasks.rewardReputation,
+      testRerun: submissions.testRerun,
     })
     .from(submissions)
     .innerJoin(tasks, eq(tasks.id, submissions.taskId))
@@ -123,10 +124,24 @@ export async function bookTaskReward(
    * passing is worth, and the declaration decides which of the two rates that
    * task pays at.
    */
-  const paid = rewardFor(
-    { coins: row.rewardCoins, reputation: row.rewardReputation },
-    row.assistance,
-  )
+  /**
+   * **A test re-run books nothing** (#47, `kolonie-docs#17`): *"A test pass books
+   * nothing. No ledger entry, no reputation, no excluded shadow account."*
+   *
+   * Zeroed here rather than by returning early, because everything below this line
+   * still has to happen. The verdict is real, the skill grant is real — and
+   * `grantSkills` is idempotent, so a tester that still holds the skill grants
+   * nothing new, while a tester whose grant was somehow lost gets it back. Returning
+   * early would skip the grant and the promotion, and a re-run must not be able to
+   * *take away* standing.
+   *
+   * The rejected alternative was booking into an account excluded from every
+   * balance. It buys nothing and adds a filter that every future query has to
+   * remember — the same duplication D-002 refuses.
+   */
+  const paid = row.testRerun
+    ? { coins: 0, reputation: 0 }
+    : rewardFor({ coins: row.rewardCoins, reputation: row.rewardReputation }, row.assistance)
 
   /**
    * The rate is in the memo, on every entry, because the ledger is where an

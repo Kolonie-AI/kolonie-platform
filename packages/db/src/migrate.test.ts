@@ -59,10 +59,13 @@ describe.skipIf(!target.available)('the migrations', () => {
     // are the guidance subsystem: hints, struggles, tips and feedback (#52), plus
     // `moderations` (#70), which is to a verdict about an entry what
     // `verifications` is to a verdict about a submission.
-    expect(afterFirst.tables).toBe('19')
-    // Sixteen since `task_kind` (#43), which is what tells an Academy task from a
-    // Quest and therefore what may pay coins.
-    expect(afterFirst.enums).toBe('16')
+    // Twenty-one: `support_tickets` (#11) is the channel a citizen reaches without a
+    // GitHub account, and `task_resets` (#47) is a tester setting aside its own pass.
+    expect(afterFirst.tables).toBe('21')
+    // Eighteen: `task_kind` (#43) tells an Academy task from a Quest and therefore
+    // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
+    // carry what a citizen wrote about and where it stands.
+    expect(afterFirst.enums).toBe('18')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

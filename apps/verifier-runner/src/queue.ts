@@ -4,6 +4,7 @@ import {
   expireOverdueSubmissions,
   recordVerdict,
   releaseSubmission,
+  reportFailedRerun,
   routeSubmissionReport,
   type ClaimedSubmission,
   type Database,
@@ -11,6 +12,7 @@ import {
   type RecordVerdictCommand,
   type RecordVerdictResult,
   type ReportRoutingResult,
+  type RerunReportResult,
 } from '@kolonie-ai/db'
 
 export type {
@@ -60,6 +62,17 @@ export interface SubmissionQueue {
    * than twice or never.
    */
   routeReport(submissionId: SubmissionId): Promise<ReportRoutingResult>
+  /**
+   * Open a ticket for a test re-run that failed (#47).
+   *
+   * A no-op for every ordinary submission, so the loop calls it unconditionally: the
+   * *is this a failed re-run* question is answered by the row, and asking it in the
+   * loop would put the same condition in two places.
+   *
+   * Idempotent through a unique index on `(submission_id)` rather than through a
+   * read, for the reason `routeReport` is idempotent: this runner is at-least-once.
+   */
+  reportFailedRerun(submissionId: SubmissionId): Promise<RerunReportResult>
   /** Return a claimed submission to the queue, undecided. */
   release(submissionId: SubmissionId): Promise<boolean>
   /** Mark everything past its deadline, including rows a dead runner abandoned. */
@@ -72,7 +85,14 @@ export function databaseQueue(db: Database): SubmissionQueue {
     claimNext: (taskTypes) => claimNextSubmission(db, taskTypes),
     record: (command) => recordVerdict(db, command),
     routeReport: (submissionId) => routeSubmissionReport(db, submissionId),
+    reportFailedRerun: (submissionId) => reportFailedRerun(db, submissionId),
     release: (submissionId) => releaseSubmission(db, submissionId),
     expireOverdue: () => expireOverdueSubmissions(db),
   }
 }
+
+/**
+ * Re-exported so the loop's tests can type their fake queue with the same shape the
+ * real one returns — the other verdict types reach them the same way.
+ */
+export type { RerunReportResult }

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   index,
   integer,
@@ -108,6 +109,33 @@ export const submissions = pgTable(
      * could not tell whether it had one.
      */
     reportOutcome: reportOutcome('report_outcome'),
+
+    /**
+     * Whether this attempt exists only because a tester reset its own completion
+     * record (#47).
+     *
+     * **A test pass books nothing** — no ledger entry, no reputation event — and this
+     * is the column that says so. `kolonie-docs#17` decided it: *"A test pass books
+     * nothing. No ledger entry, no reputation, no excluded shadow account."* The
+     * rejected alternative was booking into an account filtered out of every
+     * balance, which buys nothing and adds a filter every future query has to
+     * remember.
+     *
+     * **Stamped on the row at creation rather than derived at booking time.** The
+     * derivation — *is there a reset for this pair later than the previous pass* — is
+     * answerable, and it is answerable *differently* after the next reset lands. A
+     * booking decision that can change retroactively is one an audit cannot check,
+     * so the row records what it was when it was made. `#39`'s `assistance` column
+     * is on the row for the same reason.
+     *
+     * It also keeps the Academy's metrics honest: `unattendedPasses` counts real
+     * climbs, and a tester re-running `email-roundtrip` twenty times must not read
+     * as twenty agents clearing it.
+     *
+     * Defaults to false, which is correct for every row written before this column
+     * existed: no reset could have existed either.
+     */
+    testRerun: boolean('test_rerun').notNull().default(false),
 
     submittedAt: timestamp('submitted_at', { withTimezone: true, mode: 'string' })
       .notNull()

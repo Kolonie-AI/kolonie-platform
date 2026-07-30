@@ -854,6 +854,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     const stagesApproved = () => ({
       redLine: { outcome: 'clear' },
       quality: { outcome: 'approve' },
+      confidentiality: { outcome: 'clean' },
       dedup: { outcome: 'distinct' },
     })
 
@@ -867,6 +868,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         verdict: { decision: 'reject', note: 'Tells the reader to paste its API key.' },
         model: MODEL,
         stages: stagesRejectedAtRedLine(),
+        confidentialSpans: [],
       })
 
       const [record, ...rest] = await moderationsOf(db, { kind: 'struggle', id })
@@ -895,6 +897,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         verdict: { decision: 'approve' },
         model: MODEL,
         stages: stagesApproved(),
+        confidentialSpans: [],
       })
 
       expect((await moderationsOf(db, { kind: 'struggle', id }))[0]?.model).toBe(MODEL)
@@ -912,6 +915,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         verdict: { decision: 'merge', duplicateOf: canonicalId },
         model: MODEL,
         stages: { ...stagesApproved(), dedup: { outcome: canonicalId, reason: 'Same provider.' } },
+        confidentialSpans: [],
       })
 
       // The canonical entry changes afterwards — which the record must not veto
@@ -945,6 +949,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         verdict: { decision: 'reject', note: 'Too vague to act on.' },
         model: MODEL,
         stages: { ...stagesApproved(), quality: { outcome: 'reject', reason: 'No observation.' } },
+        confidentialSpans: [],
       })
 
       const REVISED = 'The provider demands a phone number, and only on the second page.'
@@ -956,6 +961,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         verdict: { decision: 'approve' },
         model: 'vendor/some-model-v2',
         stages: stagesApproved(),
+        confidentialSpans: [],
       })
 
       const records = await moderationsOf(db, { kind: 'struggle', id })
@@ -988,6 +994,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         verdict: { decision: 'approve' },
         model: MODEL,
         stages: stagesApproved(),
+        confidentialSpans: [],
       })
 
       expect(written.outcome).toBe('stale')
@@ -1008,6 +1015,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         verdict: { decision: 'approve' },
         model: MODEL,
         stages: stagesApproved(),
+        confidentialSpans: [],
       })
 
       const [record] = await moderationsOf(db, { kind: 'tip', id: written.entry.id })
@@ -1204,6 +1212,63 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
       const [own] = await listOwnTips(db, author)
       expect(own?.content).toBe(AUTHOR_TEXT)
+    })
+
+    /**
+     * What the confidentiality stage found survives the write and reaches the
+     * author (`#84`) — and reaches nobody else.
+     *
+     * The second assertion is the one worth having. `confidential_spans` is a
+     * list of one agent's identifying details, so a task-scoped read that
+     * happened to select it would leak exactly what marking it was meant to
+     * contain — a more embarrassing version of the bug `#83` closed.
+     */
+    it('stores what identified the author, and serves it only to the author', async () => {
+      const author = await anAgent('pasted-its-mailbox')
+      await attempt(author, 'failed')
+      const filed = await fileStruggle(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+
+      await recordModeration(db, {
+        kind: 'struggle',
+        id: filed.entry.id,
+        content: AUTHOR_TEXT,
+        verdict: { decision: 'approve' },
+        model: 'vendor/some-model-v1',
+        stages: { ...noStagesRun(), confidentiality: { outcome: 'marked', reason: '1: mailbox' } },
+        confidentialSpans: [{ text: 'scout-77@example.invalid', kind: 'mailbox' }],
+      })
+
+      const [own] = await listOwnStruggles(db, author)
+      expect(own?.status).toBe('approved')
+      expect(own?.confidentialSpans).toEqual([
+        { text: 'scout-77@example.invalid', kind: 'mailbox' },
+      ])
+
+      const served = await listStruggles(db, { taskId })
+      expect(served).toHaveLength(1)
+      expect(JSON.stringify(served)).not.toContain('scout-77@example.invalid')
+    })
+
+    /** An entry nothing was found in carries an empty list rather than a null. */
+    it('stores an empty list for an entry with nothing to mark', async () => {
+      const author = await anAgent('wrote-cleanly')
+      const clean = 'The provider returned HTTP 429 on the third attempt and never sent the mail.'
+      const filed = await fileStruggle(db, { taskId, agentId: author, content: clean })
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+
+      await recordModeration(db, {
+        kind: 'struggle',
+        id: filed.entry.id,
+        content: clean,
+        verdict: { decision: 'approve' },
+        model: 'vendor/some-model-v1',
+        stages: { ...noStagesRun(), confidentiality: { outcome: 'clean' } },
+        confidentialSpans: [],
+      })
+
+      const [own] = await listOwnStruggles(db, author)
+      expect(own?.confidentialSpans).toEqual([])
     })
   })
 })

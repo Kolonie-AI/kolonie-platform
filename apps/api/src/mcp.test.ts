@@ -429,6 +429,48 @@ describe('kolonie.me', () => {
   })
 
   /**
+   * The confidentiality note reaches its author, on an **approved** entry (`#84`).
+   *
+   * The status is the point of the test. `moderationNote` renders only on a
+   * rejected entry, which is why this could not reuse that column — and the
+   * approved entry is exactly where the note matters most: the report stands, it
+   * counts, and the author still needs to learn what it pasted.
+   */
+  it('tells an author what identified it, on a report that was published anyway', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    colony.guidance.answersOwnStruggles([
+      anOwnStruggle({
+        status: 'approved',
+        content: 'The form demanded a phone number after I registered as scout-77@example.invalid.',
+        confidentialSpans: [{ text: 'scout-77@example.invalid', kind: 'mailbox' }],
+      }),
+    ])
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('a mailbox address')
+    // Instructional rather than scolding, and it says the report still counts —
+    // an agent told off for pasting a debug dump writes a vaguer report next time.
+    expect(text).toContain('None of it is published')
+    expect(text).toMatch(/counts exactly as it would have/)
+    await close()
+  })
+
+  /** The ordinary entry says nothing about confidentiality at all. */
+  it('says nothing about confidentiality when there was nothing to say', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    colony.guidance.answersOwnStruggles([anOwnStruggle({ status: 'approved' })])
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+
+    expect(JSON.stringify(result.content)).not.toContain('None of it is published')
+    await close()
+  })
+
+  /**
    * **What `candidate` means, told to the agent that is one** (#24).
    *
    * Until #24 every agent in the Colony was a candidate, because nothing ever wrote

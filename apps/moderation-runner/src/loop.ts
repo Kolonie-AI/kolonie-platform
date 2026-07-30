@@ -1,5 +1,11 @@
-import { MODERATION_NOTE_MAX_LENGTH, noStagesRun, type ModerationStages } from '@kolonie-ai/core'
+import {
+  MODERATION_NOTE_MAX_LENGTH,
+  noStagesRun,
+  type ConfidentialSpan,
+  type ModerationStages,
+} from '@kolonie-ai/core'
 import type { ApprovedEntry, ModerationVerdict, PendingGuidance } from '@kolonie-ai/db'
+import { markConfidential } from './confidentiality.js'
 import { findDuplicate } from './dedup.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
@@ -19,6 +25,7 @@ export interface ModerationStore {
     readonly verdict: ModerationVerdict
     readonly model: string
     readonly stages: ModerationStages
+    readonly confidentialSpans: readonly ConfidentialSpan[]
   }): Promise<{ readonly outcome: 'written' | 'stale' }>
 }
 
@@ -52,7 +59,7 @@ export type Judgement =
   | { readonly kind: 'failed'; readonly error: unknown }
 
 /**
- * Judge one entry: red lines, then quality, then duplication.
+ * Judge one entry: red lines, then quality, then confidentiality, then duplication.
  *
  * **The order is deliberate and it is not the order the issue listed them in.**
  * Each stage costs a model call, and each is an exit — so the cheapest and most
@@ -61,6 +68,13 @@ export type Judgement =
  * well written it is, which is the property that matters: an articulate
  * instruction to hand over a credential must not survive because it cleared a
  * quality bar.
+ *
+ * **Confidentiality is third and it is the one stage that is not an exit.** It
+ * cannot refuse anything (#84), so it buys no early return and its position is
+ * decided entirely by what would be wasted: before quality it would mark entries
+ * that are about to be thrown out, and after dedup it would be too late, because
+ * dedup and everything downstream have to already know which spans are not
+ * repeatable.
  *
  * Dedup is last because it is the only stage whose answer depends on what is
  * already published. Running it first would spend an embedding call on entries
@@ -72,14 +86,20 @@ export type Judgement =
  * follows about a submission whose verdict arrived late.
  *
  * **Every stage's answer is accumulated as it goes, and the ones that never ran
- * say so.** `stages` starts as three `not-run` entries and each stage fills in its
- * own, so an entry refused on a red line records that quality and dedup were never
- * reached — rather than recording nothing about them, which would make *the
- * quality check passed it* and *the quality check never looked* the same row.
+ * say so.** `stages` starts as four `not-run` entries and each stage fills in its
+ * own, so an entry refused on a red line records that quality, confidentiality and
+ * dedup were never reached — rather than recording nothing about them, which would
+ * make *the quality check passed it* and *the quality check never looked* the same
+ * row.
  */
 export async function judge(entry: PendingGuidance, deps: LoopDependencies): Promise<Judgement> {
   const { store, model, log = silentLog } = deps
   let stages = noStagesRun()
+  // Accumulated alongside `stages` and for the same reason: an entry rejected
+  // before this stage ran carries an empty list, and that is the honest answer —
+  // nothing was found because nothing looked. `stages.confidentiality` is what
+  // says which of the two happened.
+  let confidentialSpans: readonly ConfidentialSpan[] = []
 
   try {
     const redLine = await checkRedLines(entry, model)
@@ -92,10 +112,14 @@ export async function judge(entry: PendingGuidance, deps: LoopDependencies): Pro
     }
 
     if (redLine.kind === 'crossed') {
-      return await write(entry, { decision: 'reject', note: note(redLine.reason) }, deps, stages, {
-        kind: 'rejected',
-        reason: redLine.reason,
-      })
+      return await write(
+        entry,
+        { decision: 'reject', note: note(redLine.reason) },
+        deps,
+        stages,
+        confidentialSpans,
+        { kind: 'rejected', reason: redLine.reason },
+      )
     }
 
     const quality = await judgeQuality(entry, model)
@@ -108,10 +132,38 @@ export async function judge(entry: PendingGuidance, deps: LoopDependencies): Pro
     }
 
     if (quality.kind === 'useless') {
-      return await write(entry, { decision: 'reject', note: note(quality.reason) }, deps, stages, {
-        kind: 'rejected',
-        reason: quality.reason,
-      })
+      return await write(
+        entry,
+        { decision: 'reject', note: note(quality.reason) },
+        deps,
+        stages,
+        confidentialSpans,
+        { kind: 'rejected', reason: quality.reason },
+      )
+    }
+
+    // No branch on the result, and there is no version of this stage that has
+    // one. Its outcome is recorded and carried; it never changes what happens
+    // next. See `confidentiality.ts` for why that is a constraint and not a
+    // simplification.
+    const confidential = await markConfidential(entry, model)
+    confidentialSpans = confidential.spans
+    stages = {
+      ...stages,
+      confidentiality:
+        confidential.spans.length === 0
+          ? { outcome: 'clean' }
+          : {
+              outcome: 'marked',
+              // The kinds and the count, never the values. This lands in
+              // `moderations.stages`, which is a longer-lived and wider-read
+              // table than the entry — copying an author's mailbox address into
+              // an audit row would spread what the stage exists to contain.
+              reason: note(
+                `${confidential.spans.length} span(s): ` +
+                  [...new Set(confidential.spans.map((span) => span.kind))].sort().join(', '),
+              ),
+            },
     }
 
     const approved = await store.approvedOn({ kind: entry.kind, taskId: entry.taskId })
@@ -131,13 +183,19 @@ export async function judge(entry: PendingGuidance, deps: LoopDependencies): Pro
     }
 
     if (duplicate.kind === 'duplicate') {
-      return await write(entry, { decision: 'merge', duplicateOf: duplicate.of }, deps, stages, {
-        kind: 'merged',
-        into: duplicate.of,
-      })
+      return await write(
+        entry,
+        { decision: 'merge', duplicateOf: duplicate.of },
+        deps,
+        stages,
+        confidentialSpans,
+        { kind: 'merged', into: duplicate.of },
+      )
     }
 
-    return await write(entry, { decision: 'approve' }, deps, stages, { kind: 'approved' })
+    return await write(entry, { decision: 'approve' }, deps, stages, confidentialSpans, {
+      kind: 'approved',
+    })
   } catch (error) {
     // The row stays `pending`, so nothing is served and the next poll tries
     // again. A model that is down means entries accumulate unpublished, which is
@@ -163,6 +221,7 @@ async function write(
   verdict: ModerationVerdict,
   deps: LoopDependencies,
   stages: ModerationStages,
+  confidentialSpans: readonly ConfidentialSpan[],
   judgement: Judgement,
 ): Promise<Judgement> {
   const written = await deps.store.record({
@@ -172,6 +231,7 @@ async function write(
     verdict,
     model: deps.model.name,
     stages,
+    confidentialSpans,
   })
   return written.outcome === 'stale' ? { kind: 'stale' } : judgement
 }

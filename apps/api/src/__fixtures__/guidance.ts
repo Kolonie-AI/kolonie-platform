@@ -202,6 +202,9 @@ export function anOwnStruggle(overrides: Partial<OwnStruggle> = {}): OwnStruggle
     content: AUTHOR_TEXT,
     status: 'pending',
     moderationNote: null,
+    // Empty by default, which is the ordinary entry. A test about the
+    // confidentiality note passes its own — see `#84`.
+    confidentialSpans: [],
     ...overrides,
   })
 }
@@ -213,6 +216,7 @@ export function anOwnTip(overrides: Partial<OwnTip> = {}): OwnTip {
     content: AUTHOR_TIP_TEXT,
     status: 'pending',
     moderationNote: null,
+    confidentialSpans: [],
     ...overrides,
   })
 }

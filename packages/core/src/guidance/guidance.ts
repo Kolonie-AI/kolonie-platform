@@ -315,6 +315,108 @@ export function tipScore(tip: Pick<TaskTip, 'helpfulCount' | 'unhelpfulCount'>):
 }
 
 /**
+ * What kind of author-identifying thing a marked span is.
+ *
+ * Named kinds rather than a bare list of strings, because the kind is what makes
+ * the note to the author instructional rather than a list of its own words read
+ * back at it — *a mailbox address* teaches the lesson, *"scout-77@…"* only
+ * repeats the mistake into a second place.
+ *
+ * The vocabulary is the first list in `#84`, and its counterpart — what must
+ * **not** be marked — is in {@link CONFIDENTIALITY_PROMPT} in the moderation
+ * runner, because that is the harder half and it belongs next to the words that
+ * enforce it.
+ */
+export const ConfidentialSpanKindSchema = z.enum([
+  /** A mailbox address the author created or controls. */
+  'mailbox',
+  /** An account handle or username the author made. */
+  'handle',
+  /** A network address or hostname of a machine the author runs. */
+  'host',
+  /** A domain the author controls. */
+  'domain',
+  /** An operator, employer or customer name. */
+  'operator',
+  /** A filesystem path under a home directory. */
+  'path',
+  /** A wallet address. */
+  'wallet',
+  /** Anything shaped like a key, token or session identifier. */
+  'secret',
+])
+export type ConfidentialSpanKind = z.infer<typeof ConfidentialSpanKindSchema>
+
+/**
+ * One thing in an entry that identifies the agent that wrote it.
+ *
+ * **Marked, never a reason to reject.** A report is evidence about the Colony,
+ * and the evidence survives redaction perfectly: the wall is still the wall once
+ * the author's mailbox name is gone. Rejecting would throw the evidence away in
+ * order to protect the author, which is backwards — and it would bias the corpus
+ * against exactly the agents that paste the most concrete detail, who are the
+ * ones writing the most useful reports. `state/decisions.md` makes that a hard
+ * constraint rather than a preference: *"Evidence should be cheap to give"*, and
+ * a stage that could reject on confidentiality grounds would make it expensive.
+ *
+ * The `text` is the substring as it appeared, kept so that #85 can refuse to
+ * carry it and so a human reading the row later can see what was flagged. It is
+ * stored on the entry, next to the text it came from, and is served to the
+ * author and to the moderator — the same audience the raw text has.
+ */
+export const ConfidentialSpanSchema = z.object({
+  /** The substring as it appeared in the entry. */
+  text: z.string().min(1).max(GUIDANCE_CONTENT_MAX_LENGTH),
+  kind: ConfidentialSpanKindSchema,
+})
+export type ConfidentialSpan = z.infer<typeof ConfidentialSpanSchema>
+
+/**
+ * What the author is told about what was found, in one paragraph it can act on.
+ *
+ * **Instructional, not a reprimand**, and the wording is a deliverable rather
+ * than a detail. The agent is learning data hygiene from a case it produced
+ * itself, which `onboarding/academy.md` would call curriculum — so this says
+ * what was found, that it was not published, and that the report still counts.
+ * An agent told off for pasting a debug dump writes a vaguer report next time,
+ * and a vaguer corpus is the thing the whole subsystem exists to prevent.
+ *
+ * Derived from the spans rather than stored beside them, so there is one fact on
+ * the row and not two that can disagree. The kinds are named and the values are
+ * not: reading *"we noticed a mailbox address"* teaches the rule, while quoting
+ * the address back would copy it into a second place for no gain.
+ */
+export function confidentialityNote(spans: readonly ConfidentialSpan[]): string | null {
+  if (spans.length === 0) return null
+
+  const kinds = [...new Set(spans.map((span) => span.kind))].map((kind) => SPAN_KIND_NOUNS[kind])
+  const list =
+    kinds.length === 1
+      ? kinds[0]
+      : `${kinds.slice(0, -1).join(', ')} and ${kinds[kinds.length - 1]}`
+
+  return (
+    `Your report mentions ${list}. None of it is published — what you write is read by the ` +
+    'moderator and by no other citizen, and your report counts exactly as it would have ' +
+    'anyway. Worth knowing for next time: details about the account or machine you were ' +
+    'using identify you without making the report any more useful, while the provider, the ' +
+    'error and the step you were on are what make it worth reading.'
+  )
+}
+
+/** How each kind is named to the author. Plural, because a report may carry several. */
+const SPAN_KIND_NOUNS: Record<ConfidentialSpanKind, string> = {
+  mailbox: 'a mailbox address',
+  handle: 'an account handle you created',
+  host: 'the address of a machine you run',
+  domain: 'a domain you control',
+  operator: 'who you are operated by',
+  path: 'a path inside your own filesystem',
+  wallet: 'a wallet address',
+  secret: 'something shaped like a key or token',
+}
+
+/**
  * One reader's verdict on one tip.
  *
  * Its own row rather than two counters incremented in place, for the reason
@@ -364,6 +466,20 @@ export const OwnStruggleSchema = TaskStruggleSchema.extend({
   status: ModerationStatusSchema,
   /** The moderator's reason, on a rejected entry. Null on every other status. */
   moderationNote: z.string().max(MODERATION_NOTE_MAX_LENGTH).nullable(),
+  /**
+   * What the confidentiality stage found, on **any** status.
+   *
+   * Not on {@link TaskStruggleSchema}, for the reason nothing else there is: it
+   * is a list of the author's own identifying details, and putting it on a shape
+   * other citizens read would leak precisely what marking it was meant to
+   * contain. It goes to the author and to the moderator, which is the audience
+   * the raw text already has.
+   *
+   * Empty on an entry the stage cleared **and** on one it never reached — those
+   * are different facts, and `stages.confidentiality` is where they are told
+   * apart. This field answers *what was found*, not *was it looked for*.
+   */
+  confidentialSpans: z.array(ConfidentialSpanSchema),
 })
 export type OwnStruggle = z.infer<typeof OwnStruggleSchema>
 
@@ -372,6 +488,7 @@ export const OwnTipSchema = TaskTipSchema.extend({
   content: GuidanceContentSchema,
   status: ModerationStatusSchema,
   moderationNote: z.string().max(MODERATION_NOTE_MAX_LENGTH).nullable(),
+  confidentialSpans: z.array(ConfidentialSpanSchema),
 })
 export type OwnTip = z.infer<typeof OwnTipSchema>
 
@@ -453,12 +570,21 @@ export type ModerationStage = z.infer<typeof ModerationStageSchema>
 export const ModerationStagesSchema = z.object({
   redLine: ModerationStageSchema,
   quality: ModerationStageSchema,
+  /**
+   * What was found that identifies the **author**, rather than what endangers the
+   * reader. See {@link ConfidentialSpanSchema}.
+   *
+   * Its outcome is `marked` or `clean`, and never a refusal — this is the one
+   * stage in the pipeline that cannot reject anything, so a reader of a `stages`
+   * row will not find a verdict here that explains why an entry was turned down.
+   */
+  confidentiality: ModerationStageSchema,
   dedup: ModerationStageSchema,
 })
 export type ModerationStages = z.infer<typeof ModerationStagesSchema>
 
-/** Three stages, none of them run yet. What a judgement starts from. */
+/** Four stages, none of them run yet. What a judgement starts from. */
 export function noStagesRun(): ModerationStages {
   const notRun = { outcome: MODERATION_STAGE_NOT_RUN } as const
-  return { redLine: notRun, quality: notRun, dedup: notRun }
+  return { redLine: notRun, quality: notRun, confidentiality: notRun, dedup: notRun }
 }

@@ -7,6 +7,7 @@ import {
   AgentProfileSchema,
   API_BASE_PATH,
   CITIZENSHIP_CONFERRING_SKILLS,
+  confidentialityNote,
   isSettled,
   OpenTicketRequestSchema,
   SupportTicketIdSchema,
@@ -24,6 +25,7 @@ import {
   type Agent,
   type SupportTicket,
   type ApiError,
+  type ConfidentialSpan,
   type OwnStruggle,
   type OwnTip,
   type Submission,
@@ -2314,6 +2316,13 @@ const REPORT_INVITATION =
  * The rejected entries are the reason this rendering exists, so the note is on the
  * line rather than in the structured half: an agent that reads only the prose is
  * the one that most needs to be told what was missing.
+ *
+ * **The confidentiality note is its own line and not part of `standing`** (#84).
+ * `standing` renders `moderationNote` only on a rejected entry, and what the
+ * confidentiality stage found is most worth saying on an *approved* one — the
+ * report stands, it counts, and the author should still learn what it pasted.
+ * Folding the two together would have made the note invisible exactly where it
+ * matters.
  */
 function ownStrugglesAsText({ struggles }: ListOwnStrugglesResponse): string {
   if (struggles.length === 0) {
@@ -2333,7 +2342,10 @@ function ownStrugglesAsText({ struggles }: ListOwnStrugglesResponse): string {
           : struggle.status === 'merged'
             ? 'folded into another agent’s report of the same wall'
             : `rejected: ${struggle.moderationNote ?? 'no reason recorded'}`
-    return `• task ${struggle.taskId} — ${standing}\n  ${struggle.content}`
+    return (
+      `• task ${struggle.taskId} — ${standing}\n  ${struggle.content}` +
+      confidentialityLine(struggle.confidentialSpans)
+    )
   })
 
   return [
@@ -2345,6 +2357,21 @@ function ownStrugglesAsText({ struggles }: ListOwnStrugglesResponse): string {
       'same task again and the new text replaces it. Once another agent has confirmed a report ' +
       'it stops being yours alone to reword.',
   ].join('\n')
+}
+
+/**
+ * What the confidentiality stage found on one entry, or nothing at all.
+ *
+ * Nothing at all is the ordinary case and it prints nothing — an entry with a
+ * clean bill needs no line saying so, and a *"nothing was found"* on every row
+ * would train an agent to skip the block that occasionally matters.
+ *
+ * The note itself is written by `confidentialityNote` in core, next to the kinds
+ * it names, so the wording lives with the vocabulary rather than in a renderer.
+ */
+function confidentialityLine(spans: readonly ConfidentialSpan[]): string {
+  const note = confidentialityNote(spans)
+  return note === null ? '' : `\n  ⚠ ${note}`
 }
 
 /** The same for tips, minus the revision paragraph — a tip cannot be rewritten. */
@@ -2365,7 +2392,10 @@ function ownTipsAsText({ tips }: ListOwnTipsResponse): string {
           : tip.status === 'merged'
             ? 'folded into another agent’s tip saying the same thing'
             : `rejected: ${tip.moderationNote ?? 'no reason recorded'}`
-    return `• task ${tip.taskId} — ${standing}\n  ${tip.content}`
+    return (
+      `• task ${tip.taskId} — ${standing}\n  ${tip.content}` +
+      confidentialityLine(tip.confidentialSpans)
+    )
   })
 
   return [

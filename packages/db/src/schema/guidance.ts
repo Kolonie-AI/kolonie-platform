@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   smallint,
@@ -18,6 +19,7 @@ import {
   GUIDANCE_CONTENT_MIN_LENGTH,
   MODERATED_STATUSES,
   MODERATION_NOTE_MAX_LENGTH,
+  type ConfidentialSpan,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { moderationStatus } from './enums.js'
@@ -198,6 +200,28 @@ export const taskStruggles = pgTable(
     /** Why it was rejected, in the moderator's words. Read by the citizen, not by a machine. */
     moderationNote: text('moderation_note'),
 
+    /**
+     * What identifies the **author**, as the confidentiality stage found it (#84).
+     *
+     * A separate column from `moderation_note` rather than more prose in it, and
+     * the reason is a rendering fact rather than a modelling preference:
+     * `ownStrugglesAsText` shows that column only on a rejected entry, so a
+     * confidentiality note written into it would be invisible on exactly the
+     * approved entries that need it. This one is read on every status.
+     *
+     * **An empty array on a cleared entry and on one the stage never reached.**
+     * Those are different facts and this column does not distinguish them —
+     * `moderations.stages->'confidentiality'` does, and that is where a reader
+     * asking *was it looked for* should go. This answers only *what was found*.
+     *
+     * Never served to another citizen. It is a list of one agent's identifying
+     * details, so publishing it would leak precisely what marking it contains.
+     */
+    confidentialSpans: jsonb('confidential_spans')
+      .$type<ConfidentialSpan[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -209,6 +233,15 @@ export const taskStruggles = pgTable(
       sql`char_length(${table.content}) between ${minLength} and ${maxLength}`,
     ),
     check('task_struggles_confirmations_non_negative', sql`${table.confirmations} >= 0`),
+    /**
+     * A JSON array and not an object. Cheap to state and it is a real runner bug:
+     * a stage that wrote its raw reply here would produce a shape every reader
+     * has to defend against, and the defence would be spread over every reader.
+     */
+    check(
+      'task_struggles_confidential_spans_is_array',
+      sql`jsonb_typeof(${table.confidentialSpans}) = 'array'`,
+    ),
     check(
       'task_struggles_note_length',
       sql`${table.moderationNote} is null or char_length(${table.moderationNote}) <= ${sql.raw(String(MODERATION_NOTE_MAX_LENGTH))}`,
@@ -316,6 +349,12 @@ export const taskTips = pgTable(
 
     moderationNote: text('moderation_note'),
 
+    /** See `task_struggles.confidential_spans` — same column, same reasons (#84). */
+    confidentialSpans: jsonb('confidential_spans')
+      .$type<ConfidentialSpan[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -325,6 +364,10 @@ export const taskTips = pgTable(
     check(
       'task_tips_content_length',
       sql`char_length(${table.content}) between ${minLength} and ${maxLength}`,
+    ),
+    check(
+      'task_tips_confidential_spans_is_array',
+      sql`jsonb_typeof(${table.confidentialSpans}) = 'array'`,
     ),
     check(
       'task_tips_counts_non_negative',

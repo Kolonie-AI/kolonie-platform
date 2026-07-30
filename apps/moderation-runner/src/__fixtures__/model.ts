@@ -1,10 +1,18 @@
-import type { Classification, Model } from '../llm.js'
+import type { Classification, MarkedSpan, Model } from '../llm.js'
 
-/** One thing the model was asked, so a test can assert what reached the prompt. */
+/**
+ * One thing the model was asked, so a test can assert what reached the prompt.
+ *
+ * `choices` and `kinds` are both optional because the two call shapes carry
+ * different closed sets — a classification offers answers, a marking offers
+ * labels — and a recorded call keeps whichever it was given rather than
+ * flattening them into one field that means two things.
+ */
 export interface RecordedCall {
   readonly system: string
   readonly user: string
-  readonly choices: readonly string[]
+  readonly choices?: readonly string[]
+  readonly kinds?: readonly string[]
 }
 
 /**
@@ -23,9 +31,20 @@ export interface RecordedCall {
 export interface FakeModel extends Model {
   /** Queue the next classification answers, consumed in order. */
   readonly answers: (...verdicts: Classification[]) => void
+  /**
+   * What the next marking call finds. Defaults to nothing.
+   *
+   * **Not queued the way verdicts are**, and the asymmetry is deliberate: the
+   * confidentiality stage runs exactly once per entry and cannot branch, so a
+   * queue would only let a test express an ordering that the pipeline cannot
+   * produce. Most tests never call this, which is the point — a stage that finds
+   * nothing must not change any existing verdict, and every pre-existing test in
+   * this file asserts that by continuing to pass.
+   */
+  readonly marks: (...spans: MarkedSpan[]) => void
   /** Fix what `embed` returns for a given text. Anything unlisted embeds as orthogonal. */
   readonly embedsAs: (text: string, vector: readonly number[]) => void
-  /** Every classification the pipeline asked for, in order. */
+  /** Every call the pipeline made, in order — classifications and markings alike. */
   readonly calls: () => RecordedCall[]
   readonly lastCall: () => RecordedCall | undefined
   /** Make the next call throw, to test that one bad entry does not stop the queue. */
@@ -36,6 +55,7 @@ export function fakeModel(): FakeModel {
   const queued: Classification[] = []
   const calls: RecordedCall[] = []
   const vectors = new Map<string, readonly number[]>()
+  let marked: MarkedSpan[] = []
   let failure: Error | undefined
 
   /**
@@ -77,11 +97,23 @@ export function fakeModel(): FakeModel {
       }
       return next
     },
+    async mark(input) {
+      if (failure !== undefined) {
+        const error = failure
+        failure = undefined
+        throw error
+      }
+      calls.push(input)
+      return marked
+    },
     async embed(inputs) {
       return inputs.map(vectorFor)
     },
     answers: (...verdicts) => {
       queued.push(...verdicts)
+    },
+    marks: (...spans) => {
+      marked = spans
     },
     embedsAs: (text, vector) => {
       vectors.set(text, vector)

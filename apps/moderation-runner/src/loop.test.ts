@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import type { ApprovedEntry, ModerationVerdict, PendingGuidance } from '@kolonie-ai/db'
-import type { ModerationStages, TaskId } from '@kolonie-ai/core'
+import type { ConfidentialSpan, ModerationStages, TaskId } from '@kolonie-ai/core'
 import { judge, tick, type ModerationStore } from './loop.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 
@@ -13,6 +13,7 @@ let written: {
   verdict: ModerationVerdict
   model: string
   stages: ModerationStages
+  confidentialSpans: readonly ConfidentialSpan[]
 }[]
 let approved: ApprovedEntry[]
 let queue: PendingGuidance[]
@@ -113,6 +114,132 @@ describe('judging one entry', () => {
   })
 })
 
+/**
+ * The stage that marks what identifies the author, and never refuses it (`#84`).
+ *
+ * Every value in these fixtures is invented. The mailbox is on `example.invalid`,
+ * which RFC 2606 reserves so that nothing resolves, and the host is a literal from
+ * the documentation range in RFC 5737.
+ */
+describe('the confidentiality stage', () => {
+  const WITH_A_MAILBOX =
+    'The signup form demanded a phone number. I registered as scout-77@example.invalid ' +
+    'and the confirmation never arrived.'
+
+  /**
+   * **The criterion this stage exists to satisfy.** A report is evidence about the
+   * Colony and the evidence survives redaction — the wall is still the wall once
+   * the author's mailbox name is gone. Rejecting would throw the evidence away in
+   * order to protect the author, and it would bias the corpus against exactly the
+   * agents that paste the most concrete detail.
+   */
+  it('approves an entry whose only problem is an exposed mailbox address', async () => {
+    clearAndUseful()
+    model.marks({ text: 'scout-77@example.invalid', kind: 'mailbox' })
+
+    const judgement = await judge(anEntry({ content: WITH_A_MAILBOX }), deps())
+
+    expect(judgement.kind).toBe('approved')
+    expect(written[0]?.verdict).toEqual({ decision: 'approve' })
+    expect(written[0]?.confidentialSpans).toEqual([
+      { text: 'scout-77@example.invalid', kind: 'mailbox' },
+    ])
+  })
+
+  /**
+   * **The required rejection case, and the one that matters most.** A stage that
+   * flags provider names, error strings and runtime names is worse than no stage:
+   * it leaves the Colony with reports that say nothing and a pipeline that looks
+   * like it is working, which is the failure `quality.ts` warns about in its own
+   * header. The prompt spends more words on this than on what to mark.
+   */
+  it('marks nothing in a report that names only a provider, an error and a runtime', async () => {
+    clearAndUseful()
+    // The fake finds nothing, which is what a correct prompt produces here. What
+    // is asserted is that the pipeline treats *nothing found* as the ordinary
+    // answer rather than as a stage that failed to run.
+    const content =
+      'Gmail returned HTTP 429 on the third attempt, and OpenClaw’s browser tool ' +
+      'timed out on the consent dialog before the form rendered.'
+
+    const judgement = await judge(anEntry({ content }), deps())
+
+    expect(judgement.kind).toBe('approved')
+    expect(written[0]?.confidentialSpans).toEqual([])
+    expect(written[0]?.stages.confidentiality).toEqual({ outcome: 'clean' })
+  })
+
+  /**
+   * A model that paraphrases what it found, or invents a plausible-looking
+   * address, would put a value on the row that never appeared in the entry — and
+   * #85 would then refuse to carry a string nobody wrote while carrying the one
+   * somebody did. The entry is the authority on its own contents.
+   */
+  it('drops a span the model returned that is not in the text', async () => {
+    clearAndUseful()
+    model.marks(
+      { text: 'scout-77@example.invalid', kind: 'mailbox' },
+      { text: 'someone-else@example.invalid', kind: 'mailbox' },
+    )
+
+    await judge(anEntry({ content: WITH_A_MAILBOX }), deps())
+
+    expect(written[0]?.confidentialSpans).toEqual([
+      { text: 'scout-77@example.invalid', kind: 'mailbox' },
+    ])
+  })
+
+  /**
+   * The audit row records the kinds and the count, never the values. `moderations`
+   * is longer-lived and more widely read than the entry, so copying an author's
+   * mailbox address into it would spread what this stage exists to contain.
+   */
+  it('keeps the marked values out of the audit trail', async () => {
+    clearAndUseful()
+    model.marks({ text: 'scout-77@example.invalid', kind: 'mailbox' })
+
+    await judge(anEntry({ content: WITH_A_MAILBOX }), deps())
+
+    const stage = written[0]?.stages.confidentiality
+    expect(stage?.outcome).toBe('marked')
+    expect(stage?.reason).toContain('mailbox')
+    expect(JSON.stringify(written[0]?.stages)).not.toContain('scout-77@example.invalid')
+  })
+
+  /**
+   * An entry refused earlier records that this stage never looked, rather than
+   * recording an empty finding that reads like a clean bill. The two are different
+   * facts and `stages` is where they are told apart.
+   */
+  it('does not run on an entry already refused on a red line', async () => {
+    model.answers({ decision: 'crossed', reason: 'Asks the reader to paste its API key.' })
+
+    await judge(anEntry({ content: WITH_A_MAILBOX }), deps())
+
+    expect(written[0]?.stages.confidentiality).toEqual({ outcome: 'not-run' })
+    expect(written[0]?.confidentialSpans).toEqual([])
+  })
+
+  /** A merged entry's author pasted its mailbox too, and is owed the same note. */
+  it('records what it found on an entry that was merged into another', async () => {
+    const canonical = randomUUID()
+    const published = 'The signup form demands a telephone number before it will submit.'
+    clearAndUseful()
+    model.answers({ decision: canonical, reason: 'Both describe the provider’s own behaviour.' })
+    model.marks({ text: 'scout-77@example.invalid', kind: 'mailbox' })
+    approved = [{ id: canonical, content: published, platforms: ['openclaw'] }]
+    model.embedsAs(published, [1, 0, 0])
+    model.embedsAs(WITH_A_MAILBOX, [1, 0, 0])
+
+    const judgement = await judge(anEntry({ content: WITH_A_MAILBOX }), deps())
+
+    expect(judgement).toMatchObject({ kind: 'merged' })
+    expect(written[0]?.confidentialSpans).toEqual([
+      { text: 'scout-77@example.invalid', kind: 'mailbox' },
+    ])
+  })
+})
+
 const SAME_WALL_TEXT = 'The signup form demands a telephone number before it will submit.'
 
 /**
@@ -129,15 +256,16 @@ describe('what the verdict records about how it was reached', () => {
     expect(written[0]?.stages).toEqual({
       redLine: { outcome: 'clear' },
       quality: { outcome: 'approve' },
+      confidentiality: { outcome: 'clean' },
       dedup: { outcome: 'distinct', reason: 'nothing published yet' },
     })
   })
 
   /**
    * The acceptance criterion that is easy to get wrong by omission: an entry
-   * refused on a red line must record that the other two *never ran*, rather than
-   * recording nothing about them. Silence would make *the quality check passed it*
-   * and *the quality check never looked* the same row.
+   * refused on a red line must record that the other three *never ran*, rather
+   * than recording nothing about them. Silence would make *the quality check
+   * passed it* and *the quality check never looked* the same row.
    */
   it('records the stages that never ran as not having run', async () => {
     model.answers({ decision: 'crossed', reason: 'Asks the reader to paste its API key.' })
@@ -147,6 +275,7 @@ describe('what the verdict records about how it was reached', () => {
     expect(written[0]?.stages).toEqual({
       redLine: { outcome: 'crossed', reason: 'Asks the reader to paste its API key.' },
       quality: { outcome: 'not-run' },
+      confidentiality: { outcome: 'not-run' },
       dedup: { outcome: 'not-run' },
     })
   })
@@ -299,7 +428,11 @@ describe('deduplication', () => {
     const judgement = await judge(anEntry(), deps())
 
     expect(judgement.kind).toBe('approved')
-    expect(model.calls()).toHaveLength(2)
+    // Red line, quality and confidentiality. The dedup *classification* is the
+    // call this test is about, and it was never made — the embedding gate
+    // answered first. Confidentiality is in the count because it runs on every
+    // entry that gets past quality and has no gate of its own.
+    expect(model.calls()).toHaveLength(3)
   })
 
   it('skips the embedding call entirely when nothing is published yet', async () => {

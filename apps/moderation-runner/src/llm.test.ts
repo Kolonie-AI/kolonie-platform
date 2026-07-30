@@ -102,6 +102,76 @@ describe('classifying', () => {
   })
 })
 
+describe('marking', () => {
+  it('offers the labels as a schema enum and asks for an array', async () => {
+    const { impl, sent } = stubFetch(aVerdict('{"spans":[]}'))
+
+    await openRouterModel('a-key', { fetch: impl }).mark({
+      system: 'you find what identifies the author',
+      user: 'some report',
+      kinds: ['mailbox', 'host'],
+    })
+
+    const body = JSON.parse(String(sent[0]?.init?.body)) as Record<string, unknown>
+    const format = body.response_format as {
+      json_schema: {
+        strict: boolean
+        schema: { properties: { spans: { items: { properties: { kind: { enum: string[] } } } } } }
+      }
+    }
+    expect(format.json_schema.strict).toBe(true)
+    expect(format.json_schema.schema.properties.spans.items.properties.kind.enum).toEqual([
+      'mailbox',
+      'host',
+    ])
+    expect(body.temperature).toBe(0)
+  })
+
+  it('returns the spans it was given', async () => {
+    const { impl } = stubFetch(
+      aVerdict('{"spans":[{"text":"scout-77@example.invalid","kind":"mailbox"}]}'),
+    )
+
+    const spans = await openRouterModel('a-key', { fetch: impl }).mark({
+      system: 's',
+      user: 'u',
+      kinds: ['mailbox'],
+    })
+
+    expect(spans).toEqual([{ text: 'scout-77@example.invalid', kind: 'mailbox' }])
+  })
+
+  /**
+   * Nothing found is the ordinary answer for a well-written report, so it has to
+   * be an empty list rather than an error — a transport that treated it as a
+   * malformed reply would fail every clean entry in the corpus.
+   */
+  it('accepts an empty list as an answer', async () => {
+    const { impl } = stubFetch(aVerdict('{"spans":[]}'))
+
+    const spans = await openRouterModel('a-key', { fetch: impl }).mark({
+      system: 's',
+      user: 'u',
+      kinds: ['mailbox'],
+    })
+
+    expect(spans).toEqual([])
+  })
+
+  /** The same rule `classify` follows: a strict schema is the vendor's promise, not ours. */
+  it('refuses a kind that was not on offer', async () => {
+    const { impl } = stubFetch(aVerdict('{"spans":[{"text":"x","kind":"invented"}]}'))
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).mark({
+        system: 's',
+        user: 'u',
+        kinds: ['mailbox'],
+      }),
+    ).rejects.toThrow(/not on offer/)
+  })
+})
+
 describe('embedding', () => {
   it('returns one vector per input, in the order they were sent', async () => {
     const { impl } = stubFetch({

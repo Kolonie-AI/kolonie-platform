@@ -82,8 +82,38 @@ export interface Model {
     readonly choices: readonly string[]
   }): Promise<Classification>
 
+  /**
+   * Ask for a list of spans rather than one verdict.
+   *
+   * A second shape and not a variant of {@link classify}, because the two answer
+   * differently: a classification is one of a closed set and a marking is zero or
+   * more findings, and squeezing a list into `decision`/`reason` would mean
+   * parsing prose back out of a field the schema promised was an enum.
+   *
+   * `kinds` closes the label set the same way `choices` does, and for the same
+   * reason — an answer outside it is refused by the transport rather than by a
+   * comparison somewhere downstream.
+   */
+  mark(input: {
+    readonly system: string
+    readonly user: string
+    readonly kinds: readonly string[]
+  }): Promise<readonly MarkedSpan[]>
+
   /** Embed several strings at once. Order in, order out. */
   embed(inputs: readonly string[]): Promise<readonly (readonly number[])[]>
+}
+
+/**
+ * One span a marking prompt found, as the transport parsed it.
+ *
+ * `kind` is a plain string here rather than core's enum: this file knows nothing
+ * about struggles, tips or confidentiality, and the schema it sends is built from
+ * whatever `kinds` the caller passed. `confidentiality.ts` is what narrows it.
+ */
+export interface MarkedSpan {
+  readonly text: string
+  readonly kind: string
 }
 
 /**
@@ -102,7 +132,7 @@ export function unavailableModel(reason: string): Model {
   // A name it can never write, because every call above throws before a verdict
   // exists. Named anyway rather than left empty: if it ever appears in a
   // `moderations` row, that row is the bug report.
-  return { name: 'unconfigured', classify: fail, embed: fail }
+  return { name: 'unconfigured', classify: fail, mark: fail, embed: fail }
 }
 
 /**
@@ -192,6 +222,79 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
       }
 
       return { decision: parsed.decision, reason: parsed.reason }
+    },
+
+    async mark({ system, user, kinds }) {
+      const body = await call('/chat/completions', {
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        /**
+         * An array of objects, with `kind` an enum of exactly the labels the
+         * caller offered. The wrapping object is not decoration — a top-level
+         * array is not expressible as a strict JSON schema response here, and
+         * `spans` gives the model somewhere to put an empty list rather than
+         * treating *nothing found* as a case it has to describe in prose.
+         */
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'marked_spans',
+            strict: true,
+            schema: {
+              type: 'object',
+              properties: {
+                spans: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      text: { type: 'string' },
+                      kind: { type: 'string', enum: [...kinds] },
+                    },
+                    required: ['text', 'kind'],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ['spans'],
+              additionalProperties: false,
+            },
+          },
+        },
+        // Larger than `classify`'s ceiling because the answer is a list rather
+        // than a sentence, and a report at the 2000-character limit can honestly
+        // carry several spans. Still bounded: a reply that wanted more than this
+        // is marking most of the text, which is the failure mode this stage is
+        // most at risk of.
+        max_tokens: 800,
+        temperature: 0,
+      })
+
+      const content = (body as { choices?: { message?: { content?: string } }[] }).choices?.[0]
+        ?.message?.content
+
+      if (typeof content !== 'string') {
+        throw new Error('OpenRouter returned no message content')
+      }
+
+      const parsed = JSON.parse(content) as { spans?: unknown }
+      if (!Array.isArray(parsed.spans)) {
+        throw new Error('the model returned a marking without a spans array')
+      }
+
+      return parsed.spans.map((span) => {
+        const { text, kind } = span as Partial<MarkedSpan>
+        if (typeof text !== 'string' || typeof kind !== 'string') {
+          throw new Error('the model returned a span without a text and a kind')
+        }
+        if (!kinds.includes(kind)) {
+          throw new Error(`the model marked a span as '${kind}', which was not on offer`)
+        }
+        return { text, kind }
+      })
     },
 
     async embed(inputs) {

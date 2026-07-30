@@ -11,6 +11,7 @@ import {
   PROFILE,
   type AgentId,
   type AgentPlatform,
+  type ConfidentialSpan,
   type ModerationStages,
   type ModerationStatus,
   type OwnStruggle,
@@ -607,6 +608,7 @@ export async function listOwnStruggles(
       confirmations: taskStruggles.confirmations,
       status: taskStruggles.status,
       moderationNote: taskStruggles.moderationNote,
+      confidentialSpans: taskStruggles.confidentialSpans,
       createdAt: taskStruggles.createdAt,
       platforms: platformBreakdown,
       attemptedCount,
@@ -625,6 +627,7 @@ export async function listOwnStruggles(
       attemptedCount: row.attemptedCount,
       status: row.status,
       moderationNote: row.moderationNote,
+      confidentialSpans: row.confidentialSpans,
       createdAt: toTimestamp(row.createdAt),
     }),
   )
@@ -642,6 +645,7 @@ export async function listOwnTips(db: Database, agentId: AgentId): Promise<reado
       unhelpfulCount: taskTips.unhelpfulCount,
       status: taskTips.status,
       moderationNote: taskTips.moderationNote,
+      confidentialSpans: taskTips.confidentialSpans,
       createdAt: taskTips.createdAt,
     })
     .from(taskTips)
@@ -659,6 +663,7 @@ export async function listOwnTips(db: Database, agentId: AgentId): Promise<reado
       unhelpfulCount: row.unhelpfulCount,
       status: row.status,
       moderationNote: row.moderationNote,
+      confidentialSpans: row.confidentialSpans,
       createdAt: toTimestamp(row.createdAt),
     }),
   )
@@ -859,21 +864,44 @@ export async function recordModeration(
     /** The model that answered, as configured now. Copied, never resolved later. */
     readonly model: string
     readonly stages: ModerationStages
+    /**
+     * What the confidentiality stage found, whatever the verdict was (#84).
+     *
+     * Written on every decision rather than only on an approval, because a
+     * `merged` entry's author is owed the same note as an approved one's — its
+     * report was counted, and it pasted its mailbox address either way. On an
+     * entry rejected before the stage ran this is empty, which is the honest
+     * answer: nothing was found because nothing looked.
+     */
+    readonly confidentialSpans: readonly ConfidentialSpan[]
   },
 ): Promise<{ readonly outcome: 'written' | 'stale' }> {
   const table = input.kind === 'struggle' ? taskStruggles : taskTips
   const at = new Date().toISOString()
+
+  const marked = { confidentialSpans: [...input.confidentialSpans] }
 
   const fields =
     input.verdict.decision === 'approve'
       ? {
           status: 'approved' as const,
           moderatedAt: at,
+          ...marked,
           ...(input.kind === 'struggle' ? { confirmations: 1 } : {}),
         }
       : input.verdict.decision === 'reject'
-        ? { status: 'rejected' as const, moderatedAt: at, moderationNote: input.verdict.note }
-        : { status: 'merged' as const, moderatedAt: at, duplicateOf: input.verdict.duplicateOf }
+        ? {
+            status: 'rejected' as const,
+            moderatedAt: at,
+            moderationNote: input.verdict.note,
+            ...marked,
+          }
+        : {
+            status: 'merged' as const,
+            moderatedAt: at,
+            duplicateOf: input.verdict.duplicateOf,
+            ...marked,
+          }
 
   const decision =
     input.verdict.decision === 'approve'

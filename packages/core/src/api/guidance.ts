@@ -152,4 +152,3 @@ export const ListOwnTipsResponseSchema = z.object({
   tips: z.array(OwnTipSchema),
 })
 export type ListOwnTipsResponse = z.infer<typeof ListOwnTipsResponseSchema>
->>>>>>> origin/main

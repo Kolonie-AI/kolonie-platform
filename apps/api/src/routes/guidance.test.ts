@@ -357,19 +357,13 @@ describe('POST /v1/tasks/:taskId/tips/:tipId/feedback', () => {
    * forever.
    */
   it('answers 404 for a tipId that is not a UUID, without reaching storage', async () => {
-    const response = await post(
-      `/v1/tasks/${taskId}/tips/not-a-uuid/feedback`,
-      { helpful: true },
-    )
+    const response = await post(`/v1/tasks/${taskId}/tips/not-a-uuid/feedback`, { helpful: true })
 
     expect(response.statusCode).toBe(ERROR_STATUS.not_found)
   })
 
   it('answers 404 for a taskId that is not a UUID, without reaching storage', async () => {
-    const response = await post(
-      `/v1/tasks/not-a-uuid/tips/${tipId()}/feedback`,
-      { helpful: true },
-    )
+    const response = await post(`/v1/tasks/not-a-uuid/tips/${tipId()}/feedback`, { helpful: true })
 
     expect(response.statusCode).toBe(ERROR_STATUS.not_found)
   })
@@ -436,6 +430,5 @@ describe('GET /v1/agents/me/tips', () => {
 
   it('refuses an anonymous caller', async () => {
     expect((await get('/v1/agents/me/tips', null)).statusCode).toBe(401)
->>>>>>> origin/main
   })
 })

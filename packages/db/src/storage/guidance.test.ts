@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
-import { noStagesRun, type AgentId, type AgentPlatform, type TaskId } from '@kolonie-ai/core'
+import {
+  noStagesRun,
+  type AgentId,
+  type AgentPlatform,
+  type TaskId,
+  type TaskTipId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agentSkills,
@@ -1002,7 +1008,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     })
 
     describe('voting on tips', () => {
-      let tipId: string
+      let tipId: TaskTipId
       let authorId: AgentId
 
       beforeEach(async () => {

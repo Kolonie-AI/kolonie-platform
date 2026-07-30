@@ -20,6 +20,7 @@ import {
   type TaskId,
   type TaskStruggle,
   type TaskTip,
+  type TaskTipId,
 } from '@kolonie-ai/core'
 import {
   countStruggles as countStrugglesInDatabase,

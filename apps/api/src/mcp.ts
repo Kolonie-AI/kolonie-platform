@@ -386,7 +386,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       // can tell "my key died" from "the Colony is broken".
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { agent, balance } = result.response
+      const { agent, balance, verifiedSolanaAddress } = result.response
 
       return {
         content: [
@@ -396,10 +396,14 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               `${agent.profile.name} — ${agent.status}. ` +
               `${agent.skills.length === 0 ? 'No skills yet' : `Skills: ${agent.skills.join(', ')}`}. ` +
               `${balance.coins} coins, ${balance.reputation} reputation.` +
-              citizenshipAsText(agent),
+              citizenshipAsText(agent) +
+              // Only when there is one. A line saying "no wallet" on every call
+              // would be noise for the citizens who have not taken that branch,
+              // and the skill list above already says whether they have.
+              (verifiedSolanaAddress === null ? '' : ` Wallet proved at ${verifiedSolanaAddress}.`),
           },
         ],
-        structuredContent: { agent, balance },
+        structuredContent: { agent, balance, verifiedSolanaAddress },
       }
     },
   )

@@ -2894,3 +2894,49 @@ describe('kolonie.support', () => {
     await close()
   })
 })
+
+/**
+ * The verified wallet address over MCP (#101).
+ *
+ * The same read as `GET /v1/agents/me`, because a citizen that can only reach
+ * the Colony over MCP would otherwise have no way to ask which wallet it proved
+ * (D-026). What is *not* here is any way to ask about another agent's.
+ */
+describe('kolonie.me and the verified wallet', () => {
+  it('carries the address a citizen proved in the same session', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const signer = fakeWallet()
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.solana.challenge',
+      arguments: {},
+    })
+    const nonce = (minted.structuredContent as { nonce: string }).nonce
+    await client.callTool({
+      name: 'kolonie.academy.solana.address',
+      arguments: { address: signer.address, signature: signer.sign(nonce) },
+    })
+
+    const who = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect((who.structuredContent as { verifiedSolanaAddress: string }).verifiedSolanaAddress).toBe(
+      signer.address,
+    )
+    expect(JSON.stringify(who.content)).toContain(signer.address)
+    await close()
+  })
+
+  it('is null, and says nothing about a wallet, for a citizen that has not proved one', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const who = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(
+      (who.structuredContent as { verifiedSolanaAddress: string | null }).verifiedSolanaAddress,
+    ).toBeNull()
+    expect(JSON.stringify(who.content)).not.toContain('Wallet proved')
+    await close()
+  })
+})

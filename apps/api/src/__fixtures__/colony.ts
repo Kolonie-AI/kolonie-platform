@@ -30,7 +30,7 @@ import type { VisionDependencies } from '../vision.js'
 import { fakeAcademy } from './academy.js'
 import { fakeEmail } from './email.js'
 import { fakeKeys } from './keys.js'
-import { fakeSolana } from './solana.js'
+import { fakeSolanaChallenges } from './solana.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeGithub } from './github.js'
 import { fakeSocial } from './social.js'
@@ -142,6 +142,10 @@ export function fakeColony(): FakeColony {
   const desk = fakeSupportDesk()
   let resets: ResetResult = { outcome: 'not-a-tester' }
   const balances = new Map<string, AgentBalance>()
+  // Held rather than built inline, because two things read it: the wallet
+  // routes, and `verifiedWalletOf` below. One store, so a rung cleared on one
+  // surface is visible on the other.
+  const solanaChallenges = fakeSolanaChallenges()
   const takenNames = new Set<string>()
   const takenWallets = new Set<string>()
 
@@ -218,7 +222,7 @@ export function fakeColony(): FakeColony {
     academy: fakeAcademy(),
     email: fakeEmail(),
     keys: fakeKeys(),
-    solana: fakeSolana(),
+    solana: { challenges: solanaChallenges },
     pow: fakePow(),
     github: fakeGithub(),
     social: fakeSocial(),
@@ -240,6 +244,17 @@ export function fakeColony(): FakeColony {
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
         AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0 }),
+
+      /**
+       * Reads what the wallet rung recorded, through the same fake the routes
+       * use. So a citizen that clears `solana-wallet` over MCP in one call sees
+       * its address in `kolonie.me` in the next, which is the round trip this
+       * fixture exists to make real.
+       */
+      verifiedWalletOf: async (agentId: AgentId): Promise<string | null> => {
+        const attempt = await solanaChallenges.latest(agentId)
+        return attempt?.verifiedAt == null ? null : attempt.address
+      },
 
       /**
        * PATCH semantics against the same `byKey` map registration writes into,

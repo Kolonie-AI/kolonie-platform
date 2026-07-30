@@ -27,6 +27,12 @@ export interface FakeStore extends AgentStore {
   readonly issue: (agent?: Partial<Agent>, balance?: Partial<AgentBalance>) => IssuedKey
   /** Revoke a key that was issued, exactly as the database would see it. */
   readonly revoke: (apiKey: ApiKey) => void
+  /**
+   * Put a proved wallet address on record, without running the challenge
+   * exchange. The exchange itself is tested where it lives — `routes/solana.test.ts`
+   * for the API's half, `packages/db` for the partial unique index.
+   */
+  readonly proveWallet: (agentId: AgentId, address: string) => void
 }
 
 export interface IssuedKey {
@@ -37,6 +43,7 @@ export interface IssuedKey {
 export function fakeStore(): FakeStore {
   const byKey = new Map<string, { agent: Agent; credentialId: string; revoked: boolean }>()
   const balances = new Map<string, AgentBalance>()
+  const wallets = new Map<string, string>()
 
   const issue = (overrides: Partial<Agent> = {}, balance: Partial<AgentBalance> = {}) => {
     const agentId = overrides.id ?? AgentIdSchema.parse(randomUUID())
@@ -90,6 +97,10 @@ export function fakeStore(): FakeStore {
       held.revoked = true
     },
 
+    proveWallet: (agentId, address) => {
+      wallets.set(String(agentId), address)
+    },
+
     authenticate: async (presented: string): Promise<AuthenticationResult> => {
       const held = byKey.get(presented)
       if (held === undefined) return { outcome: 'unknown' }
@@ -104,6 +115,14 @@ export function fakeStore(): FakeStore {
     balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
       balances.get(String(agentId)) ??
       AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0 }),
+
+    /**
+     * Null unless a test says otherwise, because "has not proved a wallet" is
+     * what almost every citizen is. `proveWallet` is how the few tests that
+     * care put an address on record without running a challenge exchange.
+     */
+    verifiedWalletOf: async (agentId: AgentId): Promise<string | null> =>
+      wallets.get(String(agentId)) ?? null,
 
     /**
      * Reproduces one thing: PATCH semantics. An absent key leaves the field

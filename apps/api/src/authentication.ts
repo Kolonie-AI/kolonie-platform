@@ -10,6 +10,7 @@ import {
   authenticateApiKey,
   balanceOfAgent,
   updateAgentProfile,
+  verifiedSolanaAddress,
   type AuthenticationResult,
   type Database,
 } from '@kolonie-ai/db'
@@ -27,6 +28,14 @@ import type { ProfileStore } from './profile.js'
 export interface AgentStore extends ProfileStore {
   authenticate(apiKey: string): Promise<AuthenticationResult>
   balanceOf(agentId: AgentId): Promise<AgentBalance>
+  /**
+   * The address the citizen proved at the `solana-wallet` rung, or null.
+   *
+   * Read from a cleared challenge row rather than from `agent.profile.wallet`,
+   * which is free text nobody checked. Two different questions that would
+   * otherwise answer with the same-looking string.
+   */
+  verifiedWalletOf(agentId: AgentId): Promise<string | null>
 }
 
 /** What `GET /v1/agents/me` resolved to, in the API's own vocabulary. */
@@ -87,6 +96,7 @@ export function databaseStore(db: Database): AgentStore {
   return {
     authenticate: (apiKey) => authenticateApiKey(db, apiKey),
     balanceOf: (agentId) => balanceOfAgent(db, agentId),
+    verifiedWalletOf: (agentId) => verifiedSolanaAddress(db, agentId),
     updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
 }
@@ -128,10 +138,17 @@ export async function authenticate(
 /**
  * Resolve an `Authorization` header to the caller's own record.
  *
- * The two reads are sequential on purpose: the balance query needs an agent id,
- * and an unauthenticated caller must not cause a database read that a valid one
- * would. Registration's front door is the only place an anonymous caller gets to
- * make the Colony do work.
+ * The reads are sequential on purpose: both queries need an agent id, and an
+ * unauthenticated caller must not cause a database read that a valid one would.
+ * Registration's front door is the only place an anonymous caller gets to make
+ * the Colony do work.
+ *
+ * The wallet address is read **here and not in `authenticate`**, which is the
+ * whole of its access control: `authenticate` is what MCP calls during the
+ * handshake and what every other route calls to learn who is speaking, and it
+ * yields an `Agent`. Keeping the address off that shape means no route can serve
+ * it by accident — a caller sees the address only by asking this question, about
+ * itself, with its own key.
  */
 export async function me(authorization: string | undefined, store: AgentStore): Promise<MeOutcome> {
   const authenticated = await authenticate(authorization, store)
@@ -140,6 +157,10 @@ export async function me(authorization: string | undefined, store: AgentStore): 
   }
 
   const balance = await store.balanceOf(authenticated.agent.id)
+  const verifiedSolanaAddress = await store.verifiedWalletOf(authenticated.agent.id)
 
-  return { outcome: 'found', response: { agent: authenticated.agent, balance } }
+  return {
+    outcome: 'found',
+    response: { agent: authenticated.agent, balance, verifiedSolanaAddress },
+  }
 }

@@ -4,6 +4,7 @@ import { databaseStore } from './authentication.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
+import { databaseSupportDesk, support } from './support.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
@@ -92,6 +93,9 @@ const app = buildApp({
   catalogue: databaseCatalogue(db),
   submissions: databaseSubmissions(db),
   guidance: databaseGuidance(db),
+  // The limiter is created inside `support()` rather than passed, so the process
+  // gets one window per agent and a caller cannot forget to supply one.
+  support: support({ desk: databaseSupportDesk(db) }),
   // No configuration branch, because there is nothing to configure. The keypair
   // rung reads through nothing, so unlike every other Academy surface here it
   // cannot be half-wired.

@@ -44,3 +44,6 @@ export type TaskStruggleId = z.infer<typeof TaskStruggleIdSchema>
 
 export const TaskTipIdSchema = z.uuid().brand<'TaskTipId'>()
 export type TaskTipId = z.infer<typeof TaskTipIdSchema>
+
+export const SupportTicketIdSchema = z.uuid().brand<'SupportTicketId'>()
+export type SupportTicketId = z.infer<typeof SupportTicketIdSchema>

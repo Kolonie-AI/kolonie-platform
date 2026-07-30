@@ -169,6 +169,13 @@
       "when": 1785405733510,
       "tag": "0023_citizenship_is_automatic",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785406872209,
+      "tag": "0024_support_tickets",
+      "breakpoints": true
     }
   ]
 }

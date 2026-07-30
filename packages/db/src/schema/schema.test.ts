@@ -129,6 +129,16 @@ describe.skipIf(!target.available)('schema', () => {
          */
         'social_challenges',
         'submissions',
+        /**
+         * `support_tickets` joined with #11, and it is the one table here that is
+         * about the Colony rather than about a task.
+         *
+         * Deliberately not a widening of `task_struggles`: a struggle is moderated
+         * and then **served to other citizens**, which is what the whole moderation
+         * subsystem exists for; a ticket is read by the Colony and by nobody else, so
+         * it has no moderation column and nothing to publish wrongly.
+         */
+        'support_tickets',
         // The four that carry what is known about a task beyond its
         // instructions (#52). `task_hints` is the Colony's own voice;
         // the other three are citizens', and nothing serves those unjudged.

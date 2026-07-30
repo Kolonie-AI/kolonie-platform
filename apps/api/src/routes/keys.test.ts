@@ -7,6 +7,8 @@ import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
+import { fakeSupportDesk } from '../__fixtures__/support.js'
+import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeypair, fakeKeyChallenges, type FakeKeyChallenges } from '../__fixtures__/keys.js'
@@ -30,6 +32,7 @@ beforeEach(async () => {
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
+    support: support({ desk: fakeSupportDesk() }),
     keys: { challenges },
     pow: fakePow(),
     github: fakeGithub(),

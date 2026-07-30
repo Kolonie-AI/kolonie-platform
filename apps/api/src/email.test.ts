@@ -12,6 +12,8 @@ import { fakeStore, type FakeStore } from './__fixtures__/store.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
 import { fakeGuidance } from './__fixtures__/guidance.js'
+import { fakeSupportDesk } from './__fixtures__/support.js'
+import { support } from './support.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import {
   fakeEmail,
@@ -48,6 +50,7 @@ const build = (inboundSecret: string | undefined) => {
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
+    support: support({ desk: fakeSupportDesk() }),
     academy: fakeAcademy(),
     keys: fakeKeys(),
     pow: fakePow(),

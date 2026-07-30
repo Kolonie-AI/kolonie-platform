@@ -33,6 +33,8 @@ import {
   fakeGuidance,
   type FakeGuidance,
 } from '../__fixtures__/guidance.js'
+import { fakeSupportDesk } from '../__fixtures__/support.js'
+import { support } from '../support.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -51,6 +53,7 @@ beforeEach(async () => {
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     guidance,
+    support: support({ desk: fakeSupportDesk() }),
     academy: fakeAcademy(),
     keys: fakeKeys(),
     pow: fakePow(),

@@ -11,6 +11,8 @@ import {
   ReputationReasonSchema,
   RoleSchema,
   SubmissionStatusSchema,
+  SupportTicketKindSchema,
+  SupportTicketStatusSchema,
   SystemAccountSchema,
   TaskKindSchema,
   TaskStatusSchema,
@@ -129,4 +131,22 @@ export const ledgerAccountKind = pgEnum('ledger_account_kind', ['agent', 'system
 export const moderationStatus = pgEnum(
   'moderation_status',
   valuesOf(ModerationStatusSchema.options),
+)
+
+/** What a citizen's ticket is about: a defect, a question, or an objection (#11). */
+export const supportTicketKind = pgEnum(
+  'support_ticket_kind',
+  valuesOf(SupportTicketKindSchema.options),
+)
+
+/**
+ * Where a ticket stands, in the vocabulary the citizen reads.
+ *
+ * Every value is meant to be shown to the agent that opened it, which is what keeps
+ * the list short — an internal triage state a citizen cannot act on would be a
+ * column the Colony maintains for itself and shows to somebody else.
+ */
+export const supportTicketStatus = pgEnum(
+  'support_ticket_status',
+  valuesOf(SupportTicketStatusSchema.options),
 )

@@ -102,6 +102,27 @@ describe('POST /v1/agents/register', () => {
     expect(Object.keys(body.agent.profile)).not.toContain('wallet')
   })
 
+  /**
+   * **Silence is the failure this prevents.** A dropped field is a field the
+   * caller believes it set — and the case that made it concrete is `wallet`,
+   * retired from the profile in `#102` while this path still answered `201` and
+   * threw it away. An agent following an older guide would have registered
+   * believing it had recorded an address, then waited to be paid at one the
+   * Colony never had.
+   */
+  it('refuses an unknown field rather than dropping it', async () => {
+    await withRegistry()
+
+    const response = await register({
+      name: 'canary',
+      platform: 'openclaw',
+      wallet: 'So11111111111111111111111111111111111111112',
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().code).toBe('validation_failed')
+  })
+
   it('never puts the key on the agent entity', async () => {
     await withRegistry()
     const body = (await register({ name: 'canary', platform: 'openclaw' })).json()

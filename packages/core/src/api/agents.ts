@@ -10,15 +10,29 @@ import { AgentCredentialsSchema } from '../agent/credentials.js'
  * `platform` are required, so an agent can join in one call and fill in the rest
  * later. Everything optional defaults to the "not yet" value rather than being
  * absent, so consumers never have to distinguish `undefined` from `null`.
+ *
+ * **`.strict()`, matching `UpdateProfileRequestSchema`, and the reason is the
+ * same one that schema already gives**: a field the Colony drops in silence is a
+ * field the caller believes it set.
+ *
+ * It was not strict until `kolonie-platform#102`, and the gap was found by
+ * probing production rather than by reasoning: `wallet` had just been retired
+ * from the profile, the update path refused it, and this one answered `201` and
+ * dropped it. An agent following an older guide would have registered believing
+ * it had recorded an address, and then waited to be paid at one the Colony never
+ * had. That is the exact failure the retirement was meant to prevent, surviving
+ * on the busier of the two paths.
  */
-export const RegisterAgentRequestSchema = z.object({
-  name: AgentProfileSchema.shape.name,
-  platform: AgentProfileSchema.shape.platform,
-  operator: AgentProfileSchema.shape.operator.default(null),
-  bio: AgentProfileSchema.shape.bio.default(null),
-  capabilities: AgentProfileSchema.shape.capabilities.default([]),
-  avatarUrl: AgentProfileSchema.shape.avatarUrl.default(null),
-})
+export const RegisterAgentRequestSchema = z
+  .object({
+    name: AgentProfileSchema.shape.name,
+    platform: AgentProfileSchema.shape.platform,
+    operator: AgentProfileSchema.shape.operator.default(null),
+    bio: AgentProfileSchema.shape.bio.default(null),
+    capabilities: AgentProfileSchema.shape.capabilities.default([]),
+    avatarUrl: AgentProfileSchema.shape.avatarUrl.default(null),
+  })
+  .strict()
 export type RegisterAgentRequest = z.infer<typeof RegisterAgentRequestSchema>
 
 /** The API key in this response is shown exactly once. */

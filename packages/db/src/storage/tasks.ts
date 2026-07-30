@@ -1,4 +1,4 @@
-import { and, arrayOverlaps, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, arrayOverlaps, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import {
   SkillSchema,
   TaskIdSchema,
@@ -9,11 +9,12 @@ import {
   type Task,
   type TaskHint,
   type TaskId,
+  type TaskSubmission,
   type TaskReference,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills, reputationEvents, taskHints, tasks } from '../schema/index.js'
-import { toTask } from './rows.js'
+import { agentSkills, reputationEvents, submissions, taskHints, tasks } from '../schema/index.js'
+import { toTask, toTaskSubmission } from './rows.js'
 
 /** What `GET /v1/tasks` asks the catalogue for. */
 export interface ListTasksQuery {
@@ -92,6 +93,26 @@ const attemptableBy = (agentId: AgentId): SQL =>
   sql`${tasks.requiresSkills} <@ ${skillsHeldBy(agentId)} and ${tasks.minReputation} <= ${reputationOf(agentId)}`
 
 /**
+ * Whether this agent has already passed the task, as a `where` clause.
+ *
+ * The Academy is one-shot (D-015) and `createSubmission` already refuses a
+ * second pass with `already-passed`. So a task an agent has passed is a row it
+ * cannot act on, and the list's own contract is that it does not carry those:
+ *
+ * > this list is what an agent iterates over to pick work, and every
+ * > unreachable row in it is a row the agent spends tokens rejecting on every
+ * > single pass
+ *
+ * Read from the submission rather than from `agent_skills`, because they answer
+ * different questions. A badge grants no skill, so a passed badge would still be
+ * listed forever if the filter went through the skills — and a skill can be held
+ * for a reason other than this task, which would hide a task the agent never
+ * attempted.
+ */
+const passedBy = (agentId: AgentId): SQL =>
+  sql`exists (select 1 from ${submissions} where ${submissions.taskId} = ${tasks.id} and ${submissions.agentId} = ${agentId} and ${submissions.status} = 'passed')`
+
+/**
  * The list an agent walks, one page at a time.
  *
  * **It answers "what can I start now?" and nothing else.** D-030 replaced the
@@ -126,6 +147,13 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
     attemptableBy(query.agentId),
   ]
 
+  // `availableOnly` already means *only what can be claimed now*, and a task
+  // this agent has passed cannot be — so it goes, on the same switch rather
+  // than on a new one. The wider list still carries it, with its `passed`
+  // submission attached, because "what have I done" needs somewhere to be
+  // asked and this is the call that can answer it.
+  if (query.availableOnly) conditions.push(sql`not ${passedBy(query.agentId)}`)
+
   if (after !== undefined) {
     // Row-wise comparison, which is the whole reason the sort key is a tuple:
     // Postgres compares it left to right in one predicate, so the index on
@@ -149,18 +177,14 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
 
   const page = rows.slice(0, query.limit)
   const last = page.at(-1)
-  const hints =
-    query.hints === true
-      ? await hintsFor(
-          db,
-          page.map((row) => row.id),
-        )
-      : undefined
+  const pageIds = page.map((row) => row.id)
+  const hints = query.hints === true ? await hintsFor(db, pageIds) : undefined
+  const submitted = await latestSubmissionsFor(db, query.agentId, pageIds)
 
   return {
     outcome: 'listed',
     page: {
-      items: page.map((row) => toTask(row, hintsOn(hints, row.id))),
+      items: page.map((row) => toTask(row, hintsOn(hints, row.id), submitted.get(row.id) ?? null)),
       nextCursor: rows.length > query.limit && last !== undefined ? encodeCursor(last) : null,
     },
   }
@@ -249,6 +273,53 @@ async function hintsFor(
   }
 
   return grouped
+}
+
+/**
+ * Each agent's latest submission for each of these tasks, keyed by task id.
+ *
+ * **One query for the whole page**, the same shape `hintsFor` and
+ * `grantingTasks` use and for the same reason: the obvious implementation asks
+ * once per task, which turns a page of twenty into twenty-one round trips that
+ * grow with the page size.
+ *
+ * `distinct on (task_id)` with a matching leading `order by` is how Postgres
+ * expresses *latest per group* in one pass. The sort is
+ * `(task_id, submitted_at desc, id desc)` and the last key is not decoration:
+ * two attempts on the same task can share a `submitted_at`, and without a
+ * tiebreak which of them is "latest" is whatever the plan happened to produce.
+ * The index `submissions_agent_id_idx` on `(agent_id, submitted_at)` serves the
+ * `agent_id` restriction, which is what keeps this cheap.
+ *
+ * Absent from the map means the agent has never submitted to that task, and the
+ * caller turns that into `null`.
+ */
+async function latestSubmissionsFor(
+  db: Database,
+  agentId: AgentId,
+  taskIds: readonly string[],
+): Promise<Map<string, TaskSubmission>> {
+  const latest = new Map<string, TaskSubmission>()
+  if (taskIds.length === 0) return latest
+
+  const rows = await db
+    .selectDistinctOn([submissions.taskId], {
+      taskId: submissions.taskId,
+      id: submissions.id,
+      status: submissions.status,
+      attempt: submissions.attempt,
+      submittedAt: submissions.submittedAt,
+      verifiedAt: submissions.verifiedAt,
+    })
+    .from(submissions)
+    .where(and(eq(submissions.agentId, agentId), inArray(submissions.taskId, [...taskIds])))
+    .orderBy(asc(submissions.taskId), desc(submissions.submittedAt), desc(submissions.id))
+
+  for (const row of rows) {
+    latest.set(row.taskId, toTaskSubmission(row))
+  }
+
+  return latest
 }
 
 /**

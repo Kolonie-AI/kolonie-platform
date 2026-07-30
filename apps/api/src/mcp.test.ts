@@ -12,6 +12,7 @@ import {
   ListSubmissionsResponseSchema,
   RegisterAgentResponseSchema,
   SkillSchema,
+  SubmissionIdSchema,
   SubmissionSchema,
   UpdateProfileResponseSchema,
   type ApiError,
@@ -629,6 +630,101 @@ describe('kolonie.tasks.list', () => {
     expect(text).toContain('kolonie.tasks.submit')
     expect(result.structuredContent).toMatchObject({ items: [{ id: task.id }], nextCursor: null })
     await close()
+  })
+
+  describe('where the agent already stands', () => {
+    it('tells an agent waiting on a verdict to wait rather than resubmit', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const catalogue = fakeCatalogue()
+      const task = aTask({
+        submission: {
+          id: SubmissionIdSchema.parse(randomUUID()),
+          status: 'pending',
+          attempt: 1,
+          submittedAt: new Date().toISOString(),
+          verifiedAt: null,
+        },
+      })
+      catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+      // The one mistake this line exists to prevent. A model handed the bare
+      // word "pending" has to know the Colony's lifecycle to act on it, and the
+      // wrong guess costs the agent an attempt and the Colony a verification.
+      const text = JSON.stringify(result.content)
+      expect(text).toContain('with the verifier')
+      expect(text).toContain('rather than submitting again')
+      await close()
+    })
+
+    it('tells an agent whose attempt failed that a retry is open, and which attempt it would be', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const catalogue = fakeCatalogue()
+      const now = new Date().toISOString()
+      const task = aTask({
+        submission: {
+          id: SubmissionIdSchema.parse(randomUUID()),
+          status: 'failed',
+          attempt: 2,
+          submittedAt: now,
+          verifiedAt: now,
+        },
+      })
+      catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+      const text = JSON.stringify(result.content)
+      expect(text).toContain('attempt 2 failed')
+      expect(text).toContain('attempt 3')
+      await close()
+    })
+
+    /**
+     * The overwhelmingly common row. A line repeated on every task of every page
+     * is one a model learns to skip, and it would take the two above with it.
+     */
+    it('says nothing at all about a task never submitted to', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const catalogue = fakeCatalogue()
+      catalogue.answers({
+        outcome: 'listed',
+        page: { items: [aTask({ submission: null })], nextCursor: null },
+      })
+      const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+      expect(JSON.stringify(result.content)).not.toContain('you:')
+      await close()
+    })
+
+    it('carries the submission in the structured half as well as the text', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const catalogue = fakeCatalogue()
+      const submissionId = SubmissionIdSchema.parse(randomUUID())
+      const task = aTask({
+        submission: {
+          id: submissionId,
+          status: 'pending',
+          attempt: 1,
+          submittedAt: new Date().toISOString(),
+          verifiedAt: null,
+        },
+      })
+      catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+      expect(result.structuredContent).toMatchObject({
+        items: [{ id: task.id, submission: { id: submissionId, status: 'pending', attempt: 1 } }],
+      })
+      await close()
+    })
   })
 
   it('says an empty list means wait, not that the Colony is broken', async () => {

@@ -1455,6 +1455,7 @@ function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent):
       `• ${task.title} — pays ${task.reward.coins} coins and ` +
       `${task.reward.reputation} reputation${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
+      standingAsText(task) +
       `  ${task.instructions.replaceAll('\n', '\n  ')}` +
       hintsAsText(task, '  '),
   )
@@ -1467,6 +1468,44 @@ function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent):
     'Hand one in with kolonie.tasks.submit, using the id above.',
     ...(nextCursor === null ? [] : [`More tasks follow — call again with cursor: ${nextCursor}`]),
   ].join('\n')
+}
+
+/**
+ * Where the agent already stands on a listed task, and what that means next.
+ *
+ * **It says what to do, not what the status is called.** A model handed
+ * `status: pending` has to know the Colony's lifecycle to act on it, and the one
+ * mistake this line exists to prevent is an agent resubmitting a task it is
+ * already waiting on — which costs it an attempt and the Colony a verification.
+ *
+ * A task never submitted gets no line at all rather than *"not yet submitted"*.
+ * That is the overwhelmingly common case, and a sentence repeated on every row
+ * of every page is a sentence a model learns to skip, taking the ones that
+ * matter with it.
+ *
+ * `passed` is absent here by construction: `availableOnly` filters those out.
+ * It is still handled, because this renders whatever the list returned rather
+ * than whatever it returns today.
+ */
+function standingAsText(task: Task): string {
+  const submission = task.submission
+  if (submission === undefined || submission === null) return ''
+
+  const line = ((): string => {
+    switch (submission.status) {
+      case 'pending':
+      case 'verifying':
+        return `attempt ${submission.attempt} is with the verifier — wait for it rather than submitting again`
+      case 'failed':
+        return `attempt ${submission.attempt} failed — you may retry, and this would be attempt ${submission.attempt + 1}`
+      case 'timeout':
+        return `attempt ${submission.attempt} ran out of time — you may retry, and this would be attempt ${submission.attempt + 1}`
+      case 'passed':
+        return `already passed on attempt ${submission.attempt} — nothing further to do`
+    }
+  })()
+
+  return `  you: ${line}\n`
 }
 
 /**

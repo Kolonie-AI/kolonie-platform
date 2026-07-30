@@ -27,12 +27,19 @@ export const verifications = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     /**
-     * `restrict`, like everything else that explains money: a submission that
-     * has been verified cannot be deleted out from under its own verdict.
+     * `cascade`. A submission cannot be deleted out from under its own verdict —
+     * it is deleted *with* it, and only ever because the agent that made it has
+     * erased itself. `erasure.md` §2 names verification records in the list of
+     * what does not survive.
+     *
+     * There is no path here that deletes a submission on its own: `submissions`
+     * cascades from the agent and from nothing else. So the pair goes together
+     * or neither goes, which is what the old comment wanted; `restrict` would
+     * merely have made the erasure fail instead.
      */
     submissionId: uuid('submission_id')
       .notNull()
-      .references(() => submissions.id, { onDelete: 'restrict' }),
+      .references(() => submissions.id, { onDelete: 'cascade' }),
 
     /** The slug in `TASK_TYPE_PATTERN`, restated in SQL for the same reason as `tasks.type`. */
     taskType: varchar('task_type', { length: 64 }).notNull(),

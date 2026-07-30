@@ -38,13 +38,28 @@ export const reputationEvents = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     /**
-     * `restrict`, matching `ledger_entries`: an agent with a track record cannot
-     * be deleted out from under it. A reputation event whose subject is gone is
-     * not history, it is a hole in the audit trail.
+     * `cascade`, and it no longer matches `ledger_entries` — the two used to
+     * agree and the reason they agreed only ever applied to one of them.
+     *
+     * The old comment here said an event whose subject is gone is *a hole in the
+     * audit trail*. That is true of a coin, because coins are audited against a
+     * mint and a missing entry makes total supply stop reconciling. Reputation
+     * is audited against nothing: it is not transferable, there is no supply and
+     * no mint (`economy.md` §1), so removing every one of an agent's events
+     * leaves every other agent's standing exactly as it was.
+     *
+     * `erasure.md` §2 then decides it, and says outright that this is the
+     * cautious implementation's mistake:
+     *
+     * > Reputation is the other: it is the record of a career, it is worth more
+     * > to the Colony than to anybody else, and it is not ours.
+     *
+     * The count is not lost — `erasures.reputation_destroyed` keeps the total,
+     * with nobody's name on it.
      */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
 
     /**
      * Signed. `integer` rather than the ledger's `bigint`: reputation is earned
@@ -54,8 +69,17 @@ export const reputationEvents = pgTable(
     delta: integer('delta').notNull(),
     reason: reputationReason('reason').notNull(),
 
-    /** The submission that triggered this, when there was one. */
-    submissionId: uuid('submission_id').references(() => submissions.id, { onDelete: 'restrict' }),
+    /**
+     * The submission that triggered this, when there was one.
+     *
+     * `cascade`, and it has to be rather than merely ought to be. Both this
+     * table and `submissions` cascade from the same agent, so an erasure deletes
+     * both — but `restrict` is checked *immediately* rather than at the end of
+     * the statement, so whichever side Postgres reached first would abort the
+     * erasure. The rows were always going to disappear together; `restrict` only
+     * decided whether that happened or the whole transaction failed.
+     */
+    submissionId: uuid('submission_id').references(() => submissions.id, { onDelete: 'cascade' }),
 
     memo: varchar('memo', { length: 500 }),
 

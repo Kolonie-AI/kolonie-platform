@@ -16,9 +16,10 @@ export const websiteChallenges = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
 
+    /** `cascade`, like every other challenge table — see `challenges.ts` for the argument. */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
 
     token: text('token').notNull(),
 

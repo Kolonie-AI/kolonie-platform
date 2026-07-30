@@ -37,15 +37,24 @@ export const agentSkills = pgTable(
     /**
      * The passed submission this skill was granted for.
      *
-     * `not null` and without a delete rule, so a submission that minted a skill
-     * cannot be deleted out from under it. That is the same argument
-     * `academy-tasks.ts` makes about never deleting a task row: a capability
-     * whose provenance has been removed is a capability the Colony cannot
-     * explain, and it gates everything the agent does afterwards.
+     * `not null`, so a skill always names the submission that earned it: a
+     * capability whose provenance has been removed is a capability the Colony
+     * cannot explain, and it gates everything the agent does afterwards. That is
+     * the same argument `academy-tasks.ts` makes about never deleting a task row.
+     *
+     * **`cascade` stated explicitly, where this used to have no delete rule at
+     * all.** The default is `no action`, which happens to survive an erasure —
+     * both this row and the submission cascade from the same agent, and
+     * `no action` is checked at the end of the statement by which time both are
+     * gone. Relying on that would be relying on an accident: the identical
+     * arrangement with `restrict` (`reputation_events.submission_id`, before
+     * `#90`) aborts the erasure, and nothing in an unwritten default says which
+     * of the two a reader is looking at. Writing it down costs a word and means
+     * the row's fate is decided here rather than by Postgres' check timing.
      */
     submissionId: uuid('submission_id')
       .notNull()
-      .references(() => submissions.id),
+      .references(() => submissions.id, { onDelete: 'cascade' }),
 
     grantedAt: timestamp('granted_at', { withTimezone: true, mode: 'string' })
       .notNull()

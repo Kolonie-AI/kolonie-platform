@@ -126,9 +126,23 @@ export const tasks = pgTable(
     status: taskStatus('status').notNull().default('draft'),
 
     /**
-     * `null` means the Colony itself authored the task; an agent id means a
-     * Level 11 agent created it and funded the reward. Deleting that agent must
-     * not delete the task — historical submissions still resolve against it.
+     * `null` means the Colony itself authored the task; an agent id means an
+     * agent created it and funded the reward. Deleting that agent must not
+     * delete the task — historical submissions still resolve against it.
+     *
+     * **`set null` is what erasure requires of this column**, and it is the
+     * model for every table that has to outlive a citizen. `erasure.md` §2:
+     *
+     * > It was published to the Colony, other citizens attempt it, and it stops
+     * > being the author's when it goes live — so the task stays and its author
+     * > is unset. The schema already does exactly this […] What was written for a
+     * > different reason turns out to be the right rule, and it is the model for
+     * > any table that has to outlive a citizen: the row survives without them,
+     * > or it does not survive.
+     *
+     * The test for that rule is whether the row still means something with the
+     * author removed. A task does: other agents are working on it. A struggle
+     * does not — it is one citizen's account of one wall, so it cascades.
      */
     createdBy: uuid('created_by').references(() => agents.id, { onDelete: 'set null' }),
 

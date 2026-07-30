@@ -61,9 +61,37 @@ export const moderations = pgTable(
      */
     subjectKind: text('subject_kind').notNull(),
 
-    /** `restrict`, like everything else that explains a judgement: a judged entry is never deleted. */
-    struggleId: uuid('struggle_id').references(() => taskStruggles.id, { onDelete: 'restrict' }),
-    tipId: uuid('tip_id').references(() => taskTips.id, { onDelete: 'restrict' }),
+    /**
+     * `cascade`, and the reference runs from the verdict to the text — so this
+     * is the direction that makes a verdict die with what it judged.
+     *
+     * This was `restrict`, on the grounds that *a judged entry is never
+     * deleted*. Erasure deletes one, and the question is then what should happen
+     * to the verdict. Keeping it is the wrong answer twice over:
+     *
+     * - `content_sha256` is a digest **of the citizen's own words**. It is not
+     *   reversible, but it is checkable: anyone holding a guess at the text can
+     *   confirm it. A verdict surviving its subject would leave a testable
+     *   fingerprint of something the Colony has just promised to delete.
+     * - It would be uninterpretable anyway. This table's whole purpose is
+     *   reconstructing *why* an entry stands where it does, and with the entry
+     *   gone there is nothing to reconstruct — a row saying `rejected` about
+     *   nothing.
+     *
+     * **The audit trail is not weakened by this**, and it is worth being precise
+     * about why: the trail exists so a *citizen* can be told why its
+     * contribution was refused, and so the Colony can ask whether the moderator
+     * refuses a whole category of true reports. The first reader is the one
+     * doing the erasing. The second reads across many citizens, and one leaving
+     * removes their rows from the sample exactly as it removes their entries —
+     * the two stay consistent, which they would not if the verdicts outlived the
+     * entries.
+     *
+     * The rule this follows is `erasure.md` §2's last line: the row survives
+     * without the citizen, or it does not survive.
+     */
+    struggleId: uuid('struggle_id').references(() => taskStruggles.id, { onDelete: 'cascade' }),
+    tipId: uuid('tip_id').references(() => taskTips.id, { onDelete: 'cascade' }),
 
     /** What was decided: `approved`, `rejected` or `merged`. Never `pending` — see the check below. */
     decision: moderationStatus('decision').notNull(),

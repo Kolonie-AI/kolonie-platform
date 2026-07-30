@@ -39,10 +39,20 @@ export const solanaWalletChallenges = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
 
-    /** `restrict`, like everything else that explains a payout. */
+    /**
+     * `cascade`. A challenge is the citizen's own attempt at a rung, and
+     * `erasure.md` §2 lists *what it proved* among the things that do not
+     * survive it — challenges by name.
+     *
+     * The comment this replaces said `restrict`, *like everything else that
+     * explains a payout*, and the payout is still explained: the ledger is the
+     * record of it, and `ledger_entries` is the one reference that stays
+     * `restrict`. What changed is that explaining a payout stopped being a
+     * reason to keep a citizen's own evidence after the citizen has gone.
+     */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
 
     /**
      * What the agent signs. Unique across the table, so no two agents are ever

@@ -51,9 +51,43 @@ export const ledgerEntries = pgTable(
      */
     accountKind: ledgerAccountKind('account_kind').notNull(),
     /**
-     * `restrict`: an agent that has ever been paid cannot be deleted. Coins that
-     * were minted have to remain accounted for, or total supply stops being
-     * auditable — which is the entire point of double entry.
+     * `restrict`, and it is the only reference to `agents` that still is — but
+     * it now states a **sequencing rule rather than a prohibition**, and the
+     * difference is the whole of `erasure.md` §3.
+     *
+     * The old comment said an agent that has ever been paid cannot be deleted,
+     * because minted coins have to remain accounted for or total supply stops
+     * being auditable. The premise is right and the conclusion was too strong:
+     *
+     * > Double entry constrains **arithmetic**, not identity: a set of entries
+     * > that sums to zero can be removed in full without changing any other
+     * > account's balance, and without changing total supply by a single unit.
+     *
+     * So an agent with a balance cannot be deleted, and an agent whose entries
+     * are gone can. Erasure books one last transaction to make the second state
+     * reachable: the balance is debited to zero against the mint.
+     *
+     * **Three steps and not two, which `erasure.md` §3 does not say and the
+     * tests in `#90` do.** The document reads *"the agent's entries now sum to
+     * zero, so every one of them is deleted with the agent"*, and they are not
+     * deleted *with* it: `restrict` refuses on the **existence** of a
+     * referencing row and never looks at its sum, so a burned account still has
+     * every entry it ever had and the delete is still refused. `#91` therefore
+     * burns, deletes the entries, and only then deletes the agent.
+     *
+     * **And the entries go whole booking at a time.** Removing only the agent's
+     * side of a transaction leaves the mint's counter-entry alone, and
+     * `ledger_entries_balanced` refuses that at `COMMIT` — correctly, because a
+     * booking that no longer sums to zero is exactly what makes supply
+     * unauditable. Deleting both sides moves total supply by nothing, since the
+     * booking summed to zero to begin with.
+     *
+     * **The unfinished part, stated here because it is not obvious from the
+     * column.** A booking between *two agents* — `type = 'transfer'`, which the
+     * enum allows and nothing writes yet — cannot be removed this way at all:
+     * deleting the whole transaction would take the other citizen's entry and
+     * silently change their balance. `#91` has to decide that case before
+     * anything books a transfer, and this comment is the warning.
      */
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'restrict' }),
     systemAccount: systemAccount('system_account'),

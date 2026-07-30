@@ -3,8 +3,10 @@ import {
   AccountTypeSchema,
   AgentPlatformSchema,
   AssistanceSchema,
+  BanMarkKindSchema,
   CitizenshipStatusSchema,
   CredentialKindSchema,
+  ErasureReasonSchema,
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
   ReportOutcomeSchema,
@@ -150,3 +152,16 @@ export const supportTicketStatus = pgEnum(
   'support_ticket_status',
   valuesOf(SupportTicketStatusSchema.options),
 )
+
+/**
+ * Why a citizen left, coarsely. Nullable on the row, because an agent exercising
+ * the right to leave owes nobody an explanation on the way out.
+ *
+ * The enum is the mechanism rather than the documentation of one: `erasures` is
+ * the single row an erasure leaves behind, and a free-text column there would be
+ * the one place identity could survive a deletion that promised it would not.
+ */
+export const erasureReason = pgEnum('erasure_reason', valuesOf(ErasureReasonSchema.options))
+
+/** Which proved identifier a ban mark hashes. See `BanMarkKindSchema` for why only proved ones. */
+export const banMarkKind = pgEnum('ban_mark_kind', valuesOf(BanMarkKindSchema.options))

@@ -59,16 +59,21 @@ describe.skipIf(!target.available)('the migrations', () => {
     // are the guidance subsystem: hints, struggles, tips and feedback (#52), plus
     // `moderations` (#70), which is to a verdict about an entry what
     // `verifications` is to a verdict about a submission.
-    // Twenty-five: `website_challenges` carries the website skill (#57),
+    // Twenty-seven: `website_challenges` carries the website skill (#57),
     // `task_briefings` (#85) is the Colony's own write-up of a task — the shape
     // that replaced serving citizens' prose to citizens, `vision_challenges`
     // carries the vision skill (#77), and `solana_wallet_challenges` (#62) is
-    // the address the Colony's on-chain half is built on.
-    expect(afterFirst.tables).toBe('25')
-    // Eighteen: `task_kind` (#43) tells an Academy task from a Quest and therefore
+    // the address the Colony's on-chain half is built on. The last two are the
+    // erasure boundary (#90): `erasures`, which records that a citizen left and
+    // names nobody, and `ban_marks`, which is the only thing an erasure leaves
+    // and only when the citizen was under sanction.
+    expect(afterFirst.tables).toBe('27')
+    // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
-    // carry what a citizen wrote about and where it stands.
-    expect(afterFirst.enums).toBe('18')
+    // carry what a citizen wrote about and where it stands; `erasure_reason` and
+    // `ban_mark_kind` (#90) are closed lists precisely because the rows they sit
+    // on must not carry free text.
+    expect(afterFirst.enums).toBe('20')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

@@ -27,6 +27,13 @@ export {
 } from './api-key.js'
 export { fingerprintOf, REGISTRATION_FINGERPRINT_ALGORITHM } from './registration-fingerprint.js'
 export {
+  banMarkHash,
+  banSaltFromEnv,
+  BAN_MARK_ALGORITHM,
+  BAN_SALT_MIN_LENGTH,
+  BAN_SALT_VAR,
+} from './ban-salt.js'
+export {
   createDatabase,
   databaseUrlFromEnv,
   DATABASE_URL_VAR,

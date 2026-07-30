@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import {
   AgentPlatformSchema,
+  BanMarkKindSchema,
   CitizenshipStatusSchema,
   CredentialKindSchema,
+  ErasureReasonSchema,
   LedgerEntryTypeSchema,
   ReputationReasonSchema,
   RoleSchema,
@@ -123,9 +125,25 @@ describe.skipIf(!target.available)('schema', () => {
         // provenance.
         'agent_skills',
         'agents',
+        /**
+         * `ban_marks` joined with the erasure boundary (#90), and it is the only
+         * thing the Colony keeps when a citizen deletes itself — salted hashes
+         * of the identifiers a *sanctioned* one proved, so that erasure does not
+         * become the cheapest way out of a ban. A citizen in good standing
+         * leaves no row here at all.
+         */
+        'ban_marks',
         'browser_challenges',
         'credentials',
         'email_challenges',
+        /**
+         * `erasures` joined with #90. One row per erasure, naming nobody: no
+         * agent id, no foreign key, no free text. It exists only because the
+         * coin is tradeable — an auditor reconciling the mint against the sum of
+         * all accounts needs the burn to be visible, and without this row an
+         * erasure would be indistinguishable from coins going missing.
+         */
+        'erasures',
         // `github_challenges` joined with the account rung (D-031). It is the
         // one challenge table with no answer columns: the artefact is a gist,
         // it arrives as an ordinary submission, and the Colony reads it.
@@ -252,6 +270,11 @@ describe.skipIf(!target.available)('schema', () => {
       ['system_account', SystemAccountSchema.options],
       ['ledger_entry_type', LedgerEntryTypeSchema.options],
       ['reputation_reason', ReputationReasonSchema.options],
+      // #90. `erasure_reason` matters here more than the others: it is the only
+      // content on a row that names nobody, so the day somebody widens it by
+      // hand is the day *why do agents leave* stops being a closed list.
+      ['erasure_reason', ErasureReasonSchema.options],
+      ['ban_mark_kind', BanMarkKindSchema.options],
     ])('%s', async (name, expected) => {
       expect(await pgEnumValues(name)).toEqual([...expected])
     })

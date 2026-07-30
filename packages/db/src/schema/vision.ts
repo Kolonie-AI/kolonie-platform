@@ -6,9 +6,10 @@ export const visionChallenges = pgTable(
   'vision_challenges',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /** `cascade`, like every other challenge table — see `challenges.ts` for the argument. */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
 
     /** The filename of the image presented (e.g. vision_01_counting.jpg) */
     imageName: text('image_name').notNull(),

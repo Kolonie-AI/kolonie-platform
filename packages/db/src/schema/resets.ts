@@ -43,10 +43,20 @@ export const taskResets = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
 
-    /** `restrict`: a reset explains why a second pass exists, so it outlives nothing. */
+    /**
+     * `cascade`. A reset explains why a second pass exists — and once the agent,
+     * both passes and the task's whole history with it are gone, there is
+     * nothing left for it to explain.
+     *
+     * `erasure.md` §2 names task resets in the list of what does not survive.
+     * The append-only argument at the top of this file is untouched by that: it
+     * is about the Colony never rewriting a citizen's history *while the citizen
+     * is here*, which is a different rule from whether the history outlives the
+     * citizen's decision to leave.
+     */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
     taskId: uuid('task_id')
       .notNull()
       .references(() => tasks.id, { onDelete: 'restrict' }),
@@ -55,12 +65,16 @@ export const taskResets = pgTable(
      * The pass this reset superseded.
      *
      * Recorded rather than derived, so the chain is readable in one direction
-     * without a window function: this reset retired *that* pass. `restrict` for the
-     * same reason as everything else pointing at a submission — it is the evidence.
+     * without a window function: this reset retired *that* pass.
+     *
+     * `cascade`, for the reason spelled out on `reputation_events.submission_id`:
+     * the reset and the submission belong to the same agent and go in the same
+     * erasure, and `restrict` is checked immediately — so it would not have
+     * preserved the pair, it would have refused the erasure.
      */
     supersededSubmissionId: uuid('superseded_submission_id')
       .notNull()
-      .references(() => submissions.id, { onDelete: 'restrict' }),
+      .references(() => submissions.id, { onDelete: 'cascade' }),
 
     /**
      * Why the tester is re-running it — what changed about the task, or what is

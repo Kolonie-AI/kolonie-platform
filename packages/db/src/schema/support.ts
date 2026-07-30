@@ -51,14 +51,23 @@ export const supportTickets = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     /**
-     * `restrict`, like every other row that records something an agent did.
+     * `cascade`. `erasure.md` §2 lists support tickets among *what it wrote*,
+     * and the old comment's argument is the reason the row goes rather than a
+     * reason it stays.
      *
-     * A ticket without an author is an anonymous complaint, and the Colony would
-     * have no way to answer it or to see that one agent filed forty.
+     * It said a ticket without an author is an anonymous complaint the Colony
+     * cannot answer. Exactly so — which is why erasure deletes the ticket
+     * instead of orphaning it. `set null` would leave a queue of complaints
+     * nobody can reply to and nobody can attribute; the ticket is the citizen's
+     * own writing about the Colony, and it leaves with them.
+     *
+     * What the Colony keeps of a ticket is what it already keeps: an issue
+     * promoted from one is the Colony's own work, in its own repository, and it
+     * was never a row here.
      */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
 
     kind: supportTicketKind('kind').notNull(),
 

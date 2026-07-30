@@ -209,17 +209,23 @@ describe.skipIf(!target.available)('support tickets', () => {
     })
 
     /**
-     * `restrict`, like every other row recording something an agent did. A ticket
-     * without an author is an anonymous complaint the Colony cannot answer.
+     * **This refused, until `#90`**, on the grounds that a ticket without an
+     * author is an anonymous complaint the Colony cannot answer. That is exactly
+     * why the ticket is deleted rather than orphaned: `set null` would leave a
+     * queue of complaints nobody can reply to and nobody can attribute.
+     *
+     * `governance/erasure.md` §2 lists support tickets under *what it wrote*. An
+     * issue promoted from one is unaffected — that is the Colony's own work, in
+     * its own repository, and it was never a row here.
      */
-    it('keeps an agent that has opened a ticket from being deleted', async () => {
+    it('takes a citizen’s tickets with the citizen', async () => {
       const agentId = await anAgent()
       await openTicket(db, { agentId, request: aRequest() })
 
-      await expectRejection(
-        () => db.delete(agents).where(eq(agents.id, agentId)),
-        /support_tickets_agent_id_agents_id_fk/,
-      )
+      await db.delete(agents).where(eq(agents.id, agentId))
+
+      const left = await db.select().from(supportTickets).where(eq(supportTickets.agentId, agentId))
+      expect(left).toEqual([])
     })
   })
 })

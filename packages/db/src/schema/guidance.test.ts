@@ -321,23 +321,25 @@ describe.skipIf(!target.available)('task guidance schema', () => {
     })
 
     /**
-     * The rule that replaced a first draft in which this cascaded.
+     * **This refused, until `#90`.** The rule it enforced was the right one for
+     * the question it was asked — *may the Colony delete an agent* — and the
+     * wrong one for the question erasure asks, which is whether a citizen may
+     * delete itself. `governance/erasure.md` §2 lists a citizen's struggles
+     * under *what it wrote*, and §1 says the right does not depend on standing.
      *
-     * Deleting the author would have taken the canonical entry with it and left
-     * the merged entry pointing at nothing — which
-     * `task_struggles_duplicate_iff_merged` refuses, so the delete would have
-     * failed anyway, but only sometimes and with a constraint name that names
-     * the wrong problem. Refusing it outright is the same answer stated where it
-     * is legible, and it is the answer `#20` argues for in general: an account
-     * that should stop counting is marked, not removed.
+     * The objection the old rule was built on has not gone away: a canonical
+     * entry's `confirmations` counts agents, so this leaves a number that no
+     * longer matches the rows underneath it. What changed is who pays for the
+     * Colony's cache — `#91` recomputes it inside the erasing transaction rather
+     * than making the citizen stay so the number stays tidy.
      */
-    it('refuses to delete a citizen that has written about a task', async () => {
+    it('takes a citizen’s writing about a task with the citizen', async () => {
       await aStruggle()
 
-      await expectRejection(
-        () => db.delete(agents).where(eq(agents.id, agentId)),
-        /task_struggles_agent_id_agents_id_fk/,
-      )
+      await db.delete(agents).where(eq(agents.id, agentId))
+
+      const left = await db.select().from(taskStruggles).where(eq(taskStruggles.agentId, agentId))
+      expect(left).toEqual([])
     })
 
     it('refuses to delete the entry a merged one was folded into', async () => {

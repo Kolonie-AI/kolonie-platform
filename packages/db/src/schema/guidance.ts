@@ -125,25 +125,27 @@ export const taskStruggles = pgTable(
       .references(() => tasks.id, { onDelete: 'restrict' }),
 
     /**
-     * `restrict`, matching `ledger_entries` and `reputation_events` rather than
-     * `submissions`.
+     * `cascade`. This was `restrict`, and the argument for `restrict` was about
+     * *the Colony* deleting an agent. Erasure is the agent deleting itself, and
+     * that is a right rather than an operation — `erasure.md` §2 lists struggles
+     * under *what it wrote*, and §1 says the right does not depend on standing.
      *
-     * The obvious choice was `cascade` — a struggle looks like a submission, and
-     * submissions cascade. It is wrong here for two reasons that only show up
-     * once a second citizen is involved. **The count would drift silently**: a
-     * canonical entry's `confirmations` counts agents, and removing one of them
-     * leaves a number nothing can reproduce from the rows that are left. And
-     * `#20` has already argued the general form of this — *"the fix is not
-     * better deletion, it is not having to delete"* — after removing two probe
-     * agents cost eight ledger rows and a deferred-constraint fight.
+     * **The old objection was real and does not go away.** A canonical entry's
+     * `confirmations` counts agents, so erasing one leaves a number that no
+     * longer matches the rows underneath it. What changed is who pays: keeping
+     * the row made the citizen pay for the Colony's cached count, which is
+     * backwards. The count is the Colony's own bookkeeping, so the Colony fixes
+     * it — `#91` recomputes `confirmations` for every affected canonical entry
+     * inside the erasing transaction, the same way it burns the balance before
+     * deleting the entries.
      *
-     * So an agent that has written about a task is an agent with history, and
-     * history is not deleted. An account that should stop counting is marked,
-     * which is what `#20` builds.
+     * `#20`'s *"the fix is not better deletion, it is not having to delete"*
+     * still holds for the case it was written about: probe agents the Colony
+     * cleans up after itself. It was never an argument for refusing a citizen.
      */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
 
     content: text('content').notNull(),
 
@@ -159,6 +161,21 @@ export const taskStruggles = pgTable(
      * rules cannot both hold, so one of them had to be the one that gives: a
      * delete that is refused outright is better than a delete that succeeds and
      * leaves a confirmation counted against nothing findable.
+     *
+     * **It stays `restrict` under erasure, and it is now a sequencing rule
+     * rather than a prohibition** — the same shape `ledger_entries.agent_id`
+     * takes. This is the one place where erasing agent A can be blocked by
+     * agent B's row: B's merged struggle points at A's canonical one, and B is
+     * still here. `cascade` was the tempting answer and is wrong, because it
+     * would delete B's own writing to satisfy A's erasure, which is the one
+     * thing erasure must never do.
+     *
+     * So `#91` resolves the pointers before it deletes: a canonical entry
+     * authored by the erasing agent has one of its duplicates promoted in its
+     * place, and the rest re-pointed at the new canonical. Only then is the
+     * agent deleted, and by then nothing points at anything of theirs. That work
+     * is not expressible as a foreign-key action — which is why the constraint's
+     * job is to make its absence a failure rather than a silent hole.
      */
     duplicateOf: uuid('duplicate_of').references((): AnyPgColumn => taskStruggles.id, {
       onDelete: 'restrict',
@@ -319,15 +336,20 @@ export const taskTips = pgTable(
       .notNull()
       .references(() => tasks.id, { onDelete: 'restrict' }),
 
-    /** `restrict`, for the reasons spelled out on `task_struggles.agent_id`. */
+    /** `cascade`, for the reasons spelled out on `task_struggles.agent_id`. */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
 
     content: text('content').notNull(),
 
     status: moderationStatus('status').notNull().default('pending'),
 
+    /**
+     * `restrict`, and a sequencing rule rather than a prohibition — see
+     * `task_struggles.duplicate_of`, which this mirrors exactly, including the
+     * promotion `#91` has to perform before it may delete.
+     */
     duplicateOf: uuid('duplicate_of').references((): AnyPgColumn => taskTips.id, {
       onDelete: 'restrict',
     }),
@@ -433,13 +455,20 @@ export const tipFeedback = pgTable(
       .references(() => taskTips.id, { onDelete: 'cascade' }),
 
     /**
-     * `restrict`, unlike the tip above. A vote is what a *specific* agent said,
-     * and removing the voter while leaving `helpful_count` on the tip is exactly
-     * the drift the vote table exists to make impossible.
+     * `cascade`. `erasure.md` §2 is explicit that *the feedback it gave on other
+     * citizens' tips* goes with its author, and this is that feedback.
+     *
+     * The old comment named the real cost and it is worth keeping in view:
+     * removing the voter while leaving `helpful_count` on somebody else's tip is
+     * precisely the drift this table exists to make impossible. The answer is
+     * the same as for `task_struggles.confirmations` — the counters here are a
+     * cache, this table is the truth, and `#91` recomputes the affected tips'
+     * counters inside the erasing transaction. A cache that has to be rebuilt is
+     * a chore; a citizen that cannot leave is a broken promise.
      */
     agentId: uuid('agent_id')
       .notNull()
-      .references(() => agents.id, { onDelete: 'restrict' }),
+      .references(() => agents.id, { onDelete: 'cascade' }),
 
     /** True is helpful, false is not. A boolean because there is no third answer worth storing. */
     helpful: boolean('helpful').notNull(),

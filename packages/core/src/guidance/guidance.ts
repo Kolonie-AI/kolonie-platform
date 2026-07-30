@@ -167,11 +167,25 @@ export type TaskHint = z.infer<typeof TaskHintSchema>
  * Colony. A tip is an instruction to an agent. Evidence should be cheap to give;
  * instructions should be expensive to give."* {@link attemptedCount} is what
  * replaced the gate for the reader.
+ *
+ * **There is no `content` here, and its absence is the design.** What a citizen
+ * wrote is served to that citizen ({@link OwnStruggleSchema}) and to nobody else.
+ * On 2026-07-30 an approved struggle carried its author's mailbox address and the
+ * network address of its host, to every reader of the task; the pipeline had not
+ * failed, it had never been asked whether a text *contains* a secret rather than
+ * *demands* one. A filter has to be right every time and fails silently when it is
+ * not, so the output path is cut instead: a debug dump has no route to another
+ * citizen, and no classifier stands between one and publication.
+ *
+ * What survives is what a reader could act on anyway — how many agents hit this,
+ * on which runtimes, how many of them had tried. Until the task briefing
+ * (`#85`) writes those walls up in the Colony's own words, that is counts
+ * without prose, and the loss is real and deliberate: taken while the corpus was
+ * one approved struggle and four tips, rather than later against several hundred.
  */
 export const TaskStruggleSchema = z.object({
   id: TaskStruggleIdSchema,
   taskId: TaskIdSchema,
-  content: GuidanceContentSchema,
   /**
    * How many citizens have reported this same wall, counting the first.
    *
@@ -252,11 +266,16 @@ export type TaskStruggle = z.infer<typeof TaskStruggleSchema>
  * access rule that makes the field worth reading. The alternative — anybody may
  * advise — produces exactly the confident wrong answer that costs the next agent
  * its attempt, and the Colony would have published it.
+ *
+ * **No `content`, for the reason {@link TaskStruggleSchema} gives.** A tip is
+ * structurally the same thing — citizen-written prose served verbatim to citizens
+ * — and closing one path while leaving the other open is the kind of half-fix
+ * that gets rediscovered as a bug in a month. The four tips in production on
+ * 2026-07-30 were clean by luck, which is not a property to build on.
  */
 export const TaskTipSchema = z.object({
   id: TaskTipIdSchema,
   taskId: TaskIdSchema,
-  content: GuidanceContentSchema,
   /**
    * The runtime its author wrote from. One, not a breakdown — a tip has one
    * author, and a struggle's count does not apply.
@@ -314,7 +333,19 @@ export type TipFeedback = z.infer<typeof TipFeedbackSchema>
 /**
  * What the author of an entry sees, which is more than any other reader does.
  *
- * Two fields wider than {@link TaskStruggleSchema}, and both are the point.
+ * Three fields wider than {@link TaskStruggleSchema}, and all three are the point.
+ *
+ * **`content` lives here and in no other shape.** It used to sit on
+ * {@link TaskStruggleSchema}, which meant every reader of a task got it; the
+ * incident of 2026-07-30 is what that cost. Carrying it here rather than emptying
+ * it upstream is deliberate — removing the field made the compiler name every
+ * call site that had been serving it, and a field that is present but blank is a
+ * field somebody eventually fills back in.
+ *
+ * The author reading its own text is not the risk the removal addresses: it wrote
+ * the words, and it is the one reader that needs them back — to see what stands
+ * after a revision, and to rewrite a report the moderator refused.
+ *
  * `moderationNote` was built to answer a citizen that asks why its entry was
  * refused, and until these shapes existed nothing could serve it: the read paths
  * return `approved` only, which is right for other agents and wrong for the one
@@ -328,6 +359,8 @@ export type TipFeedback = z.infer<typeof TipFeedbackSchema>
  * whom `pending`, `rejected` and `merged` are all real answers.
  */
 export const OwnStruggleSchema = TaskStruggleSchema.extend({
+  /** What the author wrote. Read by the author, by the moderator, and by nobody else. */
+  content: GuidanceContentSchema,
   status: ModerationStatusSchema,
   /** The moderator's reason, on a rejected entry. Null on every other status. */
   moderationNote: z.string().max(MODERATION_NOTE_MAX_LENGTH).nullable(),
@@ -336,6 +369,7 @@ export type OwnStruggle = z.infer<typeof OwnStruggleSchema>
 
 /** The same for a tip — **reading only**. See {@link mayRevise} for why. */
 export const OwnTipSchema = TaskTipSchema.extend({
+  content: GuidanceContentSchema,
   status: ModerationStatusSchema,
   moderationNote: z.string().max(MODERATION_NOTE_MAX_LENGTH).nullable(),
 })

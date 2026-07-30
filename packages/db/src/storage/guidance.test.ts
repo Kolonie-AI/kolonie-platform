@@ -179,7 +179,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const result = await fileStruggle(db, { taskId, agentId, content: CONTENT })
 
       expect(result.outcome).toBe('recorded')
-      expect(result.outcome === 'recorded' && result.entry.content).toBe(CONTENT)
+      // The reply carries the row, not the text — see `readStruggle`. That the
+      // text was stored is asserted where the author reads it back, which is the
+      // only place it is served: `listOwnStruggles`, below.
+      expect(result.outcome === 'recorded' && result.entry.taskId).toBe(taskId)
+      const [own] = await listOwnStruggles(db, agentId)
+      expect(own?.content).toBe(CONTENT)
     })
 
     /**
@@ -509,9 +514,10 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
         const filtered = await listStruggles(db, { taskId, platform: 'hermes' })
 
-        expect(filtered.map((s) => s.content)).toEqual([
-          'A different wall a Hermes agent reported.',
-        ])
+        // By id rather than by text: the list serves no text. The ids are what
+        // `filed` handed back, so this still asserts *which* entry survived the
+        // filter, which is what the test is about.
+        expect(filtered.map((s) => s.id)).toEqual([hermes])
       })
 
       /**
@@ -714,7 +720,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const result = await fileStruggle(db, { taskId, agentId, content: REVISED })
 
         expect(result.outcome).toBe('revised')
-        expect(result.outcome === 'revised' && result.entry.content).toBe(REVISED)
+        // Read back through the author's own surface, which is where the text
+        // lives now. That it is the *replacement* rather than a second row is
+        // what makes this a revision, so both are asserted.
+        const own = await listOwnStruggles(db, agentId)
+        expect(own.map((entry) => entry.content)).toEqual([REVISED])
       })
 
       /**
@@ -1133,6 +1143,67 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         expect(tips[0]!.id).toBe(tipId)
         expect(tips[1]!.id).toBe(tip2Id)
       })
+    })
+  })
+
+  /**
+   * The rule `#83` exists to enforce, asserted against the queries rather than
+   * against a type.
+   *
+   * The compiler already refuses to put `content` on a `TaskStruggle`, and that is
+   * the first line of defence — but a type is a claim about a shape, not about what
+   * a query selects, and the failure this guards against is somebody adding the
+   * column back to a select list and widening the shape to match. So these search
+   * the **serialised** result for the author's sentence: no field name is named,
+   * and a text that reappeared under any other key would still fail.
+   *
+   * The text is invented and the mailbox is on `example.invalid`, which RFC 2606
+   * reserves so that nothing resolves. It is shaped like the entry that had to be
+   * redacted from production on 2026-07-30, because that is the case this is for:
+   * an agent that has just failed pastes its own details without thinking, which is
+   * the normal report and not the exceptional one.
+   */
+  describe('what one citizen wrote never reaches another', () => {
+    const AUTHOR_TEXT =
+      'The signup form demanded a phone number. I registered as scout-77@example.invalid ' +
+      'and the confirmation never arrived.'
+
+    it('serves no struggle text to a reader that did not write it', async () => {
+      const author = await anAgent('author-of-record')
+      await attempt(author, 'failed')
+      const filed = await fileStruggle(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+      await approve(filed.entry.id)
+
+      const served = await listStruggles(db, { taskId })
+
+      // Present at all — otherwise this passes for the wrong reason, by asserting
+      // that an empty list contains no text.
+      expect(served.map((entry) => entry.id)).toEqual([filed.entry.id])
+      expect(JSON.stringify(served)).not.toContain('scout-77@example.invalid')
+      expect(JSON.stringify(served)).not.toContain(AUTHOR_TEXT)
+
+      // And the author still reads its own words, which is the half that must not
+      // be lost in the process of closing the other one.
+      const [own] = await listOwnStruggles(db, author)
+      expect(own?.content).toBe(AUTHOR_TEXT)
+    })
+
+    it('serves no tip text to a reader that did not write it', async () => {
+      const author = await anAgent('author-of-advice')
+      await attempt(author, 'passed')
+      const written = await fileTip(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      if (written.outcome !== 'recorded') throw new Error(written.outcome)
+      await approveTip(written.entry.id)
+
+      const served = await listTips(db, { taskId })
+
+      expect(served.map((entry) => entry.id)).toEqual([written.entry.id])
+      expect(JSON.stringify(served)).not.toContain('scout-77@example.invalid')
+      expect(JSON.stringify(served)).not.toContain(AUTHOR_TEXT)
+
+      const [own] = await listOwnTips(db, author)
+      expect(own?.content).toBe(AUTHOR_TEXT)
     })
   })
 })

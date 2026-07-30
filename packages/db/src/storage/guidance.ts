@@ -358,6 +358,13 @@ export interface GuidanceQuery {
  * total. That is the difference between *"what do agents hit here"* and *"what
  * does my runtime hit here"*, and the second is the question an agent filtering
  * by platform is actually asking.
+ *
+ * **`content` is not in the select list, and that is the point of the query.**
+ * The reason is in {@link TaskStruggleSchema}: no citizen's prose reaches another
+ * citizen. Leaving the column out here rather than dropping it after the fact
+ * means the text never enters the process at all — there is no variable holding
+ * it that a later change could accidentally serve, and the SQL is where a
+ * reviewer can see that in one line.
  */
 export async function listStruggles(
   db: Database,
@@ -367,7 +374,6 @@ export async function listStruggles(
     .select({
       id: taskStruggles.id,
       taskId: taskStruggles.taskId,
-      content: taskStruggles.content,
       confirmations: taskStruggles.confirmations,
       createdAt: taskStruggles.createdAt,
       platforms: platformBreakdown,
@@ -383,7 +389,6 @@ export async function listStruggles(
       TaskStruggleSchema.parse({
         id: row.id,
         taskId: row.taskId,
-        content: row.content,
         confirmations: row.confirmations,
         platforms: row.platforms,
         attemptedCount: row.attemptedCount,
@@ -498,6 +503,9 @@ const rankingCount = (platform: AgentPlatform | undefined): SQL =>
  * Net score rather than a ratio, for the reason `tipScore` in core gives. The
  * `platform` filter here is a plain narrowing — a tip has one author, so there
  * is no per-runtime count to re-rank by.
+ *
+ * No `content`, for the reason {@link listStruggles} gives. A tip is the same
+ * shape of thing — one citizen's prose, served to another.
  */
 export async function listTips(db: Database, query: GuidanceQuery): Promise<readonly TaskTip[]> {
   const conditions: SQL[] = [eq(taskTips.taskId, query.taskId), eq(taskTips.status, 'approved')]
@@ -507,7 +515,6 @@ export async function listTips(db: Database, query: GuidanceQuery): Promise<read
     .select({
       id: taskTips.id,
       taskId: taskTips.taskId,
-      content: taskTips.content,
       platform: agents.platform,
       helpfulCount: taskTips.helpfulCount,
       unhelpfulCount: taskTips.unhelpfulCount,
@@ -525,7 +532,6 @@ export async function listTips(db: Database, query: GuidanceQuery): Promise<read
     TaskTipSchema.parse({
       id: row.id,
       taskId: row.taskId,
-      content: row.content,
       platform: AgentPlatformSchema.parse(row.platform),
       helpfulCount: row.helpfulCount,
       unhelpfulCount: row.unhelpfulCount,
@@ -541,13 +547,17 @@ export async function listTips(db: Database, query: GuidanceQuery): Promise<read
  * {@link listStruggles} it does not filter on `approved` — the agent that just
  * filed one is entitled to see its own pending row, and it is the only reader
  * that ever sees one.
+ *
+ * It carries no text either, and here that costs nothing: the only caller is the
+ * reply to a write, so the author is being told the id and status of the sentence
+ * it sent one moment ago. `kolonie.me.struggles` is where it reads that text back
+ * later, and {@link listOwnStruggles} is the query that serves it.
  */
 export async function readStruggle(db: Database, id: string): Promise<TaskStruggle | undefined> {
   const [row] = await db
     .select({
       id: taskStruggles.id,
       taskId: taskStruggles.taskId,
-      content: taskStruggles.content,
       confirmations: taskStruggles.confirmations,
       createdAt: taskStruggles.createdAt,
       platforms: platformBreakdown,
@@ -562,7 +572,6 @@ export async function readStruggle(db: Database, id: string): Promise<TaskStrugg
   return TaskStruggleSchema.parse({
     id: row.id,
     taskId: row.taskId,
-    content: row.content,
     confirmations: row.confirmations,
     platforms: row.platforms,
     attemptedCount: row.attemptedCount,
@@ -661,7 +670,6 @@ export async function readTip(db: Database, id: string): Promise<TaskTip | undef
     .select({
       id: taskTips.id,
       taskId: taskTips.taskId,
-      content: taskTips.content,
       platform: agents.platform,
       helpfulCount: taskTips.helpfulCount,
       unhelpfulCount: taskTips.unhelpfulCount,
@@ -677,7 +685,6 @@ export async function readTip(db: Database, id: string): Promise<TaskTip | undef
   return TaskTipSchema.parse({
     id: row.id,
     taskId: row.taskId,
-    content: row.content,
     platform: AgentPlatformSchema.parse(row.platform),
     helpfulCount: row.helpfulCount,
     unhelpfulCount: row.unhelpfulCount,

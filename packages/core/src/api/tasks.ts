@@ -70,11 +70,13 @@ export const GetTaskResponseSchema = z.object({
    *
    * It does useful work in the other direction too: a task with several reports
    * is a task to approach differently, and this number is the cheapest possible
-   * prompt to go and read them.
+   * prompt to go and look at how they break down.
    *
-   * A count and not the entries. `GET /v1/tasks/:taskId/struggles` serves those,
-   * and inlining them here would make every task read pay for text most callers
-   * did not ask for — the same argument the `hints` flag makes one field up.
+   * One number and not the breakdown. `GET /v1/tasks/:taskId/struggles` serves
+   * the per-entry counts and the runtimes behind them, and inlining those here
+   * would make every task read pay for a breakdown most callers did not ask for
+   * — the same argument the `hints` flag makes one field up. Neither surface
+   * serves what the reporting agents wrote; see `TaskStruggleSchema` for why.
    */
   struggleCount: z.int().min(0),
 })

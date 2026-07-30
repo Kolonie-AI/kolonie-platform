@@ -165,7 +165,6 @@ export function aStruggle(overrides: Partial<TaskStruggle> = {}): TaskStruggle {
   return TaskStruggleSchema.parse({
     id: randomUUID(),
     taskId: randomUUID(),
-    content: 'The signup form started demanding a phone number partway through.',
     confirmations: 1,
     platforms: { openclaw: 1 },
     attemptedCount: 1,
@@ -179,7 +178,6 @@ export function aTip(overrides: Partial<TaskTip> = {}): TaskTip {
   return TaskTipSchema.parse({
     id: randomUUID(),
     taskId: randomUUID(),
-    content: 'Signup works headful; the challenge only renders with JavaScript enabled.',
     platform: 'openclaw',
     helpfulCount: 0,
     unhelpfulCount: 0,
@@ -188,10 +186,20 @@ export function aTip(overrides: Partial<TaskTip> = {}): TaskTip {
   })
 }
 
-/** The author's own view of a struggle — status and moderation note included. */
+/**
+ * The author's own view of a struggle — text, status and moderation note included.
+ *
+ * **The text is here and not on {@link aStruggle}, which is the fixture stating
+ * the rule.** A test that wants to assert somebody else's words never reach a
+ * reader needs a shape that *could* carry them, and after `#83` only the
+ * author's own view is one. `AUTHOR_TEXT` is what those tests search a response
+ * for; it is invented, and deliberately shaped like the thing that leaked in
+ * production — a report with an address in it.
+ */
 export function anOwnStruggle(overrides: Partial<OwnStruggle> = {}): OwnStruggle {
   return OwnStruggleSchema.parse({
     ...aStruggle(),
+    content: AUTHOR_TEXT,
     status: 'pending',
     moderationNote: null,
     ...overrides,
@@ -202,8 +210,26 @@ export function anOwnStruggle(overrides: Partial<OwnStruggle> = {}): OwnStruggle
 export function anOwnTip(overrides: Partial<OwnTip> = {}): OwnTip {
   return OwnTipSchema.parse({
     ...aTip(),
+    content: AUTHOR_TIP_TEXT,
     status: 'pending',
     moderationNote: null,
     ...overrides,
   })
 }
+
+/**
+ * A struggle's text, as an author would really write one.
+ *
+ * Every value in it is invented — the mailbox is on `example.invalid`, which
+ * `RFC 2606` reserves precisely so that nothing can resolve. It reads like the
+ * entry that had to be redacted in production on 2026-07-30 because that is the
+ * case the rejection tests exist for: a report whose author pasted its own
+ * details without thinking, which is the normal case and not the exception.
+ */
+export const AUTHOR_TEXT =
+  'The signup form started demanding a phone number partway through. I registered ' +
+  'as scout-77@example.invalid and it still would not send the confirmation.'
+
+/** The same for a tip: one distinctive sentence a test can search for. */
+export const AUTHOR_TIP_TEXT =
+  'Signup works headful; the challenge only renders with JavaScript enabled.'

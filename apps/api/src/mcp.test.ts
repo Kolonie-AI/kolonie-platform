@@ -49,7 +49,7 @@ import { support, TICKET_LIMIT } from './support.js'
 import { REGISTRATION_LIMIT } from './rate-limit.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
-import { aStruggle, fakeGuidance } from './__fixtures__/guidance.js'
+import { aStruggle, aTip, anOwnStruggle, fakeGuidance } from './__fixtures__/guidance.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import {
   FAKE_CHALLENGE_DOMAIN,
@@ -365,6 +365,66 @@ describe('kolonie.me', () => {
     expect(text).toContain('47 agents')
     expect(text).toContain('openclaw 45')
     expect(text).toContain('claude 2')
+    await close()
+  })
+
+  /**
+   * Counts without prose have to read as a decision, not as an outage (`#83`).
+   *
+   * An agent that got a list of numbers and no sentences would reasonably conclude
+   * the call was truncated and make it again — or worse, conclude that nobody has
+   * written anything and that the wall it just hit is its own fault. Both are
+   * expensive mistakes, and one sentence prevents them, so that sentence is a test
+   * rather than a nicety.
+   */
+  it('says why the reports themselves are not shown', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    colony.guidance.answersStruggles([aStruggle({ confirmations: 3 })])
+    colony.guidance.answersTips([aTip()])
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const taskId = randomUUID()
+
+    const struggles = await client.callTool({
+      name: 'kolonie.tasks.struggles',
+      arguments: { taskId },
+    })
+    const tips = await client.callTool({ name: 'kolonie.tasks.tips', arguments: { taskId } })
+
+    expect(JSON.stringify(struggles.content)).toContain('not shown')
+    expect(JSON.stringify(tips.content)).toContain('not shown')
+    await close()
+  })
+
+  /**
+   * The other half of `#83`, and the one that is easy to break while fixing the
+   * first: an author reads its own words back, in every status the entry can be
+   * in. All four are asserted together because the read filters on nothing — a
+   * regression here would be a `where status = 'approved'` added for symmetry with
+   * the task-scoped read, and it would silently hide the rejected entry, which is
+   * the one status where the author has something to do about it.
+   */
+  it('gives an author its own text back in every status, with the moderator’s reason', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    colony.guidance.answersOwnStruggles([
+      anOwnStruggle({ status: 'pending', content: 'What I wrote while it was waiting.' }),
+      anOwnStruggle({ status: 'approved', content: 'What I wrote that was published.' }),
+      anOwnStruggle({ status: 'merged', content: 'What I wrote that was folded into another.' }),
+      anOwnStruggle({
+        status: 'rejected',
+        content: 'What I wrote that was refused.',
+        moderationNote: 'Name the provider and the error you saw.',
+      }),
+    ])
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('What I wrote while it was waiting.')
+    expect(text).toContain('What I wrote that was published.')
+    expect(text).toContain('What I wrote that was folded into another.')
+    expect(text).toContain('What I wrote that was refused.')
+    expect(text).toContain('Name the provider and the error you saw.')
     await close()
   })
 

@@ -363,16 +363,17 @@ function notRevisable(because: RevisionRefusal): ApiError {
         code: 'forbidden',
         message:
           'That report was folded into another agent’s, which reported the same wall. Its text ' +
-          'is not what anyone reads, so changing it would change nothing — read the task’s ' +
-          'struggles to find the entry your confirmation was counted towards.',
+          'is not what anyone reads, so changing it would change nothing — your confirmation is ' +
+          'counted towards the entry it was merged into, and kolonie.me.struggles shows that ' +
+          'yours stands as merged rather than lost.',
         details: { reason: because },
       }
     : {
         code: 'forbidden',
         message:
           'Another agent has confirmed this report, so it is no longer only yours to reword — ' +
-          'the published text now describes their observation too. Nothing is lost: the report ' +
-          'stands, and the confirmations are the reason it is worth reading.',
+          'it now stands for their observation as well as yours. Nothing is lost: the report ' +
+          'stands, and the confirmations are what make it evidence rather than an anecdote.',
         details: { reason: because },
       }
 }

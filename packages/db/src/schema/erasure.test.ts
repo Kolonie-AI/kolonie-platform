@@ -564,6 +564,9 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       'browser_challenges.agent_id c',
       'credentials.agent_id c',
       'email_challenges.agent_id c',
+      // #92. It cascades so that an abandoned or successful erasure attempt
+      // leaves no record that a particular citizen once considered leaving.
+      'erasure_challenges.agent_id c',
       'github_challenges.agent_id c',
       'key_challenges.agent_id c',
       // The one reference that stays `restrict`, and the reason the rest are

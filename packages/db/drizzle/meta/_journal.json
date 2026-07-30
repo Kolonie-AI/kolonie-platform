@@ -246,6 +246,13 @@
       "when": 1785443669338,
       "tag": "0034_the_erasure_boundary",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785445766764,
+      "tag": "0035_the_erasure_confirmation",
+      "breakpoints": true
     }
   ]
 }

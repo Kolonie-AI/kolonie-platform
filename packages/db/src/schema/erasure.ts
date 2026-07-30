@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import {
   bigint,
   check,
+  index,
   integer,
   pgTable,
   text,
@@ -9,6 +10,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
+import { agents } from './agents.js'
 import { banMarkKind, erasureReason } from './enums.js'
 
 /**
@@ -179,5 +181,84 @@ export const banMarks = pgTable(
      * runs on every registration.
      */
     uniqueIndex('ban_marks_kind_hash_unique').on(table.kind, table.hash),
+  ],
+)
+
+/**
+ * The two-step confirmation that stands between a stolen key and a destroyed
+ * career (#92).
+ *
+ * `ARCHITECTURE.md`, *The erasure surface*, names the threat this table answers:
+ *
+ * > Account deletion is the one call that destroys a citizen's whole history, so
+ * > it is also the most valuable call for an attacker holding a stolen key, and
+ * > the most dangerous one for an agent that read an instruction it should not
+ * > have trusted.
+ *
+ * **Why a second challenge table rather than reusing `key_challenges`.** That
+ * table's nonce proves *which key an agent holds* and its row survives as the
+ * evidence for a granted skill; this one proves *that a specific agent meant to
+ * do this, twice, within five minutes*, and its row must not survive anything.
+ * They also expire on different clocks and are consumed under opposite rules —
+ * a key challenge is cleared once and read afterwards, this one is destroyed by
+ * being used. Overloading one table with both lifecycles is how a later change
+ * to the Academy's expiry quietly widens the erasure window.
+ *
+ * **It cascades from the agent, which is the point rather than a consequence.**
+ * The issue asks that an erasure attempt not be recorded in a way that outlives
+ * the erasure. A successful confirmation deletes this row along with everything
+ * else; an abandoned one expires. Either way the Colony ends up holding no
+ * record that a particular citizen once thought about leaving, which is not a
+ * fact it has any business keeping.
+ */
+export const erasureChallenges = pgTable(
+  'erasure_challenges',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+
+    /**
+     * What the second call presents.
+     *
+     * Bound to the agent by the row, and looked up by **both** together — a
+     * challenge minted by A cannot be presented by B even though the nonce is
+     * unguessable, because guessability is not what the binding is for. An
+     * attacker who has read one out of a log has the nonce.
+     */
+    nonce: text('nonce').notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+
+    /**
+     * When the second call used it — **set on a failed attempt as well as a
+     * successful one**.
+     *
+     * Single-use means used, not used-correctly. A challenge that survived a
+     * wrong phrase would let an attacker holding a stolen key and a stolen
+     * challenge try the phrase repeatedly, and the phrase is fixed and public,
+     * so the only thing standing between them and the account would be a guess
+     * they can look up.
+     */
+    consumedAt: timestamp('consumed_at', { withTimezone: true, mode: 'string' }),
+  },
+  (table) => [
+    check('erasure_challenges_expiry_after_creation', sql`${table.expiresAt} > ${table.createdAt}`),
+    /** A nonce is presented on its own by the caller, so it has to be unique on its own. */
+    uniqueIndex('erasure_challenges_nonce_unique').on(table.nonce),
+    /**
+     * The read the second call makes: *this agent's open challenge*. Partial,
+     * because consumed rows are dead weight the moment they are written and
+     * nothing ever looks at them again.
+     */
+    index('erasure_challenges_open_idx')
+      .on(table.agentId, table.expiresAt)
+      .where(sql`${table.consumedAt} is null`),
   ],
 )

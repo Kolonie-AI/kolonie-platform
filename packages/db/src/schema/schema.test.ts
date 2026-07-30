@@ -143,10 +143,16 @@ describe.skipIf(!target.available)('schema', () => {
          * all accounts needs the burn to be visible, and without this row an
          * erasure would be indistinguishable from coins going missing.
          */
+        /**
+         * `erasure_challenges` joined with #92. It is what stands between a
+         * stolen API key and a destroyed career: one call mints it and states
+         * what is about to be destroyed, a second presents it with a fixed
+         * phrase and, where the citizen holds a signing key, a signature. It
+         * cascades from the agent, so an attempt leaves no record once the
+         * account is gone.
+         */
+        'erasure_challenges',
         'erasures',
-        // `github_challenges` joined with the account rung (D-031). It is the
-        // one challenge table with no answer columns: the artefact is a gist,
-        // it arrives as an ordinary submission, and the Colony reads it.
         'github_challenges',
         // `key_challenges` joined with the keypair rung (#36): the Academy's
         // first browser-free root, and the only challenge table whose exchange

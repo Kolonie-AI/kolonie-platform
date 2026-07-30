@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { readFileSync } from 'node:fs'
+import { eq, sql as rawSql } from 'drizzle-orm'
 import { noStagesRun, type AgentId, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agentSkills,
   agents,
   submissions,
+  taskBriefings,
   taskStruggles,
   taskTips,
   tasks,
@@ -381,6 +383,83 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
 
       expect(own?.contributedTo).toEqual([])
     })
+  })
+
+  /**
+   * The backfill migration, driven against real rows rather than trusted.
+   *
+   * `0031_backfill_briefings.sql` exists because the dirty flag is set by a
+   * verdict, so it only ever fires on a moderation reached *after* that code
+   * shipped — and every entry already approved was approved before it. On the
+   * live database that left five tasks with a corpus, no briefing, and no path
+   * by which one would ever be written.
+   *
+   * The migration test runs against an empty database, where this statement
+   * selects nothing and passes vacuously. This is the test that would have
+   * caught a `WHERE` clause that matched the wrong rows.
+   */
+  it('backfills a briefing for every task that already had a corpus', async () => {
+    const withStruggle = taskId
+    await approvedStruggle('reporter', CONTENT)
+
+    const withTip = await aTask('tip-only')
+    const author = await anAgent('passer')
+    await db.insert(submissions).values({
+      taskId: withTip,
+      agentId: author,
+      payload: {},
+      attempt: 1,
+      status: 'passed',
+      verifiedAt: new Date().toISOString(),
+    })
+    const tip = await fileTip(db, {
+      taskId: withTip,
+      agentId: author,
+      content: 'Signup works headful; the challenge needs JavaScript enabled.',
+    })
+    if (tip.outcome !== 'recorded') throw new Error(tip.outcome)
+    await db
+      .update(taskTips)
+      .set({ status: 'approved', moderatedAt: new Date().toISOString() })
+      .where(eq(taskTips.id, tip.entry.id))
+
+    const untouched = await aTask('nobody-wrote-about-this')
+    const onlyPending = await aTask('pending-only')
+    const pendingAuthor = await anAgent('unjudged')
+    await fileStruggle(db, { taskId: onlyPending, agentId: pendingAuthor, content: CONTENT })
+
+    // The struggle above was approved through `recordModeration`, which already
+    // marks it — clear the table so the migration is what is under test.
+    await db.delete(taskBriefings)
+    expect(await staleBriefings(db, 10)).toEqual([])
+
+    const sql = readFileSync(
+      new URL('../../drizzle/0031_backfill_briefings.sql', import.meta.url),
+      'utf8',
+    )
+    await db.execute(rawSql.raw(sql))
+
+    const queued = await staleBriefings(db, 10)
+    expect([...queued].sort()).toEqual([withStruggle, withTip].sort())
+    expect(queued).not.toContain(untouched)
+    // A task whose only entry is unjudged has nothing to write up, and queueing
+    // it would spend a synthesis to produce an empty briefing.
+    expect(queued).not.toContain(onlyPending)
+  })
+
+  /** Safe to re-run, so a redeploy that replays migrations cannot clobber a written briefing. */
+  it('leaves an already written briefing alone when re-run', async () => {
+    await approvedStruggle('reporter', CONTENT)
+    await writeBriefing(db, { taskId, claims: [], model: 'vendor/some-model-v1' })
+
+    const sql = readFileSync(
+      new URL('../../drizzle/0031_backfill_briefings.sql', import.meta.url),
+      'utf8',
+    )
+    await db.execute(rawSql.raw(sql))
+
+    expect(await staleBriefings(db, 10)).toEqual([])
+    expect((await readBriefing(db, taskId))?.model).toBe('vendor/some-model-v1')
   })
 
   it('reads the task title the synthesis prompt needs', async () => {

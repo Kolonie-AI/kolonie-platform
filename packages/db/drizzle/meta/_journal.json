@@ -218,6 +218,13 @@
       "when": 1785428523759,
       "tag": "0030_handy_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785432347847,
+      "tag": "0031_backfill_briefings",
+      "breakpoints": true
     }
   ]
 }

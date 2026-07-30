@@ -247,7 +247,7 @@ describe('GET /v1/agents/me', () => {
         academy: fakeAcademy(),
         keys: fakeKeys(),
         pow: fakePow(),
-    vision: fakeVision(),
+        vision: fakeVision(),
         github: fakeGithub(),
         social: fakeSocial(),
         website: fakeWebsite(),

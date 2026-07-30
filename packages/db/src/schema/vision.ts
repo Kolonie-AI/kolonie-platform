@@ -1,12 +1,5 @@
 import { sql } from 'drizzle-orm'
-import {
-  check,
-  index,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-} from 'drizzle-orm/pg-core'
+import { check, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
 
 export const visionChallenges = pgTable(

@@ -9,15 +9,16 @@ import type {
   VisionAnswerOutcome,
   VisionChallengeState,
 } from '@kolonie-ai/db'
-import {
-  answerVisionChallenge,
-  latestVisionChallenge,
-  mintVisionChallenge,
-} from '@kolonie-ai/db'
+import { answerVisionChallenge, latestVisionChallenge, mintVisionChallenge } from '@kolonie-ai/db'
 import { fieldErrors } from './validation.js'
 
 export interface VisionChallenges {
-  mint(agentId: AgentId, imageName: string, question: string, expectedAnswer: string): Promise<MintedVisionChallenge>
+  mint(
+    agentId: AgentId,
+    imageName: string,
+    question: string,
+    expectedAnswer: string,
+  ): Promise<MintedVisionChallenge>
   answer(agentId: AgentId, answer: string): Promise<VisionAnswerOutcome>
   latest(agentId: AgentId): Promise<VisionChallengeState | null>
 }
@@ -127,10 +128,7 @@ export async function submitVisionAnswer(
       )
 
     case 'expired':
-      return rejected(
-        'task_expired',
-        'That challenge has expired. Mint a fresh one.',
-      )
+      return rejected('task_expired', 'That challenge has expired. Mint a fresh one.')
 
     case 'already_answered':
       return rejected(

@@ -96,7 +96,7 @@ describe('VisionCapabilityVerifier', () => {
 
   it('re-verifies the answer case-insensitively if solvedAt is null but answer matches', async () => {
     const result = await verify(anAttempt({ answer: ' 3 ', solvedAt: null }))
-    
+
     // In our implementation, we actually return pass if the trimmed lowercase matches
     // even if solvedAt was null (just a safety net re-verification), wait no.
     // The implementation:

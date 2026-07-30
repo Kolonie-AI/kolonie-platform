@@ -1,9 +1,5 @@
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm'
-import {
-  now as currentTime,
-  type AgentId,
-  type Timestamp,
-} from '@kolonie-ai/core'
+import { now as currentTime, type AgentId, type Timestamp } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { visionChallenges } from '../schema/vision.js'
 import { toTimestamp } from './rows.js'
@@ -88,7 +84,7 @@ export async function answerVisionChallenge(
           eq(visionChallenges.imageName, current.imageName),
           isNull(visionChallenges.solvedAt),
           gt(visionChallenges.expiresAt, sql`now()`),
-        )
+        ),
       )
     return { outcome: 'incorrect' }
   }
@@ -104,7 +100,10 @@ export async function answerVisionChallenge(
         gt(visionChallenges.expiresAt, sql`now()`),
       ),
     )
-    .returning({ question: visionChallenges.question, expectedAnswer: visionChallenges.expectedAnswer })
+    .returning({
+      question: visionChallenges.question,
+      expectedAnswer: visionChallenges.expectedAnswer,
+    })
 
   if (updated === undefined) return { outcome: 'already_answered' }
 

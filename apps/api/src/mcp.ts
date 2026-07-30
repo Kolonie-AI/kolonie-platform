@@ -66,7 +66,12 @@ import {
 import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
-import { openVisionChallenge, submitVisionAnswer, VisionAnswerSchema, type VisionDependencies } from './vision.js'
+import {
+  openVisionChallenge,
+  submitVisionAnswer,
+  VisionAnswerSchema,
+  type VisionDependencies,
+} from './vision.js'
 
 import { updateProfile } from './profile.js'
 import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
@@ -1393,12 +1398,12 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           },
           {
             type: 'text',
-            text: `imageBase64: ${response.imageBase64}`
-          }
+            text: `imageBase64: ${response.imageBase64}`,
+          },
         ],
         structuredContent: response,
       }
-    }
+    },
   )
 
   server.registerTool(
@@ -1410,7 +1415,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         'Colony tells you immediately whether it met the target. Then submit the ' +
         'vision-capability task with kolonie.tasks.submit to claim the skill.',
       inputSchema: {
-        answer: VisionAnswerSchema.shape.answer.describe('The answer to the question about the image.'),
+        answer: VisionAnswerSchema.shape.answer.describe(
+          'The answer to the question about the image.',
+        ),
       },
       annotations: {
         readOnlyHint: false,
@@ -1435,7 +1442,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         ],
         structuredContent: { solved: true, ...result.response },
       }
-    }
+    },
   )
 
   /**

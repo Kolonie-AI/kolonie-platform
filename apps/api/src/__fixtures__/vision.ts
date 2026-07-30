@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { now as currentTime, type AgentId } from '@kolonie-ai/core'
-import type { MintedVisionChallenge, VisionAnswerOutcome, VisionChallengeState } from '@kolonie-ai/db'
+import type {
+  MintedVisionChallenge,
+  VisionAnswerOutcome,
+  VisionChallengeState,
+} from '@kolonie-ai/db'
 import type { VisionChallenges, VisionDependencies } from '../vision.js'
 
 export interface FakeVisionChallenges extends VisionChallenges {
@@ -53,7 +57,8 @@ export function fakeVisionChallenges(): FakeVisionChallenges {
       const row = latestFor(agentId)
 
       if (row === undefined) return { outcome: 'no_open_challenge' } satisfies VisionAnswerOutcome
-      if (row.solvedAt !== null) return { outcome: 'already_answered' } satisfies VisionAnswerOutcome
+      if (row.solvedAt !== null)
+        return { outcome: 'already_answered' } satisfies VisionAnswerOutcome
       if (row.expired) return { outcome: 'expired' } satisfies VisionAnswerOutcome
       if (answer.trim().toLowerCase() !== row.expectedAnswer.trim().toLowerCase()) {
         row.answer = answer
@@ -94,7 +99,9 @@ export function fakeVisionChallenges(): FakeVisionChallenges {
   }
 }
 
-export function fakeVision(challenges: VisionChallenges = fakeVisionChallenges()): VisionDependencies {
+export function fakeVision(
+  challenges: VisionChallenges = fakeVisionChallenges(),
+): VisionDependencies {
   return {
     challenges,
     getMetadata: async () => ({

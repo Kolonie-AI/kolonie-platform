@@ -121,6 +121,13 @@ describe.skipIf(!target.available)('schema', () => {
         // find rather than one it was given.
         'pow_challenges',
         'reputation_events',
+        /**
+         * `social_challenges` joined with the social rung (`kolonie-docs#49`).
+         * `github_challenges` one network out, and a copy rather than a
+         * generalisation on purpose: one table and one port per rung is what
+         * stops a wiring mistake answering one rung with another's evidence.
+         */
+        'social_challenges',
         'submissions',
         // The four that carry what is known about a task beyond its
         // instructions (#52). `task_hints` is the Colony's own voice;

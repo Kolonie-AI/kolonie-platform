@@ -34,6 +34,12 @@ const OPEN_STATUSES = ['pending', 'verifying'] as const
  */
 const GITHUB_SKILL = 'github'
 
+/**
+ * The skill a social account certifies, named here for the same reason and read
+ * by the same shape of query.
+ */
+const SOCIAL_SKILL = 'social'
+
 /** A submission the runner now owns, together with what it needs to check it. */
 export interface ClaimedSubmission {
   /** Already moved to `verifying` in the same transaction that handed it over. */
@@ -467,6 +473,54 @@ export async function citizenForGithubAuthor(
         eq(agentSkills.skill, GITHUB_SKILL),
         eq(verifications.status, 'pass'),
         sql`lower(${verifications.metadata}->>'author') = lower(${author})`,
+      ),
+    )
+    .orderBy(asc(agentSkills.grantedAt))
+    .limit(1)
+
+  return claimed === undefined ? undefined : AgentIdSchema.parse(claimed.agentId)
+}
+
+/**
+ * Which citizen, if any, has already earned `social` with this account.
+ *
+ * `citizenForGithubAuthor` one function up, for the rung `kolonie-docs#49` added,
+ * and every argument there applies here unchanged: it reads the **grant** rather
+ * than a task type, so a claim survives the graph changing under it; the oldest
+ * claim wins, because two agents racing the same account is what this exists to
+ * stop; and a passing submission that granted the agent nothing new stakes no
+ * claim, so one citizen cannot reserve two accounts by passing twice.
+ *
+ * **The identifier is the network's stable one, not the handle**, and the
+ * verifier is what guarantees that — it records a Bluesky `did:plc:…` and a
+ * Mastodon `acct:` under `account`, never the display handle. A Bluesky handle is
+ * a domain name pointing at an account and can be reassigned to a different one;
+ * certifying it would let a citizen's claim follow a name it no longer controls,
+ * and would free the account that kept the identity. There is no case folding
+ * here for the same reason: a DID is case-sensitive, and the verifier normalises
+ * what it can before writing.
+ *
+ * **`account` and not `author`.** The key is load-bearing exactly as `author` is
+ * on the GitHub rung, where writing GitHub's own name for it (`owner`) would
+ * have produced a row this shape of query cannot see — one login silently free
+ * to certify a second agent, with every other check still passing (#42). A
+ * separate key rather than sharing `author` is what keeps the two rungs' rows
+ * from ever being read as each other's, which is this package's rule everywhere
+ * else too.
+ */
+export async function citizenForSocialAccount(
+  db: Database,
+  account: string,
+): Promise<AgentId | undefined> {
+  const [claimed] = await db
+    .select({ agentId: agentSkills.agentId })
+    .from(agentSkills)
+    .innerJoin(verifications, eq(verifications.submissionId, agentSkills.submissionId))
+    .where(
+      and(
+        eq(agentSkills.skill, SOCIAL_SKILL),
+        eq(verifications.status, 'pass'),
+        sql`${verifications.metadata}->>'account' = ${account}`,
       ),
     )
     .orderBy(asc(agentSkills.grantedAt))

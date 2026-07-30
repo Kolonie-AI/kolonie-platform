@@ -1,16 +1,28 @@
 import {
   citizenForGithubAuthor,
+  citizenForSocialAccount,
   createDatabase,
   databaseUrlFromEnv,
   hasClearedGate,
   lastGithubChallengeExpiry,
+  lastSocialChallengeExpiry,
   latestEmailChallenge,
   latestKeyChallenge,
   latestPowChallenge,
   openGithubNonces,
+  openSocialNonces,
 } from '@kolonie-ai/db'
 import { AgentIdSchema } from '@kolonie-ai/core'
-import { createVerifiers, GITHUB_VERIFIER_TOKEN_VAR, httpGitHubReader } from '@kolonie-ai/verifiers'
+import {
+  blueskyAdapter,
+  createVerifiers,
+  GITHUB_VERIFIER_TOKEN_VAR,
+  httpGitHubReader,
+  httpSocialReader,
+  MASTODON_INSTANCES_VAR,
+  mastodonAdapter,
+  parseMastodonInstances,
+} from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
 import { startRunner, type Log } from './loop.js'
 import { databaseQueue } from './queue.js'
@@ -88,6 +100,31 @@ const verifiers = createVerifiers({
     openNonces: (agentId) => openGithubNonces(db, agentId),
     lastExpiry: (agentId) => lastGithubChallengeExpiry(db, agentId),
   },
+  /**
+   * The social rung, and the only outward read path in the Academy that carries
+   * no credential at all.
+   *
+   * Both networks serve public records unauthenticated, so there is nothing here
+   * that a missing environment variable could switch off — which is the property
+   * `kolonie-docs#49` chose the platforms for, since a granting task must not be
+   * disableable by an outside party.
+   *
+   * The Mastodon allow-list is the one thing configured, and it is **empty until
+   * an instance has been assessed against the three-part candidate rule in
+   * `onboarding/academy.md`**. Empty is not broken: every Mastodon URL is refused
+   * with a reason that says so and points at Bluesky, which is the honest answer
+   * while the Colony has read no instance's rules. It is a list of hostnames and
+   * not a secret, so it may be set wherever the runner's other settings are.
+   */
+  social: httpSocialReader([
+    blueskyAdapter(),
+    mastodonAdapter(parseMastodonInstances(process.env[MASTODON_INSTANCES_VAR])),
+  ]),
+  socialChallenges: {
+    openNonces: (agentId) => openSocialNonces(db, agentId),
+    lastExpiry: (agentId) => lastSocialChallengeExpiry(db, agentId),
+  },
+  socialAccounts: { citizenFor: (account) => citizenForSocialAccount(db, account) },
 })
 
 const runner = startRunner(

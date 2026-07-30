@@ -59,7 +59,7 @@ describe.skipIf(!target.available)('the migrations', () => {
     // are the guidance subsystem: hints, struggles, tips and feedback (#52), plus
     // `moderations` (#70), which is to a verdict about an entry what
     // `verifications` is to a verdict about a submission.
-    expect(afterFirst.tables).toBe('18')
+    expect(afterFirst.tables).toBe('19')
     expect(afterFirst.enums).toBe('14')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')

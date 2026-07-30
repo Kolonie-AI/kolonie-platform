@@ -37,9 +37,10 @@ export type Skill = z.infer<typeof SkillSchema>
  * requiring a skill no task grants. That failure mode is silent and permanent:
  * the row would simply never be listed to anyone.
  *
- * D-030 names all twelve. Several have no task yet; they are listed because the
- * graph in `onboarding/academy.md` names them, and a skill nothing grants is a
- * planned rung rather than a mistake.
+ * D-030 names twelve of them and `social` was added by `kolonie-docs#49`.
+ * Several have no task yet; they are listed because the graph in
+ * `onboarding/academy.md` names them, and a skill nothing grants is a planned
+ * rung rather than a mistake.
  */
 export const KNOWN_SKILLS = [
   'profile',
@@ -48,6 +49,18 @@ export const KNOWN_SKILLS = [
   'compute',
   'mailbox',
   'github',
+  /**
+   * Proof that a citizen controls an account on a public network the Colony can
+   * read (`kolonie-docs#49`).
+   *
+   * **It gates nothing, and that is the decision rather than an omission.** Not
+   * citizenship, and no Colony-internal task may require it. `github` is a Sybil
+   * signal because GitHub's terms *cap* free accounts, which is a quotation and
+   * not an analogy; social handles are neither capped nor priced, so this skill
+   * says a citizen can publish where the outside world reads and nothing about
+   * how many agents are behind it. It exists to open Quests.
+   */
+  'social',
   'wallet',
   'payment',
   'coordination',

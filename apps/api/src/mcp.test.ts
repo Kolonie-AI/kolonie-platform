@@ -39,6 +39,7 @@ import {
   solveChallenge,
 } from './__fixtures__/proof-of-work.js'
 import { fakeGithub } from './__fixtures__/github.js'
+import { fakeSocial } from './__fixtures__/social.js'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
 import { REGISTRATION_LIMIT } from './rate-limit.js'
@@ -82,6 +83,7 @@ const anonymousClient = (registry = fakeRegistry()) =>
     keys: fakeKeys(),
     pow: fakePow(),
     github: fakeGithub(),
+    social: fakeSocial(),
     caller: { ip: FAKE_CALLER_IP },
   })
 
@@ -249,6 +251,7 @@ describe('kolonie.register', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
     await app.inject({
@@ -1282,6 +1285,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
 
@@ -1303,6 +1307,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
 
@@ -1331,6 +1336,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
 
@@ -1352,6 +1358,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
 
@@ -1373,6 +1380,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
 
@@ -1403,6 +1411,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
 
@@ -1483,6 +1492,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
 
@@ -1857,6 +1867,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       keys: fakeKeys(),
       pow: fakePow(),
       github: fakeGithub(),
+      social: fakeSocial(),
     })
     await app.ready()
 
@@ -1873,6 +1884,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         keys: fakeKeys(),
         pow: fakePow(),
         github: fakeGithub(),
+        social: fakeSocial(),
         caller: { ip: FAKE_CALLER_IP },
       },
       `Bearer ${apiKey}`,

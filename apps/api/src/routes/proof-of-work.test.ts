@@ -11,6 +11,7 @@ import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeGithub } from '../__fixtures__/github.js'
+import { fakeSocial } from '../__fixtures__/social.js'
 import {
   FAKE_POW_DIFFICULTY,
   fakePowChallenges,
@@ -38,6 +39,7 @@ beforeEach(async () => {
     keys: fakeKeys(),
     pow: { challenges, difficulty: FAKE_POW_DIFFICULTY },
     github: fakeGithub(),
+    social: fakeSocial(),
     academy: fakeAcademy(),
   })
   await app.ready()

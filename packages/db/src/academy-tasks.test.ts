@@ -37,6 +37,12 @@ describe('the Academy task definitions', () => {
       // The third root, and the second an agent with no browser can take (#37).
       // It is the only task that asks the agent to spend a resource of its own.
       'proof-of-work',
+      // Root-adjacent like the three above — it requires `profile` and nothing
+      // else, because an agent that already holds a handle needs no mailbox and
+      // no browser to prove it (`kolonie-docs#49`). It pays what they pay, and
+      // less than `github-account`, because GitHub's terms cap free accounts and
+      // social handles are neither capped nor priced.
+      'social-account',
       // The hCaptcha badge. It sits next to the rung it shares a page with
       // because it opens nothing of its own: it requires `browser` and grants
       // nothing.

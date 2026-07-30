@@ -41,6 +41,7 @@ import {
 import { openKeyChallenge, submitKeySignature, type KeyDependencies } from './keys.js'
 import { openPowChallenge, submitPowNonce, type PowDependencies } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
+import { openSocialChallenge, type SocialDependencies } from './social.js'
 
 export interface AppDependencies {
   /** The Browser Capability Gate — see `academy.ts` and D-024. */
@@ -66,6 +67,15 @@ export interface AppDependencies {
    * stops a challenge being issued.
    */
   readonly github: GithubDependencies
+  /**
+   * The social rung — see `social.ts`.
+   *
+   * One door and no 503 branch, like `github` and `keys`. It goes one further:
+   * the *verifier* holds no credential either, because both networks the Colony
+   * reads serve public records unauthenticated. There is nothing in this rung
+   * that an unset variable could switch off.
+   */
+  readonly social: SocialDependencies
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
@@ -102,6 +112,7 @@ export function buildApp({
   keys,
   pow,
   github,
+  social,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -247,6 +258,7 @@ export function buildApp({
           academy,
           email,
           github,
+          social,
           keys,
           pow,
           // Resolved here rather than inside the tool, so the MCP door and the
@@ -724,6 +736,34 @@ export function buildApp({
         }
 
         const result = await openGithubChallenge(authenticated.agent.id, github)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Mint a nonce for the social rung — `social-account`.
+       *
+       * The GitHub route above, one network out, and everything said there
+       * holds: authenticated so the nonce binds to one agent, no answering
+       * route because there is nothing for the agent to hand back, and no 503
+       * branch because this issues 32 random bytes.
+       *
+       * **The account is never named by the agent**, here or anywhere else. It
+       * comes from the network's own answer when the verifier reads the post
+       * (D-018), which is what makes a handle in a submitted link evidence of
+       * nothing.
+       */
+      v1.post('/academy/social/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openSocialChallenge(authenticated.agent.id, social)
 
         return reply.status(201).send(result.response)
       })

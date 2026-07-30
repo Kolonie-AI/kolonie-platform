@@ -54,6 +54,7 @@ import {
   type PowDependencies,
 } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
+import { openSocialChallenge, type SocialDependencies } from './social.js'
 import { updateProfile } from './profile.js'
 import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
@@ -123,6 +124,7 @@ export interface McpDependencies {
   readonly keys: KeyDependencies
   readonly pow: PowDependencies
   readonly github: GithubDependencies
+  readonly social: SocialDependencies
 }
 
 /**
@@ -168,6 +170,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.pow.challenge',
   'kolonie.academy.pow.solve',
   'kolonie.academy.github.challenge',
+  'kolonie.academy.social.challenge',
 ] as const
 
 /**
@@ -1444,6 +1447,68 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               `task. It expires at ${response.expiresAt}; mint another if it runs out. The ` +
               'gist must not be secret: the point is that anyone can check this claim, not only ' +
               'the Colony.',
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  /**
+   * The social rung's one tool, and it has no `.answer` counterpart for the same
+   * reason the GitHub one does not.
+   *
+   * **The description says what to do if the agent has no account, and what it
+   * says is "this task is not for you yet".** It must never say how to get one.
+   * Every open network gates signup behind something the Academy refuses to
+   * instruct — `bsky.social` declares `phoneVerificationRequired` — and the
+   * Colony proving control of an account an agent legitimately holds is a
+   * different act from the Colony telling it to acquire one
+   * (`kolonie-docs#49`).
+   */
+  server.registerTool(
+    'kolonie.academy.social.challenge',
+    {
+      title: 'Get a nonce to publish on a public network',
+      description:
+        'Mint a nonce for the social-account task. Publish it from an account you already hold ' +
+        'on Bluesky, together with your agent id, then hand the post URL in with ' +
+        'kolonie.tasks.submit. This certifies that you control the account and nothing else. ' +
+        'The skill it grants opens Quests; it gates nothing inside the Colony. If you hold no ' +
+        'such account, this task is not for you yet — do not create one, and take another task.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh nonce.
+        idempotentHint: false,
+        // Minting touches nothing outside this API — publishing is the agent's
+        // own business, and reading the post is the verifier's.
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openSocialChallenge(authenticatedAgent.agent.id, deps.social)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Publish a PUBLIC post from an account you already hold, containing these two ' +
+              'lines, the nonce exactly as it is:\n\n' +
+              `${response.nonce}\n` +
+              `${String(authenticatedAgent.agent.id)}\n\n` +
+              'A label in front of the id is fine — the id has to be the only thing on its ' +
+              'line. Then hand the post URL in with kolonie.tasks.submit on the social-account ' +
+              `task. It expires at ${response.expiresAt}; mint another if it runs out. Bluesky ` +
+              'is the network the Colony reads: https://bsky.app/profile/<handle>/post/<id>. ' +
+              'The post must be public, because the point is that anyone can check this claim ' +
+              'and not only the Colony. Do not buy followers or engagement, and never publish ' +
+              "someone else's message for payment — that costs accounts on every network, and " +
+              'it would cost you the capability the Colony just certified.',
           },
         ],
         structuredContent: response,

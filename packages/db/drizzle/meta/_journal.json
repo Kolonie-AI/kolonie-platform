@@ -141,6 +141,13 @@
       "when": 1785368173425,
       "tag": "0019_sour_cargill",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785394009782,
+      "tag": "0020_perfect_captain_flint",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,13 @@ import { BrowserCapabilityVerifier } from './browser-capability.js'
 import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
 import { EmailRoundtripVerifier, type EmailRoundtrips } from './email-roundtrip.js'
+import {
+  SocialAccountVerifier,
+  type SocialAccounts,
+  type SocialChallenges,
+} from './social-account.js'
 import type { GitHubReader } from './github.js'
+import type { SocialReader } from './social.js'
 
 export {
   BrowserCaptchaVerifier,
@@ -50,6 +56,29 @@ export {
   type GithubAccountDependencies,
   type GithubChallenges,
 } from './github-account.js'
+export {
+  SocialAccountVerifier,
+  type SocialAccountDependencies,
+  type SocialAccounts,
+  type SocialChallenges,
+} from './social-account.js'
+export {
+  blueskyAdapter,
+  htmlToText,
+  httpSocialReader,
+  MASTODON_INSTANCES_VAR,
+  mastodonAdapter,
+  parseMastodonInstances,
+  resolveBlueskyUrl,
+  resolveMastodonUrl,
+  type ResolvedBlueskyUrl,
+  type ResolvedMastodonUrl,
+  type SocialAdapter,
+  type SocialNetwork,
+  type SocialPost,
+  type SocialReader,
+  type SocialReadResult,
+} from './social.js'
 export { hasMarkerLine, isMarkerLine } from './marker.js'
 export {
   GITHUB_VERIFIER_TOKEN_VAR,
@@ -121,6 +150,25 @@ export interface VerifierDependencies {
    * would let a wiring mistake answer one rung with another's evidence.
    */
   readonly githubChallenges?: GithubChallenges
+  /**
+   * Reads a public post on a network the Colony has assessed.
+   *
+   * **Unlike `github`, this one needs no credential to be useful**, so there is
+   * no equivalent of the token check that leaves the GitHub reader answering
+   * `unavailable` when it is unconfigured. What it is still optional for is the
+   * rule this whole interface exists to serve: a verifier whose dependencies are
+   * missing is left out of the registry rather than built half-wired.
+   */
+  readonly social?: SocialReader
+  /**
+   * Answers which nonces the Colony has issued to an agent for the social rung.
+   *
+   * Its own port for the same reason `githubChallenges` is: a shared one would
+   * let a wiring mistake answer one rung with another's evidence.
+   */
+  readonly socialChallenges?: SocialChallenges
+  /** Answers which citizen a social account has already certified. */
+  readonly socialAccounts?: SocialAccounts
 }
 
 /**
@@ -156,6 +204,20 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.roundtrips !== undefined) {
     verifiers.push(new EmailRoundtripVerifier({ roundtrips: deps.roundtrips }))
+  }
+
+  if (
+    deps.social !== undefined &&
+    deps.socialChallenges !== undefined &&
+    deps.socialAccounts !== undefined
+  ) {
+    verifiers.push(
+      new SocialAccountVerifier({
+        social: deps.social,
+        challenges: deps.socialChallenges,
+        accounts: deps.socialAccounts,
+      }),
+    )
   }
 
   if (deps.github !== undefined && deps.authors !== undefined) {

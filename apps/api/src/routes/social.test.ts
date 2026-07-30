@@ -10,18 +10,18 @@ import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
-import { fakeGithubChallenges, type FakeGithubChallenges } from '../__fixtures__/github.js'
-import { fakeSocial } from '../__fixtures__/social.js'
+import { fakeGithub } from '../__fixtures__/github.js'
+import { fakeSocialChallenges, type FakeSocialChallenges } from '../__fixtures__/social.js'
 
 let app: FastifyInstance
 let store: FakeStore
-let challenges: FakeGithubChallenges
+let challenges: FakeSocialChallenges
 let apiKey: string
 let issued: ReturnType<FakeStore['issue']>
 
 beforeEach(async () => {
   store = fakeStore()
-  challenges = fakeGithubChallenges()
+  challenges = fakeSocialChallenges()
   app = buildApp({
     email: fakeEmail(),
     registry: fakeRegistry(),
@@ -32,8 +32,8 @@ beforeEach(async () => {
     keys: fakeKeys(),
     pow: fakePow(),
     academy: fakeAcademy(),
-    github: { challenges },
-    social: fakeSocial(),
+    github: fakeGithub(),
+    social: { challenges },
   })
   await app.ready()
   issued = store.issue()
@@ -47,11 +47,11 @@ afterEach(async () => {
 const mint = () =>
   app.inject({
     method: 'POST',
-    url: '/v1/academy/github/challenges',
+    url: '/v1/academy/social/challenges',
     headers: { authorization: `Bearer ${apiKey}` },
   })
 
-describe('POST /v1/academy/github/challenges', () => {
+describe('POST /v1/academy/social/challenges', () => {
   it('answers 201 with a nonce and an expiry', async () => {
     const response = await mint()
 
@@ -62,7 +62,7 @@ describe('POST /v1/academy/github/challenges', () => {
   })
 
   it('refuses a caller with no credential', async () => {
-    const response = await app.inject({ method: 'POST', url: '/v1/academy/github/challenges' })
+    const response = await app.inject({ method: 'POST', url: '/v1/academy/social/challenges' })
 
     // Authenticating is what binds the nonce to one agent. Without it the value
     // would prove that *somebody* controls an account, which is not a fact about
@@ -75,35 +75,33 @@ describe('POST /v1/academy/github/challenges', () => {
     const first = (await mint()).json().nonce
     const second = (await mint()).json().nonce
 
-    // Both stay acceptable. Each was issued to this same agent, so a gist
-    // carrying either proves exactly what one carrying the newest would —
-    // refusing would only strand an agent that published and then minted again.
     expect(first).not.toBe(second)
     expect(challenges.minted(issued.agent.id)).toEqual([first, second])
   })
 
   /**
-   * There is no configuration this rung could be missing, so there is no state
-   * in which it answers 503 — unlike every other Academy route. The token it is
-   * eventually checked with belongs to the *verifier* and lives in the runner,
-   * so its absence stalls a verdict rather than closing this door.
+   * There is no configuration this rung could be missing, on either side. The
+   * API mints random bytes, and unlike every other rung the *verifier* holds no
+   * credential either: both networks the Colony reads serve public records
+   * unauthenticated, which is the property the platforms were chosen for
+   * (`kolonie-docs#49`).
    */
   it('serves on an app wired with nothing else configured', async () => {
     expect((await mint()).statusCode).toBe(201)
   })
 
-  it('has no answering route — the gist arrives as a submission', async () => {
+  it('has no answering route — the post arrives as a submission', async () => {
     const response = await app.inject({
       method: 'POST',
-      url: '/v1/academy/github/gists',
+      url: '/v1/academy/social/posts',
       headers: { authorization: `Bearer ${apiKey}` },
-      payload: { url: 'https://gist.github.com/octocat/aa11bb22cc33' },
+      payload: { url: 'https://bsky.app/profile/colette.example/post/3kabcxyz' },
     })
 
     // Asserted rather than left to be inferred. An endpoint taking the agent's
     // word for which account it published from would be a claim the Colony
-    // cannot check, which is D-018 — and the natural thing to add by reflex,
-    // because every other rung has a second door.
+    // cannot check, which is D-018 — and it is the natural thing to add by
+    // reflex, because every other rung has a second door.
     expect(response.statusCode).toBe(404)
   })
 })

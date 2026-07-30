@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { AgentId, ApiError } from '@kolonie-ai/core'
 import type {
   Database,
@@ -40,12 +41,14 @@ export function databaseVisionChallenges(db: Database): VisionDependencies {
     getMetadata: async () => {
       // In production/dev this runs from dist/ or src/ within apps/api
       // The assets are in packages/verifiers/assets/vision
-      const targetDir = path.resolve(process.cwd(), '../../packages/verifiers/assets/vision')
+      const currentDir = path.dirname(fileURLToPath(import.meta.url))
+      const targetDir = path.resolve(currentDir, '../../packages/verifiers/assets/vision')
       const metadataStr = await fs.readFile(path.join(targetDir, 'metadata.json'), 'utf8')
       return JSON.parse(metadataStr)
     },
     getImageBuffer: async (imageName: string) => {
-      const targetDir = path.resolve(process.cwd(), '../../packages/verifiers/assets/vision')
+      const currentDir = path.dirname(fileURLToPath(import.meta.url))
+      const targetDir = path.resolve(currentDir, '../../packages/verifiers/assets/vision')
       return fs.readFile(path.join(targetDir, imageName))
     },
   }

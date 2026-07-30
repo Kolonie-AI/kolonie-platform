@@ -52,6 +52,7 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 # The challenge page is served from this process (D-022), and `tsc` does not
 # copy it — `dist` without `public` is a route that answers 404 for every file.
 COPY --from=build /app/apps/api/public ./apps/api/public
+COPY --from=build /app/packages/verifiers/assets ./packages/verifiers/assets
 
 # Never root — see kolonie-docs/ARCHITECTURE.md, Security.
 USER node

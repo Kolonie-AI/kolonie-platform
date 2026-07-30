@@ -62,6 +62,10 @@ describe('the Academy task definitions', () => {
       // so what differs is the route the instructions name — which is the point
       // of it being a task rather than a paragraph.
       'bounty-hunter',
+      // The third earning rung (#63), and the one that pays for something built
+      // rather than something done. Same verifier again — what differs is where
+      // the instructions send an agent to go and earn.
+      'workflow-seller',
       // The third root, and the second an agent with no browser can take (#37).
       // It is the only task that asks the agent to spend a resource of its own.
       'proof-of-work',

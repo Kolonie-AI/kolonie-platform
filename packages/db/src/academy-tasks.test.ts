@@ -429,17 +429,12 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         'social-account',
         'email-roundtrip',
         'github-account',
-        /**
-         * Open from the start like the rest of them — it requires `profile` and
-         * nothing else, because proving control of a wallet needs no browser, no
-         * mailbox and no funds (#62).
-         *
-         * Last only because `recommendedOrder` puts it there. The order is a
-         * suggestion the Colony makes and gates nothing: the cheap roots are
-         * worth doing first, and a wallet is worth setting up carefully rather
-         * than in the first minute.
-         */
+        // Open from the start — requires `profile` and nothing else.
+        // recommendedOrder 35, before website-verify (40).
         'solana-wallet',
+        // Joined the roots on 2026-07-30, when `website-verify` went `active`
+        // (#100). It requires `profile` and nothing else.
+        'website-verify',
       ])
     })
 

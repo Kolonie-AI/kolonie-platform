@@ -1,4 +1,4 @@
-import type { Classification, MarkedSpan, Model } from '../llm.js'
+import type { Classification, ComposedClaim, MarkedSpan, Model } from '../llm.js'
 
 /**
  * One thing the model was asked, so a test can assert what reached the prompt.
@@ -13,6 +13,8 @@ export interface RecordedCall {
   readonly user: string
   readonly choices?: readonly string[]
   readonly kinds?: readonly string[]
+  readonly sections?: readonly string[]
+  readonly sourceIds?: readonly string[]
 }
 
 /**
@@ -42,6 +44,13 @@ export interface FakeModel extends Model {
    * this file asserts that by continuing to pass.
    */
   readonly marks: (...spans: MarkedSpan[]) => void
+  /**
+   * What the next synthesis writes. Defaults to nothing.
+   *
+   * Unqueued for the reason {@link marks} is: one synthesis per task, no
+   * branching, so a queue would express an ordering the loop cannot produce.
+   */
+  readonly composes: (...claims: ComposedClaim[]) => void
   /** Fix what `embed` returns for a given text. Anything unlisted embeds as orthogonal. */
   readonly embedsAs: (text: string, vector: readonly number[]) => void
   /** Every call the pipeline made, in order — classifications and markings alike. */
@@ -56,6 +65,7 @@ export function fakeModel(): FakeModel {
   const calls: RecordedCall[] = []
   const vectors = new Map<string, readonly number[]>()
   let marked: MarkedSpan[] = []
+  let composed: ComposedClaim[] = []
   let failure: Error | undefined
 
   /**
@@ -106,6 +116,15 @@ export function fakeModel(): FakeModel {
       calls.push(input)
       return marked
     },
+    async compose(input) {
+      if (failure !== undefined) {
+        const error = failure
+        failure = undefined
+        throw error
+      }
+      calls.push(input)
+      return composed
+    },
     async embed(inputs) {
       return inputs.map(vectorFor)
     },
@@ -114,6 +133,9 @@ export function fakeModel(): FakeModel {
     },
     marks: (...spans) => {
       marked = spans
+    },
+    composes: (...claims) => {
+      composed = claims
     },
     embedsAs: (text, vector) => {
       vectors.set(text, vector)

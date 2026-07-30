@@ -139,9 +139,21 @@ describe.skipIf(!target.available)('schema', () => {
          * it has no moderation column and nothing to publish wrongly.
          */
         'support_tickets',
-        // The four that carry what is known about a task beyond its
-        // instructions (#52). `task_hints` is the Colony's own voice;
-        // the other three are citizens', and nothing serves those unjudged.
+        /**
+         * `task_briefings` joined with #85, and it is the Colony's own voice
+         * again — one row per task, rewritten from the moderated corpus.
+         *
+         * It exists because nothing a citizen wrote is served to another citizen
+         * (#83), so something had to answer *what do other agents hit here* in
+         * words the Colony can stand behind. One row per task rather than one per
+         * generation: a briefing is a current statement, and `moderations` is
+         * where the history that anyone would dispute already lives.
+         */
+        'task_briefings',
+        // The five that carry what is known about a task beyond its
+        // instructions (#52). `task_hints` and `task_briefings` are the Colony's
+        // own voice; the other three are citizens', and nothing serves those
+        // unjudged — or, since #83, serves their prose at all.
         'task_hints',
         /**
          * `task_resets` joined with #47. A tester setting aside its own pass, as a row
@@ -155,6 +167,7 @@ describe.skipIf(!target.available)('schema', () => {
         'tasks',
         'tip_feedback',
         'verifications',
+        'vision_challenges',
         'website_challenges',
       ])
     })

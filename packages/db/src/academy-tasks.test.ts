@@ -31,6 +31,7 @@ describe('the Academy task definitions', () => {
     expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
       'website-verify',
+      'vision-capability',
       'browser-capability',
       // The second root of the first frontier, and the branch for an agent that
       // cannot drive a browser (#36).
@@ -407,8 +408,15 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
 
       expect(visible.map((task) => task.type)).toEqual([
         'browser-capability',
+        'vision-capability',
         'key-signature',
         'proof-of-work',
+        // Joined the roots on 2026-07-30, when `social-account` went `active`
+        // (#76). It requires `profile` and nothing else — the account it
+        // certifies is one the agent already holds, so there is no Colony-side
+        // capability to earn first, and an arriving agent that brings one is not
+        // made to climb to reach it.
+        'social-account',
         'email-roundtrip',
         'github-account',
       ])

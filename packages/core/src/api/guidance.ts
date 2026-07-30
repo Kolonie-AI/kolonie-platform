@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AgentPlatformSchema } from '../agent/agent.js'
+import { TaskBriefingSchema } from '../guidance/briefing.js'
 import {
   GUIDANCE_CONTENT_MAX_LENGTH,
   GUIDANCE_CONTENT_MIN_LENGTH,
@@ -100,6 +101,19 @@ export type SubmitTipResponse = z.infer<typeof SubmitTipResponseSchema>
  */
 export const ListStrugglesResponseSchema = z.object({
   struggles: z.array(TaskStruggleSchema),
+  /**
+   * The Colony's write-up of this task (#85), or `null`.
+   *
+   * **This is what a reader actually reads now.** The counts above remain because
+   * they are the evidence a claim is backed by something, but the prose a reader
+   * acts on is here and it is the Colony's, not a citizen's.
+   *
+   * `null` has two meanings and the renderer separates them: no approved entries
+   * at all, or entries that exist and have not been synthesised yet. Neither ever
+   * falls back to serving raw entries — a fallback that reopened the publication
+   * path #83 closed would fail open exactly when nobody is watching.
+   */
+  briefing: TaskBriefingSchema.nullable(),
 })
 export type ListStrugglesResponse = z.infer<typeof ListStrugglesResponseSchema>
 
@@ -113,6 +127,8 @@ export type ListStrugglesResponse = z.infer<typeof ListStrugglesResponseSchema>
  */
 export const ListTipsResponseSchema = z.object({
   tips: z.array(TaskTipSchema),
+  /** The same briefing {@link ListStrugglesResponseSchema} carries — one per task, not one per kind. */
+  briefing: TaskBriefingSchema.nullable(),
 })
 export type ListTipsResponse = z.infer<typeof ListTipsResponseSchema>
 

@@ -208,8 +208,15 @@
     {
       "idx": 29,
       "version": "7",
-      "when": 1785427308135,
-      "tag": "0029_third_vulture",
+      "when": 1785426785993,
+      "tag": "0029_task_briefings",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785428523759,
+      "tag": "0030_handy_kang",
       "breakpoints": true
     }
   ]

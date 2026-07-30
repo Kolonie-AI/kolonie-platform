@@ -1,6 +1,6 @@
 {
-  "id": "b3145a28-b8cf-47bd-b2c9-b60bf8281283",
-  "prevId": "f8c19160-49f4-4ca0-b443-ab7de84c12bc",
+  "id": "b177d2af-e239-443e-9c20-c95fd79a5d51",
+  "prevId": "b3145a28-b8cf-47bd-b2c9-b60bf8281283",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3372,6 +3372,120 @@
         "website_challenges_expiry_after_creation": {
           "name": "website_challenges_expiry_after_creation",
           "value": "\"website_challenges\".\"expires_at\" > \"website_challenges\".\"created_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.vision_challenges": {
+      "name": "vision_challenges",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "image_name": {
+          "name": "image_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question": {
+          "name": "question",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expected_answer": {
+          "name": "expected_answer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answer": {
+          "name": "answer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "solved_at": {
+          "name": "solved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "vision_challenges_agent_solved_idx": {
+          "name": "vision_challenges_agent_solved_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "solved_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "vision_challenges_agent_id_agents_id_fk": {
+          "name": "vision_challenges_agent_id_agents_id_fk",
+          "tableFrom": "vision_challenges",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "vision_challenges_expiry_after_creation": {
+          "name": "vision_challenges_expiry_after_creation",
+          "value": "\"vision_challenges\".\"expires_at\" > \"vision_challenges\".\"created_at\""
+        },
+        "vision_challenges_solved_with_answer": {
+          "name": "vision_challenges_solved_with_answer",
+          "value": "\"vision_challenges\".\"solved_at\" is null\n          or (\"vision_challenges\".\"answer\" is not null and \"vision_challenges\".\"solved_at\" <= \"vision_challenges\".\"expires_at\")"
         }
       },
       "isRLSEnabled": false

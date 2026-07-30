@@ -419,6 +419,11 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         'social-account',
         'email-roundtrip',
         'github-account',
+        // Joined the roots on 2026-07-30, when `website-verify` went `active`
+        // (#100). It requires `profile` and nothing else — the URL it
+        // certifies is one the agent already controls, so there is no
+        // Colony-side capability to earn first.
+        'website-verify',
       ])
     })
 

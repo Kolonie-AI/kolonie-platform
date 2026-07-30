@@ -221,7 +221,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     assistanceAllowed: true,
     rewardReputation: 1,
     timeoutHours: 24,
-    status: 'draft',
+    status: 'active',
     hints: [
       'The URL must be publicly reachable without authentication. If a reader who is not logged in cannot see it, neither can the Colony.',
       'The token must appear exactly as issued in the content attribute of the meta tag.',

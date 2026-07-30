@@ -170,12 +170,13 @@ export const taskStruggles = pgTable(
      * would delete B's own writing to satisfy A's erasure, which is the one
      * thing erasure must never do.
      *
-     * So `#91` resolves the pointers before it deletes: a canonical entry
-     * authored by the erasing agent has one of its duplicates promoted in its
-     * place, and the rest re-pointed at the new canonical. Only then is the
-     * agent deleted, and by then nothing points at anything of theirs. That work
-     * is not expressible as a foreign-key action — which is why the constraint's
-     * job is to make its absence a failure rather than a silent hole.
+     * So `#107` resolves the pointers before the delete: the oldest surviving
+     * report is promoted in the departing entry's place and the rest are
+     * re-pointed at it, in `promoteDuplicatesOf`. Only then is the agent
+     * deleted, and by then nothing points at anything of theirs. That work is
+     * not expressible as a foreign-key action — which is why the constraint's
+     * job is to make its absence a failure rather than a silent hole, and why
+     * there is a test asserting this reference still refuses a raw delete.
      */
     duplicateOf: uuid('duplicate_of').references((): AnyPgColumn => taskStruggles.id, {
       onDelete: 'restrict',

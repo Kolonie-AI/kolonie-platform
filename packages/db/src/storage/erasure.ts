@@ -9,6 +9,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { banMarkHash } from '../ban-salt.js'
 import { rebuildGuidanceCounts } from './guidance-counts.js'
+import { promoteDuplicatesOf } from './guidance-promotion.js'
 import {
   agents,
   banMarks,
@@ -234,12 +235,29 @@ export async function eraseAgent(
         ? await writeBanMarks(tx, command.agentId, command.banSalt)
         : 0
 
+    /**
+     * Hand over any canonical entry of this citizen's that another agent was
+     * merged into, **before** the delete (#107).
+     *
+     * This is the one place where erasing A can be blocked by B's row, and
+     * `duplicate_of` is `restrict` precisely so that forgetting this is a loud
+     * failure rather than a silent hole. The oldest surviving report takes the
+     * canonical place; the departing citizen's text goes with the citizen.
+     */
+    const promoted = await promoteDuplicatesOf(tx, command.agentId)
+
     // Everything else goes with this row, by the cascades #90 established.
     await tx.delete(agents).where(eq(agents.id, command.agentId))
 
     // After the cascade, so the counts are rebuilt from what is actually left.
     // Running it before would recompute the same wrong numbers.
-    await rebuildGuidanceCounts(tx, disturbed)
+    await rebuildGuidanceCounts(tx, {
+      // A promoted entry inherits the reports that were merged into the one it
+      // replaced, so its count is the one thing about it that is not simply
+      // carried over — it is recomputed from what is actually left.
+      struggleIds: [...disturbed.struggleIds, ...promoted.struggleIds],
+      tipIds: disturbed.tipIds,
+    })
 
     const [row] = await tx
       .insert(erasures)

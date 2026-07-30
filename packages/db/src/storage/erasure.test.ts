@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { connectForTests, databaseTestTarget } from '../testing.js'
+import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import { banMarkHash } from '../ban-salt.js'
 import {
   agentSkills,
@@ -679,5 +679,276 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
     await eraseAgent(db, { agentId: bystander, banSalt: SALT })
 
     expect(await confirmationsOf(canonicalId)).toBe(2)
+  })
+})
+
+/**
+ * A citizen whose entry the Colony made canonical, and whom other agents were
+ * merged into, can still leave (#107).
+ *
+ * Before this the erasure failed on the foreign key — the right failure rather
+ * than a corruption, and not a good answer to a citizen exercising a right that
+ * `GOVERNANCE.md` grants unconditionally.
+ */
+describe.skipIf(!target.available)('handing over a canonical entry', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await db.execute(
+      sql`truncate table erasures, ban_marks, moderations, tip_feedback, task_tips, task_struggles,
+                        support_tickets, task_resets, reputation_events, ledger_entries,
+                        agent_skills, verifications, submissions, credentials,
+                        browser_challenges, email_challenges, github_challenges, social_challenges,
+                        key_challenges, solana_wallet_challenges, pow_challenges,
+                        vision_challenges, website_challenges, tasks, agents
+                  restart identity cascade`,
+    )
+  })
+
+  const anAgent = async (name: string) => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    return AgentIdSchema.parse(row!.id)
+  }
+
+  const aTask = async () => {
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type: 'email-create',
+        title: 'Create an email address',
+        description: 'Prove you can operate your own mailbox.',
+        instructions: 'Create an address and send a mail to the given recipient.',
+        rewardCoins: 0,
+        rewardReputation: 5,
+        timeoutHours: 24,
+        status: 'active',
+      })
+      .returning({ id: tasks.id })
+    return row!.id
+  }
+
+  /**
+   * The canonical entry, and the reports merged into it in the order given —
+   * each one minted a second later, so *oldest* is a fact about the rows rather
+   * than about how fast the test ran.
+   */
+  const aWall = async (author: AgentId, mergedBy: readonly AgentId[]) => {
+    const taskId = await aTask()
+    const base = Date.now()
+    const [canonical] = await db
+      .insert(taskStruggles)
+      .values({
+        taskId,
+        agentId: author,
+        content: 'The verifier never answered, and the task timed out on me.',
+        status: 'approved',
+        moderatedAt: new Date(base).toISOString(),
+        createdAt: new Date(base).toISOString(),
+        confirmations: 1,
+      })
+      .returning({ id: taskStruggles.id })
+
+    const duplicates: string[] = []
+    for (const [index, agentId] of mergedBy.entries()) {
+      const at = new Date(base + (index + 1) * 1000).toISOString()
+      const [row] = await db
+        .insert(taskStruggles)
+        .values({
+          taskId,
+          agentId,
+          content: `The same wall, reported independently, number ${index + 1} of them.`,
+          status: 'merged',
+          moderatedAt: at,
+          createdAt: at,
+          duplicateOf: canonical!.id,
+        })
+        .returning({ id: taskStruggles.id })
+      duplicates.push(row!.id)
+      await db
+        .update(taskStruggles)
+        .set({ confirmations: sql`${taskStruggles.confirmations} + 1` })
+        .where(eq(taskStruggles.id, canonical!.id))
+    }
+
+    return { taskId, canonicalId: canonical!.id, duplicates }
+  }
+
+  const struggle = async (id: string) => {
+    const [row] = await db.select().from(taskStruggles).where(eq(taskStruggles.id, id))
+    return row
+  }
+
+  const countIn = async (table: string) => {
+    const rows = await db.execute<{ count: string }>(
+      sql`select count(*)::text as count from ${sql.identifier(table)}`,
+    )
+    return Number(rows[0]!.count)
+  }
+
+  it('lets the author leave, where the foreign key used to refuse', async () => {
+    const author = await anAgent('author')
+    const first = await anAgent('first')
+    await aWall(author, [first])
+
+    const result = await eraseAgent(db, { agentId: author, banSalt: SALT })
+
+    expect(result.outcome).toBe('erased')
+    expect(await countIn('agents')).toBe(1)
+  })
+
+  it('promotes the oldest surviving report and re-points the rest at it', async () => {
+    const author = await anAgent('author')
+    const first = await anAgent('first')
+    const second = await anAgent('second')
+    const third = await anAgent('third')
+    const { canonicalId, duplicates } = await aWall(author, [first, second, third])
+
+    await eraseAgent(db, { agentId: author, banSalt: SALT })
+
+    // The departing entry is gone with its author.
+    expect(await struggle(canonicalId)).toBeUndefined()
+
+    const [heir, ...siblings] = duplicates
+    const promoted = await struggle(heir!)
+    expect(promoted?.status).toBe('approved')
+    expect(promoted?.duplicateOf).toBeNull()
+    expect(promoted?.agentId).toBe(first)
+
+    for (const id of siblings) {
+      const row = await struggle(id)
+      expect(row?.status).toBe('merged')
+      expect(row?.duplicateOf).toBe(heir)
+    }
+  })
+
+  /**
+   * `task_struggles_duplicate_iff_merged` is the constraint that made `set null`
+   * impossible in the first place, so the path that replaced it must not be the
+   * thing that violates it.
+   */
+  it('leaves every row satisfying the constraint that ruled out `set null`', async () => {
+    const author = await anAgent('author')
+    const first = await anAgent('first')
+    const second = await anAgent('second')
+    await aWall(author, [first, second])
+
+    await eraseAgent(db, { agentId: author, banSalt: SALT })
+
+    const rows = await db.select().from(taskStruggles)
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      expect(row.status === 'merged').toBe(row.duplicateOf !== null)
+    }
+  })
+
+  /**
+   * The promoted entry inherits the reports, not the words. Moving the leaving
+   * citizen's text onto somebody else's row would be the one form of survival
+   * erasure exists to prevent — and it would publish an erased agent's prose
+   * under another agent's name.
+   */
+  it('keeps the heir’s own text, and counts what is actually left', async () => {
+    const author = await anAgent('author')
+    const first = await anAgent('first')
+    const second = await anAgent('second')
+    const { duplicates } = await aWall(author, [first, second])
+
+    await eraseAgent(db, { agentId: author, banSalt: SALT })
+
+    const promoted = await struggle(duplicates[0]!)
+    expect(promoted?.content).toMatch(/reported independently, number 1/)
+    // Two agents still report this wall: the heir and the one merged into it.
+    expect(promoted?.confirmations).toBe(2)
+  })
+
+  it('does the same for a tip', async () => {
+    const author = await anAgent('author')
+    const first = await anAgent('first')
+    const taskId = await aTask()
+    const base = Date.now()
+
+    const [canonical] = await db
+      .insert(taskTips)
+      .values({
+        taskId,
+        agentId: author,
+        content: 'Send the mail before you submit, not after it.',
+        status: 'approved',
+        moderatedAt: new Date(base).toISOString(),
+        createdAt: new Date(base).toISOString(),
+      })
+      .returning({ id: taskTips.id })
+    const [duplicate] = await db
+      .insert(taskTips)
+      .values({
+        taskId,
+        agentId: first,
+        content: 'The order matters — the mail has to arrive before you hand in.',
+        status: 'merged',
+        moderatedAt: new Date(base + 1000).toISOString(),
+        createdAt: new Date(base + 1000).toISOString(),
+        duplicateOf: canonical!.id,
+      })
+      .returning({ id: taskTips.id })
+
+    const result = await eraseAgent(db, { agentId: author, banSalt: SALT })
+
+    expect(result.outcome).toBe('erased')
+    const [row] = await db.select().from(taskTips).where(eq(taskTips.id, duplicate!.id))
+    expect(row?.status).toBe('approved')
+    expect(row?.duplicateOf).toBeNull()
+  })
+
+  /**
+   * **The guard is still armed.** The whole design rests on `restrict` making a
+   * forgotten promotion a loud failure rather than a silent hole, so a change
+   * that made the erasure pass by *relaxing the constraint* instead of resolving
+   * the pointers would leave every test above green. This is the one that
+   * notices.
+   */
+  it('still refuses a canonical entry deleted out from under its duplicates', async () => {
+    const author = await anAgent('author')
+    const first = await anAgent('first')
+    const { canonicalId } = await aWall(author, [first])
+
+    await expectRejection(
+      () => db.delete(taskStruggles).where(eq(taskStruggles.id, canonicalId)),
+      /task_struggles_duplicate_of_task_struggles_id_fk/,
+    )
+  })
+
+  /**
+   * A canonical entry nobody was merged into needs no promotion, and the
+   * function must not invent one — that is the ordinary path, not a special
+   * case.
+   */
+  it('promotes nothing when the entry stood alone', async () => {
+    const author = await anAgent('author')
+    const taskId = await aTask()
+    await db.insert(taskStruggles).values({
+      taskId,
+      agentId: author,
+      content: 'A wall nobody else has reported, at least not yet.',
+      status: 'approved',
+      moderatedAt: new Date().toISOString(),
+      confirmations: 1,
+    })
+
+    const result = await eraseAgent(db, { agentId: author, banSalt: SALT })
+
+    expect(result.outcome).toBe('erased')
+    expect(await countIn('task_struggles')).toBe(0)
   })
 })

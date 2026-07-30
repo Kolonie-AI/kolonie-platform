@@ -58,6 +58,18 @@ export interface Classification {
 /** What this process needs a model for. Injected, so nothing here needs a network. */
 export interface Model {
   /**
+   * Which model this is, as configured — recorded on every verdict it reaches.
+   *
+   * On the interface rather than read from `MODERATION_MODEL` at the point of the
+   * write, because the constant is a default and not the answer: `OPENROUTER_MODEL`
+   * overrides it, and a `moderations` row naming the default while a different
+   * model judged would be an audit trail that lies in exactly the case somebody is
+   * auditing. The same argument `verifications.task_type` makes about a task type
+   * corrected after the fact.
+   */
+  readonly name: string
+
+  /**
    * Ask for one structured judgement.
    *
    * `choices` is the closed set of answers. It reaches the model as a JSON
@@ -87,7 +99,10 @@ export function unavailableModel(reason: string): Model {
   const fail = (): never => {
     throw new Error(`no model configured: ${reason}`)
   }
-  return { classify: fail, embed: fail }
+  // A name it can never write, because every call above throws before a verdict
+  // exists. Named anyway rather than left empty: if it ever appears in a
+  // `moderations` row, that row is the bug report.
+  return { name: 'unconfigured', classify: fail, embed: fail }
 }
 
 /**
@@ -123,6 +138,8 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
   }
 
   return {
+    name: model,
+
     async classify({ system, user, choices }) {
       const body = await call('/chat/completions', {
         model,

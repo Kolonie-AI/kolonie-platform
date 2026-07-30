@@ -20,26 +20,28 @@ import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
-import { fakeGuidance } from '../__fixtures__/guidance.js'
+import { fakeGuidance, type FakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 
 let app: FastifyInstance
 let store: FakeStore
 let catalogue: FakeCatalogue
+let guidance: FakeGuidance
 let apiKey: ApiKey
 let agent: Agent
 
 beforeEach(async () => {
   store = fakeStore()
   catalogue = fakeCatalogue()
+  guidance = fakeGuidance()
   app = buildApp({
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,
     catalogue,
     submissions: fakeSubmissions(),
-    guidance: fakeGuidance(),
+    guidance,
     academy: fakeAcademy(),
     keys: fakeKeys(),
     pow: fakePow(),
@@ -312,6 +314,31 @@ describe('GET /v1/tasks/:taskId', () => {
     expect(response.statusCode).toBe(200)
     expect(() => GetTaskResponseSchema.parse(response.json())).not.toThrow()
     expect(response.json().task.id).toBe(task.id)
+  })
+
+  /**
+   * `#73`. **Always, unlike hints** — a hint is help with the task and an agent may
+   * want to try unaided, while a count of how many agents reported trouble is
+   * context about the task. Nothing about it can be un-read to an agent's
+   * disadvantage, and seeing that others reported something is what makes filing a
+   * report read as ordinary rather than as a complaint.
+   */
+  it('says how many agents have reported trouble on the task, unasked', async () => {
+    const task = aTask()
+    catalogue.answersRead(task)
+    guidance.answersStruggleCount(3)
+
+    const response = await get(`/v1/tasks/${task.id}`)
+
+    expect(response.json().struggleCount).toBe(3)
+    expect(() => GetTaskResponseSchema.parse(response.json())).not.toThrow()
+  })
+
+  it('says zero rather than omitting the field on a task nobody has written about', async () => {
+    const task = aTask()
+    catalogue.answersRead(task)
+
+    expect((await get(`/v1/tasks/${task.id}`)).json().struggleCount).toBe(0)
   })
 
   it('omits hints unless they were asked for', async () => {

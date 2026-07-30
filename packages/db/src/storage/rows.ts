@@ -2,11 +2,13 @@ import {
   AgentSchema,
   SubmissionSchema,
   TaskSchema,
+  TaskSubmissionSchema,
   VerificationSchema,
   type Agent,
   type Submission,
   type Task,
   type TaskHint,
+  type TaskSubmission,
   type Verification,
 } from '@kolonie-ai/core'
 import type { agents, submissions, tasks, verifications } from '../schema/index.js'
@@ -80,6 +82,15 @@ export function toTask(
    * agents reach for help on.
    */
   hints?: readonly TaskHint[] | undefined,
+  /**
+   * Where the reading agent stands on this task.
+   *
+   * `undefined` and `null` are different answers here too, and for a sharper
+   * reason than `hints`: `null` claims that a particular agent has never
+   * submitted, and a read with no agent behind it — `readTask` has none — is not
+   * entitled to make that claim about anyone.
+   */
+  submission?: TaskSubmission | null | undefined,
 ): Task {
   return TaskSchema.parse({
     id: row.id,
@@ -98,6 +109,7 @@ export function toTask(
     timeoutHours: row.timeoutHours,
     status: row.status,
     ...(hints === undefined ? {} : { hints }),
+    ...(submission === undefined ? {} : { submission }),
     createdBy: row.createdBy,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
@@ -121,6 +133,29 @@ export function toSubmission(row: typeof submissions.$inferSelect): Submission {
     payload: row.payload,
     status: row.status,
     assistance: row.assistance,
+    attempt: row.attempt,
+    submittedAt: toTimestamp(row.submittedAt),
+    verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),
+  })
+}
+
+/**
+ * Turn the projected columns of a submission into the shape a task carries.
+ *
+ * Takes the five columns the projection selected rather than a whole row, so
+ * that widening it later is a compile error here instead of a silently larger
+ * payload on every task in every page.
+ */
+export function toTaskSubmission(row: {
+  readonly id: string
+  readonly status: typeof submissions.$inferSelect.status
+  readonly attempt: number
+  readonly submittedAt: string
+  readonly verifiedAt: string | null
+}): TaskSubmission {
+  return TaskSubmissionSchema.parse({
+    id: row.id,
+    status: row.status,
     attempt: row.attempt,
     submittedAt: toTimestamp(row.submittedAt),
     verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { AgentIdSchema, TaskIdSchema } from '../common/ids.js'
 import { SkillSchema } from '../common/skill.js'
 import { TaskHintSchema } from '../guidance/guidance.js'
-import { isUnattended, type Assistance } from '../submission/submission.js'
+import { isUnattended, TaskSubmissionSchema, type Assistance } from '../submission/submission.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
@@ -202,6 +202,27 @@ export const TaskSchema = z.object({
    * to them by the caller. One shape, both endpoints.
    */
   hints: z.array(TaskHintSchema).optional(),
+  /**
+   * The reading agent's **latest** submission for this task, or `null` if it has
+   * never submitted. Absent when the question has no subject.
+   *
+   * Three-valued, like `hints` above, and the three values are worth keeping
+   * apart. `undefined` means *there is no agent this answer is about* —
+   * `GET /v1/tasks/:id` reads a task without asking on anyone's behalf, and a
+   * `null` there would assert that somebody has never submitted without saying
+   * who. `null` means *this agent, never*. An object means *this agent, most
+   * recently, and here is where it stands*.
+   *
+   * **Latest rather than all of them**, because the question this answers is
+   * *what do I do about this task next*, and only the newest attempt bears on
+   * that: a `failed` behind a `pending` is history, and the retry is already in
+   * flight. An agent that wants the history calls `kolonie.submissions.list`.
+   *
+   * It rides on the task for the same reason `hints` does — the list returns
+   * many tasks, and a parallel array would have to be keyed back to them by
+   * every caller that wanted it.
+   */
+  submission: TaskSubmissionSchema.nullable().optional(),
   /**
    * Who authored the task. `null` means the Colony itself; an agent id means a
    * citizen holding `task-author` created it for other agents and funded the

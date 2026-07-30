@@ -451,6 +451,205 @@ describe.skipIf(!target.available)('listTasks', () => {
       expect((await frontier(db, { agentId })).entries).toEqual([])
     })
   })
+
+  describe('the agent’s own standing on each task', () => {
+    /** Seed one task and hand back its id, which `seed` does not. */
+    const aTask = async (title: string, order = 0): Promise<TaskId> => {
+      const [row] = await db
+        .insert(tasks)
+        .values({
+          type: `standing-${order}-${title.toLowerCase().replaceAll(' ', '-')}`,
+          requiresSkills: [],
+          grantsSkills: [],
+          minReputation: 0,
+          recommendedOrder: order,
+          title,
+          description: 'What this task is, for a human reading the catalogue.',
+          instructions: 'What the agent must actually do.',
+          rewardCoins: 1,
+          rewardReputation: 1,
+          timeoutHours: 24,
+          status: 'active' as const,
+        })
+        .returning({ id: tasks.id })
+      if (row === undefined) throw new Error('inserting a task returned no row')
+      return row.id as TaskId
+    }
+
+    /**
+     * Hand in one attempt.
+     *
+     * `verifiedAt` is derived from the status rather than passed in, because
+     * `submissions_verified_at_matches_status` refuses any other combination —
+     * a fixture that could express one would only ever express a bug.
+     */
+    const handIn = async (
+      taskId: TaskId,
+      status: 'pending' | 'verifying' | 'passed' | 'failed' | 'timeout',
+      options: { readonly attempt?: number; readonly at?: string; readonly by?: AgentId } = {},
+    ): Promise<string> => {
+      const terminal = status === 'passed' || status === 'failed' || status === 'timeout'
+      const at = options.at ?? new Date().toISOString()
+      const [row] = await db
+        .insert(submissions)
+        .values({
+          taskId,
+          agentId: options.by ?? agentId,
+          payload: {},
+          attempt: options.attempt ?? 1,
+          status,
+          submittedAt: at,
+          verifiedAt: terminal ? at : null,
+        })
+        .returning({ id: submissions.id })
+      if (row === undefined) throw new Error('inserting a submission returned no row')
+      return row.id
+    }
+
+    it('is null on a task the agent has never submitted to', async () => {
+      await aTask('Never attempted')
+
+      const { items } = await list()
+
+      expect(items).toHaveLength(1)
+      expect(items[0]?.submission).toBeNull()
+    })
+
+    it('carries the fields an agent needs to act, and no payload', async () => {
+      const taskId = await aTask('Waiting on the verifier')
+      const submissionId = await handIn(taskId, 'pending')
+
+      const { items } = await list()
+
+      expect(items[0]?.submission).toEqual({
+        id: submissionId,
+        status: 'pending',
+        attempt: 1,
+        submittedAt: expect.any(String),
+        verifiedAt: null,
+      })
+    })
+
+    it('shows a failed attempt as failed, so the agent can tell a retry is open', async () => {
+      const taskId = await aTask('Failed once')
+      await handIn(taskId, 'failed')
+
+      const { items } = await list()
+
+      expect(items[0]?.title).toBe('Failed once')
+      expect(items[0]?.submission?.status).toBe('failed')
+      expect(items[0]?.submission?.verifiedAt).not.toBeNull()
+    })
+
+    /**
+     * The distinction the definition of done names: three different answers to
+     * *what do I do about this next*, from one call and no other endpoint.
+     */
+    it('distinguishes never submitted from pending from failed in one call', async () => {
+      const pending = await aTask('Pending', 1)
+      const failed = await aTask('Failed', 2)
+      await aTask('Untouched', 3)
+      await handIn(pending, 'pending')
+      await handIn(failed, 'failed')
+
+      const { items } = await list()
+
+      expect(items.map((task) => [task.title, task.submission?.status ?? null])).toEqual([
+        ['Pending', 'pending'],
+        ['Failed', 'failed'],
+        ['Untouched', null],
+      ])
+    })
+
+    it('is the latest attempt, not the first', async () => {
+      const taskId = await aTask('Retried')
+      await handIn(taskId, 'failed', { attempt: 1, at: '2026-07-01T00:00:00.000Z' })
+      await handIn(taskId, 'pending', { attempt: 2, at: '2026-07-02T00:00:00.000Z' })
+
+      const { items } = await list()
+
+      expect(items[0]?.submission?.attempt).toBe(2)
+      expect(items[0]?.submission?.status).toBe('pending')
+    })
+
+    it('never carries another agent’s submission', async () => {
+      const taskId = await aTask('Attempted by somebody else')
+      const stranger = await anAgent('stranger')
+      await handIn(taskId, 'pending', { by: stranger })
+
+      const { items } = await list()
+
+      expect(items[0]?.submission).toBeNull()
+    })
+
+    describe('a task the agent has already passed', () => {
+      /**
+       * `createSubmission` refuses a second pass with `already-passed`, so a
+       * passed task in the "what can I start now" list is a row the agent can
+       * only spend tokens rejecting.
+       */
+      it('is not listed as startable', async () => {
+        const taskId = await aTask('Already done', 1)
+        await aTask('Still open', 2)
+        await handIn(taskId, 'passed')
+
+        expect(titles((await list()).items)).toEqual(['Still open'])
+      })
+
+      it('is still listed when the caller asked for more than what is startable', async () => {
+        const taskId = await aTask('Already done')
+        await handIn(taskId, 'passed')
+
+        const { items } = await list({ availableOnly: false })
+
+        expect(titles(items)).toEqual(['Already done'])
+        expect(items[0]?.submission?.status).toBe('passed')
+      })
+    })
+
+    /**
+     * The property that keeps this cheap, and the one the issue asked for by
+     * name: listing N tasks must not issue N submission queries.
+     */
+    it('fetches the whole page’s submissions in one query', async () => {
+      const watched = createDatabase(target.available ? target.url : '', {
+        max: 1,
+        onnotice: () => {},
+        debug: (_connection, query) => statements.push(query),
+      })
+      const statements: string[] = []
+
+      try {
+        for (const index of [1, 2, 3, 4, 5]) {
+          const taskId = await aTask(`Task ${index}`, index)
+          await handIn(taskId, 'pending')
+        }
+
+        statements.length = 0
+        const listed = await listTasks(watched, { agentId, availableOnly: true, limit: 10 })
+        if (listed.outcome !== 'listed') throw new Error(listed.outcome)
+
+        expect(listed.page.items).toHaveLength(5)
+        expect(listed.page.items.every((task) => task.submission?.status === 'pending')).toBe(true)
+        expect(statements.filter((sql) => sql.includes('distinct on'))).toHaveLength(1)
+      } finally {
+        await watched.close()
+      }
+    })
+
+    /**
+     * `readTask` has no agent behind it, so `null` — which asserts that somebody
+     * has never submitted — would be a claim about nobody in particular.
+     */
+    it('is absent from readTask, which is asked on nobody’s behalf', async () => {
+      const taskId = await aTask('Read directly')
+      await handIn(taskId, 'pending')
+
+      const task = await readTask(db, { taskId })
+
+      expect(task?.submission).toBeUndefined()
+    })
+  })
 })
 
 describe.skipIf(!target.available)('hints', () => {

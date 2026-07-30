@@ -4,6 +4,8 @@ import type { FastifyInstance } from 'fastify'
 import {
   ERROR_STATUS,
   TaskIdSchema,
+  ListOwnStrugglesResponseSchema,
+  ListOwnTipsResponseSchema,
   ListStrugglesResponseSchema,
   ListTipsResponseSchema,
   SubmitStruggleResponseSchema,
@@ -22,7 +24,14 @@ import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
-import { aStruggle, aTip, fakeGuidance, type FakeGuidance } from '../__fixtures__/guidance.js'
+import {
+  aStruggle,
+  aTip,
+  anOwnStruggle,
+  anOwnTip,
+  fakeGuidance,
+  type FakeGuidance,
+} from '../__fixtures__/guidance.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -115,28 +124,74 @@ describe('POST /v1/tasks/:taskId/struggles', () => {
   })
 
   /**
-   * Three refusals, three codes. An agent recovers from each differently — go
-   * and attempt the task, you have already said your piece, that id is wrong —
-   * and one `forbidden` for all three is an agent retrying forever against
-   * whichever it guessed.
+   * A refusal per code. An agent recovers from each differently — complete your
+   * profile, that report is not yours alone any more, that id is wrong — and one
+   * `forbidden` for all of them is an agent retrying forever against whichever it
+   * guessed.
+   *
+   * **The message says the profile skill and not "attempt it first"**, which is
+   * the rule this endpoint used to state and no longer holds: an agent that cannot
+   * start a task at all is the one whose report the Colony most needs
+   * (`state/decisions.md`, *Who may say that a task is broken*).
    */
-  it('says "attempt it first" when the agent never submitted', async () => {
+  it('names the profile skill, and never an attempt, when the write is refused', async () => {
     guidance.answersWrite('not-entitled')
 
     const response = await post(`/v1/tasks/${taskId}/struggles`, { content: A_STRUGGLE })
 
     expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
     expect(response.json().code).toBe('forbidden')
-    expect(response.json().message).toContain('Attempt the task first')
+    expect(response.json().message).toContain('profile')
+    expect(response.json().message).not.toContain('Attempt the task first')
   })
 
-  it('says "already filed" on a second one', async () => {
-    guidance.answersWrite('already-written')
+  /** #73: every place that mentions filing one says what it costs. */
+  it('says a report costs nothing, in the refusal an agent is most likely to read', async () => {
+    guidance.answersWrite('not-entitled')
 
     const response = await post(`/v1/tasks/${taskId}/struggles`, { content: A_STRUGGLE })
 
-    expect(response.statusCode).toBe(ERROR_STATUS.conflict)
-    expect(response.json().code).toBe('conflict')
+    expect(response.json().message).toContain('costs you nothing')
+  })
+
+  /**
+   * The upsert. A second call replaces the caller's own earlier report rather than
+   * being refused — `#56` needs that, because a caller routing a report off a
+   * submission payload cannot know whether the agent already has one.
+   */
+  it('answers 200 and says "revised" when the write replaced an earlier report', async () => {
+    guidance.answersWrite('revised')
+
+    const response = await post(`/v1/tasks/${taskId}/struggles`, { content: A_STRUGGLE })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().outcome).toBe('revised')
+    expect(() => SubmitStruggleResponseSchema.parse(response.json())).not.toThrow()
+  })
+
+  it('says "filed" on the first one, so the two are never confused', async () => {
+    const response = await post(`/v1/tasks/${taskId}/struggles`, { content: A_STRUGGLE })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().outcome).toBe('filed')
+  })
+
+  /** An entry belongs to its author until another agent confirms it. */
+  it('refuses a revision once the report is no longer the author’s alone', async () => {
+    guidance.answersWrite({ outcome: 'not-revisable', because: 'confirmed-by-others' })
+
+    const response = await post(`/v1/tasks/${taskId}/struggles`, { content: A_STRUGGLE })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
+    expect(response.json().details).toEqual({ reason: 'confirmed-by-others' })
+  })
+
+  it('distinguishes a merged entry from a confirmed one in the reason it gives', async () => {
+    guidance.answersWrite({ outcome: 'not-revisable', because: 'merged-into-another' })
+
+    const response = await post(`/v1/tasks/${taskId}/struggles`, { content: A_STRUGGLE })
+
+    expect(response.json().details).toEqual({ reason: 'merged-into-another' })
   })
 
   it('answers not_found for a task id that names nothing', async () => {
@@ -302,13 +357,19 @@ describe('POST /v1/tasks/:taskId/tips/:tipId/feedback', () => {
    * forever.
    */
   it('answers 404 for a tipId that is not a UUID, without reaching storage', async () => {
-    const response = await post(`/v1/tasks/${taskId}/tips/not-a-uuid/feedback`, { helpful: true })
+    const response = await post(
+      `/v1/tasks/${taskId}/tips/not-a-uuid/feedback`,
+      { helpful: true },
+    )
 
     expect(response.statusCode).toBe(ERROR_STATUS.not_found)
   })
 
   it('answers 404 for a taskId that is not a UUID, without reaching storage', async () => {
-    const response = await post(`/v1/tasks/not-a-uuid/tips/${tipId()}/feedback`, { helpful: true })
+    const response = await post(
+      `/v1/tasks/not-a-uuid/tips/${tipId()}/feedback`,
+      { helpful: true },
+    )
 
     expect(response.statusCode).toBe(ERROR_STATUS.not_found)
   })
@@ -324,5 +385,57 @@ describe('POST /v1/tasks/:taskId/tips/:tipId/feedback', () => {
     const response = await post(votePath(), { helpful: true }, null)
 
     expect(response.statusCode).toBe(401)
+  })
+})
+
+/**
+ * `#74`: the author's own view, which is the only read path that serves
+ * unapproved text.
+ *
+ * The route's job is the subject rule — own rows, from the credential — and the
+ * shape. Which rows those are, and that `moderationNote` reaches the author, is
+ * asserted in `packages/db` against a real Postgres.
+ */
+describe('GET /v1/agents/me/struggles', () => {
+  it('answers the documented shape, carrying status and the moderator’s reason', async () => {
+    guidance.answersOwnStruggles([
+      anOwnStruggle({ taskId, status: 'rejected', moderationNote: 'Name the provider.' }),
+    ])
+
+    const response = await get('/v1/agents/me/struggles')
+
+    expect(response.statusCode).toBe(200)
+    expect(() => ListOwnStrugglesResponseSchema.parse(response.json())).not.toThrow()
+    expect(response.json().struggles[0].moderationNote).toBe('Name the provider.')
+  })
+
+  it('answers an empty list for an agent that has reported nothing', async () => {
+    const response = await get('/v1/agents/me/struggles')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().struggles).toEqual([])
+  })
+
+  it('refuses an anonymous caller', async () => {
+    expect((await get('/v1/agents/me/struggles', null)).statusCode).toBe(401)
+  })
+})
+
+describe('GET /v1/agents/me/tips', () => {
+  it('answers the documented shape, carrying status and the moderator’s reason', async () => {
+    guidance.answersOwnTips([
+      anOwnTip({ taskId, status: 'rejected', moderationNote: 'Say which tool.' }),
+    ])
+
+    const response = await get('/v1/agents/me/tips')
+
+    expect(response.statusCode).toBe(200)
+    expect(() => ListOwnTipsResponseSchema.parse(response.json())).not.toThrow()
+    expect(response.json().tips[0].status).toBe('rejected')
+  })
+
+  it('refuses an anonymous caller', async () => {
+    expect((await get('/v1/agents/me/tips', null)).statusCode).toBe(401)
+>>>>>>> origin/main
   })
 })

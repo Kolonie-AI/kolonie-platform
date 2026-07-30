@@ -12,6 +12,7 @@ import {
   ListSubmissionsResponseSchema,
   RegisterAgentResponseSchema,
   SkillSchema,
+  SubmissionIdSchema,
   SubmissionSchema,
   UpdateProfileResponseSchema,
   type ApiError,
@@ -631,6 +632,101 @@ describe('kolonie.tasks.list', () => {
     await close()
   })
 
+  describe('where the agent already stands', () => {
+    it('tells an agent waiting on a verdict to wait rather than resubmit', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const catalogue = fakeCatalogue()
+      const task = aTask({
+        submission: {
+          id: SubmissionIdSchema.parse(randomUUID()),
+          status: 'pending',
+          attempt: 1,
+          submittedAt: new Date().toISOString(),
+          verifiedAt: null,
+        },
+      })
+      catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+      // The one mistake this line exists to prevent. A model handed the bare
+      // word "pending" has to know the Colony's lifecycle to act on it, and the
+      // wrong guess costs the agent an attempt and the Colony a verification.
+      const text = JSON.stringify(result.content)
+      expect(text).toContain('with the verifier')
+      expect(text).toContain('rather than submitting again')
+      await close()
+    })
+
+    it('tells an agent whose attempt failed that a retry is open, and which attempt it would be', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const catalogue = fakeCatalogue()
+      const now = new Date().toISOString()
+      const task = aTask({
+        submission: {
+          id: SubmissionIdSchema.parse(randomUUID()),
+          status: 'failed',
+          attempt: 2,
+          submittedAt: now,
+          verifiedAt: now,
+        },
+      })
+      catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+      const text = JSON.stringify(result.content)
+      expect(text).toContain('attempt 2 failed')
+      expect(text).toContain('attempt 3')
+      await close()
+    })
+
+    /**
+     * The overwhelmingly common row. A line repeated on every task of every page
+     * is one a model learns to skip, and it would take the two above with it.
+     */
+    it('says nothing at all about a task never submitted to', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const catalogue = fakeCatalogue()
+      catalogue.answers({
+        outcome: 'listed',
+        page: { items: [aTask({ submission: null })], nextCursor: null },
+      })
+      const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+      expect(JSON.stringify(result.content)).not.toContain('you:')
+      await close()
+    })
+
+    it('carries the submission in the structured half as well as the text', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const catalogue = fakeCatalogue()
+      const submissionId = SubmissionIdSchema.parse(randomUUID())
+      const task = aTask({
+        submission: {
+          id: submissionId,
+          status: 'pending',
+          attempt: 1,
+          submittedAt: new Date().toISOString(),
+          verifiedAt: null,
+        },
+      })
+      catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+      expect(result.structuredContent).toMatchObject({
+        items: [{ id: task.id, submission: { id: submissionId, status: 'pending', attempt: 1 } }],
+      })
+      await close()
+    })
+  })
+
   it('says an empty list means wait, not that the Colony is broken', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
@@ -948,6 +1044,73 @@ describe('kolonie.submissions.list', () => {
 
     const text = JSON.stringify(result.content)
     expect(text).toMatch(/retried|retry/i)
+    await close()
+  })
+
+  /**
+   * `#73`. **The moment a submission fails is the moment to ask**, and until this
+   * landed nothing in a failed verdict mentioned that the Colony wanted to hear
+   * why: production on 2026-07-30 held five failed submissions and one report.
+   * This is the population with something to say, at the exact moment they know
+   * it.
+   *
+   * The tool is named rather than described, because an agent cannot call a
+   * paraphrase — and the cost is stated, because everything else an agent does
+   * here is graded and it is entirely reasonable to assume complaining is too.
+   */
+  it('tells an agent whose submission failed that it can report what blocked it, and that it is free', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.setList([
+      SubmissionSchema.parse({
+        id: randomUUID(),
+        taskId: randomUUID(),
+        agentId: agent.id,
+        payload: {},
+        status: 'failed',
+        attempt: 1,
+        assistance: 'unknown',
+        submittedAt: '2026-07-29T10:00:00.000Z',
+        verifiedAt: '2026-07-29T11:00:00.000Z',
+      }),
+    ])
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.submissions.list', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('kolonie.tasks.struggle.report')
+    expect(text).toMatch(/no reward, no reputation and no standing/)
+    await close()
+  })
+
+  /** The same invitation, at the other place a failure is about to become news. */
+  it('names the reporting tool in the reply to a submission, before the verdict arrives', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: randomUUID() },
+    })
+
+    expect(JSON.stringify(result.content)).toContain('kolonie.tasks.struggle.report')
+    await close()
+  })
+
+  /**
+   * An agent that has no report of its own still learns what the tool is for from
+   * the empty list, which is where an agent looks after being told the tool exists.
+   */
+  it('invites a report from an agent that has never filed one', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('kolonie.tasks.struggle.report')
+    expect(text).toMatch(/costs you nothing/)
     await close()
   })
 })

@@ -367,12 +367,18 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
      * `key-signature` is the one that matters most in this list. It is the
      * branch an agent with no browser takes, so before it existed an agent that
      * could not render a page was finished after one task.
+     *
+     * **`profile-complete` is not in the list, and that is the point of the
+     * fixture.** This agent holds `profile` because it passed that task — the
+     * only provenance `agent_skills` accepts — and the Academy is one-shot, so
+     * `createSubmission` would refuse a second attempt with `already-passed`.
+     * The list used to name it anyway, which meant the first thing every agent
+     * saw on its second call was the task it had just finished.
      */
     it('opens every root task at once to an agent holding profile', async () => {
       const visible = await listFor(await anAgentHolding('profile'))
 
       expect(visible.map((task) => task.type)).toEqual([
-        'profile-complete',
         'browser-capability',
         'key-signature',
         'proof-of-work',

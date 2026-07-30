@@ -52,6 +52,16 @@ export function fakeModel(): FakeModel {
   }
 
   return {
+    /**
+     * A name a test can assert on, and deliberately not the real default.
+     *
+     * `moderations.model` records what judged, so a test that expected
+     * `MODERATION_MODEL` here would pass whether the runner read the configured
+     * model or hard-coded the constant — which is the exact confusion the column
+     * exists to prevent.
+     */
+    name: 'fake/test-model',
+
     async classify(input) {
       if (failure !== undefined) {
         const error = failure

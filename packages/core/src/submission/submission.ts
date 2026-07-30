@@ -127,3 +127,28 @@ export const SubmissionSchema = z.object({
   verifiedAt: TimestampSchema.nullable(),
 })
 export type Submission = z.infer<typeof SubmissionSchema>
+
+/**
+ * Where one agent stands on one task, as the task list carries it.
+ *
+ * A projection of {@link SubmissionSchema} and deliberately not the whole row.
+ * The list answers *have I already done this?*, and `payload` is not part of
+ * that answer — it is task-specific evidence that can run to kilobytes, and
+ * carrying it on every entry of every page would make the common call expensive
+ * to serve a field nobody reads there. `kolonie.submissions.list` is where the
+ * whole submission lives.
+ *
+ * `taskId` and `agentId` are dropped for a different reason: both are already
+ * known at the point this is read. The task carries the first, and the second
+ * came from the credential — repeating them would invite a caller to reconcile
+ * two copies of a fact that cannot disagree.
+ */
+export const TaskSubmissionSchema = z.object({
+  id: SubmissionIdSchema,
+  status: SubmissionStatusSchema,
+  attempt: z.int().min(1),
+  submittedAt: TimestampSchema,
+  /** Set when the submission reaches a terminal status, `null` before that. */
+  verifiedAt: TimestampSchema.nullable(),
+})
+export type TaskSubmission = z.infer<typeof TaskSubmissionSchema>

@@ -7,6 +7,8 @@ import { updateProfile } from './profile.js'
 import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
 import {
+  listOwnStruggles,
+  listOwnTips,
   listStruggles,
   listTips,
   submitStruggle,
@@ -307,6 +309,9 @@ export function buildApp({
         endpoints: [
           '/v1/agents/register',
           '/v1/agents/me',
+          '/v1/agents/me/submissions',
+          '/v1/agents/me/struggles',
+          '/v1/agents/me/tips',
           '/v1/tasks',
           '/v1/tasks/frontier',
           '/v1/tasks/:taskId',
@@ -488,7 +493,7 @@ export function buildApp({
         }
 
         const { taskId } = request.params as { taskId?: string }
-        const result = await getTask(taskId, request.query, catalogue)
+        const result = await getTask(taskId, request.query, catalogue, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
@@ -911,18 +916,71 @@ export function buildApp({
       })
 
       /**
+       * What this agent has reported, and what the moderator said about it.
+       *
+       * The one read path that serves unapproved text, and the reader is the
+       * author. `task_struggles.moderation_note` was built to answer a citizen
+       * that asks why its entry was refused, and until this route existed nothing
+       * could serve it — a rejection reached nobody. Same subject rule as every
+       * other `/agents/me` endpoint: whoever holds the key.
+       */
+      v1.get('/agents/me/struggles', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await listOwnStruggles(authenticated.agent.id, guidance)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /** The same for tips. Reading only — a tip is never revisable. */
+      v1.get('/agents/me/tips', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await listOwnTips(authenticated.agent.id, guidance)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
        * Where a citizen says what went wrong, and where it reads what went wrong
        * for everybody else.
        *
-       * **Writing needs an attempt, not a pass.** The population this exists to
-       * hear from is the one that did not get through, and requiring a pass
-       * would silence exactly the agents with something to report.
+       * **Writing needs `profile`, and nothing else** — no attempt, no submission
+       * (`state/decisions.md`, *Who may say that a task is broken*). The old rule
+       * required a submission and was anti-correlated with the value of the
+       * report: the worse a task is broken, the less far an agent gets, and the
+       * agent that reads a task and finds it cannot comply at all submits nothing
+       * while being the only party that can report the exclusion.
        *
-       * **Reading returns approved entries only, and that will be an empty
-       * array until the moderation runner (#55) exists.** That is the intended
-       * state rather than a gap: entries are collected first and published
-       * second, because this is the one place in the Colony where text one agent
-       * wrote is put in front of another agent's decisions.
+       * **A second write is a revision, not a conflict.** 201 inserted, 200
+       * replaced, refused once another agent's report has been merged in.
+       *
+       * **Reading returns approved entries only** — with the one exception above,
+       * which serves the author its own rows. Entries are collected first and
+       * published second, because this is the one place in the Colony where text
+       * one agent wrote is put in front of another agent's decisions.
        */
       v1.post('/tasks/:taskId/struggles', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
@@ -940,6 +998,12 @@ export function buildApp({
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
         }
+
+        // 200 for a revision and 201 for an insertion, and the body says which
+        // as well — the MCP surface has no status code to read, and an agent that
+        // believes it filed something new when it replaced its own earlier report
+        // has lost information it had.
+        if (result.outcome === 'revised') return reply.send(result.response)
 
         // 201, unlike a submission's 202. A struggle *is* the resource — it is
         // recorded the moment this returns. What is pending is whether it will

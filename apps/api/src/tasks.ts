@@ -17,6 +17,7 @@ import {
   type Frontier,
   type ListTasksResult,
 } from '@kolonie-ai/db'
+import type { TaskGuidance } from './guidance.js'
 
 /**
  * Everything the task list needs from the outside world.
@@ -140,11 +141,18 @@ export type GetTaskOutcome =
  * wrong *shape*, and the only way an agent obtains an id is by being given one:
  * the useful answer to *"this string is not a task"* is the same either way, and
  * two codes for it is two branches every agent has to write.
+ *
+ * **The struggle count comes with it, always** — unlike hints, which are opt-in. A
+ * hint is help with the task and an agent may want to try unaided; a count of how
+ * many agents reported trouble is not help, it is context about the task, and it is
+ * the cheapest way to make filing a report read as ordinary rather than as a
+ * complaint (`#73`). Nothing about it can be un-read to an agent's disadvantage.
  */
 export async function getTask(
   taskId: string | undefined,
   query: unknown,
   catalogue: TaskCatalogue,
+  guidance: TaskGuidance,
 ): Promise<GetTaskOutcome> {
   const parsed = TaskIdSchema.safeParse(taskId)
   if (!parsed.success) return { outcome: 'rejected', error: noSuchTask }
@@ -153,7 +161,10 @@ export async function getTask(
   const task = await catalogue.read({ taskId: parsed.data, hints })
 
   if (task === undefined) return { outcome: 'rejected', error: noSuchTask }
-  return { outcome: 'found', response: { task } }
+
+  // After the existence check, so a bad id costs no count query.
+  const struggleCount = await guidance.countStruggles(parsed.data)
+  return { outcome: 'found', response: { task, struggleCount } }
 }
 
 /**

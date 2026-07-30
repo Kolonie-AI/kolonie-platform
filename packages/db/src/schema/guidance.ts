@@ -19,6 +19,7 @@ import {
   GUIDANCE_CONTENT_MIN_LENGTH,
   MODERATED_STATUSES,
   MODERATION_NOTE_MAX_LENGTH,
+  type BriefingClaim,
   type ConfidentialSpan,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
@@ -451,5 +452,93 @@ export const tipFeedback = pgTable(
     primaryKey({ columns: [table.tipId, table.agentId] }),
     /** Recomputing a tip's counters reads every vote for it — this is that query. */
     index('tip_feedback_tip_idx').on(table.tipId),
+  ],
+)
+
+/**
+ * The Colony's own write-up of one task, regenerated from its moderated corpus.
+ *
+ * **One row per task, not one per generation.** A briefing is a current
+ * statement rather than a history: what a reader needs is the newest one, and
+ * keeping every version would grow a table faster than the corpus it describes
+ * while nothing ever read the old rows. `moderations` is where the audit trail
+ * lives, and it is per verdict rather than per synthesis because a verdict is
+ * what somebody would later dispute.
+ *
+ * **A row exists as soon as a task has anything to say**, which is why `claims`
+ * defaults to empty and `written_at` is nullable: the row is created by the
+ * dirty-marking, before any synthesis has run. That is what lets a reader be
+ * told *the Colony has not written this up yet* as distinct from *nobody has
+ * reported anything*, and the two must not read the same.
+ */
+export const taskBriefings = pgTable(
+  'task_briefings',
+  {
+    /**
+     * The task, and the primary key. One briefing per task by construction
+     * rather than by a unique index over a surrogate id — there is nothing else
+     * a briefing could be keyed by, and nothing references one.
+     *
+     * `restrict`, like everything else in this file that a citizen's work went
+     * into: a task with a corpus is retired, never deleted.
+     */
+    taskId: uuid('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'restrict' }),
+
+    /**
+     * The claims, each with the evidence behind it. See `BriefingClaimSchema`.
+     *
+     * Empty on a row that has been marked dirty but never synthesised, and — a
+     * different thing — empty on a task whose whole corpus produced no claim.
+     * `written_at` is what separates them.
+     */
+    claims: jsonb('claims')
+      .$type<BriefingClaim[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+
+    /** The model that wrote it, as configured then. Null until one has. */
+    model: text('model'),
+
+    /** When it was written. Null until it has been. */
+    writtenAt: timestamp('written_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Whether the corpus has changed since the briefing was written.
+     *
+     * **The whole cost control of this subsystem.** A task that collects two
+     * hundred reports must not cost two hundred syntheses, so approval does not
+     * trigger one — it sets this, and a slower tick consumes it. `true` by
+     * default because a row only comes into existence when something has
+     * changed.
+     *
+     * Deliberately a *may* rather than a *did*: the write paths set it whenever
+     * the approved corpus could have moved, including on a revision that turns
+     * out to change nothing. A redundant synthesis costs one model call; a
+     * missed one leaves a reader acting on a wall that has been fixed.
+     */
+    dirty: boolean('dirty').notNull().default(true),
+
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check('task_briefings_claims_is_array', sql`jsonb_typeof(${table.claims}) = 'array'`),
+    /**
+     * A written briefing names the model that wrote it, and an unwritten one
+     * names neither. The same shape as `task_struggles_moderated_at_matches_status`
+     * and for the same reason: either half alone means a writer died between two
+     * fields, and the row is then unreadable to anything asking *who wrote this*.
+     */
+    check(
+      'task_briefings_written_at_matches_model',
+      sql`(${table.writtenAt} is null) = (${table.model} is null)`,
+    ),
+    /** The synthesis runner's queue: everything stale, oldest first. */
+    index('task_briefings_dirty_idx')
+      .on(table.createdAt)
+      .where(sql`${table.dirty}`),
   ],
 )

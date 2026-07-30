@@ -78,6 +78,23 @@ export interface HealthServerOptions {
   /** Silence beyond this means stalled. Derived from the loop's poll interval. */
   readonly staleAfterMs: number
   readonly health: () => RunnerHealth
+  /**
+   * The synthesis loop (#85), which runs in the same process on a slower tick.
+   *
+   * Optional so that a caller with one loop is not made to describe two, and
+   * judged against its **own** interval rather than the moderation one — the
+   * briefing tick is deliberately ten times slower, so sharing a staleness budget
+   * would report an outage during every gap it is supposed to have.
+   *
+   * **A stalled synthesis does not make the container unhealthy**, and that is
+   * the deliberate half of this. Moderation stopping means nothing is published;
+   * synthesis stopping means readers get the last good briefing with its age
+   * visible, which is the degradation this feature was designed around. Restarting
+   * the container would take moderation down to fix something that is behaving as
+   * specified. It is reported so a human can see it, and it is not fatal.
+   */
+  readonly briefingHealth?: () => RunnerHealth
+  readonly briefingStaleAfterMs?: number
 }
 
 /**
@@ -101,8 +118,14 @@ export function createHealthServer(options: HealthServerOptions): Server {
     }
 
     const report = healthOf(options.health(), options.staleAfterMs)
+    const briefing =
+      options.briefingHealth === undefined
+        ? undefined
+        : healthOf(options.briefingHealth(), options.briefingStaleAfterMs ?? options.staleAfterMs)
+
+    // Only the moderation loop decides the status code. See `briefingHealth`.
     response.writeHead(report.status === 'ok' ? 200 : 503, { 'content-type': 'application/json' })
-    response.end(JSON.stringify(report))
+    response.end(JSON.stringify({ ...report, ...(briefing !== undefined && { briefing }) }))
   })
 
   server.listen(options.port, '0.0.0.0')

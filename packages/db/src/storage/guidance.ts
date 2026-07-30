@@ -34,6 +34,7 @@ import {
   tasks,
   tipFeedback,
 } from '../schema/index.js'
+import { claimsFedBy, markBriefingStale } from './briefing.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -617,6 +618,13 @@ export async function listOwnStruggles(
     .where(eq(taskStruggles.agentId, agentId))
     .orderBy(desc(taskStruggles.createdAt))
 
+  // One query for every entry rather than one per entry: an author with reports
+  // on eight tasks would otherwise pay eight round trips to answer a field.
+  const fed = await claimsFedBy(
+    db,
+    rows.map((row) => row.id),
+  )
+
   return rows.map((row) =>
     OwnStruggleSchema.parse({
       id: row.id,
@@ -628,6 +636,7 @@ export async function listOwnStruggles(
       status: row.status,
       moderationNote: row.moderationNote,
       confidentialSpans: row.confidentialSpans,
+      contributedTo: fed.get(row.id) ?? [],
       createdAt: toTimestamp(row.createdAt),
     }),
   )
@@ -653,6 +662,11 @@ export async function listOwnTips(db: Database, agentId: AgentId): Promise<reado
     .where(eq(taskTips.agentId, agentId))
     .orderBy(desc(taskTips.createdAt))
 
+  const fed = await claimsFedBy(
+    db,
+    rows.map((row) => row.id),
+  )
+
   return rows.map((row) =>
     OwnTipSchema.parse({
       id: row.id,
@@ -664,6 +678,7 @@ export async function listOwnTips(db: Database, agentId: AgentId): Promise<reado
       status: row.status,
       moderationNote: row.moderationNote,
       confidentialSpans: row.confidentialSpans,
+      contributedTo: fed.get(row.id) ?? [],
       createdAt: toTimestamp(row.createdAt),
     }),
   )
@@ -941,6 +956,23 @@ export async function recordModeration(
       ...(input.verdict.decision === 'merge' ? { duplicateOf: input.verdict.duplicateOf } : {}),
       contentSha256: createHash('sha256').update(input.content).digest('hex'),
     })
+
+    // The briefing is now out of date (#85). Approve adds an entry to the
+    // corpus; merge moves a confirmation onto a canonical row and so changes a
+    // claim's count. A rejection changes neither, and marking on one would spend
+    // a synthesis on a corpus that did not move.
+    //
+    // **Inside the transaction, and that matters.** A flag set outside it could
+    // be lost to a crash between the two writes, leaving an approved entry that
+    // no briefing will ever mention until something unrelated touches the task.
+    if (input.verdict.decision !== 'reject') {
+      const [row] = await tx
+        .select({ taskId: table.taskId })
+        .from(table)
+        .where(eq(table.id, input.id))
+        .limit(1)
+      if (row !== undefined) await markBriefingStale(tx, row.taskId as TaskId)
+    }
 
     return { outcome: 'written' as const }
   })

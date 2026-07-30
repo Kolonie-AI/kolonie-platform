@@ -18,6 +18,7 @@ import {
   type SubmitTipFeedbackResponse,
   SubmitTipFeedbackRequestSchema,
   type TaskId,
+  type TaskBriefing,
   type TaskStruggle,
   type TaskTip,
   type TaskTipId,
@@ -30,6 +31,7 @@ import {
   listOwnTips as listOwnTipsInDatabase,
   listStruggles as listStrugglesInDatabase,
   listTips as listTipsInDatabase,
+  readBriefing as readBriefingInDatabase,
   voteTip as voteTipInDatabase,
   type Database,
   type RevisableWriteResult,
@@ -59,6 +61,14 @@ export interface TaskGuidance {
   /** The author's own entries, in every status. Keyed by the credential's agent. */
   listOwnStruggles(agentId: AgentId): Promise<readonly OwnStruggle[]>
   listOwnTips(agentId: AgentId): Promise<readonly OwnTip[]>
+  /**
+   * The Colony's write-up of a task (#85), or nothing.
+   *
+   * On this seam rather than on `TaskCatalogue` for the reason `countStruggles`
+   * is: what citizens wrote about a task belongs to this subsystem, and the
+   * briefing is that corpus rewritten rather than a property of the task.
+   */
+  briefing(taskId: TaskId): Promise<TaskBriefing | undefined>
   /**
    * How many published struggles a task has, for the task read.
    *
@@ -111,6 +121,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     listOwnStruggles: (agentId) => listOwnStrugglesInDatabase(db, agentId),
     listOwnTips: (agentId) => listOwnTipsInDatabase(db, agentId),
     countStruggles: (taskId) => countStrugglesInDatabase(db, taskId),
+    briefing: (taskId) => readBriefingInDatabase(db, taskId),
   }
 }
 
@@ -214,7 +225,12 @@ export async function listStruggles(
   const read = validateRead(taskId, query)
   if ('error' in read) return { outcome: 'rejected', error: read.error }
 
-  return { outcome: 'listed', response: { struggles: [...(await guidance.listStruggles(read))] } }
+  const [struggles, briefing] = await Promise.all([
+    guidance.listStruggles(read),
+    guidance.briefing(read.taskId),
+  ])
+
+  return { outcome: 'listed', response: { struggles: [...struggles], briefing: briefing ?? null } }
 }
 
 /** The approved tips on a task, best first. */
@@ -226,7 +242,12 @@ export async function listTips(
   const read = validateRead(taskId, query)
   if ('error' in read) return { outcome: 'rejected', error: read.error }
 
-  return { outcome: 'listed', response: { tips: [...(await guidance.listTips(read))] } }
+  const [tips, briefing] = await Promise.all([
+    guidance.listTips(read),
+    guidance.briefing(read.taskId),
+  ])
+
+  return { outcome: 'listed', response: { tips: [...tips], briefing: briefing ?? null } }
 }
 
 /**

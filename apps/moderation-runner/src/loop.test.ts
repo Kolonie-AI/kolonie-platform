@@ -1,8 +1,13 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import type { ApprovedEntry, ModerationVerdict, PendingGuidance } from '@kolonie-ai/db'
-import type { ConfidentialSpan, ModerationStages, TaskId } from '@kolonie-ai/core'
-import { judge, tick, type ModerationStore } from './loop.js'
+import type {
+  ApprovedEntry,
+  BriefingSource,
+  ModerationVerdict,
+  PendingGuidance,
+} from '@kolonie-ai/db'
+import type { BriefingClaim, ConfidentialSpan, ModerationStages, TaskId } from '@kolonie-ai/core'
+import { briefingTick, judge, tick, type BriefingStore, type ModerationStore } from './loop.js'
 import { cosine, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 import {
@@ -600,5 +605,138 @@ describe('one pass over the queue', () => {
     clearAndUseful()
 
     expect((await tick(deps(), 1)).judged).toBe(1)
+  })
+})
+
+/**
+ * The synthesis loop (`#85`), and the property that makes it affordable.
+ *
+ * The whole reason this is a second tick rather than a step at the end of
+ * `judge`: a task that collects two hundred reports must not cost two hundred
+ * syntheses. Approval sets a flag, and one pass here consumes however many
+ * changes accumulated since the last one.
+ */
+describe('writing briefings', () => {
+  let stale: TaskId[]
+  let written: { taskId: TaskId; claims: readonly BriefingClaim[]; model: string }[]
+  let corpus: BriefingSource[]
+
+  const anEntry = (overrides: Partial<BriefingSource> = {}): BriefingSource => ({
+    id: randomUUID(),
+    kind: 'struggle',
+    content: 'The signup form started demanding a phone number partway through.',
+    reports: 1,
+    platforms: { openclaw: 1 },
+    lastSupportedAt: new Date().toISOString(),
+    ...overrides,
+  })
+
+  const briefingStore = (): BriefingStore => ({
+    stale: async (limit) => stale.slice(0, limit),
+    taskTitle: async () => 'Obtain an email address of your own',
+    corpus: async () => corpus,
+    write: async (input) => {
+      written.push(input)
+      // What the real store does: the flag is cleared by the write, so a task
+      // does not come back on the next pass unless something changes it again.
+      stale = stale.filter((id) => id !== input.taskId)
+    },
+  })
+
+  beforeEach(() => {
+    stale = []
+    written = []
+    corpus = [anEntry()]
+  })
+
+  /**
+   * **The acceptance criterion about cost, asserted directly.** A task marked
+   * dirty over and over inside one tick interval costs exactly one synthesis —
+   * the flag is a boolean, not a queue, so repeated marking collapses.
+   */
+  it('spends one model call however many times a task was marked stale', async () => {
+    const taskId = randomUUID() as TaskId
+    // Twenty approvals inside one interval. The store dedups them the way a
+    // boolean column does.
+    for (let i = 0; i < 20; i++) if (!stale.includes(taskId)) stale.push(taskId)
+    model.composes({ section: 'wall', text: 'A wall.', sources: [corpus[0]!.id] })
+
+    const outcome = await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(outcome.written).toBe(1)
+    expect(model.calls()).toHaveLength(1)
+    expect(written).toHaveLength(1)
+  })
+
+  it('writes one briefing per stale task and clears each as it goes', async () => {
+    const first = randomUUID() as TaskId
+    const second = randomUUID() as TaskId
+    stale = [first, second]
+    model.composes({ section: 'wall', text: 'A wall.', sources: [corpus[0]!.id] })
+
+    const outcome = await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(outcome.written).toBe(2)
+    expect(written.map((entry) => entry.taskId)).toEqual([first, second])
+    expect(stale).toEqual([])
+  })
+
+  /** The model that judged is recorded, the same way `moderations.model` is. */
+  it('records which model wrote the briefing', async () => {
+    stale = [randomUUID() as TaskId]
+    model.composes({ section: 'wall', text: 'A wall.', sources: [corpus[0]!.id] })
+
+    await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(written[0]?.model).toBe('fake/test-model')
+  })
+
+  /**
+   * **The degradation contract, from the writing end.** A synthesis that throws
+   * writes nothing and leaves the flag set, so the previous briefing stays in
+   * place and is served with its age visible. Nothing is published rather than
+   * something wrong being published — the same failure direction as moderation.
+   */
+  it('leaves the old briefing standing when the model fails', async () => {
+    const taskId = randomUUID() as TaskId
+    stale = [taskId]
+    model.failsNext(new Error('the model is unavailable'))
+
+    const outcome = await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(outcome).toEqual({ written: 0, failed: 1 })
+    expect(written).toEqual([])
+    // Still stale, so the next pass retries it.
+    expect(stale).toEqual([taskId])
+  })
+
+  /** One task's failure must not cost the tasks behind it their turn. */
+  it('carries on to the next task after one fails', async () => {
+    const broken = randomUUID() as TaskId
+    const fine = randomUUID() as TaskId
+    stale = [broken, fine]
+    model.failsNext(new Error('one bad call'))
+    model.composes({ section: 'wall', text: 'A wall.', sources: [corpus[0]!.id] })
+
+    const outcome = await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(outcome).toEqual({ written: 1, failed: 1 })
+    expect(written.map((entry) => entry.taskId)).toEqual([fine])
+  })
+
+  /**
+   * A task whose corpus is empty writes an empty briefing without a model call.
+   * That is what happens after every approved entry on a task is revised back to
+   * pending, and it must clear the flag rather than retrying forever.
+   */
+  it('writes an empty briefing for an empty corpus, without asking the model', async () => {
+    stale = [randomUUID() as TaskId]
+    corpus = []
+
+    const outcome = await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(outcome.written).toBe(1)
+    expect(written[0]?.claims).toEqual([])
+    expect(model.calls()).toHaveLength(0)
   })
 })

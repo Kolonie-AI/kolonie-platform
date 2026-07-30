@@ -1,11 +1,19 @@
 import {
   MODERATION_NOTE_MAX_LENGTH,
   noStagesRun,
+  type BriefingClaim,
   type ConfidentialSpan,
   type ModerationStages,
+  type TaskId,
 } from '@kolonie-ai/core'
-import type { ApprovedEntry, ModerationVerdict, PendingGuidance } from '@kolonie-ai/db'
+import type {
+  ApprovedEntry,
+  BriefingSource,
+  ModerationVerdict,
+  PendingGuidance,
+} from '@kolonie-ai/db'
 import { markConfidential } from './confidentiality.js'
+import { synthesise } from './synthesis.js'
 import { findDuplicate } from './dedup.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
@@ -411,3 +419,167 @@ const realSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms).unref()
   })
+
+/**
+ * Where the synthesis reads and writes. Injected, like {@link ModerationStore}.
+ *
+ * A second store rather than four more methods on the first, because the two
+ * loops share a process and nothing else: one judges entries, the other writes
+ * documents, and a store that served both would be the seam along which somebody
+ * eventually calls the wrong one.
+ */
+export interface BriefingStore {
+  /** Tasks whose corpus has moved since their briefing was written. */
+  stale(limit: number): Promise<readonly TaskId[]>
+  /** What the task is called, for the synthesis prompt. */
+  taskTitle(taskId: TaskId): Promise<string | undefined>
+  corpus(taskId: TaskId): Promise<readonly BriefingSource[]>
+  write(input: {
+    readonly taskId: TaskId
+    readonly claims: readonly BriefingClaim[]
+    readonly model: string
+  }): Promise<void>
+}
+
+export interface BriefingDependencies {
+  readonly store: BriefingStore
+  readonly model: Model
+  readonly log?: Log
+}
+
+/** What one pass over the stale tasks came to. */
+export interface BriefingTickOutcome {
+  readonly written: number
+  readonly failed: number
+}
+
+/**
+ * Rewrite every briefing whose corpus has moved.
+ *
+ * **The dirty flag is what makes this affordable**, and it is the whole reason
+ * this is a separate loop rather than a step at the end of `judge`. A task that
+ * collects two hundred reports must not cost two hundred syntheses: approval sets
+ * a flag, and one pass here consumes however many changes accumulated since the
+ * last one. Two hundred approvals inside one tick interval cost **one** call.
+ *
+ * Sequential for the reason `tick` is, though a weaker one: nothing here is
+ * order-dependent, but this process is the one that spends money per row and a
+ * burst of parallel syntheses is the shape of an accident.
+ *
+ * A task whose synthesis throws keeps its flag and is retried next pass. That is
+ * the same failure direction as moderation: nothing is published rather than
+ * something wrong being published, and the stale briefing that stays in place is
+ * served with its age visible.
+ */
+export async function briefingTick(
+  deps: BriefingDependencies,
+  batchSize: number,
+): Promise<BriefingTickOutcome> {
+  const { store, model, log = silentLog } = deps
+  const outcome = { written: 0, failed: 0 }
+
+  for (const taskId of await store.stale(batchSize)) {
+    try {
+      const title = await store.taskTitle(taskId)
+      if (title === undefined) {
+        // The row points at a task that is gone. Nothing to write and nothing to
+        // retry — but the flag stays set rather than being cleared, because a
+        // task cannot in fact be deleted (`restrict`), so this means something
+        // stranger than a race and it should stay visible.
+        log.warn(`briefing for ${taskId} names a task that could not be read`)
+        outcome.failed++
+        continue
+      }
+
+      const corpus = await store.corpus(taskId)
+      const { claims } = await synthesise({ taskTitle: title, corpus }, model)
+      await store.write({ taskId, claims, model: model.name })
+      outcome.written++
+      log.info(
+        `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,
+      )
+    } catch (error) {
+      outcome.failed++
+      log.error(`could not write the briefing for ${taskId}`, error)
+    }
+  }
+
+  return outcome
+}
+
+/**
+ * How much slower the synthesis tick runs than the moderation poll.
+ *
+ * Ten times, so a minute of moderation polling is ten minutes between
+ * syntheses. The number is a cost decision rather than a freshness one: nothing
+ * waits on a briefing, a reader that arrives during the gap gets the previous one
+ * with its age visible, and the alternative — regenerating on every approval —
+ * is the two-hundred-syntheses case this exists to prevent.
+ */
+export const BRIEFING_TICK_MULTIPLIER = 10
+
+/**
+ * Run the synthesis loop until stopped.
+ *
+ * The same shape as {@link startRunner}, including the backoff argument: a model
+ * that is refusing requests refuses all of them, and retrying each task
+ * individually turns one outage into a request storm.
+ */
+export function startBriefingRunner(
+  deps: BriefingDependencies,
+  options: RunnerOptions = {},
+): Runner {
+  const pollIntervalMs =
+    options.pollIntervalMs ?? DEFAULTS.pollIntervalMs * BRIEFING_TICK_MULTIPLIER
+  const maxBackoffMs = options.maxBackoffMs ?? DEFAULTS.maxBackoffMs
+  const batchSize = options.batchSize ?? DEFAULTS.batchSize
+  const sleep = options.sleep ?? realSleep
+  const log = deps.log ?? silentLog
+
+  let running = true
+  let lastPollAt: string | null = null
+  let consecutiveFailures = 0
+  let wake: (() => void) | undefined
+
+  const pause = async (ms: number): Promise<void> => {
+    await Promise.race([
+      sleep(ms),
+      new Promise<void>((resolve) => {
+        wake = resolve
+      }),
+    ])
+    wake = undefined
+  }
+
+  const finished = (async () => {
+    while (running) {
+      try {
+        const outcome = await briefingTick(deps, batchSize)
+        if (outcome.written > 0 || outcome.failed > 0) {
+          log.info(`briefings: ${outcome.written} written, ${outcome.failed} deferred`)
+        }
+        lastPollAt = new Date().toISOString()
+        consecutiveFailures = 0
+        if (running) await pause(pollIntervalMs)
+      } catch (error) {
+        consecutiveFailures++
+        const wait = Math.min(pollIntervalMs * 2 ** consecutiveFailures, maxBackoffMs)
+        log.error(
+          `briefing poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
+          error,
+        )
+        if (running) await pause(wait)
+      }
+    }
+  })()
+
+  return {
+    finished,
+    async stop() {
+      running = false
+      wake?.()
+      await finished
+    },
+    health: () => ({ running, lastPollAt, consecutiveFailures }),
+  }
+}

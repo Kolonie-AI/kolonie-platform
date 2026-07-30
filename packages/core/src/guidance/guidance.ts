@@ -480,6 +480,21 @@ export const OwnStruggleSchema = TaskStruggleSchema.extend({
    * apart. This field answers *what was found*, not *was it looked for*.
    */
   confidentialSpans: z.array(ConfidentialSpanSchema),
+  /**
+   * The Colony's own sentences that this report helped write (#85).
+   *
+   * **The one feedback loop that can catch a synthesis distorting somebody's
+   * report.** Nothing else can: a briefing claim carries no author, so a reader
+   * cannot push back against it and no author would recognise it as a mangling of
+   * theirs — unless the author is shown, here, what its report became. That makes
+   * this a criterion of the design rather than a convenience, and it is why the
+   * claim text is served in full instead of a claim id.
+   *
+   * Empty while the entry is unpublished, and empty on an approved entry whose
+   * task has not been synthesised yet. The briefing is regenerated on a slower
+   * tick than moderation, so a short gap after approval is ordinary.
+   */
+  contributedTo: z.array(z.string()),
 })
 export type OwnStruggle = z.infer<typeof OwnStruggleSchema>
 
@@ -489,6 +504,8 @@ export const OwnTipSchema = TaskTipSchema.extend({
   status: ModerationStatusSchema,
   moderationNote: z.string().max(MODERATION_NOTE_MAX_LENGTH).nullable(),
   confidentialSpans: z.array(ConfidentialSpanSchema),
+  /** See {@link OwnStruggleSchema.shape.contributedTo} — a tip feeds the briefing too. */
+  contributedTo: z.array(z.string()),
 })
 export type OwnTip = z.infer<typeof OwnTipSchema>
 

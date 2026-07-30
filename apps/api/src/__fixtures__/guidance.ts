@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import {
+  BriefingClaimSchema,
   OwnStruggleSchema,
   OwnTipSchema,
+  TaskBriefingSchema,
   TaskStruggleSchema,
   TaskTipSchema,
   type OwnStruggle,
+  type BriefingClaim,
   type OwnTip,
+  type TaskBriefing,
   type TaskStruggle,
   type TaskTip,
 } from '@kolonie-ai/core'
@@ -54,6 +58,14 @@ export interface FakeGuidance extends TaskGuidance {
   readonly answersOwnTips: (tips: readonly OwnTip[]) => void
   /** What `GET /v1/tasks/:taskId` is told about how many reports a task has. */
   readonly answersStruggleCount: (count: number) => void
+  /**
+   * What the task-scoped reads serve as the Colony's write-up (#85).
+   *
+   * `undefined` by default, which is the state of every task before the
+   * synthesis has run — so a test that says nothing about the briefing asserts
+   * the *not written up yet* path, which is the one most likely to be got wrong.
+   */
+  readonly answersBriefing: (briefing: TaskBriefing | undefined) => void
 }
 
 type WriteOutcomeName =
@@ -71,6 +83,7 @@ export function fakeGuidance(): FakeGuidance {
   let ownStruggles: readonly OwnStruggle[] = []
   let ownTips: readonly OwnTip[] = []
   let struggleCount = 0
+  let briefing: TaskBriefing | undefined
 
   /** The configured answer as the union the caller expects, or undefined for a write. */
   const refusalFor = <T>(): Exclude<
@@ -126,6 +139,7 @@ export function fakeGuidance(): FakeGuidance {
     listOwnStruggles: async () => ownStruggles,
     listOwnTips: async () => ownTips,
     countStruggles: async () => struggleCount,
+    briefing: async () => briefing,
     writes: () => [...writes],
     lastWrite: () => writes.at(-1),
     reads: () => [...reads],
@@ -150,6 +164,9 @@ export function fakeGuidance(): FakeGuidance {
     },
     answersStruggleCount: (count) => {
       struggleCount = count
+    },
+    answersBriefing: (next) => {
+      briefing = next
     },
   }
 }
@@ -205,6 +222,10 @@ export function anOwnStruggle(overrides: Partial<OwnStruggle> = {}): OwnStruggle
     // Empty by default, which is the ordinary entry. A test about the
     // confidentiality note passes its own — see `#84`.
     confidentialSpans: [],
+    // Likewise empty: an unpublished entry has fed no claim by definition, and
+    // an approved one whose task has not been synthesised yet is in an ordinary
+    // gap. A test about the author's feedback loop passes its own (#85).
+    contributedTo: [],
     ...overrides,
   })
 }
@@ -217,6 +238,7 @@ export function anOwnTip(overrides: Partial<OwnTip> = {}): OwnTip {
     status: 'pending',
     moderationNote: null,
     confidentialSpans: [],
+    contributedTo: [],
     ...overrides,
   })
 }
@@ -237,3 +259,40 @@ export const AUTHOR_TEXT =
 /** The same for a tip: one distinctive sentence a test can search for. */
 export const AUTHOR_TIP_TEXT =
   'Signup works headful; the challenge only renders with JavaScript enabled.'
+
+/**
+ * A briefing, valid by construction. Same contract as {@link aStruggle}.
+ *
+ * `writtenAt` is now rather than a fixed date, because the renderer prints an
+ * **age** and a fixture frozen in the past would make every assertion about the
+ * wording drift by a day each day.
+ */
+export function aBriefing(overrides: Partial<TaskBriefing> = {}): TaskBriefing {
+  return TaskBriefingSchema.parse({
+    taskId: randomUUID(),
+    claims: [aClaim()],
+    model: 'fake/test-model',
+    writtenAt: new Date().toISOString(),
+    ...overrides,
+  })
+}
+
+/**
+ * One claim of a briefing.
+ *
+ * The default is a `wall` because that is the section every briefing has and the
+ * one a reader meets first. Note the text names a provider generically — *"one
+ * mail provider"* — which is what the synthesis prompt asks for and what a
+ * fixture should therefore model.
+ */
+export function aClaim(overrides: Partial<BriefingClaim> = {}): BriefingClaim {
+  return BriefingClaimSchema.parse({
+    section: 'wall',
+    text: 'One mail provider holds outbound mail from new accounts for 48 hours.',
+    reports: 1,
+    platforms: { openclaw: 1 },
+    lastSupportedAt: new Date().toISOString(),
+    sources: [randomUUID()],
+    ...overrides,
+  })
+}

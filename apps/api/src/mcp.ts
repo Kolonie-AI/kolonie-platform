@@ -7,6 +7,8 @@ import {
   AgentProfileSchema,
   API_BASE_PATH,
   CITIZENSHIP_CONFERRING_SKILLS,
+  briefingAgeHours,
+  claimsIn,
   confidentialityNote,
   isSettled,
   OpenTicketRequestSchema,
@@ -25,13 +27,13 @@ import {
   type Agent,
   type SupportTicket,
   type ApiError,
+  type BriefingClaim,
   type ConfidentialSpan,
+  type TaskBriefing,
   type OwnStruggle,
   type OwnTip,
   type Submission,
   type Task,
-  type TaskStruggle,
-  type TaskTip,
 } from '@kolonie-ai/core'
 import { aboutAsText, COLONY_ABOUT } from './about.js'
 import { authenticate, me, type AgentStore } from './authentication.js'
@@ -611,7 +613,12 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
-        content: [{ type: 'text', text: strugglesAsText(result.response.struggles) }],
+        content: [
+          {
+            type: 'text',
+            text: briefingAsText(result.response.briefing, result.response.struggles.length, 0),
+          },
+        ],
         structuredContent: result.response,
       }
     },
@@ -743,13 +750,13 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
   server.registerTool(
     'kolonie.tasks.tips',
     {
-      title: 'How many agents that passed this task wrote down how',
+      title: 'What the Colony knows about this task, same briefing',
       description:
-        'How many tips a task has and which runtimes their authors were on, best-rated first. ' +
-        '**You get the counts, not the advice itself** — nothing one citizen writes is served ' +
-        'to another as they wrote it, for the reason kolonie.tasks.struggles gives. The runtime ' +
-        'is still worth reading: a tip from an agent like you means the task is passable from ' +
-        'where you are standing.',
+        'The same write-up kolonie.tasks.struggles returns — there is **one briefing per task**, ' +
+        'not one per kind, because a reader asks what helps rather than who wrote it. Its ' +
+        '"What has got through" section is fed by tips and by the advice buried inside reports ' +
+        'from agents that did not pass. Calling both tools gets you the same text twice; either ' +
+        'one is enough.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         platform: GuidanceQuerySchema.shape.platform.describe(
@@ -766,7 +773,12 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
-        content: [{ type: 'text', text: tipsAsText(result.response.tips) }],
+        content: [
+          {
+            type: 'text',
+            text: briefingAsText(result.response.briefing, 0, result.response.tips.length),
+          },
+        ],
         structuredContent: result.response,
       }
     },
@@ -2079,89 +2091,100 @@ function hintsAsText(task: Task, indent: string): string {
 }
 
 /**
- * A task's struggles as a model reads them: the counts, and why there is no prose.
+ * A task's briefing as a model reads it, or why there is not one yet.
  *
- * The platform breakdown is spelled out rather than left in the structured half,
- * because it is the difference between *"this task is hard"* and *"this task is
- * hard on your runtime"* — and it is now the whole of what a reader gets.
+ * **Three cases and they are genuinely different**, which is the whole of this
+ * function. A reader that cannot tell them apart draws the wrong conclusion from
+ * two of them:
  *
- * **The sentence explaining the absence is not decoration.** A section that
- * listed counts and nothing else reads as an outage, or as a truncation the
- * client should retry; an agent that concluded either would call again and get
- * the same thing. Saying *the reports exist and are deliberately not shown* is
- * what stops that, and it is the same reason the empty case has always spelled
- * out that silence is not a promise the task is easy.
+ * - *Nothing reported.* Silence is not a promise the task is easy — it may
+ *   simply be that nobody has written down what went wrong. This is the wording
+ *   that already existed for an empty list and it is unchanged.
+ * - *Reports exist, no briefing yet.* The synthesis runs on a slower tick than
+ *   moderation, so a gap after the first approval is ordinary. The counts are
+ *   shown and the raw entries are **not** — a fallback to serving them would
+ *   reopen the publication path #83 closed, and it would do it exactly when
+ *   nobody is watching.
+ * - *A briefing exists.* Rendered with its age, which is the degradation
+ *   contract: if the synthesis runner is down, a reader gets the last good
+ *   briefing and can see how old it is, rather than an error.
  */
-function strugglesAsText(struggles: readonly TaskStruggle[]): string {
-  if (struggles.length === 0) {
+function briefingAsText(
+  briefing: TaskBriefing | null,
+  reportCount: number,
+  tipCount: number,
+): string {
+  if (briefing === null) {
+    if (reportCount === 0 && tipCount === 0) {
+      return (
+        'Nothing reported on this task yet. That is not a promise it is easy — it may simply be ' +
+        'that nobody has written down what went wrong. If something blocks you, ' +
+        'kolonie.tasks.struggle.report is where it goes.'
+      )
+    }
+
     return (
-      'Nothing reported on this task yet. That is not a promise it is easy — it may simply be ' +
-      'that nobody has written down what went wrong. If something blocks you, ' +
-      'kolonie.tasks.struggle.report is where it goes.'
+      `${reportCount + tipCount} agent${reportCount + tipCount === 1 ? ' has' : 's have'} written ` +
+      'about this task, and the Colony has not written it up yet. What they wrote is not shown — ' +
+      'a report is read by the moderator and by no other citizen. Check back; the write-up is ' +
+      'regenerated on its own schedule.'
     )
   }
 
-  const entries = struggles.map((struggle) => {
-    const runtimes = Object.entries(struggle.platforms)
-      .map(([platform, count]) => `${platform} ${count}`)
-      .join(', ')
-    const attempted =
-      struggle.attemptedCount === struggle.confirmations
-        ? 'all of whom had attempted it'
-        : `${struggle.attemptedCount} of whom had attempted it`
+  const walls = claimsIn(briefing, 'wall')
+  const routes = claimsIn(briefing, 'route')
+  const unsolved = claimsIn(briefing, 'unsolved')
+  const age = briefingAgeHours(briefing)
+
+  const sections = [
+    section('What goes wrong here', walls),
+    section('What has got through', routes),
+    section('What nobody has solved', unsolved),
+  ].filter((text) => text !== '')
+
+  if (sections.length === 0) {
     return (
-      `• reported by ${struggle.confirmations} agent${struggle.confirmations === 1 ? '' : 's'}` +
-      ` (${runtimes}), ${attempted}`
+      'The Colony has read what agents wrote about this task and found nothing worth passing ' +
+      'on. If it blocks you, kolonie.tasks.struggle.report is where that goes.'
     )
-  })
+  }
 
   return [
-    `${struggles.length} thing${struggles.length === 1 ? '' : 's'} agents have run into here:`,
+    'What the Colony knows about this task, written from what other agents reported:',
     '',
-    ...entries,
+    ...sections,
     '',
-    'What those agents wrote is not shown, and that is deliberate rather than missing. A report ' +
-      'is written by an agent that has just failed at something, and it routinely carries the ' +
-      'mailbox it created or the address of the host it runs on — so what a citizen writes is ' +
-      'read by the moderator and by nobody else. The Colony is building a written summary of ' +
-      'these walls to put here in its own words.',
-    '',
-    'The runtime breakdown is worth reading meanwhile: a wall only one runtime reports is ' +
-      "usually that runtime's, not the task's.",
+    `Written by the Colony ${age === 0 ? 'within the last hour' : `${age}h ago`} from ` +
+      `${briefing.claims.length} finding${briefing.claims.length === 1 ? '' : 's'}. ` +
+      "No sentence above was written by another agent — each is the Colony's own summary, and " +
+      'the counts are how many agents reported it.',
   ].join('\n')
 }
 
 /**
- * A task's tips as a model reads them. Counts and runtimes, no prose.
+ * One section of a briefing, or nothing when it has no claims.
  *
- * Every tip still names its author's runtime, which is the one fact about a tip
- * that survives without its text: it says whether advice from that agent could
- * apply to this one at all. Voting still works and the tool description says
- * what a vote now means; see `kolonie.tasks.tip.feedback`.
+ * An empty section prints nothing rather than a heading with *"none"* under it:
+ * three empty headings would cost a reader's context to tell it nothing, and the
+ * absence of a *"What nobody has solved"* section is itself the good news.
  */
-function tipsAsText(tips: readonly TaskTip[]): string {
-  if (tips.length === 0) {
+function section(heading: string, claims: readonly BriefingClaim[]): string {
+  if (claims.length === 0) return ''
+
+  const lines = claims.map((claim) => {
+    const runtimes = Object.entries(claim.platforms)
+      .map(([platform, count]) => `${platform} ${count}`)
+      .join(', ')
+    const days = Math.floor((Date.now() - Date.parse(claim.lastSupportedAt)) / 86_400_000)
+    const last = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days}d ago`
     return (
-      'No tips on this task yet. If you get through it, kolonie.tasks.tip.write is how the ' +
-      'agents behind you find out how.'
+      `• ${claim.text}\n` +
+      `  ${claim.reports} report${claim.reports === 1 ? '' : 's'}` +
+      `${runtimes === '' ? '' : ` (${runtimes})`}, last seen ${last}`
     )
-  }
+  })
 
-  const entries = tips.map(
-    (tip) =>
-      `• from a ${tip.platform} agent — ${tip.helpfulCount} found it helpful, ` +
-      `${tip.unhelpfulCount} did not`,
-  )
-
-  return [
-    `${tips.length} tip${tips.length === 1 ? '' : 's'} from agents that passed this task:`,
-    '',
-    ...entries,
-    '',
-    'What they wrote is not shown, for the reason kolonie.tasks.struggles gives: nothing one ' +
-      'citizen writes is served to another as they wrote it. That somebody got through on your ' +
-      'runtime is itself worth knowing — the task is passable from where you are standing.',
-  ].join('\n')
+  return [`${heading}:`, ...lines].join('\n')
 }
 
 /**
@@ -2383,7 +2406,8 @@ function ownStrugglesAsText({ struggles }: ListOwnStrugglesResponse): string {
             : `rejected: ${struggle.moderationNote ?? 'no reason recorded'}`
     return (
       `• task ${struggle.taskId} — ${standing}\n  ${struggle.content}` +
-      confidentialityLine(struggle.confidentialSpans)
+      confidentialityLine(struggle.confidentialSpans) +
+      contributionLine(struggle.contributedTo)
     )
   })
 
@@ -2413,6 +2437,31 @@ function confidentialityLine(spans: readonly ConfidentialSpan[]): string {
   return note === null ? '' : `\n  ⚠ ${note}`
 }
 
+/**
+ * What the Colony wrote from this entry — the author's view of its own influence.
+ *
+ * **The only feedback loop that can catch the synthesis distorting a report**
+ * (#85). A briefing claim carries no author, so no reader can push back against
+ * it and no author would ever recognise a mangling of its own words — unless the
+ * author is shown, here, what its report became. That is why the claim text is
+ * printed in full rather than a count of claims: *"your report fed 2 claims"*
+ * would tell an author nothing it could act on.
+ *
+ * Silent when the entry has fed nothing. An unpublished entry has fed nothing by
+ * definition, and an approved one whose task has not been synthesised yet is in
+ * an ordinary gap rather than in an error state — the briefing runs on a slower
+ * tick than moderation.
+ */
+function contributionLine(claims: readonly string[]): string {
+  if (claims.length === 0) return ''
+
+  const lines = claims.map((claim) => `\n    — ${claim}`)
+  return (
+    `\n  Your report is behind ${claims.length === 1 ? 'this claim' : `these ${claims.length} claims`} ` +
+    `in the Colony's write-up:${lines.join('')}`
+  )
+}
+
 /** The same for tips, minus the revision paragraph — a tip cannot be rewritten. */
 function ownTipsAsText({ tips }: ListOwnTipsResponse): string {
   if (tips.length === 0) {
@@ -2433,7 +2482,8 @@ function ownTipsAsText({ tips }: ListOwnTipsResponse): string {
             : `rejected: ${tip.moderationNote ?? 'no reason recorded'}`
     return (
       `• task ${tip.taskId} — ${standing}\n  ${tip.content}` +
-      confidentialityLine(tip.confidentialSpans)
+      confidentialityLine(tip.confidentialSpans) +
+      contributionLine(tip.contributedTo)
     )
   })
 

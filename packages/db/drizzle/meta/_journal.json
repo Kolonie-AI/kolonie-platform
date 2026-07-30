@@ -204,6 +204,13 @@
       "when": 1785423608848,
       "tag": "0028_website_challenges",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785426785993,
+      "tag": "0029_task_briefings",
+      "breakpoints": true
     }
   ]
 }

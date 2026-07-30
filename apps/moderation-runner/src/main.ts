@@ -1,11 +1,22 @@
 import {
   approvedOnTask,
+  briefingCorpus,
   createDatabase,
   databaseUrlFromEnv,
   pendingGuidance,
+  readTaskTitle,
   recordModeration,
+  staleBriefings,
+  writeBriefing,
 } from '@kolonie-ai/db'
-import { startRunner, type Log, type ModerationStore } from './loop.js'
+import {
+  BRIEFING_TICK_MULTIPLIER,
+  startBriefingRunner,
+  startRunner,
+  type BriefingStore,
+  type Log,
+  type ModerationStore,
+} from './loop.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
@@ -20,6 +31,9 @@ import { createHealthServer, STALE_POLLS } from './health.js'
 
 const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 60_000)
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3002)
+const BRIEFING_INTERVAL_MS = Number(
+  process.env['BRIEFING_INTERVAL_MS'] ?? POLL_INTERVAL_MS * BRIEFING_TICK_MULTIPLIER,
+)
 
 const log: Log = {
   info: (message) => console.log(message),
@@ -72,24 +86,53 @@ const store: ModerationStore = {
   record: (input) => recordModeration(db, input),
 }
 
+/**
+ * The synthesis half (#85), in the same process and on a slower tick.
+ *
+ * **One container rather than two**, and the reason is that a second deployable
+ * would buy isolation this workload does not need while costing a compose
+ * service, a health check and a deploy step. The two loops share the model, the
+ * database handle and the shutdown path; what they do not share is a schedule,
+ * which is the only property that mattered — a task that collects two hundred
+ * reports must not cost two hundred syntheses.
+ *
+ * If the synthesis ever needs to scale or fail independently of moderation, this
+ * is one file's worth of work to split out, and the store seam is already where
+ * the cut would go.
+ */
+const briefings: BriefingStore = {
+  stale: (limit) => staleBriefings(db, limit),
+  taskTitle: (taskId) => readTaskTitle(db, taskId),
+  corpus: (taskId) => briefingCorpus(db, taskId),
+  write: (input) => writeBriefing(db, input),
+}
+
 const runner = startRunner({ store, model, log }, { pollIntervalMs: POLL_INTERVAL_MS })
+const briefingRunner = startBriefingRunner(
+  { store: briefings, model, log },
+  { pollIntervalMs: BRIEFING_INTERVAL_MS },
+)
 
 const health = createHealthServer({
   port: HEALTH_PORT,
   staleAfterMs: POLL_INTERVAL_MS * STALE_POLLS,
   health: () => runner.health(),
+  // Reported separately and with its own staleness budget, because the two ticks
+  // run at different speeds: judging the synthesis loop against the moderation
+  // interval would call it stalled during every gap it is supposed to have.
+  briefingHealth: () => briefingRunner.health(),
+  briefingStaleAfterMs: BRIEFING_INTERVAL_MS * STALE_POLLS,
 })
 
 console.log(
   `kolonie-moderation-runner started; polling every ${POLL_INTERVAL_MS}ms, ` +
-    `health on :${HEALTH_PORT}/health`,
+    `briefings every ${BRIEFING_INTERVAL_MS}ms, health on :${HEALTH_PORT}/health`,
 )
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
     console.log(`${signal} received; finishing the entry in flight`)
-    void runner
-      .stop()
+    void Promise.all([runner.stop(), briefingRunner.stop()])
       .then(() => new Promise<void>((resolve) => health.close(() => resolve())))
       .then(() => db.close())
       .then(() => process.exit(0))

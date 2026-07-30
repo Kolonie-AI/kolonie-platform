@@ -100,8 +100,37 @@ export interface Model {
     readonly kinds: readonly string[]
   }): Promise<readonly MarkedSpan[]>
 
+  /**
+   * Ask for written claims over a closed set of sources.
+   *
+   * The third shape, and the only one whose answer is prose the Colony
+   * publishes. `sections` and `sourceIds` are both closed sets in the schema, for
+   * the reason `choices` is: a section outside the three, or a citation of an
+   * entry that is not in the corpus, is refused by the transport rather than
+   * discovered downstream.
+   */
+  compose(input: {
+    readonly system: string
+    readonly user: string
+    readonly sections: readonly string[]
+    readonly sourceIds: readonly string[]
+  }): Promise<readonly ComposedClaim[]>
+
   /** Embed several strings at once. Order in, order out. */
   embed(inputs: readonly string[]): Promise<readonly (readonly number[])[]>
+}
+
+/**
+ * One claim as the transport parsed it — text and provenance, no arithmetic.
+ *
+ * There are no counts here and that is not an omission: the model is never asked
+ * for one. `synthesis.ts` derives every number from the entries this cites, so a
+ * count is true about the corpus even when the sentence above it is not.
+ */
+export interface ComposedClaim {
+  readonly section: string
+  readonly text: string
+  readonly sources: readonly string[]
 }
 
 /**
@@ -132,7 +161,7 @@ export function unavailableModel(reason: string): Model {
   // A name it can never write, because every call above throws before a verdict
   // exists. Named anyway rather than left empty: if it ever appears in a
   // `moderations` row, that row is the bug report.
-  return { name: 'unconfigured', classify: fail, mark: fail, embed: fail }
+  return { name: 'unconfigured', classify: fail, mark: fail, compose: fail, embed: fail }
 }
 
 /**
@@ -294,6 +323,80 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
           throw new Error(`the model marked a span as '${kind}', which was not on offer`)
         }
         return { text, kind }
+      })
+    },
+
+    async compose({ system, user, sections, sourceIds }) {
+      const body = await call('/chat/completions', {
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'briefing',
+            strict: true,
+            schema: {
+              type: 'object',
+              properties: {
+                claims: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      section: { type: 'string', enum: [...sections] },
+                      text: { type: 'string' },
+                      // The corpus, as an enum. A model cannot cite an entry that
+                      // is not in front of it, so a claim attributed to something
+                      // invented is impossible rather than filtered.
+                      sources: {
+                        type: 'array',
+                        items: { type: 'string', enum: [...sourceIds] },
+                      },
+                    },
+                    required: ['section', 'text', 'sources'],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ['claims'],
+              additionalProperties: false,
+            },
+          },
+        },
+        /**
+         * The largest ceiling in this file, because this is the only call whose
+         * answer is a document rather than a verdict. Still bounded: a briefing
+         * that wanted more than this is one claim per entry, which is the list it
+         * was supposed to replace.
+         */
+        max_tokens: 2000,
+        temperature: 0,
+      })
+
+      const content = (body as { choices?: { message?: { content?: string } }[] }).choices?.[0]
+        ?.message?.content
+
+      if (typeof content !== 'string') {
+        throw new Error('OpenRouter returned no message content')
+      }
+
+      const parsed = JSON.parse(content) as { claims?: unknown }
+      if (!Array.isArray(parsed.claims)) {
+        throw new Error('the model returned a briefing without a claims array')
+      }
+
+      return parsed.claims.map((claim) => {
+        const { section, text, sources } = claim as Partial<ComposedClaim>
+        if (typeof section !== 'string' || typeof text !== 'string' || !Array.isArray(sources)) {
+          throw new Error('the model returned a claim without a section, a text and sources')
+        }
+        if (!sections.includes(section)) {
+          throw new Error(`the model used the section '${section}', which was not on offer`)
+        }
+        return { section, text, sources: sources.map(String) }
       })
     },
 

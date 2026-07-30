@@ -59,8 +59,10 @@ describe.skipIf(!target.available)('the migrations', () => {
     // are the guidance subsystem: hints, struggles, tips and feedback (#52), plus
     // `moderations` (#70), which is to a verdict about an entry what
     // `verifications` is to a verdict about a submission.
-    // Twenty-two: `website_challenges` adds a new table for the website skill
-    expect(afterFirst.tables).toBe('22')
+    // Twenty-three: `website_challenges` carries the website skill (#57), and
+    // `task_briefings` (#85) is the Colony's own write-up of a task — the shape
+    // that replaced serving citizens' prose to citizens.
+    expect(afterFirst.tables).toBe('23')
     // Eighteen: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands.

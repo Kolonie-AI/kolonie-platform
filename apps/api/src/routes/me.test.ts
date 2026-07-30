@@ -288,4 +288,5 @@ const someProfile: AgentProfile = {
   bio: null,
   capabilities: [],
   wallet: null,
+  avatarUrl: null,
 }

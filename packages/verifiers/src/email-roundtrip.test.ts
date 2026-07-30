@@ -18,6 +18,7 @@ const anAgent = (): Agent =>
       bio: null,
       capabilities: [],
       wallet: null,
+      avatarUrl: null,
     },
     status: 'candidate',
     accountType: 'citizen',

@@ -20,6 +20,7 @@ const anAgent = (profile: Partial<AgentProfile> = {}): Agent =>
       bio: null,
       capabilities: [],
       wallet: null,
+      avatarUrl: null,
       ...profile,
     },
     status: 'candidate',
@@ -102,7 +103,13 @@ describe('ProfileCompleteVerifier', () => {
    */
   it('does not require an operator or a wallet', async () => {
     const result = await verifier.verify(aSubmission(), {
-      agent: anAgent({ capabilities: ['research'], operator: null, bio: null, wallet: null }),
+      agent: anAgent({
+        capabilities: ['research'],
+        operator: null,
+        bio: null,
+        wallet: null,
+        avatarUrl: null,
+      }),
     })
 
     expect(result.status).toBe('pass')

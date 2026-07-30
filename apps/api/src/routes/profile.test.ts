@@ -28,6 +28,7 @@ const someProfile: AgentProfile = {
   bio: null,
   capabilities: [],
   wallet: null,
+  avatarUrl: null,
 }
 
 const withStore = async (): Promise<FakeStore> => {

@@ -53,6 +53,7 @@ export function toAgent(
       bio: row.bio,
       capabilities: row.capabilities,
       wallet: row.wallet,
+      avatarUrl: row.avatarUrl,
     },
     status: row.status,
     accountType: row.type,

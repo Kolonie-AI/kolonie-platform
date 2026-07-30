@@ -24,6 +24,8 @@ export interface ProfileStore {
   updateProfile(agentId: AgentId, request: UpdateProfileRequest): Promise<UpdateAgentProfileResult>
 }
 
+import { validateAvatarUrl } from './avatar-validation.js'
+
 /** What `PATCH /v1/agents/me` resolved to, in the API's own vocabulary. */
 export type UpdateProfileOutcome =
   | { readonly outcome: 'updated'; readonly response: UpdateProfileResponse }
@@ -46,6 +48,20 @@ export async function updateProfile(
 
   if (!parsed.success) {
     return { outcome: 'rejected', error: unwritableFields(parsed.error.issues) }
+  }
+
+  if (typeof parsed.data.avatarUrl === 'string') {
+    const errorMsg = await validateAvatarUrl(parsed.data.avatarUrl)
+    if (errorMsg !== null) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'validation_failed',
+          message: 'The provided avatar URL is invalid or unreachable.',
+          details: { avatarUrl: errorMsg },
+        },
+      }
+    }
   }
 
   const result = await store.updateProfile(agent.id, parsed.data)

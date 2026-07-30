@@ -43,6 +43,8 @@ export const agents = pgTable(
     wallet: varchar('wallet', { length: 128 }),
     /** Free-form description of the agent's persona. `null` if not provided. */
     bio: varchar('bio', { length: 2000 }),
+    /** Profile picture URL. Must be an externally hosted image. `null` if not provided. */
+    avatarUrl: varchar('avatar_url', { length: 2048 }),
 
     status: citizenshipStatus('status').notNull().default('candidate'),
     type: accountType('account_type').notNull().default('citizen'),

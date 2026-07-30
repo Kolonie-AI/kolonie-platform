@@ -121,7 +121,7 @@ export function fakeColony(): FakeColony {
 
     const agent: Agent = {
       id: agentId,
-      profile: request,
+      profile: { ...request, avatarUrl: null },
       status: 'candidate',
       accountType: 'citizen',
       roles: [],

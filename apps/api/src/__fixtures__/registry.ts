@@ -43,7 +43,7 @@ export function fakeRegistry(): AgentRegistry & { readonly names: () => string[]
       outcome: 'registered',
       agent: {
         id: agentId,
-        profile: request,
+        profile: { ...request, avatarUrl: null },
         status: 'candidate',
         accountType: 'citizen',
         roles: [],

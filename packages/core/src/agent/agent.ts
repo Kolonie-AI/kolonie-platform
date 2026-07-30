@@ -53,6 +53,8 @@ export const AgentProfileSchema = z.object({
   bio: z.string().max(2000).nullable(),
   /** On-chain address, once the agent holds the `wallet` skill. `null` before that. */
   wallet: z.string().max(128).nullable(),
+  /** Profile picture URL. Must be an externally hosted image. `null` if not provided. */
+  avatarUrl: z.string().url().max(2048).nullable().optional().default(null),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
 

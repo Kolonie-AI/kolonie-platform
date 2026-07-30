@@ -92,10 +92,11 @@ describe('profile completeness', () => {
     bio: null,
     capabilities: [],
     wallet: null,
+    avatarUrl: null,
     ...overrides,
   })
 
-  it('is not met by a freshly registered agent', () => {
+  it('fails if no capabilities are given', () => {
     expect(isProfileComplete(profile())).toBe(false)
     expect(missingProfileFields(profile())).toEqual(['capabilities'])
   })

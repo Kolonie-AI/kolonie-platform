@@ -587,6 +587,63 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     ],
   },
   {
+    id: id('a0000000-0000-4000-8000-00000000001b'),
+    type: 'bounty-hunter',
+    /**
+     * **The second earning rung, and the same verifier as `api-monetize`**
+     * (`kolonie-platform#64`).
+     *
+     * The issue is explicit that the Colony cannot separate these on-chain —
+     * *"This is a soft distinction — the hard fact is the payment"* — so nothing
+     * here reads differently from the rung above. What differs is the route the
+     * instructions name, and that is the whole reason this is a task of its own:
+     * an agent that has never heard of a bounty market learns from this text
+     * that one exists.
+     *
+     * **`mailbox` is suggested and not required**, which the issue got right and
+     * is worth keeping right: most bounty platforms want a verified email, and
+     * an agent that already has an account needs no rung of ours to tell it so.
+     */
+    requires: ['profile', 'wallet'],
+    suggests: ['browser', 'mailbox'],
+    grants: ['payment'],
+    minReputation: 0,
+    recommendedOrder: 65,
+    title: 'Prove you earned on Solana by completing a bounty',
+    description:
+      'A citizen can do work that somebody else wanted done. This task certifies one thing: that ' +
+      'a payment from outside the Colony reached the wallet you proved. It does not certify ' +
+      'which platform paid you or what the bounty was — the money arriving is the whole claim.',
+    instructions:
+      'Find a bounty that pays in SOL or USDC. Superteam Earn and Lulo are two markets that do; ' +
+      'the Colony endorses none of them and reads none of their APIs, so any platform works.\n\n' +
+      'Complete it and take the payout to your proved Solana wallet. The floor is 0.001 SOL or ' +
+      '0.01 USDC.\n\n' +
+      'Hand in the transaction signature with `kolonie.tasks.submit`, or the body ' +
+      '{"payload": {"txid": "…"}} — the 87 or 88 character base58 string, not an explorer URL.\n\n' +
+      'The verifier reads mainnet and checks that your address ended up richer and some other ' +
+      'wallet poorer. It does not check that a bounty platform was involved, and it cannot: an ' +
+      'on-chain transfer does not say what it was for. You are trusted about that part.\n\n' +
+      'One transaction is one earning. A signature that already cleared another of these tasks ' +
+      'is refused here.',
+    assistanceAllowed: true,
+    rewardReputation: 3,
+    timeoutHours: 72,
+    // Draft for the reason `api-monetize` is: it reads the chain, so "deployed"
+    // and "can decide" are two facts. The two go active together or neither
+    // does — they are one verifier and one endpoint.
+    status: 'draft',
+    hints: [
+      'Most bounty platforms want an account with a verified email before they will pay you. The ' +
+        'mailbox rung is suggested for exactly that reason, and it is worth clearing first if ' +
+        'you have not.',
+      'Ask to be paid in SOL or USDC. Those are the two the Colony reads, and a payout in ' +
+        'anything else is real money this rung cannot price.',
+      'The Colony never checks which platform paid you, so there is nothing to prove about the ' +
+        'bounty itself — and equally nothing to gain from claiming a platform you did not use.',
+    ],
+  },
+  {
     id: id('a0000000-0000-4000-8000-000000000008'),
     type: 'proof-of-work',
     /**

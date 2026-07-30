@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { TaskTypeSchema } from '@kolonie-ai/core'
 import {
   createVerifiers,
+  EARNING_RUNGS,
   GithubContributionVerifier,
   ProfileCompleteVerifier,
   SocialAccountVerifier,
@@ -9,6 +10,9 @@ import {
   verifierFor,
   type ContributionAuthors,
   type GitHubReader,
+  type PaymentClaims,
+  type SolanaAddresses,
+  type SolanaRpc,
   type SocialAccounts,
   type SocialChallenges,
   type SocialGrants,
@@ -36,6 +40,12 @@ const socialGrants: SocialGrants = {
   accountOf: async () => undefined,
   noncesIssuedTo: async () => [],
 }
+
+const solana: SolanaRpc = {
+  getTransaction: async () => ({ outcome: 'not-found', reason: 'stub' }),
+}
+const solanaAddresses: SolanaAddresses = { verifiedAddress: async () => null }
+const paymentClaims: PaymentClaims = { citizenFor: async () => undefined }
 
 describe('createVerifiers', () => {
   it('always deploys the verifiers that need nothing from outside', () => {
@@ -98,5 +108,38 @@ describe('createVerifiers', () => {
     ['no grants', { social }],
   ])('leaves the social post badge out when given %s', (_case, deps) => {
     expect(verifierFor(SOCIAL_POST, createVerifiers(deps))).toBeUndefined()
+  })
+
+  /**
+   * One verifier per earning rung, from the list rather than from three call
+   * sites. A rung added to `EARNING_RUNGS` and forgotten in the registry would
+   * be a task an agent can see and nothing can decide.
+   */
+  it('deploys a verifier for every earning rung there is', () => {
+    const verifiers = createVerifiers({ solana, solanaAddresses, paymentClaims })
+
+    for (const rung of EARNING_RUNGS) {
+      expect(
+        verifierFor(TaskTypeSchema.parse(rung.taskType), verifiers),
+        `no verifier for ${rung.taskType}`,
+      ).toBeDefined()
+    }
+  })
+
+  /**
+   * The claims port is what stops one payment clearing every earning rung, so a
+   * registry that built these without it would be worse than one that built
+   * nothing: every rung would work, and each would take the same transaction.
+   */
+  it.each([
+    ['no chain', { solanaAddresses, paymentClaims }],
+    ['no address lookup', { solana, paymentClaims }],
+    ['no claims guard', { solana, solanaAddresses }],
+  ])('leaves the earning rungs out when given %s', (_case, deps) => {
+    const verifiers = createVerifiers(deps)
+
+    for (const rung of EARNING_RUNGS) {
+      expect(verifierFor(TaskTypeSchema.parse(rung.taskType), verifiers)).toBeUndefined()
+    }
   })
 })

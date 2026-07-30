@@ -52,6 +52,7 @@ export interface EarningRung {
  */
 export const EARNING_RUNGS: readonly EarningRung[] = [
   { taskType: 'api-monetize', earned: 'payment for something you offered' },
+  { taskType: 'bounty-hunter', earned: 'payment for work somebody wanted done' },
 ]
 
 /**

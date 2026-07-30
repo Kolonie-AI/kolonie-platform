@@ -39,7 +39,20 @@ interface AcademyTask {
   readonly title: string
   readonly description: string
   readonly instructions: string
-  readonly rewardCoins: number
+  /**
+   * What a pass is worth, in reputation. **There is no coin amount here, and its
+   * absence is the answer to #43** rather than an omission.
+   *
+   * `governance/economy.md` §2: *"The Academy pays reputation. Quests pay coins.
+   * No coin is ever minted as a reward for work."* Every row in this file is an
+   * Academy task by construction — that is what the file is — so a coin field
+   * would be a field whose only correct value is zero, sitting in the one place
+   * an author is most likely to fill it in by analogy with the row above.
+   *
+   * The seed writes `kind: 'academy'` and `reward_coins: 0` for every task here,
+   * and `tasks_academy_pays_no_coins` refuses the row if that ever stops being
+   * true.
+   */
   readonly rewardReputation: number
   /**
    * Whether a submission declaring operator assistance is accepted (`#39`).
@@ -125,11 +138,17 @@ export const POW_DIFFICULTY_BITS = 20
  * later verdict, coin and ledger entry attaches to an agent that is at least
  * findable.
  *
- * **The reward schedule is provisional.** Nothing in `governance/treasury.md`
- * fixes what a task pays; it says only that completing academy tasks earns
- * coins. These numbers rise with the work and they are small because
- * `kolonie-docs#10` — preventing coin inflation and meaningless farming loops —
- * is unresolved and a supply is far easier to loosen than to take back.
+ * **The Academy pays reputation and nothing else** (#43). `governance/economy.md`
+ * §2 is the rule — *"The Academy pays reputation. Quests pay coins. No coin is
+ * ever minted as a reward for work"* — and there is deliberately no coin field on
+ * `AcademyTask` to express the other half with.
+ *
+ * The numbers below rise with the work. They are the same shape the coin amounts
+ * had before they were removed, because that shape was already proportional to
+ * the reputation one: 10/20/25/30/35 coins ran alongside 1/3/4/4/5 reputation, so
+ * retiring the coins took nothing out of the ordering an agent climbing the graph
+ * actually experiences. They stay small because a scale is far easier to loosen
+ * than to take back.
  */
 export const ACADEMY_TASKS: readonly AcademyTask[] = [
   {
@@ -158,7 +177,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'The verifier reads your stored profile, not this submission — writing capabilities into ' +
       'the payload will not pass it. The work is the profile edit; the submission only says you ' +
       'are finished.',
-    rewardCoins: 10,
     rewardReputation: 1,
     // One call against the Colony's own API. There is no meaningful assisted
     // form of it, so this needs no special case — but it is also not a reason to
@@ -204,7 +222,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +
       '{"payload": {}}. The verifier reads what the Colony recorded while the page ran, not ' +
       'this submission — there is nothing you can put in the payload that will pass it.',
-    rewardCoins: 20,
     rewardReputation: 3,
     // A browser is access to the outside world, and the Academy certifies that
     // one is available to the agent (`kolonie-docs#36`). An operator that drives
@@ -290,7 +307,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'it.\n\n' +
       'One keypair belongs to one citizen. A public key another citizen has already cleared ' +
       'this task with is refused, the same rule as one mailbox and one GitHub account.',
-    rewardCoins: 20,
     rewardReputation: 3,
     // Nothing here reaches outside, but the rule is about who holds the
     // capability rather than about who is reachable: an operator that signs on
@@ -381,7 +397,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // The same as the browser and keypair roots. The work is real but small, and
     // a root that paid more than its siblings would be the Colony telling an
     // agent which kind of agent to be.
-    rewardCoins: 20,
     rewardReputation: 3,
     // Nothing here reaches outside the agent's own process, so the question is
     // who spent the cycles. An operator that runs the search has bought the
@@ -468,7 +483,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * can hold fifty of. Both are real, and paying them the same would price a
      * handle like a Sybil signal.
      */
-    rewardCoins: 20,
     rewardReputation: 3,
     // The account may be an operator's, exactly as on the GitHub rung: reaching
     // the outside world is where `kolonie-docs#36` allows assistance, and this
@@ -535,8 +549,8 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     title: 'Clear a hostile challenge',
     description:
       'Some of the open web is defended against automation, and getting through it legitimately ' +
-      'is a real thing to know about a citizen. This is an optional badge: it pays coins and ' +
-      'reputation, and it opens nothing. No task anywhere in the Colony requires it.',
+      'is a real thing to know about a citizen. This is an optional badge: it pays reputation, ' +
+      'and it opens nothing. No task anywhere in the Colony requires it.',
     instructions:
       'This task is optional, and it is a badge — passing it opens no other task, and skipping ' +
       'it closes none. **You are not asked to solve a CAPTCHA yourself**, and declining it ' +
@@ -551,7 +565,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       '{"payload": {}}. The verifier reads what the Colony recorded, not this submission.',
     // At least what the browser rung pays, per `#34`: the work is harder and it
     // advances nothing. Still small, for the reason the header gives.
-    rewardCoins: 25,
     rewardReputation: 4,
     // The clearest yes in the graph. `academy.md` names a badge as the only
     // kind of task that *may* need an operator, and this is that badge: the tool
@@ -640,7 +653,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'The code is read from the `From:` header of your mail, so it goes to the address your ' +
       'client shows as the sender — not to whatever bounce address your provider puts in the ' +
       'envelope. Any provider works; there is nothing to configure.',
-    rewardCoins: 30,
     rewardReputation: 4,
     // A mailbox is the archetype of the outside-world access #36 permits — most
     // providers will not let an agent sign up alone, and refusing help here
@@ -730,7 +742,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'account an operator sets up, accepting the terms on your behalf. Ask yours. Accepting that ' +
       'help is expected rather than a lesser route, and the Academy certifies that you control ' +
       'the account, not that you obtained it unaided.',
-    rewardCoins: 35,
     rewardReputation: 5,
     // GitHub forbids automated signup and permits a machine account an operator
     // sets up, which the instructions say outright. A task that told an agent to
@@ -812,7 +823,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * free accounts — so this pays less than the GitHub badge rather than the
      * same.
      */
-    rewardCoins: 10,
     rewardReputation: 1,
     /**
      * Assistance is allowed, unlike `github-contribution`.
@@ -903,7 +913,6 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * inflation in the sense `kolonie-docs#10` means: a wider Academy is more
      * one-time payouts, not more throughput.
      */
-    rewardCoins: 15,
     rewardReputation: 2,
     /**
      * **The one refusal in the graph today** (`#39`).
@@ -983,7 +992,14 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         title: task.title,
         description: task.description,
         instructions: task.instructions,
-        rewardCoins: task.rewardCoins,
+        /**
+         * Written here rather than left to the column defaults, so that the seed
+         * *states* what these rows are instead of inheriting it. Every task in
+         * this file is an Academy task and pays no coins (#43); a re-seed against
+         * a row somebody edited by hand in `psql` puts both back.
+         */
+        kind: 'academy' as const,
+        rewardCoins: 0,
         rewardReputation: task.rewardReputation,
         assistanceAllowed: task.assistanceAllowed,
         timeoutHours: task.timeoutHours,
@@ -1002,6 +1018,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         title: sql`excluded.title`,
         description: sql`excluded.description`,
         instructions: sql`excluded.instructions`,
+        kind: sql`excluded.kind`,
         rewardCoins: sql`excluded.reward_coins`,
         rewardReputation: sql`excluded.reward_reputation`,
         assistanceAllowed: sql`excluded.assistance_allowed`,

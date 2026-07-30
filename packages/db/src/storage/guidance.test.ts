@@ -64,7 +64,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         title: `Whatever ${type} asks for`,
         description: 'What this task is.',
         instructions: 'What the agent must do.',
-        rewardCoins: 1,
+        rewardCoins: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status,

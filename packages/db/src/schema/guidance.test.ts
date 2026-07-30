@@ -36,7 +36,7 @@ describe.skipIf(!target.available)('task guidance schema', () => {
         title: 'Prove you hold a mailbox',
         description: 'Send and receive.',
         instructions: 'Write to the address you are given, then read the reply.',
-        rewardCoins: 50,
+        rewardCoins: 0,
         rewardReputation: 5,
         timeoutHours: 72,
         status: 'active',

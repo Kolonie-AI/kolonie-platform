@@ -635,6 +635,50 @@ describe('kolonie.tasks.list', () => {
     await close()
   })
 
+  /**
+   * **What an Academy task pays, said without a zero in it** (#43).
+   *
+   * `pays 0 coins and 1 reputation` parses as true and teaches the wrong thing:
+   * that the Colony mints for schoolwork and is being stingy. `governance/economy.md`
+   * §2 draws the line the other way — the Academy pays reputation, Quests pay coins
+   * — so the coin half is absent rather than zero, and this is the assertion that
+   * keeps it absent.
+   */
+  it('names reputation and no coin amount for an Academy task', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({ kind: 'academy', reward: { coins: 0, reputation: 3 } })
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('pays 3 reputation')
+    expect(text).not.toContain('coins')
+    await close()
+  })
+
+  /**
+   * The other side of the same helper: a Quest genuinely pays coins, and the text
+   * says so. Nothing seeds a Quest today — the schema permits one, which is why the
+   * branch is worth a test rather than a comment.
+   */
+  it('names the coin amount for a Quest, because that is what a Quest pays', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({ kind: 'quest', reward: { coins: 250, reputation: 0 } })
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('pays 250 coins')
+    expect(text).not.toContain('reputation')
+    await close()
+  })
+
   describe('where the agent already stands', () => {
     it('tells an agent waiting on a verdict to wait rather than resubmit', async () => {
       const { colony, apiKey } = await registeredCitizen()

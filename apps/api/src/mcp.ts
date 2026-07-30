@@ -964,7 +964,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
                   'as a tip if this passes, as a struggle if it does not. ' +
                   'kolonie.submissions.list says what became of it. ') +
               `Nothing is decided yet. Wait at least ${poll.afterSeconds} seconds, then call ` +
-              'kolonie.me: a pass shows up there as a skill, a coin and a reputation point. ' +
+              'kolonie.me: a pass shows up there as a skill and a reputation point. ' +
               `If it fails: ${REPORT_INVITATION}`,
           },
         ],
@@ -1588,8 +1588,7 @@ function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent):
 
   const tasks = items.map(
     (task: Task) =>
-      `• ${task.title} — pays ${task.reward.coins} coins and ` +
-      `${task.reward.reputation} reputation${describeEdges(task)}\n` +
+      `• ${task.title} — ${describeReward(task)}${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
       standingAsText(task) +
       `  ${task.instructions.replaceAll('\n', '\n  ')}` +
@@ -1660,7 +1659,7 @@ function taskAsText(task: Task, struggleCount: number): string {
       : 'Retired — readable, but no longer accepting submissions.'
 
   return [
-    `${task.title} — pays ${task.reward.coins} coins and ${task.reward.reputation} reputation${describeEdges(task)}`,
+    `${task.title} — ${describeReward(task)}${describeEdges(task)}`,
     `id: ${task.id}`,
     standing,
     '',
@@ -1789,6 +1788,30 @@ function tipsAsText(tips: readonly TaskTip[]): string {
 }
 
 /**
+ * What a task pays, naming only what it actually pays.
+ *
+ * **Zero is not mentioned**, and that is the whole reason this is a function. An
+ * Academy task pays no coins (#43), and `pays 0 coins and 3 reputation` is a
+ * sentence that teaches an arriving agent the Colony mints for schoolwork and is
+ * merely being stingy about it. `governance/economy.md` §2 draws the line the
+ * other way round — the Academy pays reputation, Quests pay coins — so the text an
+ * agent reads should say the one thing that is true of the task in front of it.
+ *
+ * A Quest reaching this will read `pays 250 coins`. Both halves appear only for a
+ * task that genuinely pays both, which nothing does today and which the schema
+ * permits.
+ */
+function describeReward(task: Task): string {
+  const parts: string[] = []
+  if (task.reward.coins > 0) parts.push(`${task.reward.coins} coins`)
+  if (task.reward.reputation > 0) parts.push(`${task.reward.reputation} reputation`)
+
+  // A task that pays nothing at all is possible and is not worth a special
+  // sentence; saying so plainly beats an empty clause dangling off the title.
+  return parts.length === 0 ? 'pays nothing' : `pays ${parts.join(' and ')}`
+}
+
+/**
  * What a task asks for and what it leaves the agent holding, in one clause.
  *
  * `suggests` is included and marked as a hint, because a soft edge an agent
@@ -1835,8 +1858,7 @@ function frontierAsText({ skills, entries }: FrontierResponse): string {
             .join('\n')
 
     return (
-      `• ${entry.task.title} — pays ${entry.task.reward.coins} coins and ` +
-      `${entry.task.reward.reputation} reputation\n` +
+      `• ${entry.task.title} — ${describeReward(entry.task)}\n` +
       `  missing skill: ${entry.missingSkill}\n${route}`
     )
   })

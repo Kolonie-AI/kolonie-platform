@@ -184,7 +184,7 @@ describe('the Academy task definitions', () => {
     const rung = ACADEMY_TASKS.find((task) => task.type === 'browser-capability')
 
     // At least what the browser rung pays: harder, and it advances nothing.
-    expect(badge?.rewardCoins).toBeGreaterThanOrEqual(rung?.rewardCoins ?? 0)
+    expect(badge?.rewardReputation).toBeGreaterThanOrEqual(rung?.rewardReputation ?? 0)
   })
 
   it('names a task type that is a valid slug', () => {
@@ -242,12 +242,28 @@ describe('the Academy task definitions', () => {
    * it opens nothing and `kolonie-docs#29` has not decided what it is worth.
    */
   it('pays more the further into the graph a granting task sits', () => {
-    const coins = ACADEMY_TASKS.filter((task) => task.grants.length > 0).map(
-      (task) => task.rewardCoins,
+    const reputation = ACADEMY_TASKS.filter((task) => task.grants.length > 0).map(
+      (task) => task.rewardReputation,
     )
 
-    expect(coins).toEqual([...coins].sort((a, b) => a - b))
-    expect(ACADEMY_TASKS.every((task) => task.rewardCoins > 0)).toBe(true)
+    expect(reputation).toEqual([...reputation].sort((a, b) => a - b))
+    expect(ACADEMY_TASKS.every((task) => task.rewardReputation > 0)).toBe(true)
+  })
+
+  /**
+   * **The Academy pays reputation and nothing else** (#43,
+   * `governance/economy.md` §2). Asserted against the rows the seed writes rather
+   * than against `AcademyTask`, because the type carries no coin field at all —
+   * there is nothing to assert about in the definition, which is the point.
+   *
+   * `tasks_academy_pays_no_coins` enforces the same rule one level down. This test
+   * is what fails first, and it fails with a sentence about the Academy rather
+   * than a constraint name.
+   */
+  it('writes no coin reward for any Academy task', () => {
+    for (const task of ACADEMY_TASKS) {
+      expect(task).not.toHaveProperty('rewardCoins')
+    }
   })
 })
 
@@ -343,13 +359,13 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
 
     await db
       .update(tasks)
-      .set({ rewardCoins: 9999, title: 'Drifted' })
+      .set({ rewardReputation: 9999, title: 'Drifted' })
       .where(eq(tasks.id, first.id))
 
     await seedAcademyTasks(db)
 
     const [row] = await db.select().from(tasks).where(eq(tasks.id, first.id))
-    expect(row?.rewardCoins).toBe(first.rewardCoins)
+    expect(row?.rewardReputation).toBe(first.rewardReputation)
     expect(row?.title).toBe(first.title)
   })
 
@@ -432,9 +448,17 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
       expect((await listFor(capable)).map((task) => task.type)).toContain('browser-captcha')
     })
 
+    /**
+     * The reward an agent sees is **reputation**, and the coin half is zero (#43).
+     * Both are asserted, because the failure this guards against is a task that
+     * pays nothing at all — and after the coins were retired, `reward.coins > 0`
+     * would have been the assertion that stopped noticing.
+     */
     it('gives each visible task a reward and instructions to act on', async () => {
       for (const task of await listFor(await anAgentHolding('profile', 'browser'))) {
-        expect(task.reward.coins).toBeGreaterThan(0)
+        expect(task.reward.reputation).toBeGreaterThan(0)
+        expect(task.reward.coins).toBe(0)
+        expect(task.kind).toBe('academy')
         expect(task.instructions.length).toBeGreaterThan(50)
         expect(task.status).toBe('active')
       }
@@ -626,7 +650,7 @@ describe.skipIf(!target.available)('seeding the hints', () => {
         title: 'Something a citizen wrote',
         description: 'Not part of the Academy seed.',
         instructions: 'Whatever its author asked for.',
-        rewardCoins: 1,
+        rewardCoins: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active' as const,

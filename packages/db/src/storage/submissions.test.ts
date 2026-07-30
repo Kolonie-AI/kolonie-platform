@@ -70,7 +70,7 @@ describe.skipIf(!target.available)('createSubmission', () => {
         title: 'Complete your profile',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCoins: 1,
+        rewardCoins: 0,
         rewardReputation: 1,
         assistanceAllowed: options.assistanceAllowed ?? true,
         timeoutHours: 24,

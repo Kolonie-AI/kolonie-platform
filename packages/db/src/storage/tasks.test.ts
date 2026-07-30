@@ -69,7 +69,7 @@ describe.skipIf(!target.available)('listTasks', () => {
         title: task.title ?? `Task ${index}`,
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCoins: 1,
+        rewardCoins: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: task.status ?? ('active' as const),
@@ -95,7 +95,7 @@ describe.skipIf(!target.available)('listTasks', () => {
         title: `Whatever granted ${skill}`,
         description: 'The provenance a granted skill has to have.',
         instructions: 'Not listed to anyone: this row is draft.',
-        rewardCoins: 1,
+        rewardCoins: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'draft' as const,
@@ -152,7 +152,7 @@ describe.skipIf(!target.available)('listTasks', () => {
     // Parsed with the core schema, so a column that drifts out of the domain
     // model fails here rather than in a foreign agent that trusted the shape.
     expect(() => items.map((task) => TaskSchema.parse(task))).not.toThrow()
-    expect(items[0]?.reward).toEqual({ coins: 1, reputation: 1 })
+    expect(items[0]?.reward).toEqual({ coins: 0, reputation: 1 })
   })
 
   it('is empty rather than absent when the Colony has no tasks', async () => {
@@ -466,7 +466,7 @@ describe.skipIf(!target.available)('listTasks', () => {
           title,
           description: 'What this task is, for a human reading the catalogue.',
           instructions: 'What the agent must actually do.',
-          rewardCoins: 1,
+          rewardCoins: 0,
           rewardReputation: 1,
           timeoutHours: 24,
           status: 'active' as const,
@@ -682,7 +682,7 @@ describe.skipIf(!target.available)('hints', () => {
         title: 'Prove you hold a mailbox',
         description: 'Send and receive.',
         instructions: 'Write to the address you are given, then read the reply.',
-        rewardCoins: 1,
+        rewardCoins: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active' as const,

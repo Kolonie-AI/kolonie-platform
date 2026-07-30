@@ -73,6 +73,20 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
         title: 'Make an API call',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
+        /**
+         * **A task that pays coins is a Quest, and after #43 that is enforced.**
+         * `tasks_academy_pays_no_coins` refuses an `academy` row with a coin
+         * amount, so the fixture derives the kind from what the test asked for
+         * rather than making every caller say it.
+         *
+         * The assertions below are unchanged by that, and they are still the right
+         * assertions: `bookTaskReward` is the one booking path for both kinds, and
+         * what these tests pin down — the mint is debited, the agent credited, the
+         * pair sums to zero, a reward books once — is the machinery Quests will
+         * use. The Academy now simply arrives here with `coins: 0`, which has its
+         * own test below.
+         */
+        kind: (options.coins ?? 10) > 0 ? ('quest' as const) : ('academy' as const),
         rewardCoins: options.coins ?? 10,
         rewardReputation: options.reputation ?? 5,
         timeoutHours: 24,

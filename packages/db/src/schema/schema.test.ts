@@ -57,7 +57,7 @@ describe.skipIf(!target.available)('schema', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCoins: 50,
+        rewardCoins: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',
@@ -305,8 +305,15 @@ describe.skipIf(!target.available)('schema', () => {
       },
     )
 
+    /**
+     * On the reputation half, because the coin half now has a second constraint
+     * on it (`tasks_academy_pays_no_coins`, #43) and Postgres does not promise
+     * which of two violated checks it names. A negative coin amount on a `quest`
+     * row would isolate this one, but reputation is the simpler subject and the
+     * constraint covers both columns.
+     */
     it('rejects a negative reward', async () => {
-      await expectRejection(() => aTask({ rewardCoins: -1 }), /tasks_reward_non_negative/)
+      await expectRejection(() => aTask({ rewardReputation: -1 }), /tasks_reward_non_negative/)
     })
 
     it.each([0, 721])('rejects a timeout of %i hours', async (timeoutHours) => {

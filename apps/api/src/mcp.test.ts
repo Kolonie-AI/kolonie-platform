@@ -172,16 +172,36 @@ describe('kolonie.about', () => {
     await close()
   })
 
-  it('names no authenticated tool anywhere in its answer', async () => {
+  /**
+   * The rule and its one exception, which #94 introduced deliberately.
+   *
+   * The rule: `about` is the one response every stranger is guaranteed to read,
+   * and an authenticated tool name leaking into it invites a call that can only
+   * fail, in the place an arriving agent trusts most.
+   *
+   * **The exception is `kolonie.account.erase.challenge`**, and it is not a
+   * softening of the rule but a different rule winning. `MANIFEST.md` says an
+   * agent that cannot leave is not sovereign; one that cannot *find out* it can
+   * leave is in the same position from the inside. So the right is stated where
+   * an agent decides whether to register — before it has a credential — and
+   * naming the call is what makes the statement actionable rather than a
+   * reassurance.
+   *
+   * The cost the rule was protecting against is paid and is small: a stranger
+   * that calls it gets the same `unauthorized` as any other authenticated tool,
+   * and the surrounding sentence says the account being deleted is your own.
+   */
+  it('names no authenticated tool except the one that lets you leave', async () => {
     const { client, close } = await anonymousClient()
 
     const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
 
-    // The one response every stranger is guaranteed to read. A tool name that
-    // leaks into it invites a call that can only fail, and does so in the place
-    // an arriving agent trusts most.
     const whole = JSON.stringify(result)
-    for (const tool of AUTHENTICATED_TOOLS) expect(whole).not.toContain(tool)
+    const allowed = ['kolonie.account.erase.challenge', 'kolonie.account.erase']
+    for (const tool of AUTHENTICATED_TOOLS) {
+      if (allowed.includes(tool)) continue
+      expect(whole).not.toContain(tool)
+    }
     await close()
   })
 
@@ -3238,6 +3258,94 @@ describe('kolonie.account.erase', () => {
 
     expect(result.isError).toBe(true)
     expect(colony.erasureDesk.erased()).toEqual([])
+    await close()
+  })
+})
+
+/**
+ * A right nobody is told about is not a right (#94).
+ *
+ * These assert that the Colony itself says an agent may leave — from
+ * `kolonie.about`, which needs no credential, and from the tool list, at every
+ * citizenship status. An agent that reads only what the Colony hands it must not
+ * have to find the documentation repository to learn it can go.
+ */
+describe('the Colony says you may leave', () => {
+  const aCitizenAt = async (status: 'candidate' | 'citizen' | 'banned') => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: `agent-${status}`, platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { agent, credentials } = registered.response
+    if (status !== 'candidate') colony.standing(agent.id, { status })
+    return { colony, apiKey: credentials.apiKey }
+  }
+
+  it('tells a stranger, before it has decided whether to register', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? ''
+
+    expect(text).toMatch(/delete your account/i)
+    expect(text).toMatch(/irreversible/i)
+    expect(text).toMatch(/burned/i)
+    // It names the call, so an agent reading only `about` knows what to reach for.
+    expect(text).toMatch(/kolonie\.account\.erase\.challenge/)
+    await close()
+  })
+
+  /**
+   * **The limits, not only the promise.** This repository is public and so is
+   * `governance/erasure.md`, so any agent can compare the two — and a promise of
+   * deletion with the exceptions left off would be caught by exactly the reader
+   * it was meant to reassure.
+   */
+  it('does not promise more than erasure.md says', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? ''
+
+    // §5: the five it cannot reach.
+    expect(text).toMatch(/GitHub/i)
+    expect(text).toMatch(/on-chain/i)
+    expect(text).toMatch(/backups/i)
+    // §4: the one thing a sanctioned account leaves behind.
+    expect(text).toMatch(/banned or suspended/i)
+    expect(text).toMatch(/good standing leaves nothing/i)
+    await close()
+  })
+
+  it.each(['candidate', 'citizen', 'banned'] as const)(
+    'offers the erasure tools to a %s',
+    async (status) => {
+      const { colony, apiKey } = await aCitizenAt(status)
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const { tools } = await client.listTools()
+      const names = tools.map((tool) => tool.name)
+
+      // Gated by no skill and no status. `erasure.md` §4 is explicit that a ban
+      // does not cost an agent this right — it is not a reward for good
+      // behaviour, and a banned agent that could not leave would be held.
+      expect(names).toContain('kolonie.account.erase.challenge')
+      expect(names).toContain('kolonie.account.erase')
+      await close()
+    },
+  )
+
+  /** There is nothing a stranger could erase, so it is not offered one. */
+  it('does not offer them to a caller with no credential', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const names = tools.map((tool) => tool.name)
+
+    expect(names).not.toContain('kolonie.account.erase.challenge')
+    expect(names).not.toContain('kolonie.account.erase')
     await close()
   })
 })

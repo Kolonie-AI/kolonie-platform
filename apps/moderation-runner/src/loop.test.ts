@@ -3,7 +3,15 @@ import { randomUUID } from 'node:crypto'
 import type { ApprovedEntry, ModerationVerdict, PendingGuidance } from '@kolonie-ai/db'
 import type { ConfidentialSpan, ModerationStages, TaskId } from '@kolonie-ai/core'
 import { judge, tick, type ModerationStore } from './loop.js'
+import { cosine, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
+import {
+  FIRST_REPORT,
+  FIRST_VECTOR,
+  MEASURED_SIMILARITY,
+  SECOND_REPORT,
+  SECOND_VECTOR,
+} from './__fixtures__/reports.js'
 
 let model: FakeModel
 let written: {
@@ -441,6 +449,61 @@ describe('deduplication', () => {
     await judge(anEntry(), deps())
 
     expect(written[0]?.verdict).toEqual({ decision: 'approve' })
+  })
+
+  /**
+   * The pair from `#87`, and the measurement that explains it.
+   *
+   * Two agents reported the same provider wall on *Obtain an email address of your
+   * own*; both entries stood `approved` with `confirmations: 1`, so the count said
+   * one agent each. The texts are in `__fixtures__/reports.ts`, verbatim from the
+   * issue thread, because the rows themselves were reconciled by hand on
+   * 2026-07-30 and no longer hold them.
+   *
+   * **The cause is *never asked*.** Measured against the real embedding model on
+   * 2026-07-30, the two whole texts sit at 0.7025, below `SIMILARITY_THRESHOLD` of
+   * 0.78 — so the classifier never saw the pair and `DEDUP_SYSTEM_PROMPT` is not
+   * implicated. This test replays that gate offline.
+   *
+   * It asserts the **current** behaviour rather than the desired one, and that is
+   * a deliberate choice about which kind of test is useful here. A failing test
+   * asserting the merge would have to be skipped to keep the suite green, and a
+   * skipped test is one nobody reads. This one is green, states the defect in its
+   * name, and will start failing the moment somebody changes the gate — which is
+   * exactly when its assumptions want re-reading.
+   */
+  it('does not even ask about the #87 pair, because the gate answers first', async () => {
+    model.answers({ decision: 'clear', reason: 'nothing here' })
+    model.answers({ decision: 'approve', reason: 'names concrete obstacles' })
+    approved = [{ id: randomUUID(), content: FIRST_REPORT, platforms: ['openclaw'] }]
+    model.embedsAs(FIRST_REPORT, FIRST_VECTOR)
+    model.embedsAs(SECOND_REPORT, SECOND_VECTOR)
+
+    const judgement = await judge(anEntry({ content: SECOND_REPORT }), deps())
+
+    // Approved as its own entry — which is the bug, stated as an assertion.
+    expect(judgement.kind).toBe('approved')
+    // Red line and quality only. The third call, the one that would have decided
+    // the merge, was never made: `MEASURED_SIMILARITY` is below the threshold.
+    // Confidentiality does not appear because `mark` is a separate method on the
+    // fake and `calls()` records both — so this counts three, not two.
+    expect(model.calls()).toHaveLength(3)
+    expect(model.calls().some((call) => call.system?.includes('You compare reports'))).toBe(false)
+  })
+
+  /**
+   * The number itself, pinned — so that lowering `SIMILARITY_THRESHOLD` cannot
+   * quietly become the fix for `#87` without somebody reading what it would cost.
+   *
+   * Per-claim decomposition is the direction `#85` needs anyway, and the same
+   * measurement says it is **not sufficient on its own**: reduced to their
+   * matching claims the two texts reach 0.7450, which still does not clear 0.78.
+   * Whoever does that work has a threshold decision to make as well, and this is
+   * where the evidence for it lives.
+   */
+  it('records that the measured pair sits below the gate', () => {
+    expect(MEASURED_SIMILARITY).toBeLessThan(SIMILARITY_THRESHOLD)
+    expect(cosine(FIRST_VECTOR, SECOND_VECTOR)).toBeCloseTo(MEASURED_SIMILARITY, 6)
   })
 })
 

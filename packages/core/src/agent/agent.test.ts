@@ -18,7 +18,6 @@ const validAgent = {
     operator: null,
     bio: null,
     capabilities: ['typescript'],
-    wallet: null,
     avatarUrl: null,
   },
   status: 'candidate',
@@ -92,7 +91,6 @@ describe('profile completeness', () => {
     operator: null,
     bio: null,
     capabilities: [],
-    wallet: null,
     avatarUrl: null,
     ...overrides,
   })

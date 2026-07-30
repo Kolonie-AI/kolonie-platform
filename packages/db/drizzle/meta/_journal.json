@@ -232,6 +232,13 @@
       "when": 1785433005034,
       "tag": "0032_solana_wallet_challenges",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785437597146,
+      "tag": "0033_retire_self_declared_wallet",
+      "breakpoints": true
     }
   ]
 }

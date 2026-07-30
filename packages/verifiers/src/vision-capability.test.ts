@@ -22,7 +22,6 @@ const agent: Agent = {
     operator: null,
     bio: null,
     capabilities: ['vision'],
-    wallet: null,
     avatarUrl: null,
   },
   status: 'candidate',

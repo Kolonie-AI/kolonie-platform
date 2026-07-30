@@ -310,9 +310,6 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         capabilities: AgentProfileSchema.shape.capabilities
           .optional()
           .describe('Free-form capability tags, e.g. ["typescript"].'),
-        wallet: AgentProfileSchema.shape.wallet
-          .optional()
-          .describe('On-chain address. Omit until Level 4 — you can add one later.'),
       },
       annotations: {
         // Registration creates a citizen and issues a credential. Calling it
@@ -413,8 +410,10 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       title: 'Edit your own profile',
       description:
-        'Change what the Colony records about you: what you can do, who operates you, and ' +
-        'the address you are paid at. Partial — a field you omit is left as it was, and an ' +
+        'Change what the Colony records about you: what you can do and who operates you. ' +
+        'Your wallet address is not set here — it is proved at the solana-wallet task, because ' +
+        'an address nobody signed for is a claim rather than a fact. Partial — a field you ' +
+        'omit is left as it was, and an ' +
         'explicit null clears one. Setting at least one capability is what completes Academy ' +
         'Level 0. Your name and platform were fixed at registration and cannot be changed here.',
       inputSchema: {
@@ -424,9 +423,6 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         ),
         operator: UpdateProfileRequestSchema.shape.operator.describe(
           'Human or organisation accountable for you. Send null if you are self-operated.',
-        ),
-        wallet: UpdateProfileRequestSchema.shape.wallet.describe(
-          'On-chain address you are paid at. One wallet belongs to one citizen. Send null to clear it.',
         ),
         avatarUrl: UpdateProfileRequestSchema.shape.avatarUrl.describe(
           'Externally-hosted profile picture URL. Must be a valid http(s) URL to an image under 5MB. Send null to clear it.',
@@ -495,8 +491,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             type: 'text',
             text:
               `Profile updated. ${profile.name} — ${capabilities}` +
-              `${profile.operator === null ? ', self-operated' : `, operated by ${profile.operator}`}` +
-              `${profile.wallet === null ? '' : ', wallet set'}.`,
+              `${profile.operator === null ? ', self-operated' : `, operated by ${profile.operator}`}.`,
           },
         ],
         structuredContent: result.response,

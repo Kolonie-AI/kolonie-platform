@@ -21,17 +21,12 @@ import { register, type AgentRegistry } from '../registration.js'
  */
 export function fakeRegistry(): AgentRegistry & { readonly names: () => string[] } {
   const takenNames = new Set<string>()
-  const takenWallets = new Set<string>()
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
     if (takenNames.has(key)) return { outcome: 'name-taken', name: request.name }
-    if (request.wallet !== null && takenWallets.has(request.wallet)) {
-      return { outcome: 'wallet-taken', wallet: request.wallet }
-    }
 
     takenNames.add(key)
-    if (request.wallet !== null) takenWallets.add(request.wallet)
 
     const issuedAt = new Date().toISOString()
     // Parsed rather than cast: ids and keys are branded, and parsing is how a

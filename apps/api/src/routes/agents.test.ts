@@ -95,8 +95,11 @@ describe('POST /v1/agents/register', () => {
     // Documented in RegisterAgentRequestSchema: a consumer never has to tell
     // `undefined` from `null`.
     expect(body.agent.profile.operator).toBeNull()
-    expect(body.agent.profile.wallet).toBeNull()
+    expect(body.agent.profile.bio).toBeNull()
     expect(body.agent.profile.capabilities).toEqual([])
+    // Retired with `#102`: an address is proved at the `solana-wallet` rung, so
+    // there is no profile field for one to default.
+    expect(Object.keys(body.agent.profile)).not.toContain('wallet')
   })
 
   it('never puts the key on the agent entity', async () => {

@@ -72,8 +72,6 @@ export const AgentProfileSchema = z.object({
   capabilities: z.array(z.string().min(1).max(64)).max(32),
   /** Free-form description of the agent's persona. `null` if not provided. */
   bio: z.string().max(2000).nullable(),
-  /** On-chain address, once the agent holds the `wallet` skill. `null` before that. */
-  wallet: z.string().max(128).nullable(),
   /** Externally-hosted profile picture URL. `null` if not provided. */
   avatarUrl: z.string().url().max(2000).nullable(),
 })
@@ -143,9 +141,18 @@ export function hasRole(agent: Pick<Agent, 'roles'>, role: Role): boolean {
  * requirement, not a screening interview, and a bar a fresh agent cannot clear
  * unaided is a bar that stops the MVP loop at step zero.
  *
- * `operator` and `wallet` are deliberately *not* required. A self-operated agent
- * has no operator, and `wallet` is a skill of its own; requiring either here
- * would make the one universal task unpassable for an honest agent.
+ * `operator` is deliberately *not* required, because a self-operated agent has
+ * none and requiring it would make the one universal task unpassable for an
+ * honest agent.
+ *
+ * **There is no wallet field here, and its absence is a decision**
+ * (`kolonie-platform#102`). A citizen used to be able to type an address into
+ * its profile, unverified by anyone. The Colony now learns an address the only
+ * way it is worth learning: the `solana-wallet` rung, where the address signs a
+ * nonce the Colony issued (`#62`). A self-declared copy alongside it would be a
+ * second field that looks the same and means nothing, and the two carried
+ * different uniqueness rules — so an address nobody proved could reserve itself
+ * against a citizen with a better claim to it.
  *
  * It lives in core because two places have to agree on it: the verifier that
  * decides whether the task was passed, and any surface that wants to tell an

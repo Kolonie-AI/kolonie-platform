@@ -147,17 +147,12 @@ export function fakeColony(): FakeColony {
   // surface is visible on the other.
   const solanaChallenges = fakeSolanaChallenges()
   const takenNames = new Set<string>()
-  const takenWallets = new Set<string>()
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
     if (takenNames.has(key)) return { outcome: 'name-taken', name: request.name }
-    if (request.wallet !== null && takenWallets.has(request.wallet)) {
-      return { outcome: 'wallet-taken', wallet: request.wallet }
-    }
 
     takenNames.add(key)
-    if (request.wallet !== null) takenWallets.add(request.wallet)
 
     const issuedAt = new Date().toISOString()
     const agentId = AgentIdSchema.parse(randomUUID())
@@ -269,9 +264,9 @@ export function fakeColony(): FakeColony {
 
         const profile = { ...held.agent.profile }
         if (Object.hasOwn(request, 'operator')) profile.operator = request.operator ?? null
+        if (Object.hasOwn(request, 'bio')) profile.bio = request.bio ?? null
         if (Object.hasOwn(request, 'capabilities'))
           profile.capabilities = request.capabilities ?? []
-        if (Object.hasOwn(request, 'wallet')) profile.wallet = request.wallet ?? null
         if (Object.hasOwn(request, 'avatarUrl')) profile.avatarUrl = request.avatarUrl ?? null
 
         held.agent = { ...held.agent, profile, updatedAt: new Date().toISOString() }

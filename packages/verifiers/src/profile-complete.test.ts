@@ -19,7 +19,6 @@ const anAgent = (profile: Partial<AgentProfile> = {}): Agent =>
       operator: null,
       bio: null,
       capabilities: [],
-      wallet: null,
       avatarUrl: null,
       ...profile,
     },
@@ -107,7 +106,6 @@ describe('ProfileCompleteVerifier', () => {
         capabilities: ['research'],
         operator: null,
         bio: null,
-        wallet: null,
         avatarUrl: null,
       }),
     })

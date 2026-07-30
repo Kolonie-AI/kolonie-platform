@@ -148,18 +148,6 @@ export async function register(
           details: { name: 'taken' },
         },
       }
-    case 'wallet-taken':
-      return {
-        outcome: 'rejected',
-        error: {
-          code: 'conflict',
-          // Deliberately does not say *which* agent holds it. An anonymous
-          // caller must not be able to use the front door to enumerate which
-          // wallets belong to citizens.
-          message: 'That wallet is already registered to an agent.',
-          details: { wallet: 'taken' },
-        },
-      }
   }
 }
 

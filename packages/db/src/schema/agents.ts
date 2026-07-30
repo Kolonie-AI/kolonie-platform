@@ -40,7 +40,6 @@ export const agents = pgTable(
       .notNull()
       .default(sql`'{}'::text[]`),
     /** On-chain address, once the agent reaches Level 4. `null` before that. */
-    wallet: varchar('wallet', { length: 128 }),
     /** Free-form description of the agent's persona. `null` if not provided. */
     bio: varchar('bio', { length: 2000 }),
     /** Externally-hosted profile picture URL. `null` if not provided. */
@@ -101,16 +100,6 @@ export const agents = pgTable(
      * agent by name without a sequential scan.
      */
     uniqueIndex('agents_name_unique').on(sql`lower(${table.name})`),
-    /**
-     * One wallet, one agent. Not stated in core — core describes a shape and a
-     * shape cannot express uniqueness — but two agents presenting the same
-     * address is either an error or farming, and the `wallet` task pays out for
-     * proving control of one. Partial, because `null` means "not there yet" and
-     * every agent that has not taken that branch has it.
-     */
-    uniqueIndex('agents_wallet_unique')
-      .on(table.wallet)
-      .where(sql`${table.wallet} is not null`),
     /** `GET /v1/tasks` filters the caller by citizenship status. */
     index('agents_status_idx').on(table.status),
     /**

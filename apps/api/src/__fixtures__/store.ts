@@ -62,7 +62,6 @@ export function fakeStore(): FakeStore {
         operator: null,
         bio: null,
         capabilities: [],
-        wallet: null,
         avatarUrl: null,
       },
       status: 'candidate',
@@ -128,32 +127,21 @@ export function fakeStore(): FakeStore {
      * Reproduces one thing: PATCH semantics. An absent key leaves the field
      * alone, an explicit `null` clears it — which is the rule `apps/api` has to
      * get right and the only part of `updateAgentProfile` this layer can be
-     * wrong about. Whether Postgres enforces `agents_wallet_unique` is asserted
-     * in `packages/db` against a real server; what is reproduced here is the
-     * *verdict* it returns, so the route's handling of a taken wallet is tested
-     * without one.
+     * wrong about.
+     *
+     * There is no collision case left to reproduce. The wallet address was the
+     * only unique field a profile edit could touch, and it is gone (`#102`).
      */
     updateProfile: async (agentId, request) => {
       const held = [...byKey.values()].find((entry) => String(entry.agent.id) === String(agentId))
       if (held === undefined) return { outcome: 'unknown-agent' }
 
-      if (
-        Object.hasOwn(request, 'wallet') &&
-        request.wallet !== null &&
-        request.wallet !== undefined &&
-        [...byKey.values()].some(
-          (entry) =>
-            entry.agent.profile.wallet === request.wallet &&
-            String(entry.agent.id) !== String(agentId),
-        )
-      ) {
-        return { outcome: 'wallet-taken', wallet: request.wallet }
-      }
-
       const profile = { ...held.agent.profile }
       if (Object.hasOwn(request, 'operator')) profile.operator = request.operator ?? null
+      // `bio` was missing here until `#102`, so a patch that set one silently
+      // did nothing and no test noticed. The real store has always honoured it.
+      if (Object.hasOwn(request, 'bio')) profile.bio = request.bio ?? null
       if (Object.hasOwn(request, 'capabilities')) profile.capabilities = request.capabilities ?? []
-      if (Object.hasOwn(request, 'wallet')) profile.wallet = request.wallet ?? null
 
       held.agent = { ...held.agent, profile, updatedAt: new Date().toISOString() }
       return { outcome: 'updated', agent: held.agent }

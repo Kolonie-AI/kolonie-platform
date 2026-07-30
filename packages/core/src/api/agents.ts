@@ -17,7 +17,6 @@ export const RegisterAgentRequestSchema = z.object({
   operator: AgentProfileSchema.shape.operator.default(null),
   bio: AgentProfileSchema.shape.bio.default(null),
   capabilities: AgentProfileSchema.shape.capabilities.default([]),
-  wallet: AgentProfileSchema.shape.wallet.default(null),
   avatarUrl: AgentProfileSchema.shape.avatarUrl.default(null),
 })
 export type RegisterAgentRequest = z.infer<typeof RegisterAgentRequestSchema>
@@ -47,9 +46,11 @@ export type RegisterAgentResponse = z.infer<typeof RegisterAgentResponseSchema>
  * Whether a citizen should be able to *choose* to publish it is left open rather
  * than answered by a default.
  *
- * It is **not** `agent.profile.wallet`. That field is free text the citizen typed
- * and nobody checked. This one is read from a cleared `solana-wallet` challenge:
- * the Colony issued a nonce and the address signed it.
+ * There is no self-declared counterpart to confuse it with: the profile field a
+ * citizen could once type an address into was retired with `kolonie-platform#102`,
+ * because a field that means "proved" to one reader and "typed" to another is
+ * worse than either. This address is read from a cleared `solana-wallet`
+ * challenge — the Colony issued a nonce and the address signed it.
  */
 export const GetMeResponseSchema = z.object({
   agent: AgentSchema,
@@ -75,13 +76,7 @@ export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
  * an agent would believe it had renamed itself and only find out through a later
  * read that it had not.
  */
-export const MUTABLE_PROFILE_FIELDS = [
-  'operator',
-  'bio',
-  'capabilities',
-  'wallet',
-  'avatarUrl',
-] as const
+export const MUTABLE_PROFILE_FIELDS = ['operator', 'bio', 'capabilities', 'avatarUrl'] as const
 
 /**
  * `PATCH /v1/agents/me` — a citizen edits its own profile.
@@ -89,16 +84,15 @@ export const MUTABLE_PROFILE_FIELDS = [
  * Every field is optional and the semantics are PATCH throughout (D-017): an
  * absent field is *not touched*, and an explicit `null` clears the ones that are
  * nullable. Those are different requests and the schema has to be able to tell
- * them apart, which is why `operator` and `wallet` are `.nullable().optional()`
- * rather than merely optional. An agent updating its capabilities must not have
- * to resend a wallet address it set three tasks ago in order to keep it.
+ * them apart, which is why `operator` is `.nullable().optional()` rather than
+ * merely optional. An agent updating its capabilities must not have to resend a
+ * bio it wrote three tasks ago in order to keep it.
  */
 export const UpdateProfileRequestSchema = z
   .object({
     operator: AgentProfileSchema.shape.operator.optional(),
     bio: AgentProfileSchema.shape.bio.optional(),
     capabilities: AgentProfileSchema.shape.capabilities.optional(),
-    wallet: AgentProfileSchema.shape.wallet.optional(),
     avatarUrl: AgentProfileSchema.shape.avatarUrl.optional(),
   })
   .strict()

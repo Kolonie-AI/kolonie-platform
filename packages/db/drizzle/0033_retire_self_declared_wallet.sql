@@ -1,0 +1,30 @@
+-- Retire the self-declared wallet address (`kolonie-platform#102`).
+--
+-- **What this discards, stated rather than assumed.** Every value in this column
+-- is a string a citizen typed into its own profile. Nobody ever checked one: no
+-- signature, no challenge, no chain read. The Colony now learns an address the
+-- only way it is worth learning — the `solana-wallet` rung, where the address
+-- signs a nonce the Colony issued (`#62`) — and that address lives in
+-- `solana_wallet_challenges`, which this statement does not touch.
+--
+-- So a citizen that proved an address keeps it. A citizen that only typed one
+-- loses a claim that was never evidence of anything, and can prove the same
+-- address at the rung in a minute.
+--
+-- **Why the column could not simply stay.** It carried its own uniqueness rule,
+-- and the two rules disagreed about what they protected: `agents_wallet_unique`
+-- reserved an address nobody had proved, while the rung's partial index reserves
+-- only addresses that signed. An address typed by one citizen therefore blocked
+-- another citizen from typing the same one, while doing nothing to stop either
+-- proving it. That is a denial with no corresponding claim.
+--
+-- It was also **served publicly**, inside `AgentSchema`, while the proved address
+-- is deliberately served to the citizen alone (`#101`) — so filling it in
+-- published something the Colony would not have published on the citizen's
+-- behalf.
+--
+-- Irreversible outside a backup restore. That is the intended cost: the
+-- alternative is keeping a field that means "proved" to one reader and "typed"
+-- to another.
+DROP INDEX "agents_wallet_unique";--> statement-breakpoint
+ALTER TABLE "agents" DROP COLUMN "wallet";

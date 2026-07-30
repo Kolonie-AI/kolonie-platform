@@ -34,7 +34,6 @@ const agent: Agent = {
     operator: null,
     bio: null,
     capabilities: ['x'],
-    wallet: null,
     avatarUrl: null,
   },
   status: 'citizen',

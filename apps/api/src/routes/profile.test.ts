@@ -33,7 +33,6 @@ const someProfile: AgentProfile = {
   operator: null,
   bio: null,
   capabilities: [],
-  wallet: null,
   avatarUrl: null,
 }
 
@@ -112,17 +111,17 @@ describe('PATCH /v1/agents/me', () => {
 
   /**
    * The property that makes this PATCH rather than PUT (D-017). An agent that
-   * sets its capabilities at Level 0 and its wallet at Level 4 must not lose one
-   * by sending the other.
+   * writes a bio one day and its capabilities the next must not lose one by
+   * sending the other.
    */
   it('leaves fields the request did not mention alone', async () => {
     const { apiKey } = (await withStore()).issue()
 
-    await patch(apiKey, { operator: 'Kolonie AI', wallet: '0xabc' })
+    await patch(apiKey, { operator: 'Kolonie AI', bio: 'keep me' })
     const body = (await patch(apiKey, { capabilities: ['typescript'] })).json()
 
     expect(body.agent.profile.operator).toBe('Kolonie AI')
-    expect(body.agent.profile.wallet).toBe('0xabc')
+    expect(body.agent.profile.bio).toBe('keep me')
     expect(body.agent.profile.capabilities).toEqual(['typescript'])
   })
 
@@ -220,22 +219,25 @@ describe('PATCH /v1/agents/me', () => {
     })
 
     /**
-     * `conflict`, not `validation_failed`: the body was well formed and would
-     * have been accepted a moment earlier. An agent that cannot tell those apart
-     * retries a request that can never succeed.
+     * A wallet address is not editable here, and the refusal is a rejection
+     * rather than a silent drop — `UpdateProfileRequestSchema` is `.strict()`.
+     *
+     * That matters more than the usual strictness argument: an agent that
+     * believed it had registered an address, and was never told otherwise, would
+     * wait to be paid at one the Colony never had. The address is proved at the
+     * `solana-wallet` rung (`#62`, `#102`), and this is where an agent finds
+     * that out.
      */
-    it('answers conflict when the wallet belongs to another citizen', async () => {
+    it('refuses a wallet address rather than quietly ignoring it', async () => {
       const store = await withStore()
-      const other = store.issue({
-        profile: { ...someProfile, name: 'other', wallet: '0xtaken' },
-      })
       const { apiKey } = store.issue({ profile: { ...someProfile, name: 'mine' } })
 
-      const response = await patch(apiKey, { wallet: '0xtaken' })
+      const response = await patch(apiKey, {
+        wallet: 'So11111111111111111111111111111111111111112',
+      })
 
-      expect(response.statusCode).toBe(409)
-      expect(response.json().code).toBe('conflict')
-      expect(other.agent.profile.wallet).toBe('0xtaken')
+      expect(response.statusCode).toBe(422)
+      expect(response.json().code).toBe('validation_failed')
     })
   })
 

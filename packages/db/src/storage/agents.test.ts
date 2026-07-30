@@ -115,7 +115,6 @@ describe.skipIf(!target.available)('registerAgent', () => {
         platform: 'claude',
         operator: 'Kolonie AI',
         capabilities: ['typescript', 'solidity'],
-        wallet: '0xabc',
       }),
     )
 
@@ -126,7 +125,6 @@ describe.skipIf(!target.available)('registerAgent', () => {
       operator: 'Kolonie AI',
       bio: null,
       capabilities: ['typescript', 'solidity'],
-      wallet: '0xabc',
       avatarUrl: null,
     })
   })
@@ -144,13 +142,6 @@ describe.skipIf(!target.available)('registerAgent', () => {
       const impersonator = await registerAgent(db, aRequest({ name: 'CaNaRy' }))
 
       expect(impersonator.outcome).toBe('name-taken')
-    })
-
-    it('refuses a wallet another agent already proved', async () => {
-      await registerAgent(db, aRequest({ name: 'first', wallet: '0xshared' }))
-      const second = await registerAgent(db, aRequest({ name: 'second', wallet: '0xshared' }))
-
-      expect(second).toEqual({ outcome: 'wallet-taken', wallet: '0xshared' })
     })
 
     it('leaves nothing behind when it refuses — no agent, no credential', async () => {
@@ -310,13 +301,13 @@ describe.skipIf(!target.available)('updateAgentProfile', () => {
    */
   it('leaves a field the request did not mention alone', async () => {
     const agent = await anAgent()
-    await patch(agent.id, { operator: 'Kolonie AI', wallet: '0xkeepme' })
+    await patch(agent.id, { operator: 'Kolonie AI', bio: 'keep me' })
 
     const result = await patch(agent.id, { capabilities: ['typescript'] })
 
     if (result.outcome !== 'updated') throw new Error(result.outcome)
     expect(result.agent.profile.operator).toBe('Kolonie AI')
-    expect(result.agent.profile.wallet).toBe('0xkeepme')
+    expect(result.agent.profile.bio).toBe('keep me')
   })
 
   it('clears a nullable field when the request sends null', async () => {
@@ -353,35 +344,26 @@ describe.skipIf(!target.available)('updateAgentProfile', () => {
     expect(result.outcome).toBe('unknown-agent')
   })
 
-  describe('one wallet, one agent', () => {
-    it('reports a wallet already held by another citizen', async () => {
-      await anAgent({ name: 'first', wallet: '0xtaken' })
-      const second = await anAgent({ name: 'second' })
+  /**
+   * A profile edit can no longer collide with another citizen's. The wallet
+   * address was the only unique field it could touch, and it is gone — an
+   * address is now learned at the `solana-wallet` rung and nowhere else
+   * (`kolonie-platform#102`).
+   *
+   * So a failure from this write is the Colony being broken rather than somebody
+   * having got there first, and it has to surface as one. This is what stopped
+   * being flattened into a `wallet-taken` outcome.
+   */
+  it('lets a genuine fault throw rather than reporting it as an outcome', async () => {
+    const agent = await anAgent()
 
-      const result = await patch(second.id, { wallet: '0xtaken' })
-
-      expect(result.outcome).toBe('wallet-taken')
-    })
-
-    it('lets an agent re-send the wallet it already holds', async () => {
-      const agent = await anAgent({ wallet: '0xmine' })
-
-      expect((await patch(agent.id, { wallet: '0xmine' })).outcome).toBe('updated')
-    })
-
-    it('does not report an unrelated failure as a taken wallet', async () => {
-      const agent = await anAgent()
-
-      // `capabilities` is `text[]`. A bare string is a genuine fault, and must
-      // surface as one rather than be flattened into a wallet conflict — the
-      // same guarantee `registerAgent` makes about a taken name.
-      await expect(
-        updateAgentProfile(db, agent.id, {
-          // @ts-expect-error the point is that the value is invalid; the type
-          // system refusing it is half the guarantee, Postgres the other.
-          capabilities: 'not-an-array',
-        }),
-      ).rejects.toThrow()
-    })
+    // `capabilities` is `text[]`. A bare string is a genuine fault.
+    await expect(
+      updateAgentProfile(db, agent.id, {
+        // @ts-expect-error the point is that the value is invalid; the type
+        // system refusing it is half the guarantee, Postgres the other.
+        capabilities: 'not-an-array',
+      }),
+    ).rejects.toThrow()
   })
 })

@@ -32,12 +32,10 @@ export type RegisterAgentResult =
       readonly credentials: AgentCredentials
     }
   | { readonly outcome: 'name-taken'; readonly name: string }
-  | { readonly outcome: 'wallet-taken'; readonly wallet: string }
 
 /** The unique indexes that mean "someone got here first" rather than "we are broken". */
 const CONFLICTING_INDEX = {
   agents_name_unique: 'name-taken',
-  agents_wallet_unique: 'wallet-taken',
 } as const
 
 /**
@@ -79,7 +77,6 @@ export async function registerAgent(
           operator: request.operator,
           bio: request.bio,
           capabilities: request.capabilities,
-          wallet: request.wallet,
           registrationFingerprint: registrationFingerprint ?? null,
           // status and roles are left to the column defaults: `candidate` and
           // no roles (D-001). A new agent holds no skills either, and that is
@@ -129,11 +126,6 @@ export async function registerAgent(
   } catch (error) {
     const conflict = conflictingIndex(error)
     if (conflict === 'name-taken') return { outcome: 'name-taken', name: request.name }
-    if (conflict === 'wallet-taken') {
-      // Unreachable unless a wallet was supplied — that is the only way this
-      // index can be violated.
-      return { outcome: 'wallet-taken', wallet: request.wallet ?? '' }
-    }
     throw error
   }
 }
@@ -149,8 +141,6 @@ export async function registerAgent(
  */
 export type UpdateAgentProfileResult =
   | { readonly outcome: 'updated'; readonly agent: Agent }
-  /** The wallet belongs to another citizen. See `agents_wallet_unique`. */
-  | { readonly outcome: 'wallet-taken'; readonly wallet: string }
   /**
    * No row for that id. Reachable only if the agent was deleted between
    * authenticating and updating, which nothing in the Colony currently does —
@@ -175,10 +165,10 @@ export type UpdateAgentProfileResult =
  * it cannot rename itself rather than having the field quietly dropped here.
  * This function could not honour them anyway: it never reads them.
  *
- * The wallet collision is left to the unique index for the same reason
- * {@link registerAgent} leaves the name collision there — a `SELECT` first is a
- * race, and two agents claiming one address in the same instant is exactly what
- * the index exists to decide.
+ * **There is no wallet field to update** (`kolonie-platform#102`). An address a
+ * citizen typed proved nothing and collided with an address a citizen had
+ * signed for; the Colony learns an address at the `solana-wallet` rung and
+ * nowhere else.
  */
 export async function updateAgentProfile(
   db: Database,
@@ -189,7 +179,6 @@ export async function updateAgentProfile(
   if (Object.hasOwn(request, 'operator')) changes.operator = request.operator
   if (Object.hasOwn(request, 'bio')) changes.bio = request.bio
   if (Object.hasOwn(request, 'capabilities')) changes.capabilities = request.capabilities
-  if (Object.hasOwn(request, 'wallet')) changes.wallet = request.wallet
   if (Object.hasOwn(request, 'avatarUrl')) changes.avatarUrl = request.avatarUrl
 
   // An empty patch is legal and must still answer with the agent. Reading rather
@@ -206,29 +195,27 @@ export async function updateAgentProfile(
       : { outcome: 'updated', agent: toAgent(row.agent, row.skills) }
   }
 
-  try {
-    const [row] = await db
-      .update(agents)
-      // The column defaults `updated_at` at insert only, so an update has to say
-      // so. An agent whose `updatedAt` never moves is indistinguishable from one
-      // that was never touched, and that is the field a client polls on.
-      .set({ ...changes, updatedAt: sql`now()` })
-      .where(eq(agents.id, agentId))
-      .returning()
+  // No `try` around this, and the absence is the point: nothing a profile edit
+  // can now write is unique. The wallet address was the only field here that
+  // could collide with another citizen's, and it is gone (`#102`) — so a failure
+  // from this statement is the Colony being broken rather than somebody having
+  // got there first, and it belongs at the top rather than as an outcome.
+  const [row] = await db
+    .update(agents)
+    // The column defaults `updated_at` at insert only, so an update has to say
+    // so. An agent whose `updatedAt` never moves is indistinguishable from one
+    // that was never touched, and that is the field a client polls on.
+    .set({ ...changes, updatedAt: sql`now()` })
+    .where(eq(agents.id, agentId))
+    .returning()
 
-    if (row === undefined) return { outcome: 'unknown-agent' }
+  if (row === undefined) return { outcome: 'unknown-agent' }
 
-    // A second read rather than a subquery in `returning`: a profile edit
-    // cannot change which skills an agent holds, so this is a plain lookup of
-    // something the write did not touch, and keeping it out of the statement
-    // keeps the statement about the profile.
-    return { outcome: 'updated', agent: toAgent(row, await skillsOfAgent(db, agentId)) }
-  } catch (error) {
-    if (conflictingIndex(error) === 'wallet-taken') {
-      return { outcome: 'wallet-taken', wallet: request.wallet ?? '' }
-    }
-    throw error
-  }
+  // A second read rather than a subquery in `returning`: a profile edit
+  // cannot change which skills an agent holds, so this is a plain lookup of
+  // something the write did not touch, and keeping it out of the statement
+  // keeps the statement about the profile.
+  return { outcome: 'updated', agent: toAgent(row, await skillsOfAgent(db, agentId)) }
 }
 
 /**

@@ -302,7 +302,6 @@ const someProfile: AgentProfile = {
   operator: null,
   bio: null,
   capabilities: [],
-  wallet: null,
   avatarUrl: null,
 }
 
@@ -323,32 +322,23 @@ describe('the verified wallet address (#101)', () => {
   })
 
   /**
-   * **The two must never be conflated.** `profile.wallet` is free text the
-   * citizen typed and nobody checked; `verifiedSolanaAddress` is read from a
-   * cleared challenge. A citizen that typed one address and proved another gets
-   * both back, each saying what it is — which is the whole reason the field is
-   * not called `wallet`.
+   * **There is exactly one address, and it is the proved one.** The profile used
+   * to carry a second, self-declared field a citizen could type anything into;
+   * it was retired with `#102` precisely so that no reader has to work out which
+   * of two same-looking strings means anything.
+   *
+   * Asserted rather than assumed, because a future change that reintroduces a
+   * profile field would also reintroduce the ambiguity.
    */
-  it('is not the self-declared profile field, and does not overwrite it', async () => {
+  it('is the only address in the response — the profile carries none', async () => {
     const store = await withStore()
-    const claimed = fakeWallet()
+    const { apiKey, agent } = store.issue()
     const proved = fakeWallet()
-    const { apiKey, agent } = store.issue({
-      profile: {
-        name: 'canary',
-        platform: 'openclaw',
-        operator: null,
-        bio: null,
-        capabilities: [],
-        wallet: claimed.address,
-        avatarUrl: null,
-      },
-    })
     store.proveWallet(agent.id, proved.address)
 
     const body = (await asAgent(apiKey)).json()
 
-    expect(body.agent.profile.wallet).toBe(claimed.address)
+    expect(Object.keys(body.agent.profile)).not.toContain('wallet')
     expect(body.verifiedSolanaAddress).toBe(proved.address)
   })
 

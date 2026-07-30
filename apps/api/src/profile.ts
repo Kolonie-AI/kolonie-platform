@@ -65,22 +65,6 @@ export async function updateProfile(
 
   const result = await store.updateProfile(agent.id, parsed.data)
 
-  if (result.outcome === 'wallet-taken') {
-    return {
-      outcome: 'rejected',
-      error: {
-        // `conflict`, not `validation_failed`: the request was well formed and
-        // would have succeeded a moment earlier. An agent that cannot tell the
-        // two apart will keep resending a body that can never be accepted.
-        code: 'conflict',
-        message:
-          'That wallet address is already registered to another citizen. ' +
-          'One wallet belongs to one agent — see D-011 and the `agents_wallet_unique` index.',
-        details: { wallet: 'already registered to another citizen' },
-      },
-    }
-  }
-
   if (result.outcome === 'unknown-agent') {
     // The credential authenticated moments ago, so the row was there. Anything
     // that removed it in between is not the caller's fault and not the caller's

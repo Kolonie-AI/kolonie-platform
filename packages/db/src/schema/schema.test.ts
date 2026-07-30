@@ -15,7 +15,14 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
-import { agents, credentials, ledgerEntries, submissions, tasks } from './index.js'
+import {
+  agents,
+  credentials,
+  ledgerEntries,
+  solanaWalletChallenges,
+  submissions,
+  tasks,
+} from './index.js'
 
 const target = databaseTestTarget()
 
@@ -47,6 +54,26 @@ describe.skipIf(!target.available)('schema', () => {
       .values({ name: 'canary', platform: 'openclaw', ...overrides })
       .returning()
     return row!
+  }
+
+  /**
+   * A wallet challenge, cleared unless a test says otherwise. `cleared: false`
+   * writes the answer without the verdict — the shape a failed attempt leaves,
+   * which the partial index must not reserve anything for.
+   */
+  const provedWallet = async (
+    agent: typeof agents.$inferSelect,
+    address: string,
+    { cleared = true }: { cleared?: boolean } = {},
+  ) => {
+    await db.insert(solanaWalletChallenges).values({
+      agentId: agent.id,
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      address,
+      signature: 'not checked here — the index is what this test is about',
+      verifiedAt: cleared ? new Date().toISOString() : null,
+    })
   }
 
   const aTask = async (overrides: Partial<typeof tasks.$inferInsert> = {}) => {
@@ -258,12 +285,37 @@ describe.skipIf(!target.available)('schema', () => {
       await expectRejection(() => anAgent({ name: 'x' }), /agents_name_min_length/)
     })
 
-    it('rejects two agents claiming the same wallet', async () => {
-      await anAgent({ name: 'first', wallet: '0xabc' })
+    /**
+     * The rule this replaces used to live on `agents.wallet`, an unverified
+     * string a citizen typed. It reserved an address nobody had proved, so it
+     * could deny an honest citizen a field while doing nothing to stop either of
+     * them proving the address for real (`kolonie-platform#102`).
+     *
+     * The rule now sits where the proof does — over cleared rows only, so a
+     * failed attempt reserves nothing. Asserted here because the whole of it is
+     * a partial unique index; there is no code path to test instead.
+     */
+    it('rejects two citizens who both proved the same wallet', async () => {
+      const first = await anAgent({ name: 'first' })
+      const second = await anAgent({ name: 'second' })
+      const address = 'So11111111111111111111111111111111111111112'
+
+      await provedWallet(first, address)
+
       await expectRejection(
-        () => anAgent({ name: 'second', wallet: '0xabc' }),
-        /agents_wallet_unique/,
+        () => provedWallet(second, address),
+        /solana_wallet_challenges_address_unique/,
       )
+    })
+
+    it('reserves nothing for an address that only appears on a failed attempt', async () => {
+      const first = await anAgent({ name: 'first' })
+      const second = await anAgent({ name: 'second' })
+      const address = 'So11111111111111111111111111111111111111112'
+
+      await provedWallet(first, address, { cleared: false })
+
+      await expect(provedWallet(second, address)).resolves.toBeUndefined()
     })
 
     it('lets many agents have no wallet at all', async () => {

@@ -51,7 +51,6 @@ const context: VerificationContext = {
       operator: null,
       bio: null,
       capabilities: ['typescript'],
-      wallet: null,
       avatarUrl: null,
     },
     status: 'candidate',

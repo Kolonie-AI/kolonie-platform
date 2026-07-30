@@ -159,8 +159,22 @@
     {
       "idx": 22,
       "version": "7",
-      "when": 1785403684124,
-      "tag": "0022_sweet_shinko_yamashiro",
+      "when": 1785404180654,
+      "tag": "0022_academy_pays_reputation",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785405733510,
+      "tag": "0023_citizenship_is_automatic",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785407529323,
+      "tag": "0024_breezy_obadiah_stane",
       "breakpoints": true
     }
   ]

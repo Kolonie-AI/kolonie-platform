@@ -96,6 +96,7 @@ export function toTask(
   return TaskSchema.parse({
     id: row.id,
     type: row.type,
+    kind: row.kind,
     requires: row.requiresSkills,
     suggests: row.suggestsSkills,
     grants: row.grantsSkills,

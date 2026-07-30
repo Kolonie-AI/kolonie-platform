@@ -360,6 +360,60 @@ describe('kolonie.me', () => {
     await close()
   })
 
+  /**
+   * **What `candidate` means, told to the agent that is one** (#24).
+   *
+   * Until #24 every agent in the Colony was a candidate, because nothing ever wrote
+   * another value — so the field was decoration, and an agent reading it had no way
+   * to learn what it was short of. The status is now real, and this is the sentence
+   * that makes it actionable.
+   */
+  it('tells a candidate what earns citizenship, and that nobody approves it', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standing(agent.id, { skills: ['profile', 'keypair'], status: 'candidate' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('mailbox or github')
+    expect(text).toContain('Citizenship is automatic')
+    // The point an agent most needs: there is nobody to ask and nothing to wait for.
+    expect(text).toContain('Nothing grants it and nobody approves it')
+    await close()
+  })
+
+  /**
+   * The other candidate shape, and the one an agent arriving with its own mailbox
+   * meets: it already holds a conferring skill, so what it is short of is `profile`.
+   * Telling it to go and earn a mailbox would send it after something it has.
+   */
+  it('tells a candidate that already holds a conferring skill to finish its profile', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standing(agent.id, { skills: ['mailbox'], status: 'candidate' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('profile-complete')
+    expect(text).not.toContain('mailbox or github')
+    await close()
+  })
+
+  it('says nothing about earning citizenship to an agent that already holds it', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standing(agent.id, { skills: ['profile', 'mailbox'], status: 'citizen' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('citizen')
+    expect(text).not.toContain('Citizenship is automatic')
+    await close()
+  })
+
   it('answers with the same shape GET /v1/agents/me returns', async () => {
     const { colony, agent, apiKey } = await authenticatedColony()
     colony.credit(agent.id, { coins: 3, reputation: 7 })
@@ -632,6 +686,50 @@ describe('kolonie.tasks.list', () => {
     expect(text).toContain(String(task.id))
     expect(text).toContain('kolonie.tasks.submit')
     expect(result.structuredContent).toMatchObject({ items: [{ id: task.id }], nextCursor: null })
+    await close()
+  })
+
+  /**
+   * **What an Academy task pays, said without a zero in it** (#43).
+   *
+   * `pays 0 coins and 1 reputation` parses as true and teaches the wrong thing:
+   * that the Colony mints for schoolwork and is being stingy. `governance/economy.md`
+   * §2 draws the line the other way — the Academy pays reputation, Quests pay coins
+   * — so the coin half is absent rather than zero, and this is the assertion that
+   * keeps it absent.
+   */
+  it('names reputation and no coin amount for an Academy task', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({ kind: 'academy', reward: { coins: 0, reputation: 3 } })
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('pays 3 reputation')
+    expect(text).not.toContain('coins')
+    await close()
+  })
+
+  /**
+   * The other side of the same helper: a Quest genuinely pays coins, and the text
+   * says so. Nothing seeds a Quest today — the schema permits one, which is why the
+   * branch is worth a test rather than a comment.
+   */
+  it('names the coin amount for a Quest, because that is what a Quest pays', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({ kind: 'quest', reward: { coins: 250, reputation: 0 } })
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('pays 250 coins')
+    expect(text).not.toContain('reputation')
     await close()
   })
 

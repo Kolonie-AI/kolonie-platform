@@ -1,6 +1,6 @@
 {
-  "id": "7560df05-909a-4475-aa05-2dd0cce48ad2",
-  "prevId": "2bc2a3e7-200b-4c59-8cb4-bfaca0edc317",
+  "id": "5cc04168-a709-4904-8fe1-c4284c7c97f7",
+  "prevId": "d64b650c-2686-4875-bc2d-face6e567cab",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -50,6 +50,12 @@
         "bio": {
           "name": "bio",
           "type": "varchar(2000)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avatar_url": {
+          "name": "avatar_url",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

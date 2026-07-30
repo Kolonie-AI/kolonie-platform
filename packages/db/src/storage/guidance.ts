@@ -8,7 +8,7 @@ import {
   TaskStruggleSchema,
   TaskTipSchema,
   mayRevise,
-  skill,
+  PROFILE,
   type AgentId,
   type AgentPlatform,
   type ModerationStages,
@@ -83,9 +83,6 @@ export type RevisableWriteResult<T> =
   | { readonly outcome: 'revised'; readonly entry: T }
   /** It exists, it is the caller's, and it has stopped being the caller's alone. */
   | { readonly outcome: 'not-revisable'; readonly because: RevisionRefusal }
-
-/** The skill a citizen must hold before it may report anything. */
-const PROFILE = skill('profile')
 
 /**
  * File a struggle: *here is where this task went wrong.*

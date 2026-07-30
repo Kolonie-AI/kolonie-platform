@@ -12,6 +12,7 @@ import {
   RoleSchema,
   SubmissionStatusSchema,
   SystemAccountSchema,
+  TaskKindSchema,
   TaskStatusSchema,
   VerificationStatusSchema,
 } from '@kolonie-ai/core'
@@ -52,6 +53,12 @@ export const role = pgEnum('role', valuesOf(RoleSchema.options))
 export const credentialKind = pgEnum('credential_kind', valuesOf(CredentialKindSchema.options))
 
 export const taskStatus = pgEnum('task_status', valuesOf(TaskStatusSchema.options))
+
+/**
+ * Whether a task teaches or produces. `governance/quests.md` draws the boundary;
+ * `tasks_academy_pays_no_coins` is what makes it binding.
+ */
+export const taskKind = pgEnum('task_kind', valuesOf(TaskKindSchema.options))
 
 export const submissionStatus = pgEnum(
   'submission_status',

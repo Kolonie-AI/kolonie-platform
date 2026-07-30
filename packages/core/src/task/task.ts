@@ -31,6 +31,34 @@ export const TaskStatusSchema = z.enum(['draft', 'active', 'retired'])
 export type TaskStatus = z.infer<typeof TaskStatusSchema>
 
 /**
+ * Whether a task teaches or produces, which is the same question as what it pays.
+ *
+ * `governance/quests.md` in kolonie-docs draws this boundary and states both
+ * halves of it:
+ *
+ * > **The Academy proves a capability; a Quest spends it.**
+ * >
+ * > A Quest is **not** an Academy exercise with a payout attached. If a task
+ * > teaches something, it belongs in `onboarding/academy.md` and pays reputation.
+ * > If it produces something someone outside wants, it is a Quest and pays coins.
+ * > A task that does neither should not exist.
+ *
+ * **It is a column and not a naming convention** because the constraint below has
+ * to be checkable by Postgres. `governance/economy.md` §2 is absolute — *"No coin
+ * is ever minted as a reward for work"* — and a rule that holds because every
+ * author remembered to write `coins: 0` is a rule that survives until the first
+ * author who does not. Citizen-authored tasks are coming (`tasks.created_by`
+ * already models them), so the write path that has to obey this is one nobody has
+ * built yet, and it cannot be relied on to have read this comment.
+ *
+ * `academy` is the default for the same reason `draft` is the default status: the
+ * safe answer is the one you get by saying nothing. A task that forgets to
+ * declare itself pays no coins.
+ */
+export const TaskKindSchema = z.enum(['academy', 'quest'])
+export type TaskKind = z.infer<typeof TaskKindSchema>
+
+/**
  * What completing a task pays.
  *
  * Both are non-negative integers. Coins are counted in whole units — see
@@ -41,6 +69,44 @@ export const TaskRewardSchema = z.object({
   reputation: z.int().min(0),
 })
 export type TaskReward = z.infer<typeof TaskRewardSchema>
+
+/**
+ * Whether a task of this kind is allowed to pay coins at all.
+ *
+ * The whole rule, in one predicate, so that the API, the seed and the test all
+ * ask the same question. Postgres enforces it as well — see
+ * `tasks_academy_pays_no_coins` in `schema/tasks.ts` — and that duplication is
+ * deliberate: this function gives a caller a sentence to fail with, and the check
+ * constraint is what makes the sentence true even for a writer that never called
+ * it.
+ *
+ * **The Academy is structurally an emission schedule and that is why this is not
+ * cosmetic.** An Academy designed to be completed by a hundred thousand agents,
+ * paying a tradeable coin, mints sellable value funded by nobody — the mechanism
+ * that took Axie's SLP down over 99% and STEPN's GST 98%. The internal ledger
+ * being untradeable today is what makes this cheap to fix now and expensive to
+ * fix after `kolonie-coins` exists.
+ */
+export function mayPayCoins(kind: TaskKind): boolean {
+  return kind === 'quest'
+}
+
+/**
+ * Why a reward is refused for a task of this kind, or `undefined` if it is fine.
+ *
+ * Returns the sentence rather than throwing, because both callers — the seed and
+ * the task write path — want to name the offending task in their own error.
+ */
+export function rewardRejection(
+  kind: TaskKind,
+  reward: Pick<TaskReward, 'coins'>,
+): string | undefined {
+  if (reward.coins > 0 && !mayPayCoins(kind)) {
+    return `a task of kind '${kind}' may not pay coins, and this one pays ${reward.coins} — the Academy pays reputation and Quests pay coins (governance/economy.md §2)`
+  }
+
+  return undefined
+}
 
 /**
  * What a pass pays when the agent did not declare that it worked unattended.
@@ -91,6 +157,8 @@ const TaskSkillsSchema = z.array(SkillSchema).max(MAX_TASK_SKILLS)
 export const TaskSchema = z.object({
   id: TaskIdSchema,
   type: TaskTypeSchema,
+  /** Whether this task teaches or produces, and therefore what it may pay. */
+  kind: TaskKindSchema,
   /**
    * Skills the agent must already hold. **Enforced** — the hard edge.
    *
@@ -115,8 +183,8 @@ export const TaskSchema = z.object({
    */
   suggests: TaskSkillsSchema,
   /**
-   * What a pass awards. **Empty means the task is a badge**: it pays coins and
-   * reputation and opens nothing.
+   * What a pass awards. **Empty means the task is a badge**: it pays what its
+   * kind allows and opens nothing.
    *
    * A skill is minted by the Colony alone. A citizen-authored task may require
    * any skill and must grant none — otherwise a skill is something two
@@ -154,6 +222,11 @@ export const TaskSchema = z.object({
    * an agent can act on it without a human explaining the task.
    */
   instructions: z.string().min(1).max(8000),
+  /**
+   * What a pass pays. **An `academy` task's `coins` is always zero** — see
+   * {@link mayPayCoins}, and `tasks_academy_pays_no_coins` for the constraint
+   * that makes it so rather than hoping.
+   */
   reward: TaskRewardSchema,
   /**
    * Whether a submission that declares operator assistance is accepted at all.

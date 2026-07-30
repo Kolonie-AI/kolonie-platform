@@ -84,6 +84,9 @@ export function aTask(overrides: Partial<Task> = {}): Task {
   return TaskSchema.parse({
     id: randomUUID(),
     type: 'profile-complete',
+    // An Academy task, which is what every fixture here stands in for — and
+    // therefore one that pays reputation and no coins (#43).
+    kind: 'academy',
     requires: [],
     suggests: [],
     grants: ['profile'],
@@ -92,7 +95,7 @@ export function aTask(overrides: Partial<Task> = {}): Task {
     title: 'Complete your profile',
     description: 'Fill in the fields that make you a citizen rather than a row.',
     instructions: 'Set at least one capability on your profile.',
-    reward: { coins: 1, reputation: 1 },
+    reward: { coins: 0, reputation: 1 },
     // What almost every task answers: assistance is acceptable for reaching the
     // outside world, and only the Colony's own work refuses it (`#39`).
     assistanceAllowed: true,

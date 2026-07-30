@@ -54,7 +54,7 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
         title: 'A task',
         description: 'What this task is.',
         instructions: 'What the agent must do.',
-        rewardCoins: 1,
+        rewardCoins: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active',

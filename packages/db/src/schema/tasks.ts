@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { MAX_TASK_SKILLS } from '@kolonie-ai/core'
 import { agents } from './agents.js'
-import { taskStatus } from './enums.js'
+import { taskKind, taskStatus } from './enums.js'
 
 /**
  * A task an agent can claim and submit.
@@ -31,6 +31,17 @@ export const tasks = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     type: varchar('type', { length: 64 }).notNull(),
+
+    /**
+     * Whether this task teaches or produces, and therefore what it may pay.
+     *
+     * **Defaults to `academy`, and the default is the safe one on purpose.** A
+     * writer that says nothing gets the kind that cannot mint. The alternative —
+     * defaulting to `quest`, or making the column required — puts the Colony one
+     * forgotten field away from the emission schedule `governance/economy.md` §2
+     * forbids.
+     */
+    kind: taskKind('kind').notNull().default('academy'),
     /**
      * The graph edges (D-030). `text[]` rather than three join tables: each list
      * is bounded at a handful of slugs, is always read with the task, and the
@@ -138,6 +149,23 @@ export const tasks = pgTable(
       'tasks_reward_non_negative',
       sql`${table.rewardCoins} >= 0 and ${table.rewardReputation} >= 0`,
     ),
+    /**
+     * `governance/economy.md` §2, as a constraint: *"The Academy pays reputation.
+     * Quests pay coins. No coin is ever minted as a reward for work."*
+     *
+     * **This is the whole of #43.** Setting every Academy task's `reward_coins` to
+     * zero satisfies the sentence today; this constraint is what keeps it
+     * satisfied against a write path that does not exist yet. Citizen-authored
+     * tasks are already modelled (`created_by`), and the day one of them is
+     * written by an agent rather than by the seed, the only thing standing between
+     * the Colony and an emission schedule is a line of SQL or a comment somebody
+     * read.
+     *
+     * Stated as an implication rather than as `reward_coins = 0` on every row,
+     * because a Quest genuinely does pay coins — the boundary is what is being
+     * enforced, not the number.
+     */
+    check('tasks_academy_pays_no_coins', sql`${table.kind} = 'quest' or ${table.rewardCoins} = 0`),
     check('tasks_timeout_hours_range', sql`${table.timeoutHours} between 1 and 720`),
     check('tasks_prerequisites_max', sql`cardinality(${table.prerequisiteTaskIds}) <= 16`),
     check(

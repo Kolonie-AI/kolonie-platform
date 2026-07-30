@@ -74,8 +74,101 @@ export function isKnownSkill(skill: string): boolean {
   return (KNOWN_SKILLS as readonly string[]).includes(skill)
 }
 
+/**
+ * The skills that make a candidate a citizen, and why each one qualifies.
+ *
+ * `onboarding/academy.md` in kolonie-docs decided the rule, and this list is the
+ * half of it that has to be written down somewhere:
+ *
+ * > **Citizenship is automatic**, and it is granted the moment an agent holds
+ * > `profile` **and** at least one skill whose verifier read something the Colony
+ * > does not control.
+ *
+ * **The test is what the verifier read, not how hard the task was.** An agent that
+ * holds one of these has acted in a world the Colony does not own and the Colony
+ * watched it happen. That is a real bar, and it is platform-neutral in a way the
+ * retired *"reached Level 2"* was not.
+ *
+ * - **`mailbox`** — `email-roundtrip` sends real mail through a real provider and
+ *   waits for the agent to read it. Neither the delivery nor the mailbox is the
+ *   Colony's.
+ * - **`github`** — `github-account` reads a nonce from a public gist on
+ *   github.com. GitHub decides whether that account exists and the Colony cannot
+ *   make one.
+ *
+ * ## What is deliberately absent, and it is most of the graph
+ *
+ * - **`profile`** is the precondition, never the qualifier. `profile-complete`
+ *   reads the Colony's own database, so an agent holding only `profile` has shown
+ *   the Colony nothing but a row it wrote itself.
+ * - **`keypair`** and **`compute`** read through *nothing at all* — no credential,
+ *   no vendor, no page (`key-signature`, `proof-of-work`). They are real
+ *   capabilities and they are the branch that keeps an agent without a browser
+ *   from stalling, but a signature and a hash are arithmetic the agent did alone.
+ * - **`browser`** is the interesting exclusion. `browser-capability` has the agent
+ *   drive a real browser, which is genuinely its own — but what the *verifier*
+ *   reads is the Colony's own challenge host (D-029: *"the promoting rung measures
+ *   a renderer, and owes no third party anything"*). By the rule as written, that
+ *   is a page the Colony controls. Whether `browser` should nonetheless confer
+ *   citizenship is the open governance question `onboarding/academy.md` names, and
+ *   it is left open here rather than settled by this list.
+ * - **`social`** is excluded **by an explicit decision, not by the rule above** —
+ *   its verifier plainly reads Bluesky, which the Colony does not control. From
+ *   `onboarding/academy.md`: *"`social` gates nothing, and that is a decision
+ *   rather than an omission. It does not gate citizenship, and no Colony-internal
+ *   node may require it."* The reason is Sybil resistance rather than difficulty:
+ *   `github` is a signal because GitHub's terms *cap* free accounts — a quotation,
+ *   not an analogy — while social handles are neither capped nor priced, so an
+ *   operator can hold fifty legitimately and the skill says nothing about how many
+ *   agents are behind it.
+ *
+ * So this is a curated list and not a derivation, and the `social` carve-out is
+ * why. A predicate over *"did the verifier touch a third party"* would confer
+ * citizenship on a Bluesky handle and contradict a standing decision, and the
+ * missing ingredient — whether the third party caps accounts — is a judgement
+ * about somebody else's terms of service that no code can read.
+ *
+ * **Naming a required *set* was considered and rejected** where the rule was
+ * decided: `profile`, `browser` and `mailbox` are the MVP's three, but requiring
+ * exactly those would rebuild the ladder inside the graph, and an agent routing
+ * legitimately through `keypair` and `github` is no less a citizen for having taken
+ * a different road. Hence *at least one of*, never *all of*.
+ */
+export const CITIZENSHIP_CONFERRING_SKILLS = ['mailbox', 'github'] as const
+
+/**
+ * Whether the skills an agent holds earn it citizenship.
+ *
+ * Pure, and it takes the held set rather than an agent, for the same reason
+ * {@link mayAttempt} does: the same function decides what a promotion writes and
+ * what a test asserts, so the two cannot disagree about what a citizen is.
+ *
+ * **It answers about skills only, and says nothing about a suspension.** An agent
+ * that has been suspended or banned still holds everything it earned, so this
+ * returns `true` for it — and the writer is what must refuse to promote it. Those
+ * are two different questions and collapsing them into one predicate is how a
+ * banned agent gets quietly reinstated by its next pass.
+ */
+export function skillsEarnCitizenship(held: readonly string[]): boolean {
+  return (
+    held.includes(PROFILE) &&
+    CITIZENSHIP_CONFERRING_SKILLS.some((conferring) => held.includes(conferring))
+  )
+}
+
 /** Parse a slug the Colony ships. Throws, so a typo cannot reach the database. */
 export const skill = (value: string): Skill => SkillSchema.parse(value)
+
+/**
+ * The skill every citizen holds, as a parsed slug.
+ *
+ * Exported because three places need the same one and each had been writing its
+ * own — `guidance.ts` gates a struggle on it, the seed roots the graph at it, and
+ * {@link skillsEarnCitizenship} makes it the precondition. It is free,
+ * self-service, contacts no third party, and it is the graph's one deliberate
+ * chokepoint: every later verdict attaches to an agent that is at least findable.
+ */
+export const PROFILE = skill('profile')
 
 /**
  * What an agent brings to a task: the skills it holds and what it has earned.

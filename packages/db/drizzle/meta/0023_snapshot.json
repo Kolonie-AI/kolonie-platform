@@ -1,6 +1,6 @@
 {
-  "id": "7560df05-909a-4475-aa05-2dd0cce48ad2",
-  "prevId": "2bc2a3e7-200b-4c59-8cb4-bfaca0edc317",
+  "id": "d64b650c-2686-4875-bc2d-face6e567cab",
+  "prevId": "7560df05-909a-4475-aa05-2dd0cce48ad2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -104,15 +104,15 @@
           "columns": [
             {
               "expression": "lower(\"name\")",
-              "asc": true,
               "isExpression": true,
+              "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "agents_wallet_unique": {
           "name": "agents_wallet_unique",
@@ -125,10 +125,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"agents\".\"wallet\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"agents\".\"wallet\" is not null",
+          "concurrently": false
         },
         "agents_status_idx": {
           "name": "agents_status_idx",
@@ -141,9 +141,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "agents_registration_fingerprint_idx": {
           "name": "agents_registration_fingerprint_idx",
@@ -156,10 +156,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"agents\".\"registration_fingerprint\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"agents\".\"registration_fingerprint\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -242,10 +242,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"credentials\".\"secret_hash\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"credentials\".\"secret_hash\" is not null",
+          "concurrently": false
         },
         "credentials_agent_id_idx": {
           "name": "credentials_agent_id_idx",
@@ -258,24 +258,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "credentials_agent_id_agents_id_fk": {
           "name": "credentials_agent_id_agents_id_fk",
           "tableFrom": "credentials",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -446,9 +446,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "tasks_type_idx": {
           "name": "tasks_type_idx",
@@ -461,24 +461,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "tasks_created_by_agents_id_fk": {
           "name": "tasks_created_by_agents_id_fk",
           "tableFrom": "tasks",
-          "tableTo": "agents",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -643,9 +643,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "submissions_open_queue_idx": {
           "name": "submissions_open_queue_idx",
@@ -664,10 +664,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"submissions\".\"status\" in ('pending', 'verifying')",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"submissions\".\"status\" in ('pending', 'verifying')",
+          "concurrently": false
         },
         "submissions_agent_id_idx": {
           "name": "submissions_agent_id_idx",
@@ -686,37 +686,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "submissions_task_id_tasks_id_fk": {
           "name": "submissions_task_id_tasks_id_fk",
           "tableFrom": "submissions",
-          "tableTo": "tasks",
           "columnsFrom": [
             "task_id"
           ],
+          "tableTo": "tasks",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "submissions_agent_id_agents_id_fk": {
           "name": "submissions_agent_id_agents_id_fk",
           "tableFrom": "submissions",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -784,37 +784,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "agent_skills_agent_id_agents_id_fk": {
           "name": "agent_skills_agent_id_agents_id_fk",
           "tableFrom": "agent_skills",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "agent_skills_submission_id_submissions_id_fk": {
           "name": "agent_skills_submission_id_submissions_id_fk",
           "tableFrom": "agent_skills",
-          "tableTo": "submissions",
           "columnsFrom": [
             "submission_id"
           ],
+          "tableTo": "submissions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -908,24 +908,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "verifications_submission_id_submissions_id_fk": {
           "name": "verifications_submission_id_submissions_id_fk",
           "tableFrom": "verifications",
-          "tableTo": "submissions",
           "columnsFrom": [
             "submission_id"
           ],
+          "tableTo": "submissions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1022,24 +1022,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "browser_challenges_agent_id_agents_id_fk": {
           "name": "browser_challenges_agent_id_agents_id_fk",
           "tableFrom": "browser_challenges",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1136,16 +1136,16 @@
           "columns": [
             {
               "expression": "lower(\"address\")",
-              "asc": true,
               "isExpression": true,
+              "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": true,
-          "where": "\"email_challenges\".\"verified_at\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"email_challenges\".\"verified_at\" is not null",
+          "concurrently": false
         },
         "email_challenges_token_unique": {
           "name": "email_challenges_token_unique",
@@ -1158,9 +1158,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "email_challenges_agent_verified_idx": {
           "name": "email_challenges_agent_verified_idx",
@@ -1179,24 +1179,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "email_challenges_agent_id_agents_id_fk": {
           "name": "email_challenges_agent_id_agents_id_fk",
           "tableFrom": "email_challenges",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1295,9 +1295,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "key_challenges_public_key_unique": {
           "name": "key_challenges_public_key_unique",
@@ -1310,10 +1310,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"key_challenges\".\"verified_at\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"key_challenges\".\"verified_at\" is not null",
+          "concurrently": false
         },
         "key_challenges_agent_verified_idx": {
           "name": "key_challenges_agent_verified_idx",
@@ -1332,24 +1332,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "key_challenges_agent_id_agents_id_fk": {
           "name": "key_challenges_agent_id_agents_id_fk",
           "tableFrom": "key_challenges",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1450,9 +1450,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "pow_challenges_agent_solved_idx": {
           "name": "pow_challenges_agent_solved_idx",
@@ -1471,24 +1471,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "pow_challenges_agent_id_agents_id_fk": {
           "name": "pow_challenges_agent_id_agents_id_fk",
           "tableFrom": "pow_challenges",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1563,9 +1563,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "github_challenges_agent_expiry_idx": {
           "name": "github_challenges_agent_expiry_idx",
@@ -1584,24 +1584,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "github_challenges_agent_id_agents_id_fk": {
           "name": "github_challenges_agent_id_agents_id_fk",
           "tableFrom": "github_challenges",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1664,9 +1664,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "social_challenges_agent_expiry_idx": {
           "name": "social_challenges_agent_expiry_idx",
@@ -1685,24 +1685,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "social_challenges_agent_id_agents_id_fk": {
           "name": "social_challenges_agent_id_agents_id_fk",
           "tableFrom": "social_challenges",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1798,9 +1798,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "ledger_entries_agent_id_idx": {
           "name": "ledger_entries_agent_id_idx",
@@ -1813,10 +1813,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"ledger_entries\".\"agent_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"ledger_entries\".\"agent_id\" is not null",
+          "concurrently": false
         },
         "ledger_entries_system_account_idx": {
           "name": "ledger_entries_system_account_idx",
@@ -1829,10 +1829,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"ledger_entries\".\"system_account\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"ledger_entries\".\"system_account\" is not null",
+          "concurrently": false
         },
         "ledger_entries_reference_idx": {
           "name": "ledger_entries_reference_idx",
@@ -1845,10 +1845,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"ledger_entries\".\"reference\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"ledger_entries\".\"reference\" is not null",
+          "concurrently": false
         },
         "ledger_entries_task_reward_unique": {
           "name": "ledger_entries_task_reward_unique",
@@ -1867,25 +1867,25 @@
             }
           ],
           "isUnique": true,
-          "where": "\"ledger_entries\".\"type\" = 'task_reward'",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"ledger_entries\".\"type\" = 'task_reward'",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "ledger_entries_agent_id_agents_id_fk": {
           "name": "ledger_entries_agent_id_agents_id_fk",
           "tableFrom": "ledger_entries",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1965,9 +1965,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "reputation_events_submission_id_idx": {
           "name": "reputation_events_submission_id_idx",
@@ -1980,10 +1980,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"reputation_events\".\"submission_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"reputation_events\".\"submission_id\" is not null",
+          "concurrently": false
         },
         "reputation_events_task_passed_unique": {
           "name": "reputation_events_task_passed_unique",
@@ -1996,38 +1996,38 @@
             }
           ],
           "isUnique": true,
-          "where": "\"reputation_events\".\"reason\" = 'task_passed' and \"reputation_events\".\"submission_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"reputation_events\".\"reason\" = 'task_passed' and \"reputation_events\".\"submission_id\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "reputation_events_agent_id_agents_id_fk": {
           "name": "reputation_events_agent_id_agents_id_fk",
           "tableFrom": "reputation_events",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "reputation_events_submission_id_submissions_id_fk": {
           "name": "reputation_events_submission_id_submissions_id_fk",
           "tableFrom": "reputation_events",
-          "tableTo": "submissions",
           "columnsFrom": [
             "submission_id"
           ],
+          "tableTo": "submissions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -2108,24 +2108,24 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "task_hints_task_id_tasks_id_fk": {
           "name": "task_hints_task_id_tasks_id_fk",
           "tableFrom": "task_hints",
-          "tableTo": "tasks",
           "columnsFrom": [
             "task_id"
           ],
+          "tableTo": "tasks",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2237,9 +2237,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "task_struggles_approved_idx": {
           "name": "task_struggles_approved_idx",
@@ -2258,10 +2258,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"task_struggles\".\"status\" = 'approved'",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"task_struggles\".\"status\" = 'approved'",
+          "concurrently": false
         },
         "task_struggles_pending_idx": {
           "name": "task_struggles_pending_idx",
@@ -2274,64 +2274,64 @@
             }
           ],
           "isUnique": false,
-          "where": "\"task_struggles\".\"status\" = 'pending'",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"task_struggles\".\"status\" = 'pending'",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "task_struggles_task_id_tasks_id_fk": {
           "name": "task_struggles_task_id_tasks_id_fk",
           "tableFrom": "task_struggles",
-          "tableTo": "tasks",
           "columnsFrom": [
             "task_id"
           ],
+          "tableTo": "tasks",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "task_struggles_agent_id_agents_id_fk": {
           "name": "task_struggles_agent_id_agents_id_fk",
           "tableFrom": "task_struggles",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "task_struggles_duplicate_of_task_struggles_id_fk": {
           "name": "task_struggles_duplicate_of_task_struggles_id_fk",
           "tableFrom": "task_struggles",
-          "tableTo": "task_struggles",
           "columnsFrom": [
             "duplicate_of"
           ],
+          "tableTo": "task_struggles",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "task_struggles_submission_id_submissions_id_fk": {
           "name": "task_struggles_submission_id_submissions_id_fk",
           "tableFrom": "task_struggles",
-          "tableTo": "submissions",
           "columnsFrom": [
             "submission_id"
           ],
+          "tableTo": "submissions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -2466,9 +2466,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "task_tips_approved_idx": {
           "name": "task_tips_approved_idx",
@@ -2481,16 +2481,16 @@
             },
             {
               "expression": "(\"helpful_count\" - \"unhelpful_count\") desc",
-              "asc": true,
               "isExpression": true,
+              "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
-          "where": "\"task_tips\".\"status\" = 'approved'",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"task_tips\".\"status\" = 'approved'",
+          "concurrently": false
         },
         "task_tips_pending_idx": {
           "name": "task_tips_pending_idx",
@@ -2503,64 +2503,64 @@
             }
           ],
           "isUnique": false,
-          "where": "\"task_tips\".\"status\" = 'pending'",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"task_tips\".\"status\" = 'pending'",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "task_tips_task_id_tasks_id_fk": {
           "name": "task_tips_task_id_tasks_id_fk",
           "tableFrom": "task_tips",
-          "tableTo": "tasks",
           "columnsFrom": [
             "task_id"
           ],
+          "tableTo": "tasks",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "task_tips_agent_id_agents_id_fk": {
           "name": "task_tips_agent_id_agents_id_fk",
           "tableFrom": "task_tips",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "task_tips_duplicate_of_task_tips_id_fk": {
           "name": "task_tips_duplicate_of_task_tips_id_fk",
           "tableFrom": "task_tips",
-          "tableTo": "task_tips",
           "columnsFrom": [
             "duplicate_of"
           ],
+          "tableTo": "task_tips",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "task_tips_submission_id_submissions_id_fk": {
           "name": "task_tips_submission_id_submissions_id_fk",
           "tableFrom": "task_tips",
-          "tableTo": "submissions",
           "columnsFrom": [
             "submission_id"
           ],
+          "tableTo": "submissions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -2636,37 +2636,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "tip_feedback_tip_id_task_tips_id_fk": {
           "name": "tip_feedback_tip_id_task_tips_id_fk",
           "tableFrom": "tip_feedback",
-          "tableTo": "task_tips",
           "columnsFrom": [
             "tip_id"
           ],
+          "tableTo": "task_tips",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "tip_feedback_agent_id_agents_id_fk": {
           "name": "tip_feedback_agent_id_agents_id_fk",
           "tableFrom": "tip_feedback",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -2769,9 +2769,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "moderations_tip_idx": {
           "name": "moderations_tip_idx",
@@ -2790,37 +2790,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "moderations_struggle_id_task_struggles_id_fk": {
           "name": "moderations_struggle_id_task_struggles_id_fk",
           "tableFrom": "moderations",
-          "tableTo": "task_struggles",
           "columnsFrom": [
             "struggle_id"
           ],
+          "tableTo": "task_struggles",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "moderations_tip_id_task_tips_id_fk": {
           "name": "moderations_tip_id_task_tips_id_fk",
           "tableFrom": "moderations",
-          "tableTo": "task_tips",
           "columnsFrom": [
             "tip_id"
           ],
+          "tableTo": "task_tips",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -3010,10 +3010,10 @@
     }
   },
   "schemas": {},
+  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
-  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

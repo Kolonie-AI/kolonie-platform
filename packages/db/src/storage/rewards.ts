@@ -16,6 +16,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Transaction } from '../client.js'
 import { agents, ledgerEntries, reputationEvents, submissions, tasks } from '../schema/index.js'
+import { promoteIfEarned } from './citizenship.js'
 import { grantSkills } from './skills.js'
 
 /** What a passed submission was worth, once the books were written. */
@@ -40,6 +41,14 @@ export interface BookedReward {
    * say a capability was earned rather than that one was attempted.
    */
   readonly grantedSkills: readonly Skill[]
+  /**
+   * Whether this pass made the agent a citizen (#24).
+   *
+   * `true` at most once in an agent's life, and `false` for every pass by an agent
+   * that was already one — so a caller can announce the promotion without having to
+   * compare the status to what it was before.
+   */
+  readonly promotedToCitizen: boolean
 }
 
 /**
@@ -200,6 +209,26 @@ export async function bookTaskReward(
     grantedAt: command.bookedAt,
   })
 
+  /**
+   * Citizenship, if this pass earned it (#24).
+   *
+   * **After the grant and in the same transaction**, because it is derived from the
+   * rows that grant just wrote. It is the piece that was missing: nothing anywhere
+   * ever moved an agent off `candidate`, so the status an agent reads in
+   * `kolonie.me` was decoration.
+   *
+   * Unconditional rather than guarded by `granted.length > 0`, and that is
+   * deliberate. The obvious optimisation is wrong in one real case: an agent that
+   * already held `mailbox` from an earlier route and is only now completing
+   * `profile` gains no *new* conferring skill on this pass but does become a
+   * citizen on it. The call is one `update` whose `where` clause is the whole rule,
+   * so a no-op costs a statement rather than a wrong answer.
+   */
+  const { promoted } = await promoteIfEarned(tx, {
+    agentId,
+    promotedAt: command.bookedAt,
+  })
+
   return {
     submissionId: command.submissionId,
     agentId,
@@ -208,5 +237,6 @@ export async function bookTaskReward(
     reputation: paid.reputation,
     transactionId,
     grantedSkills: granted,
+    promotedToCitizen: promoted,
   }
 }

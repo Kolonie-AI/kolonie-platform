@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import {
   AgentBalanceSchema,
+  skill,
   AgentIdSchema,
   ApiKeySchema,
   API_KEY_PREFIX,
   CredentialIdSchema,
   type Agent,
+  type CitizenshipStatus,
   type AgentBalance,
   type AgentId,
   type ApiKey,
@@ -95,6 +97,19 @@ export interface FakeColony {
   readonly revoke: (apiKey: ApiKey) => void
   /** Credit an agent, so a balance read has something to be right about. */
   readonly credit: (agentId: AgentId, balance: Partial<AgentBalance>) => void
+  /**
+   * Put an agent where a real one would be after some passes: holding skills, and
+   * at whatever citizenship status those earned it.
+   *
+   * Both in one call, because they are one fact. Letting a test set `citizen` with
+   * no skills would let it assert against a state the platform cannot produce (#24),
+   * which is the failure mode every other method in this fixture is written to
+   * avoid.
+   */
+  readonly standing: (
+    agentId: AgentId,
+    standing: { readonly skills?: readonly string[]; readonly status?: CitizenshipStatus },
+  ) => void
 }
 
 export function fakeColony(): FakeColony {
@@ -215,6 +230,21 @@ export function fakeColony(): FakeColony {
         String(agentId),
         AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0, ...balance }),
       )
+    },
+
+    standing: (agentId, standing) => {
+      const held = [...byKey.values()].find((entry) => entry.agent.id === agentId)
+      if (held === undefined) throw new Error('no agent was registered under that id')
+
+      // Replaced rather than mutated in place, because `Agent` is readonly and the
+      // same object is what every authenticated read hands back.
+      held.agent = {
+        ...held.agent,
+        ...(standing.skills === undefined
+          ? {}
+          : { skills: standing.skills.map((value) => skill(value)) }),
+        ...(standing.status === undefined ? {} : { status: standing.status }),
+      }
     },
   }
 }

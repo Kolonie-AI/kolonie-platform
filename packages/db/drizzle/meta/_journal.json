@@ -162,6 +162,13 @@
       "when": 1785404180654,
       "tag": "0022_academy_pays_reputation",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785405733510,
+      "tag": "0023_citizenship_is_automatic",
+      "breakpoints": true
     }
   ]
 }

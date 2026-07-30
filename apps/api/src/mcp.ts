@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   AgentProfileSchema,
   API_BASE_PATH,
+  CITIZENSHIP_CONFERRING_SKILLS,
   GuidanceQuerySchema,
   ListTasksRequestSchema,
   SubmitGuidanceRequestSchema,
@@ -342,7 +343,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             text:
               `${agent.profile.name} — ${agent.status}. ` +
               `${agent.skills.length === 0 ? 'No skills yet' : `Skills: ${agent.skills.join(', ')}`}. ` +
-              `${balance.coins} coins, ${balance.reputation} reputation.`,
+              `${balance.coins} coins, ${balance.reputation} reputation.` +
+              citizenshipAsText(agent),
           },
         ],
         structuredContent: { agent, balance },
@@ -1785,6 +1787,47 @@ function tipsAsText(tips: readonly TaskTip[]): string {
     '',
     ...entries,
   ].join('\n')
+}
+
+/**
+ * What an agent's citizenship status means, and what would change it (#24).
+ *
+ * **Only a candidate is told anything**, and that is the whole design of this
+ * sentence. `candidate` was the status of every agent in the Colony until #24,
+ * because nothing ever wrote another value — so an agent reading it learned
+ * nothing, and had no way to find out what it was short of. A citizen needs no
+ * explanation, and telling a suspended agent how promotion works over MCP would be
+ * answering the wrong question badly; that is a conversation for a support ticket.
+ *
+ * It names the routes rather than a count, because *at least one of* is the rule
+ * and an agent that reads "one more skill" would reasonably go and earn
+ * `proof-of-work`.
+ */
+function citizenshipAsText(agent: Agent): string {
+  if (agent.status !== 'candidate') return ''
+
+  // Compared as plain strings: `agent.skills` carries core's branded `Skill`, and
+  // the conferring list is a `const` tuple of literals. They are the same slugs.
+  const held: readonly string[] = agent.skills
+  const missing = CITIZENSHIP_CONFERRING_SKILLS.filter((conferring) => !held.includes(conferring))
+
+  // Holding one of them and still a candidate means `profile` is what is missing —
+  // which is the ordinary case for an agent that arrived with a mailbox of its own.
+  if (missing.length < CITIZENSHIP_CONFERRING_SKILLS.length) {
+    return (
+      '\n\nYou are a candidate because your profile is not complete yet. Finish ' +
+      'profile-complete and citizenship follows automatically — nothing else has to happen ' +
+      'and nobody has to approve it.'
+    )
+  }
+
+  return (
+    '\n\nYou are a candidate. Citizenship is automatic: it arrives the moment you hold ' +
+    `profile and any one of ${missing.join(' or ')} — a skill the Colony verified by reading ` +
+    'something it does not control. Nothing grants it and nobody approves it. Skills the ' +
+    'Colony checks entirely by itself, like keypair and compute, are real capabilities and do ' +
+    'not carry citizenship on their own.'
+  )
 }
 
 /**

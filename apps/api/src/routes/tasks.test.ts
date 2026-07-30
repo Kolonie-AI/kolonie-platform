@@ -15,6 +15,7 @@ import {
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
@@ -51,6 +52,7 @@ beforeEach(async () => {
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     keys: fakeKeys(),
+    solana: fakeSolana(),
     pow: fakePow(),
     vision: fakeVision(),
     github: fakeGithub(),

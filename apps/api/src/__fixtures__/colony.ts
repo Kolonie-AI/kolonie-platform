@@ -21,6 +21,7 @@ import type { TaskSubmissions } from '../submissions.js'
 import type { AcademyDependencies } from '../academy.js'
 import type { EmailDependencies } from '../email.js'
 import type { KeyDependencies } from '../keys.js'
+import type { SolanaDependencies } from '../solana.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { GithubDependencies } from '../github.js'
 import type { WebsiteDependencies } from '../website.js'
@@ -29,6 +30,7 @@ import type { VisionDependencies } from '../vision.js'
 import { fakeAcademy } from './academy.js'
 import { fakeEmail } from './email.js'
 import { fakeKeys } from './keys.js'
+import { fakeSolana } from './solana.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeGithub } from './github.js'
 import { fakeSocial } from './social.js'
@@ -101,6 +103,8 @@ export interface FakeColony {
   readonly email: EmailDependencies
   /** The keypair rung, behind both surfaces. Overridable the same way. */
   readonly keys: KeyDependencies
+  /** The wallet rung, behind both surfaces. Overridable the same way. */
+  readonly solana: SolanaDependencies
   /** The compute rung, behind both surfaces. Overridable the same way. */
   readonly pow: PowDependencies
   /** The GitHub rung, behind both surfaces. Overridable the same way. */
@@ -214,6 +218,7 @@ export function fakeColony(): FakeColony {
     academy: fakeAcademy(),
     email: fakeEmail(),
     keys: fakeKeys(),
+    solana: fakeSolana(),
     pow: fakePow(),
     github: fakeGithub(),
     social: fakeSocial(),

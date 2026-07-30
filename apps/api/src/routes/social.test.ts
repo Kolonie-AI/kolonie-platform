@@ -11,6 +11,7 @@ import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
@@ -36,6 +37,7 @@ beforeEach(async () => {
     support: support({ desk: fakeSupportDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: fakeKeys(),
+    solana: fakeSolana(),
     pow: fakePow(),
     vision: fakeVision(),
     academy: fakeAcademy(),

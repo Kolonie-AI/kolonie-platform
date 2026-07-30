@@ -225,6 +225,13 @@
       "when": 1785432347847,
       "tag": "0031_backfill_briefings",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785433005034,
+      "tag": "0032_solana_wallet_challenges",
+      "breakpoints": true
     }
   ]
 }

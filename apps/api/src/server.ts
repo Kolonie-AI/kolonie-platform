@@ -10,6 +10,7 @@ import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseKeyChallenges } from './keys.js'
+import { databaseSolanaChallenges } from './solana.js'
 import { databasePowChallenges } from './proof-of-work.js'
 import { databaseGithubChallenges } from './github.js'
 import { databaseWebsiteChallenges } from './website.js'
@@ -104,6 +105,10 @@ const app = buildApp({
   // rung reads through nothing, so unlike every other Academy surface here it
   // cannot be half-wired.
   keys: { challenges: databaseKeyChallenges(db) },
+  // Same again, and for the same reason: a Solana address is an Ed25519 public
+  // key, so the wallet rung checks a signature rather than reading a chain.
+  // There is no RPC endpoint here to be missing.
+  solana: { challenges: databaseSolanaChallenges(db) },
   // Same again, plus the difficulty the task declares — read from
   // `academy-tasks.ts` rather than from anything this process configures, so the
   // number an agent is set is the one the task was written with.

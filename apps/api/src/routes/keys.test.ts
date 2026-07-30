@@ -15,6 +15,7 @@ import { fakeKeypair, fakeKeyChallenges, type FakeKeyChallenges } from '../__fix
 import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
+import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 
 let app: FastifyInstance
@@ -37,6 +38,7 @@ beforeEach(async () => {
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: { challenges },
     pow: fakePow(),
+    vision: fakeVision(),
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),

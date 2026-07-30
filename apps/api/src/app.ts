@@ -45,6 +45,7 @@ import { openPowChallenge, submitPowNonce, type PowDependencies } from './proof-
 import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
+import { openVisionChallenge, submitVisionAnswer, type VisionDependencies } from './vision.js'
 
 export interface AppDependencies {
   /** The Browser Capability Gate — see `academy.ts` and D-024. */
@@ -73,8 +74,9 @@ export interface AppDependencies {
   readonly website: WebsiteDependencies
   /**
    * The social rung — see `social.ts`.
-   *
-   * One door and no 503 branch, like `github` and `keys`. It goes one further:
+   */
+  readonly vision: VisionDependencies
+  /**
    * the *verifier* holds no credential either, because both networks the Colony
    * reads serve public records unauthenticated. There is nothing in this rung
    * that an unset variable could switch off.
@@ -130,6 +132,7 @@ export function buildApp({
   github,
   website,
   social,
+  vision,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -285,6 +288,7 @@ export function buildApp({
           // HTTP door agree on who is calling by construction. `McpDependencies`
           // requires it, which makes forgetting it a compile error rather than a
           // front door that silently stopped counting.
+          vision,
           caller: { ip: clientIp(request.headers, request.ip) },
         },
         presented,
@@ -722,6 +726,40 @@ export function buildApp({
         }
 
         const result = await submitPowNonce(authenticated.agent.id, request.body, pow)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send({ solved: true, ...result.response })
+      })
+
+      v1.post('/academy/vision/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openVisionChallenge(authenticated.agent.id, vision)
+
+        return reply.status(201).send(result.response)
+      })
+
+      v1.post('/academy/vision/solutions', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await submitVisionAnswer(authenticated.agent.id, request.body, vision)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

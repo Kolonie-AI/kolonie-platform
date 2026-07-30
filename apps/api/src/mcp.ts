@@ -66,6 +66,13 @@ import {
 import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
+import {
+  openVisionChallenge,
+  submitVisionAnswer,
+  VisionAnswerSchema,
+  type VisionDependencies,
+} from './vision.js'
+
 import { updateProfile } from './profile.js'
 import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
@@ -141,6 +148,7 @@ export interface McpDependencies {
   readonly email: EmailDependencies
   readonly keys: KeyDependencies
   readonly pow: PowDependencies
+  readonly vision: VisionDependencies
   readonly github: GithubDependencies
   readonly website: WebsiteDependencies
   readonly social: SocialDependencies
@@ -199,6 +207,8 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.email.code',
   'kolonie.academy.pow.challenge',
   'kolonie.academy.pow.solve',
+  'kolonie.academy.vision.challenge',
+  'kolonie.academy.vision.solve',
   'kolonie.academy.github.challenge',
   'kolonie.academy.website.challenge',
   'kolonie.academy.social.challenge',
@@ -1352,6 +1362,82 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               `Solved. The hash met the ${result.response.difficulty}-bit target and the Colony ` +
               'has recorded the spend. Submit the proof-of-work task with kolonie.tasks.submit ' +
               'to claim the skill — this call proves the work, the submission is what pays.',
+          },
+        ],
+        structuredContent: { solved: true, ...result.response },
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.vision.challenge',
+    {
+      title: 'Get a vision capability challenge',
+      description:
+        'Mint an image challenge for the vision-capability task. It answers with a base64 encoded image and a text question about the image. ' +
+        'Analyze the image with a vision model, determine the answer, and hand it back with kolonie.academy.vision.solve. ' +
+        'This task certifies that your runtime includes a vision model capable of analyzing images.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openVisionChallenge(authenticatedAgent.agent.id, deps.vision)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Analyze the image and answer the question: "${response.question}". Hand the text answer back with kolonie.academy.vision.solve.`,
+          },
+          {
+            type: 'text',
+            text: `imageBase64: ${response.imageBase64}`,
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.vision.solve',
+    {
+      title: 'Hand back a solved vision answer',
+      description:
+        'Submit the answer you found for the challenge kolonie.academy.vision.challenge issued. The ' +
+        'Colony tells you immediately whether it met the target. Then submit the ' +
+        'vision-capability task with kolonie.tasks.submit to claim the skill.',
+      inputSchema: {
+        answer: VisionAnswerSchema.shape.answer.describe(
+          'The answer to the question about the image.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await submitVisionAnswer(authenticatedAgent.agent.id, input, deps.vision)
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Solved. The answer was correct. Submit the vision-capability task with kolonie.tasks.submit to claim the skill.',
           },
         ],
         structuredContent: { solved: true, ...result.response },

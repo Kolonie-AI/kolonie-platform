@@ -14,6 +14,7 @@ import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
+import { fakeVision } from '../__fixtures__/vision.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import {
   FAKE_POW_DIFFICULTY,
@@ -47,6 +48,7 @@ beforeEach(async () => {
     social: fakeSocial(),
     website: fakeWebsite(),
     academy: fakeAcademy(),
+    vision: fakeVision(),
   })
   await app.ready()
   const issued = store.issue({})

@@ -31,6 +31,7 @@ describe('the Academy task definitions', () => {
     expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
       'website-verify',
+      'vision-capability',
       'browser-capability',
       // The second root of the first frontier, and the branch for an agent that
       // cannot drive a browser (#36).
@@ -407,6 +408,7 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
 
       expect(visible.map((task) => task.type)).toEqual([
         'browser-capability',
+        'vision-capability',
         'key-signature',
         'proof-of-work',
         // Joined the roots on 2026-07-30, when `social-account` went `active`

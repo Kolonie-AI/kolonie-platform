@@ -167,6 +167,7 @@ describe.skipIf(!target.available)('schema', () => {
         'tasks',
         'tip_feedback',
         'verifications',
+        'vision_challenges',
         'website_challenges',
       ])
     })

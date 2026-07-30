@@ -10,6 +10,7 @@ import { buildApp } from '../app.js'
 import { bearerToken, UNAUTHENTICATED } from '../authentication.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
@@ -40,6 +41,7 @@ const withStore = async () => {
     academy: fakeAcademy(),
     keys: fakeKeys(),
     pow: fakePow(),
+    vision: fakeVision(),
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),
@@ -245,6 +247,7 @@ describe('GET /v1/agents/me', () => {
         academy: fakeAcademy(),
         keys: fakeKeys(),
         pow: fakePow(),
+        vision: fakeVision(),
         github: fakeGithub(),
         social: fakeSocial(),
         website: fakeWebsite(),

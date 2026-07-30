@@ -43,6 +43,7 @@ import {
 } from './__fixtures__/proof-of-work.js'
 import { fakeGithub } from './__fixtures__/github.js'
 import { fakeSocial } from './__fixtures__/social.js'
+import { fakeVision } from './__fixtures__/vision.js'
 import { fakeWebsite } from './__fixtures__/website.js'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
@@ -99,6 +100,7 @@ const anonymousClient = (registry = fakeRegistry()) =>
     email: fakeEmail(),
     keys: fakeKeys(),
     pow: fakePow(),
+    vision: fakeVision(),
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),
@@ -270,6 +272,7 @@ describe('kolonie.register', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -1689,6 +1692,7 @@ describe('the MCP surface over HTTP', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -1714,6 +1718,7 @@ describe('the MCP surface over HTTP', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -1746,6 +1751,7 @@ describe('the MCP surface over HTTP', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -1771,6 +1777,7 @@ describe('the MCP surface over HTTP', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -1796,6 +1803,7 @@ describe('the MCP surface over HTTP', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -1830,6 +1838,7 @@ describe('the MCP surface over HTTP', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -1914,6 +1923,7 @@ describe('the MCP surface over HTTP', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -2292,6 +2302,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       academy: fakeAcademy(),
       keys: fakeKeys(),
       pow: fakePow(),
+      vision: fakeVision(),
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
@@ -2312,6 +2323,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         email,
         keys: fakeKeys(),
         pow: fakePow(),
+        vision: fakeVision(),
         github: fakeGithub(),
         social: fakeSocial(),
         website: fakeWebsite(),

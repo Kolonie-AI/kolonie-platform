@@ -30,6 +30,9 @@ describe('classifying', () => {
 
     const body = JSON.parse(String(sent[0]?.init?.body)) as Record<string, unknown>
     expect(body.model).toBe(MODERATION_MODEL)
+    // Named rather than merely equal to the constant: a test that only compared
+    // it to the export would pass whatever the export said.
+    expect(MODERATION_MODEL).toBe('deepseek/deepseek-v4-flash')
     expect(body.temperature).toBe(0)
 
     // The answers reach the model as a schema enum rather than as a sentence in
@@ -72,11 +75,75 @@ describe('classifying', () => {
   })
 
   /**
-   * The error carries the status and nothing else. A vendor's error body can
-   * echo the request back, and the request carries the key.
+   * **The credential never reaches the error, whatever the vendor put in it.**
+   *
+   * A vendor's error body can echo the request back, and the request carries the
+   * key. The fields the diagnosis reads are whitelisted, which is a claim about a
+   * shape somebody else controls — so the key is substituted out of the result as
+   * well. A credential in a log survives every rotation of the log.
    */
-  it('does not put the vendor’s body in the error it throws', async () => {
+  it('does not put the key in the error it throws, even when the vendor echoes it', async () => {
     const { impl } = stubFetch({ error: { message: 'bad key a-key-in-the-echo' } }, 401)
+
+    const call = openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve'],
+    })
+
+    await expect(call).rejects.toThrow(/answered 401/)
+    await expect(call).rejects.toThrow(/\[redacted\]/)
+    await call.catch((error: Error) => {
+      expect(error.message).not.toContain('a-key-in')
+    })
+  })
+
+  /**
+   * **The status alone was not enough, and finding that out cost an hour.**
+   *
+   * Four briefing syntheses failed against `OpenRouter answered 429`, which reads
+   * as ordinary rate limiting. The body said the model was rate-limited *upstream*
+   * from a shared free pool — which is a fact about what the Colony's moderation
+   * depends on, and no log line carried it. It took a hand-built probe against
+   * production to see it.
+   */
+  it('carries the provider’s own explanation into the error', async () => {
+    const { impl } = stubFetch(
+      {
+        error: {
+          message: 'Provider returned error',
+          metadata: {
+            provider_name: 'SomeProvider',
+            limit_source: 'upstream_provider_shared_pool',
+            raw: 'the model is temporarily rate-limited upstream',
+          },
+        },
+      },
+      429,
+    )
+
+    const call = openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve'],
+    })
+
+    await expect(call).rejects.toThrow(/answered 429/)
+    await expect(call).rejects.toThrow(/provider SomeProvider/)
+    await expect(call).rejects.toThrow(/limit upstream_provider_shared_pool/)
+    await expect(call).rejects.toThrow(/rate-limited upstream/)
+  })
+
+  /** A body that is not JSON must not replace the error it was trying to explain. */
+  it('still reports the status when the body cannot be read', async () => {
+    const impl = (async () =>
+      ({
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new Error('not json')
+        },
+      }) as unknown as Response) as unknown as typeof fetch
 
     await expect(
       openRouterModel('a-key', { fetch: impl }).classify({
@@ -84,7 +151,7 @@ describe('classifying', () => {
         user: 'u',
         choices: ['approve'],
       }),
-    ).rejects.toThrow(/answered 401/)
+    ).rejects.toThrow(/answered 502/)
   })
 
   it('sends the key as a bearer credential and nowhere else', async () => {
@@ -185,6 +252,7 @@ describe('composing', () => {
       user: 'u',
       sections: ['wall', 'route', 'unsolved'],
       sourceIds: ['a'],
+      maxClaimLength: 400,
     })
 
     expect(claims).toEqual([
@@ -216,6 +284,7 @@ describe('composing', () => {
       user: 'u',
       sections: ['wall', 'route', 'unsolved'],
       sourceIds: ['a'],
+      maxClaimLength: 400,
     })
 
     expect(claims.map((claim) => claim.text)).toEqual(['A real wall.', 'A real route.'])
@@ -230,9 +299,45 @@ describe('composing', () => {
       user: 'u',
       sections: ['wall'],
       sourceIds: ['a'],
+      maxClaimLength: 400,
     })
 
     expect(claims).toEqual([{ section: 'wall', text: 'No sources given.', sources: [] }])
+  })
+
+  /**
+   * **The bound that stops a runaway**, and the reason it is in the schema rather
+   * than in the prompt.
+   *
+   * Given one short tip, the model wrote a correct opening sentence and then
+   * degenerated into `(1 local) (1 immediate) (1 one shot) …` until it exhausted
+   * `max_tokens`. The reply was cut off *inside* `text`, so `sources` never
+   * arrived — and a claim citing nothing is dropped downstream, which is how one
+   * runaway produced an empty briefing over a corpus that had something in it.
+   *
+   * The prompt already asked for one or two sentences. A length a model is asked
+   * to respect is a length it sometimes respects.
+   */
+  it('bounds a claim’s text in the schema it sends', async () => {
+    const { impl, sent } = stubFetch(aBriefing(''))
+
+    await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall'],
+      sourceIds: ['a'],
+      maxClaimLength: 400,
+    })
+
+    const body = JSON.parse(String(sent[0]?.init?.body)) as Record<string, unknown>
+    const format = body.response_format as {
+      json_schema: {
+        schema: {
+          properties: { claims: { items: { properties: { text: { maxLength: number } } } } }
+        }
+      }
+    }
+    expect(format.json_schema.schema.properties.claims.items.properties.text.maxLength).toBe(400)
   })
 
   /** A reply with no claims array at all is unusable, and that still throws. */
@@ -245,6 +350,7 @@ describe('composing', () => {
         user: 'u',
         sections: ['wall'],
         sourceIds: ['a'],
+        maxClaimLength: 400,
       }),
     ).rejects.toThrow(/without a claims array/)
   })

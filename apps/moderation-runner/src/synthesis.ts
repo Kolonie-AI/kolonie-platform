@@ -1,4 +1,5 @@
 import {
+  BRIEFING_CLAIM_MAX_LENGTH,
   BriefingSectionSchema,
   type AgentPlatform,
   type BriefingClaim,
@@ -46,6 +47,7 @@ export async function synthesise(
     user: corpusPrompt(input.taskTitle, input.corpus),
     sections: BriefingSectionSchema.options,
     sourceIds: input.corpus.map((entry) => entry.id),
+    maxClaimLength: BRIEFING_CLAIM_MAX_LENGTH,
   })
 
   const byId = new Map(input.corpus.map((entry) => [entry.id, entry]))

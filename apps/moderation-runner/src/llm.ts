@@ -26,17 +26,26 @@ const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
 /**
  * The model that judges.
  *
- * `xiaomi/mimo-v2.5`, chosen by the maintainer on 2026-07-29. It supports strict
- * JSON schema output, which is what lets every prompt here return a shape rather
- * than prose this process would have to parse out of a paragraph — and a
- * moderator whose verdict has to be extracted with a regular expression is a
- * moderator that will eventually approve something because it wrote the word
- * "approve" in an explanation.
+ * `deepseek/deepseek-v4-flash`, chosen by the maintainer on 2026-07-30. It
+ * supports strict JSON schema output, which is what lets every prompt here
+ * return a shape rather than prose this process would have to parse out of a
+ * paragraph — and a moderator whose verdict has to be extracted with a regular
+ * expression is a moderator that will eventually approve something because it
+ * wrote the word "approve" in an explanation.
+ *
+ * **It replaced `xiaomi/mimo-v2.5`, and the reasons are worth keeping.** That
+ * model was served from a shared free pool — `limit_source:
+ * upstream_provider_shared_pool` — and rate-limited hard enough that four of
+ * four briefing syntheses failed or degraded in one hour. It also degenerated:
+ * given one short tip it wrote a correct opening sentence and then repeated
+ * `(1 local) (1 immediate) (1 one shot) …` until it exhausted the token budget,
+ * truncating the reply inside a field and losing the one after it. Same price
+ * per token, one megabyte of context, structured outputs on both.
  *
  * Overridable, because the choice is a judgement that will be revisited and the
  * alternative is a code change to try another model against the same corpus.
  */
-export const MODERATION_MODEL = 'xiaomi/mimo-v2.5'
+export const MODERATION_MODEL = 'deepseek/deepseek-v4-flash'
 
 /**
  * The model that measures similarity.
@@ -114,6 +123,8 @@ export interface Model {
     readonly user: string
     readonly sections: readonly string[]
     readonly sourceIds: readonly string[]
+    /** The ceiling on one claim's text, enforced in the schema rather than asked for. */
+    readonly maxClaimLength: number
   }): Promise<readonly ComposedClaim[]>
 
   /** Embed several strings at once. Order in, order out. */
@@ -143,6 +154,60 @@ export interface ComposedClaim {
 export interface MarkedSpan {
   readonly text: string
   readonly kind: string
+}
+
+/**
+ * Why a call failed, in as much detail as is safe to write down.
+ *
+ * **The status alone was not enough, and finding that out cost an hour.** Four
+ * briefing syntheses failed against `OpenRouter answered 429`, which reads as
+ * ordinary rate limiting; the body said `xiaomi/mimo-v2.5 is temporarily
+ * rate-limited upstream … limit_source: upstream_provider_shared_pool`, which
+ * says something quite different — the Colony's moderation depended on a shared
+ * free pool. Nobody could have learned that from a log line, and it took a hand-
+ * built probe against production to see it.
+ *
+ * **Whitelisted rather than passed through**, because the original caution was
+ * right: a vendor's error body can echo the request back, and the request
+ * carries the key. So this names the fields it wants — all of them short,
+ * structured and about the *provider* rather than about the request — and
+ * nothing else survives.
+ *
+ * **And then the key is scrubbed anyway.** A whitelist is a claim about a shape
+ * somebody else controls; the substitution is a fact about the string that is
+ * actually thrown. Two defences, because a credential in a log survives every
+ * rotation of the log.
+ */
+async function diagnose(response: Response, apiKey: string): Promise<string> {
+  try {
+    const body = (await response.json()) as {
+      error?: {
+        message?: unknown
+        metadata?: { provider_name?: unknown; limit_source?: unknown; raw?: unknown }
+      }
+    }
+
+    const meta = body.error?.metadata
+    const parts = [
+      typeof body.error?.message === 'string' ? body.error.message : undefined,
+      typeof meta?.provider_name === 'string' ? `provider ${meta.provider_name}` : undefined,
+      typeof meta?.limit_source === 'string' ? `limit ${meta.limit_source}` : undefined,
+      typeof meta?.raw === 'string' ? meta.raw.slice(0, 200) : undefined,
+    ].filter((part): part is string => part !== undefined && part !== '')
+
+    if (parts.length === 0) return ''
+    return `: ${redact(parts.join(' — ').slice(0, 400), apiKey)}`
+  } catch {
+    // A body that is not JSON, or a stream already consumed. The status is still
+    // in the message above, and a diagnosis that threw must not replace the
+    // error it was trying to explain.
+    return ''
+  }
+}
+
+/** Remove the credential from anything about to be thrown, whatever else is in it. */
+function redact(text: string, apiKey: string): string {
+  return apiKey === '' ? text : text.split(apiKey).join('[redacted]')
 }
 
 /**
@@ -188,9 +253,9 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     })
 
     if (!response.ok) {
-      // The status and nothing else. A vendor's error body can echo the request,
-      // and the request carries the key.
-      throw new Error(`OpenRouter answered ${response.status} for ${path}`)
+      throw new Error(
+        `OpenRouter answered ${response.status} for ${path}${await diagnose(response, apiKey)}`,
+      )
     }
 
     return (await response.json()) as unknown
@@ -326,7 +391,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
       })
     },
 
-    async compose({ system, user, sections, sourceIds }) {
+    async compose({ system, user, sections, sourceIds, maxClaimLength }) {
       const body = await call('/chat/completions', {
         model,
         messages: [
@@ -347,7 +412,23 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
                     type: 'object',
                     properties: {
                       section: { type: 'string', enum: [...sections] },
-                      text: { type: 'string' },
+                      /**
+                       * **Bounded in the schema, not merely asked for in prose.**
+                       *
+                       * Without this the model ran away: given one short tip it
+                       * wrote a correct opening sentence and then degenerated
+                       * into `(1 local) (1 immediate) (1 one shot) …` repeated
+                       * until it exhausted `max_tokens` — and the reply was cut
+                       * off *inside* `text`, so `sources` was never emitted at
+                       * all. A claim citing nothing is dropped downstream, so a
+                       * runaway on one claim silently produced an empty
+                       * briefing over a corpus that had something in it.
+                       *
+                       * The prompt already said "one or two sentences". A length
+                       * a model is asked to respect is a length it sometimes
+                       * respects; this one it cannot exceed.
+                       */
+                      text: { type: 'string', maxLength: maxClaimLength },
                       // The corpus, as an enum. A model cannot cite an entry that
                       // is not in front of it, so a claim attributed to something
                       // invented is impossible rather than filtered.

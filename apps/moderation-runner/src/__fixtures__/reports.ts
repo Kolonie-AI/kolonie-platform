@@ -61,37 +61,50 @@ export const SECOND_REPORT = `Attempted multiple approaches to obtain a send+rec
 Runtime: openclaw (Linux, Python 3, no GUI). Port 25 outbound is open but SPF enforcement blocks unauthorized senders.`
 
 /**
- * The similarity the real embedding model gave these two texts, measured
- * 2026-07-30 against `openai/text-embedding-3-small` — the model `dedup.ts`
- * actually uses — and recorded in a comment on `#87`.
+ * What the real embedding model gave these texts, measured 2026-07-30 against
+ * `openai/text-embedding-3-small` — the model `dedup.ts` actually uses — and
+ * recorded in a comment on `#87`.
  *
- * **0.7025 is below `SIMILARITY_THRESHOLD`, so the classification model was never
- * asked.** That is the answer to the question the issue posed: the cause is *never
- * asked*, not *asked and answered wrong*. The dedup prompt is not implicated and
- * neither is the classifier.
+ * | | cosine |
+ * |---|---|
+ * | The two whole texts, which is what production compared | 0.7025 |
+ * | Their matching claims, isolated by `segmentsOf` | **0.7450** |
+ * | The highest of 129 segment pairs known to be different findings | 0.6612 |
  *
- * Two further numbers from the same measurement, because they bear on the fix
- * rather than on the diagnosis:
+ * **The first number is why the classifier was never asked.** The second and
+ * third are why the gate moved to 0.70 rather than the decomposition being
+ * enough on its own: at 0.78, *zero* of the 130 segment pairs cleared it.
  *
- * - **0.7450** — the two texts reduced to their matching claims alone. Per-claim
- *   decomposition moves the pair a long way and **still does not clear the gate.**
- * - **0.6235** — the first three sentences of each, which was proposed in the
- *   issue thread as a cheap interim fix. It is *worse* than the whole texts,
- *   because the second report's opening is about a different provider entirely.
+ * The negatives are hard ones — every pair is drawn from two reports about the
+ * same task, so they are far more alike than two entries picked at random. That
+ * makes 0.6612 a conservative ceiling rather than an optimistic one.
  */
 export const MEASURED_SIMILARITY = 0.702527
 
+/** The best matching *claim* pair, once each report is split into findings. */
+export const MEASURED_CLAIM_SIMILARITY = 0.744981
+
+/** The highest of the 129 pairs that describe genuinely different findings. */
+export const MEASURED_DISTINCT_MAX = 0.661241
+
 /**
- * Vectors that reproduce {@link MEASURED_SIMILARITY} exactly, for an offline test.
+ * Vectors that reproduce a measured cosine exactly, for an offline test.
  *
  * Two dimensions rather than the model's 1536, and that is deliberate: what is
  * under test is the **gate**, not the embedding. Storing 3,072 real floats would
- * make the fixture unreadable while asserting the same one thing — that a pair at
- * this similarity never reaches the classifier. The number they encode is real and
- * measured; the vectors are the smallest honest way to replay it.
+ * make the fixture unreadable while asserting the same one thing. The numbers
+ * they encode are real and measured; the vectors are the smallest honest way to
+ * replay them.
+ *
+ * **Being a different width from `fakeModel`'s orthogonal vectors is load-bearing
+ * rather than untidy.** `cosine` answers zero for a length mismatch — documented
+ * there, because an unusable pair should fall out of the candidate list rather
+ * than take down a poll — so every pair a test did not pin scores zero, and the
+ * only similarity in play is the one the test asked for.
  */
-export const FIRST_VECTOR: readonly number[] = [1, 0]
-export const SECOND_VECTOR: readonly number[] = [
-  MEASURED_SIMILARITY,
-  Math.sqrt(1 - MEASURED_SIMILARITY * MEASURED_SIMILARITY),
-]
+export function vectorPairAt(cosine: number): readonly [readonly number[], readonly number[]] {
+  return [
+    [1, 0],
+    [cosine, Math.sqrt(1 - cosine * cosine)],
+  ]
+}

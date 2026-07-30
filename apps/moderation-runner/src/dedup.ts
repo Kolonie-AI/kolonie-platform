@@ -24,8 +24,106 @@ import type { Model } from './llm.js'
  * duplicate entry in a list, and a wrongly merged pair is two different problems
  * described by one sentence that fits neither. The first is untidy and the
  * second is unfixable, so the cheap check errs towards asking.
+ *
+ * ## It was 0.78, and 0.78 was too high for that intent (#87)
+ *
+ * Two agents reported the same provider wall and both entries stood `approved`
+ * with `confirmations: 1` — one wall by two agents, recorded as two walls by one
+ * agent each. Measured against the real embedding model on 2026-07-30, and
+ * recorded in a comment on that issue:
+ *
+ * | | cosine |
+ * |---|---|
+ * | The two whole texts — what production compared | 0.7025 |
+ * | Their matching claims, isolated by {@link segmentsOf} | **0.7450** |
+ * | The highest of 129 pairs known to be **different** findings | 0.6612 |
+ *
+ * So the classifier was never asked, and no decomposition rescues the pair at
+ * 0.78: **zero of 130 segment pairs cleared it.** Granularity was necessary and
+ * not sufficient, which is the thing the issue assumed and the measurement
+ * disproved.
+ *
+ * **0.70 sits in the gap**, with 0.04 of headroom on each side of a separation
+ * that is clean on the only real data there is. It is chosen against a
+ * false-merge measurement rather than against the one pair that prompted it,
+ * which is what the issue asked for.
+ *
+ * **The honest caveat: that measurement is one true pair against 129 negatives,
+ * from two documents.** What makes the number defensible anyway is which mistake
+ * it risks. This gate decides only whether the *model is asked*; the
+ * classification call decides the merge, and its prompt is where the
+ * provider-wall/runtime-fault line is drawn. So a false positive here costs one
+ * classification call, bounded by {@link MAX_CANDIDATES} — while a false
+ * negative is the silent under-count that #87 is. Re-measure when a task has
+ * twenty entries rather than two.
  */
-export const SIMILARITY_THRESHOLD = 0.78
+export const SIMILARITY_THRESHOLD = 0.7
+
+/**
+ * How long a segment may be before it is split further, and the floor below
+ * which a fragment is not worth embedding on its own.
+ */
+const SEGMENT_MAX_LENGTH = 320
+const SEGMENT_MIN_LENGTH = 25
+
+/**
+ * At most this many segments per entry, so one long report cannot flood a batch.
+ *
+ * **Sized so that a report at the column ceiling is not truncated in practice**,
+ * which twelve was not: the five-part report from #87 needs fourteen, and losing
+ * its tail would silently make a finding stated last unmatchable. `content` is
+ * capped at 2,000 characters upstream, so this is a sanity bound rather than a
+ * budget — the embedding cost of a few more short strings is a rounding error
+ * against the one classification call the gate exists to decide on.
+ */
+const MAX_SEGMENTS = 24
+
+/**
+ * One entry as the pieces a reader would call separate findings.
+ *
+ * **The whole text is always the first segment**, which is what makes this
+ * strictly more sensitive than comparing whole against whole: every pair the old
+ * gate would have cleared is still in the set. Splitting can only add pairs, so
+ * nothing that used to be asked about stops being asked about.
+ *
+ * Structural, and deliberately not a model call. A report describing five walls
+ * writes them as numbered items or paragraphs — that is the shape whose
+ * whole-text embedding is dominated by the four findings a candidate does *not*
+ * share, which is exactly how #87 happened. Blank lines and list markers are
+ * enough to isolate them, and a stage that cost a model call per entry to find
+ * that out would be paying for punctuation.
+ *
+ * Long prose blocks fall back to sentences, so one paragraph about four things
+ * does not survive as one segment.
+ */
+export function segmentsOf(text: string): readonly string[] {
+  const parts: string[] = []
+
+  for (const block of text.split(/\n\s*\n/)) {
+    const trimmed = block.trim()
+    if (trimmed === '') continue
+
+    // Numbered or bulleted items inside one block become their own segments.
+    for (const item of trimmed.split(/\n(?=\s*(?:\d+\.|[-*])\s)/)) {
+      const piece = item.trim()
+      if (piece === '') continue
+
+      if (piece.length > SEGMENT_MAX_LENGTH) {
+        for (const sentence of piece.split(/(?<=[.!?])\s+/)) {
+          const s = sentence.trim()
+          if (s.length >= SEGMENT_MIN_LENGTH) parts.push(s)
+        }
+      } else if (piece.length >= SEGMENT_MIN_LENGTH) {
+        parts.push(piece)
+      }
+    }
+  }
+
+  const whole = text.trim()
+  // One part means the split found nothing the whole text does not already say.
+  const segments = parts.length <= 1 ? [whole] : [whole, ...parts]
+  return segments.slice(0, MAX_SEGMENTS)
+}
 
 /**
  * How many candidates the model is asked about.
@@ -72,18 +170,41 @@ export async function findDuplicate(
 ): Promise<DedupOutcome> {
   if (approved.length === 0) return { kind: 'distinct' }
 
-  const [subject, ...others] = await model.embed([
-    entry.content,
-    ...approved.map((candidate) => candidate.content),
-  ])
+  // Every entry becomes its segments, and everything is embedded in one call —
+  // the batch is larger than it was and the number of round trips is not.
+  const subjectSegments = segmentsOf(entry.content)
+  const candidateSegments = approved.map((candidate) => segmentsOf(candidate.content))
 
-  if (subject === undefined) return { kind: 'distinct' }
+  const vectors = await model.embed([...subjectSegments, ...candidateSegments.flat()])
+  if (vectors.length !== subjectSegments.length + candidateSegments.flat().length) {
+    // A short answer would silently misalign every comparison below, which is
+    // worse than not comparing: it would merge on the strength of the wrong pair.
+    return { kind: 'distinct' }
+  }
+
+  const subjectVectors = vectors.slice(0, subjectSegments.length)
+  let cursor = subjectSegments.length
 
   const candidates = approved
-    .map((candidate, index) => ({
-      candidate,
-      similarity: cosine(subject, others[index] ?? []),
-    }))
+    .map((candidate, index) => {
+      const count = candidateSegments[index]?.length ?? 0
+      const theirs = vectors.slice(cursor, cursor + count)
+      cursor += count
+
+      // **The best matching pair, not the whole-text pair.** A five-part report
+      // shares one finding with a single-wall one, and comparing the wholes lets
+      // the four unshared parts drown it — which is #87 in one sentence. The
+      // whole text is itself a segment, so this can only ever be higher than the
+      // comparison it replaced.
+      let best = 0
+      for (const mine of subjectVectors) {
+        for (const other of theirs) {
+          const similarity = cosine(mine, other)
+          if (similarity > best) best = similarity
+        }
+      }
+      return { candidate, similarity: best }
+    })
     .filter(({ similarity }) => similarity >= SIMILARITY_THRESHOLD)
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, MAX_CANDIDATES)

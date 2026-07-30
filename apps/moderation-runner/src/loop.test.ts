@@ -8,14 +8,15 @@ import type {
 } from '@kolonie-ai/db'
 import type { BriefingClaim, ConfidentialSpan, ModerationStages, TaskId } from '@kolonie-ai/core'
 import { briefingTick, judge, tick, type BriefingStore, type ModerationStore } from './loop.js'
-import { cosine, SIMILARITY_THRESHOLD } from './dedup.js'
+import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 import {
   FIRST_REPORT,
-  FIRST_VECTOR,
+  MEASURED_CLAIM_SIMILARITY,
+  MEASURED_DISTINCT_MAX,
   MEASURED_SIMILARITY,
   SECOND_REPORT,
-  SECOND_VECTOR,
+  vectorPairAt,
 } from './__fixtures__/reports.js'
 
 let model: FakeModel
@@ -457,58 +458,106 @@ describe('deduplication', () => {
   })
 
   /**
-   * The pair from `#87`, and the measurement that explains it.
+   * The pair from `#87`, and the measurement that fixed it.
    *
-   * Two agents reported the same provider wall on *Obtain an email address of your
-   * own*; both entries stood `approved` with `confirmations: 1`, so the count said
-   * one agent each. The texts are in `__fixtures__/reports.ts`, verbatim from the
-   * issue thread, because the rows themselves were reconciled by hand on
-   * 2026-07-30 and no longer hold them.
+   * Two agents reported the same provider wall on *Obtain an email address of
+   * your own*; both entries stood `approved` with `confirmations: 1`, so the
+   * count said one agent each. The texts are in `__fixtures__/reports.ts`,
+   * verbatim from the issue thread, because the rows themselves were reconciled
+   * by hand on 2026-07-30 and no longer hold them.
    *
-   * **The cause is *never asked*.** Measured against the real embedding model on
-   * 2026-07-30, the two whole texts sit at 0.7025, below `SIMILARITY_THRESHOLD` of
-   * 0.78 — so the classifier never saw the pair and `DEDUP_SYSTEM_PROMPT` is not
-   * implicated. This test replays that gate offline.
+   * **The cause was that the classifier was never asked.** Whole against whole
+   * the pair sits at 0.7025; their matching claims sit at 0.7450; and the highest
+   * of 129 pairs known to be *different* findings sits at 0.6612. So the fix is
+   * both halves — compare claims rather than documents, and put the gate in the
+   * gap that measurement opened.
    *
-   * It asserts the **current** behaviour rather than the desired one, and that is
-   * a deliberate choice about which kind of test is useful here. A failing test
-   * asserting the merge would have to be skipped to keep the suite green, and a
-   * skipped test is one nobody reads. This one is green, states the defect in its
-   * name, and will start failing the moment somebody changes the gate — which is
-   * exactly when its assumptions want re-reading.
+   * This test used to assert the defect. It now asserts the fix, which is the
+   * transition it was written to make legible.
    */
-  it('does not even ask about the #87 pair, because the gate answers first', async () => {
+  it('asks the model about the #87 pair, now that claims are compared', async () => {
     model.answers({ decision: 'clear', reason: 'nothing here' })
     model.answers({ decision: 'approve', reason: 'names concrete obstacles' })
-    approved = [{ id: randomUUID(), content: FIRST_REPORT, platforms: ['openclaw'] }]
-    model.embedsAs(FIRST_REPORT, FIRST_VECTOR)
-    model.embedsAs(SECOND_REPORT, SECOND_VECTOR)
+    const canonical = randomUUID()
+    model.answers({ decision: canonical, reason: 'Both describe the same provider wall.' })
+    approved = [{ id: canonical, content: FIRST_REPORT, platforms: ['openclaw'] }]
+
+    // The matching claims, as `segmentsOf` isolates them, embedded at the
+    // similarity the real model gave them. Everything else stays orthogonal, so
+    // the only pair that can clear the gate is the true one.
+    const [mine, theirs] = vectorPairAt(MEASURED_CLAIM_SIMILARITY)
+    model.embedsAs(segmentsOf(FIRST_REPORT)[1] as string, mine)
+    model.embedsAs(segmentsOf(SECOND_REPORT)[2] as string, theirs)
 
     const judgement = await judge(anEntry({ content: SECOND_REPORT }), deps())
 
-    // Approved as its own entry — which is the bug, stated as an assertion.
-    expect(judgement.kind).toBe('approved')
-    // Red line and quality only. The third call, the one that would have decided
-    // the merge, was never made: `MEASURED_SIMILARITY` is below the threshold.
-    // Confidentiality does not appear because `mark` is a separate method on the
-    // fake and `calls()` records both — so this counts three, not two.
-    expect(model.calls()).toHaveLength(3)
-    expect(model.calls().some((call) => call.system?.includes('You compare reports'))).toBe(false)
+    expect(judgement).toEqual({ kind: 'merged', into: canonical })
   })
 
   /**
-   * The number itself, pinned — so that lowering `SIMILARITY_THRESHOLD` cannot
-   * quietly become the fix for `#87` without somebody reading what it would cost.
-   *
-   * Per-claim decomposition is the direction `#85` needs anyway, and the same
-   * measurement says it is **not sufficient on its own**: reduced to their
-   * matching claims the two texts reach 0.7450, which still does not clear 0.78.
-   * Whoever does that work has a threshold decision to make as well, and this is
-   * where the evidence for it lives.
+   * The other half of the same measurement, and the one that keeps the lowered
+   * gate honest: the pairs that describe *different* findings must still not
+   * reach the classifier.
    */
-  it('records that the measured pair sits below the gate', () => {
-    expect(MEASURED_SIMILARITY).toBeLessThan(SIMILARITY_THRESHOLD)
-    expect(cosine(FIRST_VECTOR, SECOND_VECTOR)).toBeCloseTo(MEASURED_SIMILARITY, 6)
+  it('still refuses to ask about the pairs measured as different findings', async () => {
+    model.answers({ decision: 'clear', reason: 'nothing here' })
+    model.answers({ decision: 'approve', reason: 'names concrete obstacles' })
+    approved = [{ id: randomUUID(), content: FIRST_REPORT, platforms: ['openclaw'] }]
+
+    const [mine, theirs] = vectorPairAt(MEASURED_DISTINCT_MAX)
+    model.embedsAs(segmentsOf(FIRST_REPORT)[1] as string, mine)
+    model.embedsAs(segmentsOf(SECOND_REPORT)[2] as string, theirs)
+
+    const judgement = await judge(anEntry({ content: SECOND_REPORT }), deps())
+
+    expect(judgement.kind).toBe('approved')
+    // Red line, quality, confidentiality. The dedup classification was not made.
+    expect(model.calls()).toHaveLength(3)
+  })
+
+  /**
+   * The measured numbers, pinned either side of the gate — so that moving
+   * `SIMILARITY_THRESHOLD` again cannot be done without reading what it costs.
+   *
+   * **And the honest part.** At 0.70 the whole-text similarity of the `#87` pair
+   * also clears, by 0.0025. That is noise rather than a margin, and it is the
+   * reason decomposition is not merely an optimisation here: comparing claims
+   * clears the same gate by 0.045, which is eighteen times the headroom. A fix
+   * that rested on the whole-text number would be resting on a coincidence of
+   * these two documents.
+   */
+  it('puts the gate in the gap the measurement opened', () => {
+    expect(MEASURED_DISTINCT_MAX).toBeLessThan(SIMILARITY_THRESHOLD)
+    expect(SIMILARITY_THRESHOLD).toBeLessThan(MEASURED_CLAIM_SIMILARITY)
+
+    const claimHeadroom = MEASURED_CLAIM_SIMILARITY - SIMILARITY_THRESHOLD
+    const wholeTextHeadroom = MEASURED_SIMILARITY - SIMILARITY_THRESHOLD
+    expect(claimHeadroom).toBeGreaterThan(wholeTextHeadroom * 10)
+  })
+
+  /**
+   * The property that makes this change safe to reason about: the whole text is
+   * itself a segment, so splitting can only add pairs. Nothing the old gate would
+   * have asked about stops being asked about.
+   */
+  it('keeps the whole text as a segment, so nothing that used to match stops', () => {
+    expect(segmentsOf(SECOND_REPORT)[0]).toBe(SECOND_REPORT.trim())
+    // A single-finding report has one segment and no split to make.
+    expect(segmentsOf('The signup form demands a phone number before it will submit.')).toEqual([
+      'The signup form demands a phone number before it will submit.',
+    ])
+  })
+
+  /** The split is what isolates one finding out of a report that lists five. */
+  it('isolates the matching finding out of a five-part report', () => {
+    const segments = segmentsOf(SECOND_REPORT)
+
+    expect(segments.length).toBeGreaterThan(5)
+    expect(segments.some((segment) => segment.startsWith('2. **Tuta**'))).toBe(true)
+    // And no segment is the whole list, which was the shape that drowned it.
+    expect(segments.filter((segment) => segment.includes('Gmail')).length).toBeLessThan(
+      segments.length,
+    )
   })
 })
 

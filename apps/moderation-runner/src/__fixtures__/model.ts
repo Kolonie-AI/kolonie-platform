@@ -72,13 +72,26 @@ export function fakeModel(): FakeModel {
    * The default for anything a test did not pin: a vector orthogonal to
    * everything else, so unlisted texts are never candidates. A test that cares
    * about similarity says so; one that does not gets no accidental merges.
+   *
+   * **The dimension has to exceed the number of texts one call embeds**, and
+   * that stopped being obvious when dedup began comparing segments rather than
+   * whole entries. At sixteen dimensions the seventeenth unpinned text reused
+   * the first one's axis — two identical unit vectors, cosine 1.0, and a merge
+   * a test never asked for. It cost an afternoon once; the ceiling is now far
+   * above anything a fixture will reach.
    */
+  const ORTHOGONAL_DIMENSIONS = 256
   let orthogonal = 0
   const vectorFor = (text: string): readonly number[] => {
     const pinned = vectors.get(text)
     if (pinned !== undefined) return pinned
     const axis = orthogonal++
-    return Array.from({ length: 16 }, (_, i) => (i === axis % 16 ? 1 : 0))
+    if (axis >= ORTHOGONAL_DIMENSIONS) {
+      throw new Error(
+        `fakeModel ran out of orthogonal axes at ${axis}; raise ORTHOGONAL_DIMENSIONS`,
+      )
+    }
+    return Array.from({ length: ORTHOGONAL_DIMENSIONS }, (_, i) => (i === axis ? 1 : 0))
   }
 
   return {

@@ -237,7 +237,29 @@ describe('what the synthesis prompt says', () => {
     // And why it matters, so the instruction is not trimmed as verbose.
     expect(SYNTHESIS_PROMPT).toContain('presents an absence as evidence')
     // The case that produced it, named so the model recognises it.
-    expect(SYNTHESIS_PROMPT).toContain('A corpus of one successful report')
+    expect(SYNTHESIS_PROMPT).toContain('a single successful report')
+  })
+
+  /**
+   * **The over-correction, which is worse than the defect it replaced.**
+   *
+   * The first attempt at the instruction above ended *"a corpus of one
+   * successful report usually produces route claims and NOTHING ELSE"*, and the
+   * model read the emphasis rather than the sentence: given one good tip it
+   * returned **no claims at all**. A reader on that task was then told the Colony
+   * *"found nothing worth passing on"* about a task somebody had written usable
+   * advice for — strictly worse than the two filler claims it was meant to fix.
+   *
+   * So the instruction now says the same thing in both directions, and this
+   * asserts the half that is easy to lose when somebody trims the prompt for
+   * being long.
+   */
+  it('tells the model that omitting a section is not licence to write nothing', () => {
+    expect(SYNTHESIS_PROMPT).toContain('THIS IS NOT A LICENCE TO WRITE FEWER CLAIMS')
+    expect(SYNTHESIS_PROMPT).toContain('AN EMPTY LIST OF CLAIMS IS ALMOST ALWAYS WRONG')
+    // The reason, which is what makes it checkable rather than a rule to obey:
+    // every entry cleared a moderator who judged it contains an observation.
+    expect(SYNTHESIS_PROMPT).toContain('cleared a moderator')
   })
 
   /** Counts are the Colony's to attach. A model that wrote them would eventually invent one. */

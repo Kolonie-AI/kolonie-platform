@@ -172,6 +172,84 @@ describe('marking', () => {
   })
 })
 
+describe('composing', () => {
+  const aBriefing = (claims: string) => aVerdict(`{"claims":[${claims}]}`)
+
+  it('returns the claims it was given', async () => {
+    const { impl } = stubFetch(
+      aBriefing('{"section":"wall","text":"A provider asks for a phone number.","sources":["a"]}'),
+    )
+
+    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall', 'route', 'unsolved'],
+      sourceIds: ['a'],
+    })
+
+    expect(claims).toEqual([
+      { section: 'wall', text: 'A provider asks for a phone number.', sources: ['a'] },
+    ])
+  })
+
+  /**
+   * **A malformed claim must not cost the good ones beside it.**
+   *
+   * This threw on the first claim missing a field, discarding the whole reply —
+   * and at `temperature: 0` a reply malformed once is malformed every time, so
+   * the task retried every ten minutes forever instead of publishing what the
+   * model got right. Found in production, twice, before it was understood.
+   */
+  it('drops a malformed claim and keeps the rest', async () => {
+    const { impl } = stubFetch(
+      aBriefing(
+        '{"section":"wall","text":"A real wall.","sources":["a"]},' +
+          '{"section":"wall"},' +
+          '{"text":"No section on this one.","sources":["a"]},' +
+          '{"section":"invented","text":"Bad section.","sources":["a"]},' +
+          '{"section":"route","text":"A real route.","sources":["a"]}',
+      ),
+    )
+
+    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall', 'route', 'unsolved'],
+      sourceIds: ['a'],
+    })
+
+    expect(claims.map((claim) => claim.text)).toEqual(['A real wall.', 'A real route.'])
+  })
+
+  /** Missing sources is survivable — `synthesise` drops a claim that cites nothing. */
+  it('keeps a claim whose sources are missing, with none cited', async () => {
+    const { impl } = stubFetch(aBriefing('{"section":"wall","text":"No sources given."}'))
+
+    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall'],
+      sourceIds: ['a'],
+    })
+
+    expect(claims).toEqual([{ section: 'wall', text: 'No sources given.', sources: [] }])
+  })
+
+  /** A reply with no claims array at all is unusable, and that still throws. */
+  it('refuses a reply that carries no claims array', async () => {
+    const { impl } = stubFetch(aVerdict('{"notclaims":[]}'))
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).compose({
+        system: 's',
+        user: 'u',
+        sections: ['wall'],
+        sourceIds: ['a'],
+      }),
+    ).rejects.toThrow(/without a claims array/)
+  })
+})
+
 describe('embedding', () => {
   it('returns one vector per input, in the order they were sent', async () => {
     const { impl } = stubFetch({

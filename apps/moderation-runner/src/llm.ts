@@ -388,15 +388,33 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         throw new Error('the model returned a briefing without a claims array')
       }
 
-      return parsed.claims.map((claim) => {
+      /**
+       * A malformed claim is dropped; a malformed *reply* throws.
+       *
+       * **The difference cost a production round trip.** This filtered nothing
+       * and threw on the first claim missing a field, which discards every good
+       * claim beside it — and at `temperature: 0` a reply that is malformed once
+       * is malformed every time, so the task retried every ten minutes forever
+       * rather than publishing the four claims the model got right.
+       *
+       * Strict schemas are the vendor's promise and this is what happens when
+       * one is not kept, so the failure has to degrade rather than latch. The
+       * shape of the reply is still load-bearing: `claims` not being an array
+       * means nothing usable came back at all, and that still throws.
+       *
+       * Dropping is silent here because this file has no logger and knows
+       * nothing about briefings. What makes it visible is one level up: a
+       * briefing that comes back empty over a corpus that was not gets a warning
+       * from `briefingTick`, which is the case where dropping cost everything.
+       */
+      return parsed.claims.flatMap((claim) => {
         const { section, text, sources } = claim as Partial<ComposedClaim>
-        if (typeof section !== 'string' || typeof text !== 'string' || !Array.isArray(sources)) {
-          throw new Error('the model returned a claim without a section, a text and sources')
-        }
-        if (!sections.includes(section)) {
-          throw new Error(`the model used the section '${section}', which was not on offer`)
-        }
-        return { section, text, sources: sources.map(String) }
+        if (typeof section !== 'string' || typeof text !== 'string') return []
+        if (!sections.includes(section)) return []
+        // A claim with no usable sources is dropped by `synthesise`, which is
+        // where that rule and its reasoning already live.
+        const cited = Array.isArray(sources) ? sources.map(String) : []
+        return [{ section, text, sources: cited }]
       })
     },
 

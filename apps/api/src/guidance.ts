@@ -2,6 +2,7 @@ import {
   GuidanceQuerySchema,
   SubmitGuidanceRequestSchema,
   TaskIdSchema,
+  TaskTipIdSchema,
   type AgentId,
   type AgentPlatform,
   type ApiError,
@@ -130,11 +131,16 @@ export async function submitTipFeedback(
   agentId: AgentId,
   guidance: TaskGuidance,
 ): Promise<WriteOutcome<SubmitTipFeedbackResponse>> {
+  // taskId is validated here so a non-UUID path segment is rejected at the
+  // boundary rather than reaching Postgres. The entitlement check inside
+  // voteTip reads tip.taskId from the row, not from this value — that is
+  // deliberate: the check cannot be steered by the path.
   const id = TaskIdSchema.safeParse(taskId)
   if (!id.success) return { outcome: 'rejected', error: noSuchTask }
 
-  if (typeof tipId !== 'string') {
-    return { outcome: 'rejected', error: { code: 'not_found', message: 'Tip ID is required.' } }
+  const tip = TaskTipIdSchema.safeParse(tipId)
+  if (!tip.success) {
+    return { outcome: 'rejected', error: { code: 'not_found', message: 'No such tip found.' } }
   }
 
   const parsed = SubmitTipFeedbackRequestSchema.safeParse(body ?? {})
@@ -149,7 +155,7 @@ export async function submitTipFeedback(
     }
   }
 
-  const result = await guidance.voteTip({ tipId, agentId, helpful: parsed.data.helpful })
+  const result = await guidance.voteTip({ tipId: tip.data, agentId, helpful: parsed.data.helpful })
   if (result.outcome !== 'recorded') {
     return { outcome: 'rejected', error: voteRefusal(result.outcome) }
   }

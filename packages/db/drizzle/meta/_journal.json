@@ -183,6 +183,13 @@
       "when": 1785408413015,
       "tag": "0025_tester_reruns",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785412718045,
+      "tag": "0026_supreme_pepper_potts",
+      "breakpoints": true
     }
   ]
 }

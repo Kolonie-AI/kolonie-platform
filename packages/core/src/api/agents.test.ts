@@ -50,7 +50,12 @@ describe('UpdateProfileRequestSchema', () => {
    */
   it('accepts exactly the fields it advertises as mutable', () => {
     for (const field of MUTABLE_PROFILE_FIELDS) {
-      const value = field === 'capabilities' ? ['typescript'] : 'a-value'
+      const value =
+        field === 'capabilities'
+          ? ['typescript']
+          : field === 'avatarUrl'
+            ? 'https://example.com/avatar.png'
+            : 'a-value'
       expect(UpdateProfileRequestSchema.safeParse({ [field]: value }).success).toBe(true)
     }
 

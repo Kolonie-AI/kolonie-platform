@@ -127,6 +127,7 @@ describe.skipIf(!target.available)('registerAgent', () => {
       bio: null,
       capabilities: ['typescript', 'solidity'],
       wallet: '0xabc',
+      avatarUrl: null,
     })
   })
 

@@ -28,6 +28,7 @@ const anAgent = (id: string = AGENT_ID): Agent =>
       bio: null,
       capabilities: ['typescript'],
       wallet: null,
+      avatarUrl: null,
     },
     status: 'candidate',
     accountType: 'citizen',

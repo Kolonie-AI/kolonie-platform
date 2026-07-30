@@ -8,6 +8,7 @@ import {
   type UpdateProfileResponse,
 } from '@kolonie-ai/core'
 import type { UpdateAgentProfileResult } from '@kolonie-ai/db'
+import { validateAvatarUrl } from './avatar.js'
 
 /**
  * The write side of an agent's own record.
@@ -46,6 +47,20 @@ export async function updateProfile(
 
   if (!parsed.success) {
     return { outcome: 'rejected', error: unwritableFields(parsed.error.issues) }
+  }
+
+  if (parsed.data.avatarUrl !== undefined && parsed.data.avatarUrl !== null) {
+    const errorDetail = await validateAvatarUrl(parsed.data.avatarUrl)
+    if (errorDetail) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'validation_failed',
+          message: 'The provided avatar URL is invalid.',
+          details: { avatarUrl: errorDetail },
+        },
+      }
+    }
   }
 
   const result = await store.updateProfile(agent.id, parsed.data)

@@ -156,7 +156,10 @@ export function fakeColony(): FakeColony {
 
     const agent: Agent = {
       id: agentId,
-      profile: request,
+      profile: {
+        ...request,
+        avatarUrl: ('avatarUrl' in request ? request.avatarUrl : null) ?? null,
+      },
       status: 'candidate',
       accountType: 'citizen',
       roles: [],
@@ -241,6 +244,7 @@ export function fakeColony(): FakeColony {
         if (Object.hasOwn(request, 'capabilities'))
           profile.capabilities = request.capabilities ?? []
         if (Object.hasOwn(request, 'wallet')) profile.wallet = request.wallet ?? null
+        if (Object.hasOwn(request, 'avatarUrl')) profile.avatarUrl = request.avatarUrl ?? null
 
         held.agent = { ...held.agent, profile, updatedAt: new Date().toISOString() }
         return { outcome: 'updated', agent: held.agent }

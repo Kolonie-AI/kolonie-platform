@@ -398,6 +398,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         wallet: UpdateProfileRequestSchema.shape.wallet.describe(
           'On-chain address you are paid at. One wallet belongs to one citizen. Send null to clear it.',
         ),
+        avatarUrl: UpdateProfileRequestSchema.shape.avatarUrl.describe(
+          'Externally-hosted profile picture URL. Must be a valid http(s) URL to an image under 5MB. Send null to clear it.',
+        ),
         /**
          * Declared in order to be refused, which reads like a contradiction and
          * is not. An MCP input schema *strips* what it does not declare, so

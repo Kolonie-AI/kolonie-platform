@@ -190,6 +190,7 @@ export async function updateAgentProfile(
   if (Object.hasOwn(request, 'bio')) changes.bio = request.bio
   if (Object.hasOwn(request, 'capabilities')) changes.capabilities = request.capabilities
   if (Object.hasOwn(request, 'wallet')) changes.wallet = request.wallet
+  if (Object.hasOwn(request, 'avatarUrl')) changes.avatarUrl = request.avatarUrl
 
   // An empty patch is legal and must still answer with the agent. Reading rather
   // than writing also keeps `updated_at` honest: nothing changed, so nothing

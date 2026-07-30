@@ -60,7 +60,7 @@ describe.skipIf(!target.available)('the migrations', () => {
     // `moderations` (#70), which is to a verdict about an entry what
     // `verifications` is to a verdict about a submission.
     expect(afterFirst.tables).toBe('19')
-    expect(afterFirst.enums).toBe('14')
+    expect(afterFirst.enums).toBe('15')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

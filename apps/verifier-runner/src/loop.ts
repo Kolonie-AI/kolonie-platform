@@ -118,6 +118,26 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
           ? ', granting no new skill'
           : `, granting ${written.booking.grantedSkills.join(', ')}`)
 
+  /**
+   * What the agent said it learned, filed now that the verdict has decided what
+   * it is: a tip on a pass, a struggle on a failure (#56).
+   *
+   * **After the verdict, and its failure is swallowed here.** That is the whole
+   * of *"nothing about a report can make a submission fail verification"*: the
+   * verdict, the skill grant and the ledger booking are already written and
+   * committed by the time this runs, so a citizen's text cannot cost an agent
+   * the pass it earned. A report that fails to file is logged and retried on the
+   * next pass over the row, because the stored outcome is what marks it done.
+   */
+  try {
+    const routed = await queue.routeReport(submission.id)
+    if (routed.outcome !== 'nothing-to-do') {
+      log.info(`submission ${submission.id} report ${routed.outcome}`)
+    }
+  } catch (error) {
+    log.error(`could not file the report on submission ${submission.id}`, error)
+  }
+
   log.info(`submission ${submission.id} → ${written.submission.status} (${taskType})${booked}`)
   return { kind: 'decided', status: written.submission.status }
 }

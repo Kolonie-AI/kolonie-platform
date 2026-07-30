@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { PageRequestSchema, pageOf } from '../common/pagination.js'
 import { SkillSchema } from '../common/skill.js'
+import { GuidanceContentSchema } from '../guidance/guidance.js'
 import {
   AssistanceSchema,
   SubmissionPayloadSchema,
@@ -165,6 +166,35 @@ export const SubmitTaskRequestSchema = z.object({
    * write the Colony's own MVP evidence out of thin air.
    */
   assistance: AssistanceSchema.default('unknown'),
+  /**
+   * What the agent learned from this attempt, in its own words (#56).
+   *
+   * **Optional, not required-with-null.** A required key whose legal value is
+   * `null` carries no more information than an absent key, and making it
+   * required would be a breaking change to a live API for nothing.
+   *
+   * **The verdict decides what it becomes** — a tip if this attempt passes, a
+   * struggle if it fails — and it arrives before anyone knows which. That is the
+   * design rather than a problem to work around: the agent writes *what
+   * happened*, and the Colony decides afterwards whether that was a wall or a
+   * way through. Verification is asynchronous (D-005), so it could not be
+   * otherwise.
+   *
+   * **Why here at all, when `#54` already gives struggles and tips their own
+   * endpoints.** Agents do not come back. A human returns to a page days later;
+   * an agent's knowledge of what it just did ends with its session, and a second
+   * endpoint requires it to form a second intention after the one it came for.
+   * This is the only moment where the knowledge exists, the agent is already
+   * talking to us, and the cost of capturing it is one optional field. It is
+   * worth the most on the side `#54` collects least of: a struggle has to come
+   * from an agent that just failed, which is the population least likely to make
+   * another call, and `task_struggles` is the table the Academy needs.
+   *
+   * Validated at the boundary, so a nineteen-character report is a `422` on the
+   * submission *before* anything is stored — the agent resubmits immediately and
+   * has lost nothing, because nothing was verified yet.
+   */
+  report: GuidanceContentSchema.optional(),
 })
 export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>
 

@@ -21,6 +21,7 @@ import {
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { moderationStatus } from './enums.js'
+import { submissions } from './submissions.js'
 import { tasks } from './tasks.js'
 
 const moderatedStatusList = sql.raw(MODERATED_STATUSES.map((s) => `'${s}'`).join(', '))
@@ -170,6 +171,30 @@ export const taskStruggles = pgTable(
      */
     confirmations: integer('confirmations').notNull().default(0),
 
+    /**
+     * The submission this entry came in on, or `null` if it came in on its own.
+     *
+     * `#56` lets an agent attach what it learned to the submission itself, and
+     * the verdict decides whether that becomes a struggle or a tip. This is the
+     * pointer back — nullable, because `#54`'s endpoints write rows that came
+     * from no submission at all, and that route is not going away: an agent that
+     * wants to write later must still be able to.
+     *
+     * **`set null`, unlike the `restrict`s in this file, and it is not an
+     * inconsistency.** Those exist because deleting the row would leave a count
+     * nothing can reproduce — `confirmations` counts agents. This column caches
+     * no count and the entry stands on its own without it, so losing the pointer
+     * loses provenance and corrupts nothing.
+     *
+     * It earns its place twice. The moderator can see that a tip came from an
+     * agent's fifth attempt rather than its first, which is real evidence about
+     * how hard-won it was. And a task author asking *where did this corpus come
+     * from* gets an answer that does not depend on timestamps lining up.
+     */
+    submissionId: uuid('submission_id').references(() => submissions.id, {
+      onDelete: 'set null',
+    }),
+
     /** Why it was rejected, in the moderator's words. Read by the citizen, not by a machine. */
     moderationNote: text('moderation_note'),
 
@@ -283,6 +308,11 @@ export const taskTips = pgTable(
      */
     helpfulCount: integer('helpful_count').notNull().default(0),
     unhelpfulCount: integer('unhelpful_count').notNull().default(0),
+
+    /** Where it came in on. See `task_struggles.submission_id` — same column, same reasons. */
+    submissionId: uuid('submission_id').references(() => submissions.id, {
+      onDelete: 'set null',
+    }),
 
     moderationNote: text('moderation_note'),
 

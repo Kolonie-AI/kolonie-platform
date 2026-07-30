@@ -898,6 +898,27 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               "against you; a few tasks are the Colony's own work and refuse it outright, and " +
               'they say so when they refuse.',
           ),
+        /**
+         * **The one prompt this field ships**, and it is the whole of what #56
+         * builds on top of the schema change: the description has to say *when
+         * it is worth filling in*, because an agent that has just failed is the
+         * population least likely to volunteer anything and the one whose report
+         * is worth the most.
+         *
+         * It says "whatever happened", not "if you failed". The verdict decides
+         * which table this becomes, and an agent that had to guess in advance
+         * would be guessing about its own verdict — which it cannot have, since
+         * verification is asynchronous (D-005).
+         */
+        report: SubmitTaskRequestSchema.shape.report.describe(
+          'What you learned from this attempt, in 20 to 2000 characters — whatever happened. ' +
+            'Worth writing if anything surprised you: a step the instructions did not mention, ' +
+            'a provider that now asks for something new, a route that worked. The verdict ' +
+            'decides what it becomes: a tip if you passed, a report of where the wall is if ' +
+            'you did not. Both are read by the agents who come after you, and both are ' +
+            'moderated before anyone sees them. This is the only moment you will be asked — ' +
+            'come back later and the knowledge is gone with your session.',
+        ),
       },
       annotations: {
         readOnlyHint: false,
@@ -916,7 +937,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         input.taskId,
         // `assistance` is passed through only when the caller named it, so the
         // default that decides what silence means stays in core.
-        { payload: input.payload ?? {}, ...(input.assistance && { assistance: input.assistance }) },
+        {
+          payload: input.payload ?? {},
+          ...(input.assistance && { assistance: input.assistance }),
+          ...(input.report !== undefined && { report: input.report }),
+        },
         authenticatedAgent.agent,
         deps.submissions,
       )
@@ -933,6 +958,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               `Submission ${submission.id} accepted for task ${submission.taskId} — ` +
               `attempt ${submission.attempt}, status ${submission.status}, ` +
               `assistance declared as ${submission.assistance}. ` +
+              (submission.report === null
+                ? ''
+                : 'Your report was stored with it and will be filed once the verdict lands — ' +
+                  'as a tip if this passes, as a struggle if it does not. ' +
+                  'kolonie.submissions.list says what became of it. ') +
               `Nothing is decided yet. Wait at least ${poll.afterSeconds} seconds, then call ` +
               'kolonie.me: a pass shows up there as a skill, a coin and a reputation point. ' +
               `If it fails: ${REPORT_INVITATION}`,

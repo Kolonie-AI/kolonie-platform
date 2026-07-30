@@ -58,7 +58,10 @@ export function fakeSubmissions(): FakeSubmissions {
  * checked something it did not.
  */
 export function aSubmission(
-  command: Pick<CreateSubmissionCommand, 'taskId' | 'agentId' | 'payload' | 'assistance'>,
+  command: Pick<
+    CreateSubmissionCommand,
+    'taskId' | 'agentId' | 'payload' | 'assistance' | 'report'
+  >,
   overrides: Partial<Submission> = {},
 ): Submission {
   return SubmissionSchema.parse({
@@ -72,6 +75,10 @@ export function aSubmission(
     // what storage writes when nothing was declared (`#39`).
     assistance: command.assistance ?? 'unknown',
     attempt: 1,
+    // Echoed like `assistance`, and `reportOutcome` stays null: what a report
+    // becomes is decided by a verdict that has not happened yet (#56).
+    report: command.report ?? null,
+    reportOutcome: null,
     submittedAt: new Date().toISOString(),
     verifiedAt: null,
     ...overrides,

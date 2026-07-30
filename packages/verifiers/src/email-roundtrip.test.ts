@@ -36,6 +36,8 @@ const aSubmission = (payload: Record<string, unknown> = {}): Submission =>
     status: 'verifying',
     assistance: 'unknown',
     attempt: 1,
+    report: null,
+    reportOutcome: null,
     submittedAt: '2026-07-28T10:00:00.000Z',
     verifiedAt: null,
   })

@@ -4,14 +4,22 @@ import {
   expireOverdueSubmissions,
   recordVerdict,
   releaseSubmission,
+  routeSubmissionReport,
   type ClaimedSubmission,
   type Database,
   type ExpiredSubmission,
   type RecordVerdictCommand,
   type RecordVerdictResult,
+  type ReportRoutingResult,
 } from '@kolonie-ai/db'
 
-export type { ClaimedSubmission, ExpiredSubmission, RecordVerdictCommand, RecordVerdictResult }
+export type {
+  ClaimedSubmission,
+  ExpiredSubmission,
+  RecordVerdictCommand,
+  RecordVerdictResult,
+  ReportRoutingResult,
+}
 
 /**
  * Everything the loop needs from storage, and nothing else.
@@ -37,6 +45,21 @@ export interface SubmissionQueue {
   claimNext(taskTypes: readonly TaskType[]): Promise<ClaimedSubmission | undefined>
   /** Write a verdict and its evidence, atomically. */
   record(command: RecordVerdictCommand): Promise<RecordVerdictResult>
+  /**
+   * File whatever the agent attached to this submission, now the verdict is in.
+   *
+   * On the queue rather than folded into `record`, and that placement is the
+   * acceptance criterion *"nothing here can make a submission fail
+   * verification"* expressed as a shape rather than as a promise. A write inside
+   * `recordVerdict`'s transaction could roll back a verdict, a skill grant and a
+   * ledger booking because a citizen wrote something the moderator will read
+   * next week.
+   *
+   * It is idempotent: the stored outcome is what says it has already run, so a
+   * runner that dies between the two calls files the report on the retry rather
+   * than twice or never.
+   */
+  routeReport(submissionId: SubmissionId): Promise<ReportRoutingResult>
   /** Return a claimed submission to the queue, undecided. */
   release(submissionId: SubmissionId): Promise<boolean>
   /** Mark everything past its deadline, including rows a dead runner abandoned. */
@@ -48,6 +71,7 @@ export function databaseQueue(db: Database): SubmissionQueue {
   return {
     claimNext: (taskTypes) => claimNextSubmission(db, taskTypes),
     record: (command) => recordVerdict(db, command),
+    routeReport: (submissionId) => routeSubmissionReport(db, submissionId),
     release: (submissionId) => releaseSubmission(db, submissionId),
     expireOverdue: () => expireOverdueSubmissions(db),
   }

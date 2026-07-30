@@ -148,6 +148,13 @@
       "when": 1785394009782,
       "tag": "0020_perfect_captain_flint",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785396512157,
+      "tag": "0021_curvy_the_hunter",
+      "breakpoints": true
     }
   ]
 }

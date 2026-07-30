@@ -53,6 +53,8 @@ describe('SubmitTaskResponseSchema', () => {
     status: 'pending' as const,
     assistance: 'unknown' as const,
     attempt: 1,
+    report: null,
+    reportOutcome: null,
     submittedAt: new Date().toISOString(),
     verifiedAt: null,
   })

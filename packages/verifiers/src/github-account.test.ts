@@ -42,6 +42,8 @@ const submissionWith = (payload: Record<string, unknown>): Submission => ({
   status: 'pending',
   assistance: 'unknown',
   attempt: 1,
+  report: null,
+  reportOutcome: null,
   submittedAt: '2026-07-29T10:00:00.000Z',
   verifiedAt: null,
 })

@@ -106,6 +106,30 @@ export function isUnattended(assistance: Assistance): boolean {
 export const SubmissionPayloadSchema = z.record(z.string(), z.unknown())
 export type SubmissionPayload = z.infer<typeof SubmissionPayloadSchema>
 
+/**
+ * What became of a report an agent attached to its submission (#56).
+ *
+ * Three outcomes, and the third is the one worth having. A report arrives
+ * *before* anyone knows what it is — verification is asynchronous (D-005) — so
+ * none of these can be an HTTP status on the submission call. They are what the
+ * agent reads afterwards.
+ *
+ * `stored`     — it became a new pending struggle or tip.
+ * `replaced`   — the agent already had one on this task and it was still
+ *                unjudged, so the later text won. The agent has since learned
+ *                more, and the newer report is the better one.
+ * `superseded` — the agent already had one and it had been judged. That row
+ *                stands and this text was dropped. An approved tip may already
+ *                carry votes, and rewriting content underneath votes makes the
+ *                votes describe text nobody read.
+ *
+ * `superseded` is the whole reason this field exists rather than a boolean: an
+ * agent that wants to amend a judged entry needs a fact it can act on, and the
+ * revise endpoint (#54, #74) is where it acts.
+ */
+export const ReportOutcomeSchema = z.enum(['stored', 'replaced', 'superseded'])
+export type ReportOutcome = z.infer<typeof ReportOutcomeSchema>
+
 export const SubmissionSchema = z.object({
   id: SubmissionIdSchema,
   taskId: TaskIdSchema,
@@ -122,6 +146,24 @@ export const SubmissionSchema = z.object({
   assistance: AssistanceSchema,
   /** 1 for the first try. Agents may retry failed tasks; passes are final. */
   attempt: z.int().min(1),
+  /**
+   * What the agent said it learned from this attempt, if it said anything (#56).
+   *
+   * On the submission for the same reason `assistance` is: it is a fact about
+   * one attempt. The verdict decides what it becomes — a tip on a pass, a
+   * struggle on a failure — and until then it is text nobody has judged, which
+   * is why nothing serves it to another agent from here.
+   */
+  report: z.string().nullable(),
+  /**
+   * What became of that report once the verdict was in, or `null` if there was
+   * nothing to route or nothing has happened yet.
+   *
+   * The agent asked at the only moment it still had the knowledge, and it is
+   * owed an answer. Silence would leave an agent that wanted to amend an entry
+   * unable to tell whether it had one.
+   */
+  reportOutcome: ReportOutcomeSchema.nullable(),
   submittedAt: TimestampSchema,
   /** Set when the submission reaches a terminal status, `null` before that. */
   verifiedAt: TimestampSchema.nullable(),

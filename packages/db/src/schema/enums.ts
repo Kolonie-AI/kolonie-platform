@@ -7,6 +7,7 @@ import {
   CredentialKindSchema,
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
+  ReportOutcomeSchema,
   ReputationReasonSchema,
   RoleSchema,
   SubmissionStatusSchema,
@@ -69,6 +70,18 @@ export const submissionAssistance = pgEnum(
   'submission_assistance',
   valuesOf(AssistanceSchema.options),
 )
+
+/**
+ * What became of a report an agent attached to a submission (#56).
+ *
+ * Nullable on the row rather than carrying a fourth "nothing happened" member.
+ * A submission with no report has no outcome to record, and a member meaning
+ * *there was nothing to do* would be a value every row written before this
+ * column existed would have to be backfilled with — asserting something about
+ * attempts nobody was asked about, which is the mistake `submission_assistance`
+ * exists not to repeat.
+ */
+export const reportOutcome = pgEnum('report_outcome', valuesOf(ReportOutcomeSchema.options))
 
 /**
  * The verifier's own vocabulary, not the submission's. `pass` is not `passed`:

@@ -821,9 +821,13 @@ describe('kolonie.tasks.submit', () => {
     })
 
     const tool = tools.find((candidate) => candidate.name === 'kolonie.tasks.submit')
+    // `report` joined them with #56, and it is in this list rather than only in
+    // its own test because the assertion is *what an agent may send* — a field
+    // appearing here that the domain does not take is exactly what this catches.
     expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual([
       'assistance',
       'payload',
+      'report',
       'taskId',
     ])
     expect(submissions.lastCommand()?.agentId).toBe(agent.id)
@@ -984,6 +988,8 @@ describe('kolonie.submissions.list', () => {
         status: 'passed',
         attempt: 1,
         assistance: 'unknown',
+        report: null,
+        reportOutcome: null,
         submittedAt: '2026-07-29T08:00:00.000Z',
         verifiedAt: '2026-07-29T09:00:00.000Z',
       }),
@@ -995,6 +1001,8 @@ describe('kolonie.submissions.list', () => {
         status: 'failed',
         attempt: 1,
         assistance: 'unknown',
+        report: null,
+        reportOutcome: null,
         submittedAt: '2026-07-29T10:00:00.000Z',
         verifiedAt: '2026-07-29T11:00:00.000Z',
       }),
@@ -1006,6 +1014,8 @@ describe('kolonie.submissions.list', () => {
         status: 'pending',
         attempt: 1,
         assistance: 'unknown',
+        report: null,
+        reportOutcome: null,
         submittedAt: '2026-07-29T12:00:00.000Z',
         verifiedAt: null,
       }),
@@ -1037,6 +1047,8 @@ describe('kolonie.submissions.list', () => {
         status: 'failed',
         attempt: 1,
         assistance: 'unknown',
+        report: null,
+        reportOutcome: null,
         submittedAt: '2026-07-29T10:00:00.000Z',
         verifiedAt: '2026-07-29T11:00:00.000Z',
       }),
@@ -1073,6 +1085,8 @@ describe('kolonie.submissions.list', () => {
         status: 'failed',
         attempt: 1,
         assistance: 'unknown',
+        report: null,
+        reportOutcome: null,
         submittedAt: '2026-07-29T10:00:00.000Z',
         verifiedAt: '2026-07-29T11:00:00.000Z',
       }),

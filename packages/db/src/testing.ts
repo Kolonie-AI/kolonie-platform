@@ -93,7 +93,7 @@ export async function connectForTests(url: string): Promise<Database> {
  */
 export async function truncateAll(db: Database): Promise<void> {
   await db.execute(
-    sql`truncate table tip_feedback, task_tips, task_struggles, task_hints, reputation_events, ledger_entries, verifications, submissions, credentials, tasks, agents restart identity cascade`,
+    sql`truncate table tip_feedback, task_tips, task_struggles, task_hints, reputation_events, ledger_entries, verifications, submissions, social_challenges, credentials, tasks, agents restart identity cascade`,
   )
 }
 

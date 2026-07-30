@@ -16,6 +16,7 @@ import {
   type OwnStruggle,
   type OwnTip,
   type RevisionRefusal,
+  type SubmissionId,
   type TaskId,
   type TaskStruggle,
   type TaskTip,
@@ -1010,4 +1011,159 @@ export interface ModerationRecord {
   readonly duplicateOf: string | null
   readonly contentSha256: string
   readonly createdAt: string
+}
+
+/**
+ * File what an agent attached to a submission, now that the verdict is in (#56).
+ *
+ * The verdict decides the table, which is what makes this path satisfy `#54`'s
+ * access rules **by construction rather than by checking them**: a struggle
+ * needs an attempt and a tip needs a pass, and the verdict is exactly that fact.
+ * `#54`'s endpoints keep their explicit checks — they are a second door into the
+ * same tables, and an agent that wants to write later must still be able to.
+ *
+ * | Verdict  | Becomes     | Table             |
+ * |----------|-------------|-------------------|
+ * | `passed` | a tip       | `task_tips`       |
+ * | `failed` | a struggle  | `task_struggles`  |
+ *
+ * **The rewrite rule, and it is not either endpoint's rule.**
+ *
+ * - The existing row is **`pending`** → replace its content. The later report is
+ *   the better one; the agent has since learned more.
+ * - The existing row is **judged** → keep it and drop the new text. An approved
+ *   row may already carry votes, and rewriting content underneath votes makes
+ *   the votes describe text nobody read.
+ *
+ * That is stricter than `reviseStruggle`, which allows revising an approved
+ * struggle that nobody else has confirmed, and looser than `fileTip`, which
+ * refuses every second write. **Deliberately, and the difference is what the
+ * caller meant.** Through the endpoint an agent has formed a second intention:
+ * it decided to go back and correct something. Here it has done nothing of the
+ * kind — it submitted an attempt and mentioned what happened, and a by-product
+ * must not silently overwrite a judged entry the agent is not thinking about.
+ *
+ * **A struggle and a tip from the same agent on the same task may coexist**, and
+ * an implementation that treated that as a conflict would be wrong. An agent
+ * that failed twice, wrote what blocked it, then got through and wrote how, has
+ * produced two true rows: the wall, and the way past it. Different tables,
+ * different unique indexes, no interaction.
+ *
+ * **The entitlement is not re-checked, and one gap in that is worth naming.**
+ * `fileStruggle` requires `profile`, on the grounds that a published report
+ * should have a findable author. An agent can reach a `failed` verdict on
+ * `profile-complete` without holding it, so this path can write a struggle from
+ * an agent that the endpoint would have refused. That is accepted rather than
+ * overlooked: the author is a registered agent with a submission behind it,
+ * which is findable in the sense the rule was written for, and it is the agent
+ * that just failed the Academy's own root — the single report the Colony would
+ * least like to lose.
+ *
+ * **Nothing here may fail a verdict.** It runs after the verdict is recorded and
+ * its own failure is the caller's to swallow; see the runner, which is where the
+ * call sits for exactly that reason.
+ */
+export type ReportRoutingResult =
+  | { readonly outcome: 'stored' }
+  | { readonly outcome: 'replaced' }
+  | { readonly outcome: 'superseded' }
+  /** There was no report, or the verdict was not one of the two terminal ones. */
+  | { readonly outcome: 'nothing-to-do' }
+
+export async function routeSubmissionReport(
+  db: Database,
+  submissionId: SubmissionId,
+): Promise<ReportRoutingResult> {
+  const [row] = await db
+    .select({
+      taskId: submissions.taskId,
+      agentId: submissions.agentId,
+      report: submissions.report,
+      status: submissions.status,
+      outcome: submissions.reportOutcome,
+    })
+    .from(submissions)
+    .where(eq(submissions.id, submissionId))
+    .limit(1)
+
+  if (row === undefined || row.report === null) return { outcome: 'nothing-to-do' }
+
+  /**
+   * Already routed. Re-reading a submission whose report was filed must not file
+   * it a second time — the runner is at-least-once by construction, since a
+   * process that dies between recording a verdict and this call leaves the row
+   * to the timeout sweep. Making the check the stored outcome rather than a
+   * timestamp keeps one fact in one place.
+   */
+  if (row.outcome !== null) return { outcome: 'nothing-to-do' }
+
+  const table =
+    row.status === 'passed' ? taskTips : row.status === 'failed' ? taskStruggles : undefined
+
+  // `timeout` and the two open statuses. A submission that ran out of time
+  // carries no evidence either way, and filing its report as a struggle would
+  // put the Colony's own slowness in the corpus as if it were the task's.
+  if (table === undefined) return { outcome: 'nothing-to-do' }
+
+  const inserted = await db
+    .insert(table)
+    .values({
+      taskId: row.taskId,
+      agentId: row.agentId,
+      content: row.report,
+      submissionId,
+    })
+    .onConflictDoNothing()
+    .returning({ id: table.id })
+
+  if (inserted[0] !== undefined) {
+    await markReportOutcome(db, submissionId, 'stored')
+    return { outcome: 'stored' }
+  }
+
+  /**
+   * One conditional statement, not a read then a write. Whether the existing row
+   * is still unjudged can change while this is deciding — the moderation runner
+   * is a separate process — and a `select` followed by an `update` is a window
+   * in which a verdict lands and this overwrites it anyway. The `where` clause
+   * is the check, so there is no window.
+   *
+   * `moderated_at` and `moderation_note` are already null on a pending row;
+   * nothing is reset here because nothing has been set.
+   */
+  const replaced = await db
+    .update(table)
+    .set({ content: row.report, submissionId })
+    .where(
+      and(
+        eq(table.taskId, row.taskId),
+        eq(table.agentId, row.agentId),
+        eq(table.status, 'pending'),
+      ),
+    )
+    .returning({ id: table.id })
+
+  const outcome = replaced[0] === undefined ? 'superseded' : 'replaced'
+  await markReportOutcome(db, submissionId, outcome)
+  return { outcome }
+}
+
+/**
+ * Record what became of the report, on the submission the agent can read back.
+ *
+ * Its own statement rather than part of the write above, because the two are
+ * about different rows and the failure that matters is the other way round: a
+ * filed entry with no outcome recorded is a report the agent cannot find, which
+ * the next routing pass fixes by re-reading; an outcome recorded against an
+ * entry that was never filed is a lie that nothing fixes.
+ */
+async function markReportOutcome(
+  db: Database,
+  submissionId: SubmissionId,
+  outcome: 'stored' | 'replaced' | 'superseded',
+): Promise<void> {
+  await db
+    .update(submissions)
+    .set({ reportOutcome: outcome })
+    .where(eq(submissions.id, submissionId))
 }

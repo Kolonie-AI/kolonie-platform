@@ -101,8 +101,16 @@ export const GUIDANCE_CONTENT_MIN_LENGTH = 20
  */
 export const GUIDANCE_CONTENT_MAX_LENGTH = 2000
 
-/** The shared shape of anything a citizen writes about a task. */
-const GuidanceContentSchema = z
+/**
+ * The shared shape of anything a citizen writes about a task.
+ *
+ * Exported because `SubmitTaskRequestSchema` reuses it: a report carried on a
+ * submission becomes a struggle or a tip depending on the verdict (`#56`), so it
+ * has to be the same field with the same bounds. A second definition of "what a
+ * citizen may write" would be one that drifts, and it would drift into the
+ * refusal happening after the row was stored rather than at the boundary.
+ */
+export const GuidanceContentSchema = z
   .string()
   .trim()
   .min(GUIDANCE_CONTENT_MIN_LENGTH)

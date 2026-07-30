@@ -108,6 +108,10 @@ export async function submitTask(
     // schema's default is where that is decided, so both surfaces and any
     // future one cannot each pick their own reading of silence.
     ...fieldOf(body, 'assistance'),
+    // Same treatment, and here the schema has no default at all: absent is
+    // absent, and the field simply does not appear on the row. A required key
+    // whose legal value is null would carry no more information (#56).
+    ...fieldOf(body, 'report'),
   })
   if (!parsed.success) {
     return { outcome: 'rejected', error: validationError(parsed.error.issues) }
@@ -118,6 +122,7 @@ export async function submitTask(
     agentId: agent.id,
     payload: parsed.data.payload,
     assistance: parsed.data.assistance,
+    ...(parsed.data.report === undefined ? {} : { report: parsed.data.report }),
   })
 
   if (result.outcome === 'accepted') {
@@ -141,7 +146,7 @@ function payloadOf(body: unknown): unknown {
  * the same thing to the schema here, but this way the default lives in core
  * alone and this file never names it.
  */
-function fieldOf(body: unknown, key: 'assistance'): Record<string, unknown> {
+function fieldOf(body: unknown, key: 'assistance' | 'report'): Record<string, unknown> {
   if (typeof body !== 'object' || body === null) return {}
   const value = (body as Record<string, unknown>)[key]
   return value === undefined ? {} : { [key]: value }

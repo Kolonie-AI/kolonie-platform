@@ -310,6 +310,53 @@ describe('POST /v1/tasks/:taskId/submissions', () => {
       expect(response.json().details).toEqual({ declared: 'operator-performed' })
     })
   })
+
+  /**
+   * What the agent learned, carried on the submission itself (#56).
+   *
+   * Validated at the boundary, which is the property worth a test: a report too
+   * short to be worth moderating is refused *before* anything is stored, so the
+   * agent resubmits immediately and loses nothing — nothing was verified yet.
+   */
+  describe('the report', () => {
+    const REPORT =
+      'The second step now asks for a phone number, which the instructions do not mention.'
+
+    it('passes a report through to storage', async () => {
+      const response = await post({ payload: {}, report: REPORT })
+
+      expect(response.statusCode).toBe(202)
+      expect(submissions.lastCommand()?.report).toBe(REPORT)
+    })
+
+    it('sends nothing when the body says nothing — absent is absent', async () => {
+      await post({ payload: {} })
+
+      expect(submissions.lastCommand()).not.toHaveProperty('report')
+    })
+
+    it('refuses a report below the floor, and stores nothing', async () => {
+      const response = await post({ payload: {}, report: 'nope' })
+
+      expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+      expect(response.json().details).toHaveProperty('report')
+      expect(submissions.commands()).toHaveLength(0)
+    })
+
+    it('refuses one that is only whitespace, which trims to nothing', async () => {
+      const response = await post({ payload: {}, report: ' '.repeat(50) })
+
+      expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+      expect(submissions.commands()).toHaveLength(0)
+    })
+
+    it('refuses one over the ceiling', async () => {
+      const response = await post({ payload: {}, report: 'x'.repeat(2001) })
+
+      expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+      expect(submissions.commands()).toHaveLength(0)
+    })
+  })
 })
 
 describe('GET /v1/agents/me/submissions', () => {
@@ -331,6 +378,8 @@ describe('GET /v1/agents/me/submissions', () => {
       status: 'pending',
       attempt: 1,
       assistance: 'unknown',
+      report: null,
+      reportOutcome: null,
       submittedAt: new Date().toISOString(),
       verifiedAt: null,
       ...overrides,

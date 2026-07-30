@@ -15,6 +15,7 @@ import type {
   ExpiredSubmission,
   RecordVerdictCommand,
   RecordVerdictResult,
+  ReportRoutingResult,
   SubmissionQueue,
 } from './queue.js'
 
@@ -55,6 +56,8 @@ const aSubmission = (
     status: 'verifying',
     assistance: 'unknown',
     attempt: 1,
+    report: null,
+    reportOutcome: null,
     submittedAt: '2026-07-27T10:00:00.000Z',
     verifiedAt: null,
   })
@@ -98,6 +101,9 @@ class FakeQueue implements SubmissionQueue {
   overdue: readonly ExpiredSubmission[] = []
   stale = false
   claimFails: Error | undefined
+  readonly routed: SubmissionId[] = []
+  routeFails: Error | undefined
+  routing: ReportRoutingResult = { outcome: 'nothing-to-do' }
 
   constructor(private queued: ClaimedSubmission[] = []) {}
 
@@ -124,6 +130,12 @@ class FakeQueue implements SubmissionQueue {
         createdAt: '2026-07-28T12:00:00.000Z',
       },
     } as RecordVerdictResult
+  }
+
+  async routeReport(submissionId: SubmissionId): Promise<ReportRoutingResult> {
+    this.routed.push(submissionId)
+    if (this.routeFails) throw this.routeFails
+    return this.routing
   }
 
   async release(submissionId: SubmissionId): Promise<boolean> {
@@ -345,5 +357,56 @@ describe('startRunner', () => {
     expect(stopped).toBe(true)
     expect(queue.recorded).toHaveLength(1)
     expect(queue.released).toEqual([])
+  })
+})
+
+/**
+ * A report is filed after the verdict, and it can never cost the agent one.
+ *
+ * `#56`'s acceptance criterion asks for this as a test rather than as an
+ * inspection, and it is the right thing to ask for: the failure it guards
+ * against is invisible until it happens in production, where an agent that
+ * earned a skill would lose it because a citizen wrote something the moderator
+ * has not read yet.
+ */
+describe('filing what the agent reported', () => {
+  it('routes the report after the verdict has been recorded', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+    queue.routing = { outcome: 'stored' }
+
+    const outcome = await tick({ queue, verifiers, log: quiet })
+
+    expect(outcome).toEqual({ kind: 'decided', status: 'passed' })
+    expect(queue.routed).toEqual([FIRST])
+    // The verdict was written first. A report that could roll one back would be
+    // a citizen's prose deciding whether a coin was booked.
+    expect(queue.recorded).toHaveLength(1)
+  })
+
+  it('keeps the verdict when the report cannot be filed at all', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+    queue.routeFails = new Error('the guidance table is unreachable')
+
+    const outcome = await tick({ queue, verifiers, log: quiet })
+
+    // Decided, not thrown and not skipped: the pass, the skill grant and the
+    // booking are already committed, and none of them waits on this.
+    expect(outcome).toEqual({ kind: 'decided', status: 'passed' })
+    expect(queue.recorded).toHaveLength(1)
+    expect(queue.released).toEqual([])
+  })
+
+  it('does not route a report for a verdict that was dropped as stale', async () => {
+    const queue = new FakeQueue([claimed(FIRST)])
+    queue.stale = true
+
+    expect(await tick({ queue, verifiers, log: quiet })).toEqual({
+      kind: 'stale',
+      status: 'timeout',
+    })
+    // Nothing was decided, so there is nothing for a report to become. Filing it
+    // here would put a struggle in the corpus for a submission the Colony
+    // already timed out.
+    expect(queue.routed).toEqual([])
   })
 })

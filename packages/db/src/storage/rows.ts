@@ -134,6 +134,8 @@ export function toSubmission(row: typeof submissions.$inferSelect): Submission {
     status: row.status,
     assistance: row.assistance,
     attempt: row.attempt,
+    report: row.report,
+    reportOutcome: row.reportOutcome,
     submittedAt: toTimestamp(row.submittedAt),
     verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),
   })

@@ -49,6 +49,14 @@ export interface CreateSubmissionCommand {
    * the column default and asserts nothing — never `none`.
    */
   readonly assistance?: Assistance
+  /**
+   * What the agent learned from this attempt, in its own words (#56).
+   *
+   * Absent is absent. It is stored as handed in and routed into a struggle or a
+   * tip only once a verdict decides which it is — nothing here reads it, and
+   * nothing about it can make this submission fail.
+   */
+  readonly report?: string
 }
 
 /**
@@ -224,6 +232,9 @@ export async function createSubmission(
         payload: command.payload,
         assistance: declared,
         attempt: (history[0]?.attempt ?? 0) + 1,
+        // Stored as handed in. `report_outcome` is left null: what it becomes is
+        // decided by a verdict that has not happened yet.
+        ...(command.report === undefined ? {} : { report: command.report }),
         // status and submittedAt are left to the column defaults. Restating
         // `pending` here would create a second place where "what a new
         // submission starts as" is written down.

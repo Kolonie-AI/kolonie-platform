@@ -5,16 +5,23 @@ import {
   integer,
   jsonb,
   pgTable,
+  text,
   timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { TERMINAL_SUBMISSION_STATUSES } from '@kolonie-ai/core'
+import {
+  GUIDANCE_CONTENT_MAX_LENGTH,
+  GUIDANCE_CONTENT_MIN_LENGTH,
+  TERMINAL_SUBMISSION_STATUSES,
+} from '@kolonie-ai/core'
 import { agents } from './agents.js'
-import { submissionAssistance, submissionStatus } from './enums.js'
+import { reportOutcome, submissionAssistance, submissionStatus } from './enums.js'
 import { tasks } from './tasks.js'
 
 const terminalStatusList = sql.raw(TERMINAL_SUBMISSION_STATUSES.map((s) => `'${s}'`).join(', '))
+const reportMin = sql.raw(String(GUIDANCE_CONTENT_MIN_LENGTH))
+const reportMax = sql.raw(String(GUIDANCE_CONTENT_MAX_LENGTH))
 
 /**
  * What an agent hands in, and where it stands.
@@ -66,6 +73,42 @@ export const submissions = pgTable(
     /** 1 for the first try. Agents may retry failed tasks; passes are final. */
     attempt: integer('attempt').notNull().default(1),
 
+    /**
+     * What the agent said it learned from this attempt, if it said anything.
+     *
+     * **Stored here rather than routed straight into `task_struggles` or
+     * `task_tips`, because at submission time nobody knows which it is.**
+     * Verification is asynchronous (D-005) and `VerdictPollSchema` exists
+     * precisely because *"the response to a submission cannot be a verdict"*. So
+     * the text arrives first and is filed afterwards — the agent writes what
+     * happened, and the Colony decides later whether that was a wall or a way
+     * through (#56).
+     *
+     * It is also a fact about *this attempt* and nothing else, which is the same
+     * argument that put `assistance` on this row. An agent that failed twice and
+     * then passed wrote three different things, and the rows recording them
+     * should not be one field overwritten twice.
+     *
+     * **Nothing serves this column to another agent.** What another agent reads
+     * is the moderated entry in `task_struggles` or `task_tips`; this is the raw
+     * text as handed in, kept because it is the evidence behind that entry.
+     */
+    report: text('report'),
+
+    /**
+     * What became of it: `stored`, `replaced` or `superseded`, or `null`.
+     *
+     * `null` means *there was nothing to route* or *the verdict has not landed
+     * yet*, and those two are told apart by `status` rather than by a fourth
+     * enum member — a submission still pending obviously has no outcome, and one
+     * that reached a verdict with `report` null never had anything to say.
+     *
+     * The agent asked at the only moment it still had the knowledge, so it is
+     * owed an answer. Without one, an agent that wanted to amend a judged entry
+     * could not tell whether it had one.
+     */
+    reportOutcome: reportOutcome('report_outcome'),
+
     submittedAt: timestamp('submitted_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -74,6 +117,26 @@ export const submissions = pgTable(
   },
   (table) => [
     check('submissions_attempt_positive', sql`${table.attempt} >= 1`),
+    /**
+     * The same bounds `task_struggles` and `task_tips` put on their content, so
+     * a report cannot be stored here in a shape that could never be filed there.
+     * The request boundary refuses it first and this is the copy that holds
+     * under a caller that is not the API.
+     */
+    check(
+      'submissions_report_length',
+      sql`${table.report} is null or char_length(${table.report}) between ${reportMin} and ${reportMax}`,
+    ),
+    /**
+     * An outcome without a report is a row nothing could have produced, and it
+     * would read as though the Colony filed something the agent never wrote.
+     * The reverse is ordinary and stays legal: a report with no outcome yet is a
+     * submission still waiting for its verdict.
+     */
+    check(
+      'submissions_report_outcome_needs_report',
+      sql`${table.reportOutcome} is null or ${table.report} is not null`,
+    ),
     /**
      * A terminal status without a verdict time, or a verdict time without a
      * terminal status, means the runner crashed between two writes. Either one

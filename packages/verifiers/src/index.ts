@@ -12,6 +12,7 @@ import {
   type SocialAccounts,
   type SocialChallenges,
 } from './social-account.js'
+import { WebsiteVerifyVerifier, type WebsiteChallenges } from './website-verify.js'
 import { SocialPostVerifier, type SocialGrants } from './social-post.js'
 import type { GitHubReader } from './github.js'
 import type { SocialReader } from './social.js'
@@ -57,6 +58,11 @@ export {
   type GithubAccountDependencies,
   type GithubChallenges,
 } from './github-account.js'
+export {
+  WebsiteVerifyVerifier,
+  type WebsiteVerifyDependencies,
+  type WebsiteChallenges,
+} from './website-verify.js'
 export {
   SocialAccountVerifier,
   type SocialAccountDependencies,
@@ -158,6 +164,8 @@ export interface VerifierDependencies {
    * would let a wiring mistake answer one rung with another's evidence.
    */
   readonly githubChallenges?: GithubChallenges
+  /** Answers which nonces the Colony has issued to an agent for the website rung. */
+  readonly websiteChallenges?: WebsiteChallenges
   /**
    * Reads a public post on a network the Colony has assessed.
    *
@@ -254,6 +262,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         }),
       )
     }
+  }
+
+  if (deps.websiteChallenges !== undefined) {
+    verifiers.push(new WebsiteVerifyVerifier({ challenges: deps.websiteChallenges }))
   }
 
   return new Map(verifiers.map((verifier) => [verifier.taskType, verifier]))

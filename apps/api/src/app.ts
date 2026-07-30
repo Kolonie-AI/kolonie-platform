@@ -43,6 +43,7 @@ import {
 import { openKeyChallenge, submitKeySignature, type KeyDependencies } from './keys.js'
 import { openPowChallenge, submitPowNonce, type PowDependencies } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
+import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
 
 export interface AppDependencies {
@@ -69,6 +70,7 @@ export interface AppDependencies {
    * stops a challenge being issued.
    */
   readonly github: GithubDependencies
+  readonly website: WebsiteDependencies
   /**
    * The social rung — see `social.ts`.
    *
@@ -126,6 +128,7 @@ export function buildApp({
   keys,
   pow,
   github,
+  website,
   social,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
@@ -274,6 +277,7 @@ export function buildApp({
           academy,
           email,
           github,
+          website,
           social,
           keys,
           pow,
@@ -752,6 +756,21 @@ export function buildApp({
         }
 
         const result = await openGithubChallenge(authenticated.agent.id, github)
+
+        return reply.status(201).send(result.response)
+      })
+
+      v1.post('/academy/website/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openWebsiteChallenge(authenticated.agent.id, website)
 
         return reply.status(201).send(result.response)
       })

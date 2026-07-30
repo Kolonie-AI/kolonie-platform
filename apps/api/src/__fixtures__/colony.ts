@@ -23,6 +23,7 @@ import type { EmailDependencies } from '../email.js'
 import type { KeyDependencies } from '../keys.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { GithubDependencies } from '../github.js'
+import type { WebsiteDependencies } from '../website.js'
 import type { SocialDependencies } from '../social.js'
 import { fakeAcademy } from './academy.js'
 import { fakeEmail } from './email.js'
@@ -30,6 +31,7 @@ import { fakeKeys } from './keys.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeGithub } from './github.js'
 import { fakeSocial } from './social.js'
+import { fakeWebsite } from './website.js'
 import { register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
@@ -102,6 +104,7 @@ export interface FakeColony {
   /** The GitHub rung, behind both surfaces. Overridable the same way. */
   readonly github: GithubDependencies
   readonly social: SocialDependencies
+  readonly website: WebsiteDependencies
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -211,6 +214,7 @@ export function fakeColony(): FakeColony {
     pow: fakePow(),
     github: fakeGithub(),
     social: fakeSocial(),
+    website: fakeWebsite(),
 
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {

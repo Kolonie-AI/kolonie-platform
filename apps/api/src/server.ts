@@ -12,6 +12,7 @@ import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseKeyChallenges } from './keys.js'
 import { databasePowChallenges } from './proof-of-work.js'
 import { databaseGithubChallenges } from './github.js'
+import { databaseWebsiteChallenges } from './website.js'
 import { databaseSocialChallenges } from './social.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
@@ -109,6 +110,7 @@ const app = buildApp({
   // Same shape and the same reason: minting is 32 random bytes against the
   // database, so there is nothing here that can be half-wired either.
   github: { challenges: databaseGithubChallenges(db) },
+  website: { challenges: databaseWebsiteChallenges(db) },
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
   social: { challenges: databaseSocialChallenges(db) },

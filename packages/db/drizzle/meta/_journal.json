@@ -197,6 +197,13 @@
       "when": 1785422143545,
       "tag": "0027_confidentiality_stage",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785423608848,
+      "tag": "0028_website_challenges",
+      "breakpoints": true
     }
   ]
 }

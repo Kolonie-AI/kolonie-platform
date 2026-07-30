@@ -9,8 +9,13 @@ import { z } from 'zod'
  * library adds a curve — and it grows without anyone deciding, which is the part
  * that matters. These two cover what agent tooling actually has: `ed25519` is
  * what modern signing libraries reach for by default, and `secp256k1` is the
- * curve every wallet already holds, which is why `wallet-testnet` suggests this
- * task rather than starting over.
+ * curve the EVM wallets hold.
+ *
+ * The Colony's own chain needs neither entry added to it. A Solana address is a
+ * raw Ed25519 key, so `solana-wallet` re-encodes and reuses
+ * {@link verifySignature} rather than widening this set — see `common/solana.ts`.
+ * That is the property the closed set exists to protect: a new key format is a
+ * conversion, not a new curve to trust.
  */
 export const SIGNATURE_ALGORITHMS = ['ed25519', 'secp256k1'] as const
 

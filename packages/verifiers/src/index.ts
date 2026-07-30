@@ -12,6 +12,7 @@ import {
   type SocialAccounts,
   type SocialChallenges,
 } from './social-account.js'
+import { SocialPostVerifier, type SocialGrants } from './social-post.js'
 import type { GitHubReader } from './github.js'
 import type { SocialReader } from './social.js'
 
@@ -62,6 +63,13 @@ export {
   type SocialAccounts,
   type SocialChallenges,
 } from './social-account.js'
+export {
+  MINIMUM_SOCIAL_POST_LENGTH,
+  SocialPostVerifier,
+  socialPostText,
+  type SocialGrants,
+  type SocialPostDependencies,
+} from './social-post.js'
 export {
   blueskyAdapter,
   htmlToText,
@@ -169,6 +177,16 @@ export interface VerifierDependencies {
   readonly socialChallenges?: SocialChallenges
   /** Answers which citizen a social account has already certified. */
   readonly socialAccounts?: SocialAccounts
+  /**
+   * Answers what the Colony already recorded about this citizen's account: which
+   * one it certified, and what it was asked to publish to certify it.
+   *
+   * Its own port rather than a second method on `socialAccounts`, which asks the
+   * mirror-image question for a different rung. The badge reads the grant
+   * forwards and the granting node reads it backwards, and a shared port would
+   * invite one to be wired to the other.
+   */
+  readonly socialGrants?: SocialGrants
 }
 
 /**
@@ -218,6 +236,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         accounts: deps.socialAccounts,
       }),
     )
+  }
+
+  if (deps.social !== undefined && deps.socialGrants !== undefined) {
+    verifiers.push(new SocialPostVerifier({ social: deps.social, grants: deps.socialGrants }))
   }
 
   if (deps.github !== undefined && deps.authors !== undefined) {

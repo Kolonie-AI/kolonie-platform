@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   canTransition,
   isTerminal,
@@ -508,6 +508,46 @@ export async function citizenForGithubAuthor(
  * from ever being read as each other's, which is this package's rule everywhere
  * else too.
  */
+/**
+ * The account this agent earned `social` with, or `undefined` if it has not.
+ *
+ * `citizenForSocialAccount` read backwards, and the badge one node along is what
+ * needs it: `social-post` asks whether a post was published by *the account this
+ * citizen certified*, which is a question only the grant can answer.
+ *
+ * **Reading the grant is what makes the badge honest.** The alternative — check
+ * that the post belongs to *some* account the citizen controls — is not
+ * checkable at all, since the Colony knows of exactly one such account and knows
+ * of it because it certified it. An agent that holds `social` from account A and
+ * publishes from account B has published from an account the Colony has never
+ * seen, which is the case this exists to refuse.
+ *
+ * The newest grant wins here, where `citizenForSocialAccount` takes the oldest.
+ * The two are answering different questions and the asymmetry is deliberate:
+ * there the oldest claim on a contested account must win, or racing it would
+ * pay; here a citizen has at most one `social` row anyway, because `agent_skills`
+ * is one row per (agent, skill) — the ordering only decides what happens if that
+ * ever stops being true, and the later certification is the one the citizen is
+ * publishing from now.
+ */
+export async function socialAccountOf(db: Database, agentId: AgentId): Promise<string | undefined> {
+  const [granted] = await db
+    .select({ account: sql<string | null>`${verifications.metadata}->>'account'` })
+    .from(agentSkills)
+    .innerJoin(verifications, eq(verifications.submissionId, agentSkills.submissionId))
+    .where(
+      and(
+        eq(agentSkills.agentId, agentId),
+        eq(agentSkills.skill, SOCIAL_SKILL),
+        eq(verifications.status, 'pass'),
+      ),
+    )
+    .orderBy(desc(agentSkills.grantedAt))
+    .limit(1)
+
+  return granted?.account ?? undefined
+}
+
 export async function citizenForSocialAccount(
   db: Database,
   account: string,

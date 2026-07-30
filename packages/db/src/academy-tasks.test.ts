@@ -51,6 +51,10 @@ describe('the Academy task definitions', () => {
       // Split from `github-contribution` on 2026-07-29 (D-031): controlling an
       // account is the skill, contributing is what an agent does with one.
       'github-account',
+      // The badge that keeps the social granting node legitimate. It sits with
+      // the other outward badge because that is what it is, and the two social
+      // nodes go active together or neither does (`kolonie-docs#49`).
+      'social-post',
       'github-contribution',
     ])
   })

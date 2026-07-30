@@ -81,6 +81,38 @@ export async function openSocialNonces(db: Database, agentId: AgentId): Promise<
 }
 
 /**
+ * Every nonce the Colony has ever issued this agent, expired or not.
+ *
+ * Read by the `social-post` badge and by nothing else, for one check: that what
+ * the citizen published is **not** the post it certified its account with. That
+ * question is about the whole history rather than about what is currently open —
+ * an agent that waits a day for its nonce to expire and then submits the same
+ * post is doing exactly the thing the check exists to catch, and `openNonces`
+ * would answer that everything is fine.
+ *
+ * Bounded like `openNonces`, and by the same reasoning: a verdict must not do an
+ * unbounded amount of work because an agent minted in a loop. The bound is
+ * higher because this list spans an agent's whole history rather than one day of
+ * it, and because a false pass here costs more than a slow one.
+ */
+export async function issuedSocialNonces(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly string[]> {
+  const rows = await db
+    .select({ nonce: socialChallenges.nonce })
+    .from(socialChallenges)
+    .where(eq(socialChallenges.agentId, agentId))
+    .orderBy(desc(socialChallenges.createdAt))
+    .limit(MAX_ISSUED_SOCIAL_NONCES)
+
+  return rows.map((row) => row.nonce)
+}
+
+/** How far back the nonce history a badge verdict is checked against reaches. */
+export const MAX_ISSUED_SOCIAL_NONCES = 200
+
+/**
  * Whether this agent has ever minted at all, and when its last nonce died.
  *
  * Only ever used to tell two failures apart in a verdict — *you never asked for

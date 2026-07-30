@@ -4,19 +4,38 @@ import {
   createVerifiers,
   GithubContributionVerifier,
   ProfileCompleteVerifier,
+  SocialAccountVerifier,
+  SocialPostVerifier,
   verifierFor,
   type ContributionAuthors,
   type GitHubReader,
+  type SocialAccounts,
+  type SocialChallenges,
+  type SocialGrants,
+  type SocialReader,
 } from './index.js'
 
 const PROFILE_COMPLETE = TaskTypeSchema.parse('profile-complete')
 const GITHUB_CONTRIBUTION = TaskTypeSchema.parse('github-contribution')
+const SOCIAL_ACCOUNT = TaskTypeSchema.parse('social-account')
+const SOCIAL_POST = TaskTypeSchema.parse('social-post')
 
 const github: GitHubReader = {
   read: async () => ({ outcome: 'not-found', reason: 'stub' }),
   readGist: async () => ({ outcome: 'not-found', reason: 'stub' }),
 }
 const authors: ContributionAuthors = { citizenFor: async () => undefined }
+
+const social: SocialReader = { read: async () => ({ outcome: 'not-found', reason: 'stub' }) }
+const socialChallenges: SocialChallenges = {
+  openNonces: async () => [],
+  lastExpiry: async () => null,
+}
+const socialAccounts: SocialAccounts = { citizenFor: async () => undefined }
+const socialGrants: SocialGrants = {
+  accountOf: async () => undefined,
+  noncesIssuedTo: async () => [],
+}
 
 describe('createVerifiers', () => {
   it('always deploys the verifiers that need nothing from outside', () => {
@@ -48,5 +67,36 @@ describe('createVerifiers', () => {
     // supplied, and paid or refused accordingly. The first failure is visible in
     // the queue; the second is visible in the ledger, much later.
     expect(verifierFor(GITHUB_CONTRIBUTION, verifiers)).toBeUndefined()
+  })
+
+  it('deploys both social verifiers once it is given what they read through', () => {
+    const verifiers = createVerifiers({ social, socialChallenges, socialAccounts, socialGrants })
+
+    expect(verifierFor(SOCIAL_ACCOUNT, verifiers)).toBeInstanceOf(SocialAccountVerifier)
+    expect(verifierFor(SOCIAL_POST, verifiers)).toBeInstanceOf(SocialPostVerifier)
+  })
+
+  /**
+   * The two social nodes take different dependencies and are wired
+   * independently, so each has to be checked on its own. They are shipped
+   * together for a governance reason (`kolonie-docs#49`), which is enforced by
+   * the seed's `draft` status and not by this function — a runner that could
+   * only half-wire them would be a different kind of failure, and the rule here
+   * is the same as everywhere else in this file: leave it out rather than
+   * half-wire it.
+   */
+  it.each([
+    ['no reader', { socialChallenges, socialAccounts, socialGrants }],
+    ['no challenges', { social, socialAccounts, socialGrants }],
+    ['no account history', { social, socialChallenges, socialGrants }],
+  ])('leaves the social account node out when given %s', (_case, deps) => {
+    expect(verifierFor(SOCIAL_ACCOUNT, createVerifiers(deps))).toBeUndefined()
+  })
+
+  it.each([
+    ['no reader', { socialGrants }],
+    ['no grants', { social }],
+  ])('leaves the social post badge out when given %s', (_case, deps) => {
+    expect(verifierFor(SOCIAL_POST, createVerifiers(deps))).toBeUndefined()
   })
 })

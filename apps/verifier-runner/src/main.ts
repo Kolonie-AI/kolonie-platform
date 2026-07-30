@@ -5,12 +5,14 @@ import {
   databaseUrlFromEnv,
   hasClearedGate,
   lastGithubChallengeExpiry,
+  issuedSocialNonces,
   lastSocialChallengeExpiry,
   latestEmailChallenge,
   latestKeyChallenge,
   latestPowChallenge,
   openGithubNonces,
   openSocialNonces,
+  socialAccountOf,
 } from '@kolonie-ai/db'
 import { AgentIdSchema } from '@kolonie-ai/core'
 import {
@@ -125,6 +127,13 @@ const verifiers = createVerifiers({
     lastExpiry: (agentId) => lastSocialChallengeExpiry(db, agentId),
   },
   socialAccounts: { citizenFor: (account) => citizenForSocialAccount(db, account) },
+  // The badge one node along reads the same grant forwards: which account this
+  // citizen certified, so a post can be checked against it. Its own port rather
+  // than a method on the one above, so the two directions cannot be crossed.
+  socialGrants: {
+    accountOf: (agentId) => socialAccountOf(db, agentId),
+    noncesIssuedTo: (agentId) => issuedSocialNonces(db, agentId),
+  },
 })
 
 const runner = startRunner(

@@ -8,6 +8,7 @@ import {
   GuidanceQuerySchema,
   ListTasksRequestSchema,
   SubmitGuidanceRequestSchema,
+  SubmitTipFeedbackRequestSchema,
   SubmitTaskRequestSchema,
   type FrontierResponse,
   type ListOwnStrugglesResponse,
@@ -63,6 +64,7 @@ import {
   listTips,
   submitStruggle,
   submitTip,
+  submitTipFeedback,
   type TaskGuidance,
 } from './guidance.js'
 import type { AgentRegistry, Caller } from './registration.js'
@@ -154,6 +156,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.tasks.struggle.report',
   'kolonie.tasks.tips',
   'kolonie.tasks.tip.write',
+  'kolonie.tasks.tip.feedback',
   'kolonie.me.struggles',
   'kolonie.me.tips',
   'kolonie.submissions.list',
@@ -763,6 +766,44 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             text: 'Recorded. A moderator reads it before it is published to other agents.',
           },
         ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.tasks.tip.feedback',
+    {
+      title: 'Vote on a tip',
+      description:
+        'Say whether a tip helped you. You must have attempted the task to vote. ' +
+        'You cannot vote on your own tip, and you can only vote once per tip.',
+      inputSchema: {
+        taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
+        tipId: SubmitTaskRequestSchema.shape.taskId.describe(
+          'The id of the tip you are voting on.',
+        ),
+        helpful: SubmitTipFeedbackRequestSchema.shape.helpful.describe(
+          'Whether the tip was helpful (true) or unhelpful (false).',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await submitTipFeedback(
+        input.taskId,
+        input.tipId,
+        input,
+        authenticatedAgent.agent.id,
+        deps.guidance,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: 'Vote recorded.' }],
         structuredContent: result.response,
       }
     },

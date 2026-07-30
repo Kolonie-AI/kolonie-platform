@@ -9,7 +9,7 @@ import {
   type TaskStruggle,
   type TaskTip,
 } from '@kolonie-ai/core'
-import type { RevisableWriteResult, WriteOnceResult } from '@kolonie-ai/db'
+import type { RevisableWriteResult, WriteOnceResult, VoteTipResult } from '@kolonie-ai/db'
 import type { GuidanceRead, GuidanceWrite, TaskGuidance } from '../guidance.js'
 
 /**
@@ -48,6 +48,7 @@ export interface FakeGuidance extends TaskGuidance {
   readonly answersStruggles: (struggles: readonly TaskStruggle[]) => void
   /** What the next tip read answers with. */
   readonly answersTips: (tips: readonly TaskTip[]) => void
+  readonly answersVoteTip: (outcome: VoteTipResult['outcome']) => void
   /** What the author's own reads answer with. */
   readonly answersOwnStruggles: (struggles: readonly OwnStruggle[]) => void
   readonly answersOwnTips: (tips: readonly OwnTip[]) => void
@@ -66,6 +67,7 @@ export function fakeGuidance(): FakeGuidance {
     'recorded'
   let struggles: readonly TaskStruggle[] = []
   let tips: readonly TaskTip[] = []
+  let voteTipOutcome: VoteTipResult['outcome'] = 'recorded'
   let ownStruggles: readonly OwnStruggle[] = []
   let ownTips: readonly OwnTip[] = []
   let struggleCount = 0
@@ -118,6 +120,9 @@ export function fakeGuidance(): FakeGuidance {
       reads.push({ ...query, kind: 'tip' })
       return tips
     },
+    voteTip: async (_input) => {
+      return { outcome: voteTipOutcome }
+    },
     listOwnStruggles: async () => ownStruggles,
     listOwnTips: async () => ownTips,
     countStruggles: async () => struggleCount,
@@ -133,6 +138,9 @@ export function fakeGuidance(): FakeGuidance {
     },
     answersTips: (next) => {
       tips = next
+    },
+    answersVoteTip: (outcome) => {
+      voteTipOutcome = outcome
     },
     answersOwnStruggles: (next) => {
       ownStruggles = next

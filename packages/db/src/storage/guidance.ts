@@ -19,6 +19,7 @@ import {
   type TaskId,
   type TaskStruggle,
   type TaskTip,
+  type TaskTipId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
@@ -29,6 +30,7 @@ import {
   taskStruggles,
   taskTips,
   tasks,
+  tipFeedback,
 } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
@@ -908,6 +910,57 @@ export async function recordModeration(
     })
 
     return { outcome: 'written' as const }
+  })
+}
+
+export type VoteTipResult =
+  | { readonly outcome: 'recorded' }
+  | { readonly outcome: 'no-such-tip' }
+  | { readonly outcome: 'not-entitled' }
+  | { readonly outcome: 'cannot-vote-on-own-tip' }
+  | { readonly outcome: 'already-voted' }
+
+export async function voteTip(
+  db: Database,
+  input: { readonly tipId: TaskTipId; readonly agentId: AgentId; readonly helpful: boolean },
+): Promise<VoteTipResult> {
+  return await db.transaction(async (tx) => {
+    const [tip] = await tx
+      .select({ taskId: taskTips.taskId, agentId: taskTips.agentId })
+      .from(taskTips)
+      .where(eq(taskTips.id, input.tipId))
+      .limit(1)
+
+    if (tip === undefined) return { outcome: 'no-such-tip' }
+
+    if (tip.agentId === input.agentId) return { outcome: 'cannot-vote-on-own-tip' }
+
+    const [entitled] = await tx.execute<{ ok: boolean }>(
+      sql`select exists (select 1 from ${submissions} where ${submissions.taskId} = ${tip.taskId} and ${submissions.agentId} = ${input.agentId}) as ok`,
+    )
+    if (entitled?.ok !== true) return { outcome: 'not-entitled' }
+
+    const inserted = await tx
+      .insert(tipFeedback)
+      .values({
+        tipId: input.tipId,
+        agentId: input.agentId,
+        helpful: input.helpful,
+      })
+      .onConflictDoNothing({ target: [tipFeedback.tipId, tipFeedback.agentId] })
+      .returning({ tipId: tipFeedback.tipId })
+
+    if (inserted.length === 0) return { outcome: 'already-voted' }
+
+    await tx
+      .update(taskTips)
+      .set({
+        helpfulCount: sql`(select count(*)::int from ${tipFeedback} where ${tipFeedback.tipId} = ${input.tipId} and ${tipFeedback.helpful} = true)`,
+        unhelpfulCount: sql`(select count(*)::int from ${tipFeedback} where ${tipFeedback.tipId} = ${input.tipId} and ${tipFeedback.helpful} = false)`,
+      })
+      .where(eq(taskTips.id, input.tipId))
+
+    return { outcome: 'recorded' }
   })
 }
 

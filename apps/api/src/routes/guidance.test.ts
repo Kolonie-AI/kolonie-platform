@@ -300,6 +300,94 @@ describe('GET /v1/tasks/:taskId/tips', () => {
   })
 })
 
+describe('POST /v1/tasks/:taskId/tips/:tipId/feedback', () => {
+  const tipId = () => randomUUID()
+
+  const votePath = (tid: string = taskId, tip: string = tipId()) =>
+    `/v1/tasks/${tid}/tips/${tip}/feedback`
+
+  it('records a vote and answers 201', async () => {
+    const response = await post(votePath(), { helpful: true })
+
+    expect(response.statusCode).toBe(201)
+  })
+
+  it('answers 403 when the agent votes on its own tip', async () => {
+    guidance.answersVoteTip('cannot-vote-on-own-tip')
+
+    const response = await post(votePath(), { helpful: true })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
+    expect(response.json().code).toBe('forbidden')
+    expect(response.json().message).toContain('own tip')
+  })
+
+  it('answers 403 when the agent has not attempted the task', async () => {
+    guidance.answersVoteTip('not-entitled')
+
+    const response = await post(votePath(), { helpful: false })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
+    expect(response.json().code).toBe('forbidden')
+    expect(response.json().message).toContain('attempt')
+  })
+
+  it('answers 409 on a second vote for the same tip', async () => {
+    guidance.answersVoteTip('already-voted')
+
+    const response = await post(votePath(), { helpful: true })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.conflict)
+    expect(response.json().code).toBe('conflict')
+  })
+
+  it('answers 404 when the tip does not exist', async () => {
+    guidance.answersVoteTip('no-such-tip')
+
+    const response = await post(votePath(), { helpful: true })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+    expect(response.json().code).toBe('not_found')
+  })
+
+  /**
+   * A non-UUID tipId must be caught at the boundary. Before this fix, the
+   * raw string reached Postgres and caused a 500 ("invalid input syntax for
+   * type uuid"), which an agent would interpret as a Colony failure and retry
+   * forever.
+   */
+  it('answers 404 for a tipId that is not a UUID, without reaching storage', async () => {
+    const response = await post(
+      `/v1/tasks/${taskId}/tips/not-a-uuid/feedback`,
+      { helpful: true },
+    )
+
+    expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+  })
+
+  it('answers 404 for a taskId that is not a UUID, without reaching storage', async () => {
+    const response = await post(
+      `/v1/tasks/not-a-uuid/tips/${tipId()}/feedback`,
+      { helpful: true },
+    )
+
+    expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+  })
+
+  it('answers validation_failed when the body is missing the helpful field', async () => {
+    const response = await post(votePath(), {})
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().code).toBe('validation_failed')
+  })
+
+  it('refuses an anonymous caller', async () => {
+    const response = await post(votePath(), { helpful: true }, null)
+
+    expect(response.statusCode).toBe(401)
+  })
+})
+
 /**
  * `#74`: the author's own view, which is the only read path that serves
  * unapproved text.
@@ -348,5 +436,6 @@ describe('GET /v1/agents/me/tips', () => {
 
   it('refuses an anonymous caller', async () => {
     expect((await get('/v1/agents/me/tips', null)).statusCode).toBe(401)
+>>>>>>> origin/main
   })
 })

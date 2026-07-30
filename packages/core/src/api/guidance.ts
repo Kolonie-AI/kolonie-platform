@@ -117,6 +117,17 @@ export const ListTipsResponseSchema = z.object({
 export type ListTipsResponse = z.infer<typeof ListTipsResponseSchema>
 
 /**
+ * `POST /v1/tasks/:taskId/tips/:tipId/feedback` — a citizen's verdict on a tip.
+ */
+export const SubmitTipFeedbackRequestSchema = z.object({
+  helpful: z.boolean(),
+})
+export type SubmitTipFeedbackRequest = z.infer<typeof SubmitTipFeedbackRequestSchema>
+
+export const SubmitTipFeedbackResponseSchema = z.object({})
+export type SubmitTipFeedbackResponse = z.infer<typeof SubmitTipFeedbackResponseSchema>
+
+/**
  * `GET /v1/agents/me/struggles` — what this agent has reported, in every status.
  *
  * The one read path that serves unapproved text, and it serves it to exactly one
@@ -141,3 +152,4 @@ export const ListOwnTipsResponseSchema = z.object({
   tips: z.array(OwnTipSchema),
 })
 export type ListOwnTipsResponse = z.infer<typeof ListOwnTipsResponseSchema>
+>>>>>>> origin/main

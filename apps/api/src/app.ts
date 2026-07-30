@@ -13,6 +13,7 @@ import {
   listTips,
   submitStruggle,
   submitTip,
+  submitTipFeedback,
   type TaskGuidance,
 } from './guidance.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
@@ -1076,6 +1077,32 @@ export function buildApp({
         }
 
         return reply.send(result.response)
+      })
+
+      v1.post('/tasks/:taskId/tips/:tipId/feedback', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId, tipId } = request.params as { taskId?: string; tipId?: string }
+        const result = await submitTipFeedback(
+          taskId,
+          tipId,
+          request.body,
+          authenticated.agent.id,
+          guidance,
+        )
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(201).send(result.response)
       })
 
       v1.post('/tasks/:taskId/submissions', async (request, reply) => {

@@ -521,8 +521,11 @@ describe('what the quality prompt is told', () => {
 
     const qualityCall = model.calls()[1]
     expect(qualityCall?.user).toContain('running on hermes')
-    // And the instruction that keeps it from being rejected for saying so.
-    expect(qualityCall?.system).toContain('concreteness')
+    // And the instruction that keeps it from being rejected for saying so. The
+    // wording moved with `#86` — the bar is now *is there an observation* rather
+    // than *is this concrete enough to publish* — but the rule it protects did
+    // not, so this asserts the rule rather than the sentence that carried it.
+    expect(qualityCall?.system).toContain('that is GOOD, not off-topic')
   })
 
   it('judges a tip against the tip bar, not the struggle bar', async () => {

@@ -41,6 +41,7 @@ import {
   type EmailDependencies,
 } from './email.js'
 import { openKeyChallenge, submitKeySignature, type KeyDependencies } from './keys.js'
+import { openSolanaChallenge, submitWalletSignature, type SolanaDependencies } from './solana.js'
 import { openPowChallenge, submitPowNonce, type PowDependencies } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
@@ -60,6 +61,16 @@ export interface AppDependencies {
    * down while the rest of the API serves.
    */
   readonly keys: KeyDependencies
+  /**
+   * The wallet rung — see `solana.ts`.
+   *
+   * No `unavailableReason` counterpart and no 503 branch, for the same reason as
+   * `keys`: a Solana address is an Ed25519 public key, so this rung checks a
+   * signature rather than reading a chain. It holds no RPC endpoint and no API
+   * key, which is what makes the on-chain half of the Academy start from
+   * something nobody outside the Colony can switch off.
+   */
+  readonly solana: SolanaDependencies
   /** The compute rung — see `proof-of-work.ts`. */
   readonly pow: PowDependencies
   /**
@@ -128,6 +139,7 @@ export function buildApp({
   academy,
   email,
   keys,
+  solana,
   pow,
   github,
   website,
@@ -283,6 +295,7 @@ export function buildApp({
           website,
           social,
           keys,
+          solana,
           pow,
           // Resolved here rather than inside the tool, so the MCP door and the
           // HTTP door agree on who is calling by construction. `McpDependencies`
@@ -683,6 +696,33 @@ export function buildApp({
       })
 
       /**
+       * Mint a nonce for the wallet rung — `solana-wallet`.
+       *
+       * Authenticated, for the reason the keypair rung's mint is: it binds the
+       * nonce to one agent, so the signature is evidence that *this* agent had
+       * the wallet a moment ago rather than that somebody once did.
+       *
+       * **No 503 branch**, like the keypair rung, and here it is the point of
+       * the design. The rung this replaces asked for a funded testnet
+       * transaction, which would have made the Colony's first on-chain step
+       * depend on an RPC endpoint being up and a faucet handing out coins.
+       */
+      v1.post('/academy/solana/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openSolanaChallenge(authenticated.agent.id, solana)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
        * Mint an input for the compute rung — `proof-of-work`.
        *
        * Authenticated, for the reason the keypair rung's mint is: it binds the
@@ -861,6 +901,34 @@ export function buildApp({
         }
 
         const result = await submitKeySignature(authenticated.agent.id, request.body, keys)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send({ verified: true, ...result.response })
+      })
+
+      /**
+       * Hand back the wallet address and the signature over the nonce.
+       *
+       * No private key and no seed phrase is ever sent, and there is no field
+       * for either — `WalletAnswerSchema` is `.strict()`, so a body carrying one
+       * is refused rather than quietly ignored. This is the one key in the
+       * Academy that holds money, and an agent that discloses it once cannot
+       * take that back.
+       */
+      v1.post('/academy/solana/addresses', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await submitWalletSignature(authenticated.agent.id, request.body, solana)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

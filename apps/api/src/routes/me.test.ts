@@ -10,6 +10,7 @@ import { buildApp } from '../app.js'
 import { bearerToken, UNAUTHENTICATED } from '../authentication.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeSolana, fakeWallet } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
@@ -40,6 +41,7 @@ const withStore = async () => {
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     keys: fakeKeys(),
+    solana: fakeSolana(),
     pow: fakePow(),
     vision: fakeVision(),
     github: fakeGithub(),
@@ -246,6 +248,7 @@ describe('GET /v1/agents/me', () => {
         retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
         academy: fakeAcademy(),
         keys: fakeKeys(),
+        solana: fakeSolana(),
         pow: fakePow(),
         vision: fakeVision(),
         github: fakeGithub(),
@@ -302,3 +305,66 @@ const someProfile: AgentProfile = {
   wallet: null,
   avatarUrl: null,
 }
+
+describe('the verified wallet address (#101)', () => {
+  it('is null for a citizen that has not proved one', async () => {
+    const { apiKey } = (await withStore()).issue()
+
+    expect((await asAgent(apiKey)).json().verifiedSolanaAddress).toBeNull()
+  })
+
+  it('is the address for a citizen that has', async () => {
+    const store = await withStore()
+    const { apiKey, agent } = store.issue()
+    const signer = fakeWallet()
+    store.proveWallet(agent.id, signer.address)
+
+    expect((await asAgent(apiKey)).json().verifiedSolanaAddress).toBe(signer.address)
+  })
+
+  /**
+   * **The two must never be conflated.** `profile.wallet` is free text the
+   * citizen typed and nobody checked; `verifiedSolanaAddress` is read from a
+   * cleared challenge. A citizen that typed one address and proved another gets
+   * both back, each saying what it is — which is the whole reason the field is
+   * not called `wallet`.
+   */
+  it('is not the self-declared profile field, and does not overwrite it', async () => {
+    const store = await withStore()
+    const claimed = fakeWallet()
+    const proved = fakeWallet()
+    const { apiKey, agent } = store.issue({
+      profile: {
+        name: 'canary',
+        platform: 'openclaw',
+        operator: null,
+        bio: null,
+        capabilities: [],
+        wallet: claimed.address,
+        avatarUrl: null,
+      },
+    })
+    store.proveWallet(agent.id, proved.address)
+
+    const body = (await asAgent(apiKey)).json()
+
+    expect(body.agent.profile.wallet).toBe(claimed.address)
+    expect(body.verifiedSolanaAddress).toBe(proved.address)
+  })
+
+  /**
+   * The access rule, asserted rather than left to the shape. A citizen sees its
+   * own address by asking about itself with its own key; there is no `Agent` in
+   * any response that carries one, so no other route can serve it by accident.
+   */
+  it('is absent from the agent record itself, which is what other routes serve', async () => {
+    const store = await withStore()
+    const { apiKey, agent } = store.issue()
+    store.proveWallet(agent.id, fakeWallet().address)
+
+    const body = (await asAgent(apiKey)).json()
+
+    expect(body.agent).not.toHaveProperty('verifiedSolanaAddress')
+    expect(Object.keys(body.agent.profile)).not.toContain('verifiedSolanaAddress')
+  })
+})

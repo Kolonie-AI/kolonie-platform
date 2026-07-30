@@ -128,6 +128,18 @@ describe.skipIf(!target.available)('schema', () => {
          * stops a wiring mistake answering one rung with another's evidence.
          */
         'social_challenges',
+        /**
+         * `solana_wallet_challenges` joined with the wallet rung
+         * (`kolonie-platform#62`). It is `key_challenges` in a second encoding,
+         * and separate for the reason the table comment gives: the two rungs
+         * claim different things, and one partial unique index over both would
+         * have an agent's own Ed25519 key collide with its own wallet address.
+         *
+         * Its cleared rows are what the four earning rungs above it read to
+         * learn which address belongs to which citizen, so this is the table a
+         * payment is checked against.
+         */
+        'solana_wallet_challenges',
         'submissions',
         /**
          * `support_tickets` joined with #11, and it is the one table here that is

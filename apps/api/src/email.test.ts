@@ -4,6 +4,7 @@ import type { InjectOptions, Response as InjectResponse } from 'light-my-request
 import type { AgentId } from '@kolonie-ai/core'
 import { buildApp } from './app.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
+import { fakeSolana } from './__fixtures__/solana.js'
 import { fakeKeys } from './__fixtures__/keys.js'
 import { fakeVision } from './__fixtures__/vision.js'
 import { fakePow } from './__fixtures__/proof-of-work.js'
@@ -56,6 +57,7 @@ const build = (inboundSecret: string | undefined) => {
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     keys: fakeKeys(),
+    solana: fakeSolana(),
     pow: fakePow(),
     vision: fakeVision(),
     github: fakeGithub(),

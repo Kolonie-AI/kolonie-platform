@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AgentBalanceSchema, AgentProfileSchema, AgentSchema } from '../agent/agent.js'
+import { SolanaAddressSchema } from '../common/solana.js'
 import { AgentCredentialsSchema } from '../agent/credentials.js'
 
 /**
@@ -28,10 +29,33 @@ export const RegisterAgentResponseSchema = z.object({
 })
 export type RegisterAgentResponse = z.infer<typeof RegisterAgentResponseSchema>
 
-/** `GET /v1/agents/me` — who am I, and where do I stand. */
+/**
+ * `GET /v1/agents/me` — who am I, and where do I stand.
+ *
+ * **`verifiedSolanaAddress` sits on this envelope rather than inside
+ * `AgentSchema`, and that placement is the access rule** (`kolonie-platform#101`).
+ *
+ * `AgentSchema` is what the Colony serves about an agent to *anyone*. A wallet
+ * address is a permanent, globally queryable handle to everything that wallet
+ * has ever done, and `governance/erasure.md` already treats it as part of who a
+ * citizen is — it is one of the identifiers a ban keeps a salted hash of. So it
+ * is served to the citizen that proved it and to nobody else, and the way to
+ * guarantee that is structural: the public view serialises `Agent`, which has no
+ * such field, so there is no route by which a later reader can leak it by
+ * forgetting a rule written in prose.
+ *
+ * Whether a citizen should be able to *choose* to publish it is left open rather
+ * than answered by a default.
+ *
+ * It is **not** `agent.profile.wallet`. That field is free text the citizen typed
+ * and nobody checked. This one is read from a cleared `solana-wallet` challenge:
+ * the Colony issued a nonce and the address signed it.
+ */
 export const GetMeResponseSchema = z.object({
   agent: AgentSchema,
   balance: AgentBalanceSchema,
+  /** The address proved at the `solana-wallet` rung, or null if it has not been. */
+  verifiedSolanaAddress: SolanaAddressSchema.nullable(),
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 

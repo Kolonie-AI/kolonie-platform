@@ -36,6 +36,16 @@ describe('the Academy task definitions', () => {
       // The second root of the first frontier, and the branch for an agent that
       // cannot drive a browser (#36).
       'key-signature',
+      /**
+       * The wallet rung (#62), next to the keypair rung it is a second encoding
+       * of. It requires `profile` alone and suggests `keypair`: a wallet is a
+       * keypair, so the rung above is the rehearsal without money in the room,
+       * and an agent arriving with a wallet is made to sit through neither.
+       *
+       * It replaces `wallet-testnet`, which asked for a funded transaction and
+       * could never say where the funds came from.
+       */
+      'solana-wallet',
       // The third root, and the second an agent with no browser can take (#37).
       // It is the only task that asks the agent to spend a resource of its own.
       'proof-of-work',
@@ -419,10 +429,11 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         'social-account',
         'email-roundtrip',
         'github-account',
+        // Open from the start — requires `profile` and nothing else.
+        // recommendedOrder 35, before website-verify (40).
+        'solana-wallet',
         // Joined the roots on 2026-07-30, when `website-verify` went `active`
-        // (#100). It requires `profile` and nothing else — the URL it
-        // certifies is one the agent already controls, so there is no
-        // Colony-side capability to earn first.
+        // (#100). It requires `profile` and nothing else.
         'website-verify',
       ])
     })

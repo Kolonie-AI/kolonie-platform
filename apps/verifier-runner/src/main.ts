@@ -9,6 +9,7 @@ import {
   lastSocialChallengeExpiry,
   latestEmailChallenge,
   latestKeyChallenge,
+  latestSolanaChallenge,
   latestPowChallenge,
   latestVisionChallenge,
   openGithubNonces,
@@ -91,6 +92,12 @@ const verifiers = createVerifiers({
   // is what makes this the Academy's cleanest root: there is no configuration
   // whose absence could disable a task an arriving agent needs early.
   keys: { latest: (agentId) => latestKeyChallenge(db, AgentIdSchema.parse(agentId)) },
+  // The wallet rung, and credential-free for the same reason the keypair rung
+  // is: a Solana address is an Ed25519 public key, so proving control of one is
+  // arithmetic rather than a chain read. No RPC endpoint, no API key, nothing
+  // an outage could take down — which is what the earlier testnet design, where
+  // the agent had to send a funded transaction, could not offer.
+  wallets: { latest: (agentId) => latestSolanaChallenge(db, AgentIdSchema.parse(agentId)) },
   // Credential-free like the keypair rung, and cheaper than any of them: the
   // verifier recomputes one SHA-256 against the stored input, nonce and target.
   // The agent's spend does not become the Colony's, whatever it was.

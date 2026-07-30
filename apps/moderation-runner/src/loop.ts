@@ -498,6 +498,25 @@ export async function briefingTick(
       log.info(
         `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,
       )
+
+      // **A corpus with entries in it should never produce nothing**, and this
+      // is the line that says so out loud. Every entry cleared a moderator who
+      // judged that it contains a real observation, so there is something to
+      // state; an empty briefing over a non-empty corpus means the synthesis
+      // discarded it, and the reader is then told the Colony "found nothing
+      // worth passing on" about a task somebody wrote usable advice for.
+      //
+      // Warned rather than retried. A retry would loop against a prompt that is
+      // answering consistently, and the flag is already cleared — what is needed
+      // is for a person to read the prompt, which needs the failure to be
+      // visible rather than corrected. It cost a production round trip to find
+      // this once.
+      if (corpus.length > 0 && claims.length === 0) {
+        log.warn(
+          `briefing for ${taskId} is empty over ${corpus.length} moderated entries — ` +
+            'the synthesis prompt discarded a corpus that had something in it',
+        )
+      }
     } catch (error) {
       outcome.failed++
       log.error(`could not write the briefing for ${taskId}`, error)

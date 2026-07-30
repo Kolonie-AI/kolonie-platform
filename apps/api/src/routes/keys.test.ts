@@ -17,6 +17,7 @@ import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeSolana } from '../__fixtures__/solana.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -37,6 +38,7 @@ beforeEach(async () => {
     support: support({ desk: fakeSupportDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: { challenges },
+    solana: fakeSolana(),
     pow: fakePow(),
     vision: fakeVision(),
     github: fakeGithub(),

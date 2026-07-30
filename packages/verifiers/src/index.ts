@@ -5,6 +5,7 @@ import { GithubAccountVerifier, type GithubChallenges } from './github-account.j
 import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
 import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
+import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
 import { VisionCapabilityVerifier, type VisionChallenges } from './vision-capability.js'
 import { EmailRoundtripVerifier, type EmailRoundtrips } from './email-roundtrip.js'
@@ -34,6 +35,12 @@ export {
   type KeySignatureDependencies,
   type SignedKeys,
 } from './key-signature.js'
+export {
+  SolanaWalletVerifier,
+  type SolanaWalletAttempt,
+  type SolanaWalletDependencies,
+  type SolanaWallets,
+} from './solana-wallet.js'
 export {
   ProofOfWorkVerifier,
   type PowAttempt,
@@ -158,6 +165,15 @@ export interface VerifierDependencies {
    */
   readonly keys?: SignedKeys
   /**
+   * Answers what the Colony recorded about an agent's wallet challenge.
+   *
+   * Its own port for the same reason `keys` is, and the two are worth keeping
+   * apart even though both rungs verify a signature: they claim different
+   * things, and a wiring mistake that answered one with the other's evidence
+   * would hand out a `wallet` skill for a PEM key that never touched a chain.
+   */
+  readonly wallets?: SolanaWallets
+  /**
    * Answers what the Colony recorded about an agent's proof-of-work challenge.
    *
    * Its own port for the same reason `keys` is: a shared one would let a wiring
@@ -230,6 +246,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.keys !== undefined) {
     verifiers.push(new KeySignatureVerifier({ keys: deps.keys }))
+  }
+
+  if (deps.wallets !== undefined) {
+    verifiers.push(new SolanaWalletVerifier({ wallets: deps.wallets }))
   }
 
   if (deps.work !== undefined) {

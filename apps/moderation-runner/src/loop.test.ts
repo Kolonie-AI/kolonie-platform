@@ -777,6 +777,53 @@ describe('writing briefings', () => {
   })
 
   /**
+   * The shape that reached production and was not noticed for an hour: a corpus
+   * with entries in it, and a briefing with nothing in it.
+   *
+   * Every entry cleared a moderator who judged it contains a real observation,
+   * so an empty result means the synthesis discarded it — and the reader is then
+   * told the Colony *"found nothing worth passing on"* about a task somebody
+   * wrote usable advice for. Warned rather than retried: a retry would loop
+   * against a prompt answering consistently, and what is needed is for somebody
+   * to read the prompt.
+   */
+  it('warns when a briefing comes back empty over a corpus that was not', async () => {
+    const warnings: string[] = []
+    stale = [randomUUID() as TaskId]
+    // The model returns nothing, which is what the over-corrected prompt did.
+    model.composes()
+
+    await briefingTick(
+      {
+        store: briefingStore(),
+        model,
+        log: { info: () => {}, warn: (m) => warnings.push(m), error: () => {} },
+      },
+      10,
+    )
+
+    expect(warnings.some((message) => message.includes('discarded a corpus'))).toBe(true)
+  })
+
+  /** An empty corpus producing an empty briefing is ordinary and says nothing. */
+  it('does not warn when the corpus was empty to begin with', async () => {
+    const warnings: string[] = []
+    stale = [randomUUID() as TaskId]
+    corpus = []
+
+    await briefingTick(
+      {
+        store: briefingStore(),
+        model,
+        log: { info: () => {}, warn: (m) => warnings.push(m), error: () => {} },
+      },
+      10,
+    )
+
+    expect(warnings).toEqual([])
+  })
+
+  /**
    * A task whose corpus is empty writes an empty briefing without a model call.
    * That is what happens after every approved entry on a task is revised back to
    * pending, and it must clear the flag rather than retrying forever.

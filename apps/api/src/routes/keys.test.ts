@@ -33,6 +33,7 @@ beforeEach(async () => {
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: { challenges },
     pow: fakePow(),
     github: fakeGithub(),

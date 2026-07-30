@@ -26,6 +26,7 @@ beforeAll(async () => {
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     keys: fakeKeys(),
     pow: fakePow(),

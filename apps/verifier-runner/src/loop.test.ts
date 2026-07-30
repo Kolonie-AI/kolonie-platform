@@ -16,6 +16,7 @@ import type {
   RecordVerdictCommand,
   RecordVerdictResult,
   ReportRoutingResult,
+  RerunReportResult,
   SubmissionQueue,
 } from './queue.js'
 
@@ -136,6 +137,17 @@ class FakeQueue implements SubmissionQueue {
     this.routed.push(submissionId)
     if (this.routeFails) throw this.routeFails
     return this.routing
+  }
+
+  /** Recorded so a test can assert the loop asks, and what it does when this throws. */
+  readonly rerunsReported: SubmissionId[] = []
+  rerunReport: RerunReportResult = { outcome: 'nothing-to-do' }
+  rerunReportFails: Error | undefined
+
+  async reportFailedRerun(submissionId: SubmissionId): Promise<RerunReportResult> {
+    this.rerunsReported.push(submissionId)
+    if (this.rerunReportFails) throw this.rerunReportFails
+    return this.rerunReport
   }
 
   async release(submissionId: SubmissionId): Promise<boolean> {

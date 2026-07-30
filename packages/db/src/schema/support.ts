@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm'
-import { check, index, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import {
+  check,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core'
 import {
   SETTLED_TICKET_STATUSES,
   TICKET_BODY_MAX_LENGTH,
@@ -9,6 +18,7 @@ import {
   TICKET_SUBJECT_MIN_LENGTH,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
+import { submissions } from './submissions.js'
 import { supportTicketKind, supportTicketStatus } from './enums.js'
 
 const settledStatusList = sql.raw(SETTLED_TICKET_STATUSES.map((s) => `'${s}'`).join(', '))
@@ -74,6 +84,30 @@ export const supportTickets = pgTable(
      */
     issueUrl: text('issue_url'),
 
+    /**
+     * The submission this ticket is about, when the Colony opened it rather than a
+     * citizen (#47).
+     *
+     * A failed test re-run has to surface somewhere a human or an agent will see it,
+     * and `kolonie-docs#17` is explicit that *"a re-run that quietly fails is worse
+     * than no re-runs"*. So the runner opens a ticket, authored by the tester, and
+     * this column is the link.
+     *
+     * **A column rather than the submission id in the body text**, which was the
+     * cheaper option: the id in prose makes *which ticket came from which failed
+     * re-run* a `like` over a text column, and makes the "already reported this one"
+     * check a string match. The same argument `#56` made for
+     * `task_struggles.submission_id`.
+     *
+     * `on delete set null`, unlike the `restrict`s elsewhere in this file: the ticket
+     * stands on its own text and caches nothing from the submission, so it outlives
+     * one. Nullable because almost every ticket has no submission — a citizen asking
+     * a question is not talking about an attempt.
+     */
+    submissionId: uuid('submission_id').references(() => submissions.id, {
+      onDelete: 'set null',
+    }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -121,6 +155,16 @@ export const supportTickets = pgTable(
      * than on `agent_id` alone, so the sort is served by the index too.
      */
     index('support_tickets_agent_id_created_at_idx').on(table.agentId, table.createdAt.desc()),
+    /**
+     * *Has this failed re-run already been reported?* — the runner's idempotency
+     * check. Unique and partial, so the database refuses a second ticket for the same
+     * submission rather than trusting the runner to look first: the runner is
+     * at-least-once by construction, so a crash between the verdict and the ticket
+     * leaves the row to be picked up again.
+     */
+    uniqueIndex('support_tickets_one_per_submission')
+      .on(table.submissionId)
+      .where(sql`${table.submissionId} is not null`),
     /** The read triage makes: the queue, oldest first, ignoring what is settled. */
     index('support_tickets_open_idx')
       .on(table.createdAt)

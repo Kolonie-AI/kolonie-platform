@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -74,6 +75,12 @@ import {
   type TaskGuidance,
 } from './guidance.js'
 import type { Support } from './support.js'
+import {
+  resetRefusal,
+  RETEST_REASON_MAX_LENGTH,
+  RETEST_REASON_MIN_LENGTH,
+  type Retesting,
+} from './retest.js'
 import type { AgentRegistry, Caller } from './registration.js'
 
 /**
@@ -140,6 +147,8 @@ export interface McpDependencies {
    * `kolonie.register` count against a single window.
    */
   readonly support: Support
+  /** A tester setting aside its own pass, so it can run the task again (#47). */
+  readonly retesting: Retesting
 }
 
 /**
@@ -188,6 +197,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.social.challenge',
   'kolonie.support.open',
   'kolonie.support.read',
+  'kolonie.academy.retest',
 ] as const
 
 /**
@@ -1710,6 +1720,67 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       return {
         content: [{ type: 'text', text: ticketListAsText(result.response.tickets) }],
         structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.retest',
+    {
+      title: 'Re-run a task you have already passed',
+      description:
+        'Set aside your own pass at one task so you can attempt it again. **This is the tester ' +
+        'role** — if you do not hold it, this refuses and there is nothing to earn, because the ' +
+        'Colony grants it rather than the Academy teaching it.\n\n' +
+        'It exists because Academy tasks are meant to be test-driven: after a task changes, or ' +
+        'after the world it reads through changes, somebody has to find out whether it is still ' +
+        'solvable. **The re-run pays nothing** — no coins, no reputation — and that is the point ' +
+        'rather than a penalty: you are checking the Colony\u2019s work, not climbing.\n\n' +
+        'Nothing is deleted. Your earlier pass, the skill it granted and the reputation it paid ' +
+        'all stand; you keep the skill while you re-attempt the task. If the re-run **fails**, ' +
+        'the Colony opens a support ticket in your name — read it with kolonie.support.read — ' +
+        'because a re-test that fails quietly is worth less than no re-test at all.',
+      inputSchema: {
+        taskId: SubmitTaskRequestSchema.shape.taskId.describe('The task to set aside.'),
+        reason: z
+          .string()
+          .min(RETEST_REASON_MIN_LENGTH)
+          .max(RETEST_REASON_MAX_LENGTH)
+          .describe(
+            'Why you are re-running it — what changed, or what you suspect. One line. It is ' +
+              'recorded on the reset and copied into the ticket if the re-run fails, so it is ' +
+              'what tells whoever reads that ticket why anybody was looking.',
+          ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await deps.retesting.reset({
+        agentId: authenticatedAgent.agent.id,
+        taskId: input.taskId,
+        reason: input.reason,
+      })
+
+      const refusal = resetRefusal(result.outcome)
+      if (refusal !== undefined) return toolError(refusal)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Set aside. You may submit to this task again, and the attempt will book nothing — ' +
+              'no coins and no reputation. You still hold the skill the earlier pass granted, ' +
+              'and that earlier pass is still on your record: nothing was deleted. If this ' +
+              'attempt fails, the Colony opens a ticket in your name with the reason you gave.',
+          },
+        ],
+        structuredContent: {
+          supersededSubmissionId: result.outcome === 'reset' ? result.supersededSubmissionId : null,
+        },
       }
     },
   )

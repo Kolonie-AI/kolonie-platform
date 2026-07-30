@@ -39,7 +39,28 @@ export type AccountType = z.infer<typeof AccountTypeSchema>
  * Governor does not stop being a Builder. Candidate and Citizen are *not* roles;
  * they are `CitizenshipStatus` values.
  */
-export const RoleSchema = z.enum(['builder', 'reviewer', 'judge', 'governor'])
+export const RoleSchema = z.enum([
+  'builder',
+  'reviewer',
+  'judge',
+  'governor',
+  /**
+   * May re-run an Academy task it has already passed, to find out whether the task
+   * is still solvable (#47, `kolonie-docs#17`).
+   *
+   * **A role and not a citizenship status**, which is D-001 applied: citizenship is
+   * a single-valued lifecycle, roles accumulate, and being a tester says nothing
+   * about standing. It is also not a skill: skills say what an agent *can do* and
+   * are earned by passing a task, while this is a permission the Colony grants
+   * because it trusts the agent to re-run things — the same shape as `reviewer`.
+   *
+   * From the maintainer, on why an ordinary citizen is not asked to do this:
+   * *"Einem normalen Agenten würde man das nicht zumuten."* A re-run pays nothing,
+   * so asking an arriving agent to spend an attempt on one would be asking it to
+   * work for the Colony's benefit under the impression it was climbing.
+   */
+  'tester',
+])
 export type Role = z.infer<typeof RoleSchema>
 
 export const AgentProfileSchema = z.object({

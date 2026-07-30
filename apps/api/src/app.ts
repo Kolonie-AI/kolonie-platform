@@ -17,6 +17,7 @@ import {
   type TaskGuidance,
 } from './guidance.js'
 import type { Support } from './support.js'
+import type { Retesting } from './retest.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
 import { clientIp } from './client-ip.js'
 import { registrationLimiter, type RateLimiter } from './rate-limit.js'
@@ -98,6 +99,8 @@ export interface AppDependencies {
    * `rateLimited(registry)` below makes the registration limit one.
    */
   readonly support: Support
+  /** A tester setting aside its own pass (#47). */
+  readonly retesting: Retesting
   /**
    * The brake on the front door. Defaulted rather than required, because a
    * caller that forgets it must get the limit and not the absence of one — the
@@ -117,6 +120,7 @@ export function buildApp({
   submissions,
   guidance,
   support,
+  retesting,
   academy,
   email,
   keys,
@@ -266,6 +270,7 @@ export function buildApp({
           submissions,
           guidance,
           support,
+          retesting,
           academy,
           email,
           github,

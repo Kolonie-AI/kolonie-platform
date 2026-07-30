@@ -143,6 +143,13 @@ describe.skipIf(!target.available)('schema', () => {
         // instructions (#52). `task_hints` is the Colony's own voice;
         // the other three are citizens', and nothing serves those unjudged.
         'task_hints',
+        /**
+         * `task_resets` joined with #47. A tester setting aside its own pass, as a row
+         * rather than as an edit: the one-pass gate (D-015) reads *since the last
+         * reset* instead of *ever*, so nothing about the earlier pass, the skill it
+         * granted or the reputation it paid has to be rewritten.
+         */
+        'task_resets',
         'task_struggles',
         'task_tips',
         'tasks',

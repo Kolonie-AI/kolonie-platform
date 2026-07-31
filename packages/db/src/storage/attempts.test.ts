@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
   RegisterAgentRequestSchema,
+  SNAPSHOT_TEXT_MAX_LENGTH,
   TaskIdSchema,
   TaskTypeSchema,
   type AgentId,
@@ -15,8 +16,11 @@ import { registerAgent } from './agents.js'
 import {
   attemptTallies,
   attemptsFor,
+  capabilityOutcomes,
   closeAttempt,
   closedAttemptCount,
+  declareRuntime,
+  runtimeChanges,
   medianAttemptsToPass,
   openAttempt,
   openAttemptFor,
@@ -466,6 +470,171 @@ describe.skipIf(!target.available)('task attempts', () => {
 
       expect(await openAttemptForChallenge(db, 'email', agentId, null)).toBeNull()
       expect(await countAttempts()).toBe(0)
+    })
+  })
+  describe('the runtime snapshot', () => {
+    it('records what the agent declared, on the attempt rather than the agent', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      expect(
+        await declareRuntime(db, agentId, taskId, {
+          model: 'some-model-v3',
+          capabilities: { vision: false, browser: true },
+        }),
+      ).toBe(true)
+
+      const [attempt] = await attemptsFor(db, agentId, taskId)
+      expect(attempt?.runtime.model).toBe('some-model-v3')
+      expect(attempt?.runtime.capabilities).toEqual({ vision: false, browser: true })
+    })
+
+    /**
+     * Declaring what you know when you know it must not be the lossy option.
+     * A partial declaration that erased an earlier one would teach agents to
+     * batch, which is the opposite of what this collects.
+     */
+    it('merges a later partial declaration into an earlier one', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })
+      await declareRuntime(db, agentId, taskId, { capabilities: { shell: true } })
+
+      const [attempt] = await attemptsFor(db, agentId, taskId)
+      expect(attempt?.runtime.model).toBe('some-model-v3')
+      expect(attempt?.runtime.capabilities).toEqual({ shell: true })
+    })
+
+    it('reports rather than throws when there is no open attempt', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toBe(false)
+    })
+
+    /**
+     * The rejection case. Refused at the boundary, never truncated — a
+     * truncated model name is a false declaration, and false in the direction
+     * that matters, because the tail is what distinguishes two versions.
+     */
+    it('refuses an oversized declaration rather than truncating it', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await expect(
+        declareRuntime(db, agentId, taskId, {
+          model: 'x'.repeat(SNAPSHOT_TEXT_MAX_LENGTH + 1),
+        }),
+      ).rejects.toThrow()
+
+      expect((await attemptsFor(db, agentId, taskId))[0]?.runtime.model).toBeNull()
+    })
+
+    /** Instrumentation never costs a citizen its rung — absent, partial or oversized. */
+    it('leaves a pass unaffected whatever the snapshot says', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'example-task' })
+      const created = await submit(taskId, agentId)
+      if (created.outcome !== 'accepted') throw new Error(created.outcome)
+
+      await declareRuntime(db, agentId, taskId, { capabilities: { vision: true } })
+
+      const claimed = await claimNextSubmission(db, [TaskTypeSchema.parse('example-task')])
+      if (claimed === undefined) throw new Error('nothing to claim')
+      const verdict = await recordVerdict(db, {
+        submissionId: created.submission.id,
+        taskType: claimed.taskType,
+        result: { status: 'pass', evidence: 'Everything the task asked for.' },
+      })
+
+      expect(verdict.outcome).toBe('recorded')
+      expect((await attemptsFor(db, agentId, taskId))[0]?.outcome).toBe('passed')
+    })
+
+    it('divides a task’s outcomes by a declared capability', async () => {
+      const taskId = await aTask({ type: 'the-captcha-rung' })
+      const seeing = await anAgent()
+      const blind = await anAgent()
+
+      const a = await openAttempt(db, { agentId: seeing, taskId, opener: 'challenge' })
+      await declareRuntime(db, seeing, taskId, { capabilities: { vision: true } })
+      await closeAttempt(db, a.id, 'passed')
+
+      const b = await openAttempt(db, { agentId: blind, taskId, opener: 'challenge' })
+      await declareRuntime(db, blind, taskId, { capabilities: { vision: false } })
+      await closeAttempt(db, b.id, 'failed')
+
+      const vision = (await capabilityOutcomes(db)).find((row) => row.flag === 'vision')
+
+      expect(vision?.withFlag).toBe(1)
+      expect(vision?.withFlagPassed).toBe(1)
+      expect(vision?.withoutFlag).toBe(1)
+      expect(vision?.withoutFlagPassed).toBe(0)
+    })
+
+    /**
+     * Absent is not `false`. Counting silence as a missing capability would put
+     * a citizen on the losing side of a sentence the Colony then addresses to
+     * it directly — the one error this must not make.
+     */
+    it('counts an undeclared flag in neither column', async () => {
+      const taskId = await aTask()
+      const agentId = await anAgent()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })
+      await closeAttempt(db, attempt.id, 'failed')
+
+      expect((await capabilityOutcomes(db)).filter((row) => row.flag === 'vision')).toEqual([])
+    })
+
+    it('reports what changed between one attempt and the next', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      const first = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await declareRuntime(db, agentId, taskId, {
+        model: 'text-only',
+        capabilities: { vision: false },
+      })
+      await closeAttempt(db, first.id, 'failed')
+
+      const second = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await declareRuntime(db, agentId, taskId, {
+        model: 'now-with-eyes',
+        capabilities: { vision: true },
+      })
+      await closeAttempt(db, second.id, 'passed')
+
+      const [change] = await runtimeChanges(db, agentId, taskId)
+
+      expect(change?.from).toBe(1)
+      expect(change?.to).toBe(2)
+      expect(change?.modelChanged).toBe(true)
+      expect(change?.capabilitiesChanged).toEqual(['vision'])
+    })
+
+    /**
+     * A flag that went from undeclared to declared says the agent changed what
+     * it *reports*, which is not evidence it changed its runtime. Treating the
+     * two alike would manufacture the finding this programme most wants to be
+     * true.
+     */
+    it('does not call a first-time declaration a change', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      const first = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await closeAttempt(db, first.id, 'failed')
+
+      const second = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await declareRuntime(db, agentId, taskId, { capabilities: { vision: true } })
+      await closeAttempt(db, second.id, 'passed')
+
+      expect((await runtimeChanges(db, agentId, taskId))[0]?.capabilitiesChanged).toEqual([])
     })
   })
 })

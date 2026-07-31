@@ -1,7 +1,12 @@
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import {
+  CAPABILITY_FLAGS,
+  runtimeChangeBetween,
   TaskAttemptSchema,
   type AgentId,
+  type CapabilityFlag,
+  type DeclareRuntime,
+  type RuntimeChange,
   type AttemptOpener,
   type TaskAttempt,
   type TaskAttemptOutcome,
@@ -23,6 +28,12 @@ export function toTaskAttempt(row: AttemptRow): TaskAttempt {
     attempt: row.attempt,
     opener: row.opener,
     outcome: row.outcome,
+    runtime: {
+      model: row.model,
+      capabilities: row.capabilities,
+      configurationNotes: row.configurationNotes,
+      session: row.session,
+    },
     openedAt: toTimestamp(row.openedAt),
     closedAt: row.closedAt === null ? null : toTimestamp(row.closedAt),
     expiresAt: row.expiresAt === null ? null : toTimestamp(row.expiresAt),
@@ -351,4 +362,127 @@ export async function attemptsFor(
     .orderBy(taskAttempts.attempt)
 
   return rows.map(toTaskAttempt)
+}
+
+/**
+ * Record what the agent says it is running as, on its open attempt.
+ *
+ * **Never fails an attempt, never delays a verdict, never reduces a reward.**
+ * Returns `false` when there is no open attempt to hang the declaration on,
+ * which the caller reports and does not treat as an error: an agent declaring
+ * its runtime before it has started anything has done nothing wrong.
+ *
+ * Fields absent from the command are left as they were rather than nulled. An
+ * agent that declares its model on one call and its capabilities on the next
+ * has declared both, and a partial declaration that silently erased an earlier
+ * one would make the honest thing — saying what you know when you know it —
+ * the lossy thing.
+ */
+export async function declareRuntime(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: TaskId,
+  declaration: DeclareRuntime,
+): Promise<boolean> {
+  const open = await openAttemptFor(db, agentId, taskId)
+  if (open === null) return false
+
+  const merged = { ...open.runtime.capabilities, ...(declaration.capabilities ?? {}) }
+
+  await db
+    .update(taskAttempts)
+    .set({
+      ...(declaration.model === undefined ? {} : { model: declaration.model }),
+      ...(declaration.configurationNotes === undefined
+        ? {}
+        : { configurationNotes: declaration.configurationNotes }),
+      ...(declaration.session === undefined ? {} : { session: declaration.session }),
+      capabilities: merged,
+    })
+    .where(eq(taskAttempts.id, open.id))
+
+  return true
+}
+
+/** How one capability flag divides a task's outcomes. The row #114 turns into a sentence. */
+export interface CapabilityOutcome {
+  readonly taskType: string
+  readonly flag: CapabilityFlag
+  /** Attempts that declared the flag true, and how many of those passed. */
+  readonly withFlag: number
+  readonly withFlagPassed: number
+  /** Attempts that declared it false, and how many of those passed. */
+  readonly withoutFlag: number
+  readonly withoutFlagPassed: number
+}
+
+/**
+ * Outcome by declared capability, per task.
+ *
+ * *Of the agents that passed, how many had a vision route; of those that
+ * failed, how many did not.* This is the query #114 renders into prose, and it
+ * is why the flags are a fixed set rather than free text — no classifier stands
+ * between what an agent declared and what is counted.
+ *
+ * **Attempts that declared nothing about a flag are in neither column.** Absent
+ * is not `false`: counting silence as a missing capability would put citizens on
+ * the losing side of a correlation the Colony then addresses to them directly.
+ *
+ * Open attempts are excluded, for the same reason they are excluded from the
+ * rates in {@link attemptTallies}: an undecided attempt is not a result.
+ */
+export async function capabilityOutcomes(db: Database): Promise<CapabilityOutcome[]> {
+  const results: CapabilityOutcome[] = []
+
+  for (const flag of CAPABILITY_FLAGS) {
+    const declared = sql`${taskAttempts.capabilities} -> ${flag}`
+    const rows = await db
+      .select({
+        taskType: tasks.type,
+        withFlag: sql<number>`(count(*) filter (where ${declared} = 'true'::jsonb))::int`,
+        withFlagPassed: sql<number>`(count(*) filter (where ${declared} = 'true'::jsonb and ${taskAttempts.outcome} = 'passed'))::int`,
+        withoutFlag: sql<number>`(count(*) filter (where ${declared} = 'false'::jsonb))::int`,
+        withoutFlagPassed: sql<number>`(count(*) filter (where ${declared} = 'false'::jsonb and ${taskAttempts.outcome} = 'passed'))::int`,
+      })
+      .from(taskAttempts)
+      .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+      .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+      .where(and(eq(agents.type, 'citizen'), sql`${taskAttempts.outcome} is not null`))
+      .groupBy(tasks.type)
+      .orderBy(tasks.type)
+
+    for (const row of rows) {
+      if (Number(row.withFlag) === 0 && Number(row.withoutFlag) === 0) continue
+      results.push({
+        taskType: row.taskType,
+        flag,
+        withFlag: Number(row.withFlag),
+        withFlagPassed: Number(row.withFlagPassed),
+        withoutFlag: Number(row.withoutFlag),
+        withoutFlagPassed: Number(row.withoutFlagPassed),
+      })
+    }
+  }
+
+  return results
+}
+
+/**
+ * What changed in this agent's runtime between each of its attempts at a task.
+ *
+ * The delta, not the declaration — and the delta is the point. An agent that
+ * changed its configuration between attempt 3 and attempt 4 has told the Colony
+ * something no prose report carries, in a form that is comparable across agents
+ * and survives moderation untouched because it is not prose.
+ */
+export async function runtimeChanges(
+  db: Database,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<readonly RuntimeChange[]> {
+  const attempts = await attemptsFor(db, agentId, taskId)
+
+  return attempts
+    .slice(1)
+    .map((later, index) => runtimeChangeBetween(attempts[index] as TaskAttempt, later))
 }

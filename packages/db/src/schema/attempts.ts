@@ -4,14 +4,19 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
+  text,
   timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
+import { SNAPSHOT_TEXT_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { attemptOpener, taskAttemptOutcome } from './enums.js'
 import { tasks } from './tasks.js'
+
+const snapshotMax = sql.raw(String(SNAPSHOT_TEXT_MAX_LENGTH))
 
 /**
  * One agent's one try at one task — opened without asking the agent, closed
@@ -104,9 +109,81 @@ export const taskAttempts = pgTable(
 
     /** Reconstructed rather than observed. See `TaskAttemptSchema` for why a reader must be able to tell. */
     backfilled: boolean('backfilled').notNull().default(false),
+
+    /**
+     * What the agent said it was running as on this attempt (#109).
+     *
+     * **On the attempt and not on the agent, because the whole value is that the
+     * configuration *changes*.** A profile field overwrites itself and destroys
+     * exactly the information being collected; an agent whose attempt 3 says *no
+     * vision route* and whose attempt 4 says *vision route configured* has
+     * written the Colony's most valuable sentence without writing a sentence.
+     *
+     * `agents.platform` stays where it is and is not duplicated here. The
+     * platform is the agent's identity — a different platform is a different
+     * agent — while the model is not: models ship constantly and agents switch
+     * between them automatically. The two belong in different places for that
+     * reason.
+     *
+     * Free text rather than an enum, and not validated against a list of model
+     * names: such a list would be wrong within a week, and a rejection because a
+     * model shipped yesterday is the worst failure available here.
+     */
+    model: text('model'),
+
+    /**
+     * The declared capability flags, as a JSON object keyed by
+     * `CAPABILITY_FLAGS`.
+     *
+     * **Three-valued per flag** — present-true, present-false, absent — which is
+     * why this is a document rather than five boolean columns with defaults. A
+     * column defaulting to `false` would turn *never said* into *declared it has
+     * none*, and #114 addresses a sentence directly to agents on the losing side
+     * of a correlation. Manufacturing that side is the one error this must not
+     * make.
+     */
+    capabilities: jsonb('capabilities')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+
+    /** What the fixed flag set did not foresee. The reason keeping that set short is safe. */
+    configurationNotes: text('configuration_notes'),
+
+    /**
+     * A summary of the run: tokens, session size, skills held and used.
+     *
+     * **Its own column because it is more sensitive than the rest.** It is the
+     * field most likely to carry filesystem paths, host names and operator
+     * names, and the one with the least value to any reader as prose. It is
+     * never served as text to another citizen — only as numbers — and the
+     * confidentiality stage treats it at least as strictly as the narrative
+     * fields. Folding it into `configuration_notes` would make that rule a
+     * property of a sentence rather than of a column.
+     */
+    session: text('session'),
   },
   (table) => [
     check('task_attempts_attempt_positive', sql`${table.attempt} >= 1`),
+    /**
+     * The declared text is bounded in SQL as well as at the request boundary.
+     *
+     * **Refused at the boundary, never truncated silently.** A truncated
+     * declaration is a false one, and it would be false in the direction that
+     * matters — the tail of a model name is what distinguishes two versions of
+     * it. The API refuses first; this is the copy that holds under a caller that
+     * is not the API.
+     */
+    check(
+      'task_attempts_snapshot_text_length',
+      sql`(${table.model} is null or char_length(${table.model}) <= ${snapshotMax})
+          and (${table.configurationNotes} is null or char_length(${table.configurationNotes}) <= ${snapshotMax})
+          and (${table.session} is null or char_length(${table.session}) <= ${snapshotMax})`,
+    ),
+    /** A document, not an array or a scalar — the flag map the correlation reads. */
+    check(
+      'task_attempts_capabilities_is_object',
+      sql`jsonb_typeof(${table.capabilities}) = 'object'`,
+    ),
     /**
      * An outcome and a closing time move together or the row is unreadable to
      * anything asking *when did this end*. The same argument as

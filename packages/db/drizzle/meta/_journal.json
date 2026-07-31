@@ -358,6 +358,13 @@
       "when": 1785531727551,
       "tag": "0050_slow_killer_shrike",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1785532938463,
+      "tag": "0051_tricky_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }

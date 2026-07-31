@@ -253,8 +253,9 @@ describe.skipIf(!target.available)('erasing a citizen', () => {
         address: 'leaver@host.invalid',
         token: 't',
         expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-        // A verified mailbox has had post through it — `email_challenges_verified_needs_inbound`.
-        inboundAt: new Date().toISOString(),
+        // A verified mailbox has had a code delivered to it —
+        // `email_challenges_verdict_needs_its_evidence`.
+        sentAt: new Date().toISOString(),
         code: '123456',
         verifiedAt: new Date().toISOString(),
       })
@@ -352,7 +353,7 @@ describe.skipIf(!target.available)('erasing a citizen', () => {
           address: 'shared@host.invalid',
           token: 't',
           expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-          inboundAt: new Date().toISOString(),
+          sentAt: new Date().toISOString(),
           code: '123456',
           verifiedAt: new Date().toISOString(),
         })

@@ -64,7 +64,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
 
   beforeEach(async () => {
     await truncateAll(db)
-    taskId = await aTask('email-roundtrip')
+    taskId = await aTask('email-inbox')
   })
 
   let slug = 0

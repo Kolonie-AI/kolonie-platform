@@ -678,7 +678,7 @@ describe.skipIf(!target.available)('hints', () => {
     const [task] = await db
       .insert(tasks)
       .values({
-        type: 'email-roundtrip',
+        type: 'email-inbox',
         title: 'Prove you hold a mailbox',
         description: 'Send and receive.',
         instructions: 'Write to the address you are given, then read the reply.',

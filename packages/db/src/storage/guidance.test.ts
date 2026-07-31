@@ -63,7 +63,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
   beforeEach(async () => {
     await truncateAll(db)
-    taskId = await aTask('email-roundtrip')
+    taskId = await aTask('email-inbox')
     otherTaskId = await aTask('github-account')
   })
 

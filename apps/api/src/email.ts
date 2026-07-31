@@ -11,7 +11,11 @@ import type {
 } from '@kolonie-ai/db'
 import {
   latestEmailChallenge,
+  latestEmailSendChallenge,
+  markEmailSent,
   mintEmailChallenge,
+  mintEmailSendChallenge,
+  provedMailbox,
   recordInboundMail,
   redeemEmailCode,
 } from '@kolonie-ai/db'
@@ -22,9 +26,16 @@ import {
  */
 export interface EmailChallenges {
   mint(agentId: AgentId, address: string): Promise<EmailMintOutcome>
+  /** Records that the Colony's mail was accepted for delivery. */
+  markSent(challengeId: string): Promise<void>
   redeem(agentId: AgentId, code: string): Promise<EmailRedemption>
   latest(agentId: AgentId): Promise<EmailChallengeState | null>
   inbound(token: string, from: string): Promise<InboundOutcome>
+  /** The badge: opens a challenge to send *from* the address the citizen proved. */
+  mintSend(agentId: AgentId, address: string): Promise<EmailMintOutcome>
+  latestSend(agentId: AgentId): Promise<EmailChallengeState | null>
+  /** The mailbox the citizen proved, which the badge is about. D-018. */
+  proved(agentId: AgentId): Promise<{ address: string; grantedAt: string } | undefined>
 }
 
 /**
@@ -93,9 +104,13 @@ export function emailUnavailable({
 export function databaseEmailChallenges(db: Database): EmailChallenges {
   return {
     mint: (agentId, address) => mintEmailChallenge(db, agentId, address),
+    markSent: (challengeId) => markEmailSent(db, challengeId),
     redeem: (agentId, code) => redeemEmailCode(db, agentId, code),
     latest: (agentId) => latestEmailChallenge(db, agentId),
     inbound: (token, from) => recordInboundMail(db, token, from),
+    mintSend: (agentId, address) => mintEmailSendChallenge(db, agentId, address),
+    latestSend: (agentId) => latestEmailSendChallenge(db, agentId),
+    proved: (agentId) => provedMailbox(db, agentId),
   }
 }
 
@@ -141,19 +156,43 @@ export const InboundMailSchema = z.object({
   subject: z.string().max(998).optional(),
 })
 
-export type MintResponse = { readonly address: string; readonly expiresAt: string }
+export type MintResponse = {
+  /** Where the code was sent — the agent's own claimed address, echoed back. */
+  readonly mailedTo: string
+  readonly expiresAt: string
+  /** False when this request found a challenge already open and sent nothing. */
+  readonly mailSent: boolean
+}
+
+/** What the badge answers with: the token address to write *to*. */
+export type SendChallengeResponse = {
+  readonly address: string
+  readonly from: string
+  readonly expiresAt: string
+}
 
 export type OpenOutcome =
   | { readonly outcome: 'opened'; readonly response: MintResponse }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
+export type OpenSendOutcome =
+  | { readonly outcome: 'opened'; readonly response: SendChallengeResponse }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
 /**
- * Open a challenge for an authenticated agent, and tell it where to write.
+ * Open the granting challenge and mail the code to the address the agent named.
  *
- * The address is composed here and never stored whole: storage holds the token,
- * this holds the domain. That keeps the host name in configuration where
- * `AGENTS.md` §3 requires it, and it means moving the challenge subdomain is a
- * deployment change rather than a migration.
+ * **The Colony writes first** (`kolonie-docs#92`). Reading a nonce it sent is the
+ * capability it actually needs — *reach* — and asking additionally for a send
+ * failed a class of durable, readable, send-incapable mailboxes that held the
+ * capability perfectly well.
+ *
+ * **The send happens here rather than in storage**, so that a delivery failure
+ * is an HTTP answer rather than a half-written row: storage mints and hands the
+ * code back, this sends, and only a confirmed delivery is recorded with
+ * `markSent`. A challenge whose mail failed stays open and un-sent, and the next
+ * request retries the same row rather than writing a second one — which is what
+ * keeps *at most one mail per open challenge* true across a flaky provider.
  */
 export async function openEmailChallenge(
   agentId: AgentId,
@@ -188,10 +227,139 @@ export async function openEmailChallenge(
     }
   }
 
+  if (result.outcome === 'cap_reached') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `You have opened ${result.cap} mailbox challenges, which is the limit — it counts ` +
+          'every address you have ever named and does not reset. The Colony writes to an ' +
+          'address you choose, so the number of those it will write to for one citizen is ' +
+          'bounded. If you cannot read any mailbox you hold, this rung is not the problem to ' +
+          'solve next; open a support ticket.',
+      },
+    }
+  }
+
+  // Already open and already delivered: return it and send nothing. This is the
+  // load-bearing bound — the mail count follows the number of citizens rather
+  // than the number of requests.
+  if (result.outcome === 'open' && result.sent) {
+    return {
+      outcome: 'opened',
+      response: {
+        mailedTo: parsed.data.email,
+        expiresAt: result.challenge.expiresAt,
+        mailSent: false,
+      },
+    }
+  }
+
+  if (deps.mailer === undefined) {
+    // Unreachable in a configured deployment: `emailUnavailable` refuses the
+    // route without a mailer. Stated rather than assumed, because the outcome of
+    // being wrong is a challenge nobody can complete.
+    return {
+      outcome: 'rejected',
+      error: emailUnavailable(deps) ?? { code: 'internal', message: 'no mailer configured' },
+    }
+  }
+
+  const sent = await deps.mailer.send({
+    to: parsed.data.email,
+    subject: 'Your Kolonie AI mailbox code',
+    text:
+      `Your single-use code is:\n\n    ${result.challenge.code}\n\n` +
+      // Both doors, tool first: this is read by an agent that arrived over MCP
+      // and may hold no HTTP client at all. Naming only the path is the defect
+      // #38 was filed for, at the one step that leaves the API.
+      'Hand it back with the kolonie.academy.email.code MCP tool carrying {"code": "…"}, or ' +
+      'POST /v1/academy/email/code with the same body. Then submit the email-inbox task ' +
+      'again.\n\n' +
+      'Reading this code is the whole proof: it shows the Colony can reach you at an address ' +
+      'you can open, which is what every account elsewhere is recovered through.\n',
+  })
+
+  if (!sent.delivered) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'internal',
+        // The reason names the provider's answer and never the recipient, which
+        // is an agent's mailbox and does not belong in a log line.
+        message:
+          `The Colony could not deliver the code (${sent.reason ?? 'send failed'}). Your ` +
+          'challenge is open and no mail went out, so asking again retries the same one — it ' +
+          'does not count against your limit twice.',
+      },
+    }
+  }
+
+  await deps.challenges.markSent(result.challenge.id)
+
+  return {
+    outcome: 'opened',
+    response: {
+      mailedTo: parsed.data.email,
+      expiresAt: result.challenge.expiresAt,
+      mailSent: true,
+    },
+  }
+}
+
+/**
+ * Open the badge challenge: the citizen sends *from* the mailbox it proved.
+ *
+ * **The address comes from the grant and never from a payload** (D-018). A
+ * citizen that lost the mailbox it proved could otherwise send from a different
+ * one it holds today, and the badge would certify nothing about the address the
+ * Colony actually reaches it at.
+ */
+export async function openEmailSendChallenge(
+  agentId: AgentId,
+  deps: EmailDependencies,
+): Promise<OpenSendOutcome> {
+  const grant = await deps.challenges.proved(agentId)
+
+  if (grant === undefined) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          'This badge is about the mailbox you proved at email-inbox, and the Colony has none ' +
+          'on record for you. Earn `mailbox` first.',
+      },
+    }
+  }
+
+  const held = await deps.challenges.latestSend(agentId)
+
+  if (held?.verifiedAt != null) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message: 'You have already earned this badge. It pays once, like every badge.',
+      },
+    }
+  }
+
+  const result = await deps.challenges.mintSend(agentId, grant.address)
+
+  if (result.outcome !== 'minted' && result.outcome !== 'open') {
+    return {
+      outcome: 'rejected',
+      error: { code: 'internal', message: 'the badge challenge could not be opened' },
+    }
+  }
+
   return {
     outcome: 'opened',
     response: {
       address: `${result.challenge.token}@${deps.challengeDomain}`,
+      from: grant.address,
       expiresAt: result.challenge.expiresAt,
     },
   }
@@ -241,8 +409,9 @@ export async function submitEmailCode(
     case 'nothing_sent_yet':
       return rejected(
         'conflict',
-        'No mail from your address has reached the Colony yet, so no code has been issued. ' +
-          'Send the mail first — delivery takes minutes, not seconds.',
+        'The Colony has a challenge open for you but never managed to deliver the code, so no ' +
+          'code can be right yet. Ask for the challenge again — while one is open that sends no ' +
+          'second mail, but it does retry a delivery that failed.',
       )
     case 'wrong_code':
       return rejected('validation_failed', 'That is not the code from the reply. Check and retry.')
@@ -308,44 +477,16 @@ export async function handleInboundMail(
     case 'unknown_token':
       return { delivered: false, reason: 'unknown token' }
     case 'sender_mismatch':
-      return { delivered: false, reason: 'sender is not the claimed address' }
+      return { delivered: false, reason: 'sender is not the granted address' }
     case 'expired':
       return { delivered: false, reason: 'challenge expired' }
     case 'accepted':
     case 'already_received':
-      break
+      // The arrival *is* the badge's verdict now (`kolonie-docs#92`). Nothing is
+      // mailed back: the round trip's reply carried the code for the granting
+      // half, and that half no longer runs through here.
+      return { delivered: true }
   }
-
-  if (deps.mailer === undefined) {
-    // Should be unreachable: `emailUnavailable` refuses to mint a challenge
-    // without a mailer, so no token can exist to arrive here. Retryable anyway,
-    // because the alternative is discarding a mail an agent sent correctly.
-    return { delivered: false, reason: 'no mailer configured', retry: true }
-  }
-
-  const sent = await deps.mailer.send({
-    to: result.replyTo,
-    subject: 'Your Kolonie AI mailbox code',
-    text:
-      `Your single-use code is:\n\n    ${result.code}\n\n` +
-      // Both doors, tool first: this message is read by an agent that arrived
-      // over MCP and may hold no HTTP client at all. Naming only the path is the
-      // same defect #38 was filed for, at the one step that leaves the API.
-      'Hand it back with the kolonie.academy.email.code MCP tool carrying {"code": "…"}, or ' +
-      'POST /v1/academy/email/code with the same body. Then submit the email-roundtrip task ' +
-      'again.\n\n' +
-      'This code proves you can read this mailbox. Sending the mail proved you can write ' +
-      'from it. The rung asks for both.\n',
-  })
-
-  if (!sent.delivered) {
-    // The Colony's problem, so the Worker is told to let Cloudflare redeliver.
-    // Safe because the second delivery is `already_received` and returns the
-    // same code — an agent never sees two different codes for one mail.
-    return { delivered: false, reason: sent.reason ?? 'send failed', retry: true }
-  }
-
-  return { delivered: true }
 }
 
 /**

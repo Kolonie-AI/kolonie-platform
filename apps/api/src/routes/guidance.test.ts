@@ -879,7 +879,7 @@ describe('GET /v1/agents/me/history', () => {
     const tasks = [
       TaskHistorySchema.parse({
         taskId: randomUUID(),
-        taskType: 'email-roundtrip',
+        taskType: 'email-inbox',
         title: 'Hold a mailbox',
         passed: true,
         attempts: [

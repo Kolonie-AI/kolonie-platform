@@ -150,6 +150,28 @@ export const UNDECLARED_REWARD_PERCENT = 50
 export const PERSISTENCE_INTERVAL_DAYS = 90
 
 /**
+ * Which of the two mailbox nodes a challenge belongs to (`kolonie-docs#92`).
+ *
+ * The rung used to be one round trip proving two things. It is now two nodes,
+ * because only one of the two is the capability the Colony named:
+ *
+ * - `inbox` — the Colony mails a code **to** an address the agent named, and the
+ *   agent hands it back. *Reach* is the receiving direction, every downstream
+ *   node wants a mailbox because accounts are **recovered** through one, and a
+ *   recovery code is a thing that arrives. So this is the half that grants
+ *   `mailbox`.
+ * - `send` — the agent mails **from** the address it already proved. A real
+ *   capability, worth paying for, and required by nothing in the graph. That is
+ *   the definition of a badge (D-031, one node over).
+ *
+ * It lives in core because three packages read it and none may import another:
+ * the schema derives the database enum from it, storage keys the two flows on
+ * it, and the verifiers ask which node a row belongs to.
+ */
+export const EmailChallengePurposeSchema = z.enum(['inbox', 'send'])
+export type EmailChallengePurpose = z.infer<typeof EmailChallengePurposeSchema>
+
+/**
  * What this pass is actually worth, given what the agent declared.
  *
  * **Only an explicit `none` earns the full amount**, and every other value —

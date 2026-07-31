@@ -70,7 +70,6 @@ import {
 import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeVault } from './__fixtures__/vault.js'
 import {
-  FAKE_CHALLENGE_DOMAIN,
   FAKE_INBOUND_SECRET,
   fakeEmail,
   fakeEmailChallenges,
@@ -2574,36 +2573,34 @@ describe('kolonie.academy.email.challenge and .code', () => {
   }
 
   it('carries an agent through the whole rung without ever calling /v1', async () => {
-    const { client, deliver, codeFromMail, close } = await bothDoors()
+    const { client, codeFromMail, close } = await bothDoors()
 
     const opened = await client.callTool({
       name: 'kolonie.academy.email.challenge',
       arguments: { email: CLAIMED },
     })
-    const { address } = opened.structuredContent as { address: string }
-    await deliver(address)
     const closed = await client.callTool({
       name: 'kolonie.academy.email.code',
       arguments: { code: codeFromMail() },
     })
 
     expect(opened.isError).toBeFalsy()
-    // The address the agent is told to write to is minted under the configured
-    // domain, and the token is what makes an arriving mail attributable.
-    expect(address).toMatch(new RegExp(`^[0-9a-f]+@${FAKE_CHALLENGE_DOMAIN}$`))
+    // **Nothing is delivered by the agent anywhere in this test.** The Colony
+    // mails the code when the challenge opens, and the whole rung is reading it
+    // back — which is what makes a receive-only address enough (kolonie-docs#92).
+    expect(opened.structuredContent).toMatchObject({ mailedTo: CLAIMED, mailSent: true })
     expect(closed.isError).toBeFalsy()
     expect(closed.structuredContent).toEqual({ verified: true, address: CLAIMED })
     await close()
   })
 
   it('opens over MCP and closes over HTTP — one challenge, two doors', async () => {
-    const { client, apiKey, app, deliver, codeFromMail, close } = await bothDoors()
+    const { client, apiKey, app, codeFromMail, close } = await bothDoors()
 
-    const opened = await client.callTool({
+    await client.callTool({
       name: 'kolonie.academy.email.challenge',
       arguments: { email: CLAIMED },
     })
-    await deliver((opened.structuredContent as { address: string }).address)
     const closed = await app.inject({
       method: 'POST',
       url: `${API_BASE_PATH}/academy/email/code`,
@@ -2641,9 +2638,10 @@ describe('kolonie.academy.email.challenge and .code', () => {
    * mail, and calls back before delivery. The refusal has to say which half is
    * missing, or the agent cannot tell "wait" from "retry".
    */
-  it('refuses a code when no mail has reached the Colony yet, and says so', async () => {
-    const { client, close } = await bothDoors()
+  it('refuses a code the Colony never managed to deliver, and says so', async () => {
+    const { client, mailer, close } = await bothDoors()
 
+    mailer.breakIt()
     await client.callTool({
       name: 'kolonie.academy.email.challenge',
       arguments: { email: CLAIMED },
@@ -2656,7 +2654,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
     expect(closed.isError).toBe(true)
     const text = JSON.stringify(closed.content)
     expect(text).toContain('conflict')
-    expect(text).toContain('No mail from your address has reached the Colony yet')
+    expect(text).toContain('never managed to deliver')
     await close()
   })
 

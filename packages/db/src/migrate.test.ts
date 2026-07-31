@@ -90,8 +90,11 @@ describe.skipIf(!target.available)('the migrations', () => {
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
     // `ban_mark_kind` (#90) are closed lists precisely because the rows they sit
     // on must not carry free text. `task_attempt_outcome` and `attempt_opener`
-    // (#108) make twenty-two — how a try ended, and what started it.
-    expect(afterFirst.enums).toBe('22')
+    // (#108) make twenty-two — how a try ended, and what started it. And
+    // `email_challenge_purpose` (kolonie-docs#92) makes twenty-three: it is what
+    // keeps the granting mailbox node and the sending badge from satisfying each
+    // other, the same discipline `browser_challenges.kind` holds one rung over.
+    expect(afterFirst.enums).toBe('23')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

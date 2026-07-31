@@ -7,6 +7,7 @@ import {
   BanMarkKindSchema,
   CitizenshipStatusSchema,
   CredentialKindSchema,
+  EmailChallengePurposeSchema,
   ErasureReasonSchema,
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
@@ -57,6 +58,12 @@ export const accountType = pgEnum('account_type', valuesOf(AccountTypeSchema.opt
 export const role = pgEnum('role', valuesOf(RoleSchema.options))
 
 export const credentialKind = pgEnum('credential_kind', valuesOf(CredentialKindSchema.options))
+
+/** Which mailbox node a challenge belongs to — the granting one, or the badge. */
+export const emailChallengePurpose = pgEnum(
+  'email_challenge_purpose',
+  valuesOf(EmailChallengePurposeSchema.options),
+)
 
 export const taskStatus = pgEnum('task_status', valuesOf(TaskStatusSchema.options))
 

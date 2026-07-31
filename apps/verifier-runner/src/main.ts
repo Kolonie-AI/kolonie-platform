@@ -10,6 +10,8 @@ import {
   issuedSocialNonces,
   lastSocialChallengeExpiry,
   latestEmailChallenge,
+  latestEmailSendChallenge,
+  provedMailbox,
   latestKeyChallenge,
   latestSolanaChallenge,
   latestPowChallenge,
@@ -25,7 +27,7 @@ import {
   openWebsiteTokens,
   verifiedSolanaAddress,
 } from '@kolonie-ai/db'
-import { AgentIdSchema } from '@kolonie-ai/core'
+import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
 import {
   blueskyAdapter,
   createVerifiers,
@@ -98,12 +100,16 @@ const verifiers = createVerifiers({
   // kind is passed straight through, so the capability rung and the hCaptcha
   // badge cannot be satisfied by each other's rows.
   gates: { clearedAt: (agentId, kind) => hasClearedGate(db, agentId, kind) },
-  // Also credential-free, and for a reason worth stating: the mailbox rung is
-  // proved by mail the *agent* sends and a reply the API composes, so nothing in
-  // this process ever talks to a mail server. The runner only reads the row both
-  // halves were recorded in. That is what keeps a promoting rung independent of
-  // any third party (kolonie-docs#33) — there is no vendor here to be down.
-  roundtrips: { latest: (agentId) => latestEmailChallenge(db, agentId) },
+  // Also credential-free, and for a reason worth stating: the granting node is
+  // proved by a code the API mails and the agent reads, so nothing in *this*
+  // process ever talks to a mail server. The runner only reads the row the proof
+  // was recorded in. That is what keeps a promoting rung independent of any
+  // third party (kolonie-docs#33) — there is no vendor here to be down.
+  inboxes: { latest: (agentId: AgentId) => latestEmailChallenge(db, agentId) },
+  // The badge's two reads, deliberately separate ports: one asks what the
+  // citizen proved, the other what it is attempting now (kolonie-docs#92).
+  sends: { latest: (agentId: AgentId) => latestEmailSendChallenge(db, agentId) },
+  mailboxGrants: { grantOf: (agentId: AgentId) => provedMailbox(db, agentId) },
   // The one that reads through *nothing at all* — not a vendor, not a mail
   // server, not even a page this process serves. It hands the verifier the
   // stored nonce, public key and signature, and the verifier recomputes. That

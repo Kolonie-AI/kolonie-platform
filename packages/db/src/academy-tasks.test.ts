@@ -112,7 +112,14 @@ describe('the Academy task definitions', () => {
       // because it opens nothing of its own: it requires `browser` and grants
       // nothing.
       'browser-captcha',
-      'email-roundtrip',
+      'email-inbox',
+      /**
+       * The badge half of the old round trip (`kolonie-docs#92`). Sending from an
+       * address is a real capability that nothing in the graph requires, which is
+       * the definition of a badge — the same shape D-031 gave
+       * `github-contribution` one node over.
+       */
+      'email-send',
       // Split from `github-contribution` on 2026-07-29 (D-031): controlling an
       // account is the skill, contributing is what an agent does with one.
       'github-account',
@@ -223,7 +230,7 @@ describe('the Academy task definitions', () => {
    * with an address and usually through a page, so those are the route — but an
    * agent arriving with an account of its own already holds the capability, and
    * demanding a second address first would be enforcing a route it does not
-   * need. Same for `email-roundtrip` and a browser. This is the whole of
+   * need. Same for `email-inbox` and a browser. This is the whole of
    * Recognition of Prior Learning, and getting it backwards is the mistake the
    * ladder made everywhere.
    */
@@ -232,7 +239,7 @@ describe('the Academy task definitions', () => {
     expect(github?.requires).toEqual(['profile'])
     expect(github?.suggests).toEqual(['mailbox', 'browser'])
 
-    const email = ACADEMY_TASKS.find((task) => task.type === 'email-roundtrip')
+    const email = ACADEMY_TASKS.find((task) => task.type === 'email-inbox')
     expect(email?.requires).toEqual(['profile'])
     expect(email?.suggests).toEqual(['browser'])
   })
@@ -499,7 +506,7 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         // capability to earn first, and an arriving agent that brings one is not
         // made to climb to reach it.
         'social-account',
-        'email-roundtrip',
+        'email-inbox',
         'github-account',
         // Open from the start — requires `profile` and nothing else.
         // recommendedOrder 35, before website-verify (40).
@@ -640,7 +647,7 @@ describe('the instructions an agent is given', () => {
   it('gives the tasks that touch the outside world something to say', () => {
     const withHints = ACADEMY_TASKS.filter((task) => (task.hints ?? []).length > 0)
 
-    expect(withHints.map((task) => task.type)).toContain('email-roundtrip')
+    expect(withHints.map((task) => task.type)).toContain('email-inbox')
     expect(withHints.map((task) => task.type)).toContain('browser-capability')
     expect(withHints.map((task) => task.type)).toContain('github-account')
   })
@@ -709,8 +716,8 @@ describe.skipIf(!target.available)('seeding the hints', () => {
   it('writes each task’s hints in the order they are declared', async () => {
     await seedAcademyTasks(db)
 
-    const declared = ACADEMY_TASKS.find((task) => task.type === 'email-roundtrip')?.hints ?? []
-    expect(await hintsOn('email-roundtrip')).toEqual([...declared])
+    const declared = ACADEMY_TASKS.find((task) => task.type === 'email-inbox')?.hints ?? []
+    expect(await hintsOn('email-inbox')).toEqual([...declared])
   })
 
   it('reports how many hints the Academy is serving', async () => {
@@ -745,7 +752,7 @@ describe.skipIf(!target.available)('seeding the hints', () => {
     const [task] = await db
       .select({ id: tasks.id })
       .from(tasks)
-      .where(eq(tasks.type, 'email-roundtrip'))
+      .where(eq(tasks.type, 'email-inbox'))
 
     // A hint from an earlier deploy, past the end of what is declared now.
     await db.insert(taskHints).values({
@@ -756,7 +763,7 @@ describe.skipIf(!target.available)('seeding the hints', () => {
 
     await seedAcademyTasks(db)
 
-    expect(await hintsOn('email-roundtrip')).not.toContain(
+    expect(await hintsOn('email-inbox')).not.toContain(
       'Advice from an older version of this task, no longer true.',
     )
   })

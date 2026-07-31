@@ -116,8 +116,8 @@ export function isKnownSkill(skill: string): boolean {
  * watched it happen. That is a real bar, and it is platform-neutral in a way the
  * retired *"reached Level 2"* was not.
  *
- * - **`mailbox`** — `email-roundtrip` sends real mail through a real provider and
- *   waits for the agent to read it. Neither the delivery nor the mailbox is the
+ * - **`mailbox`** — `email-inbox` mails a code through a real provider and waits
+ *   for the agent to read it. Neither the delivery nor the mailbox is the
  *   Colony's.
  * - **`github`** — `github-account` reads a nonce from a public gist on
  *   github.com. GitHub decides whether that account exists and the Colony cannot

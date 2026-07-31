@@ -96,6 +96,7 @@ const authed = (url: string, payload: Record<string, unknown>) =>
 
 const open = (email: string) => authed('/v1/academy/email/challenges', { email })
 const handBack = (code: string) => authed('/v1/academy/email/code', { code })
+const openBadge = () => authed('/v1/academy/email/send-challenges', {})
 
 const deliver = (to: string, from: string, secret = FAKE_INBOUND_SECRET) =>
   post({
@@ -105,26 +106,78 @@ const deliver = (to: string, from: string, secret = FAKE_INBOUND_SECRET) =>
     headers: { 'x-kolonie-inbound-secret': secret },
   })
 
-/** The whole rung over HTTP, exactly as an agent would climb it. */
+/**
+ * The whole granting node over HTTP, exactly as an agent would climb it.
+ *
+ * **Nothing is sent by the agent.** The Colony mails the code when the challenge
+ * is opened, and the test reads it where the agent would — out of what the
+ * Colony sent, not out of an HTTP response, because serving the code over the
+ * API would make the mailbox beside the point.
+ */
 const climb = async (address: string) => {
   const opened = await open(address)
-  const { address: challengeAddress } = opened.json()
-  await deliver(challengeAddress, address)
-  // The code reaches the agent by mail now, so the test reads it where the
-  // agent would: out of what the Colony sent, not out of an HTTP response.
   const code = String(mailer.sent.at(-1)?.text ?? '').match(/\b[0-9A-F]{12}\b/)?.[0] ?? ''
-  return { challengeAddress, code, handedBack: await handBack(code) }
+  return { opened, code, handedBack: await handBack(code) }
 }
 
 describe('POST /v1/academy/email/challenges', () => {
-  it('mints an address under the configured domain', async () => {
+  it('mails the code to the address the agent named', async () => {
     const response = await open('citizen@example.org')
 
     expect(response.statusCode).toBe(201)
-    expect(String(response.json().address)).toMatch(
-      new RegExp(`^[0-9a-f]+@${FAKE_CHALLENGE_DOMAIN}$`),
-    )
+    expect(response.json()).toMatchObject({ mailedTo: 'citizen@example.org', mailSent: true })
     expect(response.json().expiresAt).toBeTruthy()
+    expect(mailer.sent).toHaveLength(1)
+    expect(mailer.sent[0]?.to).toBe('citizen@example.org')
+    expect(mailer.sent[0]?.text).toMatch(/\b[0-9A-F]{12}\b/)
+  })
+
+  /**
+   * **The load-bearing bound** (`kolonie-docs#92`). The Colony now writes to an
+   * address the agent chose, so the number of mails has to follow the number of
+   * citizens rather than the number of requests — otherwise the Academy is an
+   * outbound mailer pointed at addresses somebody else picked, and the first
+   * thing that costs is the sending domain every future citizen is reached
+   * through.
+   */
+  it('sends no second mail while a challenge is open', async () => {
+    await open('citizen@example.org')
+    const again = await open('citizen@example.org')
+
+    expect(again.statusCode).toBe(201)
+    expect(again.json()).toMatchObject({ mailSent: false })
+    expect(mailer.sent).toHaveLength(1)
+  })
+
+  /**
+   * The exception, and why `sent_at` exists. A delivery that failed left the
+   * citizen holding a challenge it cannot replace; refusing to retry would be a
+   * rung it can never pass.
+   */
+  it('retries a delivery that failed, without minting a second challenge', async () => {
+    mailer.breakIt()
+    const failed = await open('citizen@example.org')
+    expect(failed.statusCode).toBe(500)
+    expect(mailer.sent).toHaveLength(0)
+
+    mailer.fixIt()
+    const retried = await open('citizen@example.org')
+
+    expect(retried.statusCode).toBe(201)
+    expect(retried.json()).toMatchObject({ mailSent: true })
+    expect(mailer.sent).toHaveLength(1)
+  })
+
+  it('refuses past the lifetime cap and says which number was reached', async () => {
+    for (let index = 0; index < 5; index += 1) {
+      await open(`try-${index}@example.org`)
+      challenges.expire(agentId)
+    }
+
+    const refused = await open('one-more@example.org')
+
+    expect(refused.statusCode).toBe(409)
+    expect(String(refused.json().message)).toContain('5')
   })
 
   it('refuses an anonymous caller', async () => {
@@ -165,31 +218,50 @@ describe('POST /v1/academy/email/challenges', () => {
 })
 
 describe('the inbound handler', () => {
-  it('mails a code to the address that wrote in, when the sender matches', async () => {
-    const opened = await open('citizen@example.org')
-    const response = await deliver(opened.json().address, 'citizen@example.org')
+  /**
+   * **Inbound mail belongs to the badge now** (`kolonie-docs#92`). The granting
+   * node no longer asks an agent to send anything, so every test here goes
+   * through `email-send` — which first requires the mailbox to have been earned,
+   * because the badge reads its address from that grant and never from a payload
+   * (D-018).
+   */
+  const earnThenOpenBadge = async (address = 'citizen@example.org') => {
+    await climb(address)
+    const badge = await openBadge()
+    return String(badge.json().address)
+  }
+
+  it('records the mail and passes the badge, when the sender matches', async () => {
+    const badgeAddress = await earnThenOpenBadge()
+    const response = await deliver(badgeAddress, 'citizen@example.org')
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({ delivered: true })
-    expect(mailer.sent).toHaveLength(1)
-    expect(mailer.sent[0]?.to).toBe('citizen@example.org')
-    expect(mailer.sent[0]?.text).toMatch(/\b[0-9A-F]{12}\b/)
+  })
+
+  /** **Nothing is mailed back.** The arrival is the verdict. */
+  it('sends no reply, because the arrival is the whole proof', async () => {
+    const badgeAddress = await earnThenOpenBadge()
+    const before = mailer.sent.length
+
+    await deliver(badgeAddress, 'citizen@example.org')
+
+    expect(mailer.sent).toHaveLength(before)
   })
 
   /**
-   * The whole point of the send half. A mail claiming to be from the address,
-   * sent by somebody else, must not open the rung.
+   * The whole point of reading the address from the grant. A mail claiming to be
+   * from the granted address, sent by somebody else, must not pass the badge.
    */
-  it('does not reply to mail from an address other than the one claimed', async () => {
-    const opened = await open('citizen@example.org')
-    const response = await deliver(opened.json().address, 'attacker@example.net')
+  it('does not accept mail from an address other than the one in the grant', async () => {
+    const badgeAddress = await earnThenOpenBadge()
+    const response = await deliver(badgeAddress, 'attacker@example.net')
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
       delivered: false,
-      reason: 'sender is not the claimed address',
+      reason: 'sender is not the granted address',
     })
-    expect(mailer.sent).toHaveLength(0)
   })
 
   it('sends nothing for a token it never minted', async () => {
@@ -199,10 +271,26 @@ describe('the inbound handler', () => {
     expect(mailer.sent).toHaveLength(0)
   })
 
+  /**
+   * The two nodes never satisfy each other, the same discipline
+   * `browser_challenges.kind` holds one rung over. A granting challenge's token
+   * is not an address anybody was asked to write to.
+   */
+  it('does not let mail to a granting challenge pass anything', async () => {
+    await open('citizen@example.org')
+
+    const response = await deliver(
+      `deadbeefdeadbeefde@${FAKE_CHALLENGE_DOMAIN}`,
+      'citizen@example.org',
+    )
+
+    expect(response.json()).toEqual({ delivered: false, reason: 'unknown token' })
+  })
+
   /** A plus-tag added by a forwarder must not hide the token. */
   it('finds the token behind a plus-tag', async () => {
-    const opened = await open('citizen@example.org')
-    const token = String(opened.json().address).split('@')[0]
+    const badgeAddress = await earnThenOpenBadge()
+    const token = badgeAddress.split('@')[0]
 
     const response = await deliver(
       `${token}+forwarded@${FAKE_CHALLENGE_DOMAIN}`,
@@ -210,6 +298,13 @@ describe('the inbound handler', () => {
     )
 
     expect(response.json()).toEqual({ delivered: true })
+  })
+
+  it('counts a redelivered message once', async () => {
+    const badgeAddress = await earnThenOpenBadge()
+
+    expect((await deliver(badgeAddress, 'citizen@example.org')).json()).toEqual({ delivered: true })
+    expect((await deliver(badgeAddress, 'citizen@example.org')).json()).toEqual({ delivered: true })
   })
 
   it('refuses a caller that does not hold the secret', async () => {
@@ -254,31 +349,23 @@ describe('the inbound handler', () => {
   })
 
   /**
-   * SMTP retries are normal, and Cloudflare will redeliver on a non-2xx. A
-   * second delivery must answer with the code the agent already read.
+   * There is no `retry: true` branch left here, and that is a real
+   * simplification rather than an omission (`kolonie-docs#92`).
+   *
+   * It existed because the inbound handler used to *send* — it replied to the
+   * arriving mail with the code, so the Colony's own mailer sitting in that path
+   * could fail after the agent had done everything right. The badge sends
+   * nothing, so the only work this route does now is write a row, and there is
+   * no vendor left in it to be down.
    */
-  it('mails the same code again when a message is redelivered', async () => {
-    const opened = await open('citizen@example.org')
-    await deliver(opened.json().address, 'citizen@example.org')
-    await deliver(opened.json().address, 'citizen@example.org')
-
-    const codes = mailer.sent.map((m) => m.text.match(/\b[0-9A-F]{12}\b/)?.[0])
-    expect(codes).toHaveLength(2)
-    expect(codes[1]).toBe(codes[0])
-  })
-
-  /**
-   * The one case where the Worker must retry: the Colony's own sender failed,
-   * so the agent did nothing wrong and must not lose its attempt.
-   */
-  it('asks for redelivery when the mailer is down, and not otherwise', async () => {
-    const opened = await open('citizen@example.org')
+  it('never asks for redelivery, because it no longer sends anything', async () => {
+    const badgeAddress = await earnThenOpenBadge()
     mailer.breakIt()
 
-    const response = await deliver(opened.json().address, 'citizen@example.org')
+    const response = await deliver(badgeAddress, 'citizen@example.org')
 
-    expect(response.statusCode).toBe(502)
-    expect(response.json()).toMatchObject({ delivered: false, retry: true })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ delivered: true })
   })
 
   it('answers 200 when it decided to do nothing, so nothing is redelivered', async () => {
@@ -289,7 +376,7 @@ describe('the inbound handler', () => {
 })
 
 describe('POST /v1/academy/email/code', () => {
-  it('completes the round trip', async () => {
+  it('closes the proof', async () => {
     const { handedBack } = await climb('citizen@example.org')
 
     expect(handedBack.statusCode).toBe(200)
@@ -316,16 +403,26 @@ describe('POST /v1/academy/email/code', () => {
   })
 
   /**
-   * The distinction that decides the agent's next move: send a mail, or read
-   * one more carefully.
+   * The distinction that decides the agent's next move: ask again so the
+   * delivery is retried, or read the mail more carefully. Collapsing the two
+   * into one failure is how an agent spends an hour on the wrong problem.
    */
-  it('says the mail has not arrived rather than that the code is wrong', async () => {
+  it('says the code was never delivered rather than that it is wrong', async () => {
+    mailer.breakIt()
     await open('citizen@example.org')
 
     const response = await handBack('AAAAAAAAAAAA')
 
     expect(response.statusCode).toBe(409)
-    expect(response.json().message).toContain('No mail from your address')
+    expect(response.json().message).toContain('never managed to deliver')
+  })
+
+  it('says the code is wrong once one has actually gone out', async () => {
+    await open('citizen@example.org')
+
+    const response = await handBack('AAAAAAAAAAAA')
+
+    expect(response.statusCode).toBe(422)
   })
 
   it('tells an agent with no challenge to open one', async () => {

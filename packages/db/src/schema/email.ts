@@ -1,6 +1,7 @@
 import { sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
+import { emailChallengePurpose } from './enums.js'
 
 /**
  * What makes two written addresses the same inbox: the local part up to a
@@ -69,30 +70,43 @@ export const EMAIL_TOKEN_BYTES = 9
 export const EMAIL_CODE_BYTES = 6
 
 /**
- * One attempt at the mailbox rung, minted before the agent sends anything.
+ * How many challenges one citizen may ever open on the granting node.
  *
- * **The rung proves two different things, and this table is why they can be one
- * task.** `kolonie-platform#26` specified the Colony sending a code the agent
- * reads; `kolonie-platform#31` specified the agent sending mail the Colony
- * receives. They are not the same proof and neither subsumes the other:
+ * **The ceiling that makes it per-agent rather than merely per-unit-time**
+ * (`kolonie-docs#92`). Counted across every address the agent has ever named and
+ * never reset — a citizen that cannot prove an inbox in five tries has a problem
+ * a sixth mail does not solve.
  *
- * - Sending from an address is what SPF and DKIM actually attest. It proves the
- *   agent holds the account the mail left from.
+ * It exists because the granting node writes to an address the agent chose,
+ * which the round-trip form never did. The `send` half used to bound that
+ * implicitly: the Colony only ever answered mail that had already arrived. With
+ * that gone, an unbounded rung is an outbound mailer pointed at attacker-chosen
+ * addresses, and the first thing it costs is the sending domain's reputation —
+ * which is shared with every future citizen the Colony needs to reach.
+ */
+export const EMAIL_CHALLENGE_LIFETIME_CAP = 5
+
+/**
+ * One attempt at one of the two mailbox nodes.
+ *
+ * **The rung proves two different things, and as of `kolonie-docs#92` they are
+ * two nodes rather than one task.** `kolonie-platform#26` specified the Colony
+ * sending a code the agent reads; `kolonie-platform#31` specified the agent
+ * sending mail the Colony receives. They are not the same proof and neither
+ * implies the other:
+ *
  * - Receiving at an address is what makes a mailbox the *root credential of the
- *   open internet* — every account elsewhere is recovered through it. An address
- *   an agent cannot read is an address it cannot recover anything with.
+ *   open internet* — every account elsewhere is recovered through it. **That is
+ *   the capability the Colony named, so it is the half that grants `mailbox`.**
+ * - Sending from an address is what SPF and DKIM actually attest. It is a real
+ *   capability, worth paying for, and nothing in the graph requires it — which
+ *   is the definition of a badge (D-031, one node over: controlling a GitHub
+ *   account is the skill, contributing is not).
  *
- * The maintainer chose both on 2026-07-29. So the rung is a round trip: the
- * agent sends to `<token>@challenge…`, which sets `inbound_at`, and the Colony
- * replies to that very mail with `code`, which the agent reads and hands back,
- * which sets `verified_at`.
- *
- * **Replying is what makes the second half free.** The Colony has inbound mail
- * and no outbound sender, and #26's open question was which transactional vendor
- * to buy. A reply to a message already in hand needs none: the same handler that
- * receives the mail answers it. No account, no DNS for a sending domain, no
- * monthly bill, and no third party in the path of a promoting rung — which is
- * the property `kolonie-docs#33` asks every promoting rung to have.
+ * `purpose` is what keeps them apart. The two never satisfy each other, the same
+ * discipline `browser_challenges` holds between the rung and the CAPTCHA badge:
+ * an `inbox` row is the Colony writing to an address the agent named, and a
+ * `send` row is the agent writing to a token address the Colony named.
  *
  * **Rows are never deleted**, the same standing as `browser_challenges` and
  * `verifications`: a solved challenge is the evidence behind a coin, and an
@@ -131,10 +145,32 @@ export const emailChallenges = pgTable(
     address: text('address').notNull(),
 
     /**
+     * Which node this row belongs to, and the reason the two never satisfy each
+     * other (`kolonie-docs#92`).
+     *
+     * - `inbox` — the granting node. The Colony writes a code **to** `address`
+     *   and the agent hands it back. Grants `mailbox`.
+     * - `send` — the badge. The agent writes **from** `address` to `token@…`.
+     *   Grants nothing, and `address` is read from the citizen's grant rather
+     *   than from a payload (D-018), so it certifies the mailbox it is about.
+     *
+     * Defaulting to `inbox` is what makes the existing rows correct without
+     * touching them: every row that predates the split was a round trip, and its
+     * verdict was carried by the code coming back — the receive half, which is
+     * exactly what `inbox` now means. So no holder is grandfathered into
+     * something it did not do.
+     */
+    purpose: emailChallengePurpose('purpose').notNull().default('inbox'),
+
+    /**
      * The local part of the address the agent is asked to write to. Unguessable,
      * single-use, and the only thing tying an arriving mail back to this row —
      * an inbound handler has no credential to authenticate, so the token is the
      * credential.
+     *
+     * Minted on every row, including `inbox` ones that never use it. A column
+     * that is sometimes null is a column every reader has to reason about, and
+     * the token costs nine bytes.
      */
     token: text('token').notNull(),
 
@@ -151,21 +187,42 @@ export const emailChallenges = pgTable(
      */
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
 
-    /** When mail from `address` arrived at `token@…`. The send half of the proof. */
+    /**
+     * When mail from `address` arrived at `token@…`. **The `send` badge's whole
+     * proof**, and nothing at all on an `inbox` row.
+     */
     inboundAt: timestamp('inbound_at', { withTimezone: true, mode: 'string' }),
 
     /**
-     * The single-use code the Colony puts in its reply, generated at the moment
-     * the inbound mail arrives and never before — there is nothing to reply to
-     * until then, and a code minted early is a code that can leak without anyone
-     * having proved anything.
+     * When the Colony's mail carrying `code` was accepted for delivery. `inbox`
+     * only.
      *
-     * **Never log this column.** It is the entire content of the receive half:
-     * anyone who reads it can pass the rung without holding the mailbox.
+     * **It is what makes "at most one mail per open challenge" checkable rather
+     * than asserted.** A repeat request against an open challenge that was
+     * already delivered returns the same row and sends nothing; a repeat against
+     * one whose send *failed* retries it, because a failed send delivered no mail
+     * and leaving the citizen with an undeliverable challenge it cannot replace
+     * would be a rung it can never pass.
+     */
+    sentAt: timestamp('sent_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * The single-use code the Colony mails to `address`. `inbox` only.
+     *
+     * Minted with the row rather than on arrival of anything, which is the change
+     * `kolonie-docs#92` made: there is no inbound mail to reply to any more, so
+     * the code is what the Colony *sends first*. It is unreadable to anyone who
+     * cannot open the mailbox, which is the entire proof.
+     *
+     * **Never log this column.** Anyone who reads it can pass the rung without
+     * holding the mailbox.
      */
     code: text('code'),
 
-    /** When the agent handed `code` back. The receive half, and the whole verdict. */
+    /**
+     * The verdict, for both nodes — set when the agent handed `code` back
+     * (`inbox`), or when mail from the granted address arrived (`send`).
+     */
     verifiedAt: timestamp('verified_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
@@ -186,10 +243,16 @@ export const emailChallenges = pgTable(
      * plus-addressing was closed by accident somewhere else entirely — the
      * inbound sender comparison, written for a different reason. `#92` removes
      * that comparison, so the defence had to become deliberate before it went.
+     *
+     * **`inbox` rows only.** The badge proves a citizen can send *from* the
+     * address it already holds, so a verified `send` row is not a second claim on
+     * that mailbox — it is the same citizen and the same mailbox. Without the
+     * `purpose` clause, passing the badge would collide with the grant that made
+     * the badge available.
      */
     uniqueIndex('email_challenges_verified_address_unique')
       .on(mailboxIdentity(table.address))
-      .where(sql`${table.verifiedAt} is not null`),
+      .where(sql`${table.verifiedAt} is not null and ${table.purpose} = 'inbox'`),
 
     /** The token is the credential an arriving mail carries. Two rows may not share one. */
     uniqueIndex('email_challenges_token_unique').on(table.token),
@@ -197,26 +260,61 @@ export const emailChallenges = pgTable(
     check('email_challenges_expiry_after_creation', sql`${table.expiresAt} > ${table.createdAt}`),
 
     /**
-     * A code exists exactly when there is a mail to have replied to. Stated in
-     * SQL because the alternative — a code sitting on a row nothing ever arrived
-     * at — is a value an agent could be handed, or could guess at, for a proof
-     * it never started.
+     * A code exists exactly on the node that mails one, and nowhere else.
+     *
+     * It is minted **with** the row rather than on arrival of anything, because
+     * it is what the Colony sends first — there is no inbound mail to reply to on
+     * the granting node any more. `send` rows carry neither a code nor a send
+     * time: nothing is mailed to the agent there.
+     *
+     * **Written as *a delivered mail had a code* rather than as *every inbox row
+     * has a code*, because history.** Sixteen rows predate the split and thirteen
+     * carry no code — they are challenges minted under the round trip, where the
+     * code was generated on arrival of the agent's mail and abandoned attempts
+     * never got one. The invariant worth holding is the one about delivery, and
+     * it is the one that would matter if it broke.
      */
     check(
-      'email_challenges_code_needs_inbound',
-      sql`(${table.code} is null) = (${table.inboundAt} is null)`,
+      'email_challenges_code_belongs_to_inbox',
+      sql`case when ${table.purpose} = 'inbox'
+            then ${table.sentAt} is null or ${table.code} is not null
+            else ${table.code} is null and ${table.sentAt} is null
+          end`,
     ),
 
     /**
-     * **The constraint the whole rung rests on: receive cannot precede send.**
-     * Without it, a bug that set `verified_at` on its own would turn a two-way
-     * proof into no proof at all, and it would do so silently — the row would
-     * look exactly like a passed one.
+     * **The constraint each node rests on: a verdict needs the thing it is a
+     * verdict about.** Without it, a bug that set `verified_at` on its own would
+     * turn either proof into no proof at all, and silently — the row would look
+     * exactly like a passed one.
+     *
+     * The two halves differ because the nodes do. `inbox` measures against
+     * `sent_at` rather than against the code: a code that exists but was never
+     * delivered proves nothing, and gating on delivery is what stops a guessed
+     * code from passing a rung whose mail never left the building. `send`
+     * measures against mail having arrived from the address.
      */
     check(
-      'email_challenges_verified_needs_inbound',
-      sql`${table.verifiedAt} is null or ${table.inboundAt} is not null`,
+      'email_challenges_verdict_needs_its_evidence',
+      sql`${table.verifiedAt} is null
+          or case when ${table.purpose} = 'inbox'
+                 then ${table.sentAt} is not null
+                 else ${table.inboundAt} is not null
+             end`,
     ),
+
+    /**
+     * There is deliberately **no** constraint tying `inbound_at` to `purpose =
+     * 'send'`, and the reason is worth stating so nobody adds one.
+     *
+     * Every row that predates `kolonie-docs#92` was a round trip: it is an
+     * `inbox` row by the rule above — its verdict was the code coming back — and
+     * three of them also received mail, because that is what the rung asked for
+     * at the time. A constraint saying inbound mail implies the badge would be
+     * true of everything written from now on and false of the Colony's own
+     * history, and rewriting the history to fit it would be destroying the record
+     * of how two citizens actually passed.
+     */
 
     /** A challenge cannot be completed after it has expired. In SQL, not only in a route. */
     check(
@@ -224,7 +322,7 @@ export const emailChallenges = pgTable(
       sql`${table.verifiedAt} is null or ${table.verifiedAt} <= ${table.expiresAt}`,
     ),
 
-    /** "Has this agent completed the mailbox rung?" — the verifier's only question. */
-    index('email_challenges_agent_verified_idx').on(table.agentId, table.verifiedAt),
+    /** "Has this agent completed either node?" — the verifiers' only question. */
+    index('email_challenges_agent_verified_idx').on(table.agentId, table.purpose, table.verifiedAt),
   ],
 )

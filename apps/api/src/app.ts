@@ -45,6 +45,7 @@ import {
   handleInboundMail,
   inboundAuthorised,
   openEmailChallenge,
+  openEmailSendChallenge,
   submitEmailCode,
   type EmailDependencies,
 } from './email.js'
@@ -843,7 +844,38 @@ export function buildApp({
       })
 
       /**
-       * Hand back the code from the Colony's reply — the receive half.
+       * Open the badge challenge — the citizen sends *from* the address it
+       * proved (`kolonie-docs#92`).
+       *
+       * **No body.** The address is read from the grant and never from a
+       * payload (D-018): a citizen that lost the mailbox it proved could
+       * otherwise send from a different one it holds today, and the badge would
+       * certify nothing about the address the Colony reaches it at. A route with
+       * nothing to send is the cheapest way to make that impossible.
+       */
+      v1.post('/academy/email/send-challenges', async (request, reply) => {
+        if (emailDown !== undefined) return reply.status(503).send(emailDown)
+
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openEmailSendChallenge(authenticated.agent.id, email)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Hand back the code the Colony mailed — the whole of the granting proof.
        *
        * Authenticated, and matched against this agent's own open challenge. A
        * code is twelve characters; looked up by code alone, anyone holding one

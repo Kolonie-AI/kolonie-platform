@@ -520,7 +520,7 @@ describe.skipIf(!target.available)('task attempts', () => {
   describe('the challenge-to-task mapping', () => {
     it('resolves a challenge to the task it belongs to', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ type: 'email-roundtrip' })
+      const taskId = await aTask({ type: 'email-inbox' })
 
       const resolved = await openAttemptForChallenge(db, 'email', agentId, null)
 
@@ -529,7 +529,7 @@ describe.skipIf(!target.available)('task attempts', () => {
 
     it('resolves nothing, and opens nothing, for a task in draft', async () => {
       const agentId = await anAgent()
-      await aTask({ type: 'email-roundtrip', status: 'draft' })
+      await aTask({ type: 'email-inbox', status: 'draft' })
 
       expect(await openAttemptForChallenge(db, 'email', agentId, null)).toBeNull()
       expect(await countAttempts()).toBe(0)

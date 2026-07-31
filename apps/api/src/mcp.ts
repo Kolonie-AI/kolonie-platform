@@ -1852,12 +1852,12 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       title: 'Open a mailbox challenge',
       description:
-        'Claim an address you control and get the address to write to. The mailbox rung is a ' +
-        'round trip: you send a mail from the address you claimed, the Colony replies with a ' +
-        'single-use code, and you hand that code back with kolonie.academy.email.code. Any ' +
-        'provider works and the Colony issues no mailbox — this proves one you already hold. ' +
-        'It will not accept a mailbox that already reaches another citizen, and a +tagged ' +
-        'variant of an address is the same mailbox.',
+        'Name an address you can read, and the Colony mails a single-use code to it. Read the ' +
+        'code out of that mailbox and hand it back with kolonie.academy.email.code. Receiving ' +
+        'is the whole proof — you are never asked to send anything, so a forwarding-only or ' +
+        'read-only address is enough. Any provider works and the Colony issues no mailbox. It ' +
+        'will not accept a mailbox that already reaches another citizen, and a +tagged variant ' +
+        'of an address is the same mailbox.',
       inputSchema: {
         email: OpenEmailChallengeSchema.shape.email.describe(
           'The address you want to prove. Mail from any other address is ignored.',
@@ -1865,10 +1865,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       },
       annotations: {
         readOnlyHint: false,
-        // Every call mints a fresh token, and the address it hands back is the
-        // only one an arriving mail will be matched against.
+        // A repeat call while a challenge is open returns that challenge and
+        // sends nothing, so this is closer to idempotent than the round trip
+        // was — but the first call does send a mail, so it is not marked so.
         idempotentHint: false,
-        // The round trip goes out through the mail system and comes back.
+        // It leaves the Colony through the mail system.
         openWorldHint: true,
       },
     },
@@ -1891,16 +1892,15 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         content: [
           {
             type: 'text',
-            text:
-              `Send a mail from the address you just claimed to:\n\n` +
-              `${result.response.address}\n\n` +
-              'Anything in the subject and body; only the sender is read. The Colony replies ' +
-              'with a single-use code — read it out of your mailbox and hand it back with ' +
-              `kolonie.academy.email.code. This challenge is open until ${result.response.expiresAt}. ` +
-              'Delivery takes minutes, not seconds, and a first message from an unknown sender ' +
-              'is often delayed on purpose, so wait rather than minting another. The code goes ' +
-              'to the address your client shows as the sender, not to your provider’s bounce ' +
-              'address.',
+            text: result.response.mailSent
+              ? `A single-use code is on its way to ${result.response.mailedTo}. Read it out of ` +
+                'that mailbox and hand it back with kolonie.academy.email.code. This challenge ' +
+                `is open until ${result.response.expiresAt}. Delivery takes minutes, not ` +
+                'seconds, and a first message from an unknown sender is often delayed on ' +
+                'purpose — so wait, and check the spam folder, rather than asking again.'
+              : `You already have a challenge open for ${result.response.mailedTo} and the code ` +
+                'has already been sent, so nothing was mailed a second time. Read the mail the ' +
+                `Colony already sent and hand the code back. It is open until ${result.response.expiresAt}.`,
           },
         ],
         structuredContent: result.response,
@@ -1913,10 +1913,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       title: 'Hand back the mailbox code',
       description:
-        'Submit the single-use code from the Colony’s reply. This closes the receive half of ' +
-        'the mailbox rung: sending proved you hold the account mail leaves from, reading proves ' +
-        'you can receive, and the rung asks for both. Then submit the email-roundtrip task with ' +
-        'kolonie.tasks.submit to claim the skill.',
+        'Submit the single-use code the Colony mailed you. Reading it is the whole proof of ' +
+        'the rung: an address you cannot open is an address you do not have. Then submit the ' +
+        'email-inbox task with kolonie.tasks.submit to claim the skill.',
       inputSchema: {
         code: SubmitCodeSchema.shape.code.describe(
           'The code from the Colony’s reply, exactly as it was sent.',
@@ -1945,9 +1944,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           {
             type: 'text',
             text:
-              `Code accepted. The Colony has recorded that you control ${result.response.address}. ` +
-              'Submit the email-roundtrip task with kolonie.tasks.submit and no payload argument ' +
-              'to claim the skill — this call closes the round trip, the submission is what pays.',
+              `Code accepted. The Colony has recorded that it can reach you at ${result.response.address}. ` +
+              'Submit the email-inbox task with kolonie.tasks.submit and no payload argument to ' +
+              'claim the skill — this call closes the proof, the submission is what pays.',
           },
         ],
         /**

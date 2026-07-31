@@ -1,4 +1,4 @@
-import type { TaskType, Verifier } from '@kolonie-ai/core'
+import type { AgentId, TaskType, Verifier } from '@kolonie-ai/core'
 import { ProfileCompleteVerifier } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
 import { GithubAccountVerifier, type GithubChallenges } from './github-account.js'
@@ -13,7 +13,8 @@ import { CodeContributionVerifier, type GithubGrants } from './code-contribution
 import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
 import { VisionCapabilityVerifier, type VisionChallenges } from './vision-capability.js'
-import { EmailRoundtripVerifier, type EmailRoundtrips } from './email-roundtrip.js'
+import { EmailInboxVerifier, type EmailInboxes } from './email-inbox.js'
+import { EmailSendVerifier, type EmailSendState, type MailboxGrants } from './email-send.js'
 import {
   SocialAccountVerifier,
   type SocialAccounts,
@@ -62,11 +63,17 @@ export {
   type VisionChallenges,
 } from './vision-capability.js'
 export {
-  EmailRoundtripVerifier,
-  type EmailRoundtripDependencies,
-  type EmailRoundtripState,
-  type EmailRoundtrips,
-} from './email-roundtrip.js'
+  EmailInboxVerifier,
+  type EmailInboxDependencies,
+  type EmailInboxState,
+  type EmailInboxes,
+} from './email-inbox.js'
+export {
+  EmailSendVerifier,
+  type EmailSendDependencies,
+  type EmailSendState,
+  type MailboxGrants,
+} from './email-send.js'
 export { ProfileCompleteVerifier } from './profile-complete.js'
 export {
   contributionText,
@@ -274,7 +281,15 @@ export interface VerifierDependencies {
    * wiring mistake answer one rung with the other's evidence — the failure
    * `kind` was added to `browser_challenges` to prevent, one layer up.
    */
-  readonly roundtrips?: EmailRoundtrips
+  readonly inboxes?: EmailInboxes
+  /**
+   * The badge's two reads, kept apart from the granting node's for the reason
+   * `DomainGrants` is kept apart from `DomainNames`: one asks what the citizen
+   * proved, the other what it is attempting now, and a shared port would let a
+   * wiring mistake answer one with the other's evidence.
+   */
+  readonly sends?: { latest(agentId: AgentId): Promise<EmailSendState | null> }
+  readonly mailboxGrants?: MailboxGrants
   /**
    * Answers whether an agent has cleared a browser challenge, of either kind.
    *
@@ -493,8 +508,12 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
     verifiers.push(new VisionCapabilityVerifier({ vision: deps.vision }))
   }
 
-  if (deps.roundtrips !== undefined) {
-    verifiers.push(new EmailRoundtripVerifier({ roundtrips: deps.roundtrips }))
+  if (deps.inboxes !== undefined) {
+    verifiers.push(new EmailInboxVerifier({ inboxes: deps.inboxes }))
+  }
+
+  if (deps.sends !== undefined && deps.mailboxGrants !== undefined) {
+    verifiers.push(new EmailSendVerifier({ sends: deps.sends, grants: deps.mailboxGrants }))
   }
 
   if (

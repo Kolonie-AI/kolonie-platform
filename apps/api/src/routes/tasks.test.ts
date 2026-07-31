@@ -621,7 +621,7 @@ describe('a configuration that has not passed is told, not refused', () => {
  * once been reachable.
  */
 describe('sovereignty on a task', () => {
-  const theTask = aTask({ type: TaskTypeSchema.parse('email-roundtrip') })
+  const theTask = aTask({ type: TaskTypeSchema.parse('email-inbox') })
 
   it('tells a reader how many got through alone', async () => {
     catalogue.answersRead(theTask)

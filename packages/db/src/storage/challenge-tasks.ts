@@ -29,7 +29,7 @@ import { openAttempt } from './attempts.js'
 export const CHALLENGE_TASK_TYPES = {
   browserCapability: 'browser-capability',
   browserCaptcha: 'browser-captcha',
-  email: 'email-roundtrip',
+  email: 'email-inbox',
   vision: 'vision-capability',
   image: 'image-gen',
   website: 'website-verify',

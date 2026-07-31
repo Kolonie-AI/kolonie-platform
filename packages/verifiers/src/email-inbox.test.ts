@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AgentSchema, SubmissionSchema, type Agent, type Submission } from '@kolonie-ai/core'
-import {
-  EmailRoundtripVerifier,
-  type EmailRoundtripState,
-  type EmailRoundtrips,
-} from './email-roundtrip.js'
+import { EmailInboxVerifier, type EmailInboxState, type EmailInboxes } from './email-inbox.js'
 
 const AGENT_ID = '11111111-2222-4333-8444-555555555555'
 
@@ -42,30 +38,28 @@ const aSubmission = (payload: Record<string, unknown> = {}): Submission =>
     verifiedAt: null,
   })
 
-const roundtrips = (state: EmailRoundtripState | null): EmailRoundtrips => ({
+const inboxes = (state: EmailInboxState | null): EmailInboxes => ({
   latest: async () => state,
 })
 
 const inTheFuture = () => new Date(Date.now() + 60_000).toISOString()
 const inThePast = () => new Date(Date.now() - 60_000).toISOString()
 
-const verify = async (state: EmailRoundtripState | null, payload = {}) =>
-  new EmailRoundtripVerifier({ roundtrips: roundtrips(state) }).verify(aSubmission(payload), {
+const verify = async (state: EmailInboxState | null, payload = {}) =>
+  new EmailInboxVerifier({ inboxes: inboxes(state) }).verify(aSubmission(payload), {
     agent: anAgent(),
   })
 
-describe('EmailRoundtripVerifier', () => {
-  it('handles the email-roundtrip task type', () => {
-    expect(String(new EmailRoundtripVerifier({ roundtrips: roundtrips(null) }).taskType)).toBe(
-      'email-roundtrip',
-    )
+describe('EmailInboxVerifier', () => {
+  it('handles the email-inbox task type', () => {
+    expect(String(new EmailInboxVerifier({ inboxes: inboxes(null) }).taskType)).toBe('email-inbox')
   })
 
-  it('passes once both halves are on record', async () => {
+  it('passes once the code has come back', async () => {
     const result = await verify({
       address: 'citizen@example.org',
       expiresAt: inTheFuture(),
-      inboundAt: '2026-07-29T09:00:00.000Z',
+      sentAt: '2026-07-29T09:00:00.000Z',
       verifiedAt: '2026-07-29T09:04:00.000Z',
     })
 
@@ -75,15 +69,31 @@ describe('EmailRoundtripVerifier', () => {
   })
 
   /** A pass is permanent — the challenge expires, the mailbox it proved does not. */
-  it('passes a completed round trip whose challenge has since expired', async () => {
+  it('passes a completed proof whose challenge has since expired', async () => {
     const result = await verify({
       address: 'citizen@example.org',
       expiresAt: inThePast(),
-      inboundAt: '2026-07-20T09:00:00.000Z',
+      sentAt: '2026-07-20T09:00:00.000Z',
       verifiedAt: '2026-07-20T09:04:00.000Z',
     })
 
     expect(result.status).toBe('pass')
+  })
+
+  /**
+   * The assertion that says this node no longer asks for a send. There is no
+   * `inboundAt` in the state it reads at all, so an address that can receive and
+   * cannot originate mail passes on exactly the same row as any other.
+   */
+  it('never asks whether the agent sent anything', async () => {
+    const receiveOnly: EmailInboxState = {
+      address: 'forward-only@example.org',
+      expiresAt: inThePast(),
+      sentAt: '2026-07-20T09:00:00.000Z',
+      verifiedAt: '2026-07-20T09:04:00.000Z',
+    }
+
+    expect((await verify(receiveOnly)).status).toBe('pass')
   })
 
   it('fails an agent that never started a challenge, and says how to start one', async () => {
@@ -94,70 +104,76 @@ describe('EmailRoundtripVerifier', () => {
   })
 
   /**
-   * The send half done and the receive half not. The agent needs to be told to
-   * go and read its mail — not that it failed, which reads as "start over".
+   * The code is out and unread. The agent needs to be told to go and read its
+   * mail — not that it failed, which reads as "start over".
    */
-  it('fails when the mail arrived but the code has not come back', async () => {
+  it('fails when the code was mailed but has not come back', async () => {
     const result = await verify({
       address: 'citizen@example.org',
       expiresAt: inTheFuture(),
-      inboundAt: '2026-07-29T09:00:00.000Z',
+      sentAt: '2026-07-29T09:00:00.000Z',
       verifiedAt: null,
     })
 
     expect(result.status).toBe('fail')
-    expect(result.evidence).toContain('sending half is done')
+    expect(result.evidence).toContain('mailed a single-use code')
     expect(result.evidence).toContain('/v1/academy/email/code')
   })
 
-  it('fails when nothing has arrived, and does not claim the code is wrong', async () => {
+  /**
+   * The distinction that decides what the agent does next: a delivery that never
+   * happened is fixed by asking again, and a code that has not come back is
+   * fixed by reading the mail. Telling an agent to read mail that was never sent
+   * is how it spends an hour on the wrong problem.
+   */
+  it('fails when the mail never went out, and does not tell the agent to read it', async () => {
     const result = await verify({
       address: 'citizen@example.org',
       expiresAt: inTheFuture(),
-      inboundAt: null,
+      sentAt: null,
       verifiedAt: null,
     })
 
     expect(result.status).toBe('fail')
-    expect(result.evidence).toContain('no mail from that address has arrived')
-    expect(result.evidence).not.toContain('code')
+    expect(result.evidence).toContain('has not gone out yet')
+    expect(result.evidence).toContain('sends no ')
   })
 
-  it('distinguishes an expired challenge that never received mail', async () => {
+  it('distinguishes an expired challenge whose code was never delivered', async () => {
     const result = await verify({
       address: 'citizen@example.org',
       expiresAt: inThePast(),
-      inboundAt: null,
+      sentAt: null,
       verifiedAt: null,
     })
 
     expect(result.status).toBe('fail')
     expect(result.evidence).toContain('expired')
-    expect(result.evidence).toContain('Start a new one')
+    expect(result.evidence).toContain('never managed to deliver')
   })
 
-  it('tells an agent whose send half survived an expiry that only the reading is missing', async () => {
+  it('tells an agent whose code was delivered but expired unread to start again', async () => {
     const result = await verify({
       address: 'citizen@example.org',
       expiresAt: inThePast(),
-      inboundAt: '2026-07-28T09:00:00.000Z',
+      sentAt: '2026-07-28T09:00:00.000Z',
       verifiedAt: null,
     })
 
     expect(result.status).toBe('fail')
-    expect(result.evidence).toContain('sending half is not in doubt')
+    expect(result.evidence).toContain('Start a new challenge')
   })
 
   /**
    * D-018. Everything this rung proves happened outside the API, so a payload
    * that asserts success has to change nothing at all.
    */
-  it('ignores a payload that claims the round trip is done', async () => {
+  it('ignores a payload that claims the proof is done', async () => {
     const result = await verify(
       {
         address: 'citizen@example.org',
         expiresAt: inTheFuture(),
-        inboundAt: null,
+        sentAt: null,
         verifiedAt: null,
       },
       { email: 'citizen@example.org', code: 'ABCDEF123456', verified: true },
@@ -168,11 +184,11 @@ describe('EmailRoundtripVerifier', () => {
 
   /** Every verdict carries evidence, passes included — AGENTS.md §6. */
   it('always says why', async () => {
-    const states: (EmailRoundtripState | null)[] = [
+    const states: (EmailInboxState | null)[] = [
       null,
-      { address: 'a@example.org', expiresAt: inTheFuture(), inboundAt: null, verifiedAt: null },
-      { address: 'a@example.org', expiresAt: inTheFuture(), inboundAt: 'x', verifiedAt: null },
-      { address: 'a@example.org', expiresAt: inTheFuture(), inboundAt: 'x', verifiedAt: 'y' },
+      { address: 'a@example.org', expiresAt: inTheFuture(), sentAt: null, verifiedAt: null },
+      { address: 'a@example.org', expiresAt: inTheFuture(), sentAt: 'x', verifiedAt: null },
+      { address: 'a@example.org', expiresAt: inTheFuture(), sentAt: 'x', verifiedAt: 'y' },
     ]
 
     for (const state of states) {

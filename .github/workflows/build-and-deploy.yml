@@ -1,0 +1,265 @@
+name: Build and deploy
+
+# One commit, one deploy — which is the whole of `kolonie-infra#31`.
+#
+# ## What this replaced, and why it had to be one workflow
+#
+# Until 2026-07-31 this repository held three build workflows — api,
+# verifier-runner, moderation-runner — each ending in its own call to
+# `kolonie-infra`'s reusable deploy. A commit touching `packages/core` or
+# `packages/db` matches all three path filters, so one commit fanned out into
+# three deploys arriving at one concurrency group within seconds of each other.
+#
+# GitHub allows exactly **one pending run per concurrency group**. So of three
+# deploys: the first runs, the second waits, and the third evicts the second.
+# The evicted run is coloured grey and named after its *workflow*, which means
+# the Actions list read `Build api image — cancelled` when the build had in fact
+# succeeded and only the deploy died. Reassuring, and backwards: the image was in
+# the registry and was not the one running.
+#
+# It was not a rare interleaving. Measured across five fan-outs on 2026-07-30,
+# the loser was the middle arrival every time, and three consecutive pushes lost
+# the **api** — the largest image, so its deploy reliably queues second, and the
+# only image that carries `migrate()` and the Academy seed. Between 17:41Z and
+# 17:51Z on 2026-07-30, `main` had the `solana-wallet` rung and production
+# answered 404 for it, under three green check marks and one grey one.
+#
+# Three deploys from one commit were also three `docker compose pull` + `up -d`
+# cycles against one host for a change that could ship once.
+#
+# ## The shape now
+#
+# `changes` decides which images the commit affects; only those build; and one
+# deploy job then names **all** of them in a single call, pinned to this commit.
+# There is no second queue entry for a third arrival to evict, the api is
+# deployed first so migrations precede the runners that read them
+# (`kolonie-infra/scripts/deploy-set.sh` owns that order), and the host sees one
+# health check instead of three.
+#
+# ## What is still exposed, stated rather than implied
+#
+# Two *commits* landing inside one deploy window still queue, and a third would
+# still evict the waiter. That is what `deploy-vps` was always for and it is a
+# far narrower window than a fan-out: it needs three pushes inside roughly two
+# minutes rather than one push touching a shared package. Left as is deliberately
+# — the complete answer is a check that the host matches `origin/main`, which is
+# a different mechanism from a queue and belongs in `kolonie-infra`.
+
+on:
+  push:
+    branches: [main]
+    # Broad on purpose, and narrowed afterwards by the `changes` job rather than
+    # here. A filter that enumerates what *does* deploy silently stops deploying
+    # anything added later, and a change that is not deployed is far harder to
+    # notice than one that is — the same reasoning `kolonie-infra`'s own deploy
+    # trigger records for using `paths-ignore`.
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - '.github/workflows/build-and-deploy.yml'
+  workflow_dispatch:
+
+# No workflow-level concurrency, and that is a decision rather than an omission.
+# `cancel-in-progress: true` would cancel a build whose deploy is already queued;
+# `false` would put this workflow in the same one-pending-slot queue whose
+# eviction is the defect being fixed, one level up. Builds are cheap, tagged per
+# commit and safe to run in parallel; the serialisation that matters happens in
+# `deploy.yml`, against the host, where it belongs.
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  changes:
+    name: which images this commit affects
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.detect.outputs.api }}
+      verifier-runner: ${{ steps.detect.outputs.verifier-runner }}
+      moderation-runner: ${{ steps.detect.outputs.moderation-runner }}
+      services: ${{ steps.detect.outputs.services }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Enough history to diff against the commit this push started from.
+          # `0` rather than a small depth: a push may carry many commits, and a
+          # depth that is one short produces a diff that is silently incomplete.
+          fetch-depth: 0
+
+      - id: detect
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # Anything that is not an ordinary push — a dispatch, a first push to a
+          # branch, a force-push whose base is gone — builds everything. The
+          # alternative is guessing from an unusable base, and a deploy that
+          # guesses wrong ships two thirds of a commit, which is the bug this
+          # file exists to remove.
+          rebuild_all=false
+          if [ "$EVENT" != push ]; then
+            rebuild_all=true
+            echo "event is $EVENT, not a push: building every image"
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+               || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            rebuild_all=true
+            echo "no usable base commit ($BEFORE): building every image"
+          fi
+
+          if [ "$rebuild_all" = true ]; then
+            files=""
+          else
+            files=$(git diff --name-only "$BEFORE" "$SHA")
+            echo "changed files:"
+            echo "$files" | sed 's/^/  /'
+          fi
+
+          # Shared by every image: the workspace manifests, the TypeScript config
+          # and this workflow. `packages/core` and `packages/db` are shared too —
+          # the images ship `packages/db` and the deploy migrates the live
+          # database out of the api image, so a migration that does not rebuild
+          # is a migration the deploy never applies (kolonie-infra#9).
+          shared='^(package\.json|package-lock\.json|tsconfig[^/]*\.json|\.github/workflows/build-and-deploy\.yml)$|^packages/(core|db)/'
+
+          affects() {
+            [ "$rebuild_all" = true ] && return 0
+            grep -qE "$shared|$1" <<< "$files"
+          }
+
+          services=""
+          for entry in \
+            "api:^apps/api/" \
+            "verifier-runner:^(apps/verifier-runner/|packages/verifiers/)" \
+            "moderation-runner:^apps/moderation-runner/"
+          do
+            name="${entry%%:*}"
+            pattern="${entry#*:}"
+            if affects "$pattern"; then
+              echo "${name}=true" >> "$GITHUB_OUTPUT"
+              services="${services:+$services,}${name}"
+            else
+              echo "${name}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+          echo "deploying: ${services:-nothing}"
+
+  build-api:
+    name: build and push ghcr.io/kolonie-ai/kolonie-api
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/kolonie-ai/kolonie-api:latest
+            ghcr.io/kolonie-ai/kolonie-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-verifier-runner:
+    name: build and push ghcr.io/kolonie-ai/kolonie-verifier-runner
+    needs: changes
+    if: needs.changes.outputs.verifier-runner == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/verifier-runner/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/kolonie-ai/kolonie-verifier-runner:latest
+            ghcr.io/kolonie-ai/kolonie-verifier-runner:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-moderation-runner:
+    name: build and push ghcr.io/kolonie-ai/kolonie-moderation-runner
+    needs: changes
+    if: needs.changes.outputs.moderation-runner == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/moderation-runner/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/kolonie-ai/kolonie-moderation-runner:latest
+            ghcr.io/kolonie-ai/kolonie-moderation-runner:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # The one deploy. It names every image this commit rebuilt, and
+  # `kolonie-infra` deploys them in dependency order inside a single run.
+  #
+  # `version: github.sha` rather than `latest` — deploying the mutable tag ships
+  # whatever finished building most recently, which need not be this commit and
+  # need not be a commit anyone reviewed. That is not hypothetical: on
+  # 2026-07-29 a `latest` deploy shipped a commit its operator had never read,
+  # because another agent was pushing at the time (kolonie-infra#31).
+  deploy:
+    name: deploy to the VPS
+    needs: [changes, build-api, build-verifier-runner, build-moderation-runner]
+    # `always()` because a skipped build is the normal case — most commits touch
+    # one image — and a `needs` on a skipped job would otherwise skip this too.
+    # What must *not* be tolerated is a build that failed or was cancelled:
+    # deploying the rest of the set would ship a partial commit, which is the
+    # failure this whole workflow exists to remove.
+    if: >-
+      always()
+      && needs.changes.outputs.services != ''
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+    uses: Kolonie-AI/kolonie-infra/.github/workflows/deploy.yml@main
+    with:
+      service: ${{ needs.changes.outputs.services }}
+      version: ${{ github.sha }}
+    # Named, not inherited: the called workflow declares exactly these two, and
+    # they are organisation secrets visible to this repository since
+    # kolonie-infra#14.
+    secrets:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+    permissions:
+      contents: read
+      packages: read

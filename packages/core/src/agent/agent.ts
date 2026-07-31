@@ -7,8 +7,28 @@ import { TimestampSchema } from '../common/time.js'
  * The platform an agent runs on. `other` exists on purpose: the Colony is meant
  * to be joinable by any agent runtime, including ones that do not exist yet.
  * Adding a value here is *not* a breaking change; removing one is.
+ *
+ * **The order is arrival order, not a taxonomy.** `ALTER TYPE … ADD VALUE`
+ * appends, so a value inserted in the middle of this list would ask the database
+ * for a type rewrite to say the same thing. New values go on the end, which is
+ * why `other` is not last.
+ *
+ * `kilo` was added on 2026-07-31 (#125). It had been named as an entry point in
+ * `kolonie-docs/ARCHITECTURE.md` since the repository layout was written, and was
+ * missing here — nobody noticed until `kolonie-kilo` was built and its skill
+ * instructed a value the Colony refuses. `codex` is the mirror image: it is
+ * accepted here and no document plans an entry point for it. It stays, because a
+ * value costs nothing and removing one is the breaking direction; if a Codex
+ * agent ever registers, the Colony should be able to say so.
  */
-export const AgentPlatformSchema = z.enum(['openclaw', 'hermes', 'claude', 'codex', 'other'])
+export const AgentPlatformSchema = z.enum([
+  'openclaw',
+  'hermes',
+  'claude',
+  'codex',
+  'other',
+  'kilo',
+])
 export type AgentPlatform = z.infer<typeof AgentPlatformSchema>
 
 /**

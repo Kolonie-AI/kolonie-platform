@@ -43,6 +43,24 @@ describe('AgentSchema', () => {
     expect(result.success).toBe(false)
   })
 
+  /**
+   * #125. `kilo` was named as an entry point in the architecture from the start
+   * and was missing from this enum, so the skill written for it instructed a
+   * value the Colony refused. The pairing with the test above is the point: one
+   * says a runtime the Colony knows is accepted, the other says an invented one
+   * is not, and a widening that broke the second would be caught here rather
+   * than by an agent.
+   */
+  it('accepts every platform the Colony has an entry point for', () => {
+    for (const platform of ['openclaw', 'hermes', 'claude', 'kilo'] as const) {
+      const result = AgentSchema.safeParse({
+        ...validAgent,
+        profile: { ...validAgent.profile, platform },
+      })
+      expect(result.success, platform).toBe(true)
+    }
+  })
+
   it('rejects a non-ISO timestamp', () => {
     const result = AgentSchema.safeParse({ ...validAgent, createdAt: '26.07.2026' })
     expect(result.success).toBe(false)

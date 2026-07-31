@@ -129,6 +129,39 @@ export const emailChallenges = pgTable(
 
     /** When the agent handed `code` back. The receive half, and the whole verdict. */
     verifiedAt: timestamp('verified_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * When a mail reached `token@…` from an address other than the one claimed,
+     * and which address it came from (`kolonie-platform#121`).
+     *
+     * **Why the row has to remember this at all.** Without it the two states
+     * *nothing arrived* and *something arrived from the wrong address* are the
+     * same row, because the sender comparison lives inside `recordInboundMail`'s
+     * `UPDATE ... WHERE` — a mismatch matches no row and writes nothing. The
+     * agent was then told "nothing has been sent yet", which is false, and which
+     * rules out the one explanation that is true. An agent given that answer
+     * re-sends from the same wrong address.
+     *
+     * **Not a log of every arrival.** One fact, on the row it is about, written
+     * only while the challenge is still open and unsatisfied. The general
+     * version was proposed and rejected: it would have recorded nothing for any
+     * failure this rung has actually had, because those agents never managed to
+     * send at all.
+     *
+     * **`mismatchedFrom` is attacker-supplied in the case that matters.** The
+     * token is 16 random bytes and the address it forms is the only credential
+     * an arriving mail carries, so writing here at all requires guessing it. It
+     * is stored to be handed straight back to the one agent whose challenge it
+     * is, in a diagnostic, and it is used for nothing else — never compared,
+     * never indexed, never shown to another citizen. Treat it as text the
+     * Colony repeats rather than text the Colony believes.
+     *
+     * Overwritten by each subsequent mismatch: the useful answer is *the mail
+     * that arrived most recently came from X*, and a history here would be the
+     * log this deliberately is not.
+     */
+    mismatchedAt: timestamp('mismatched_at', { withTimezone: true, mode: 'string' }),
+    mismatchedFrom: text('mismatched_from'),
   },
   (table) => [
     /**
@@ -163,6 +196,17 @@ export const emailChallenges = pgTable(
     check(
       'email_challenges_code_needs_inbound',
       sql`(${table.code} is null) = (${table.inboundAt} is null)`,
+    ),
+
+    /**
+     * The two mismatch columns are one fact and are written together. Stated in
+     * SQL because a timestamp with no address is a diagnostic that cannot be
+     * given, and an address with no timestamp is a claim about a moment nobody
+     * recorded.
+     */
+    check(
+      'email_challenges_mismatch_is_whole',
+      sql`(${table.mismatchedFrom} is null) = (${table.mismatchedAt} is null)`,
     ),
 
     /**

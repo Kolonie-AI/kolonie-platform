@@ -38,6 +38,8 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
     token: string
     expired: boolean
     inboundAt: string | null
+    /** The address a mismatched mail arrived from, if one has (#121). */
+    mismatchedFrom: string | null
     code: string | null
     verifiedAt: string | null
   }
@@ -73,6 +75,7 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
         token,
         expired: false,
         inboundAt: null,
+        mismatchedFrom: null,
         code: null,
         verifiedAt: null,
       })
@@ -88,6 +91,10 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
 
       if (row === undefined) return { outcome: 'unknown_token' } satisfies InboundOutcome
       if (row.address.toLowerCase() !== from.toLowerCase()) {
+        // Remembered exactly as the real storage does, so a test that drives the
+        // fake through a mismatch and then a redemption sees what production
+        // would say rather than what it used to say (#121).
+        if (row.inboundAt === null) row.mismatchedFrom = from
         return { outcome: 'sender_mismatch' } satisfies InboundOutcome
       }
       if (row.inboundAt !== null && row.code !== null) {
@@ -113,7 +120,17 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
         return { outcome: 'verified', address: row.address } satisfies EmailRedemption
       }
       if (row.expired) return { outcome: 'expired' } satisfies EmailRedemption
-      if (row.inboundAt === null) return { outcome: 'nothing_sent_yet' } satisfies EmailRedemption
+      if (row.inboundAt === null) {
+        return (
+          row.mismatchedFrom === null
+            ? { outcome: 'nothing_sent_yet' }
+            : {
+                outcome: 'sender_mismatched',
+                arrivedFrom: row.mismatchedFrom,
+                claimed: row.address,
+              }
+        ) satisfies EmailRedemption
+      }
       if (row.code !== code.trim().toUpperCase()) {
         return { outcome: 'wrong_code' } satisfies EmailRedemption
       }
@@ -133,6 +150,7 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
         address: row.address,
         expiresAt: currentTime(),
         inboundAt: row.inboundAt,
+        mismatchedFrom: row.mismatchedFrom,
         verifiedAt: row.verifiedAt,
       } satisfies EmailChallengeState
     },

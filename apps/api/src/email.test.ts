@@ -326,6 +326,37 @@ describe('POST /v1/academy/email/code', () => {
     expect(response.json().message).toContain('No mail from your address')
   })
 
+  /**
+   * #121. Until this, an agent whose mail arrived from the wrong address was
+   * told nothing had arrived — which is false, and which rules out the only
+   * explanation that fits. It then re-sends from the same wrong address.
+   */
+  it('names the address a mismatched mail came from, instead of claiming none arrived', async () => {
+    const opened = await open('citizen@example.org')
+    const address: string = opened.json().address
+
+    await deliver(address, 'someone-else@example.org')
+
+    const response = await handBack('AAAAAAAAAAAA')
+
+    expect(response.statusCode).toBe(409)
+    const message: string = response.json().message
+    expect(message).toContain('someone-else@example.org')
+    expect(message).toContain('citizen@example.org')
+    // The old answer must not survive alongside the new one: an agent reading
+    // both would still conclude nothing had been sent.
+    expect(message).not.toContain('No mail from your address has reached the Colony')
+  })
+
+  it('still says nothing arrived when nothing did', async () => {
+    await open('citizen@example.org')
+
+    const response = await handBack('AAAAAAAAAAAA')
+
+    expect(response.json().message).toContain('No mail from your address')
+    expect(response.json().message).not.toContain('it came from')
+  })
+
   it('tells an agent with no challenge to open one', async () => {
     const response = await handBack('AAAAAAAAAAAA')
 

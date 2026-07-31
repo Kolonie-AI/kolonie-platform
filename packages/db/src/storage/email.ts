@@ -49,6 +49,13 @@ export interface EmailChallengeState {
   readonly inboundAt: Timestamp | null
   /** Set when the agent handed the reply code back. The receive half, and the verdict. */
   readonly verifiedAt: Timestamp | null
+  /**
+   * The address a mail actually arrived from, when it did not match `address`
+   * (#121). `null` means no mismatched mail has reached this challenge — which
+   * is not the same as no mail having been sent, and telling those two apart is
+   * the whole point of the column.
+   */
+  readonly mismatchedFrom: string | null
 }
 
 /** What happened to a mail that arrived at a challenge address. */
@@ -68,6 +75,17 @@ export type EmailRedemption =
   | { readonly outcome: 'no_open_challenge' }
   /** Mail has not arrived yet, so no code has been issued and none can be right. */
   | { readonly outcome: 'nothing_sent_yet' }
+  /**
+   * Mail arrived for this challenge from an address other than the one claimed
+   * (#121). Distinct from `nothing_sent_yet`, which used to cover it and was
+   * false when it did — an agent told nothing arrived re-sends from the same
+   * wrong address, because the answer it was given rules out the truth.
+   */
+  | {
+      readonly outcome: 'sender_mismatched'
+      readonly arrivedFrom: string
+      readonly claimed: string
+    }
   | { readonly outcome: 'wrong_code' }
   | { readonly outcome: 'expired' }
   | { readonly outcome: 'address_taken' }
@@ -165,7 +183,27 @@ export async function recordInboundMail(
   const existing = await readByToken(db, token)
 
   if (existing === undefined) return { outcome: 'unknown_token' }
-  if (existing.address.toLowerCase() !== from.toLowerCase()) return { outcome: 'sender_mismatch' }
+
+  if (existing.address.toLowerCase() !== from.toLowerCase()) {
+    /**
+     * Remembered on the row, so the agent can be told (#121).
+     *
+     * Only while the challenge is unsatisfied — `inbound_at is null` — because
+     * after a successful arrival there is a code waiting and a later stray mail
+     * is not the agent's problem to be told about.
+     *
+     * A write failure here must not change what the caller is told. This is a
+     * diagnostic; the verdict is that the sender did not match, and that is true
+     * whether or not the note was stored.
+     */
+    await db
+      .update(emailChallenges)
+      .set({ mismatchedAt: currentTime(), mismatchedFrom: from.slice(0, 320) })
+      .where(and(eq(emailChallenges.token, token), isNull(emailChallenges.inboundAt)))
+      .catch(() => undefined)
+
+    return { outcome: 'sender_mismatch' }
+  }
   if (existing.code != null && existing.inboundAt != null) {
     return { outcome: 'already_received', code: existing.code, replyTo: existing.address }
   }
@@ -195,7 +233,15 @@ export async function redeemEmailCode(
   if (current === null) return { outcome: 'no_open_challenge' }
   if (current.verifiedAt !== null) return { outcome: 'verified', address: current.address }
   if (Date.parse(current.expiresAt) <= Date.now()) return { outcome: 'expired' }
-  if (current.inboundAt === null) return { outcome: 'nothing_sent_yet' }
+  if (current.inboundAt === null) {
+    return current.mismatchedFrom === null
+      ? { outcome: 'nothing_sent_yet' }
+      : {
+          outcome: 'sender_mismatched',
+          arrivedFrom: current.mismatchedFrom,
+          claimed: current.address,
+        }
+  }
 
   try {
     const [updated] = await db
@@ -238,6 +284,7 @@ export async function latestEmailChallenge(
       expiresAt: emailChallenges.expiresAt,
       inboundAt: emailChallenges.inboundAt,
       verifiedAt: emailChallenges.verifiedAt,
+      mismatchedFrom: emailChallenges.mismatchedFrom,
     })
     .from(emailChallenges)
     .where(eq(emailChallenges.agentId, agentId))
@@ -262,6 +309,7 @@ export async function latestEmailChallenge(
     expiresAt: toTimestamp(row.expiresAt),
     inboundAt: row.inboundAt === null ? null : toTimestamp(row.inboundAt),
     verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),
+    mismatchedFrom: row.mismatchedFrom,
   }
 }
 

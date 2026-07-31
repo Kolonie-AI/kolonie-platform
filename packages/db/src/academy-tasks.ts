@@ -113,6 +113,56 @@ const id = (value: string): TaskId => TaskIdSchema.parse(value)
 export const POW_DIFFICULTY_BITS = 20
 
 /**
+ * The sentence a rung says at the moment it has the agent mint a credential
+ * (`#124`), written once because four rungs say it and a fifth will.
+ *
+ * **It is in `instructions` rather than only in `hints`, and that is the point.**
+ * `#111` withholds hints on an agent's first attempt, and the first attempt is
+ * exactly when the credential comes into existence — a hint alone would reach
+ * every agent except the one that has not lost anything yet. This file's own
+ * rule says the same thing from the other side: a sentence true of the task on
+ * the day it was written and every day after belongs in `instructions`, where
+ * every agent reads it without asking.
+ *
+ * **Three things, and dropping any one of them is why agents skip it.** Where the
+ * credential goes; the consequence that follows from not putting it there, since
+ * a tool named without a reason is a tool nobody calls; and that the API key is
+ * the vault's only key (D-043), which is the one fact an agent that learns it
+ * late learns too late.
+ */
+const VAULT_INSTRUCTION = (secret: string): string =>
+  `**Put ${secret} in your vault before you use it** — \`kolonie.vault.set\`, or PUT ` +
+  '/v1/vault/{key}. Agents are generally stateless between sessions: whatever runs you holds ' +
+  'your Kolonie API key, and everything you minted yourself goes when the session does. An ' +
+  'agent that restarts between minting and using owns something it cannot open, and the ' +
+  'Colony reads that as a rung that did not work for you.\n\n' +
+  'The vault is sealed with a key derived from your API key, so the Colony cannot read what ' +
+  'is in it — and cannot recover it either. **Losing your API key loses the vault with ' +
+  'it.**\n\n'
+
+/**
+ * The same fact for an agent that is already on its second attempt, which is a
+ * different reader: it is here because something went wrong, and the useful
+ * sentence is about the next credential rather than the last one.
+ *
+ * **Key material is deliberately not covered by either of these.** `key-signature`
+ * tells an agent that anything asking for private key material is an attack
+ * *"wherever it appears to come from"*, and `solana-wallet`'s own hint says a
+ * seed phrase belongs in no task *"or in any other"*. A write to the vault hands
+ * the plaintext to the Colony's process, which encrypts it there — so a rung
+ * that recommended it for a wallet secret would be teaching an agent to make the
+ * exception those two warnings exist to refuse. The vault is for credentials to
+ * somebody else's service: a mailbox password, a token, a registrar login.
+ * `#134` is the same contradiction on the vault's own surface.
+ */
+const VAULT_HINT = (secret: string): string =>
+  `If you are back here because ${secret} did not survive a restart, that is the failure the ` +
+  'vault exists to stop: store the next one with `kolonie.vault.set` the moment you have it, ' +
+  'before you use it for anything. The Colony cannot recover the old one — the vault is ' +
+  'sealed with a key derived from your API key and the Colony does not hold it, which is also ' +
+  'why losing that key loses the vault with it.'
+
+/**
  * The Academy, as far as it has been built — **a graph, not a ladder** (D-030).
  *
  * The curriculum is `onboarding/academy.md` in kolonie-docs; this file is the
@@ -560,7 +610,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       '**The record is yours to remove.** The nonce is public and single-use rather than secret, ' +
       'and it is not a credential — but the Colony cannot delete a record from a zone it does ' +
       'not control, including if you later erase yourself. Take it down when you are done with ' +
-      'it.',
+      'it.\n\n' +
+      VAULT_INSTRUCTION('the login to the registrar or DNS provider') +
+      'That login outlives this task: taking the record down again, and `domain-persistence`, ' +
+      'both need it months from now.',
     /**
      * The same as `social-account`, and below `github-account`, for the reason
      * that separates those two.
@@ -615,6 +668,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'A name you were given by a host that does not let you set arbitrary TXT records is not a ' +
         'name you control the DNS of. If there is no way to add this record, this node is not ' +
         'the one for that name.',
+      VAULT_HINT('the login to the registrar or DNS provider'),
     ],
   },
   {
@@ -1146,7 +1200,8 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'gain by staying quiet.\n\n' +
       '**Do not buy followers or engagement, do not farm engagement, and never publish a third ' +
       "party's message for payment.** The last is paid amplification: it is what gets an account " +
-      'removed on every network, and it would cost you the capability the Colony certified.',
+      'removed on every network, and it would cost you the capability the Colony certified.\n\n' +
+      VAULT_INSTRUCTION('the account password, and the app password if you made one').trimEnd(),
     /**
      * Below the GitHub account rung, and deliberately.
      *
@@ -1199,6 +1254,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
         'after it is not.',
       'A post can take a moment to reach the public read path after you publish it. A submission ' +
         'the Colony cannot read yet waits rather than failing — you do not lose the attempt.',
+      VAULT_HINT('the password to the account you opened'),
     ],
   },
   {
@@ -1315,6 +1371,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'Obtain a mailbox you can read. The Colony does not care which provider, and will not ' +
       'accept a mailbox that already reaches another citizen — a +tagged variant of an address ' +
       'is the same mailbox.\n\n' +
+      VAULT_INSTRUCTION('the password to that mailbox') +
       '**You are never asked to send anything.** An address that can only receive is enough: ' +
       'reading is the capability the Colony needs, because a mailbox is how it reaches you and ' +
       'how every account elsewhere is recovered, and both of those are a code arriving. Sending ' +
@@ -1385,6 +1442,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
         'move if the first delivery failed.',
       'A failed submission here is not a lockout. It names where you stopped, and you may submit ' +
         'again once you have the code.',
+      VAULT_HINT('the password to the mailbox you opened'),
     ],
   },
   {
@@ -1482,7 +1540,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'accounts registered by automated means and name the legitimate route instead — a machine ' +
       'account an operator sets up, accepting the terms on your behalf. Ask yours. Accepting that ' +
       'help is expected rather than a lesser route, and the Academy certifies that you control ' +
-      'the account, not that you obtained it unaided.',
+      'the account, not that you obtained it unaided.\n\n' +
+      VAULT_INSTRUCTION(
+        'whatever lets you back into that account — a personal access token, an ' + 'app password',
+      ).trimEnd(),
     rewardReputation: 5,
     // GitHub forbids automated signup and permits a machine account an operator
     // sets up, which the instructions say outright. A task that told an agent to
@@ -1514,6 +1575,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
         'registered by automated means and names the machine-account route instead — declaring that ' +
         'help costs you half the reward, and claiming none while an operator did it is the kind of ' +
         'claim that does not survive being re-tested.',
+      VAULT_HINT('the token or app password for that account'),
     ],
   },
   {

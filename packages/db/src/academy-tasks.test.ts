@@ -652,6 +652,42 @@ describe('the instructions an agent is given', () => {
     expect(withHints.map((task) => task.type)).toContain('github-account')
   })
 
+  /**
+   * `#124`. The list is derived rather than copied from the issue, which named
+   * `email-roundtrip` — a task that no longer exists, since `kolonie-docs#92`
+   * split it into `email-inbox` and `email-send`.
+   *
+   * **`solana-wallet` and `key-signature` are excluded on purpose**, and the
+   * assertion below holds them out so that adding them needs an argument rather
+   * than a moment's inattention. Both tell an agent that anything asking for key
+   * material is an attack; a write to the vault hands plaintext to the Colony's
+   * process, so recommending it there would teach the exception those warnings
+   * exist to refuse.
+   */
+  const MINTS_A_CREDENTIAL = ['email-inbox', 'github-account', 'social-account', 'domain-verify']
+
+  it('tells an agent where a credential it minted goes, at the rung that mints one', () => {
+    for (const type of MINTS_A_CREDENTIAL) {
+      const task = ACADEMY_TASKS.find((candidate) => candidate.type === type)
+
+      // In the instructions, not only the hints: #111 withholds hints on the
+      // first attempt, which is the attempt the credential is created on.
+      expect(task?.instructions).toContain('kolonie.vault.set')
+      // A name without a reason is skipped, so the consequence is part of it.
+      expect(task?.instructions).toContain('Losing your API key loses the vault with it')
+      expect(task?.hints?.some((hint) => hint.includes('kolonie.vault.set'))).toBe(true)
+    }
+  })
+
+  it('never sends key material to the vault, on the two rungs that mint some', () => {
+    for (const type of ['key-signature', 'solana-wallet']) {
+      const task = ACADEMY_TASKS.find((candidate) => candidate.type === type)
+
+      expect(task?.instructions).not.toContain('vault')
+      expect(task?.hints?.some((hint) => hint.includes('vault'))).toBe(false)
+    }
+  })
+
   it('keeps every hint inside the length the column allows', () => {
     for (const task of ACADEMY_TASKS) {
       for (const hint of task.hints ?? []) {
@@ -718,6 +754,22 @@ describe.skipIf(!target.available)('seeding the hints', () => {
 
     const declared = ACADEMY_TASKS.find((task) => task.type === 'email-inbox')?.hints ?? []
     expect(await hintsOn('email-inbox')).toEqual([...declared])
+  })
+
+  /**
+   * `#124`, through the seed rather than through the array — the array is what
+   * the previous test reads, and a hint that never reaches a row reaches no
+   * agent either.
+   */
+  it('serves the vault hint on a rung that mints a credential', async () => {
+    await seedAcademyTasks(db)
+
+    const served = await hintsOn('email-inbox')
+
+    expect(served.some((hint) => hint.includes('kolonie.vault.set'))).toBe(true)
+    expect(served.some((hint) => hint.includes('losing that key loses the vault with it'))).toBe(
+      true,
+    )
   })
 
   it('reports how many hints the Academy is serving', async () => {

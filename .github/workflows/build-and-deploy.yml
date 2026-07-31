@@ -83,6 +83,7 @@ jobs:
       verifier-runner: ${{ steps.detect.outputs.verifier-runner }}
       moderation-runner: ${{ steps.detect.outputs.moderation-runner }}
       services: ${{ steps.detect.outputs.services }}
+      built-at: ${{ steps.built-at.outputs.iso }}
 
     steps:
       - uses: actions/checkout@v7
@@ -91,6 +92,14 @@ jobs:
           # `0` rather than a small depth: a push may carry many commits, and a
           # depth that is one short produces a diff that is silently incomplete.
           fetch-depth: 0
+
+      # One timestamp for the run, so three images built from one commit carry
+      # the same `created` rather than three times a few seconds apart.
+      # `github.event.repository.updated_at` looks like the obvious expression
+      # and is not: it is when the repository record last changed, which is
+      # neither this build nor even necessarily this commit.
+      - id: built-at
+        run: echo "iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - id: detect
         env:
@@ -176,6 +185,11 @@ jobs:
           tags: |
             ghcr.io/kolonie-ai/kolonie-api:latest
             ghcr.io/kolonie-ai/kolonie-api:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ needs.changes.outputs.built-at }}
+            org.opencontainers.image.version=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -201,6 +215,11 @@ jobs:
           tags: |
             ghcr.io/kolonie-ai/kolonie-verifier-runner:latest
             ghcr.io/kolonie-ai/kolonie-verifier-runner:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ needs.changes.outputs.built-at }}
+            org.opencontainers.image.version=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -226,6 +245,11 @@ jobs:
           tags: |
             ghcr.io/kolonie-ai/kolonie-moderation-runner:latest
             ghcr.io/kolonie-ai/kolonie-moderation-runner:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ needs.changes.outputs.built-at }}
+            org.opencontainers.image.version=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

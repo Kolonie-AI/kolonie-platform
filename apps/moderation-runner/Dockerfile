@@ -26,6 +26,17 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# What this image cannot start without, for the deploy that has to provide it
+# (kolonie-infra#42). `preflight_env()` in kolonie-infra/scripts/deploy.sh reads
+# this label off the pulled image and refuses the deploy — before any container
+# is recreated — if the host defines no such variable. Without it, a variable
+# made mandatory here is invisible to every check that repository has, which is
+# what cost twelve and a half hours on 2026-07-31.
+#
+# packages/db/src/required-env.ts is the source; this line is a copy, because a
+# label cannot import TypeScript. required-env.test.ts fails if they disagree.
+LABEL ai.kolonie.required-env="DATABASE_URL,BAN_MARK_SALT"
+
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/packages/core/package.json ./packages/core/package.json

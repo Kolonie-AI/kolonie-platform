@@ -26,6 +26,7 @@ export {
   hashApiKey,
 } from './api-key.js'
 export { fingerprintOf, REGISTRATION_FINGERPRINT_ALGORITHM } from './registration-fingerprint.js'
+export { REQUIRED_ENV, REQUIRED_ENV_LABEL, requiredEnvLabelValue } from './required-env.js'
 /**
  * The vault's sealing primitives.
  *

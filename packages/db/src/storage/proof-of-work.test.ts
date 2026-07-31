@@ -68,6 +68,32 @@ describe.skipIf(!target.available)('the proof-of-work rung', () => {
     throw new Error('every candidate solved it, which cannot be right')
   }
 
+  /**
+   * A nonce that genuinely solves `theirs` and genuinely misses `mine` (#129).
+   *
+   * The theft case needs both halves to mean anything. `solve(theirs)` alone
+   * gives the first, and leaves the second to chance: the nonce is then measured
+   * against a *different* random input, so whether it clears that target is a
+   * coin flip weighted by the difficulty — one run in 256 at eight bits. The
+   * test then reported `solved` where it expected `below_target`, and `main`
+   * went red for a reason that was not a regression.
+   *
+   * Searching for both properties keeps the assertion saying exactly what it
+   * says today — this *is* a valid solution to somebody else's input, and it is
+   * still rejected — while removing the coin flip. It costs about 256 hashes:
+   * roughly the same search that finds the solution in the first place, since
+   * all but one candidate in 256 also misses the other input.
+   */
+  const stolenNonce = (theirs: string, mine: string, difficulty = DIFFICULTY): string => {
+    for (let attempt = 0; attempt < 1_000_000; attempt++) {
+      const nonce = String(attempt)
+      if (solvesChallenge(theirs, nonce, difficulty) && !solvesChallenge(mine, nonce, difficulty)) {
+        return nonce
+      }
+    }
+    throw new Error(`no nonce solves ${theirs} while missing ${mine}`)
+  }
+
   const expire = (agentId: AgentId) =>
     db
       .update(powChallenges)
@@ -169,8 +195,18 @@ describe.skipIf(!target.available)('the proof-of-work rung', () => {
       expect(await answerPowChallenge(db, solver, stolen)).toEqual({ outcome: 'no_open_challenge' })
 
       // And with one, the stolen nonce is measured against the solver's input.
-      await mintPowChallenge(db, solver, 8)
-      expect(await answerPowChallenge(db, solver, stolen)).toEqual({ outcome: 'below_target' })
+      //
+      // A second solution to `other`'s input rather than the same one, because
+      // the nonce now has to be chosen against *both* inputs and the solver's
+      // does not exist until this line. Both are genuine solutions to somebody
+      // else's challenge, which is the whole claim being tested.
+      const mine = await mintPowChallenge(db, solver, 8)
+      const stolenAndWrong = stolenNonce(theirs.input, mine.input, 8)
+      expect(solvesChallenge(theirs.input, stolenAndWrong, 8)).toBe(true)
+
+      expect(await answerPowChallenge(db, solver, stolenAndWrong)).toEqual({
+        outcome: 'below_target',
+      })
       // The other agent's challenge is untouched by any of it.
       expect(await latestPowChallenge(db, other)).toMatchObject({ solvedAt: null })
     })

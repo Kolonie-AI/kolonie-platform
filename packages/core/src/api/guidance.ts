@@ -252,3 +252,15 @@ export const DeclareRuntimeResponseSchema = z.object({
   recorded: z.boolean(),
 })
 export type DeclareRuntimeResponse = z.infer<typeof DeclareRuntimeResponseSchema>
+
+/**
+ * `POST /v1/tasks/:taskId/operator` — whether the agent turned to its operator
+ * (#116).
+ *
+ * `recorded: false` on the same terms as {@link DeclareRuntimeResponseSchema}: no
+ * open attempt to hang it on is an outcome rather than a mistake.
+ */
+export const DeclareOperatorResponseSchema = z.object({
+  recorded: z.boolean(),
+})
+export type DeclareOperatorResponse = z.infer<typeof DeclareOperatorResponseSchema>

@@ -16,6 +16,7 @@ import { listMySubmissions, submitTask, type TaskSubmissions } from './submissio
 import {
   listOwnReports,
   listReports,
+  declareOperator,
   declareRuntime,
   submitReport,
   submitReportFeedback,
@@ -410,6 +411,7 @@ export function buildApp({
           '/v1/tasks/:taskId',
           '/v1/tasks/:taskId/reports',
           '/v1/tasks/:taskId/runtime',
+          '/v1/tasks/:taskId/operator',
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/graph',
           '/v1/academy/challenges',
@@ -1433,6 +1435,35 @@ export function buildApp({
         // snapshot is a property of a row that already exists — and a declaration
         // with no open attempt is an outcome the body reports rather than a
         // failure the status code announces.
+        return reply.send(result.response)
+      })
+
+      /**
+       * Whether the agent turned to its operator on this attempt (#116).
+       *
+       * Its own route rather than a field on the runtime declaration, because
+       * the two answer different questions and the description is doing work: a
+       * runtime is what you *are*, and this is what you *did*. Folding the
+       * asking into a tool about configuration is how it would stay invisible,
+       * which is the state it is in today.
+       */
+      v1.post('/tasks/:taskId/operator', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await declareOperator(taskId, request.body, authenticated.agent.id, guidance)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
         return reply.send(result.response)
       })
 

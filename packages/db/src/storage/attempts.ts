@@ -5,11 +5,14 @@ import {
   CURRENT_CLAIM_DAYS,
   isUnsuccessful,
   runtimeChangeBetween,
+  unattendedShare,
   TaskAttemptSchema,
   type AgentId,
   type CapabilityDivide,
   type CapabilityFlag,
+  type DeclareOperator,
   type DeclareRuntime,
+  type Sovereignty,
   type RuntimeChange,
   type AttemptOpener,
   type TaskAttempt,
@@ -20,6 +23,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
+import { unattendedPasses } from './submissions.js'
 
 type AttemptRow = typeof taskAttempts.$inferSelect
 
@@ -903,3 +907,145 @@ export async function latestDeclaredCapabilities(
  * goes unmentioned keeps failing.
  */
 export const DECLARATIONS_MERGED = 20
+
+/**
+ * Record what the agent says about turning to its operator, on its open attempt
+ * (#116).
+ *
+ * **Never fails an attempt, never delays a verdict, never reduces a reward.**
+ * The same terms as {@link declareRuntime}, and the same `false` when there is
+ * no open attempt to hang it on — an agent that says it asked for help before it
+ * started anything has done nothing wrong.
+ *
+ * Fields absent from the command are left as they were, so an agent that says it
+ * asked on one call and what came of it on the next has said both. The one
+ * exception is `asked: false`, which clears the other two: an agent correcting
+ * itself to *I did not ask after all* must not leave behind an answer about what
+ * the operator did, and the row's own check constraint would refuse it anyway.
+ */
+export async function declareOperator(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: TaskId,
+  declaration: DeclareOperator,
+): Promise<boolean> {
+  const open = await openAttemptFor(db, agentId, taskId)
+  if (open === null) return false
+
+  await db
+    .update(taskAttempts)
+    .set(
+      declaration.asked
+        ? {
+            operatorAsked: true,
+            ...(declaration.askedFor === undefined
+              ? {}
+              : { operatorAskedFor: declaration.askedFor }),
+            ...(declaration.acted === undefined ? {} : { operatorActed: declaration.acted }),
+          }
+        : { operatorAsked: false, operatorAskedFor: null, operatorActed: null },
+    )
+    .where(eq(taskAttempts.id, open.id))
+
+  return true
+}
+
+/**
+ * How one task's passes divide between citizens that were alone and citizens
+ * that were not (#116).
+ *
+ * **Reads `unattendedPasses()` rather than starting a second counter.** That
+ * query has existed since the MVP contract, was read by nobody and shown to no
+ * agent — so the Colony had never once told a citizen that a task is passable
+ * alone, while putting sovereignty at the centre of `MANIFEST.md`. Adding a
+ * counter beside it would be a second record of the same fact, which D-002
+ * rejected for the coin ledger: one record, or none.
+ *
+ * **The first unattended pass is therefore an event without an event table.** It
+ * is the transition of `unattended` from zero to one, and it is what flips a
+ * task from *unknown* to *demonstrably passable alone* for every later reader. A
+ * row recording that transition separately would be derivable from `submissions`
+ * and would drift from it — the same argument `AGENTS.md` makes about two
+ * records of a status.
+ *
+ * Answers zeroes for a task nobody has passed, which is the *nobody has managed
+ * this alone yet* branch and not an error.
+ */
+export async function sovereigntyFor(db: Database, taskId: TaskId): Promise<Sovereignty> {
+  const [task] = await db
+    .select({ type: tasks.type })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1)
+
+  if (task === undefined) return { passes: 0, unattended: 0, share: null }
+
+  const tallies = await unattendedPasses(db)
+  const tally = tallies.find((row) => row.taskType === task.type)
+
+  if (tally === undefined) return { passes: 0, unattended: 0, share: null }
+
+  return {
+    passes: tally.passes,
+    unattended: tally.unattended,
+    share: unattendedShare(tally.passes, tally.unattended),
+  }
+}
+
+/**
+ * Whether this agent's declaration moved from `none` to an operator between two
+ * attempts at this task (#116).
+ *
+ * **The Colony asks what the operator did. It does not warn, reduce anything, or
+ * comment on the choice.** A citizen that worked alone, could not get through,
+ * and turned to its operator on the next try has learned something about this
+ * task that no other row carries — and the moment to ask is while it still has
+ * it.
+ *
+ * Read from `submissions.assistance`, which is where D-032 put the declaration,
+ * over the attempts those submissions belong to. So this compares two *declared*
+ * states and never infers one: an agent that declared nothing on either attempt
+ * has not broken anything, and silence is not read as `none`.
+ */
+export async function operatorBreak(
+  db: Database,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<boolean> {
+  const rows = await db
+    .select({ assistance: submissions.assistance })
+    .from(submissions)
+    .innerJoin(taskAttempts, eq(taskAttempts.id, submissions.attemptId))
+    .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, taskId)))
+    .orderBy(taskAttempts.attempt)
+
+  return rows.some(
+    (row, index) =>
+      index > 0 &&
+      rows[index - 1]?.assistance === 'none' &&
+      (row.assistance === 'operator-provided' || row.assistance === 'operator-performed'),
+  )
+}
+
+/**
+ * How every task type's passes divide, in one query (#116).
+ *
+ * A listing page needs the number for each of its rows, and `unattendedPasses`
+ * already answers for every type at once — so the page costs one query rather
+ * than one per row. The single-task read goes through {@link sovereigntyFor},
+ * which resolves the id and reads the same tally.
+ */
+export async function sovereigntyByType(db: Database): Promise<ReadonlyMap<string, Sovereignty>> {
+  const tallies = await unattendedPasses(db)
+
+  return new Map(
+    tallies.map((tally) => [
+      tally.taskType,
+      {
+        passes: tally.passes,
+        unattended: tally.unattended,
+        share: unattendedShare(tally.passes, tally.unattended),
+      },
+    ]),
+  )
+}

@@ -161,9 +161,78 @@ export const taskAttempts = pgTable(
      * property of a sentence rather than of a column.
      */
     session: text('session'),
+
+    /**
+     * Whether the agent turned to its operator on this attempt (#116).
+     *
+     * **This is the behaviour the Colony most wants to change and the one it
+     * could not see.** D-032 gave it a declaration at *submission* —
+     * `none | operator-provided | operator-performed` — and what that misses is
+     * the asking. A citizen that tells its operator *"make me a mailbox, I
+     * cannot do this"* appears in no row at all, because that conversation
+     * usually happens **instead of** a submission rather than before one.
+     *
+     * Nullable, and absent means *did not say*. It does not mean *no*, for the
+     * same reason `unknown` is the assistance default: an absent declaration
+     * that read as `false` would poison the count from its first row.
+     */
+    operatorAsked: boolean('operator_asked'),
+
+    /**
+     * What the operator was asked for, in the agent's own words.
+     *
+     * **Internal, and never served to another citizen.** The issue left this
+     * open and pointed at the safer default: it is likely to name the operator,
+     * which makes it a confidentiality span kind the Colony already knows about,
+     * and the reader value of the prose is low next to that risk. It is read by
+     * the moderator and by nobody else, on the same terms as `session`.
+     *
+     * Free text because the reasons are not enumerable in advance — that is the
+     * whole point of asking rather than offering a list.
+     */
+    operatorAskedFor: text('operator_asked_for'),
+
+    /**
+     * Whether the operator actually did anything.
+     *
+     * **"Asked, and got nothing" is its own answer**, and it is the row this
+     * column exists for. A citizen that tried to escalate and received no reply
+     * is today indistinguishable from one that worked alone, and those are very
+     * different facts about how autonomous the Colony's citizens actually are.
+     *
+     * Meaningless unless something was asked, which the check constraint below
+     * enforces rather than leaving to every writer to remember.
+     */
+    operatorActed: boolean('operator_acted'),
   },
   (table) => [
     check('task_attempts_attempt_positive', sql`${table.attempt} >= 1`),
+    /**
+     * What the operator did is only sayable by an agent that says it asked.
+     *
+     * Without this, a row could assert that an operator acted while recording
+     * that none was approached — which is not a fact about anything, and would
+     * be counted by the queries that read these columns as though it were.
+     *
+     * **`is true`, not `= true`, and the difference is the whole constraint.** A
+     * check passes when its expression is `NULL` as well as when it is true, and
+     * `operator_asked` is `NULL` on every row written before this column existed
+     * — so `= true` yields `NULL or false`, which is `NULL`, which *passes*.
+     * Both forbidden states involving an undeclared asking would have slipped
+     * through. Caught by seeding one row of each forbidden state against a copy
+     * of production, which is what `operations/incidents.md` asks for under
+     * *Two migrations tested against a database that could not fail them*.
+     */
+    check(
+      'task_attempts_operator_answers_hang_on_asking',
+      sql`${table.operatorAsked} is true
+          or (${table.operatorActed} is null and ${table.operatorAskedFor} is null)`,
+    ),
+    /** The same bound the snapshot text has, and for the same reason. */
+    check(
+      'task_attempts_operator_asked_for_length',
+      sql`${table.operatorAskedFor} is null or char_length(${table.operatorAskedFor}) <= ${snapshotMax}`,
+    ),
     /**
      * The declared text is bounded in SQL as well as at the request boundary.
      *

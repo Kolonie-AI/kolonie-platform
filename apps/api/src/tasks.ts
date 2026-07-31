@@ -201,11 +201,27 @@ export async function listTasks(
     }
   }
 
+  const [notices, byType] = await Promise.all([
+    noticesFor(result.page.items, agentId, catalogue, guidance),
+    guidance.sovereigntyByType(),
+  ])
+
   return {
     outcome: 'listed',
     response: {
       ...result.page,
-      notices: await noticesFor(result.page.items, agentId, catalogue, guidance),
+      notices,
+      /**
+       * One entry per listed task, always — including the zeroes.
+       *
+       * *Nobody has passed this at all* and *nobody has passed it alone* are
+       * different facts and both are worth a sentence; an omission would collapse
+       * them into each other and into *the Colony did not say*.
+       */
+      sovereignty: result.page.items.map((task) => ({
+        taskId: task.id,
+        sovereignty: byType.get(task.type) ?? { passes: 0, unattended: 0, share: null },
+      })),
     },
   }
 }
@@ -357,9 +373,11 @@ export async function getTask(
   if (task === undefined) return { outcome: 'rejected', error: noSuchTask }
 
   // After the existence check, so a bad id costs no count query.
-  const [reportCount, declared] = await Promise.all([
+  const [reportCount, declared, sovereignty, operatorBreak] = await Promise.all([
     guidance.countReports(parsed.data),
     guidance.declaredCapabilities(agentId),
+    guidance.sovereignty(parsed.data),
+    guidance.operatorBreak(agentId, parsed.data),
   ])
 
   /**
@@ -394,6 +412,8 @@ export async function getTask(
       reportCount,
       attempt: standing.attempt,
       blocking,
+      sovereignty,
+      operatorBreak,
       // Only a claim about *this* read: an agent that did not ask for hints was
       // refused nothing, whatever attempt it is on.
       helpWithheld: asked && withheld,

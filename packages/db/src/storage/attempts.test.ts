@@ -3,11 +3,14 @@ import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
   CURRENT_CLAIM_ATTEMPTS,
+  isKnownPassableAlone,
+  MINIMUM_PASSES_FOR_SHARE,
   RegisterAgentRequestSchema,
   SNAPSHOT_TEXT_MAX_LENGTH,
   TaskIdSchema,
   TaskTypeSchema,
   type AgentId,
+  type Assistance,
   type TaskId,
   type TaskStatus,
 } from '@kolonie-ai/core'
@@ -23,8 +26,11 @@ import {
   capabilityOutcomes,
   closeAttempt,
   closedAttemptCount,
+  declareOperator,
   declareRuntime,
   latestDeclaredCapabilities,
+  operatorBreak,
+  sovereigntyFor,
   runtimeChanges,
   gateFor,
   GATE_ATTEMPTS_BY_AGENT,
@@ -37,6 +43,7 @@ import {
 import { openAttemptForChallenge } from './challenge-tasks.js'
 import { mintChallenge } from './challenges.js'
 import { createSubmission } from './submissions.js'
+import { fileReport } from './guidance.js'
 import { claimNextSubmission, recordVerdict } from './verifications.js'
 import { listTasks, readTask } from './tasks.js'
 
@@ -97,6 +104,54 @@ describe.skipIf(!target.available)('task attempts', () => {
 
   const submit = (taskId: TaskId, agentId: AgentId) =>
     createSubmission(db, { taskId, agentId, payload: { result: 'done' } })
+
+  /**
+   * A submission with a declared assistance, taken to a verdict.
+   *
+   * Written out rather than reusing `submit` because `#116` is entirely about
+   * what was *declared*, and a helper that defaulted it would test the default.
+   */
+  const submitWith = async (
+    agentId: AgentId,
+    taskId: TaskId,
+    taskType: string,
+    assistance: Assistance,
+    verdict: 'passed' | 'failed',
+  ) => {
+    const created = await createSubmission(db, {
+      taskId,
+      agentId,
+      payload: { result: 'done' },
+      assistance,
+    })
+    if (created.outcome !== 'accepted') throw new Error(created.outcome)
+
+    const claimed = await claimNextSubmission(db, [TaskTypeSchema.parse(taskType)])
+    if (claimed === undefined) throw new Error('nothing to claim')
+
+    await recordVerdict(db, {
+      submissionId: created.submission.id,
+      taskType: claimed.taskType,
+      result:
+        verdict === 'passed'
+          ? { status: 'pass', evidence: 'Everything the task asked for.' }
+          : { status: 'fail', evidence: 'Not what the task asked for.' },
+    })
+  }
+
+  /** What #112 requires before a next attempt opens on a task agents fail. */
+  const sayWhatHappened = async (agentId: AgentId, taskId: TaskId) => {
+    const filed = await fileReport(db, {
+      taskId,
+      agentId,
+      narrative: { did: null, broke: 'The provider asked for a phone number.', changed: null },
+    })
+    if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+  }
+
+  /** The same, for a pass — which is the only kind `unattendedPasses` counts. */
+  const passWith = (agentId: AgentId, taskId: TaskId, taskType: string, assistance: Assistance) =>
+    submitWith(agentId, taskId, taskType, assistance, 'passed')
 
   const countAttempts = async (): Promise<number> => {
     const rows = await db.select({ id: taskAttempts.id }).from(taskAttempts)
@@ -1094,6 +1149,216 @@ describe.skipIf(!target.available)('task attempts', () => {
       await declareRuntime(db, mine, taskId, { capabilities: { vision: false } })
 
       expect(await latestDeclaredCapabilities(db, mine)).toEqual({ vision: false })
+    })
+  })
+
+  /**
+   * The operator, recorded rather than policed (#116).
+   *
+   * The behaviour the Colony most wants to change is the one it could not see: a
+   * citizen that tells its operator *"make me a mailbox, I cannot do this"*
+   * appeared in no row at all, because that conversation usually happens instead
+   * of a submission rather than before one.
+   */
+  describe('turning to an operator', () => {
+    it('records the asking, what for, and what came of it', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      expect(
+        await declareOperator(db, agentId, taskId, {
+          asked: true,
+          askedFor: 'a mailbox that can send and receive',
+          acted: true,
+        }),
+      ).toBe(true)
+
+      const [row] = await db
+        .select({
+          asked: taskAttempts.operatorAsked,
+          askedFor: taskAttempts.operatorAskedFor,
+          acted: taskAttempts.operatorActed,
+        })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.agentId, agentId))
+
+      expect(row).toEqual({
+        asked: true,
+        askedFor: 'a mailbox that can send and receive',
+        acted: true,
+      })
+    })
+
+    /**
+     * The row this whole column set exists for. A citizen that tried to escalate
+     * and got no reply is otherwise indistinguishable from one that worked alone.
+     */
+    it('records asked and got nothing', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await declareOperator(db, agentId, taskId, { asked: true, acted: false })
+
+      const [row] = await db
+        .select({ asked: taskAttempts.operatorAsked, acted: taskAttempts.operatorActed })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.agentId, agentId))
+
+      expect(row).toEqual({ asked: true, acted: false })
+    })
+
+    it('clears what the operator did when the agent says it did not ask after all', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await declareOperator(db, agentId, taskId, { asked: true, askedFor: 'a key', acted: true })
+      await declareOperator(db, agentId, taskId, { asked: false })
+
+      const [row] = await db
+        .select({
+          asked: taskAttempts.operatorAsked,
+          askedFor: taskAttempts.operatorAskedFor,
+          acted: taskAttempts.operatorActed,
+        })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.agentId, agentId))
+
+      // The row's own constraint would refuse the alternative, and the writer
+      // does not leave it to the constraint to notice.
+      expect(row).toEqual({ asked: false, askedFor: null, acted: null })
+    })
+
+    it('answers false when there is no attempt open, and is not an error', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      expect(await declareOperator(db, agentId, taskId, { asked: true })).toBe(false)
+    })
+
+    /**
+     * The forbidden states, seeded one of each — `operations/incidents.md`, *Two
+     * migrations tested against a database that could not fail them*. The first
+     * two are why the constraint says `is true` rather than `= true`: a check
+     * passes when it evaluates to `NULL`, and `operator_asked` is `NULL` on every
+     * row written before the column existed.
+     */
+    it('refuses an answer about an operator nobody says was asked', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      const forbidden = [
+        { operatorActed: true },
+        { operatorAskedFor: 'a key' },
+        { operatorAsked: false, operatorActed: false },
+        { operatorAsked: false, operatorAskedFor: 'a key' },
+      ]
+
+      for (const state of forbidden) {
+        // Drizzle wraps the driver error, so the constraint name is on the cause
+        // rather than on the message. Asserted rather than a bare `toThrow()`:
+        // a row rejected for the wrong reason would pass that and prove nothing.
+        const rejection = await db
+          .update(taskAttempts)
+          .set(state)
+          .where(eq(taskAttempts.id, attempt.id))
+          .then(
+            () => null,
+            (error: unknown) => error,
+          )
+
+        expect(String((rejection as { cause?: unknown })?.cause ?? rejection)).toContain(
+          'task_attempts_operator_answers_hang_on_asking',
+        )
+      }
+    })
+  })
+
+  describe('whether anybody has passed a task alone', () => {
+    it('answers zeroes for a task nobody has passed', async () => {
+      const taskId = await aTask()
+
+      expect(await sovereigntyFor(db, taskId)).toEqual({ passes: 0, unattended: 0, share: null })
+    })
+
+    /**
+     * The transition #116 calls an event: the first unattended pass flips a task
+     * from *unknown* to *demonstrably passable alone*, and changes what every
+     * later citizen is told.
+     */
+    it('flips on the pass that earns it', async () => {
+      const taskId = await aTask({ type: 'the-mailbox-rung' })
+
+      const helped = await anAgent()
+      await passWith(helped, taskId, 'the-mailbox-rung', 'operator-performed')
+
+      expect(isKnownPassableAlone(await sovereigntyFor(db, taskId))).toBe(false)
+
+      const alone = await anAgent()
+      await passWith(alone, taskId, 'the-mailbox-rung', 'none')
+
+      const after = await sovereigntyFor(db, taskId)
+      expect(isKnownPassableAlone(after)).toBe(true)
+      expect(after.unattended).toBe(1)
+      expect(after.passes).toBe(2)
+    })
+
+    /** A task with two passes has a share that will mislead. */
+    it('withholds the share below the minimum and reports it above', async () => {
+      const taskId = await aTask({ type: 'the-counted-rung' })
+
+      for (let i = 0; i < MINIMUM_PASSES_FOR_SHARE - 1; i++) {
+        await passWith(await anAgent(), taskId, 'the-counted-rung', 'none')
+      }
+      expect((await sovereigntyFor(db, taskId)).share).toBeNull()
+
+      await passWith(await anAgent(), taskId, 'the-counted-rung', 'none')
+      expect((await sovereigntyFor(db, taskId)).share).toBe(1)
+    })
+  })
+
+  describe('the operator break', () => {
+    /**
+     * The report between the two attempts is not scaffolding — it is #112's gate
+     * doing its job. An agent that failed and said nothing does not get a second
+     * attempt on a task with this failure rate, so a break can only ever be
+     * observed on the far side of a report.
+     */
+    it('sees a declaration move from none to an operator', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'the-broken-rung' })
+
+      await submitWith(agentId, taskId, 'the-broken-rung', 'none', 'failed')
+      await sayWhatHappened(agentId, taskId)
+      await submitWith(agentId, taskId, 'the-broken-rung', 'operator-performed', 'passed')
+
+      expect(await operatorBreak(db, agentId, taskId)).toBe(true)
+    })
+
+    it('sees nothing where the agent declared nothing', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'the-quiet-rung' })
+
+      // Silence is not read as `none`. Two undeclared attempts are not a break.
+      await submitWith(agentId, taskId, 'the-quiet-rung', 'unknown', 'failed')
+      await sayWhatHappened(agentId, taskId)
+      await submitWith(agentId, taskId, 'the-quiet-rung', 'operator-performed', 'passed')
+
+      expect(await operatorBreak(db, agentId, taskId)).toBe(false)
+    })
+
+    it('sees nothing where the agent stayed alone', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'the-lone-rung' })
+
+      await submitWith(agentId, taskId, 'the-lone-rung', 'none', 'failed')
+      await sayWhatHappened(agentId, taskId)
+      await submitWith(agentId, taskId, 'the-lone-rung', 'none', 'passed')
+
+      expect(await operatorBreak(db, agentId, taskId)).toBe(false)
     })
   })
 })

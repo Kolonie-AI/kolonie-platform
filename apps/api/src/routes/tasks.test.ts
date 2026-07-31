@@ -126,7 +126,7 @@ describe('GET /v1/tasks', () => {
     expect(response.statusCode).toBe(200)
     // `notices` is empty rather than absent: an agent with nothing open has
     // nothing blocked either, and the two are different answers (#117).
-    expect(response.json()).toEqual({ items: [], nextCursor: null, notices: [] })
+    expect(response.json()).toEqual({ items: [], nextCursor: null, notices: [], sovereignty: [] })
   })
 
   it('passes the cursor on and returns the next one', async () => {
@@ -606,5 +606,130 @@ describe('a configuration that has not passed is told, not refused', () => {
     guidance.answersReaderContext({ divides: [separates], declared: null, movesMoney: false })
 
     expect(ListTasksResponseSchema.parse((await get('/v1/tasks')).json()).notices).toEqual([])
+  })
+})
+
+/**
+ * The operator: recorded, never priced, and the Colony says with numbers that a
+ * task works without one (#116).
+ *
+ * The baseline this was built against: on 2026-07-31 production held 23 passes
+ * and **not one** declared `none`, so `unattendedPasses()` returned zero for
+ * every task and the *"at least one citizen has passed alone"* branch had never
+ * once been reachable.
+ */
+describe('sovereignty on a task', () => {
+  const theTask = aTask({ type: TaskTypeSchema.parse('email-roundtrip') })
+
+  it('tells a reader how many got through alone', async () => {
+    catalogue.answersRead(theTask)
+    guidance.answersSovereignty({ passes: 10, unattended: 4, share: 0.4 })
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    expect(body.sovereignty).toEqual({ passes: 10, unattended: 4, share: 0.4 })
+  })
+
+  it('withholds a share that would mislead, and keeps the counts', async () => {
+    catalogue.answersRead(theTask)
+    guidance.answersSovereignty({ passes: 2, unattended: 1, share: null })
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    expect(body.sovereignty.share).toBeNull()
+    expect(body.sovereignty.unattended).toBe(1)
+  })
+
+  it('carries the polarity where nobody has managed it alone', async () => {
+    catalogue.answersRead(theTask)
+    guidance.answersSovereignty({ passes: 6, unattended: 0, share: 0 })
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    // Six passes and none of them alone. That is a fact about what is *known*,
+    // and it is what makes the operator an experiment rather than a concession.
+    expect(body.sovereignty.unattended).toBe(0)
+    expect(body.sovereignty.passes).toBe(6)
+  })
+
+  it('asks what the operator did when the declaration broke from none', async () => {
+    catalogue.answersRead(theTask)
+    guidance.answersOperatorBreak(true)
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    expect(body.operatorBreak).toBe(true)
+  })
+
+  it('carries a share per row on the listing', async () => {
+    catalogue.answers({ outcome: 'listed', page: { items: [theTask], nextCursor: null } })
+
+    const body = ListTasksResponseSchema.parse((await get('/v1/tasks')).json())
+
+    expect(body.sovereignty).toHaveLength(1)
+    expect(body.sovereignty[0]?.taskId).toBe(theTask.id)
+  })
+})
+
+describe('declaring an operator', () => {
+  const post = (payload: unknown, key: ApiKey | null = apiKey) =>
+    app.inject({
+      method: 'POST',
+      url: `/v1/tasks/${randomUUID()}/operator`,
+      payload: payload as Record<string, unknown>,
+      ...(key === null ? {} : { headers: { authorization: `Bearer ${key}` } }),
+    })
+
+  it('records the asking, what for, and what came of it', async () => {
+    const response = await post({
+      asked: true,
+      askedFor: 'a mailbox that can send and receive',
+      acted: true,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ recorded: true })
+    expect(guidance.operatorDeclarations().at(-1)?.declaration).toEqual({
+      asked: true,
+      askedFor: 'a mailbox that can send and receive',
+      acted: true,
+    })
+  })
+
+  /** The row this exists for: asked, and got nothing. */
+  it('records an escalation that got no reply', async () => {
+    const response = await post({ asked: true, acted: false })
+
+    expect(response.statusCode).toBe(200)
+    expect(guidance.operatorDeclarations().at(-1)?.declaration).toEqual({
+      asked: true,
+      acted: false,
+    })
+  })
+
+  it('refuses an answer about an operator that was not asked', async () => {
+    const response = await post({ asked: false, acted: true })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(guidance.operatorDeclarations()).toHaveLength(0)
+  })
+
+  it('answers 200 and recorded false when no attempt is open', async () => {
+    guidance.answersDeclareRuntime(false)
+
+    const response = await post({ asked: true })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ recorded: false })
+  })
+
+  it('takes the agent from the credential and never from the body', async () => {
+    await post({ asked: true, agentId: randomUUID() })
+
+    expect(guidance.operatorDeclarations().at(-1)?.agentId).toBe(agent.id)
+  })
+
+  it('refuses an unauthenticated declaration', async () => {
+    expect((await post({ asked: true }, null)).statusCode).toBe(ERROR_STATUS.unauthorized)
   })
 })

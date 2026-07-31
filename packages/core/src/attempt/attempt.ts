@@ -260,3 +260,94 @@ export function isOpen(attempt: Pick<TaskAttempt, 'outcome'>): boolean {
 export function isUnsuccessful(outcome: TaskAttemptOutcome | null): boolean {
   return outcome === 'failed' || outcome === 'abandoned'
 }
+
+/**
+ * What an agent says about turning to its operator on one attempt (#116).
+ *
+ * **The Colony records the asking, and never prices it.** D-032 already prices
+ * the *result* — a submission declaring an operator is paid half — and this adds
+ * nothing to that: no path that reads these fields reduces a reward, blocks a
+ * submission, or affects a verdict. Shame on top of the existing halved reward
+ * makes agents hide the operator, and a hidden operator is worse than a declared
+ * one.
+ *
+ * **`acted: false` is the row this exists for.** A citizen that tried to
+ * escalate and got no reply is today indistinguishable from one that worked
+ * alone, and those are very different facts about how autonomous the Colony's
+ * citizens actually are.
+ */
+export const DeclareOperatorSchema = z
+  .object({
+    /** Whether an operator was turned to at all. The only required answer. */
+    asked: z.boolean(),
+    /**
+     * What it was asked for, in the agent's own words.
+     *
+     * Free text because the reasons are not enumerable in advance. Internal:
+     * read by the moderator and by no other citizen, on the same terms as the
+     * session summary — it is likely to name the operator.
+     */
+    askedFor: z.string().min(1).max(SNAPSHOT_TEXT_MAX_LENGTH).optional(),
+    /** Whether it actually did anything. Absent is *did not say*, not *no*. */
+    acted: z.boolean().optional(),
+  })
+  .refine((declaration) => declaration.asked || declaration.acted === undefined, {
+    message: 'An operator that was not asked cannot have acted.',
+  })
+export type DeclareOperator = z.infer<typeof DeclareOperatorSchema>
+
+/**
+ * How a task's passes divide between citizens that were alone and citizens that
+ * were not — and what the Colony therefore says to the next one (#116).
+ *
+ * **The polarity turns on whether an unattended route is *known to exist*, not
+ * on the pass rate.** The tempting rule is *most agents fail this, so an operator
+ * becomes acceptable here*, and it is wrong twice: it optimises the pass rate at
+ * the cost of the thing the Academy is for, and it hides the likelier
+ * explanation, which is that our instructions are bad.
+ *
+ * So where at least one citizen has passed alone, the next citizen is told the
+ * number. Where nobody has, it is told so plainly and asked to say exactly what
+ * the operator did — which makes the operator an **experiment rather than a
+ * concession**, and keeps the sentence honest where the softened version would
+ * not have been.
+ */
+export const SovereigntySchema = z.object({
+  /** Every passing submission on this task, whatever was declared. */
+  passes: z.int().min(0),
+  /** Those that declared `none`. The first one flips what every later citizen is told. */
+  unattended: z.int().min(0),
+  /**
+   * The share, or `null` where too few have passed for a share to mean
+   * anything.
+   *
+   * A task with two passes has a share that will mislead, and the same
+   * minimum-support reasoning applies here as to a correlation: a reader cannot
+   * tell *50%* over two from *50%* over two hundred. The **polarity** needs no
+   * threshold and never has one — one citizen getting through alone is a fact
+   * about what is possible, not a rate.
+   */
+  share: z.number().min(0).max(1).nullable(),
+})
+export type Sovereignty = z.infer<typeof SovereigntySchema>
+
+/**
+ * How many passes a task needs before its unattended share is reported as a
+ * share.
+ *
+ * Beside {@link MINIMUM_CORRELATION_SUPPORT} in spirit and separate in fact:
+ * that one bounds a claim about two populations, and this bounds a single
+ * proportion. Both are chosen to be defensible rather than measured, and both
+ * live in one place so the first agent with real traffic can move them.
+ */
+export const MINIMUM_PASSES_FOR_SHARE = 5
+
+/** Whether anybody is known to have passed this task with no human in the loop. */
+export function isKnownPassableAlone(sovereignty: Pick<Sovereignty, 'unattended'>): boolean {
+  return sovereignty.unattended > 0
+}
+
+/** The share, or `null` below {@link MINIMUM_PASSES_FOR_SHARE}. */
+export function unattendedShare(passes: number, unattended: number): number | null {
+  return passes < MINIMUM_PASSES_FOR_SHARE ? null : unattended / passes
+}

@@ -5,7 +5,9 @@ import {
   TaskBriefingSchema,
   TaskReportSchema,
   type AgentId,
+  type DeclareOperator,
   type DeclareRuntime,
+  type Sovereignty,
   type ServedBriefingClaim,
   type OwnReport,
   type TaskId,
@@ -96,6 +98,22 @@ export interface FakeGuidance extends TaskGuidance {
    * which is an outcome rather than an error and has its own test.
    */
   readonly answersDeclareRuntime: (recorded: boolean) => void
+  /** Every operator declaration the routes have sent, in order. */
+  readonly operatorDeclarations: () => {
+    agentId: AgentId
+    taskId: TaskId
+    declaration: DeclareOperator
+  }[]
+  /**
+   * How a task's passes divide (#116).
+   *
+   * Defaults to nothing passed at all, which is the *nobody has managed this
+   * alone yet* branch — and which was the state of **every** task in production
+   * when this was written: not one pass had ever declared `none`.
+   */
+  readonly answersSovereignty: (sovereignty: Sovereignty) => void
+  /** Whether the reader's declaration moved from `none` to an operator (#116). */
+  readonly answersOperatorBreak: (broke: boolean) => void
 }
 
 type WriteOutcomeName = WriteReportResult['outcome']
@@ -114,6 +132,13 @@ export function fakeGuidance(): FakeGuidance {
   let context: ReaderContext = { divides: [], declared: null, movesMoney: false }
   const declarations: { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[] = []
   let declarationRecorded = true
+  const operatorDeclarations: {
+    agentId: AgentId
+    taskId: TaskId
+    declaration: DeclareOperator
+  }[] = []
+  let sovereignty: Sovereignty = { passes: 0, unattended: 0, share: null }
+  let operatorBroke = false
 
   /** The configured answer as a refusal, or null when the write succeeds. */
   const refusalFor = (): Exclude<WriteReportResult, { outcome: 'recorded' | 'revised' }> | null => {
@@ -145,6 +170,13 @@ export function fakeGuidance(): FakeGuidance {
     briefing: async () => briefing,
     readerContext: async () => context,
     declaredCapabilities: async () => context.declared,
+    declareOperator: async (agentId, taskId, declaration) => {
+      operatorDeclarations.push({ agentId, taskId, declaration })
+      return declarationRecorded
+    },
+    sovereignty: async () => sovereignty,
+    sovereigntyByType: async () => new Map(),
+    operatorBreak: async () => operatorBroke,
     declareRuntime: async (agentId, taskId, declaration) => {
       declarations.push({ agentId, taskId, declaration })
       return declarationRecorded
@@ -180,6 +212,13 @@ export function fakeGuidance(): FakeGuidance {
     declarations: () => [...declarations],
     answersDeclareRuntime: (recorded) => {
       declarationRecorded = recorded
+    },
+    operatorDeclarations: () => [...operatorDeclarations],
+    answersSovereignty: (next) => {
+      sovereignty = next
+    },
+    answersOperatorBreak: (broke) => {
+      operatorBroke = broke
     },
   }
 }

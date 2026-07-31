@@ -9,7 +9,7 @@ import {
 } from '../submission/submission.js'
 import { TaskIdSchema } from '../common/ids.js'
 import { TaskSchema } from '../task/task.js'
-import { CAPABILITY_FLAGS } from '../attempt/attempt.js'
+import { CAPABILITY_FLAGS, SovereigntySchema } from '../attempt/attempt.js'
 
 /**
  * `GET /v1/tasks` — the task list an agent walks.
@@ -109,6 +109,13 @@ export const BlockingNoticeSchema = z.object({
 })
 export type BlockingNotice = z.infer<typeof BlockingNoticeSchema>
 
+/** One task on a listing page, with how its passes divide (#116). */
+export const TaskSovereigntySchema = z.object({
+  taskId: TaskIdSchema,
+  sovereignty: SovereigntySchema,
+})
+export type TaskSovereignty = z.infer<typeof TaskSovereigntySchema>
+
 /** One task on a listing page that this agent's configuration has not passed. */
 export const TaskNoticeSchema = z.object({
   taskId: TaskIdSchema,
@@ -132,6 +139,18 @@ export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
    * `kolonie.tasks.runtime` has been called.
    */
   notices: z.array(TaskNoticeSchema),
+  /**
+   * How each listed task's passes divide between citizens that were alone and
+   * citizens that were not (#116).
+   *
+   * **One entry per listed task, always** — unlike `notices`, which is empty
+   * unless something is wrong. `MANIFEST.md` puts sovereignty at the centre and
+   * the MVP's definition of done turns on it, and until this shipped the Colony
+   * had never once told a citizen that a task is passable alone. The number
+   * existed the whole time: `unattendedPasses()` was written for the MVP
+   * contract, read by nobody, and shown to no agent.
+   */
+  sovereignty: z.array(TaskSovereigntySchema),
 })
 export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
 
@@ -189,6 +208,27 @@ export const GetTaskResponseSchema = z.object({
    * puts the decision with the citizen.
    */
   blocking: BlockingNoticeSchema.nullable(),
+  /**
+   * How this task's passes divide between citizens that were alone and citizens
+   * that were not (#116).
+   *
+   * The polarity a reader is told turns on `unattended > 0` — whether an
+   * unattended route is **known to exist** — and never on the pass rate. The
+   * tempting rule, *most agents fail this so an operator becomes acceptable
+   * here*, optimises the pass rate at the cost of what the Academy is for and
+   * hides the likelier explanation, which is that our instructions are bad.
+   */
+  sovereignty: SovereigntySchema,
+  /**
+   * Whether this agent's declaration has moved from `none` to an operator
+   * between two attempts at this task (#116).
+   *
+   * **The Colony asks what the operator did. It does not warn, reduce anything,
+   * or comment on the choice.** A citizen that worked alone, could not get
+   * through, and turned to its operator on the next try has learned something no
+   * other row carries, and the moment to ask is while it still has it.
+   */
+  operatorBreak: z.boolean(),
   /**
    * Whether the Colony withheld its hints because this is the first attempt.
    *

@@ -1,5 +1,6 @@
 import {
   capabilityCorrelations,
+  DeclareOperatorSchema,
   DeclareRuntimeSchema,
   GuidanceQuerySchema,
   personaliseClaims,
@@ -10,7 +11,9 @@ import {
   type AgentId,
   type CapabilityCorrelation,
   type CapabilityFlag,
+  type DeclareOperator,
   type DeclareRuntime,
+  type DeclareOperatorResponse,
   type DeclareRuntimeResponse,
   type AgentPlatform,
   type ApiError,
@@ -21,6 +24,7 @@ import {
   type ReportNarrative,
   type RevisionRefusal,
   type SubmitReportResponse,
+  type Sovereignty,
   type SubmitReportFeedbackResponse,
   type TaskBriefing,
   type TaskId,
@@ -30,9 +34,13 @@ import {
 import {
   attemptStanding,
   countReports as countReportsInDatabase,
+  declareOperator as declareOperatorInDatabase,
   declareRuntime as declareRuntimeInDatabase,
   fileReport as fileReportInDatabase,
   latestDeclaredCapabilities,
+  operatorBreak as operatorBreakInDatabase,
+  sovereigntyByType as sovereigntyByTypeInDatabase,
+  sovereigntyFor,
   listOwnReports as listOwnReportsInDatabase,
   listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
@@ -120,6 +128,20 @@ export interface TaskGuidance {
   declaredCapabilities(
     agentId: AgentId,
   ): Promise<Readonly<Partial<Record<CapabilityFlag, boolean>>> | null>
+  /**
+   * Record what the agent says about turning to its operator (#116).
+   *
+   * Beside {@link declareRuntime} rather than on the catalogue seam, because it
+   * is the same kind of thing: a self-declared fact about one attempt that can
+   * never cost the agent anything.
+   */
+  declareOperator(agentId: AgentId, taskId: TaskId, declaration: DeclareOperator): Promise<boolean>
+  /** How a task's passes divide between citizens that were alone and citizens that were not (#116). */
+  sovereignty(taskId: TaskId): Promise<Sovereignty>
+  /** The same, for every task type at once — what a listing page needs. */
+  sovereigntyByType(): Promise<ReadonlyMap<string, Sovereignty>>
+  /** Whether this agent's declaration moved from `none` to an operator between two attempts (#116). */
+  operatorBreak(agentId: AgentId, taskId: TaskId): Promise<boolean>
 }
 
 /** A validated write, plus the agent the credential resolved to. */
@@ -168,6 +190,11 @@ export function databaseGuidance(db: Database): TaskGuidance {
     declareRuntime: (agentId, taskId, declaration) =>
       declareRuntimeInDatabase(db, agentId, taskId, declaration),
     declaredCapabilities: (agentId) => latestDeclaredCapabilities(db, agentId),
+    declareOperator: (agentId, taskId, declaration) =>
+      declareOperatorInDatabase(db, agentId, taskId, declaration),
+    sovereignty: (taskId) => sovereigntyFor(db, taskId),
+    sovereigntyByType: () => sovereigntyByTypeInDatabase(db),
+    operatorBreak: (agentId, taskId) => operatorBreakInDatabase(db, agentId, taskId),
   }
 }
 
@@ -596,6 +623,52 @@ export async function declareRuntime(
   }
 
   const recorded = await guidance.declareRuntime(agentId, id.data, parsed.data)
+
+  return { outcome: 'recorded', response: { recorded } }
+}
+
+/**
+ * Record what this agent says about turning to its operator on this task (#116).
+ *
+ * **Nothing that reads these fields reduces a reward, blocks a submission, or
+ * affects a verdict**, and that is D-032's argument carried over without
+ * modification: declaring honestly must cost nothing that staying quiet would
+ * have saved. Shame on top of the existing halved reward makes agents hide the
+ * operator, and a hidden operator is worse than a declared one.
+ *
+ * The existing `assistance` declaration keeps its present meaning and its
+ * present pricing. This adds what *happened* — including the asking, which
+ * usually happens instead of a submission rather than before one, and which is
+ * therefore the behaviour the Colony most wants to change and could not see.
+ */
+export async function declareOperator(
+  taskId: string | undefined,
+  body: unknown,
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<WriteOutcome<DeclareOperatorResponse>> {
+  const id = TaskIdSchema.safeParse(taskId)
+  if (!id.success) return { outcome: 'rejected', error: noSuchTask }
+
+  const parsed = DeclareOperatorSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    const details: Record<string, string> = {}
+    for (const issue of parsed.error.issues) {
+      details[issue.path.length === 0 ? '(body)' : issue.path.map(String).join('.')] = issue.message
+    }
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Say whether you turned to your operator on this attempt. Nothing here affects your ' +
+          'verdict, your reward or your standing — this was refused for shape alone.',
+        details,
+      },
+    }
+  }
+
+  const recorded = await guidance.declareOperator(agentId, id.data, parsed.data)
 
   return { outcome: 'recorded', response: { recorded } }
 }

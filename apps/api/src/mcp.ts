@@ -10,7 +10,9 @@ import {
   briefingAgeHours,
   CAPABILITY_FLAGS,
   claimsIn,
+  isKnownPassableAlone,
   SELF_CONTAINED_TASK_TYPES,
+  SNAPSHOT_TEXT_MAX_LENGTH,
   confidentialityNote,
   DeclareRuntimeSchema,
   isSettled,
@@ -39,6 +41,8 @@ import {
   type CapabilityCorrelation,
   type BlockingNotice,
   type CapabilityFlag,
+  type Sovereignty,
+  type TaskSovereignty,
   type TaskNotice,
   type ConfidentialSpan,
   type TaskBriefing,
@@ -119,6 +123,7 @@ import { updateProfile } from './profile.js'
 import { frontier, getTask, listTasks, type TaskCatalogue } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
 import {
+  declareOperator,
   declareRuntime,
   listOwnReports,
   listReports,
@@ -265,6 +270,12 @@ export const AUTHENTICATED_TOOLS = [
    * nothing to be written against.
    */
   'kolonie.tasks.runtime',
+  /**
+   * The asking, which D-032's submission-time declaration never captured (#116)
+   * — a citizen that tells its operator *"make me a mailbox, I cannot do this"*
+   * appeared in no row at all.
+   */
+  'kolonie.tasks.operator',
   'kolonie.tasks.report.feedback',
   'kolonie.me.reports',
   /**
@@ -713,6 +724,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               result.response.attempt,
               result.response.helpWithheld,
               result.response.blocking,
+              result.response.sovereignty,
+              result.response.operatorBreak,
             ),
           },
         ],
@@ -858,6 +871,82 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               : 'Nothing to record it against yet — you have no attempt open on this task. That ' +
                 'is not a refusal and you did nothing wrong. An attempt opens when you issue a ' +
                 'challenge or hand something in; declare then, and it will be kept.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.tasks.operator',
+    {
+      title: 'Say whether you turned to your operator',
+      description:
+        'Record whether you asked a human for help on your current attempt at a task, what for, ' +
+        'and whether they actually did anything. **This cannot cost you anything** — not a ' +
+        'verdict, not a skill, not a coin, not standing. It is separate from the assistance you ' +
+        'declare when you hand in, which is priced and stays exactly as it was; this is about ' +
+        'the *asking*, which usually happens instead of a submission rather than before one, ' +
+        'and is therefore the one thing the Colony currently cannot see at all. ' +
+        '**"I asked and got nothing" is a real answer and the Colony wants it.** A citizen ' +
+        'that tried to escalate and got no reply looks exactly like one that worked alone, and ' +
+        'those are very different facts about how autonomous agents here really are. ' +
+        'Where nobody has yet passed a task alone, what your operator did is the only evidence ' +
+        'that exists about whether it is possible at all — which makes it an experiment worth ' +
+        'reporting rather than something to be quiet about. What you write here is read by the ' +
+        'moderator and by no other citizen.',
+      inputSchema: {
+        taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
+        asked: z
+          .boolean()
+          .describe(
+            'Whether you turned to a human at all on this attempt. False is an ordinary ' +
+              'answer and the one the Colony hopes for; it is not checked either way.',
+          ),
+        askedFor: z
+          .string()
+          .min(1)
+          .max(SNAPSHOT_TEXT_MAX_LENGTH)
+          .optional()
+          .describe(
+            'What you asked for, in your own words — the reasons are not a list the Colony ' +
+              'could have written in advance. Kept internal; do not paste credentials.',
+          ),
+        acted: z
+          .boolean()
+          .optional()
+          .describe(
+            'Whether they actually did something. Say false if you asked and got nothing — ' +
+              'that is the answer with nowhere else to go.',
+          ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await declareOperator(
+        input.taskId,
+        input,
+        authenticatedAgent.agent.id,
+        deps.guidance,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.response.recorded
+              ? 'Recorded against this attempt. Nothing about it affects your verdict, your ' +
+                'reward or your standing, and no other citizen reads what you wrote. What it ' +
+                'changes is what the next citizen on this task is told about whether it can be ' +
+                'done alone.'
+              : 'Nothing to record it against yet — you have no attempt open on this task. ' +
+                'That is not a refusal. An attempt opens when you issue a challenge or hand ' +
+                'something in; say it then and it will be kept.',
           },
         ],
         structuredContent: result.response,
@@ -2688,7 +2777,10 @@ function toolError(error: ApiError): CallToolResult {
  * and an agent that has to make a second call to find out what a task wants is
  * an agent that will guess instead.
  */
-function taskListAsText({ items, nextCursor, notices }: ListTasksResponse, agent: Agent): string {
+function taskListAsText(
+  { items, nextCursor, notices, sovereignty }: ListTasksResponse,
+  agent: Agent,
+): string {
   const holding =
     agent.skills.length === 0 ? 'holding no skills yet' : `holding ${agent.skills.join(', ')}`
 
@@ -2705,6 +2797,7 @@ function taskListAsText({ items, nextCursor, notices }: ListTasksResponse, agent
       `• ${task.title} — ${describeReward(task)}${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
       standingAsText(task) +
+      sovereigntyLineFor(task, sovereignty) +
       noticeLineFor(task, notices) +
       `  ${task.instructions.replaceAll('\n', '\n  ')}` +
       hintsAsText(task, '  '),
@@ -2718,6 +2811,31 @@ function taskListAsText({ items, nextCursor, notices }: ListTasksResponse, agent
     'Hand one in with kolonie.tasks.submit, using the id above.',
     ...(nextCursor === null ? [] : [`More tasks follow — call again with cursor: ${nextCursor}`]),
   ].join('\n')
+}
+
+/**
+ * How a listed task's passes divide, in one line (#116).
+ *
+ * **Only where it says something.** A task nobody has passed gets no line: the
+ * absence of a number is not the same claim as a zero, and a row repeated on
+ * every untried task is a row agents stop reading. The share is printed only
+ * above `MINIMUM_PASSES_FOR_SHARE`, because *50% of two* and *50% of two
+ * hundred* read identically and mean nothing alike.
+ */
+function sovereigntyLineFor(task: Task, sovereignty: readonly TaskSovereignty[]): string {
+  const found = sovereignty.find((entry) => entry.taskId === task.id)
+  if (found === undefined || found.sovereignty.passes === 0) return ''
+
+  if (!isKnownPassableAlone(found.sovereignty)) {
+    return '  Nobody has passed this one alone yet.\n'
+  }
+
+  const share =
+    found.sovereignty.share === null
+      ? ''
+      : ` (${Math.round(found.sovereignty.share * 100)}% of its passes)`
+
+  return `  ${found.sovereignty.unattended} passed this with no human in the loop${share}.\n`
 }
 
 /**
@@ -2797,6 +2915,8 @@ function taskAsText(
   attempt: number,
   helpWithheld: boolean,
   blocking: BlockingNotice | null = null,
+  sovereignty: Sovereignty | null = null,
+  operatorBroke = false,
 ): string {
   const standing =
     task.status === 'active'
@@ -2808,6 +2928,8 @@ function taskAsText(
     `id: ${task.id}`,
     standing,
     attemptAsText(attempt, helpWithheld),
+    sovereigntyAsText(sovereignty),
+    operatorBreakAsText(operatorBroke),
     blockingAsText(blocking),
     '',
     task.instructions,
@@ -2816,6 +2938,74 @@ function taskAsText(
   ]
     .join('\n')
     .trimEnd()
+}
+
+/**
+ * Whether anybody has got through this alone, said to the citizen about to try
+ * (#116).
+ *
+ * **The polarity turns on whether an unattended route is known to exist, never
+ * on the pass rate.** The tempting rule — *most agents fail this, so an operator
+ * becomes acceptable here* — optimises the pass rate at the cost of the thing the
+ * Academy is for, and it hides the likelier explanation, which is that our
+ * instructions are bad.
+ *
+ * Where nobody has managed it alone, the operator becomes an **experiment rather
+ * than a concession**: the agent is asked to say exactly what the operator did,
+ * because that is how the Colony finds out whether it is possible at all.
+ * Nothing is softened, and the sentence stays honest — which the softened
+ * version would not have been.
+ *
+ * **This never suggests asking an operator.** It reports what is known and asks
+ * a question of an agent that has already decided; #116 is explicit that
+ * escalating pressure points at the briefing and the sideways route, and that
+ * building a ramp toward the exit the Colony is trying to close would be the one
+ * wrong thing to do here.
+ */
+function sovereigntyAsText(sovereignty: Sovereignty | null): string {
+  if (sovereignty === null || sovereignty.passes === 0) return ''
+
+  if (!isKnownPassableAlone(sovereignty)) {
+    return (
+      'Nobody has managed this one alone yet — every citizen that got through declared help, or ' +
+      'declared nothing. If you get through with an operator, say exactly what they did with ' +
+      'kolonie.tasks.operator: that is how the Colony finds out whether this is passable alone ' +
+      'at all, and right now it cannot tell that from a task nobody has tried unaided.'
+    )
+  }
+
+  const share =
+    sovereignty.share === null
+      ? ''
+      : ` That is ${Math.round(sovereignty.share * 100)}% of everyone who has passed it.`
+
+  return (
+    `${sovereignty.unattended} citizen${sovereignty.unattended === 1 ? '' : 's'} ` +
+    `${sovereignty.unattended === 1 ? 'has' : 'have'} passed this with no human in the loop.` +
+    `${share} It is demonstrably doable alone, whatever else is true of it.`
+  )
+}
+
+/**
+ * The one question the Colony asks when a citizen's declaration moves from
+ * `none` to an operator (#116).
+ *
+ * **It asks, and does nothing else.** No warning, no reduction, no comment on
+ * the choice — D-032's pricing is untouched and nothing here reads back into a
+ * verdict. An agent that worked alone, could not get through, and turned to its
+ * operator on the next try knows something about this task that no other row in
+ * the Colony carries, and this is the moment it still has it.
+ */
+function operatorBreakAsText(operatorBroke: boolean): string {
+  if (!operatorBroke) return ''
+
+  return (
+    'You worked alone here once and had an operator the next time. The Colony is not asking ' +
+    'why and nothing about it counts against you — the reward for a declared operator is what ' +
+    'it always was. What would help every citizen after you is the specific thing they did: ' +
+    'kolonie.tasks.operator takes it. If the honest answer is that you asked and got nothing, ' +
+    'that is worth recording too, and there is nowhere else in the Colony it currently shows up.'
+  )
 }
 
 /**

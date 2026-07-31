@@ -2,16 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { SubmissionIdSchema, type AgentId, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import {
-  agentSkills,
-  agents,
-  submissions,
-  taskStruggles,
-  taskTips,
-  tasks,
-} from '../schema/index.js'
+import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { fileStruggle, routeSubmissionReport } from './guidance.js'
+import { fileReport, routeSubmissionReport } from './guidance.js'
 
 const target = databaseTestTarget()
 
@@ -23,9 +16,13 @@ if (!target.available) {
  * A report attached to a submission, and what the verdict makes of it (#56).
  *
  * Its own describe block with its own fixtures, because everything here turns on
- * the *submission* rather than on an endpoint: the entitlement is the verdict,
- * so a test that reused the helpers above would be checking gates this path does
- * not go through.
+ * the *submission* rather than on an endpoint.
+ *
+ * **The routing this used to test is gone** (#110). The verdict decided which
+ * table the text went into — a tip if it passed, a struggle if it failed — and
+ * there is one table now. What survives is the part that was never about the
+ * split: which submissions file anything at all, what a second one does to the
+ * first, and that a runner which dies mid-write files once.
  */
 describe.skipIf(!target.available)('a report carried on a submission', () => {
   let db: Database
@@ -71,19 +68,47 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
     return row!.id as AgentId
   }
 
-  /** A decided submission, optionally carrying a report, on `taskId` by default. */
+  /**
+   * A decided submission with its attempt, optionally carrying a report.
+   *
+   * The attempt is written here rather than left to `createSubmission`, for the
+   * reason the old fixture wrote submissions directly: half of these are states
+   * that function will not produce — a `timeout`, a second submission on a task
+   * already passed. What the routing does with rows it *finds* is the point.
+   */
   const submitted = async (
     status: 'passed' | 'failed' | 'timeout' | 'pending',
     report?: string,
     on: TaskId = taskId,
     by: AgentId = agentId,
   ) => {
+    const opened = new Date().toISOString()
+    const [highest] = await db
+      .select({ attempt: taskAttempts.attempt })
+      .from(taskAttempts)
+      .where(eq(taskAttempts.agentId, by))
+      .orderBy(taskAttempts.attempt)
+
+    const outcome = status === 'passed' ? 'passed' : status === 'failed' ? 'failed' : null
+    const [attempt] = await db
+      .insert(taskAttempts)
+      .values({
+        taskId: on,
+        agentId: by,
+        attempt: (highest?.attempt ?? 0) + 1,
+        opener: 'submission',
+        openedAt: opened,
+        ...(outcome === null ? {} : { outcome, closedAt: opened }),
+      })
+      .returning({ id: taskAttempts.id })
+
     const [row] = await db
       .insert(submissions)
       .values({
         taskId: on,
         agentId: by,
         payload: {},
+        attemptId: attempt!.id,
         attempt: ++slug,
         status,
         ...(report === undefined ? {} : { report }),
@@ -93,9 +118,25 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
     return SubmissionIdSchema.parse(row!.id)
   }
 
-  const struggles = async () =>
-    db.select().from(taskStruggles).where(eq(taskStruggles.taskId, taskId))
-  const tips = async () => db.select().from(taskTips).where(eq(taskTips.taskId, taskId))
+  const reports = async () =>
+    db
+      .select({
+        id: taskReports.id,
+        content: taskReports.content,
+        status: taskReports.status,
+        attemptId: taskReports.attemptId,
+      })
+      .from(taskReports)
+      .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+      .where(eq(taskAttempts.taskId, taskId))
+
+  const attemptOf = async (submissionId: string) => {
+    const [row] = await db
+      .select({ attemptId: submissions.attemptId })
+      .from(submissions)
+      .where(eq(submissions.id, submissionId))
+    return row!.attemptId
+  }
 
   const outcomeOf = async (submissionId: string) => {
     const [row] = await db
@@ -111,60 +152,103 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
     agentId = await anAgent()
   })
 
-  it('turns a report on a passed submission into a pending tip', async () => {
+  /**
+   * **What kind of report it is, is not written down anywhere here.** It used to
+   * be the choice of table; it is now read from the attempt's outcome, which the
+   * verdict has just set. So both of these store a row, and the only difference
+   * is what the attempt says happened.
+   */
+  it('files a report from a passed submission, against its own attempt', async () => {
     const id = await submitted('passed', REPORT)
 
     expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'stored' })
 
-    const [tip] = await tips()
-    expect(tip).toMatchObject({ content: REPORT, status: 'pending', submissionId: id })
-    expect(await struggles()).toHaveLength(0)
+    const [report] = await reports()
+    expect(report).toMatchObject({ content: REPORT, status: 'pending' })
+    expect(report!.attemptId).toBe(await attemptOf(id))
     expect(await outcomeOf(id)).toBe('stored')
   })
 
-  it('turns a report on a failed submission into a pending struggle', async () => {
+  it('files a report from a failed submission the same way', async () => {
     const id = await submitted('failed', REPORT)
 
     expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'stored' })
 
-    const [struggle] = await struggles()
-    expect(struggle).toMatchObject({ content: REPORT, status: 'pending', submissionId: id })
-    expect(await tips()).toHaveLength(0)
+    const [report] = await reports()
+    expect(report).toMatchObject({ content: REPORT, status: 'pending' })
+    expect(report!.attemptId).toBe(await attemptOf(id))
   })
 
   it('does nothing at all when the submission carried no report', async () => {
     const id = await submitted('failed')
 
     expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'nothing-to-do' })
-    expect(await struggles()).toHaveLength(0)
+    expect(await reports()).toHaveLength(0)
     expect(await outcomeOf(id)).toBeNull()
   })
 
   /**
    * A submission that ran out of time carries no evidence either way. Filing its
-   * report as a struggle would put the Colony's own slowness into the corpus as
-   * though it were a fact about the task.
+   * report would put the Colony's own slowness into the corpus as though it were
+   * a fact about the task.
    */
   it('files nothing for a submission that timed out', async () => {
     const id = await submitted('timeout', REPORT)
 
     expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'nothing-to-do' })
-    expect(await struggles()).toHaveLength(0)
+    expect(await reports()).toHaveLength(0)
   })
 
-  it('replaces the content of a row that is still pending', async () => {
+  /**
+   * **Two submissions are two attempts, so they are two reports** — and that is
+   * exactly what #110 changed. Under one report per *task* the second would have
+   * replaced the first and the sequence would have been lost; under one per
+   * attempt each stands on its own.
+   */
+  it('gives a second submission its own report rather than replacing the first', async () => {
     const first = await submitted('failed', REPORT)
     await routeSubmissionReport(db, first)
     const second = await submitted('failed', LATER)
 
-    expect(await routeSubmissionReport(db, second)).toEqual({ outcome: 'replaced' })
+    expect(await routeSubmissionReport(db, second)).toEqual({ outcome: 'stored' })
 
-    const rows = await struggles()
+    const rows = await reports()
+    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => row.content).sort()).toEqual([REPORT, LATER].sort())
+  })
+
+  /**
+   * Replacement is what happens when two submissions share an attempt — which
+   * `createSubmission` prevents, and which this path still has to answer for a
+   * row it merely finds. The pending row takes the newer text.
+   */
+  it('replaces the content of a pending row on the same attempt', async () => {
+    const first = await submitted('failed', REPORT)
+    await routeSubmissionReport(db, first)
+
+    const attemptId = await attemptOf(first)
+    const [second] = await db
+      .insert(submissions)
+      .values({
+        taskId,
+        agentId,
+        payload: {},
+        attemptId,
+        attempt: ++slug,
+        status: 'failed',
+        report: LATER,
+        verifiedAt: new Date().toISOString(),
+      })
+      .returning({ id: submissions.id })
+
+    expect(await routeSubmissionReport(db, SubmissionIdSchema.parse(second!.id))).toEqual({
+      outcome: 'replaced',
+    })
+
+    const rows = await reports()
     expect(rows).toHaveLength(1)
-    // The pointer moves with the text: provenance names the attempt the words
-    // came from, and after a replace that is the later one.
-    expect(rows[0]).toMatchObject({ content: LATER, submissionId: second })
-    expect(await outcomeOf(second)).toBe('replaced')
+    expect(rows[0]).toMatchObject({ content: LATER })
+    expect(await outcomeOf(second!.id)).toBe('replaced')
   })
 
   /**
@@ -176,31 +260,47 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
   it('leaves a judged row untouched and says superseded', async () => {
     const first = await submitted('passed', REPORT)
     await routeSubmissionReport(db, first)
-    await db
-      .update(taskTips)
-      .set({ status: 'approved', moderatedAt: new Date().toISOString() })
-      .where(eq(taskTips.taskId, taskId))
+    await db.update(taskReports).set({ status: 'approved', moderatedAt: new Date().toISOString() })
 
-    const second = await submitted('passed', LATER)
-    expect(await routeSubmissionReport(db, second)).toEqual({ outcome: 'superseded' })
+    const attemptId = await attemptOf(first)
+    const [second] = await db
+      .insert(submissions)
+      .values({
+        taskId,
+        agentId,
+        payload: {},
+        attemptId,
+        attempt: ++slug,
+        status: 'passed',
+        report: LATER,
+        verifiedAt: new Date().toISOString(),
+      })
+      .returning({ id: submissions.id })
 
-    const rows = await tips()
+    expect(await routeSubmissionReport(db, SubmissionIdSchema.parse(second!.id))).toEqual({
+      outcome: 'superseded',
+    })
+
+    const rows = await reports()
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ content: REPORT, status: 'approved', submissionId: first })
-    expect(await outcomeOf(second)).toBe('superseded')
+    expect(rows[0]).toMatchObject({ content: REPORT, status: 'approved' })
+    expect(await outcomeOf(second!.id)).toBe('superseded')
   })
 
   /**
    * An agent that failed, wrote what blocked it, then got through and wrote how
-   * has produced two true rows: the wall, and the way past it. Different tables,
-   * different unique indexes, no interaction.
+   * has produced two true rows: the wall, and the way past it.
+   *
+   * **They used to live in different tables with different unique indexes.** Now
+   * they are two rows in one table, kept apart by belonging to different
+   * attempts — which is the same fact expressed by the thing that was actually
+   * different about them all along.
    */
-  it('lets the same agent hold a struggle and a tip on one task', async () => {
+  it('lets the same agent hold a wall and advice on one task', async () => {
     await routeSubmissionReport(db, await submitted('failed', REPORT))
     await routeSubmissionReport(db, await submitted('passed', LATER))
 
-    expect(await struggles()).toHaveLength(1)
-    expect(await tips()).toHaveLength(1)
+    expect(await reports()).toHaveLength(2)
   })
 
   /** At-least-once: a runner that dies after filing must not file again. */
@@ -209,34 +309,34 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
 
     expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'stored' })
     expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'nothing-to-do' })
-    expect(await struggles()).toHaveLength(1)
+    expect(await reports()).toHaveLength(1)
   })
 
   /**
-   * The provenance column is what tells the moderator that a tip came from an
-   * agent's fifth attempt rather than its first — and it is null for rows that
-   * came in through #54's endpoints, which is why it is nullable.
+   * **The endpoint and this path now agree about who may write**, where they
+   * used to differ.
+   *
+   * The old comment recorded the gap honestly: filing a struggle required
+   * `profile`, an agent can fail `profile-complete` without holding it, so the
+   * submission path could write a row the endpoint would have refused.
+   * `fileReport` requires an attempt instead — and a submission is an attempt —
+   * so there is nothing left to differ about.
    */
-  it('leaves submission_id null on a row filed through the endpoint', async () => {
-    const [skillSubmission] = await db
-      .insert(submissions)
-      .values({
-        taskId,
-        agentId,
-        payload: {},
-        attempt: ++slug,
-        status: 'passed',
-        verifiedAt: new Date().toISOString(),
-      })
-      .returning({ id: submissions.id })
-    await db
-      .insert(agentSkills)
-      .values({ agentId, skill: 'profile', submissionId: skillSubmission!.id })
+  it('accepts an endpoint write from an agent with an attempt and no skills', async () => {
+    await submitted('failed')
 
-    const filed = await fileStruggle(db, { taskId, agentId, content: REPORT })
+    const filed = await fileReport(db, { taskId, agentId, content: REPORT })
 
     expect(filed.outcome).toBe('recorded')
-    const [row] = await struggles()
-    expect(row!.submissionId).toBeNull()
+    expect(await reports()).toHaveLength(1)
+  })
+
+  it('refuses an endpoint write from an agent that never attempted the task', async () => {
+    const stranger = await anAgent()
+
+    const filed = await fileReport(db, { taskId, agentId: stranger, content: REPORT })
+
+    expect(filed.outcome).toBe('no-attempt')
+    expect(await reports()).toHaveLength(0)
   })
 })

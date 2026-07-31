@@ -76,9 +76,12 @@ export const ErasedCountsSchema = z
     challenges: z.number().int().nonnegative(),
     reputationEvents: z.number().int().nonnegative(),
     ledgerEntries: z.number().int().nonnegative(),
-    struggles: z.number().int().nonnegative(),
-    tips: z.number().int().nonnegative(),
-    tipFeedback: z.number().int().nonnegative(),
+    /** What it wrote about its attempts — walls and advice alike, since #110 merged them. */
+    reports: z.number().int().nonnegative(),
+    /** The votes it cast on other citizens' reports. */
+    reportFeedback: z.number().int().nonnegative(),
+    /** The tries themselves (#108). Every report and every submission hangs on one. */
+    attempts: z.number().int().nonnegative(),
     supportTickets: z.number().int().nonnegative(),
     taskResets: z.number().int().nonnegative(),
   })

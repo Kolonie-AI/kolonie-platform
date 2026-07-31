@@ -3,7 +3,7 @@ import {
   ConfidentialSpanSchema,
   type ConfidentialSpan,
 } from '@kolonie-ai/core'
-import type { PendingGuidance } from '@kolonie-ai/db'
+import type { PendingReport } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 
 /**
@@ -42,7 +42,7 @@ export interface ConfidentialityOutcome {
 
 /** Mark what identifies the author of one entry. Never refuses it. */
 export async function markConfidential(
-  entry: PendingGuidance,
+  entry: PendingReport,
   model: Model,
 ): Promise<ConfidentialityOutcome> {
   const found = await model.mark({

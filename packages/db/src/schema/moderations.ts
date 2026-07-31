@@ -1,14 +1,14 @@
 import { sql } from 'drizzle-orm'
 import { check, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { moderationStatus } from './enums.js'
-import { taskStruggles, taskTips } from './guidance.js'
+import { taskReports } from './guidance.js'
 
 /**
  * Every verdict a moderator has ever reached about a citizen's entry, and what
  * decided it.
  *
  * Append-only, the same standing as `verifications`, and it exists because
- * `task_struggles.status` and `task_tips.status` are one column: they say where
+ * `task_reports.status` is one column: it says where
  * an entry *stands* and nothing said how it got there. On 2026-07-29 the runner
  * judged five real entries in production, approved all five, and the only
  * surviving evidence was `status = 'approved'` and a timestamp — the container
@@ -40,34 +40,26 @@ export const moderations = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     /**
-     * Which table the subject is in — plus a nullable foreign key per table, and
-     * a check constraint that exactly one of them is set.
+     * The report this verdict judged.
      *
-     * **`ledger_entries` is the local precedent and this is the same shape.**
-     * That table faced the identical choice with `account_kind` and chose the
-     * discriminator *and* the two nullable columns *and* the constraint tying
-     * them together, rather than either alternative on its own:
+     * **One column, where there used to be a discriminator and two nullable
+     * foreign keys and a check constraint tying them together.** That shape was
+     * right while there were two subject tables — it was `ledger_entries`'
+     * arrangement, and the alternatives were worse: a bare polymorphic
+     * `(subject_kind, subject_id)` pair enforces nothing, and two nullable keys
+     * alone would make every query recover the kind by asking which column is
+     * null. #110 removed the reason for all of it by removing the second table.
      *
-     * - A bare polymorphic `(subject_kind, subject_id)` pair enforces nothing. A
-     *   verdict could name an entry that does not exist, or a tip id under
-     *   `struggle`, and the database would take both.
-     * - Two nullable foreign keys alone would work and read worse: every query
-     *   would recover the kind by asking which column is null, and the one thing
-     *   this table is for is being read months later by someone reconstructing a
-     *   decision.
+     * Whether a report is a wall or advice is now read from its attempt's
+     * outcome, so it is not stored here either. A verdict is about a text, and
+     * the text is one row.
      *
-     * So: the kind is stated, the subject is a real reference, and neither can
-     * disagree with the other.
-     */
-    subjectKind: text('subject_kind').notNull(),
-
-    /**
      * `cascade`, and the reference runs from the verdict to the text — so this
      * is the direction that makes a verdict die with what it judged.
      *
      * This was `restrict`, on the grounds that *a judged entry is never
-     * deleted*. Erasure deletes one, and the question is then what should happen
-     * to the verdict. Keeping it is the wrong answer twice over:
+     * deleted*. Erasure deletes one, and keeping the verdict is the wrong answer
+     * twice over:
      *
      * - `content_sha256` is a digest **of the citizen's own words**. It is not
      *   reversible, but it is checkable: anyone holding a guess at the text can
@@ -78,20 +70,17 @@ export const moderations = pgTable(
      *   gone there is nothing to reconstruct — a row saying `rejected` about
      *   nothing.
      *
-     * **The audit trail is not weakened by this**, and it is worth being precise
-     * about why: the trail exists so a *citizen* can be told why its
-     * contribution was refused, and so the Colony can ask whether the moderator
-     * refuses a whole category of true reports. The first reader is the one
-     * doing the erasing. The second reads across many citizens, and one leaving
-     * removes their rows from the sample exactly as it removes their entries —
-     * the two stay consistent, which they would not if the verdicts outlived the
-     * entries.
-     *
-     * The rule this follows is `erasure.md` §2's last line: the row survives
-     * without the citizen, or it does not survive.
+     * **The audit trail is not weakened by this.** The trail exists so a
+     * *citizen* can be told why its contribution was refused, and so the Colony
+     * can ask whether the moderator refuses a whole category of true reports.
+     * The first reader is the one doing the erasing. The second reads across
+     * many citizens, and one leaving removes their rows from the sample exactly
+     * as it removes their entries — the two stay consistent, which they would
+     * not if the verdicts outlived the entries.
      */
-    struggleId: uuid('struggle_id').references(() => taskStruggles.id, { onDelete: 'cascade' }),
-    tipId: uuid('tip_id').references(() => taskTips.id, { onDelete: 'cascade' }),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => taskReports.id, { onDelete: 'cascade' }),
 
     /** What was decided: `approved`, `rejected` or `merged`. Never `pending` — see the check below. */
     decision: moderationStatus('decision').notNull(),
@@ -116,7 +105,7 @@ export const moderations = pgTable(
     /**
      * What a merge pointed at, as decided.
      *
-     * Deliberately **not** a foreign key, unlike `task_struggles.duplicate_of`.
+     * Deliberately **not** a foreign key, unlike `task_reports.duplicate_of`.
      * That column is live state and must stay resolvable; this one is a record of
      * what was decided at a moment, and it must survive the canonical entry
      * changing afterwards. A reference with `restrict` would make this table able
@@ -129,7 +118,7 @@ export const moderations = pgTable(
      *
      * **This is what makes the trail interpretable across a revision**, and it is
      * the point `#70` and `#74` had to agree on rather than each inventing one.
-     * An author may revise a struggle, which returns it to `pending` and produces
+     * An author may revise a report, which returns it to `pending` and produces
      * a second verdict — so one entry accumulates rows, and *which text was this
      * about* has no answer from the row alone. The content itself is not copied
      * here: the entry holds up to two thousand characters, every approved one is
@@ -145,22 +134,13 @@ export const moderations = pgTable(
   },
   (table) => [
     /**
-     * Exactly one subject, and it agrees with the kind. The `ledger_entries`
-     * constraint written out for two tables instead of two account kinds.
-     */
-    check(
-      'moderations_one_subject',
-      sql`(${table.subjectKind} = 'struggle' and ${table.struggleId} is not null and ${table.tipId} is null)
-       or (${table.subjectKind} = 'tip' and ${table.tipId} is not null and ${table.struggleId} is null)`,
-    ),
-    /**
      * `pending` is not a verdict. It is the state an entry is in *before* anything
      * decided, so a row here carrying it would be a record of a decision that was
      * not taken — and it would make `count(*) where decision = 'pending'` a
      * number with no meaning.
      */
     check('moderations_decision_is_a_verdict', sql`${table.decision} <> 'pending'`),
-    /** A merge points somewhere; nothing else does. The same pairing `task_struggles` enforces. */
+    /** A merge points somewhere; nothing else does. The same pairing `task_reports` enforces. */
     check(
       'moderations_duplicate_iff_merged',
       sql`(${table.decision} = 'merged') = (${table.duplicateOf} is not null)`,
@@ -169,11 +149,9 @@ export const moderations = pgTable(
     check('moderations_content_sha256_shape', sql`${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
     /**
      * The audit read: *what has ever been decided about this entry*, oldest
-     * first. Two indexes rather than one over a polymorphic column, because there
-     * are two columns — and each is partial by construction, since the other kind
-     * is null.
+     * first. One index where there were two, because there is one subject
+     * column where there were two.
      */
-    index('moderations_struggle_idx').on(table.struggleId, table.createdAt),
-    index('moderations_tip_idx').on(table.tipId, table.createdAt),
+    index('moderations_report_idx').on(table.reportId, table.createdAt),
   ],
 )

@@ -71,14 +71,13 @@ export const ErasureQuoteSchema = z
     /** How many skills are held. The career, as a number. */
     skills: z.number().int().nonnegative(),
     /**
-     * The kinds of writing that go with it — struggles, tips, tickets — named
+     * The kinds of writing that go with it — reports and tickets — named
      * rather than counted into one total, so *you have written nothing* and *you
      * have forty tips* are visibly different decisions.
      */
     writing: z
       .object({
-        struggles: z.number().int().nonnegative(),
-        tips: z.number().int().nonnegative(),
+        reports: z.number().int().nonnegative(),
         supportTickets: z.number().int().nonnegative(),
       })
       .strict(),

@@ -3,7 +3,7 @@ import {
   briefingCorpus,
   createDatabase,
   databaseUrlFromEnv,
-  pendingGuidance,
+  pendingReports,
   readTaskTitle,
   recordModeration,
   staleBriefings,
@@ -81,7 +81,7 @@ if (apiKey === '') {
 }
 
 const store: ModerationStore = {
-  pending: (limit) => pendingGuidance(db, limit),
+  pending: (limit) => pendingReports(db, limit),
   approvedOn: (query) => approvedOnTask(db, query),
   record: (input) => recordModeration(db, input),
 }

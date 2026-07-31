@@ -185,6 +185,13 @@ describe.skipIf(!target.available)('schema', () => {
         // and the only one whose evidence is a value the agent spent CPU to
         // find rather than one it was given.
         'pow_challenges',
+        /**
+         * `report_feedback` joined with #110, carrying the votes that used to
+         * live in `tip_feedback`. What widened is what may be voted on: with one
+         * table a wall can be voted on too, which costs nothing and closes an
+         * asymmetry that only ever existed because the tables were separate.
+         */
+        'report_feedback',
         'reputation_events',
         /**
          * `social_challenges` joined with the social rung (`kolonie-docs#49`).
@@ -236,10 +243,14 @@ describe.skipIf(!target.available)('schema', () => {
          */
         'task_attempts',
         'task_briefings',
-        // The five that carry what is known about a task beyond its
-        // instructions (#52). `task_hints` and `task_briefings` are the Colony's
-        // own voice; the other three are citizens', and nothing serves those
-        // unjudged — or, since #83, serves their prose at all.
+        // The four that carry what is known about a task beyond its
+        // instructions. `task_hints` and `task_briefings` are the Colony's own
+        // voice; `task_reports` and `report_feedback` are citizens', and nothing
+        // serves those unjudged — or, since #83, serves their prose at all.
+        //
+        // Four rather than five since #110: `task_struggles`, `task_tips` and
+        // `tip_feedback` became `task_reports` and `report_feedback`, because a
+        // struggle and a tip were one concept with two names.
         'task_hints',
         /**
          * `task_resets` joined with #47. A tester setting aside its own pass, as a row
@@ -247,11 +258,9 @@ describe.skipIf(!target.available)('schema', () => {
          * reset* instead of *ever*, so nothing about the earlier pass, the skill it
          * granted or the reputation it paid has to be rewritten.
          */
+        'task_reports',
         'task_resets',
-        'task_struggles',
-        'task_tips',
         'tasks',
-        'tip_feedback',
         'verifications',
         'vision_challenges',
         'website_challenges',

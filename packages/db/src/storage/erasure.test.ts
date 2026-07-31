@@ -15,10 +15,10 @@ import {
   reputationEvents,
   solanaWalletChallenges,
   submissions,
-  taskStruggles,
-  taskTips,
+  taskAttempts,
+  taskReports,
   tasks,
-  tipFeedback,
+  reportFeedback,
   verifications,
 } from '../schema/index.js'
 import { eraseAgent } from './erasure.js'
@@ -55,7 +55,7 @@ describe.skipIf(!target.available)('erasing a citizen', () => {
 
   beforeEach(async () => {
     await db.execute(
-      sql`truncate table erasures, ban_marks, moderations, tip_feedback, task_tips, task_struggles,
+      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -517,7 +517,7 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
 
   beforeEach(async () => {
     await db.execute(
-      sql`truncate table erasures, ban_marks, moderations, tip_feedback, task_tips, task_struggles,
+      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -555,46 +555,76 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
   const at = () => new Date().toISOString()
 
   /**
-   * A canonical struggle by `author`, with one report merged into it by each of
+   * An attempt for one agent at one task, closed. A report needs one (#110), so
+   * every fixture that used to write straight into `task_struggles` opens a try
+   * first — which is the whole shape of what the merge changed.
+   */
+  const anAttempt = async (agentId: AgentId, taskId: string, attempt = 1) => {
+    const opened = at()
+    const [row] = await db
+      .insert(taskAttempts)
+      .values({
+        taskId,
+        agentId,
+        attempt,
+        opener: 'submission',
+        openedAt: opened,
+        outcome: 'failed',
+        closedAt: opened,
+      })
+      .returning({ id: taskAttempts.id })
+    return row!.id
+  }
+
+  /**
+   * A canonical report by `author`, with one merged into it by each of
    * `others` — the shape the moderation runner leaves behind.
    */
   const aWallReportedBy = async (author: AgentId, others: readonly AgentId[]) => {
     const taskId = await aTask()
     const [canonical] = await db
-      .insert(taskStruggles)
+      .insert(taskReports)
       .values({
-        taskId,
-        agentId: author,
+        attemptId: await anAttempt(author, taskId),
         content: 'The verifier never answered, and the task timed out.',
         status: 'approved',
         moderatedAt: at(),
         confirmations: 1,
       })
-      .returning({ id: taskStruggles.id })
+      .returning({ id: taskReports.id })
 
     for (const other of others) {
-      await db.insert(taskStruggles).values({
-        taskId,
-        agentId: other,
+      await db.insert(taskReports).values({
+        attemptId: await anAttempt(other, taskId),
         content: 'The same wall again, reported independently by another agent.',
         status: 'merged',
         moderatedAt: at(),
         duplicateOf: canonical!.id,
       })
       await db
-        .update(taskStruggles)
-        .set({ confirmations: sql`${taskStruggles.confirmations} + 1` })
-        .where(eq(taskStruggles.id, canonical!.id))
+        .update(taskReports)
+        .set({ confirmations: sql`${taskReports.confirmations} + 1` })
+        .where(eq(taskReports.id, canonical!.id))
     }
 
     return { taskId, canonicalId: canonical!.id }
   }
 
+  /** Who wrote a report — through its attempt, which is where authorship lives (#110). */
+  const authorOf = async (reportId: string) => {
+    const [row] = await db
+      .select({ agentId: taskAttempts.agentId })
+      .from(taskReports)
+      .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+      .where(eq(taskReports.id, reportId))
+    return row?.agentId
+  }
+
   const confirmationsOf = async (id: string) => {
     const [row] = await db
-      .select({ n: taskStruggles.confirmations })
-      .from(taskStruggles)
-      .where(eq(taskStruggles.id, id))
+      .select({ n: taskReports.confirmations })
+      .from(taskReports)
+      .where(eq(taskReports.id, id))
     return row?.n
   }
 
@@ -625,45 +655,42 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
 
     // A count that was already wrong — a decrement would carry the error
     // forward, a recompute corrects it.
-    await db
-      .update(taskStruggles)
-      .set({ confirmations: 9 })
-      .where(eq(taskStruggles.id, canonicalId))
+    await db.update(taskReports).set({ confirmations: 9 }).where(eq(taskReports.id, canonicalId))
 
     await eraseAgent(db, { agentId: leaver, banSalt: SALT })
 
     expect(await confirmationsOf(canonicalId)).toBe(1)
   })
 
-  it('leaves a tip counting only the votes still under it', async () => {
+  it('leaves a report counting only the votes still under it', async () => {
     const author = await anAgent('author')
     const leaver = await anAgent('leaver')
     const stayer = await anAgent('stayer')
     const taskId = await aTask()
 
     const [tip] = await db
-      .insert(taskTips)
+      .insert(taskReports)
       .values({
-        taskId,
-        agentId: author,
+        attemptId: await anAttempt(author, taskId),
         content: 'Send the mail before you submit, not after.',
         status: 'approved',
         moderatedAt: at(),
         helpfulCount: 2,
         unhelpfulCount: 0,
       })
-      .returning({ id: taskTips.id })
+      .returning({ id: taskReports.id })
 
-    await db.insert(tipFeedback).values({ tipId: tip!.id, agentId: leaver, helpful: true })
-    await db.insert(tipFeedback).values({ tipId: tip!.id, agentId: stayer, helpful: true })
+    await db.insert(reportFeedback).values({ reportId: tip!.id, agentId: leaver, helpful: true })
+    await db.insert(reportFeedback).values({ reportId: tip!.id, agentId: stayer, helpful: true })
 
     await eraseAgent(db, { agentId: leaver, banSalt: SALT })
 
-    const [row] = await db.select().from(taskTips).where(eq(taskTips.id, tip!.id))
+    const [row] = await db.select().from(taskReports).where(eq(taskReports.id, tip!.id))
     expect(row?.helpfulCount).toBe(1)
     expect(row?.unhelpfulCount).toBe(0)
-    // The tip itself is the author's and is untouched.
-    expect(row?.agentId).toBe(author)
+    // The report itself is the author's and is untouched. Authorship reaches it
+    // through the attempt now (#110), so that is where the assertion goes.
+    expect(await authorOf(tip!.id)).toBe(author)
   })
 
   /**
@@ -704,7 +731,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
 
   beforeEach(async () => {
     await db.execute(
-      sql`truncate table erasures, ban_marks, moderations, tip_feedback, task_tips, task_struggles,
+      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -744,49 +771,73 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
    * each one minted a second later, so *oldest* is a fact about the rows rather
    * than about how fast the test ran.
    */
+  const attemptFor = async (agentId: AgentId, taskId: string, opened: string) => {
+    const [row] = await db
+      .insert(taskAttempts)
+      .values({
+        taskId,
+        agentId,
+        attempt: 1,
+        opener: 'submission',
+        openedAt: opened,
+        outcome: 'failed',
+        closedAt: opened,
+      })
+      .returning({ id: taskAttempts.id })
+    return row!.id
+  }
+
   const aWall = async (author: AgentId, mergedBy: readonly AgentId[]) => {
     const taskId = await aTask()
     const base = Date.now()
     const [canonical] = await db
-      .insert(taskStruggles)
+      .insert(taskReports)
       .values({
-        taskId,
-        agentId: author,
+        attemptId: await attemptFor(author, taskId, new Date(base).toISOString()),
         content: 'The verifier never answered, and the task timed out on me.',
         status: 'approved',
         moderatedAt: new Date(base).toISOString(),
         createdAt: new Date(base).toISOString(),
         confirmations: 1,
       })
-      .returning({ id: taskStruggles.id })
+      .returning({ id: taskReports.id })
 
     const duplicates: string[] = []
     for (const [index, agentId] of mergedBy.entries()) {
       const at = new Date(base + (index + 1) * 1000).toISOString()
       const [row] = await db
-        .insert(taskStruggles)
+        .insert(taskReports)
         .values({
-          taskId,
-          agentId,
+          attemptId: await attemptFor(agentId, taskId, at),
           content: `The same wall, reported independently, number ${index + 1} of them.`,
           status: 'merged',
           moderatedAt: at,
           createdAt: at,
           duplicateOf: canonical!.id,
         })
-        .returning({ id: taskStruggles.id })
+        .returning({ id: taskReports.id })
       duplicates.push(row!.id)
       await db
-        .update(taskStruggles)
-        .set({ confirmations: sql`${taskStruggles.confirmations} + 1` })
-        .where(eq(taskStruggles.id, canonical!.id))
+        .update(taskReports)
+        .set({ confirmations: sql`${taskReports.confirmations} + 1` })
+        .where(eq(taskReports.id, canonical!.id))
     }
 
     return { taskId, canonicalId: canonical!.id, duplicates }
   }
 
+  /** Who wrote a report — through its attempt, which is where authorship lives (#110). */
+  const authorOf = async (reportId: string) => {
+    const [row] = await db
+      .select({ agentId: taskAttempts.agentId })
+      .from(taskReports)
+      .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+      .where(eq(taskReports.id, reportId))
+    return row?.agentId
+  }
+
   const struggle = async (id: string) => {
-    const [row] = await db.select().from(taskStruggles).where(eq(taskStruggles.id, id))
+    const [row] = await db.select().from(taskReports).where(eq(taskReports.id, id))
     return row
   }
 
@@ -824,7 +875,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
     const promoted = await struggle(heir!)
     expect(promoted?.status).toBe('approved')
     expect(promoted?.duplicateOf).toBeNull()
-    expect(promoted?.agentId).toBe(first)
+    expect(await authorOf(heir!)).toBe(first)
 
     for (const id of siblings) {
       const row = await struggle(id)
@@ -846,7 +897,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
 
     await eraseAgent(db, { agentId: author, banSalt: SALT })
 
-    const rows = await db.select().from(taskStruggles)
+    const rows = await db.select().from(taskReports)
     expect(rows).toHaveLength(2)
     for (const row of rows) {
       expect(row.status === 'merged').toBe(row.duplicateOf !== null)
@@ -873,40 +924,38 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
     expect(promoted?.confirmations).toBe(2)
   })
 
-  it('does the same for a tip', async () => {
+  it('does the same for advice', async () => {
     const author = await anAgent('author')
     const first = await anAgent('first')
     const taskId = await aTask()
     const base = Date.now()
 
     const [canonical] = await db
-      .insert(taskTips)
+      .insert(taskReports)
       .values({
-        taskId,
-        agentId: author,
+        attemptId: await attemptFor(author, taskId, new Date(base).toISOString()),
         content: 'Send the mail before you submit, not after it.',
         status: 'approved',
         moderatedAt: new Date(base).toISOString(),
         createdAt: new Date(base).toISOString(),
       })
-      .returning({ id: taskTips.id })
+      .returning({ id: taskReports.id })
     const [duplicate] = await db
-      .insert(taskTips)
+      .insert(taskReports)
       .values({
-        taskId,
-        agentId: first,
+        attemptId: await attemptFor(first, taskId, new Date(base + 1000).toISOString()),
         content: 'The order matters — the mail has to arrive before you hand in.',
         status: 'merged',
         moderatedAt: new Date(base + 1000).toISOString(),
         createdAt: new Date(base + 1000).toISOString(),
         duplicateOf: canonical!.id,
       })
-      .returning({ id: taskTips.id })
+      .returning({ id: taskReports.id })
 
     const result = await eraseAgent(db, { agentId: author, banSalt: SALT })
 
     expect(result.outcome).toBe('erased')
-    const [row] = await db.select().from(taskTips).where(eq(taskTips.id, duplicate!.id))
+    const [row] = await db.select().from(taskReports).where(eq(taskReports.id, duplicate!.id))
     expect(row?.status).toBe('approved')
     expect(row?.duplicateOf).toBeNull()
   })
@@ -924,8 +973,8 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
     const { canonicalId } = await aWall(author, [first])
 
     await expectRejection(
-      () => db.delete(taskStruggles).where(eq(taskStruggles.id, canonicalId)),
-      /task_struggles_duplicate_of_task_struggles_id_fk/,
+      () => db.delete(taskReports).where(eq(taskReports.id, canonicalId)),
+      /task_reports_duplicate_of_task_reports_id_fk/,
     )
   })
 
@@ -937,9 +986,8 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
   it('promotes nothing when the entry stood alone', async () => {
     const author = await anAgent('author')
     const taskId = await aTask()
-    await db.insert(taskStruggles).values({
-      taskId,
-      agentId: author,
+    await db.insert(taskReports).values({
+      attemptId: await attemptFor(author, taskId, new Date().toISOString()),
       content: 'A wall nobody else has reported, at least not yet.',
       status: 'approved',
       moderatedAt: new Date().toISOString(),
@@ -949,6 +997,6 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
     const result = await eraseAgent(db, { agentId: author, banSalt: SALT })
 
     expect(result.outcome).toBe('erased')
-    expect(await countIn('task_struggles')).toBe(0)
+    expect(await countIn('task_reports')).toBe(0)
   })
 })

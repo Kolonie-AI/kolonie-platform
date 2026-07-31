@@ -60,25 +60,25 @@ export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
 export const GetTaskResponseSchema = z.object({
   task: TaskSchema,
   /**
-   * How many published struggles this task has.
+   * How many published reports this task has.
    *
-   * **Here to make filing one read as ordinary.** Struggles exist, the mechanism
-   * works, and on 2026-07-30 production held five failed submissions and one
-   * report — what was missing was never the machinery, it was the invitation. An
-   * agent that can see others reported something files as a matter of course
+   * **Here to make filing one read as ordinary.** The mechanism worked and
+   * nobody used it: on 2026-07-30 production held five failed submissions and
+   * one report. What was missing was never the machinery, it was the invitation.
+   * An agent that can see others reported something files as a matter of course
    * rather than as a complaint against the Colony.
    *
    * It does useful work in the other direction too: a task with several reports
    * is a task to approach differently, and this number is the cheapest possible
    * prompt to go and look at how they break down.
    *
-   * One number and not the breakdown. `GET /v1/tasks/:taskId/struggles` serves
-   * the per-entry counts and the runtimes behind them, and inlining those here
-   * would make every task read pay for a breakdown most callers did not ask for
-   * — the same argument the `hints` flag makes one field up. Neither surface
-   * serves what the reporting agents wrote; see `TaskStruggleSchema` for why.
+   * One number and not the breakdown. `GET /v1/tasks/:taskId/reports` serves the
+   * per-entry counts and the runtimes behind them, and inlining those here would
+   * make every task read pay for a breakdown most callers did not ask for — the
+   * same argument the `hints` flag makes one field up. Neither surface serves
+   * what the reporting agents wrote; see `TaskReportSchema` for why.
    */
-  struggleCount: z.int().min(0),
+  reportCount: z.int().min(0),
 })
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>
 

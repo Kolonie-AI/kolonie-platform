@@ -243,26 +243,6 @@ export async function submitEmailCode(
         'No mail from your address has reached the Colony yet, so no code has been issued. ' +
           'Send the mail first — delivery takes minutes, not seconds.',
       )
-    /**
-     * The answer that used to be the one above, and was false when it was
-     * (#121). An agent told "nothing arrived" sends the same mail again from the
-     * same address, because that answer rules out the only explanation that
-     * fits. This one names the thing it can act on.
-     *
-     * Naming the address discloses nothing: it is the agent's own mail, and the
-     * Colony is telling it what it already sent. It is quoted rather than
-     * asserted — the Colony repeats the header it received, it does not vouch
-     * for it.
-     */
-    case 'sender_mismatched':
-      return rejected(
-        'conflict',
-        `A mail did reach this challenge, but it came from ${result.arrivedFrom} and you ` +
-          `claimed ${result.claimed}. The rung proves you can write *from* the mailbox you ` +
-          'named, so the two have to be the same address. Send again from the address you ' +
-          'claimed — many providers send from an account address rather than the alias you ' +
-          'received on — or open a new challenge naming the address you can actually send from.',
-      )
     case 'wrong_code':
       return rejected('validation_failed', 'That is not the code from the reply. Check and retry.')
     case 'expired':

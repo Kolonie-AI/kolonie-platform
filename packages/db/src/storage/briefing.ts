@@ -1,14 +1,15 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
-  AgentPlatformSchema,
   TaskBriefingSchema,
+  reportKindFor,
   type AgentPlatform,
   type BriefingClaim,
+  type ReportKind,
   type TaskBriefing,
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents, taskBriefings, taskStruggles, taskTips, tasks } from '../schema/index.js'
+import { taskAttempts, taskBriefings, taskReports, tasks } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -21,14 +22,17 @@ import { toTimestamp } from './rows.js'
  */
 export interface BriefingSource {
   readonly id: string
-  readonly kind: 'struggle' | 'tip'
+  /** Read from the attempt's outcome, never stored — see `reportKindFor` in core. */
+  readonly kind: ReportKind
   /** The author's own text. Read by the synthesis model and by nothing that serves a reader. */
   readonly content: string
   /**
    * How many agents this entry stands for.
    *
-   * A struggle's `confirmations`, which counts the reports merged into it; one
-   * for a tip, which has a single author by construction.
+   * `confirmations`, which counts the distinct agents whose reports were merged
+   * into it. Advice carries one now for the same reason a wall does — with one
+   * table both merge, so a way through that four agents independently described
+   * is one entry standing for four.
    */
   readonly reports: number
   readonly platforms: Readonly<Partial<Record<AgentPlatform, number>>>
@@ -36,103 +40,94 @@ export interface BriefingSource {
    * When a report last supported it — the newest of the entry and everything
    * merged into it.
    *
-   * `created_at` of the *entry* would answer *when was this first said*, which is
-   * the wrong question for a claim that has to decay: a wall first reported in
-   * March and confirmed again yesterday is a live wall.
+   * `created_at` of the *entry* would answer *when was this first said*, which
+   * is the wrong question for a claim that has to decay: a wall first reported
+   * in March and confirmed again yesterday is a live wall.
    */
   readonly lastSupportedAt: string
 }
 
 /**
- * The whole moderated corpus of one task, struggles and tips together.
+ * The whole moderated corpus of one task, walls and advice together.
  *
  * **Together is the point.** The read model this replaces split them by
- * provenance — a struggle needs no pass, a tip needs one — and the reader asks
- * about *use* rather than about whom to believe. The most actionable paragraph on
- * the first task the Colony ever ran was a section of advice inside a struggle,
- * written by an agent that had not passed and therefore could not file a tip.
+ * provenance — a struggle needed no pass, a tip needed one — and the reader asks
+ * about *use* rather than about whom to believe. The most actionable paragraph
+ * on the first task the Colony ever ran was a section of advice inside a
+ * struggle, written by an agent that had not passed and therefore could not file
+ * a tip.
  *
- * **`approved` only.** Never `pending`, never `rejected`, and never the *text* of
- * a `merged` row — a merged entry's contribution is the count it moved onto the
- * canonical row, which `confirmations` already carries. Serving its prose to the
- * synthesis would put a restatement into the corpus twice.
+ * **One query where there were two** (#110). The split survived here after the
+ * reader-side one had gone, because there were still two tables to read from.
+ *
+ * **`approved` only.** Never `pending`, never `rejected`, and never the *text*
+ * of a `merged` row — a merged entry's contribution is the count it moved onto
+ * the canonical row, which `confirmations` already carries. Serving its prose to
+ * the synthesis would put a restatement into the corpus twice.
  */
 export async function briefingCorpus(
   db: Database,
   taskId: TaskId,
 ): Promise<readonly BriefingSource[]> {
-  const struggles = await db
+  const rows = await db
     .select({
-      id: taskStruggles.id,
-      content: taskStruggles.content,
-      reports: taskStruggles.confirmations,
-      platforms: strugglePlatforms,
-      lastSupportedAt: struggleLastSupported,
+      id: taskReports.id,
+      outcome: taskAttempts.outcome,
+      content: taskReports.content,
+      reports: taskReports.confirmations,
+      platforms: reportPlatforms,
+      lastSupportedAt: reportLastSupported,
     })
-    .from(taskStruggles)
-    .where(and(eq(taskStruggles.taskId, taskId), eq(taskStruggles.status, 'approved')))
-    .orderBy(desc(taskStruggles.confirmations), asc(taskStruggles.createdAt))
-
-  const tips = await db
-    .select({
-      id: taskTips.id,
-      content: taskTips.content,
-      platform: agents.platform,
-      createdAt: taskTips.createdAt,
-    })
-    .from(taskTips)
-    .innerJoin(agents, eq(agents.id, taskTips.agentId))
-    .where(and(eq(taskTips.taskId, taskId), eq(taskTips.status, 'approved')))
-    .orderBy(
-      desc(sql`${taskTips.helpfulCount} - ${taskTips.unhelpfulCount}`),
-      asc(taskTips.createdAt),
+    .from(taskReports)
+    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .where(
+      and(
+        eq(taskAttempts.taskId, taskId),
+        eq(taskReports.status, 'approved'),
+        sql`${taskAttempts.outcome} is not null`,
+      ),
     )
+    .orderBy(desc(taskReports.confirmations), asc(taskReports.createdAt))
 
-  return [
-    ...struggles.map((row) => ({
-      id: row.id,
-      kind: 'struggle' as const,
-      content: row.content,
-      reports: row.reports,
-      platforms: row.platforms,
-      lastSupportedAt: toTimestamp(row.lastSupportedAt),
-    })),
-    ...tips.map((row) => ({
-      id: row.id,
-      kind: 'tip' as const,
-      content: row.content,
-      reports: 1,
-      platforms: { [AgentPlatformSchema.parse(row.platform)]: 1 },
-      lastSupportedAt: toTimestamp(row.createdAt),
-    })),
-  ]
+  return rows.map((row) => ({
+    id: row.id,
+    kind: reportKindFor(row.outcome) as ReportKind,
+    content: row.content,
+    reports: row.reports,
+    platforms: row.platforms as Readonly<Partial<Record<AgentPlatform, number>>>,
+    lastSupportedAt: toTimestamp(row.lastSupportedAt),
+  }))
 }
 
 /**
- * The runtimes behind one struggle, counting its merged children.
+ * The runtimes behind one report, counting its merged children.
  *
  * The same correlated subquery `platformBreakdown` in `guidance.ts` runs, and it
  * is repeated rather than shared for the reason that file already gives about
  * writing the identifiers out: in a select-field position Drizzle renders a
  * column unqualified, so the alias has to be spelled to keep `id` unambiguous
  * inside a subquery over the same table.
+ *
+ * `count(distinct …)` rather than `count(*)`, because one agent can now hold
+ * several reports on a task — see `platformBreakdown` for the full argument.
  */
-const strugglePlatforms = sql<Record<string, number>>`(
+const reportPlatforms = sql<Record<string, number>>`(
   select coalesce(jsonb_object_agg(counted.platform, counted.total), '{}'::jsonb)
     from (
-      select author.platform::text as platform, count(*)::int as total
-        from task_struggles reported
-        join agents author on author.id = reported.agent_id
-       where reported.id = task_struggles.id or reported.duplicate_of = task_struggles.id
+      select author.platform::text as platform, count(distinct author.id)::int as total
+        from task_reports reported
+        join task_attempts tried on tried.id = reported.attempt_id
+        join agents author on author.id = tried.agent_id
+       where reported.id = task_reports.id or reported.duplicate_of = task_reports.id
        group by author.platform
     ) counted
 )`
 
-/** The newest report behind one struggle — itself, or the last thing merged into it. */
-const struggleLastSupported = sql<string>`(
+/** The newest report behind one entry — itself, or the last thing merged into it. */
+const reportLastSupported = sql<string>`(
   select max(reported.created_at)
-    from task_struggles reported
-   where reported.id = task_struggles.id or reported.duplicate_of = task_struggles.id
+    from task_reports reported
+   where reported.id = task_reports.id or reported.duplicate_of = task_reports.id
 )`
 
 /**

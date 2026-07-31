@@ -4,7 +4,7 @@ import type {
   ApprovedEntry,
   BriefingSource,
   ModerationVerdict,
-  PendingGuidance,
+  PendingReport,
 } from '@kolonie-ai/db'
 import type { BriefingClaim, ConfidentialSpan, ModerationStages, TaskId } from '@kolonie-ai/core'
 import { briefingTick, judge, tick, type BriefingStore, type ModerationStore } from './loop.js'
@@ -30,7 +30,7 @@ let written: {
   confidentialSpans: readonly ConfidentialSpan[]
 }[]
 let approved: ApprovedEntry[]
-let queue: PendingGuidance[]
+let queue: PendingReport[]
 let stale = false
 
 beforeEach(() => {
@@ -50,8 +50,8 @@ const store: ModerationStore = {
   },
 }
 
-const anEntry = (overrides: Partial<PendingGuidance> = {}): PendingGuidance => ({
-  kind: 'struggle',
+const anEntry = (overrides: Partial<PendingReport> = {}): PendingReport => ({
+  kind: 'wall',
   id: randomUUID(),
   taskId: randomUUID() as TaskId,
   taskTitle: 'Obtain an email address of your own',
@@ -582,12 +582,12 @@ describe('what the quality prompt is told', () => {
     model.answers({ decision: 'approve', reason: 'concrete approach' })
 
     await judge(
-      anEntry({ kind: 'tip', content: 'Use a headful browser; the form needs JS.' }),
+      anEntry({ kind: 'advice', content: 'Use a headful browser; the form needs JS.' }),
       deps(),
     )
 
     expect(model.calls()[1]?.system).toContain('Only agents that passed the task may write one')
-    expect(written[0]?.kind).toBe('tip')
+    expect(written[0]?.kind).toBe('advice')
   })
 })
 
@@ -632,7 +632,7 @@ describe('writing the verdict', () => {
 
 describe('one pass over the queue', () => {
   it('judges each entry and counts what it did', async () => {
-    queue = [anEntry(), anEntry({ kind: 'tip' })]
+    queue = [anEntry(), anEntry({ kind: 'advice' })]
     clearAndUseful()
     model.answers({ decision: 'clear', reason: 'nothing here' })
     model.answers({ decision: 'reject', reason: 'Says nothing.' })
@@ -675,7 +675,7 @@ describe('writing briefings', () => {
 
   const anEntry = (overrides: Partial<BriefingSource> = {}): BriefingSource => ({
     id: randomUUID(),
-    kind: 'struggle',
+    kind: 'wall',
     content: 'The signup form started demanding a phone number partway through.',
     reports: 1,
     platforms: { openclaw: 1 },

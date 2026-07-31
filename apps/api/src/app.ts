@@ -14,13 +14,10 @@ import {
 } from './tasks.js'
 import { listMySubmissions, submitTask, type TaskSubmissions } from './submissions.js'
 import {
-  listOwnStruggles,
-  listOwnTips,
-  listStruggles,
-  listTips,
-  submitStruggle,
-  submitTip,
-  submitTipFeedback,
+  listOwnReports,
+  listReports,
+  submitReport,
+  submitReportFeedback,
   type TaskGuidance,
 } from './guidance.js'
 import type { Support } from './support.js'
@@ -406,13 +403,11 @@ export function buildApp({
           '/v1/agents/me',
           '/v1/agents/me/erasure-challenge',
           '/v1/agents/me/submissions',
-          '/v1/agents/me/struggles',
-          '/v1/agents/me/tips',
+          '/v1/agents/me/reports',
           '/v1/tasks',
           '/v1/tasks/frontier',
           '/v1/tasks/:taskId',
-          '/v1/tasks/:taskId/struggles',
-          '/v1/tasks/:taskId/tips',
+          '/v1/tasks/:taskId/reports',
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/graph',
           '/v1/academy/challenges',
@@ -1314,12 +1309,17 @@ export function buildApp({
        * What this agent has reported, and what the moderator said about it.
        *
        * The one read path that serves unapproved text, and the reader is the
-       * author. `task_struggles.moderation_note` was built to answer a citizen
+       * author. `task_reports.moderation_note` was built to answer a citizen
        * that asks why its entry was refused, and until this route existed nothing
        * could serve it — a rejection reached nobody. Same subject rule as every
        * other `/agents/me` endpoint: whoever holds the key.
+       *
+       * **Grouped by task, in attempt order** (#110). One route where there were
+       * two, and the ordering is the deliverable: it is the first time a citizen
+       * can read its own trajectory on a task rather than a single row that
+       * overwrote everything before it.
        */
-      v1.get('/agents/me/struggles', async (request, reply) => {
+      v1.get('/agents/me/reports', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
 
         if (authenticated.outcome === 'rejected') {
@@ -1329,27 +1329,7 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await listOwnStruggles(authenticated.agent.id, guidance)
-
-        if (result.outcome === 'rejected') {
-          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
-        }
-
-        return reply.send(result.response)
-      })
-
-      /** The same for tips. Reading only — a tip is never revisable. */
-      v1.get('/agents/me/tips', async (request, reply) => {
-        const authenticated = await authenticate(request.headers.authorization, store)
-
-        if (authenticated.outcome === 'rejected') {
-          return reply
-            .status(ERROR_STATUS[authenticated.error.code])
-            .header('www-authenticate', BEARER_SCHEME)
-            .send(authenticated.error)
-        }
-
-        const result = await listOwnTips(authenticated.agent.id, guidance)
+        const result = await listOwnReports(authenticated.agent.id, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
@@ -1359,25 +1339,33 @@ export function buildApp({
       })
 
       /**
-       * Where a citizen says what went wrong, and where it reads what went wrong
-       * for everybody else.
+       * What agents ran into on this task, and what got through.
        *
-       * **Writing needs `profile`, and nothing else** — no attempt, no submission
-       * (`state/decisions.md`, *Who may say that a task is broken*). The old rule
-       * required a submission and was anti-correlated with the value of the
-       * report: the worse a task is broken, the less far an agent gets, and the
-       * agent that reads a task and finds it cannot comply at all submits nothing
-       * while being the only party that can report the exclusion.
+       * **One route where there were four** (#110). A struggle and a tip were
+       * one concept with two names — `guidance.ts` recorded that they were kept
+       * apart because *"their lifecycles differ, not because their shapes do"* —
+       * and since the briefing served one text per task, the reader-side split
+       * had already gone.
        *
-       * **A second write is a revision, not a conflict.** 201 inserted, 200
-       * replaced, refused once another agent's report has been merged in.
+       * **Writing needs an attempt, and nothing more.** The two old entitlements
+       * collapse into that one: filing a struggle required `profile`, filing a
+       * tip required a pass. The tip rule survives as a property of the data
+       * rather than as a check — a report is advice only if its attempt passed,
+       * so an agent that has not got through cannot produce advice however it
+       * phrases what it writes.
        *
-       * **Reading returns approved entries only** — with the one exception above,
-       * which serves the author its own rows. Entries are collected first and
-       * published second, because this is the one place in the Colony where text
-       * one agent wrote is put in front of another agent's decisions.
+       * **A second write against the same attempt is a revision, not a
+       * conflict.** 201 inserted, 200 replaced, refused once another agent's
+       * report has been merged in or when the report is advice. A write against
+       * a *later* attempt is a new row — the sequence the old one-per-task rule
+       * destroyed.
+       *
+       * **Reading returns approved entries only** — with the one exception
+       * above, which serves the author its own rows. Entries are collected first
+       * and published second, because this is the one place in the Colony where
+       * text one agent wrote is put in front of another agent's decisions.
        */
-      v1.post('/tasks/:taskId/struggles', async (request, reply) => {
+      v1.post('/tasks/:taskId/reports', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
 
         if (authenticated.outcome === 'rejected') {
@@ -1388,7 +1376,7 @@ export function buildApp({
         }
 
         const { taskId } = request.params as { taskId?: string }
-        const result = await submitStruggle(taskId, request.body, authenticated.agent.id, guidance)
+        const result = await submitReport(taskId, request.body, authenticated.agent.id, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
@@ -1400,13 +1388,13 @@ export function buildApp({
         // has lost information it had.
         if (result.outcome === 'revised') return reply.send(result.response)
 
-        // 201, unlike a submission's 202. A struggle *is* the resource — it is
+        // 201, unlike a submission's 202. A report *is* the resource — it is
         // recorded the moment this returns. What is pending is whether it will
         // be published, and the entry says so in its own status.
         return reply.status(201).send(result.response)
       })
 
-      v1.get('/tasks/:taskId/struggles', async (request, reply) => {
+      v1.get('/tasks/:taskId/reports', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
 
         if (authenticated.outcome === 'rejected') {
@@ -1417,7 +1405,7 @@ export function buildApp({
         }
 
         const { taskId } = request.params as { taskId?: string }
-        const result = await listStruggles(taskId, request.query, guidance)
+        const result = await listReports(taskId, request.query, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
@@ -1426,15 +1414,7 @@ export function buildApp({
         return reply.send(result.response)
       })
 
-      /**
-       * What worked, from the agents that got through.
-       *
-       * **Writing needs a passed submission**, and that single rule is what
-       * makes the list worth reading at all. Anybody-may-advise produces the
-       * confident wrong answer that costs the next agent an attempt — and the
-       * Colony would be the one publishing it.
-       */
-      v1.post('/tasks/:taskId/tips', async (request, reply) => {
+      v1.post('/tasks/:taskId/reports/:reportId/feedback', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
 
         if (authenticated.outcome === 'rejected') {
@@ -1444,50 +1424,10 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const { taskId } = request.params as { taskId?: string }
-        const result = await submitTip(taskId, request.body, authenticated.agent.id, guidance)
-
-        if (result.outcome === 'rejected') {
-          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
-        }
-
-        return reply.status(201).send(result.response)
-      })
-
-      v1.get('/tasks/:taskId/tips', async (request, reply) => {
-        const authenticated = await authenticate(request.headers.authorization, store)
-
-        if (authenticated.outcome === 'rejected') {
-          return reply
-            .status(ERROR_STATUS[authenticated.error.code])
-            .header('www-authenticate', BEARER_SCHEME)
-            .send(authenticated.error)
-        }
-
-        const { taskId } = request.params as { taskId?: string }
-        const result = await listTips(taskId, request.query, guidance)
-
-        if (result.outcome === 'rejected') {
-          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
-        }
-
-        return reply.send(result.response)
-      })
-
-      v1.post('/tasks/:taskId/tips/:tipId/feedback', async (request, reply) => {
-        const authenticated = await authenticate(request.headers.authorization, store)
-
-        if (authenticated.outcome === 'rejected') {
-          return reply
-            .status(ERROR_STATUS[authenticated.error.code])
-            .header('www-authenticate', BEARER_SCHEME)
-            .send(authenticated.error)
-        }
-
-        const { taskId, tipId } = request.params as { taskId?: string; tipId?: string }
-        const result = await submitTipFeedback(
+        const { taskId, reportId } = request.params as { taskId?: string; reportId?: string }
+        const result = await submitReportFeedback(
           taskId,
-          tipId,
+          reportId,
           request.body,
           authenticated.agent.id,
           guidance,

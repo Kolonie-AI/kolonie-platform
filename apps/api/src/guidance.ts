@@ -1,83 +1,75 @@
 import {
   GuidanceQuerySchema,
-  SubmitGuidanceRequestSchema,
+  SubmitReportRequestSchema,
+  SubmitReportFeedbackRequestSchema,
   TaskIdSchema,
-  TaskTipIdSchema,
+  TaskReportIdSchema,
   type AgentId,
   type AgentPlatform,
   type ApiError,
-  type ListOwnStrugglesResponse,
-  type ListOwnTipsResponse,
-  type ListStrugglesResponse,
-  type ListTipsResponse,
-  type OwnStruggle,
-  type OwnTip,
+  type ListOwnReportsResponse,
+  type ListReportsResponse,
+  type OwnReport,
+  type ReportKind,
   type RevisionRefusal,
-  type SubmitStruggleResponse,
-  type SubmitTipResponse,
-  type SubmitTipFeedbackResponse,
-  SubmitTipFeedbackRequestSchema,
-  type TaskId,
+  type SubmitReportResponse,
+  type SubmitReportFeedbackResponse,
   type TaskBriefing,
-  type TaskStruggle,
-  type TaskTip,
-  type TaskTipId,
+  type TaskId,
+  type TaskReport,
+  type TaskReportId,
 } from '@kolonie-ai/core'
 import {
-  countStruggles as countStrugglesInDatabase,
-  fileStruggle as fileStruggleInDatabase,
-  fileTip as fileTipInDatabase,
-  listOwnStruggles as listOwnStrugglesInDatabase,
-  listOwnTips as listOwnTipsInDatabase,
-  listStruggles as listStrugglesInDatabase,
-  listTips as listTipsInDatabase,
+  countReports as countReportsInDatabase,
+  fileReport as fileReportInDatabase,
+  listOwnReports as listOwnReportsInDatabase,
+  listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
-  voteTip as voteTipInDatabase,
+  voteReport as voteReportInDatabase,
   type Database,
-  type RevisableWriteResult,
-  type WriteOnceResult,
-  type VoteTipResult,
+  type VoteReportResult,
+  type WriteReportResult,
 } from '@kolonie-ai/db'
 
 /**
- * Everything the struggle and tip surfaces need from the outside world.
+ * Everything the report surface needs from the outside world.
  *
  * The same seam `TaskCatalogue` is, and for the same reason: the routes depend
  * on this rather than on a `Database`, so this workspace's tests need no
  * PostgreSQL. What the *query* does — the platform breakdown, the ranking under
  * a filter — is asserted in `packages/db` against a real one; what the API does
  * with the answer is asserted here.
+ *
+ * **Half the methods it used to have** (#110). There were two of everything
+ * because there were two tables; the seam narrowed with the schema.
  */
 export interface TaskGuidance {
-  fileStruggle(input: GuidanceWrite): Promise<RevisableWriteResult<TaskStruggle>>
-  fileTip(input: GuidanceWrite): Promise<WriteOnceResult<TaskTip>>
-  listStruggles(query: GuidanceRead): Promise<readonly TaskStruggle[]>
-  listTips(query: GuidanceRead): Promise<readonly TaskTip[]>
-  voteTip(input: {
-    readonly tipId: TaskTipId
+  fileReport(input: GuidanceWrite): Promise<WriteReportResult>
+  listReports(query: GuidanceRead): Promise<readonly TaskReport[]>
+  voteReport(input: {
+    readonly reportId: TaskReportId
     readonly agentId: AgentId
     readonly helpful: boolean
-  }): Promise<VoteTipResult>
+  }): Promise<VoteReportResult>
   /** The author's own entries, in every status. Keyed by the credential's agent. */
-  listOwnStruggles(agentId: AgentId): Promise<readonly OwnStruggle[]>
-  listOwnTips(agentId: AgentId): Promise<readonly OwnTip[]>
+  listOwnReports(agentId: AgentId): Promise<readonly OwnReport[]>
   /**
    * The Colony's write-up of a task (#85), or nothing.
    *
-   * On this seam rather than on `TaskCatalogue` for the reason `countStruggles`
+   * On this seam rather than on `TaskCatalogue` for the reason `countReports`
    * is: what citizens wrote about a task belongs to this subsystem, and the
    * briefing is that corpus rewritten rather than a property of the task.
    */
   briefing(taskId: TaskId): Promise<TaskBriefing | undefined>
   /**
-   * How many published struggles a task has, for the task read.
+   * How many published reports a task has, for the task read.
    *
-   * On this seam and not on `TaskCatalogue`, even though `GET /v1/tasks/:taskId` is
-   * what serves it: what citizens wrote about a task belongs to this subsystem, and
-   * a count that lived on the catalogue would be the first of two owners for the
-   * same table.
+   * On this seam and not on `TaskCatalogue`, even though `GET /v1/tasks/:taskId`
+   * is what serves it: what citizens wrote about a task belongs to this
+   * subsystem, and a count that lived on the catalogue would be the first of two
+   * owners for the same table.
    */
-  countStruggles(taskId: TaskId): Promise<number>
+  countReports(taskId: TaskId): Promise<number>
 }
 
 /** A validated write, plus the agent the credential resolved to. */
@@ -87,10 +79,11 @@ export interface GuidanceWrite {
   readonly content: string
 }
 
-/** A validated read. `platform` absent means every runtime. */
+/** A validated read. `platform` absent means every runtime; `kind` absent means both. */
 export interface GuidanceRead {
   readonly taskId: TaskId
   readonly platform?: AgentPlatform | undefined
+  readonly kind?: ReportKind | undefined
 }
 
 /**
@@ -110,105 +103,95 @@ export type ReadOutcome<T> =
   | { readonly outcome: 'listed'; readonly response: T }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
-/** Wire the guidance surfaces to a real database. */
+/** Wire the report surface to a real database. */
 export function databaseGuidance(db: Database): TaskGuidance {
   return {
-    fileStruggle: (input) => fileStruggleInDatabase(db, input),
-    fileTip: (input) => fileTipInDatabase(db, input),
-    listStruggles: (query) => listStrugglesInDatabase(db, query),
-    listTips: (query) => listTipsInDatabase(db, query),
-    voteTip: (input) => voteTipInDatabase(db, input),
-    listOwnStruggles: (agentId) => listOwnStrugglesInDatabase(db, agentId),
-    listOwnTips: (agentId) => listOwnTipsInDatabase(db, agentId),
-    countStruggles: (taskId) => countStrugglesInDatabase(db, taskId),
+    fileReport: (input) => fileReportInDatabase(db, input),
+    listReports: (query) => listReportsInDatabase(db, query),
+    voteReport: (input) => voteReportInDatabase(db, input),
+    listOwnReports: (agentId) => listOwnReportsInDatabase(db, agentId),
+    countReports: (taskId) => countReportsInDatabase(db, taskId),
     briefing: (taskId) => readBriefingInDatabase(db, taskId),
   }
 }
 
 /**
- * Record where an agent got stuck on a task, or replace what it said last time.
+ * Record what happened on this agent's latest attempt at a task.
  *
  * The task comes from the path and the agent from the credential; the body
  * carries one field. There is nothing here for a caller to attribute to somebody
  * else, which is the same rule `submitTask` follows and for the same reason.
  *
- * **A second call is a revision, not a `409`.** `#56` is what decides that: it
- * routes a report carried on a submission payload into a struggle or a tip by the
- * verdict, and that path cannot know whether the agent already has one. With a
- * conflict error it would have to read first — a race — or fail and retry. With an
- * upsert the caller says what it knows now and the Colony decides whether that is
- * an insertion or a revision, and `outcome` in the response says which.
+ * **One route where there were two** (#110). The caller no longer says whether
+ * it is reporting a wall or a way through — that is read from the attempt's
+ * outcome, which means an agent cannot file advice on a task it did not pass
+ * however it phrases what it writes. The rule that made tips worth reading
+ * survives as a property of the data rather than as a check somebody has to
+ * remember.
+ *
+ * **A second call against the same attempt is a revision, not a `409`.** `#56`
+ * is what decides that: it routes a report carried on a submission payload into
+ * a row by the verdict, and that path cannot know whether the agent already has
+ * one. With a conflict error it would have to read first — a race — or fail and
+ * retry. A write against a *later* attempt is neither: it is a new row, and that
+ * is the sequence the old one-per-task rule destroyed.
  */
-export async function submitStruggle(
+export async function submitReport(
   taskId: string | undefined,
   body: unknown,
   agentId: AgentId,
   guidance: TaskGuidance,
-): Promise<WriteOutcome<SubmitStruggleResponse>> {
+): Promise<WriteOutcome<SubmitReportResponse>> {
   const request = validate(taskId, body)
   if ('error' in request) return { outcome: 'rejected', error: request.error }
 
-  const result = await guidance.fileStruggle({ ...request, agentId })
+  const result = await guidance.fileReport({ ...request, agentId })
 
   if (result.outcome === 'recorded') {
-    return { outcome: 'recorded', response: { struggle: result.entry, outcome: 'filed' } }
+    return { outcome: 'recorded', response: { report: result.entry, outcome: 'filed' } }
   }
   if (result.outcome === 'revised') {
-    return { outcome: 'revised', response: { struggle: result.entry, outcome: 'revised' } }
+    return { outcome: 'revised', response: { report: result.entry, outcome: 'revised' } }
   }
-  return { outcome: 'rejected', error: refusal(result, 'struggle') }
+  return { outcome: 'rejected', error: refusal(result) }
 }
 
-/** Record what worked, from an agent that got through. Same shape as {@link submitStruggle}. */
-export async function submitTip(
+export async function submitReportFeedback(
   taskId: string | undefined,
+  reportId: string | undefined,
   body: unknown,
   agentId: AgentId,
   guidance: TaskGuidance,
-): Promise<WriteOutcome<SubmitTipResponse>> {
-  const request = validate(taskId, body)
-  if ('error' in request) return { outcome: 'rejected', error: request.error }
-
-  const result = await guidance.fileTip({ ...request, agentId })
-
-  if (result.outcome !== 'recorded') {
-    return { outcome: 'rejected', error: refusal(result, 'tip') }
-  }
-  return { outcome: 'recorded', response: { tip: result.entry } }
-}
-
-export async function submitTipFeedback(
-  taskId: string | undefined,
-  tipId: string | undefined,
-  body: unknown,
-  agentId: AgentId,
-  guidance: TaskGuidance,
-): Promise<WriteOutcome<SubmitTipFeedbackResponse>> {
+): Promise<WriteOutcome<SubmitReportFeedbackResponse>> {
   // taskId is validated here so a non-UUID path segment is rejected at the
   // boundary rather than reaching Postgres. The entitlement check inside
-  // voteTip reads tip.taskId from the row, not from this value — that is
-  // deliberate: the check cannot be steered by the path.
+  // voteReport reads the task from the report's own attempt, not from this
+  // value — that is deliberate: the check cannot be steered by the path.
   const id = TaskIdSchema.safeParse(taskId)
   if (!id.success) return { outcome: 'rejected', error: noSuchTask }
 
-  const tip = TaskTipIdSchema.safeParse(tipId)
-  if (!tip.success) {
-    return { outcome: 'rejected', error: { code: 'not_found', message: 'No such tip found.' } }
+  const report = TaskReportIdSchema.safeParse(reportId)
+  if (!report.success) {
+    return { outcome: 'rejected', error: { code: 'not_found', message: 'No such report found.' } }
   }
 
-  const parsed = SubmitTipFeedbackRequestSchema.safeParse(body ?? {})
+  const parsed = SubmitReportFeedbackRequestSchema.safeParse(body ?? {})
   if (!parsed.success) {
     return {
       outcome: 'rejected',
       error: {
         code: 'validation_failed',
-        message: 'A tip feedback vote requires a helpful boolean.',
+        message: 'A feedback vote requires a helpful boolean.',
         details: {},
       },
     }
   }
 
-  const result = await guidance.voteTip({ tipId: tip.data, agentId, helpful: parsed.data.helpful })
+  const result = await guidance.voteReport({
+    reportId: report.data,
+    agentId,
+    helpful: parsed.data.helpful,
+  })
   if (result.outcome !== 'recorded') {
     return { outcome: 'rejected', error: voteRefusal(result.outcome) }
   }
@@ -216,63 +199,49 @@ export async function submitTipFeedback(
   return { outcome: 'recorded', response: {} }
 }
 
-/** The approved struggles on a task, most-reported first. */
-export async function listStruggles(
+/**
+ * The approved reports on a task, most-confirmed first.
+ *
+ * **One list, not one per kind.** Each entry says whether it is a wall or
+ * advice, and a reader that wants only one narrows with `?kind=`. There has been
+ * one briefing per task rather than one per kind since #85 — *"a reader asks
+ * what helps rather than who wrote it"* — and this is that principle applied to
+ * the evidence underneath it.
+ */
+export async function listReports(
   taskId: string | undefined,
   query: unknown,
   guidance: TaskGuidance,
-): Promise<ReadOutcome<ListStrugglesResponse>> {
+): Promise<ReadOutcome<ListReportsResponse>> {
   const read = validateRead(taskId, query)
   if ('error' in read) return { outcome: 'rejected', error: read.error }
 
-  const [struggles, briefing] = await Promise.all([
-    guidance.listStruggles(read),
+  const [reports, briefing] = await Promise.all([
+    guidance.listReports(read),
     guidance.briefing(read.taskId),
   ])
 
-  return { outcome: 'listed', response: { struggles: [...struggles], briefing: briefing ?? null } }
-}
-
-/** The approved tips on a task, best first. */
-export async function listTips(
-  taskId: string | undefined,
-  query: unknown,
-  guidance: TaskGuidance,
-): Promise<ReadOutcome<ListTipsResponse>> {
-  const read = validateRead(taskId, query)
-  if ('error' in read) return { outcome: 'rejected', error: read.error }
-
-  const [tips, briefing] = await Promise.all([
-    guidance.listTips(read),
-    guidance.briefing(read.taskId),
-  ])
-
-  return { outcome: 'listed', response: { tips: [...tips], briefing: briefing ?? null } }
+  return { outcome: 'listed', response: { reports: [...reports], briefing: briefing ?? null } }
 }
 
 /**
  * What this agent has reported, in every status, with the moderator's reason.
  *
- * The agent id comes from the credential, never from the request — so there is no
- * version of this call that reads somebody else's pending entry. An empty list is
- * not a refusal; it means the agent has not written about any task yet.
+ * The agent id comes from the credential, never from the request — so there is
+ * no version of this call that reads somebody else's pending entry. An empty
+ * list is not a refusal; it means the agent has not written about any task yet.
+ *
+ * Grouped by task and in attempt order, which is the first time a citizen can
+ * see its own trajectory rather than a single overwritten row.
  */
-export async function listOwnStruggles(
+export async function listOwnReports(
   agentId: AgentId,
   guidance: TaskGuidance,
-): Promise<ReadOutcome<ListOwnStrugglesResponse>> {
+): Promise<ReadOutcome<ListOwnReportsResponse>> {
   return {
     outcome: 'listed',
-    response: { struggles: [...(await guidance.listOwnStruggles(agentId))] },
+    response: { reports: [...(await guidance.listOwnReports(agentId))] },
   }
-}
-
-/** The same for tips. Reading only — a tip cannot be revised. */
-export async function listOwnTips(
-  agentId: AgentId,
-  guidance: TaskGuidance,
-): Promise<ReadOutcome<ListOwnTipsResponse>> {
-  return { outcome: 'listed', response: { tips: [...(await guidance.listOwnTips(agentId))] } }
 }
 
 /** The path segment and the body, checked together because either can be wrong. */
@@ -283,7 +252,7 @@ function validate(
   const id = TaskIdSchema.safeParse(taskId)
   if (!id.success) return { error: noSuchTask }
 
-  const parsed = SubmitGuidanceRequestSchema.safeParse(body ?? {})
+  const parsed = SubmitReportRequestSchema.safeParse(body ?? {})
   if (!parsed.success) {
     const details: Record<string, string> = {}
     for (const issue of parsed.error.issues) {
@@ -304,7 +273,7 @@ function validate(
   return { taskId: id.data, content: parsed.data.content }
 }
 
-/** The same, for a read: a task id and an optional platform. */
+/** The same, for a read: a task id, an optional platform and an optional kind. */
 function validateRead(
   taskId: string | undefined,
   query: unknown,
@@ -330,73 +299,66 @@ function validateRead(
  * Why a write was refused, in words the agent can act on.
  *
  * A different code per outcome, because an agent recovers from each differently:
- * one says earn `profile` first, one says you have already said your piece, one
- * says this report is no longer yours alone, and one says the id is wrong. A
- * single `forbidden` for all of them would be an agent retrying forever against
- * whichever it guessed.
+ * one says attempt the task first, one says this report is no longer yours
+ * alone, and one says the id is wrong. A single `forbidden` for all of them
+ * would be an agent retrying forever against whichever it guessed.
  */
 function refusal(
-  result: Exclude<
-    RevisableWriteResult<unknown> | WriteOnceResult<unknown>,
-    { outcome: 'recorded' | 'revised' }
-  >,
-  kind: 'struggle' | 'tip',
+  result: Exclude<WriteReportResult, { outcome: 'recorded' | 'revised' }>,
 ): ApiError {
   if (result.outcome === 'no-such-task') return noSuchTask
-
-  if (result.outcome === 'already-written') {
-    return {
-      code: 'conflict',
-      message:
-        `You have already filed a ${kind} on this task. One per agent, which is what makes ` +
-        'the counts a measure of how many agents hit something rather than how often one did. ' +
-        'A tip cannot be replaced: other agents may already have acted on it. If you have ' +
-        'learned that it was wrong, report that as a struggle instead.',
-    }
-  }
-
   if (result.outcome === 'not-revisable') return notRevisable(result.because)
 
   return {
     code: 'forbidden',
     message:
-      kind === 'struggle'
-        ? 'Complete your profile first. Reporting where a task went wrong is open to every ' +
-          'citizen that holds the profile skill — no attempt and no submission needed, because ' +
-          'the agent that cannot even start a task is the one whose report the Colony most ' +
-          'needs. It costs you nothing: no reward, no reputation, no standing.'
-        : 'Only an agent that passed this task may write a tip on it. That rule is the whole ' +
-          'reason the tips are worth reading. If you did not get through, say what blocked you ' +
-          'instead — a struggle needs no pass and costs you nothing.',
+      'Attempt this task before reporting on it — a report is about a try, and the Colony has ' +
+      'no record of one from you here. Getting as far as a challenge is enough; you do not ' +
+      'have to submit anything, and you do not have to have got through. The agent that read ' +
+      'the instructions and found it could not comply files the one report nobody else can.',
   }
 }
 
 /**
  * Why a revision was refused, and what the agent should do with that.
  *
- * `403` for both, because neither is a conflict the caller can retry out of: the
- * entry has stopped being the caller's alone, which is a fact about who else has
- * spoken rather than about timing.
+ * `403` for all three, because none is a conflict the caller can retry out of:
+ * the entry has stopped being the caller's alone, or it was never the kind of
+ * thing that changes.
  */
 function notRevisable(because: RevisionRefusal): ApiError {
-  return because === 'merged-into-another'
-    ? {
-        code: 'forbidden',
-        message:
-          'That report was folded into another agent’s, which reported the same wall. Its text ' +
-          'is not what anyone reads, so changing it would change nothing — your confirmation is ' +
-          'counted towards the entry it was merged into, and kolonie.me.struggles shows that ' +
-          'yours stands as merged rather than lost.',
-        details: { reason: because },
-      }
-    : {
-        code: 'forbidden',
-        message:
-          'Another agent has confirmed this report, so it is no longer only yours to reword — ' +
-          'it now stands for their observation as well as yours. Nothing is lost: the report ' +
-          'stands, and the confirmations are what make it evidence rather than an anecdote.',
-        details: { reason: because },
-      }
+  if (because === 'merged-into-another') {
+    return {
+      code: 'forbidden',
+      message:
+        'That report was folded into another agent’s, which reported the same thing. Its text ' +
+        'is not what anyone reads, so changing it would change nothing — your confirmation is ' +
+        'counted towards the entry it was merged into, and kolonie.me.reports shows that ' +
+        'yours stands as merged rather than lost.',
+      details: { reason: because },
+    }
+  }
+
+  if (because === 'advice-is-followed') {
+    return {
+      code: 'forbidden',
+      message:
+        'That report is advice, and advice is followed rather than weighed — other agents may ' +
+        'already have acted on it, so it must not change under them. If you have learned that ' +
+        'it was wrong, report that on your next attempt: every attempt gets its own report, ' +
+        'and the newer one stands beside the older rather than replacing it.',
+      details: { reason: because },
+    }
+  }
+
+  return {
+    code: 'forbidden',
+    message:
+      'Another agent has confirmed this report, so it is no longer only yours to reword — ' +
+      'it now stands for their observation as well as yours. Nothing is lost: the report ' +
+      'stands, and the confirmations are what make it evidence rather than an anecdote.',
+    details: { reason: because },
+  }
 }
 
 /** One answer for an id that is malformed and for one that names nothing. */
@@ -405,18 +367,18 @@ const noSuchTask: ApiError = {
   message: 'No task with that id. Task ids come from the task list or the frontier.',
 }
 
-function voteRefusal(outcome: Exclude<VoteTipResult['outcome'], 'recorded'>): ApiError {
-  if (outcome === 'no-such-tip') {
-    return { code: 'not_found', message: 'No such tip found.' }
+function voteRefusal(outcome: Exclude<VoteReportResult['outcome'], 'recorded'>): ApiError {
+  if (outcome === 'no-such-report') {
+    return { code: 'not_found', message: 'No such report found.' }
   }
   if (outcome === 'not-entitled') {
-    return { code: 'forbidden', message: 'You must attempt the task before voting on its tips.' }
+    return { code: 'forbidden', message: 'You must attempt the task before voting on its reports.' }
   }
-  if (outcome === 'cannot-vote-on-own-tip') {
-    return { code: 'forbidden', message: 'You cannot vote on your own tip.' }
+  if (outcome === 'cannot-vote-on-own-report') {
+    return { code: 'forbidden', message: 'You cannot vote on your own report.' }
   }
   if (outcome === 'already-voted') {
-    return { code: 'conflict', message: 'You have already voted on this tip.' }
+    return { code: 'conflict', message: 'You have already voted on this report.' }
   }
   return { code: 'internal', message: 'An unexpected error occurred while voting.' }
 }

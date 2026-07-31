@@ -19,7 +19,7 @@ beforeEach(() => {
  */
 const anEntry = (overrides: Partial<BriefingSource> = {}): BriefingSource => ({
   id: randomUUID(),
-  kind: 'struggle',
+  kind: 'wall',
   content: 'The signup form started demanding a phone number partway through.',
   reports: 1,
   platforms: { openclaw: 1 },
@@ -269,8 +269,8 @@ describe('what the synthesis prompt says', () => {
 
   /** The corpus reaches the model with the one fact about confidence that survives. */
   it('tells the model which entries came from an agent that passed', async () => {
-    const struggle = anEntry({ kind: 'struggle' })
-    const tip = anEntry({ kind: 'tip', content: 'Use a headful browser.' })
+    const struggle = anEntry({ kind: 'wall' })
+    const tip = anEntry({ kind: 'advice', content: 'Use a headful browser.' })
     model.composes({ section: 'route', text: 'A headful browser works.', sources: [tip.id] })
 
     await synthesise(forTask([struggle, tip]), model)

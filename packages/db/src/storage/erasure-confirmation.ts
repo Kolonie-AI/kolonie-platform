@@ -271,8 +271,9 @@ async function quoteFor(tx: Transaction, agentId: AgentId): Promise<ErasureQuote
       (select coalesce(sum(delta), 0)::text from reputation_events
         where agent_id = ${agentId}) as reputation,
       (select count(*)::text from agent_skills where agent_id = ${agentId}) as skills,
-      (select count(*)::text from task_struggles where agent_id = ${agentId}) as struggles,
-      (select count(*)::text from task_tips where agent_id = ${agentId}) as tips,
+      (select count(*)::text from task_reports r
+         join task_attempts a on a.id = r.attempt_id
+        where a.agent_id = ${agentId}) as reports,
       (select count(*)::text from support_tickets where agent_id = ${agentId}) as tickets`,
   )
 
@@ -282,8 +283,7 @@ async function quoteFor(tx: Transaction, agentId: AgentId): Promise<ErasureQuote
     reputation: Number(row.reputation),
     skills: Number(row.skills),
     writing: {
-      struggles: Number(row.struggles),
-      tips: Number(row.tips),
+      reports: Number(row.reports),
       supportTickets: Number(row.tickets),
     },
   }

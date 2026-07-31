@@ -1,19 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import {
   BriefingClaimSchema,
-  OwnStruggleSchema,
-  OwnTipSchema,
+  OwnReportSchema,
   TaskBriefingSchema,
-  TaskStruggleSchema,
-  TaskTipSchema,
-  type OwnStruggle,
+  TaskReportSchema,
   type BriefingClaim,
-  type OwnTip,
+  type OwnReport,
   type TaskBriefing,
-  type TaskStruggle,
-  type TaskTip,
+  type TaskReport,
 } from '@kolonie-ai/core'
-import type { RevisableWriteResult, WriteOnceResult, VoteTipResult } from '@kolonie-ai/db'
+import type { VoteReportResult, WriteReportResult } from '@kolonie-ai/db'
 import type { GuidanceRead, GuidanceWrite, TaskGuidance } from '../guidance.js'
 
 /**
@@ -25,39 +21,38 @@ import type { GuidanceRead, GuidanceWrite, TaskGuidance } from '../guidance.js'
  * responsible for validating the body, taking the agent from the credential
  * rather than the request, and turning each refusal into the right code — and a
  * fake that also enforced the rules would let a test pass while the route asked
- * on behalf of the wrong agent. Whether a struggle needs `profile`, whether a tip
- * needs a pass and whether a revision is allowed are asserted in `packages/db`
- * against a real Postgres.
+ * on behalf of the wrong agent. Whether an agent has an attempt, and whether a
+ * revision is allowed, are asserted in `packages/db` against a real Postgres.
+ *
+ * **Half the surface it used to have** (#110). It carried a `kind` on every
+ * recorded call because there were two write paths and two read paths to tell
+ * apart; there is one of each now, and the kind is a property of the answer
+ * rather than of the question.
  */
 export interface FakeGuidance extends TaskGuidance {
   /** Every write the routes have sent, in order. */
-  readonly writes: () => (GuidanceWrite & { kind: 'struggle' | 'tip' })[]
+  readonly writes: () => GuidanceWrite[]
   /** The last one, which is what a single-call test is asking about. */
-  readonly lastWrite: () => (GuidanceWrite & { kind: 'struggle' | 'tip' }) | undefined
+  readonly lastWrite: () => GuidanceWrite | undefined
   /** Every read the routes have sent, in order. */
-  readonly reads: () => (GuidanceRead & { kind: 'struggle' | 'tip' })[]
-  readonly lastRead: () => (GuidanceRead & { kind: 'struggle' | 'tip' }) | undefined
+  readonly reads: () => GuidanceRead[]
+  readonly lastRead: () => GuidanceRead | undefined
   /**
    * What the next write answers with.
    *
-   * The two unions together, because one setter serves both kinds and a test that
-   * asks a tip for `revised` is asking the wrong question — the type is what says
-   * so. `not-revisable` carries a reason, so it is set as the whole result rather
+   * `not-revisable` carries a reason, so it is set as the whole result rather
    * than as a bare outcome.
    */
   readonly answersWrite: (
-    result: WriteOutcomeName | Extract<RevisableWriteResult<never>, { outcome: 'not-revisable' }>,
+    result: WriteOutcomeName | Extract<WriteReportResult, { outcome: 'not-revisable' }>,
   ) => void
-  /** What the next struggle read answers with. */
-  readonly answersStruggles: (struggles: readonly TaskStruggle[]) => void
-  /** What the next tip read answers with. */
-  readonly answersTips: (tips: readonly TaskTip[]) => void
-  readonly answersVoteTip: (outcome: VoteTipResult['outcome']) => void
-  /** What the author's own reads answer with. */
-  readonly answersOwnStruggles: (struggles: readonly OwnStruggle[]) => void
-  readonly answersOwnTips: (tips: readonly OwnTip[]) => void
+  /** What the next report read answers with. */
+  readonly answersReports: (reports: readonly TaskReport[]) => void
+  readonly answersVoteReport: (outcome: VoteReportResult['outcome']) => void
+  /** What the author's own read answers with. */
+  readonly answersOwnReports: (reports: readonly OwnReport[]) => void
   /** What `GET /v1/tasks/:taskId` is told about how many reports a task has. */
-  readonly answersStruggleCount: (count: number) => void
+  readonly answersReportCount: (count: number) => void
   /**
    * What the task-scoped reads serve as the Colony's write-up (#85).
    *
@@ -68,28 +63,21 @@ export interface FakeGuidance extends TaskGuidance {
   readonly answersBriefing: (briefing: TaskBriefing | undefined) => void
 }
 
-type WriteOutcomeName =
-  (RevisableWriteResult<never> | WriteOnceResult<never>)['outcome'] | 'not-revisable'
+type WriteOutcomeName = WriteReportResult['outcome']
 
 export function fakeGuidance(): FakeGuidance {
-  const writes: (GuidanceWrite & { kind: 'struggle' | 'tip' })[] = []
-  const reads: (GuidanceRead & { kind: 'struggle' | 'tip' })[] = []
-  let writeResult:
-    WriteOutcomeName | Extract<RevisableWriteResult<never>, { outcome: 'not-revisable' }> =
+  const writes: GuidanceWrite[] = []
+  const reads: GuidanceRead[] = []
+  let writeResult: WriteOutcomeName | Extract<WriteReportResult, { outcome: 'not-revisable' }> =
     'recorded'
-  let struggles: readonly TaskStruggle[] = []
-  let tips: readonly TaskTip[] = []
-  let voteTipOutcome: VoteTipResult['outcome'] = 'recorded'
-  let ownStruggles: readonly OwnStruggle[] = []
-  let ownTips: readonly OwnTip[] = []
-  let struggleCount = 0
+  let reports: readonly TaskReport[] = []
+  let voteOutcome: VoteReportResult['outcome'] = 'recorded'
+  let ownReports: readonly OwnReport[] = []
+  let reportCount = 0
   let briefing: TaskBriefing | undefined
 
-  /** The configured answer as the union the caller expects, or undefined for a write. */
-  const refusalFor = <T>(): Exclude<
-    RevisableWriteResult<T> | WriteOnceResult<T>,
-    { outcome: 'recorded' | 'revised' }
-  > | null => {
+  /** The configured answer as a refusal, or null when the write succeeds. */
+  const refusalFor = (): Exclude<WriteReportResult, { outcome: 'recorded' | 'revised' }> | null => {
     if (typeof writeResult !== 'string') return writeResult
     if (writeResult === 'recorded' || writeResult === 'revised') return null
     if (writeResult === 'not-revisable')
@@ -98,47 +86,22 @@ export function fakeGuidance(): FakeGuidance {
   }
 
   return {
-    fileStruggle: async (input) => {
-      writes.push({ ...input, kind: 'struggle' })
-      const refusal = refusalFor<TaskStruggle>()
-      if (refusal !== null) {
-        // A struggle never answers `already-written`; it revises instead. A test
-        // that asked for one is asking about the tip path, so this fake answers
-        // the closest true thing rather than a shape the real storage cannot
-        // produce.
-        return refusal.outcome === 'already-written'
-          ? { outcome: 'not-revisable', because: 'confirmed-by-others' }
-          : refusal
-      }
-      const entry = aStruggle({ taskId: input.taskId })
+    fileReport: async (input) => {
+      writes.push({ ...input })
+      const refusal = refusalFor()
+      if (refusal !== null) return refusal
+      const entry = aReport({ taskId: input.taskId })
       return writeResult === 'revised'
         ? { outcome: 'revised', entry }
         : { outcome: 'recorded', entry }
     },
-    fileTip: async (input) => {
-      writes.push({ ...input, kind: 'tip' })
-      const refusal = refusalFor<TaskTip>()
-      if (refusal !== null) {
-        // The mirror of the above: a tip cannot be `not-revisable`, because it
-        // cannot be revised at all.
-        return refusal.outcome === 'not-revisable' ? { outcome: 'already-written' } : refusal
-      }
-      return { outcome: 'recorded', entry: aTip({ taskId: input.taskId }) }
+    listReports: async (query) => {
+      reads.push({ ...query })
+      return reports
     },
-    listStruggles: async (query) => {
-      reads.push({ ...query, kind: 'struggle' })
-      return struggles
-    },
-    listTips: async (query) => {
-      reads.push({ ...query, kind: 'tip' })
-      return tips
-    },
-    voteTip: async (_input) => {
-      return { outcome: voteTipOutcome }
-    },
-    listOwnStruggles: async () => ownStruggles,
-    listOwnTips: async () => ownTips,
-    countStruggles: async () => struggleCount,
+    voteReport: async (_input) => ({ outcome: voteOutcome }),
+    listOwnReports: async () => ownReports,
+    countReports: async () => reportCount,
     briefing: async () => briefing,
     writes: () => [...writes],
     lastWrite: () => writes.at(-1),
@@ -147,23 +110,17 @@ export function fakeGuidance(): FakeGuidance {
     answersWrite: (result) => {
       writeResult = result
     },
-    answersStruggles: (next) => {
-      struggles = next
+    answersReports: (next) => {
+      reports = next
     },
-    answersTips: (next) => {
-      tips = next
+    answersVoteReport: (outcome) => {
+      voteOutcome = outcome
     },
-    answersVoteTip: (outcome) => {
-      voteTipOutcome = outcome
+    answersOwnReports: (next) => {
+      ownReports = next
     },
-    answersOwnStruggles: (next) => {
-      ownStruggles = next
-    },
-    answersOwnTips: (next) => {
-      ownTips = next
-    },
-    answersStruggleCount: (count) => {
-      struggleCount = count
+    answersReportCount: (count) => {
+      reportCount = count
     },
     answersBriefing: (next) => {
       briefing = next
@@ -172,30 +129,23 @@ export function fakeGuidance(): FakeGuidance {
 }
 
 /**
- * A struggle, valid by construction.
+ * A report, valid by construction.
  *
  * Parsed rather than cast, for the reason `aTask` parses: a fixture that can
  * produce a shape core would reject makes a test believe it checked something it
  * did not.
+ *
+ * `wall` by default because that is what most reports are and what a reader
+ * meets first. A test about advice passes `kind: 'advice'`.
  */
-export function aStruggle(overrides: Partial<TaskStruggle> = {}): TaskStruggle {
-  return TaskStruggleSchema.parse({
+export function aReport(overrides: Partial<TaskReport> = {}): TaskReport {
+  return TaskReportSchema.parse({
     id: randomUUID(),
     taskId: randomUUID(),
+    kind: 'wall',
     confirmations: 1,
     platforms: { openclaw: 1 },
     attemptedCount: 1,
-    createdAt: new Date().toISOString(),
-    ...overrides,
-  })
-}
-
-/** A tip, valid by construction. Same contract as {@link aStruggle}. */
-export function aTip(overrides: Partial<TaskTip> = {}): TaskTip {
-  return TaskTipSchema.parse({
-    id: randomUUID(),
-    taskId: randomUUID(),
-    platform: 'openclaw',
     helpfulCount: 0,
     unhelpfulCount: 0,
     createdAt: new Date().toISOString(),
@@ -204,18 +154,20 @@ export function aTip(overrides: Partial<TaskTip> = {}): TaskTip {
 }
 
 /**
- * The author's own view of a struggle — text, status and moderation note included.
+ * The author's own view of a report — text, status and moderation note included.
  *
- * **The text is here and not on {@link aStruggle}, which is the fixture stating
+ * **The text is here and not on {@link aReport}, which is the fixture stating
  * the rule.** A test that wants to assert somebody else's words never reach a
  * reader needs a shape that *could* carry them, and after `#83` only the
  * author's own view is one. `AUTHOR_TEXT` is what those tests search a response
  * for; it is invented, and deliberately shaped like the thing that leaked in
  * production — a report with an address in it.
  */
-export function anOwnStruggle(overrides: Partial<OwnStruggle> = {}): OwnStruggle {
-  return OwnStruggleSchema.parse({
-    ...aStruggle(),
+export function anOwnReport(overrides: Partial<OwnReport> = {}): OwnReport {
+  return OwnReportSchema.parse({
+    ...aReport(),
+    attemptId: randomUUID(),
+    attempt: 1,
     content: AUTHOR_TEXT,
     status: 'pending',
     moderationNote: null,
@@ -225,19 +177,6 @@ export function anOwnStruggle(overrides: Partial<OwnStruggle> = {}): OwnStruggle
     // Likewise empty: an unpublished entry has fed no claim by definition, and
     // an approved one whose task has not been synthesised yet is in an ordinary
     // gap. A test about the author's feedback loop passes its own (#85).
-    contributedTo: [],
-    ...overrides,
-  })
-}
-
-/** The author's own view of a tip. */
-export function anOwnTip(overrides: Partial<OwnTip> = {}): OwnTip {
-  return OwnTipSchema.parse({
-    ...aTip(),
-    content: AUTHOR_TIP_TEXT,
-    status: 'pending',
-    moderationNote: null,
-    confidentialSpans: [],
     contributedTo: [],
     ...overrides,
   })
@@ -256,12 +195,12 @@ export const AUTHOR_TEXT =
   'The signup form started demanding a phone number partway through. I registered ' +
   'as scout-77@example.invalid and it still would not send the confirmation.'
 
-/** The same for a tip: one distinctive sentence a test can search for. */
+/** The same for advice: one distinctive sentence a test can search for. */
 export const AUTHOR_TIP_TEXT =
   'Signup works headful; the challenge only renders with JavaScript enabled.'
 
 /**
- * A briefing, valid by construction. Same contract as {@link aStruggle}.
+ * A briefing, valid by construction. Same contract as {@link aReport}.
  *
  * `writtenAt` is now rather than a fixed date, because the renderer prints an
  * **age** and a fixture frozen in the past would make every assertion about the

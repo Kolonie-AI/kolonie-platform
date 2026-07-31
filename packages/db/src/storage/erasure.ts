@@ -171,7 +171,7 @@ export async function eraseAgent(
      *
      * The Colony fixes its own cache rather than refusing the erasure. The
      * numbers are the Colony's bookkeeping about how many agents reported a wall
-     * and how many found a tip useful; making a citizen stay so that they stay
+     * and how many found a report useful; making a citizen stay so that they stay
      * tidy would be charging the citizen for the Colony's convenience.
      */
     const disturbed = await countsThisWillDisturb(tx, command.agentId)
@@ -255,8 +255,8 @@ export async function eraseAgent(
       // A promoted entry inherits the reports that were merged into the one it
       // replaced, so its count is the one thing about it that is not simply
       // carried over — it is recomputed from what is actually left.
-      struggleIds: [...disturbed.struggleIds, ...promoted.struggleIds],
-      tipIds: disturbed.tipIds,
+      confirmedIds: [...disturbed.confirmedIds, ...promoted.promotedIds],
+      votedIds: disturbed.votedIds,
     })
 
     const [row] = await tx
@@ -479,9 +479,11 @@ async function countEverything(tx: Transaction, agentId: AgentId) {
          (select count(*) from website_challenges where agent_id = ${agentId})) as challenges,
       (select count(*) from reputation_events where agent_id = ${agentId}) as reputation_events,
       (select count(*) from ledger_entries where agent_id = ${agentId}) as ledger_entries,
-      (select count(*) from task_struggles where agent_id = ${agentId}) as struggles,
-      (select count(*) from task_tips where agent_id = ${agentId}) as tips,
-      (select count(*) from tip_feedback where agent_id = ${agentId}) as tip_feedback,
+      (select count(*) from task_reports r
+         join task_attempts a on a.id = r.attempt_id
+        where a.agent_id = ${agentId}) as reports,
+      (select count(*) from report_feedback where agent_id = ${agentId}) as report_feedback,
+      (select count(*) from task_attempts where agent_id = ${agentId}) as attempts,
       (select count(*) from support_tickets where agent_id = ${agentId}) as support_tickets,
       (select count(*) from task_resets where agent_id = ${agentId}) as task_resets`,
   )
@@ -495,9 +497,9 @@ async function countEverything(tx: Transaction, agentId: AgentId) {
     challenges: Number(row.challenges),
     reputationEvents: Number(row.reputation_events),
     ledgerEntries: Number(row.ledger_entries),
-    struggles: Number(row.struggles),
-    tips: Number(row.tips),
-    tipFeedback: Number(row.tip_feedback),
+    reports: Number(row.reports),
+    reportFeedback: Number(row.report_feedback),
+    attempts: Number(row.attempts),
     supportTickets: Number(row.support_tickets),
     taskResets: Number(row.task_resets),
   }
@@ -567,23 +569,25 @@ async function writeBanMarks(tx: Transaction, agentId: AgentId, salt: string): P
  * this citizen's (#106).
  *
  * Read before the delete, because afterwards the evidence is gone: the merged
- * struggles and the votes that answer this question are precisely the rows the
+ * reports and the votes that answer this question are precisely the rows the
  * cascade removes.
  */
 async function countsThisWillDisturb(
   tx: Transaction,
   agentId: AgentId,
-): Promise<{ readonly struggleIds: readonly string[]; readonly tipIds: readonly string[] }> {
-  const struggles = await tx.execute<{ id: string }>(
-    sql`select distinct duplicate_of as id from task_struggles
-         where agent_id = ${agentId} and duplicate_of is not null`,
+): Promise<{ readonly confirmedIds: readonly string[]; readonly votedIds: readonly string[] }> {
+  const confirmed = await tx.execute<{ id: string }>(
+    sql`select distinct r.duplicate_of as id
+          from task_reports r
+          join task_attempts a on a.id = r.attempt_id
+         where a.agent_id = ${agentId} and r.duplicate_of is not null`,
   )
-  const tips = await tx.execute<{ id: string }>(
-    sql`select distinct tip_id as id from tip_feedback where agent_id = ${agentId}`,
+  const voted = await tx.execute<{ id: string }>(
+    sql`select distinct report_id as id from report_feedback where agent_id = ${agentId}`,
   )
 
   return {
-    struggleIds: struggles.map((row) => row.id),
-    tipIds: tips.map((row) => row.id),
+    confirmedIds: confirmed.map((row) => row.id),
+    votedIds: voted.map((row) => row.id),
   }
 }

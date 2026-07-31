@@ -4,13 +4,14 @@ import {
   type BriefingClaim,
   type ConfidentialSpan,
   type ModerationStages,
+  type ReportKind,
   type TaskId,
 } from '@kolonie-ai/core'
 import type {
   ApprovedEntry,
   BriefingSource,
   ModerationVerdict,
-  PendingGuidance,
+  PendingReport,
 } from '@kolonie-ai/db'
 import { markConfidential } from './confidentiality.js'
 import { synthesise } from './synthesis.js'
@@ -21,13 +22,13 @@ import type { Model } from './llm.js'
 
 /** Where the loop reads and writes. Injected, so the decision is testable without one. */
 export interface ModerationStore {
-  pending(limit: number): Promise<readonly PendingGuidance[]>
+  pending(limit: number): Promise<readonly PendingReport[]>
   approvedOn(query: {
-    readonly kind: 'struggle' | 'tip'
-    readonly taskId: PendingGuidance['taskId']
+    readonly kind: ReportKind
+    readonly taskId: PendingReport['taskId']
   }): Promise<readonly ApprovedEntry[]>
   record(input: {
-    readonly kind: 'struggle' | 'tip'
+    readonly kind: ReportKind
     readonly id: string
     readonly content: string
     readonly verdict: ModerationVerdict
@@ -100,7 +101,7 @@ export type Judgement =
  * make *the quality check passed it* and *the quality check never looked* the same
  * row.
  */
-export async function judge(entry: PendingGuidance, deps: LoopDependencies): Promise<Judgement> {
+export async function judge(entry: PendingReport, deps: LoopDependencies): Promise<Judgement> {
   const { store, model, log = silentLog } = deps
   let stages = noStagesRun()
   // Accumulated alongside `stages` and for the same reason: an entry rejected
@@ -225,7 +226,7 @@ export async function judge(entry: PendingGuidance, deps: LoopDependencies): Pro
  * about *this* report from one reached about the report it replaced.
  */
 async function write(
-  entry: PendingGuidance,
+  entry: PendingReport,
   verdict: ModerationVerdict,
   deps: LoopDependencies,
   stages: ModerationStages,

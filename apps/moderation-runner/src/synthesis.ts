@@ -132,7 +132,7 @@ function corpusPrompt(taskTitle: string, corpus: readonly BriefingSource[]): str
       .join(', ')
     return [
       `id: ${entry.id}`,
-      `kind: ${entry.kind === 'struggle' ? 'report of trouble (author did NOT pass)' : 'advice (author PASSED)'}`,
+      `kind: ${entry.kind === 'wall' ? 'report of trouble (author did NOT pass)' : 'advice (author PASSED)'}`,
       `agents behind it: ${entry.reports}${runtimes === '' ? '' : ` (${runtimes})`}`,
       `text: ${entry.content}`,
     ].join('\n')

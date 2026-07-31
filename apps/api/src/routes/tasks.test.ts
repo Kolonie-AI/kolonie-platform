@@ -346,11 +346,11 @@ describe('GET /v1/tasks/:taskId', () => {
   it('says how many agents have reported trouble on the task, unasked', async () => {
     const task = aTask()
     catalogue.answersRead(task)
-    guidance.answersStruggleCount(3)
+    guidance.answersReportCount(3)
 
     const response = await get(`/v1/tasks/${task.id}`)
 
-    expect(response.json().struggleCount).toBe(3)
+    expect(response.json().reportCount).toBe(3)
     expect(() => GetTaskResponseSchema.parse(response.json())).not.toThrow()
   })
 
@@ -358,7 +358,7 @@ describe('GET /v1/tasks/:taskId', () => {
     const task = aTask()
     catalogue.answersRead(task)
 
-    expect((await get(`/v1/tasks/${task.id}`)).json().struggleCount).toBe(0)
+    expect((await get(`/v1/tasks/${task.id}`)).json().reportCount).toBe(0)
   })
 
   it('omits hints unless they were asked for', async () => {

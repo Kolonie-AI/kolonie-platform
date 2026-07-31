@@ -242,8 +242,8 @@ export async function getTask(
   if (task === undefined) return { outcome: 'rejected', error: noSuchTask }
 
   // After the existence check, so a bad id costs no count query.
-  const struggleCount = await guidance.countStruggles(parsed.data)
-  return { outcome: 'found', response: { task, struggleCount } }
+  const reportCount = await guidance.countReports(parsed.data)
+  return { outcome: 'found', response: { task, reportCount } }
 }
 
 /**

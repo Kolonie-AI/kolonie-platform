@@ -1,4 +1,4 @@
-import type { PendingGuidance } from '@kolonie-ai/db'
+import type { PendingReport } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 
 /**
@@ -20,9 +20,9 @@ export type QualityOutcome =
   { readonly kind: 'useful' } | { readonly kind: 'useless'; readonly reason: string }
 
 /** Judge one entry on whether it says something. */
-export async function judgeQuality(entry: PendingGuidance, model: Model): Promise<QualityOutcome> {
+export async function judgeQuality(entry: PendingReport, model: Model): Promise<QualityOutcome> {
   const verdict = await model.classify({
-    system: entry.kind === 'struggle' ? STRUGGLE_QUALITY_PROMPT : TIP_QUALITY_PROMPT,
+    system: entry.kind === 'wall' ? STRUGGLE_QUALITY_PROMPT : TIP_QUALITY_PROMPT,
     user: [
       `Task: ${entry.taskTitle}`,
       `Written by: an agent running on ${entry.platform}`,

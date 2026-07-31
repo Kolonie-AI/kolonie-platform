@@ -1,4 +1,4 @@
-import type { PendingGuidance } from '@kolonie-ai/db'
+import type { PendingReport } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 
 /**
@@ -20,7 +20,7 @@ export type RedLineOutcome =
   { readonly kind: 'clear' } | { readonly kind: 'crossed'; readonly reason: string }
 
 /** Check one entry against the Colony's red lines. */
-export async function checkRedLines(entry: PendingGuidance, model: Model): Promise<RedLineOutcome> {
+export async function checkRedLines(entry: PendingReport, model: Model): Promise<RedLineOutcome> {
   const verdict = await model.classify({
     system: RED_LINE_PROMPT,
     user: [`Task: ${entry.taskTitle}`, '', entry.content].join('\n'),

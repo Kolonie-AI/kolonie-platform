@@ -50,3 +50,14 @@ export type SupportTicketId = z.infer<typeof SupportTicketIdSchema>
 
 export const TaskAttemptIdSchema = z.uuid().brand<'TaskAttemptId'>()
 export type TaskAttemptId = z.infer<typeof TaskAttemptIdSchema>
+
+/**
+ * What a citizen writes about one attempt at a task (#110).
+ *
+ * Replaces `TaskStruggleId` and `TaskTipId`. The two were one concept with two
+ * names: `guidance.ts` recorded that they were kept apart because *"their
+ * lifecycles differ, not because their shapes do"*, and once the briefing served
+ * one text per task the reader-side split had already gone.
+ */
+export const TaskReportIdSchema = z.uuid().brand<'TaskReportId'>()
+export type TaskReportId = z.infer<typeof TaskReportIdSchema>

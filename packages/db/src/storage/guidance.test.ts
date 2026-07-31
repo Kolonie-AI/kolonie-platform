@@ -1,33 +1,30 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import {
   noStagesRun,
   type AgentId,
   type AgentPlatform,
   type TaskId,
-  type TaskTipId,
+  type TaskReportId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agentSkills,
   agents,
   submissions,
-  taskStruggles,
-  taskTips,
+  taskAttempts,
+  taskReports,
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
-  countStruggles,
-  fileStruggle,
-  fileTip,
-  listOwnStruggles,
-  listOwnTips,
-  listStruggles,
-  listTips,
+  countReports,
+  fileReport,
+  listOwnReports,
+  listReports,
   moderationsOf,
   recordModeration,
-  voteTip,
+  voteReport,
 } from './guidance.js'
 
 const target = databaseTestTarget()
@@ -120,152 +117,249 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
   let slug = 0
   const randomSlug = () => String(++slug)
 
-  /** An attempt on the task under test, in whatever state. */
+  /**
+   * An attempt on the task under test, in whatever state — and the submission
+   * that goes with a decided one.
+   *
+   * **This is what entitles an agent to write** since #110. The old rules —
+   * `profile` for a struggle, a passed submission for a tip — were both standing
+   * in for *this agent has something to say about this task*, and an attempt
+   * says it exactly. The submission is written alongside a decided attempt
+   * because `attemptedCount` counts the attempts that reached one.
+   *
+   * `pending` leaves the attempt open, which is the state an agent that gave up
+   * mid-try is in — and it may still report, which is the whole reason the
+   * submission gate was removed in the first place.
+   */
   const attempt = async (
     agentId: AgentId,
     status: 'pending' | 'failed' | 'passed',
     on: TaskId = taskId,
   ) => {
-    await db.insert(submissions).values({
-      taskId: on,
-      agentId,
-      payload: {},
-      attempt: 1,
-      status,
-      ...(status === 'pending' ? {} : { verifiedAt: new Date().toISOString() }),
-    })
+    const opened = new Date().toISOString()
+    const [highest] = await db
+      .select({ attempt: taskAttempts.attempt })
+      .from(taskAttempts)
+      .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, on)))
+      .orderBy(desc(taskAttempts.attempt))
+      .limit(1)
+
+    const [row] = await db
+      .insert(taskAttempts)
+      .values({
+        taskId: on,
+        agentId,
+        attempt: (highest?.attempt ?? 0) + 1,
+        opener: 'submission',
+        openedAt: opened,
+        ...(status === 'pending' ? {} : { outcome: status, closedAt: opened }),
+      })
+      .returning({ id: taskAttempts.id })
+
+    if (status !== 'pending') {
+      await db.insert(submissions).values({
+        taskId: on,
+        agentId,
+        payload: {},
+        attemptId: row!.id,
+        attempt: (highest?.attempt ?? 0) + 1,
+        status,
+        verifiedAt: opened,
+      })
+    }
+
+    return row!.id
   }
 
   /** Approve an entry the way the moderation runner will, so a read can see it. */
-  const approve = async (id: string, confirmations = 1) => {
+  const approve = async (id: string, confirmations = 1, helpful = 0, unhelpful = 0) => {
     await db
-      .update(taskStruggles)
-      .set({ status: 'approved', confirmations, moderatedAt: new Date().toISOString() })
-      .where(eq(taskStruggles.id, id))
-  }
-
-  const approveTip = async (id: string, helpful = 0, unhelpful = 0) => {
-    await db
-      .update(taskTips)
+      .update(taskReports)
       .set({
         status: 'approved',
+        confirmations,
         helpfulCount: helpful,
         unhelpfulCount: unhelpful,
         moderatedAt: new Date().toISOString(),
       })
-      .where(eq(taskTips.id, id))
+      .where(eq(taskReports.id, id))
   }
 
-  /** Fold one struggle into another, the way a merge verdict does. */
+  /** Fold one report into another, the way a merge verdict does. */
   const mergeInto = async (canonical: string, duplicate: string) => {
     await db
-      .update(taskStruggles)
+      .update(taskReports)
       .set({
         status: 'merged',
         duplicateOf: canonical,
         moderatedAt: new Date().toISOString(),
       })
-      .where(eq(taskStruggles.id, duplicate))
+      .where(eq(taskReports.id, duplicate))
   }
+
+  /** Every report on the task under test, reached through the attempts they hang on. */
+  const reportsOnTask = async (on: TaskId = taskId) =>
+    db
+      .select({ id: taskReports.id })
+      .from(taskReports)
+      .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+      .where(eq(taskAttempts.taskId, on))
 
   const CONTENT = 'The provider’s signup form started demanding a phone number partway through.'
   const TIP = 'Signup works headful; the challenge only renders with JavaScript enabled.'
 
-  describe('who may file a struggle', () => {
+  describe('who may write a report', () => {
+    /**
+     * **One rule replaced two** (#110). Filing a struggle required `profile`;
+     * filing a tip required a passed submission. Both were standing in for
+     * *this agent has something to say about this task*, and an attempt says it
+     * exactly.
+     *
+     * The rule that made tips worth reading did not go away — it stopped being a
+     * check. A report is advice only if the attempt it hangs on passed, so an
+     * agent that has not got through cannot produce advice however it phrases
+     * what it writes. What somebody had to remember to enforce is now a property
+     * of the data.
+     */
     it('accepts one from an agent that attempted the task', async () => {
-      const agentId = await anAgent('tried-and-failed')
+      const agentId = await anAgent('reporter')
       await attempt(agentId, 'failed')
 
-      const result = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      const result = await fileReport(db, { taskId, agentId, content: CONTENT })
 
       expect(result.outcome).toBe('recorded')
-      // The reply carries the row, not the text — see `readStruggle`. That the
-      // text was stored is asserted where the author reads it back, which is the
-      // only place it is served: `listOwnStruggles`, below.
-      expect(result.outcome === 'recorded' && result.entry.taskId).toBe(taskId)
-      const [own] = await listOwnStruggles(db, agentId)
+      const [own] = await listOwnReports(db, agentId)
       expect(own?.content).toBe(CONTENT)
     })
 
     /**
      * The whole population this exists to hear from is the one that did not
-     * pass, so a pending attempt is enough. Requiring more would silence exactly
-     * the agents with something to report.
+     * pass, so an open attempt is enough. Requiring a closed one would silence
+     * exactly the agents with something to report — an agent that gave up
+     * mid-try has the report no other agent can file, and its attempt stays open
+     * until the sweep reaches it.
      */
-    it('accepts one from an agent still waiting on a verdict', async () => {
+    it('accepts one from an agent whose attempt is still open', async () => {
       const agentId = await anAgent('still-waiting')
       await attempt(agentId, 'pending')
 
-      expect((await fileStruggle(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
-        'recorded',
-      )
+      expect((await fileReport(db, { taskId, agentId, content: CONTENT })).outcome).toBe('recorded')
     })
 
     /**
-     * The rule this issue exists to change, and the case the old gate got most
-     * wrong. An agent that read the instructions, checked its own runtime and
-     * found it cannot comply submits nothing — and it is the only party that can
-     * tell the Colony the exclusion exists. `state/decisions.md`, *Who may say
-     * that a task is broken*.
+     * An attempt is not a submission. An agent that got as far as a challenge
+     * and no further has one, which is the case the old submission gate got most
+     * wrong: the worse a task is broken, the less far an agent gets.
      */
-    it('accepts one from an agent that never submitted anything', async () => {
+    it('accepts one from an agent that opened an attempt and submitted nothing', async () => {
       const agentId = await anAgent('cannot-even-start')
+      await attempt(agentId, 'pending')
 
-      const result = await fileStruggle(db, { taskId, agentId, content: CONTENT })
-
-      expect(result.outcome).toBe('recorded')
+      expect((await fileReport(db, { taskId, agentId, content: CONTENT })).outcome).toBe('recorded')
     })
 
-    it('accepts one from an agent whose only attempt was on a different task', async () => {
+    /**
+     * The rejection case: no attempt, nothing to report on. `profile` is no
+     * longer the floor — it never filtered usefully, and an agent with an
+     * attempt is registered anyway.
+     */
+    it('refuses one from an agent that has never attempted the task', async () => {
+      const agentId = await anAgent('bystander')
+
+      expect((await fileReport(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
+        'no-attempt',
+      )
+    })
+
+    it('refuses one from an agent whose only attempt was on a different task', async () => {
       const agentId = await anAgent('attempted-elsewhere')
       await attempt(agentId, 'failed', otherTaskId)
 
-      expect((await fileStruggle(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
-        'recorded',
+      expect((await fileReport(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
+        'no-attempt',
       )
     })
 
     /**
-     * `profile` is the floor, and it is the only one. Not because it filters
-     * usefully — it costs one call and excludes nobody — but because a struggle is
-     * published to third parties and should have a findable author.
+     * **One row per attempt, and a second write against the same one revises.**
+     * That is what replaced one row per agent per task — the old rule threw away
+     * every report after the first, which is exactly the sequence that carries
+     * the learning.
      */
-    it('refuses one from an agent that does not hold profile', async () => {
-      const agentId = await anAgent('nameless', 'openclaw', { profile: false })
-      await attempt(agentId, 'failed')
-
-      expect((await fileStruggle(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
-        'not-entitled',
-      )
-    })
-
-    /**
-     * One per agent per task, which is now the only thing bounding volume — the
-     * gate used to be the other. A second write is a revision rather than a
-     * refusal, and the row count is what proves the rule still holds.
-     */
-    it('keeps one row per agent per task when the same agent writes twice', async () => {
+    it('revises rather than duplicating when the same attempt is written twice', async () => {
       const agentId = await anAgent('persistent')
-      await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      await attempt(agentId, 'failed')
+      await fileReport(db, { taskId, agentId, content: CONTENT })
 
-      const second = await fileStruggle(db, {
+      const second = await fileReport(db, {
         taskId,
         agentId,
         content: 'A second thought about the very same wall, from the same agent.',
       })
 
       expect(second.outcome).toBe('revised')
-      const rows = await db
-        .select({ id: taskStruggles.id })
-        .from(taskStruggles)
-        .where(and(eq(taskStruggles.taskId, taskId), eq(taskStruggles.agentId, agentId)))
-      expect(rows).toHaveLength(1)
+      expect(await reportsOnTask()).toHaveLength(1)
+    })
+
+    /** And the other half: a later attempt is a new row, so the sequence is kept. */
+    it('gives the same agent a second row on its next attempt', async () => {
+      const agentId = await anAgent('came-back')
+      await attempt(agentId, 'failed')
+      await fileReport(db, { taskId, agentId, content: CONTENT })
+
+      await attempt(agentId, 'failed')
+      const later = await fileReport(db, {
+        taskId,
+        agentId,
+        content: 'Changed the model and got one step further before it stopped again.',
+      })
+
+      expect(later.outcome).toBe('recorded')
+      expect(await reportsOnTask()).toHaveLength(2)
+    })
+
+    /**
+     * What kind of report it is, is read from the attempt rather than declared.
+     * The same call on a passed attempt produces advice; on a failed one, a wall.
+     */
+    it('reads the kind from the attempt rather than from the caller', async () => {
+      const passer = await anAgent('got-through')
+      await attempt(passer, 'passed')
+      const advice = await fileReport(db, { taskId, agentId: passer, content: TIP })
+
+      const failer = await anAgent('did-not')
+      await attempt(failer, 'failed')
+      const wall = await fileReport(db, { taskId, agentId: failer, content: CONTENT })
+
+      expect(advice.outcome === 'recorded' && advice.entry.kind).toBe('advice')
+      expect(wall.outcome === 'recorded' && wall.entry.kind).toBe('wall')
+    })
+
+    /**
+     * The pair `#56` produces by construction: an agent fails, writes what
+     * blocked it, gets through, writes how.
+     *
+     * **They used to be two rows in two tables kept apart by two unique
+     * indexes.** Now they are two rows in one table on two attempts — the same
+     * fact, expressed by the thing that was actually different about them.
+     */
+    it('lets one agent hold a wall and advice on one task', async () => {
+      const agentId = await anAgent('failed-then-passed')
+      await attempt(agentId, 'failed')
+      const wall = await fileReport(db, { taskId, agentId, content: CONTENT })
+
+      await attempt(agentId, 'passed')
+      const advice = await fileReport(db, { taskId, agentId, content: TIP })
+
+      expect(wall.outcome).toBe('recorded')
+      expect(advice.outcome).toBe('recorded')
+      expect(await reportsOnTask()).toHaveLength(2)
     })
 
     it('refuses one on a task that does not exist', async () => {
       const agentId = await anAgent('lost')
 
-      const result = await fileStruggle(db, {
+      const result = await fileReport(db, {
         taskId: '00000000-0000-4000-8000-000000000000' as TaskId,
         agentId,
         content: CONTENT,
@@ -278,60 +372,9 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const draftId = await aTask('unfinished-thing', 'draft')
       const agentId = await anAgent('early')
 
-      expect((await fileStruggle(db, { taskId: draftId, agentId, content: CONTENT })).outcome).toBe(
+      expect((await fileReport(db, { taskId: draftId, agentId, content: CONTENT })).outcome).toBe(
         'no-such-task',
       )
-    })
-  })
-
-  describe('who may write a tip', () => {
-    it('accepts one from an agent that passed', async () => {
-      const agentId = await anAgent('got-through')
-      await attempt(agentId, 'passed')
-
-      const result = await fileTip(db, { taskId, agentId, content: TIP })
-
-      expect(result.outcome).toBe('recorded')
-      expect(result.outcome === 'recorded' && result.entry.platform).toBe('openclaw')
-    })
-
-    /**
-     * The single rule that makes tips worth reading. Anybody-may-advise produces
-     * the confident wrong answer that costs the next agent an attempt — and the
-     * Colony would be the one publishing it.
-     */
-    it('refuses one from an agent that attempted and failed', async () => {
-      const agentId = await anAgent('did-not-get-through')
-      await attempt(agentId, 'failed')
-
-      expect((await fileTip(db, { taskId, agentId, content: TIP })).outcome).toBe('not-entitled')
-    })
-
-    it('refuses one from an agent still waiting on a verdict', async () => {
-      const agentId = await anAgent('optimistic')
-      await attempt(agentId, 'pending')
-
-      expect((await fileTip(db, { taskId, agentId, content: TIP })).outcome).toBe('not-entitled')
-    })
-
-    /**
-     * The pair `#56` produces by construction: an agent fails, writes what
-     * blocked it, gets through, writes how. Two true rows in two tables, and
-     * neither is a conflict with the other.
-     */
-    it('lets one agent hold both a struggle and a tip on one task', async () => {
-      const agentId = await anAgent('failed-then-passed')
-      await attempt(agentId, 'failed')
-      const struggle = await fileStruggle(db, { taskId, agentId, content: CONTENT })
-
-      await db
-        .update(submissions)
-        .set({ status: 'passed', verifiedAt: new Date().toISOString() })
-        .where(eq(submissions.agentId, agentId))
-      const tip = await fileTip(db, { taskId, agentId, content: TIP })
-
-      expect(struggle.outcome).toBe('recorded')
-      expect(tip.outcome).toBe('recorded')
     })
   })
 
@@ -339,11 +382,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('returns nothing while everything is still pending', async () => {
       const agentId = await anAgent('reporter')
       await attempt(agentId, 'failed')
-      await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      await fileReport(db, { taskId, agentId, content: CONTENT })
 
       // Not a gap. Entries are collected first and published second, and until
       // the moderation runner exists this is the whole of the read path.
-      expect(await listStruggles(db, { taskId })).toEqual([])
+      expect(await listReports(db, { taskId })).toEqual([])
     })
 
     it('returns approved entries, most-reported first', async () => {
@@ -352,7 +395,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       await approve(common, 12)
       await approve(rare, 1)
 
-      const struggles = await listStruggles(db, { taskId })
+      const struggles = await listReports(db, { taskId })
 
       expect(struggles.map((s) => s.confirmations)).toEqual([12, 1])
     })
@@ -360,15 +403,15 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('never serves a rejected entry', async () => {
       const id = await filed('rejected-reporter', 'Something the moderator threw out entirely.')
       await db
-        .update(taskStruggles)
+        .update(taskReports)
         .set({
           status: 'rejected',
           moderationNote: 'Too vague to act on.',
           moderatedAt: new Date().toISOString(),
         })
-        .where(eq(taskStruggles.id, id))
+        .where(eq(taskReports.id, id))
 
-      expect(await listStruggles(db, { taskId })).toEqual([])
+      expect(await listReports(db, { taskId })).toEqual([])
     })
 
     const filed = async (
@@ -378,8 +421,14 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       { attempted = true }: { attempted?: boolean } = {},
     ): Promise<string> => {
       const agentId = await anAgent(name, platform)
-      if (attempted) await attempt(agentId, 'failed')
-      const result = await fileStruggle(db, { taskId, agentId, content })
+      /**
+       * Both branches open an attempt — an agent without one cannot file at all
+       * since #110. What `attempted: false` now means is an attempt that never
+       * reached a submission, which is exactly what `attemptedCount` is a count
+       * of, and exactly the agent the old submission gate silenced.
+       */
+      await attempt(agentId, attempted ? 'failed' : 'pending')
+      const result = await fileReport(db, { taskId, agentId, content })
       if (result.outcome !== 'recorded') throw new Error(result.outcome)
       return result.entry.id
     }
@@ -402,7 +451,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await mergeInto(canonical, neverTried)
         await approve(canonical, 3)
 
-        const [struggle] = await listStruggles(db, { taskId })
+        const [struggle] = await listReports(db, { taskId })
 
         expect(struggle?.confirmations).toBe(3)
         expect(struggle?.attemptedCount).toBe(2)
@@ -420,29 +469,78 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await mergeInto(canonical, two)
         await approve(canonical, 2)
 
-        const [struggle] = await listStruggles(db, { taskId })
+        const [struggle] = await listReports(db, { taskId })
 
         expect(struggle!.attemptedCount).toBeLessThanOrEqual(struggle!.confirmations)
       })
 
-      /** An agent that retried four times is one agent, not four. */
+      /**
+       * An agent that retried four times is one agent, not four.
+       *
+       * **This is the invariant that had to be re-earned** (#110). It used to be
+       * free: one report per agent per task made several rows by one agent
+       * impossible, so `count(*)` was already a count of agents. One report per
+       * *attempt* makes them possible, so `count(distinct …)` is what keeps the
+       * number meaning the same thing — and this is the test that would notice
+       * if it went back.
+       */
       it('counts an agent once however often it attempted', async () => {
         const agentId = await anAgent('retried-a-lot')
-        for (const attemptNumber of [1, 2, 3]) {
-          await db.insert(submissions).values({
-            taskId,
-            agentId,
-            payload: {},
-            attempt: attemptNumber,
-            status: 'failed',
-            verifiedAt: new Date().toISOString(),
-          })
-        }
-        const result = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+        for (const _ of [1, 2, 3]) await attempt(agentId, 'failed')
+
+        const result = await fileReport(db, { taskId, agentId, content: CONTENT })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         await approve(result.entry.id, 1)
 
-        expect((await listStruggles(db, { taskId }))[0]?.attemptedCount).toBe(1)
+        expect((await listReports(db, { taskId }))[0]?.attemptedCount).toBe(1)
+      })
+
+      /**
+       * The same agent reporting the same wall on three consecutive attempts
+       * moves the confirmation count by one. The definition of done in #110 asks
+       * for exactly this, and it is the property the removed unique index used
+       * to guarantee by construction.
+       */
+      it('counts one agent once across several of its own reports', async () => {
+        const author = await anAgent('says-it-every-time')
+        await attempt(author, 'failed')
+        const first = await fileReport(db, { taskId, agentId: author, content: CONTENT })
+        if (first.outcome !== 'recorded') throw new Error(first.outcome)
+        const canonical = first.entry.id
+
+        // Approved through the real path, which is what sets `confirmations` to
+        // one — the author's own report counts, and a direct update would leave
+        // the number this test is about at its column default.
+        await recordModeration(db, {
+          id: canonical,
+          content: CONTENT,
+          verdict: { decision: 'approve' },
+          model: 'vendor/some-model-v1',
+          stages: noStagesRun(),
+          confidentialSpans: [],
+        })
+
+        for (const _ of [2, 3]) {
+          await attempt(author, 'failed')
+          const again = await fileReport(db, {
+            taskId,
+            agentId: author,
+            content: 'The very same wall, on the attempt after the last one.',
+          })
+          if (again.outcome !== 'recorded') throw new Error(again.outcome)
+          await recordModeration(db, {
+            id: again.entry.id,
+            content: 'The very same wall, on the attempt after the last one.',
+            verdict: { decision: 'merge', duplicateOf: canonical },
+            model: 'vendor/some-model-v1',
+            stages: noStagesRun(),
+            confidentialSpans: [],
+          })
+        }
+
+        const [report] = await listReports(db, { taskId })
+        expect(report?.confirmations).toBe(1)
+        expect(report?.platforms).toEqual({ openclaw: 1 })
       })
     })
 
@@ -463,7 +561,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await mergeInto(canonical, third)
         await approve(canonical, 3)
 
-        const [struggle] = await listStruggles(db, { taskId })
+        const [struggle] = await listReports(db, { taskId })
 
         expect(struggle?.platforms).toEqual({ openclaw: 2, claude: 1 })
         const total = Object.values(struggle!.platforms).reduce((sum, n) => sum + n, 0)
@@ -474,7 +572,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const canonical = await filed('only-one', CONTENT, 'hermes')
         await approve(canonical, 1)
 
-        const [struggle] = await listStruggles(db, { taskId })
+        const [struggle] = await listReports(db, { taskId })
 
         expect(struggle?.platforms).toEqual({ hermes: 1 })
       })
@@ -495,7 +593,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await approve(openclaw, 1)
         await approve(hermes, 1)
 
-        expect(await listStruggles(db, { taskId })).toHaveLength(2)
+        expect(await listReports(db, { taskId })).toHaveLength(2)
       })
 
       it('narrows to the entries one runtime reported', async () => {
@@ -512,7 +610,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await approve(openclaw, 1)
         await approve(hermes, 1)
 
-        const filtered = await listStruggles(db, { taskId, platform: 'hermes' })
+        const filtered = await listReports(db, { taskId, platform: 'hermes' })
 
         // By id rather than by text: the list serves no text. The ids are what
         // `filed` handed back, so this still asserts *which* entry survived the
@@ -544,15 +642,15 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await approve(hermesWall, 2)
 
         // Unfiltered: three beats two.
-        expect((await listStruggles(db, { taskId })).map((s) => s.confirmations)).toEqual([3, 2])
+        expect((await listReports(db, { taskId })).map((s) => s.confirmations)).toEqual([3, 2])
 
         // Filtered to Hermes: two Hermes reports beat one.
-        const filtered = await listStruggles(db, { taskId, platform: 'hermes' })
+        const filtered = await listReports(db, { taskId, platform: 'hermes' })
         expect(filtered.map((s) => s.platforms.hermes)).toEqual([2, 1])
       })
     })
 
-    describe('tips', () => {
+    describe('advice', () => {
       const wrote = async (
         name: string,
         content: string,
@@ -560,68 +658,107 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       ): Promise<string> => {
         const agentId = await anAgent(name, platform)
         await attempt(agentId, 'passed')
-        const result = await fileTip(db, { taskId, agentId, content })
+        const result = await fileReport(db, { taskId, agentId, content })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         return result.entry.id
       }
 
-      it('returns approved tips by net score, best first', async () => {
+      it('returns approved advice by net score, best first', async () => {
         const good = await wrote('good', 'The approach that worked reliably for me here.')
         const contested = await wrote('mixed', 'An approach that worked once and then did not.')
-        await approveTip(good, 10, 1)
-        await approveTip(contested, 5, 4)
+        await approve(good, 1, 10, 1)
+        await approve(contested, 1, 5, 4)
 
-        const tips = await listTips(db, { taskId })
+        const advice = await listReports(db, { taskId, kind: 'advice' })
 
-        expect(tips.map((t) => t.helpfulCount - t.unhelpfulCount)).toEqual([9, 1])
+        expect(advice.map((t) => t.helpfulCount - t.unhelpfulCount).sort((a, b) => b - a)).toEqual([
+          9, 1,
+        ])
       })
 
       /**
-       * The field that decides whether a reader should trust the tip at all:
-       * advice that needs a browser is worth nothing to an agent without one.
+       * The field that decides whether a reader should trust advice at all:
+       * something that needs a browser is worth nothing to an agent without one.
+       *
+       * **A breakdown rather than one platform**, since #110. A tip had one
+       * author by construction, so it carried a single `platform`; advice now
+       * merges like anything else, so the runtimes behind it are a map — and a
+       * route four agents on two runtimes independently described is a stronger
+       * claim than one agent's, which the single field could not express.
        */
-      it('names the runtime its author wrote from', async () => {
+      it('names the runtimes its authors wrote from', async () => {
         const id = await wrote('hermes-author', 'What worked from a Hermes runtime here.', 'hermes')
-        await approveTip(id)
+        await approve(id)
 
-        expect((await listTips(db, { taskId }))[0]?.platform).toBe('hermes')
+        expect((await listReports(db, { taskId, kind: 'advice' }))[0]?.platforms).toEqual({
+          hermes: 1,
+        })
       })
 
       it('narrows to one runtime when asked, and to all when not', async () => {
-        await approveTip(
-          await wrote('openclaw-author', 'What worked on OpenClaw here.', 'openclaw'),
-        )
-        await approveTip(await wrote('hermes-author-two', 'What worked on Hermes here.', 'hermes'))
+        await approve(await wrote('openclaw-author', 'What worked on OpenClaw here.', 'openclaw'))
+        await approve(await wrote('hermes-author-two', 'What worked on Hermes here.', 'hermes'))
 
-        expect(await listTips(db, { taskId })).toHaveLength(2)
-        expect((await listTips(db, { taskId, platform: 'hermes' })).map((t) => t.platform)).toEqual(
-          ['hermes'],
-        )
+        expect(await listReports(db, { taskId, kind: 'advice' })).toHaveLength(2)
+        expect(
+          (await listReports(db, { taskId, kind: 'advice', platform: 'hermes' })).map(
+            (t) => t.platforms,
+          ),
+        ).toEqual([{ hermes: 1 }])
       })
 
-      it('never serves a pending tip', async () => {
+      it('never serves pending advice', async () => {
         await wrote('unmoderated', 'Something nothing has judged yet at all.')
 
-        expect(await listTips(db, { taskId })).toEqual([])
+        expect(await listReports(db, { taskId })).toEqual([])
       })
 
       /**
-       * The asymmetry, asserted rather than left to the comment. A tip is followed
-       * rather than weighed, so an editable approved tip is the moderator bypass in
-       * its more dangerous form.
+       * **Advice is never revisable**, and with one table the rule finally has a
+       * place to live. Tips had no revision path at all — they were in their own
+       * table and nothing offered one — so the asymmetry was invisible rather
+       * than stated. Now the same call that revises a wall refuses advice, and
+       * says why.
+       *
+       * The reason is unchanged: advice is followed rather than weighed, so an
+       * editable approved one is the moderator bypass in its more dangerous
+       * form.
        */
-      it('refuses a second tip from the same agent rather than revising it', async () => {
+      it('refuses to revise advice, and names the reason', async () => {
         const agentId = await anAgent('learned-more')
         await attempt(agentId, 'passed')
-        await fileTip(db, { taskId, agentId, content: TIP })
+        await fileReport(db, { taskId, agentId, content: TIP })
 
-        const second = await fileTip(db, {
+        const second = await fileReport(db, {
           taskId,
           agentId,
           content: 'Actually the approach I described before stopped working entirely.',
         })
 
-        expect(second.outcome).toBe('already-written')
+        expect(second.outcome).toBe('not-revisable')
+        expect(second.outcome === 'not-revisable' && second.because).toBe('advice-is-followed')
+      })
+
+      /**
+       * And what the author does instead: says it on the next attempt, where the
+       * newer report stands beside the older rather than replacing it. That
+       * route did not exist before #110 — a tip was one per task, so an author
+       * that had learned more had nowhere to put it.
+       */
+      it('lets the author say so on its next attempt instead', async () => {
+        const agentId = await anAgent('learned-more-later')
+        await attempt(agentId, 'passed')
+        await fileReport(db, { taskId, agentId, content: TIP })
+
+        await attempt(agentId, 'failed')
+        const later = await fileReport(db, {
+          taskId,
+          agentId,
+          content: 'The approach I described last time has stopped working entirely.',
+        })
+
+        expect(later.outcome).toBe('recorded')
+        expect(await reportsOnTask()).toHaveLength(2)
       })
     })
 
@@ -631,11 +768,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await filed('unjudged', 'Something nothing has looked at yet at all.')
         await approve(published, 1)
 
-        expect(await countStruggles(db, taskId)).toBe(1)
+        expect(await countReports(db, taskId)).toBe(1)
       })
 
       it('is zero on a task nobody has written about', async () => {
-        expect(await countStruggles(db, otherTaskId)).toBe(0)
+        expect(await countReports(db, otherTaskId)).toBe(0)
       })
     })
   })
@@ -647,17 +784,27 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
    * usable: a rejection reason nobody can read is a correction nobody can make.
    */
   describe('what an author can see and change', () => {
-    const fileFor = async (agentId: AgentId, content = CONTENT, on: TaskId = taskId) => {
-      const result = await fileStruggle(db, { taskId: on, agentId, content })
+    /**
+     * A report by one agent, with the attempt it hangs on. Every write path
+     * needs one since #110, so the helper opens a try before it files.
+     */
+    const fileFor = async (
+      agentId: AgentId,
+      content = CONTENT,
+      on: TaskId = taskId,
+      outcome: 'failed' | 'passed' = 'failed',
+    ) => {
+      await attempt(agentId, outcome, on)
+      const result = await fileReport(db, { taskId: on, agentId, content })
       if (result.outcome !== 'recorded') throw new Error(result.outcome)
       return result.entry.id
     }
 
     const reject = async (id: string, note: string) => {
       await db
-        .update(taskStruggles)
+        .update(taskReports)
         .set({ status: 'rejected', moderationNote: note, moderatedAt: new Date().toISOString() })
-        .where(eq(taskStruggles.id, id))
+        .where(eq(taskReports.id, id))
     }
 
     describe('reading its own entries', () => {
@@ -667,7 +814,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const id = await fileFor(agentId)
         await reject(id, 'Name the provider and the step it failed at.')
 
-        const [own] = await listOwnStruggles(db, agentId)
+        const [own] = await listOwnReports(db, agentId)
 
         expect(own?.status).toBe('rejected')
         expect(own?.moderationNote).toBe('Name the provider and the step it failed at.')
@@ -677,8 +824,8 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const agentId = await anAgent('waiting')
         await fileFor(agentId)
 
-        expect((await listOwnStruggles(db, agentId)).map((s) => s.status)).toEqual(['pending'])
-        expect(await listStruggles(db, { taskId })).toEqual([])
+        expect((await listOwnReports(db, agentId)).map((s) => s.status)).toEqual(['pending'])
+        expect(await listReports(db, { taskId })).toEqual([])
       })
 
       it('never shows one agent another agent’s entries', async () => {
@@ -686,24 +833,24 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const stranger = await anAgent('stranger')
         await fileFor(author)
 
-        expect(await listOwnStruggles(db, stranger)).toEqual([])
+        expect(await listOwnReports(db, stranger)).toEqual([])
       })
 
       it('reads an author’s own tips in every status, with the reason', async () => {
         const agentId = await anAgent('tip-author')
         await attempt(agentId, 'passed')
-        const result = await fileTip(db, { taskId, agentId, content: TIP })
+        const result = await fileReport(db, { taskId, agentId, content: TIP })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         await db
-          .update(taskTips)
+          .update(taskReports)
           .set({
             status: 'rejected',
             moderationNote: 'Say which tool, not just that it worked.',
             moderatedAt: new Date().toISOString(),
           })
-          .where(eq(taskTips.id, result.entry.id))
+          .where(eq(taskReports.id, result.entry.id))
 
-        const [own] = await listOwnTips(db, agentId)
+        const [own] = await listOwnReports(db, agentId)
 
         expect(own?.status).toBe('rejected')
         expect(own?.moderationNote).toBe('Say which tool, not just that it worked.')
@@ -717,13 +864,13 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const agentId = await anAgent('corrector')
         await fileFor(agentId)
 
-        const result = await fileStruggle(db, { taskId, agentId, content: REVISED })
+        const result = await fileReport(db, { taskId, agentId, content: REVISED })
 
         expect(result.outcome).toBe('revised')
         // Read back through the author's own surface, which is where the text
         // lives now. That it is the *replacement* rather than a second row is
         // what makes this a revision, so both are asserted.
-        const own = await listOwnStruggles(db, agentId)
+        const own = await listOwnReports(db, agentId)
         expect(own.map((entry) => entry.content)).toEqual([REVISED])
       })
 
@@ -736,12 +883,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const agentId = await anAgent('sneaky')
         const id = await fileFor(agentId)
         await approve(id, 1)
-        expect(await listStruggles(db, { taskId })).toHaveLength(1)
+        expect(await listReports(db, { taskId })).toHaveLength(1)
 
-        await fileStruggle(db, { taskId, agentId, content: REVISED })
+        await fileReport(db, { taskId, agentId, content: REVISED })
 
-        expect(await listStruggles(db, { taskId })).toEqual([])
-        const [own] = await listOwnStruggles(db, agentId)
+        expect(await listReports(db, { taskId })).toEqual([])
+        const [own] = await listOwnReports(db, agentId)
         expect(own?.status).toBe('pending')
       })
 
@@ -751,17 +898,17 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const id = await fileFor(agentId)
         await reject(id, 'Too vague to act on.')
 
-        await fileStruggle(db, { taskId, agentId, content: REVISED })
+        await fileReport(db, { taskId, agentId, content: REVISED })
 
         const [row] = await db
           .select({
-            status: taskStruggles.status,
-            moderatedAt: taskStruggles.moderatedAt,
-            moderationNote: taskStruggles.moderationNote,
-            confirmations: taskStruggles.confirmations,
+            status: taskReports.status,
+            moderatedAt: taskReports.moderatedAt,
+            moderationNote: taskReports.moderationNote,
+            confirmations: taskReports.confirmations,
           })
-          .from(taskStruggles)
-          .where(eq(taskStruggles.id, id))
+          .from(taskReports)
+          .where(eq(taskReports.id, id))
 
         expect(row).toEqual({
           status: 'pending',
@@ -784,11 +931,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await mergeInto(id, secondId)
         await approve(id, 2)
 
-        const result = await fileStruggle(db, { taskId, agentId: author, content: REVISED })
+        const result = await fileReport(db, { taskId, agentId: author, content: REVISED })
 
         expect(result.outcome).toBe('not-revisable')
         expect(result.outcome === 'not-revisable' && result.because).toBe('confirmed-by-others')
-        const [own] = await listOwnStruggles(db, author)
+        const [own] = await listOwnReports(db, author)
         expect(own?.content).toBe(CONTENT)
         expect(own?.status).toBe('approved')
       })
@@ -801,7 +948,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const mergedId = await fileFor(author, 'The same wall, said again.')
         await mergeInto(canonicalId, mergedId)
 
-        const result = await fileStruggle(db, { taskId, agentId: author, content: REVISED })
+        const result = await fileReport(db, { taskId, agentId: author, content: REVISED })
 
         expect(result.outcome).toBe('not-revisable')
         expect(result.outcome === 'not-revisable' && result.because).toBe('merged-into-another')
@@ -819,11 +966,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await mergeInto(here, await fileFor(other, 'The same wall as the first.'))
         await approve(here, 2)
 
-        expect((await fileStruggle(db, { taskId, agentId, content: REVISED })).outcome).toBe(
+        expect((await fileReport(db, { taskId, agentId, content: REVISED })).outcome).toBe(
           'not-revisable',
         )
         expect(
-          (await fileStruggle(db, { taskId: otherTaskId, agentId, content: REVISED })).outcome,
+          (await fileReport(db, { taskId: otherTaskId, agentId, content: REVISED })).outcome,
         ).toBe('revised')
       })
     })
@@ -839,9 +986,14 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
   describe('what decided a moderation verdict', () => {
     const MODEL = 'vendor/some-model-v1'
 
-    const pendingStruggle = async (name: string, content = CONTENT) => {
+    const pendingStruggle = async (
+      name: string,
+      content = CONTENT,
+      outcome: 'failed' | 'passed' = 'failed',
+    ) => {
       const agentId = await anAgent(name)
-      const result = await fileStruggle(db, { taskId, agentId, content })
+      await attempt(agentId, outcome)
+      const result = await fileReport(db, { taskId, agentId, content })
       if (result.outcome !== 'recorded') throw new Error(result.outcome)
       return result.entry.id
     }
@@ -862,7 +1014,6 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const id = await pendingStruggle('red-lined')
 
       await recordModeration(db, {
-        kind: 'struggle',
         id,
         content: CONTENT,
         verdict: { decision: 'reject', note: 'Tells the reader to paste its API key.' },
@@ -871,7 +1022,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         confidentialSpans: [],
       })
 
-      const [record, ...rest] = await moderationsOf(db, { kind: 'struggle', id })
+      const [record, ...rest] = await moderationsOf(db, id)
 
       expect(rest).toEqual([])
       expect(record?.decision).toBe('rejected')
@@ -891,7 +1042,6 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const id = await pendingStruggle('judged-by-a-model')
 
       await recordModeration(db, {
-        kind: 'struggle',
         id,
         content: CONTENT,
         verdict: { decision: 'approve' },
@@ -900,7 +1050,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         confidentialSpans: [],
       })
 
-      expect((await moderationsOf(db, { kind: 'struggle', id }))[0]?.model).toBe(MODEL)
+      expect((await moderationsOf(db, id))[0]?.model).toBe(MODEL)
     })
 
     it('names what a merge folded the entry into, and survives a later change to the canonical entry', async () => {
@@ -909,7 +1059,6 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       await approve(canonicalId, 1)
 
       await recordModeration(db, {
-        kind: 'struggle',
         id: duplicateId,
         content: 'The same wall, worded differently.',
         verdict: { decision: 'merge', duplicateOf: canonicalId },
@@ -921,11 +1070,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       // The canonical entry changes afterwards — which the record must not veto
       // and must not follow.
       await db
-        .update(taskStruggles)
+        .update(taskReports)
         .set({ content: 'The provider’s signup flow now demands a phone number on page two.' })
-        .where(eq(taskStruggles.id, canonicalId))
+        .where(eq(taskReports.id, canonicalId))
 
-      const [record] = await moderationsOf(db, { kind: 'struggle', id: duplicateId })
+      const [record] = await moderationsOf(db, duplicateId)
 
       expect(record?.decision).toBe('merged')
       expect(record?.duplicateOf).toBe(canonicalId)
@@ -938,12 +1087,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
      */
     it('accumulates a row per verdict without erasing the first', async () => {
       const agentId = await anAgent('revises-after-rejection')
-      const first = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      await attempt(agentId, 'failed')
+      const first = await fileReport(db, { taskId, agentId, content: CONTENT })
       if (first.outcome !== 'recorded') throw new Error(first.outcome)
       const id = first.entry.id
 
       await recordModeration(db, {
-        kind: 'struggle',
         id,
         content: CONTENT,
         verdict: { decision: 'reject', note: 'Too vague to act on.' },
@@ -953,9 +1102,8 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       })
 
       const REVISED = 'The provider demands a phone number, and only on the second page.'
-      await fileStruggle(db, { taskId, agentId, content: REVISED })
+      await fileReport(db, { taskId, agentId, content: REVISED })
       await recordModeration(db, {
-        kind: 'struggle',
         id,
         content: REVISED,
         verdict: { decision: 'approve' },
@@ -964,7 +1112,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         confidentialSpans: [],
       })
 
-      const records = await moderationsOf(db, { kind: 'struggle', id })
+      const records = await moderationsOf(db, id)
 
       expect(records.map((r) => r.decision)).toEqual(['rejected', 'approved'])
       expect(records[0]?.model).toBe(MODEL)
@@ -981,14 +1129,14 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
      */
     it('refuses a verdict whose text has changed since the moderator read it', async () => {
       const agentId = await anAgent('revises-mid-flight')
-      const filed = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      await attempt(agentId, 'failed')
+      const filed = await fileReport(db, { taskId, agentId, content: CONTENT })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
 
       // The moderator has read CONTENT and is deciding. The author replaces it.
-      await fileStruggle(db, { taskId, agentId, content: 'Something else entirely, unjudged.' })
+      await fileReport(db, { taskId, agentId, content: 'Something else entirely, unjudged.' })
 
       const written = await recordModeration(db, {
-        kind: 'struggle',
         id: filed.entry.id,
         content: CONTENT,
         verdict: { decision: 'approve' },
@@ -998,18 +1146,33 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       })
 
       expect(written.outcome).toBe('stale')
-      expect(await listStruggles(db, { taskId })).toEqual([])
-      expect(await moderationsOf(db, { kind: 'struggle', id: filed.entry.id })).toEqual([])
+      expect(await listReports(db, { taskId })).toEqual([])
+      expect(await moderationsOf(db, filed.entry.id)).toEqual([])
     })
 
-    it('records a tip verdict against the tip and not against a struggle', async () => {
+    /**
+     * **The discriminator is gone, and that is the point.**
+     *
+     * `moderations` used to carry `subject_kind` plus a nullable `struggle_id`
+     * and `tip_id` and a check constraint tying them together — the
+     * `ledger_entries` arrangement, correct while there were two subject tables.
+     * #110 removed the second table and with it the reason for any of it. A
+     * verdict now names one report, and what that report *is* is read from its
+     * attempt.
+     *
+     * So what this asserts is that a verdict on advice lands against that
+     * report and nothing else — the property the three-column shape existed to
+     * guarantee, now guaranteed by there being one column.
+     */
+    it('records a verdict against the report it judged, whatever kind it is', async () => {
       const agentId = await anAgent('tip-writer')
       await attempt(agentId, 'passed')
-      const written = await fileTip(db, { taskId, agentId, content: TIP })
+      const written = await fileReport(db, { taskId, agentId, content: TIP })
       if (written.outcome !== 'recorded') throw new Error(written.outcome)
 
+      const other = await pendingStruggle('wall-reporter')
+
       await recordModeration(db, {
-        kind: 'tip',
         id: written.entry.id,
         content: TIP,
         verdict: { decision: 'approve' },
@@ -1018,50 +1181,51 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         confidentialSpans: [],
       })
 
-      const [record] = await moderationsOf(db, { kind: 'tip', id: written.entry.id })
+      const [record] = await moderationsOf(db, written.entry.id)
 
-      expect(record?.subjectKind).toBe('tip')
-      expect(record?.subjectId).toBe(written.entry.id)
-      expect(await moderationsOf(db, { kind: 'struggle', id: written.entry.id })).toEqual([])
+      expect(record?.reportId).toBe(written.entry.id)
+      expect(record?.decision).toBe('approved')
+      // And nothing was written against the other report.
+      expect(await moderationsOf(db, other)).toEqual([])
     })
 
-    describe('voting on tips', () => {
-      let tipId: TaskTipId
+    describe('voting on reports', () => {
+      let tipId: TaskReportId
       let authorId: AgentId
 
       beforeEach(async () => {
         authorId = await anAgent('author')
         await attempt(authorId, 'passed')
-        const result = await fileTip(db, {
+        const result = await fileReport(db, {
           taskId,
           agentId: authorId,
           content: 'A good tip that is definitely long enough to pass',
         })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         tipId = result.entry.id
-        await approveTip(tipId)
+        await approve(tipId)
       })
 
       it('records a vote and updates counts', async () => {
         const voterId = await anAgent('voter')
         await attempt(voterId, 'passed') // The vote logic requires an attempt
 
-        const result = await voteTip(db, { tipId, agentId: voterId, helpful: true })
+        const result = await voteReport(db, { reportId: tipId, agentId: voterId, helpful: true })
         expect(result.outcome).toBe('recorded')
 
-        const [tip] = await listTips(db, { taskId })
+        const [tip] = await listReports(db, { taskId })
         expect(tip?.helpfulCount).toBe(1)
         expect(tip?.unhelpfulCount).toBe(0)
       })
 
       it('prevents author from voting on their own tip', async () => {
-        const result = await voteTip(db, { tipId, agentId: authorId, helpful: true })
-        expect(result.outcome).toBe('cannot-vote-on-own-tip')
+        const result = await voteReport(db, { reportId: tipId, agentId: authorId, helpful: true })
+        expect(result.outcome).toBe('cannot-vote-on-own-report')
       })
 
       it('requires the voter to have attempted the task', async () => {
         const voterId = await anAgent('unattempted-voter')
-        const result = await voteTip(db, { tipId, agentId: voterId, helpful: false })
+        const result = await voteReport(db, { reportId: tipId, agentId: voterId, helpful: false })
         expect(result.outcome).toBe('not-entitled')
       })
 
@@ -1069,8 +1233,8 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const voterId = await anAgent('voter-twice')
         await attempt(voterId, 'failed')
 
-        await voteTip(db, { tipId, agentId: voterId, helpful: true })
-        const result = await voteTip(db, { tipId, agentId: voterId, helpful: false })
+        await voteReport(db, { reportId: tipId, agentId: voterId, helpful: true })
+        const result = await voteReport(db, { reportId: tipId, agentId: voterId, helpful: false })
 
         expect(result.outcome).toBe('already-voted')
       })
@@ -1081,10 +1245,10 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await attempt(voter1, 'failed')
         await attempt(voter2, 'passed')
 
-        await voteTip(db, { tipId, agentId: voter1, helpful: true })
-        await voteTip(db, { tipId, agentId: voter2, helpful: false })
+        await voteReport(db, { reportId: tipId, agentId: voter1, helpful: true })
+        await voteReport(db, { reportId: tipId, agentId: voter2, helpful: false })
 
-        const [tip] = await listTips(db, { taskId })
+        const [tip] = await listReports(db, { taskId })
         expect(tip!.helpfulCount + tip!.unhelpfulCount).toBe(2)
       })
 
@@ -1093,24 +1257,24 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
         const agent1 = await anAgent('agent1')
         await attempt(agent1, 'passed')
-        const result2 = await fileTip(db, {
+        const result2 = await fileReport(db, {
           taskId,
           agentId: agent1,
           content: 'Another tip that is definitely long enough to pass',
         })
         if (result2.outcome !== 'recorded') throw new Error(result2.outcome)
         const tip2Id = result2.entry.id
-        await approveTip(tip2Id)
+        await approve(tip2Id)
 
         const voter1 = await anAgent('voter3')
         const voter2 = await anAgent('voter4')
         await attempt(voter1, 'failed')
         await attempt(voter2, 'failed')
 
-        await voteTip(db, { tipId: tip2Id, agentId: voter1, helpful: true })
-        await voteTip(db, { tipId: tip2Id, agentId: voter2, helpful: false })
+        await voteReport(db, { reportId: tip2Id, agentId: voter1, helpful: true })
+        await voteReport(db, { reportId: tip2Id, agentId: voter2, helpful: false })
 
-        const tips = await listTips(db, { taskId })
+        const tips = await listReports(db, { taskId })
         expect(tips).toHaveLength(2)
 
         const unvoted = tips.find((t) => t.id === tipId)!
@@ -1126,28 +1290,28 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       it('a tip voted helpful by three agents outranks one voted helpful by one', async () => {
         const agent1 = await anAgent('agent1')
         await attempt(agent1, 'passed')
-        const result2 = await fileTip(db, {
+        const result2 = await fileReport(db, {
           taskId,
           agentId: agent1,
           content: 'Another tip that is definitely long enough to pass',
         })
         if (result2.outcome !== 'recorded') throw new Error(result2.outcome)
         const tip2Id = result2.entry.id
-        await approveTip(tip2Id)
+        await approve(tip2Id)
 
         // vote 3 times for tipId
         for (let i = 0; i < 3; i++) {
           const voter = await anAgent(`voter-good-${i}`)
           await attempt(voter, 'passed')
-          await voteTip(db, { tipId, agentId: voter, helpful: true })
+          await voteReport(db, { reportId: tipId, agentId: voter, helpful: true })
         }
 
         // vote 1 time for tip2Id
         const voterSingle = await anAgent('voter-single')
         await attempt(voterSingle, 'passed')
-        await voteTip(db, { tipId: tip2Id, agentId: voterSingle, helpful: true })
+        await voteReport(db, { reportId: tip2Id, agentId: voterSingle, helpful: true })
 
-        const tips = await listTips(db, { taskId })
+        const tips = await listReports(db, { taskId })
         expect(tips[0]!.id).toBe(tipId)
         expect(tips[1]!.id).toBe(tip2Id)
       })
@@ -1179,11 +1343,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('serves no struggle text to a reader that did not write it', async () => {
       const author = await anAgent('author-of-record')
       await attempt(author, 'failed')
-      const filed = await fileStruggle(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      const filed = await fileReport(db, { taskId, agentId: author, content: AUTHOR_TEXT })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
       await approve(filed.entry.id)
 
-      const served = await listStruggles(db, { taskId })
+      const served = await listReports(db, { taskId })
 
       // Present at all — otherwise this passes for the wrong reason, by asserting
       // that an empty list contains no text.
@@ -1193,24 +1357,24 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
       // And the author still reads its own words, which is the half that must not
       // be lost in the process of closing the other one.
-      const [own] = await listOwnStruggles(db, author)
+      const [own] = await listOwnReports(db, author)
       expect(own?.content).toBe(AUTHOR_TEXT)
     })
 
     it('serves no tip text to a reader that did not write it', async () => {
       const author = await anAgent('author-of-advice')
       await attempt(author, 'passed')
-      const written = await fileTip(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      const written = await fileReport(db, { taskId, agentId: author, content: AUTHOR_TEXT })
       if (written.outcome !== 'recorded') throw new Error(written.outcome)
-      await approveTip(written.entry.id)
+      await approve(written.entry.id)
 
-      const served = await listTips(db, { taskId })
+      const served = await listReports(db, { taskId })
 
       expect(served.map((entry) => entry.id)).toEqual([written.entry.id])
       expect(JSON.stringify(served)).not.toContain('scout-77@example.invalid')
       expect(JSON.stringify(served)).not.toContain(AUTHOR_TEXT)
 
-      const [own] = await listOwnTips(db, author)
+      const [own] = await listOwnReports(db, author)
       expect(own?.content).toBe(AUTHOR_TEXT)
     })
 
@@ -1226,11 +1390,10 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('stores what identified the author, and serves it only to the author', async () => {
       const author = await anAgent('pasted-its-mailbox')
       await attempt(author, 'failed')
-      const filed = await fileStruggle(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      const filed = await fileReport(db, { taskId, agentId: author, content: AUTHOR_TEXT })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
 
       await recordModeration(db, {
-        kind: 'struggle',
         id: filed.entry.id,
         content: AUTHOR_TEXT,
         verdict: { decision: 'approve' },
@@ -1239,13 +1402,13 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         confidentialSpans: [{ text: 'scout-77@example.invalid', kind: 'mailbox' }],
       })
 
-      const [own] = await listOwnStruggles(db, author)
+      const [own] = await listOwnReports(db, author)
       expect(own?.status).toBe('approved')
       expect(own?.confidentialSpans).toEqual([
         { text: 'scout-77@example.invalid', kind: 'mailbox' },
       ])
 
-      const served = await listStruggles(db, { taskId })
+      const served = await listReports(db, { taskId })
       expect(served).toHaveLength(1)
       expect(JSON.stringify(served)).not.toContain('scout-77@example.invalid')
     })
@@ -1253,12 +1416,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     /** An entry nothing was found in carries an empty list rather than a null. */
     it('stores an empty list for an entry with nothing to mark', async () => {
       const author = await anAgent('wrote-cleanly')
+      await attempt(author, 'failed')
       const clean = 'The provider returned HTTP 429 on the third attempt and never sent the mail.'
-      const filed = await fileStruggle(db, { taskId, agentId: author, content: clean })
+      const filed = await fileReport(db, { taskId, agentId: author, content: clean })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
 
       await recordModeration(db, {
-        kind: 'struggle',
         id: filed.entry.id,
         content: clean,
         verdict: { decision: 'approve' },
@@ -1267,7 +1430,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         confidentialSpans: [],
       })
 
-      const [own] = await listOwnStruggles(db, author)
+      const [own] = await listOwnReports(db, author)
       expect(own?.confidentialSpans).toEqual([])
     })
   })

@@ -1,5 +1,5 @@
 import type { AgentPlatform } from '@kolonie-ai/core'
-import type { ApprovedEntry, PendingGuidance } from '@kolonie-ai/db'
+import type { ApprovedEntry, PendingReport } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 
 /**
@@ -164,7 +164,7 @@ export type DedupOutcome =
  * times. The provider behaves the same way whoever is looking.
  */
 export async function findDuplicate(
-  entry: PendingGuidance,
+  entry: PendingReport,
   approved: readonly ApprovedEntry[],
   model: Model,
 ): Promise<DedupOutcome> {
@@ -254,7 +254,7 @@ export const DEDUP_SYSTEM_PROMPT = [
 ].join('\n')
 
 /** The pending entry and its candidates, with every runtime named. */
-function dedupPrompt(entry: PendingGuidance, candidates: readonly ApprovedEntry[]): string {
+function dedupPrompt(entry: PendingReport, candidates: readonly ApprovedEntry[]): string {
   const published = candidates
     .map(
       (candidate) =>

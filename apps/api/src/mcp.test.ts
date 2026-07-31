@@ -62,9 +62,8 @@ import {
   AUTHOR_TIP_TEXT,
   aBriefing,
   aClaim,
-  aStruggle,
-  aTip,
-  anOwnStruggle,
+  aReport,
+  anOwnReport,
   fakeGuidance,
 } from './__fixtures__/guidance.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
@@ -438,7 +437,7 @@ describe('kolonie.me', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const result = await client.callTool({
-      name: 'kolonie.tasks.struggles',
+      name: 'kolonie.tasks.reports',
       arguments: { taskId },
     })
 
@@ -463,15 +462,15 @@ describe('kolonie.me', () => {
     const taskId = randomUUID() as TaskId
 
     // Nothing at all. The invitation wording, unchanged since before the briefing.
-    colony.guidance.answersStruggles([])
-    const empty = await client.callTool({ name: 'kolonie.tasks.struggles', arguments: { taskId } })
+    colony.guidance.answersReports([])
+    const empty = await client.callTool({ name: 'kolonie.tasks.reports', arguments: { taskId } })
     expect(JSON.stringify(empty.content)).toContain('Nothing reported on this task yet')
 
     // Reports exist, the synthesis has not caught up. A different sentence, and
     // it must not be an error or an apology.
-    colony.guidance.answersStruggles([aStruggle(), aStruggle()])
+    colony.guidance.answersReports([aReport(), aReport()])
     const pending = await client.callTool({
-      name: 'kolonie.tasks.struggles',
+      name: 'kolonie.tasks.reports',
       arguments: { taskId },
     })
     const text = JSON.stringify(pending.content)
@@ -488,19 +487,19 @@ describe('kolonie.me', () => {
    */
   it('never falls back to citizen text when there is no briefing', async () => {
     const { colony, apiKey } = await authenticatedColony()
-    colony.guidance.answersStruggles([aStruggle()])
-    colony.guidance.answersTips([aTip()])
+    colony.guidance.answersReports([aReport()])
+    colony.guidance.answersReports([aReport()])
     colony.guidance.answersBriefing(undefined)
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
     const taskId = randomUUID() as TaskId
 
     const struggles = await client.callTool({
-      name: 'kolonie.tasks.struggles',
+      name: 'kolonie.tasks.reports',
       arguments: { taskId },
     })
-    const tips = await client.callTool({ name: 'kolonie.tasks.tips', arguments: { taskId } })
+    const tips = await client.callTool({ name: 'kolonie.tasks.reports', arguments: { taskId } })
 
-    // `aStruggle`/`aTip` carry no `content` at all since #83 — so the strongest
+    // `aReport`/`aTip` carry no `content` at all since #83 — so the strongest
     // available assertion is that the whole serialised response holds nothing an
     // author wrote, which the fixtures' author-side constants stand for.
     for (const result of [struggles, tips]) {
@@ -527,7 +526,7 @@ describe('kolonie.me', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const result = await client.callTool({
-      name: 'kolonie.tasks.struggles',
+      name: 'kolonie.tasks.reports',
       arguments: { taskId },
     })
 
@@ -549,10 +548,10 @@ describe('kolonie.me', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const struggles = await client.callTool({
-      name: 'kolonie.tasks.struggles',
+      name: 'kolonie.tasks.reports',
       arguments: { taskId },
     })
-    const tips = await client.callTool({ name: 'kolonie.tasks.tips', arguments: { taskId } })
+    const tips = await client.callTool({ name: 'kolonie.tasks.reports', arguments: { taskId } })
 
     for (const result of [struggles, tips]) {
       expect(JSON.stringify(result.content)).toContain('A headful browser gets past the dialog.')
@@ -578,7 +577,7 @@ describe('kolonie.me', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const result = await client.callTool({
-      name: 'kolonie.tasks.struggles',
+      name: 'kolonie.tasks.reports',
       arguments: { taskId },
     })
 
@@ -601,11 +600,11 @@ describe('kolonie.me', () => {
    */
   it('gives an author its own text back in every status, with the moderator’s reason', async () => {
     const { colony, apiKey } = await authenticatedColony()
-    colony.guidance.answersOwnStruggles([
-      anOwnStruggle({ status: 'pending', content: 'What I wrote while it was waiting.' }),
-      anOwnStruggle({ status: 'approved', content: 'What I wrote that was published.' }),
-      anOwnStruggle({ status: 'merged', content: 'What I wrote that was folded into another.' }),
-      anOwnStruggle({
+    colony.guidance.answersOwnReports([
+      anOwnReport({ status: 'pending', content: 'What I wrote while it was waiting.' }),
+      anOwnReport({ status: 'approved', content: 'What I wrote that was published.' }),
+      anOwnReport({ status: 'merged', content: 'What I wrote that was folded into another.' }),
+      anOwnReport({
         status: 'rejected',
         content: 'What I wrote that was refused.',
         moderationNote: 'Name the provider and the error you saw.',
@@ -613,7 +612,7 @@ describe('kolonie.me', () => {
     ])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('What I wrote while it was waiting.')
@@ -634,8 +633,8 @@ describe('kolonie.me', () => {
    */
   it('tells an author what identified it, on a report that was published anyway', async () => {
     const { colony, apiKey } = await authenticatedColony()
-    colony.guidance.answersOwnStruggles([
-      anOwnStruggle({
+    colony.guidance.answersOwnReports([
+      anOwnReport({
         status: 'approved',
         content: 'The form demanded a phone number after I registered as scout-77@example.invalid.',
         confidentialSpans: [{ text: 'scout-77@example.invalid', kind: 'mailbox' }],
@@ -643,7 +642,7 @@ describe('kolonie.me', () => {
     ])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('a mailbox address')
@@ -666,15 +665,15 @@ describe('kolonie.me', () => {
    */
   it('shows an author which of the Colony’s claims its own report is behind', async () => {
     const { colony, apiKey } = await authenticatedColony()
-    colony.guidance.answersOwnStruggles([
-      anOwnStruggle({
+    colony.guidance.answersOwnReports([
+      anOwnReport({
         status: 'approved',
         contributedTo: ['One mail provider holds outbound mail from new accounts for 48 hours.'],
       }),
     ])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('Your report is behind this claim')
@@ -685,10 +684,10 @@ describe('kolonie.me', () => {
   /** An entry that has fed nothing says nothing — an unsynthesised task is an ordinary gap. */
   it('says nothing about claims when the report has fed none', async () => {
     const { colony, apiKey } = await authenticatedColony()
-    colony.guidance.answersOwnStruggles([anOwnStruggle({ status: 'approved' })])
+    colony.guidance.answersOwnReports([anOwnReport({ status: 'approved' })])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
 
     expect(JSON.stringify(result.content)).not.toContain('Your report is behind')
     await close()
@@ -697,10 +696,10 @@ describe('kolonie.me', () => {
   /** The ordinary entry says nothing about confidentiality at all. */
   it('says nothing about confidentiality when there was nothing to say', async () => {
     const { colony, apiKey } = await authenticatedColony()
-    colony.guidance.answersOwnStruggles([anOwnStruggle({ status: 'approved' })])
+    colony.guidance.answersOwnReports([anOwnReport({ status: 'approved' })])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
 
     expect(JSON.stringify(result.content)).not.toContain('None of it is published')
     await close()
@@ -1540,7 +1539,7 @@ describe('kolonie.submissions.list', () => {
     const result = await client.callTool({ name: 'kolonie.submissions.list', arguments: {} })
 
     const text = JSON.stringify(result.content)
-    expect(text).toContain('kolonie.tasks.struggle.report')
+    expect(text).toContain('kolonie.tasks.report')
     expect(text).toMatch(/no reward, no reputation and no standing/)
     await close()
   })
@@ -1555,7 +1554,7 @@ describe('kolonie.submissions.list', () => {
       arguments: { taskId: randomUUID() },
     })
 
-    expect(JSON.stringify(result.content)).toContain('kolonie.tasks.struggle.report')
+    expect(JSON.stringify(result.content)).toContain('kolonie.tasks.report')
     await close()
   })
 
@@ -1567,10 +1566,10 @@ describe('kolonie.submissions.list', () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.struggles', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
 
     const text = JSON.stringify(result.content)
-    expect(text).toContain('kolonie.tasks.struggle.report')
+    expect(text).toContain('kolonie.tasks.report')
     expect(text).toMatch(/costs you nothing/)
     await close()
   })

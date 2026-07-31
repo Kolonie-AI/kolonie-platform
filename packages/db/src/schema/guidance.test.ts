@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { ModerationStatusSchema } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
-import { agents, taskHints, taskStruggles, taskTips, tasks, tipFeedback } from './index.js'
+import { agents, reportFeedback, taskAttempts, taskHints, taskReports, tasks } from './index.js'
 
 const target = databaseTestTarget()
 
@@ -57,27 +57,55 @@ describe.skipIf(!target.available)('task guidance schema', () => {
     otherAgentId = other!.id
   })
 
-  const aStruggle = async (overrides: Partial<typeof taskStruggles.$inferInsert> = {}) => {
+  /**
+   * An attempt for a report to hang on.
+   *
+   * Every report needs one now (#110), so the fixture that used to write a
+   * struggle straight into its table has to open a try first. That is the whole
+   * shape of the change these tests are asserting: a report is about an attempt,
+   * not about a task.
+   */
+  const anAttempt = async (
+    forAgent: string = agentId,
+    outcome: 'passed' | 'failed' | 'abandoned' | null = 'failed',
+  ) => {
+    const opened = new Date().toISOString()
+    const [existing] = await db
+      .select({ attempt: taskAttempts.attempt })
+      .from(taskAttempts)
+      .where(eq(taskAttempts.agentId, forAgent))
+      .orderBy(desc(taskAttempts.attempt))
+      .limit(1)
+
     const [row] = await db
-      .insert(taskStruggles)
+      .insert(taskAttempts)
       .values({
         taskId,
-        agentId,
-        content: 'The provider started asking for a phone number during signup.',
-        ...overrides,
+        agentId: forAgent,
+        attempt: (existing?.attempt ?? 0) + 1,
+        opener: 'submission',
+        // Both stamped from the same clock. Leaving `opened_at` to its column
+        // default takes it from Postgres, which is milliseconds ahead of the
+        // value computed here — and `task_attempts_closed_after_opened` is
+        // right to refuse that pair.
+        openedAt: opened,
+        ...(outcome === null ? {} : { outcome, closedAt: opened }),
       })
       .returning()
     return row!
   }
 
-  const aTip = async (overrides: Partial<typeof taskTips.$inferInsert> = {}) => {
+  const aReport = async (
+    overrides: Partial<typeof taskReports.$inferInsert> & { agentId?: string } = {},
+  ) => {
+    const { agentId: author, ...rest } = overrides
+    const attemptId = rest.attemptId ?? (await anAttempt(author ?? agentId)).id
     const [row] = await db
-      .insert(taskTips)
+      .insert(taskReports)
       .values({
-        taskId,
-        agentId,
-        content: 'Signup works headful; the challenge only renders with JavaScript on.',
-        ...overrides,
+        attemptId,
+        content: 'The provider started asking for a phone number during signup.',
+        ...rest,
       })
       .returning()
     return row!
@@ -135,28 +163,44 @@ describe.skipIf(!target.available)('task guidance schema', () => {
   })
 
   describe('what a citizen may write', () => {
-    it('refuses a struggle too short to judge', async () => {
-      await expectRejection(() => aStruggle({ content: 'broken' }), /task_struggles_content_length/)
+    it('refuses a report too short to judge', async () => {
+      await expectRejection(() => aReport({ content: 'broken' }), /task_reports_content_length/)
     })
 
-    it('refuses a tip longer than the ceiling', async () => {
-      await expectRejection(() => aTip({ content: 'x'.repeat(2001) }), /task_tips_content_length/)
-    })
-
-    it('allows one struggle per agent per task and refuses a second', async () => {
-      await aStruggle()
+    it('refuses a report longer than the ceiling', async () => {
       await expectRejection(
-        () => aStruggle({ content: 'The same wall, reported twice by one agent.' }),
-        /task_struggles_task_agent_unique/,
+        () => aReport({ content: 'x'.repeat(2001) }),
+        /task_reports_content_length/,
       )
     })
 
-    it('allows one tip per agent per task and refuses a second', async () => {
-      await aTip()
+    /**
+     * **One per attempt, which is what replaced one per agent per task** (#110).
+     *
+     * This is the rejection case #110's definition of done names. The old index
+     * made a second report on a task impossible, which is how it kept
+     * `confirmations` a count of agents — and it threw away every failure after
+     * the first to do it. The narrower rule keeps the count honest without
+     * costing the sequence.
+     */
+    it('allows one report per attempt and refuses a second', async () => {
+      const attempt = await anAttempt()
+      await aReport({ attemptId: attempt.id })
       await expectRejection(
-        () => aTip({ content: 'A second opinion from the same author.' }),
-        /task_tips_task_agent_unique/,
+        () => aReport({ attemptId: attempt.id, content: 'The same wall, said twice.' }),
+        /task_reports_attempt_unique/,
       )
+    })
+
+    /** The other half of the same rule: a later attempt is a new row, not a conflict. */
+    it('allows the same agent a second report on its next attempt', async () => {
+      await aReport({ attemptId: (await anAttempt()).id })
+      const later = await aReport({
+        attemptId: (await anAttempt()).id,
+        content: 'Changed the model and got one step further before it stopped.',
+      })
+
+      expect(later.id).toBeTruthy()
     })
 
     /**
@@ -165,60 +209,57 @@ describe.skipIf(!target.available)('task guidance schema', () => {
      * what is asserted here is that a writer which says nothing gets `pending`.
      */
     it('starts every citizen entry pending, unjudged', async () => {
-      const struggle = await aStruggle()
-      const tip = await aTip()
+      const report = await aReport()
 
-      expect(struggle.status).toBe('pending')
-      expect(struggle.moderatedAt).toBeNull()
-      expect(struggle.confirmations).toBe(0)
-      expect(tip.status).toBe('pending')
-      expect(tip.moderatedAt).toBeNull()
+      expect(report.status).toBe('pending')
+      expect(report.moderatedAt).toBeNull()
+      expect(report.confirmations).toBe(0)
     })
   })
 
   describe('what a moderator may write', () => {
     it('refuses a verdict without the time it was reached', async () => {
-      const struggle = await aStruggle()
+      const struggle = await aReport()
 
       await expectRejection(
         () =>
           db
-            .update(taskStruggles)
+            .update(taskReports)
             .set({ status: 'approved', confirmations: 1 })
-            .where(eq(taskStruggles.id, struggle.id)),
-        /task_struggles_moderated_at_matches_status/,
+            .where(eq(taskReports.id, struggle.id)),
+        /task_reports_moderated_at_matches_status/,
       )
     })
 
     it('refuses a judgement time on a row nothing has judged', async () => {
-      const struggle = await aStruggle()
+      const struggle = await aReport()
 
       await expectRejection(
         () =>
           db
-            .update(taskStruggles)
+            .update(taskReports)
             .set({ moderatedAt: new Date().toISOString() })
-            .where(eq(taskStruggles.id, struggle.id)),
-        /task_struggles_moderated_at_matches_status/,
+            .where(eq(taskReports.id, struggle.id)),
+        /task_reports_moderated_at_matches_status/,
       )
     })
 
     it('refuses a merge that points at nothing', async () => {
-      const struggle = await aStruggle()
+      const struggle = await aReport()
 
       await expectRejection(
         () =>
           db
-            .update(taskStruggles)
+            .update(taskReports)
             .set({ status: 'merged', moderatedAt: new Date().toISOString() })
-            .where(eq(taskStruggles.id, struggle.id)),
-        /task_struggles_duplicate_iff_merged/,
+            .where(eq(taskReports.id, struggle.id)),
+        /task_reports_duplicate_iff_merged/,
       )
     })
 
     it('refuses a duplicate pointer on an entry it approved', async () => {
-      const canonical = await aStruggle()
-      const later = await aStruggle({
+      const canonical = await aReport()
+      const later = await aReport({
         agentId: otherAgentId,
         content: 'The same wall, from a different agent entirely.',
       })
@@ -226,81 +267,84 @@ describe.skipIf(!target.available)('task guidance schema', () => {
       await expectRejection(
         () =>
           db
-            .update(taskStruggles)
+            .update(taskReports)
             .set({
               status: 'approved',
               duplicateOf: canonical.id,
               moderatedAt: new Date().toISOString(),
             })
-            .where(eq(taskStruggles.id, later.id)),
-        /task_struggles_duplicate_iff_merged/,
+            .where(eq(taskReports.id, later.id)),
+        /task_reports_duplicate_iff_merged/,
       )
     })
 
     it('refuses an entry that restates itself', async () => {
-      const struggle = await aStruggle()
+      const struggle = await aReport()
 
       await expectRejection(
         () =>
           db
-            .update(taskStruggles)
+            .update(taskReports)
             .set({
               status: 'merged',
               duplicateOf: struggle.id,
               moderatedAt: new Date().toISOString(),
             })
-            .where(eq(taskStruggles.id, struggle.id)),
-        /task_struggles_duplicate_not_self/,
+            .where(eq(taskReports.id, struggle.id)),
+        /task_reports_duplicate_not_self/,
       )
     })
 
     /** The shape the runner actually writes: one canonical entry, one merged into it. */
     it('records a merge as a pointer plus a confirmation on the canonical entry', async () => {
-      const canonical = await aStruggle()
-      const later = await aStruggle({
+      const canonical = await aReport()
+      const later = await aReport({
         agentId: otherAgentId,
         content: 'The signup page asks for a telephone number now.',
       })
       const at = new Date().toISOString()
 
       await db
-        .update(taskStruggles)
+        .update(taskReports)
         .set({ status: 'approved', confirmations: 1, moderatedAt: at })
-        .where(eq(taskStruggles.id, canonical.id))
+        .where(eq(taskReports.id, canonical.id))
       await db
-        .update(taskStruggles)
+        .update(taskReports)
         .set({ status: 'merged', duplicateOf: canonical.id, moderatedAt: at })
-        .where(eq(taskStruggles.id, later.id))
-      await db
-        .update(taskStruggles)
-        .set({ confirmations: 2 })
-        .where(eq(taskStruggles.id, canonical.id))
+        .where(eq(taskReports.id, later.id))
+      await db.update(taskReports).set({ confirmations: 2 }).where(eq(taskReports.id, canonical.id))
 
-      const [row] = await db.select().from(taskStruggles).where(eq(taskStruggles.id, canonical.id))
+      const [row] = await db.select().from(taskReports).where(eq(taskReports.id, canonical.id))
       expect(row!.confirmations).toBe(2)
       expect(row!.status).toBe('approved')
     })
   })
 
-  describe('feedback on a tip', () => {
-    it('takes one verdict per agent per tip', async () => {
-      const tip = await aTip()
-      await db.insert(tipFeedback).values({ tipId: tip.id, agentId: otherAgentId, helpful: true })
+  describe('feedback on a report', () => {
+    it('takes one verdict per agent per report', async () => {
+      const report = await aReport()
+      await db
+        .insert(reportFeedback)
+        .values({ reportId: report.id, agentId: otherAgentId, helpful: true })
 
       await expectRejection(
         () =>
-          db.insert(tipFeedback).values({ tipId: tip.id, agentId: otherAgentId, helpful: false }),
-        /tip_feedback_tip_id_agent_id_pk/,
+          db
+            .insert(reportFeedback)
+            .values({ reportId: report.id, agentId: otherAgentId, helpful: false }),
+        /report_feedback_report_id_agent_id_pk/,
       )
     })
 
-    it('goes away with the tip it is about', async () => {
-      const tip = await aTip()
-      await db.insert(tipFeedback).values({ tipId: tip.id, agentId: otherAgentId, helpful: true })
+    it('goes away with the report it is about', async () => {
+      const report = await aReport()
+      await db
+        .insert(reportFeedback)
+        .values({ reportId: report.id, agentId: otherAgentId, helpful: true })
 
-      await db.delete(taskTips).where(eq(taskTips.id, tip.id))
+      await db.delete(taskReports).where(eq(taskReports.id, report.id))
 
-      expect(await db.select().from(tipFeedback)).toHaveLength(0)
+      expect(await db.select().from(reportFeedback)).toHaveLength(0)
     })
   })
 
@@ -312,11 +356,18 @@ describe.skipIf(!target.available)('task guidance schema', () => {
      * delete them" from a habit into a rule.
      */
     it('refuses to delete a task a citizen has written about', async () => {
-      await aStruggle()
+      await aReport()
 
+      /**
+       * The `restrict` that refuses is now `task_attempts`', not the report's —
+       * a report reaches its task through the attempt (#110), so the attempt is
+       * the row standing between a task and deletion. The rule is unchanged and
+       * so is what it protects: a task with citizen history is retired, never
+       * deleted.
+       */
       await expectRejection(
         () => db.delete(tasks).where(eq(tasks.id, taskId)),
-        /task_struggles_task_id_tasks_id_fk/,
+        /task_attempts_task_id_tasks_id_fk/,
       )
     })
 
@@ -334,34 +385,35 @@ describe.skipIf(!target.available)('task guidance schema', () => {
      * than making the citizen stay so the number stays tidy.
      */
     it('takes a citizen’s writing about a task with the citizen', async () => {
-      await aStruggle()
+      await aReport()
 
       await db.delete(agents).where(eq(agents.id, agentId))
 
-      const left = await db.select().from(taskStruggles).where(eq(taskStruggles.agentId, agentId))
-      expect(left).toEqual([])
+      // Through the attempt, which is what cascades from the agent.
+      expect(await db.select().from(taskReports)).toEqual([])
+      expect(await db.select().from(taskAttempts)).toEqual([])
     })
 
     it('refuses to delete the entry a merged one was folded into', async () => {
-      const canonical = await aStruggle()
-      const later = await aStruggle({
+      const canonical = await aReport()
+      const later = await aReport({
         agentId: otherAgentId,
         content: 'The same wall again, reported independently.',
       })
       const at = new Date().toISOString()
 
       await db
-        .update(taskStruggles)
+        .update(taskReports)
         .set({ status: 'approved', confirmations: 2, moderatedAt: at })
-        .where(eq(taskStruggles.id, canonical.id))
+        .where(eq(taskReports.id, canonical.id))
       await db
-        .update(taskStruggles)
+        .update(taskReports)
         .set({ status: 'merged', duplicateOf: canonical.id, moderatedAt: at })
-        .where(eq(taskStruggles.id, later.id))
+        .where(eq(taskReports.id, later.id))
 
       await expectRejection(
-        () => db.delete(taskStruggles).where(eq(taskStruggles.id, canonical.id)),
-        /task_struggles_duplicate_of_task_struggles_id_fk/,
+        () => db.delete(taskReports).where(eq(taskReports.id, canonical.id)),
+        /task_reports_duplicate_of_task_reports_id_fk/,
       )
     })
 

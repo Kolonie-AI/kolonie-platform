@@ -1,15 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { eq, sql as rawSql } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { noStagesRun, type AgentId, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agentSkills,
   agents,
   submissions,
-  taskBriefings,
-  taskStruggles,
-  taskTips,
+  taskAttempts,
+  taskReports,
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -22,7 +20,7 @@ import {
   staleBriefings,
   writeBriefing,
 } from './briefing.js'
-import { fileStruggle, fileTip, listOwnStruggles, recordModeration } from './guidance.js'
+import { fileReport, listOwnReports, recordModeration } from './guidance.js'
 
 const target = databaseTestTarget()
 
@@ -85,17 +83,59 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
     return agentId
   }
 
-  /** An approved struggle, through the real write and verdict paths. */
-  const approvedStruggle = async (
+  /**
+   * An attempt for an agent on a task, closed with the outcome that decides what
+   * a report on it is.
+   *
+   * Every report needs one (#110), and the outcome is where its kind comes from
+   * — `failed` makes a wall, `passed` makes advice. The fixture takes it as an
+   * argument rather than defaulting, because in this file the kind is what half
+   * the assertions are about.
+   */
+  const anAttempt = async (agentId: AgentId, on: TaskId, outcome: 'passed' | 'failed') => {
+    const opened = new Date().toISOString()
+    const [highest] = await db
+      .select({ attempt: taskAttempts.attempt })
+      .from(taskAttempts)
+      .where(eq(taskAttempts.agentId, agentId))
+      .orderBy(desc(taskAttempts.attempt))
+      .limit(1)
+
+    await db.insert(taskAttempts).values({
+      taskId: on,
+      agentId,
+      attempt: (highest?.attempt ?? 0) + 1,
+      opener: 'submission',
+      openedAt: opened,
+      outcome,
+      closedAt: opened,
+    })
+  }
+
+  /** A report filed through the real write path, with the attempt it needs. */
+  const filed_ = async (
+    agentId: AgentId,
+    content: string,
+    outcome: 'passed' | 'failed' = 'failed',
+    on: TaskId = taskId,
+  ) => {
+    await anAttempt(agentId, on, outcome)
+    return fileReport(db, { taskId: on, agentId, content })
+  }
+
+  /** An approved report, through the real write and verdict paths. */
+  const approvedReport = async (
     name: string,
     content: string,
     platform: 'openclaw' | 'claude' = 'openclaw',
+    outcome: 'passed' | 'failed' = 'failed',
+    on: TaskId = taskId,
   ) => {
     const agentId = await anAgent(name, platform)
-    const filed = await fileStruggle(db, { taskId, agentId, content })
+    await anAttempt(agentId, on, outcome)
+    const filed = await fileReport(db, { taskId: on, agentId, content })
     if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
     await recordModeration(db, {
-      kind: 'struggle',
       id: filed.entry.id,
       content,
       verdict: { decision: 'approve' },
@@ -114,7 +154,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
      * turns on: the split followed provenance and the reader asks about use.
      */
     it('hands over struggles and tips together', async () => {
-      await approvedStruggle('reporter', CONTENT)
+      await approvedReport('reporter', CONTENT)
 
       const author = await anAgent('passer')
       await db.insert(submissions).values({
@@ -126,16 +166,16 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
         verifiedAt: new Date().toISOString(),
       })
       const tipText = 'Signup works headful; the challenge needs JavaScript enabled.'
-      const tip = await fileTip(db, { taskId, agentId: author, content: tipText })
+      const tip = await filed_(author, tipText, 'passed')
       if (tip.outcome !== 'recorded') throw new Error(tip.outcome)
       await db
-        .update(taskTips)
+        .update(taskReports)
         .set({ status: 'approved', moderatedAt: new Date().toISOString() })
-        .where(eq(taskTips.id, tip.entry.id))
+        .where(eq(taskReports.id, tip.entry.id))
 
       const corpus = await briefingCorpus(db, taskId)
 
-      expect(corpus.map((entry) => entry.kind).sort()).toEqual(['struggle', 'tip'])
+      expect(corpus.map((entry) => entry.kind).sort()).toEqual(['advice', 'wall'])
       expect(corpus.map((entry) => entry.content).sort()).toEqual([CONTENT, tipText].sort())
     })
 
@@ -146,20 +186,15 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
      * the corpus twice.
      */
     it('leaves out everything that is not approved', async () => {
-      const canonical = await approvedStruggle('canonical', CONTENT)
+      const canonical = await approvedReport('canonical', CONTENT)
 
       const pendingAgent = await anAgent('still-waiting')
-      await fileStruggle(db, { taskId, agentId: pendingAgent, content: 'Not judged yet, at all.' })
+      await filed_(pendingAgent, 'Not judged yet, at all.')
 
       const mergedAgent = await anAgent('restated')
-      const merged = await fileStruggle(db, {
-        taskId,
-        agentId: mergedAgent,
-        content: 'The same wall, said again by somebody else.',
-      })
+      const merged = await filed_(mergedAgent, 'The same wall, said again by somebody else.')
       if (merged.outcome !== 'recorded') throw new Error(merged.outcome)
       await recordModeration(db, {
-        kind: 'struggle',
         id: merged.entry.id,
         content: 'The same wall, said again by somebody else.',
         verdict: { decision: 'merge', duplicateOf: canonical },
@@ -177,17 +212,12 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
 
     /** The runtime breakdown reaches the synthesis, counting merged children. */
     it('carries the runtimes behind each entry', async () => {
-      const canonical = await approvedStruggle('openclaw-author', CONTENT, 'openclaw')
+      const canonical = await approvedReport('openclaw-author', CONTENT, 'openclaw')
 
       const other = await anAgent('claude-author', 'claude')
-      const restated = await fileStruggle(db, {
-        taskId,
-        agentId: other,
-        content: 'The same wall from another runtime entirely.',
-      })
+      const restated = await filed_(other, 'The same wall from another runtime entirely.')
       if (restated.outcome !== 'recorded') throw new Error(restated.outcome)
       await recordModeration(db, {
-        kind: 'struggle',
         id: restated.entry.id,
         content: 'The same wall from another runtime entirely.',
         verdict: { decision: 'merge', duplicateOf: canonical },
@@ -210,7 +240,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
      */
     it('is set by an approval, and collapses however many arrive', async () => {
       for (let i = 0; i < 5; i++) {
-        await approvedStruggle(`reporter-${i}`, `A distinct wall number ${i} on this task.`)
+        await approvedReport(`reporter-${i}`, `A distinct wall number ${i} on this task.`)
       }
 
       const stale = await staleBriefings(db, 10)
@@ -219,19 +249,14 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
     })
 
     it('is set by a merge, because a confirmation moved', async () => {
-      const canonical = await approvedStruggle('first', CONTENT)
+      const canonical = await approvedReport('first', CONTENT)
       await writeBriefing(db, { taskId, claims: [], model: 'vendor/some-model-v1' })
       expect(await staleBriefings(db, 10)).toEqual([])
 
       const other = await anAgent('second')
-      const restated = await fileStruggle(db, {
-        taskId,
-        agentId: other,
-        content: 'The same wall, from a second agent.',
-      })
+      const restated = await filed_(other, 'The same wall, from a second agent.')
       if (restated.outcome !== 'recorded') throw new Error(restated.outcome)
       await recordModeration(db, {
-        kind: 'struggle',
         id: restated.entry.id,
         content: 'The same wall, from a second agent.',
         verdict: { decision: 'merge', duplicateOf: canonical },
@@ -245,18 +270,13 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
 
     /** A rejection changes nothing in the corpus, so it must not cost a synthesis. */
     it('is not set by a rejection', async () => {
-      await approvedStruggle('reporter', CONTENT)
+      await approvedReport('reporter', CONTENT)
       await writeBriefing(db, { taskId, claims: [], model: 'vendor/some-model-v1' })
 
       const agentId = await anAgent('says-nothing')
-      const filed = await fileStruggle(db, {
-        taskId,
-        agentId,
-        content: 'It did not work and I am cross about it.',
-      })
+      const filed = await filed_(agentId, 'It did not work and I am cross about it.')
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
       await recordModeration(db, {
-        kind: 'struggle',
         id: filed.entry.id,
         content: 'It did not work and I am cross about it.',
         verdict: { decision: 'reject', note: 'No observation in it.' },
@@ -269,13 +289,13 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
     })
 
     it('is cleared by the write and set again by the next change', async () => {
-      await approvedStruggle('reporter', CONTENT)
+      await approvedReport('reporter', CONTENT)
       expect(await staleBriefings(db, 10)).toEqual([taskId])
 
       await writeBriefing(db, { taskId, claims: [], model: 'vendor/some-model-v1' })
       expect(await staleBriefings(db, 10)).toEqual([])
 
-      await approvedStruggle('another', 'A second and different wall on the same task.')
+      await approvedReport('another', 'A second and different wall on the same task.')
       expect(await staleBriefings(db, 10)).toEqual([taskId])
     })
 
@@ -298,7 +318,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
     })
 
     it('round-trips the claims, the model and when it was written', async () => {
-      const entry = await approvedStruggle('reporter', CONTENT)
+      const entry = await approvedReport('reporter', CONTENT)
       await writeBriefing(db, {
         taskId,
         claims: [aClaim('One mail provider asks for a phone number.', [entry])],
@@ -334,8 +354,8 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
      * to push back against.
      */
     it('tells an author which claims its own report is behind', async () => {
-      const mine = await approvedStruggle('author', CONTENT)
-      const someone = await approvedStruggle('other', 'An entirely different wall on this task.')
+      const mine = await approvedReport('author', CONTENT)
+      const someone = await approvedReport('other', 'An entirely different wall on this task.')
       await writeBriefing(db, {
         taskId,
         claims: [
@@ -353,10 +373,9 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
 
     it('reaches the author through its own read', async () => {
       const agentId = await anAgent('author')
-      const filed = await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      const filed = await filed_(agentId, CONTENT)
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
       await recordModeration(db, {
-        kind: 'struggle',
         id: filed.entry.id,
         content: CONTENT,
         verdict: { decision: 'approve' },
@@ -370,97 +389,43 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
         model: 'vendor/some-model-v1',
       })
 
-      const [own] = await listOwnStruggles(db, agentId)
+      const [own] = await listOwnReports(db, agentId)
 
       expect(own?.contributedTo).toEqual(['One mail provider asks for a phone number.'])
     })
 
     it('says nothing about claims for an entry that has fed none', async () => {
       const agentId = await anAgent('author')
-      await fileStruggle(db, { taskId, agentId, content: CONTENT })
+      await filed_(agentId, CONTENT)
 
-      const [own] = await listOwnStruggles(db, agentId)
+      const [own] = await listOwnReports(db, agentId)
 
       expect(own?.contributedTo).toEqual([])
     })
   })
 
   /**
-   * The backfill migration, driven against real rows rather than trusted.
+   * **The two tests that drove `0031_backfill_briefings.sql` against real rows
+   * are gone, and this note is what replaces them.**
    *
-   * `0031_backfill_briefings.sql` exists because the dirty flag is set by a
-   * verdict, so it only ever fires on a moderation reached *after* that code
-   * shipped — and every entry already approved was approved before it. On the
-   * live database that left five tasks with a corpus, no briefing, and no path
-   * by which one would ever be written.
+   * That migration queued a briefing for every task whose `task_struggles` or
+   * `task_tips` corpus was already approved. Both tables were retired by #110,
+   * so the statement cannot be executed against this schema at all — it names
+   * relations that no longer exist. A test that replayed it would fail on
+   * parsing rather than on behaviour, and rewriting it against `task_reports`
+   * would be testing a statement nobody will ever run: `0031` applied once, in
+   * production, against the rows it was written for.
    *
-   * The migration test runs against an empty database, where this statement
-   * selects nothing and passes vacuously. This is the test that would have
-   * caught a `WHERE` clause that matched the wrong rows.
+   * Nothing replaces it, and nothing needs to. The tasks it queued kept their
+   * briefing rows through the merge — `task_briefings` was not touched — and
+   * `0042` moves the corpus underneath them without changing which tasks have
+   * one. A second backfill would find nothing to do.
+   *
+   * What the deleted tests were really guarding is still guarded: that a task
+   * with an approved corpus ends up marked, and that a written briefing is not
+   * clobbered. `recordModeration` marks on approval and on merge, and the tests
+   * above assert both.
    */
-  it('backfills a briefing for every task that already had a corpus', async () => {
-    const withStruggle = taskId
-    await approvedStruggle('reporter', CONTENT)
-
-    const withTip = await aTask('tip-only')
-    const author = await anAgent('passer')
-    await db.insert(submissions).values({
-      taskId: withTip,
-      agentId: author,
-      payload: {},
-      attempt: 1,
-      status: 'passed',
-      verifiedAt: new Date().toISOString(),
-    })
-    const tip = await fileTip(db, {
-      taskId: withTip,
-      agentId: author,
-      content: 'Signup works headful; the challenge needs JavaScript enabled.',
-    })
-    if (tip.outcome !== 'recorded') throw new Error(tip.outcome)
-    await db
-      .update(taskTips)
-      .set({ status: 'approved', moderatedAt: new Date().toISOString() })
-      .where(eq(taskTips.id, tip.entry.id))
-
-    const untouched = await aTask('nobody-wrote-about-this')
-    const onlyPending = await aTask('pending-only')
-    const pendingAuthor = await anAgent('unjudged')
-    await fileStruggle(db, { taskId: onlyPending, agentId: pendingAuthor, content: CONTENT })
-
-    // The struggle above was approved through `recordModeration`, which already
-    // marks it — clear the table so the migration is what is under test.
-    await db.delete(taskBriefings)
-    expect(await staleBriefings(db, 10)).toEqual([])
-
-    const sql = readFileSync(
-      new URL('../../drizzle/0031_backfill_briefings.sql', import.meta.url),
-      'utf8',
-    )
-    await db.execute(rawSql.raw(sql))
-
-    const queued = await staleBriefings(db, 10)
-    expect([...queued].sort()).toEqual([withStruggle, withTip].sort())
-    expect(queued).not.toContain(untouched)
-    // A task whose only entry is unjudged has nothing to write up, and queueing
-    // it would spend a synthesis to produce an empty briefing.
-    expect(queued).not.toContain(onlyPending)
-  })
-
-  /** Safe to re-run, so a redeploy that replays migrations cannot clobber a written briefing. */
-  it('leaves an already written briefing alone when re-run', async () => {
-    await approvedStruggle('reporter', CONTENT)
-    await writeBriefing(db, { taskId, claims: [], model: 'vendor/some-model-v1' })
-
-    const sql = readFileSync(
-      new URL('../../drizzle/0031_backfill_briefings.sql', import.meta.url),
-      'utf8',
-    )
-    await db.execute(rawSql.raw(sql))
-
-    expect(await staleBriefings(db, 10)).toEqual([])
-    expect((await readBriefing(db, taskId))?.model).toBe('vendor/some-model-v1')
-  })
 
   it('reads the task title the synthesis prompt needs', async () => {
     expect(await readTaskTitle(db, taskId)).toBe('Obtain an email address of your own')
@@ -472,12 +437,14 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
   /** Nothing here ever writes an approved row directly; the guard is worth keeping honest. */
   it('never sees an entry the moderator has not approved', async () => {
     const agentId = await anAgent('unjudged')
-    await fileStruggle(db, { taskId, agentId, content: CONTENT })
+    await filed_(agentId, CONTENT)
 
+    // Through the attempt, which is where authorship lives now (#110).
     const [row] = await db
-      .select({ status: taskStruggles.status })
-      .from(taskStruggles)
-      .where(eq(taskStruggles.agentId, agentId))
+      .select({ status: taskReports.status })
+      .from(taskReports)
+      .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+      .where(eq(taskAttempts.agentId, agentId))
 
     expect(row?.status).toBe('pending')
     expect(await briefingCorpus(db, taskId)).toEqual([])

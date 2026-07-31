@@ -77,8 +77,11 @@ describe.skipIf(!target.available)('the migrations', () => {
     // thirty-one: one row per try, opened without asking the agent and closed
     // with an outcome including `abandoned`, which is what made the Colony's
     // most common failure — an attempt that never reached a submission —
-    // countable for the first time.
-    expect(afterFirst.tables).toBe('31')
+    // countable for the first time. And back to **thirty** with #110, which is
+    // the rare migration that removes more than it adds: `task_struggles`,
+    // `task_tips` and `tip_feedback` become `task_reports` and
+    // `report_feedback`, because the two were one concept with two names.
+    expect(afterFirst.tables).toBe('30')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

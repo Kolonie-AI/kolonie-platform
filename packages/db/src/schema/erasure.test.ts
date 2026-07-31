@@ -22,10 +22,10 @@ import {
   submissions,
   supportTickets,
   taskResets,
-  taskStruggles,
-  taskTips,
+  taskAttempts,
+  taskReports,
   tasks,
-  tipFeedback,
+  reportFeedback,
   verifications,
   visionChallenges,
   imageChallenges,
@@ -65,7 +65,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     // a table that is only reached by a foreign key stops being truncated the
     // day somebody adds one without a reference.
     await db.execute(
-      sql`truncate table erasures, ban_marks, moderations, tip_feedback, task_tips, task_struggles,
+      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -112,10 +112,10 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
    * and the failure it hides does not appear until a real citizen tries to
    * leave and the transaction aborts.
    *
-   * The two indirect ones are here for the same reason. `verifications` hangs
-   * off a submission and `moderations` off a struggle or a tip, so neither
-   * names an agent — but both hold a citizen's evidence, and both used to
-   * `restrict` the row above them.
+   * The three indirect ones are here for the same reason. `verifications` hangs
+   * off a submission, `task_reports` off an attempt, and `moderations` off a
+   * report — none of them names an agent, but all hold a citizen's evidence and
+   * all used to `restrict` the row above them.
    */
   const aCitizenWithHistoryEverywhere = async () => {
     const agent = await anAgent()
@@ -190,16 +190,44 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     })
     await db.insert(websiteChallenges).values({ agentId: agent.id, token: 't', expiresAt: later() })
 
-    const [struggle] = await db
-      .insert(taskStruggles)
-      .values({ taskId: task.id, agentId: agent.id, content: 'The verifier never answered.' })
+    // A try, and what the citizen wrote about it. Two attempts rather than one,
+    // because one report per attempt is what #110 established — a citizen with
+    // something to say about two tries has two rows, and both have to go.
+    const opened = new Date().toISOString()
+    const [attempt] = await db
+      .insert(taskAttempts)
+      .values({
+        taskId: task.id,
+        agentId: agent.id,
+        attempt: 1,
+        opener: 'submission',
+        openedAt: opened,
+        outcome: 'failed',
+        closedAt: opened,
+      })
+      .returning()
+    const [secondAttempt] = await db
+      .insert(taskAttempts)
+      .values({
+        taskId: task.id,
+        agentId: agent.id,
+        attempt: 2,
+        opener: 'submission',
+        openedAt: opened,
+        outcome: 'passed',
+        closedAt: opened,
+      })
+      .returning()
+
+    const [report] = await db
+      .insert(taskReports)
+      .values({ attemptId: attempt!.id, content: 'The verifier never answered.' })
       .returning()
     await db
-      .insert(taskTips)
-      .values({ taskId: task.id, agentId: agent.id, content: 'Send the mail before submitting.' })
+      .insert(taskReports)
+      .values({ attemptId: secondAttempt!.id, content: 'Send the mail before submitting.' })
     await db.insert(moderations).values({
-      subjectKind: 'struggle',
-      struggleId: struggle!.id,
+      reportId: report!.id,
       decision: 'approved',
       model: 'a-model',
       stages: {},
@@ -207,20 +235,38 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     })
 
     // A second citizen, who is not going anywhere. The leaver voted on their
-    // tip — `erasure.md` §2 lists *the feedback it gave on other citizens' tips*
-    // among what goes, and this is the only row in the whole set that sits on
-    // somebody else's work. It is what makes the difference between erasing a
-    // citizen and erasing everything they ever touched.
+    // report — `erasure.md` §2 lists *the feedback it gave on other citizens'
+    // reports* among what goes, and this is the only row in the whole set that
+    // sits on somebody else's work. It is what makes the difference between
+    // erasing a citizen and erasing everything they ever touched.
     const neighbour = await anAgent({ name: 'neighbour' })
-    const [neighboursTip] = await db
-      .insert(taskTips)
-      .values({ taskId: task.id, agentId: neighbour.id, content: 'Check the spam folder.' })
+    const [neighboursAttempt] = await db
+      .insert(taskAttempts)
+      .values({
+        taskId: task.id,
+        agentId: neighbour.id,
+        attempt: 1,
+        opener: 'submission',
+        openedAt: opened,
+        outcome: 'passed',
+        closedAt: opened,
+      })
+      .returning()
+    const [neighboursReport] = await db
+      .insert(taskReports)
+      .values({ attemptId: neighboursAttempt!.id, content: 'Check the spam folder.' })
       .returning()
     await db
-      .insert(tipFeedback)
-      .values({ tipId: neighboursTip!.id, agentId: agent.id, helpful: true })
+      .insert(reportFeedback)
+      .values({ reportId: neighboursReport!.id, agentId: agent.id, helpful: true })
 
-    return { agent, neighbour, task, submission: submission!, neighboursTip: neighboursTip! }
+    return {
+      agent,
+      neighbour,
+      task,
+      submission: submission!,
+      neighboursReport: neighboursReport!,
+    }
   }
 
   /** Every table that must hold nothing once the citizen is gone. */
@@ -242,9 +288,9 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     'vision_challenges',
     'image_challenges',
     'website_challenges',
-    'task_struggles',
-    'task_tips',
-    'tip_feedback',
+    'task_attempts',
+    'task_reports',
+    'report_feedback',
     'moderations',
   ] as const
 
@@ -265,15 +311,18 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
   }
 
   /**
-   * What is left in each table afterwards. Zero everywhere except `task_tips`,
-   * which keeps the neighbour's — an erasure takes the citizen's rows and not
+   * What is left in each table afterwards. Zero everywhere except the two the
+   * neighbour's own work sits in — an erasure takes the citizen's rows and not
    * every row the citizen was near.
    */
-  const SURVIVING: Partial<Record<(typeof CITIZEN_TABLES)[number], number>> = { task_tips: 1 }
+  const SURVIVING: Partial<Record<(typeof CITIZEN_TABLES)[number], number>> = {
+    task_attempts: 1,
+    task_reports: 1,
+  }
 
   describe('what goes with the citizen', () => {
     it('leaves nothing in any table whose rows were the citizen’s', async () => {
-      const { agent, neighbour, neighboursTip } = await aCitizenWithHistoryEverywhere()
+      const { agent, neighbour, neighboursReport } = await aCitizenWithHistoryEverywhere()
 
       // Every table has something in it first. Without this the test would pass
       // just as happily against an erasure that deleted nothing, because every
@@ -290,12 +339,18 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
         )
       }
 
-      // And the one survivor is the neighbour's, untouched.
-      const [tip] = await db
-        .select()
-        .from(taskTips)
-        .where(sql`${taskTips.id} = ${neighboursTip.id}`)
-      expect(tip?.agentId).toBe(neighbour.id)
+      // And the survivors are the neighbour's, untouched: their attempt and the
+      // report on it. A report names no agent now, so the attempt is what
+      // carries the authorship the assertion is about.
+      const [report] = await db
+        .select({ attemptId: taskReports.attemptId })
+        .from(taskReports)
+        .where(sql`${taskReports.id} = ${neighboursReport.id}`)
+      const [attempt] = await db
+        .select({ agentId: taskAttempts.agentId })
+        .from(taskAttempts)
+        .where(sql`${taskAttempts.id} = ${report!.attemptId}`)
+      expect(attempt?.agentId).toBe(neighbour.id)
     })
 
     /**
@@ -567,7 +622,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     )
 
     // Sorted here rather than in SQL: `order by` follows the server's collation,
-    // which puts `tasks` before `task_struggles` on one machine and after it on
+    // which puts `tasks` before `task_reports` on one machine and after it on
     // another. A test that fails on somebody else's Postgres teaches nothing.
     const carried = rules.map((r) => `${r.table_name}.${r.column_name} ${r.rule}`).sort()
 
@@ -594,6 +649,14 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       // safe: the balance is burned to zero first, or Postgres refuses.
       'ledger_entries.agent_id r',
       'pow_challenges.agent_id c',
+      /**
+       * The votes a citizen cast on other citizens' reports. `erasure.md` §2
+       * lists them by name among what goes with their author — they are the one
+       * kind of row a leaver leaves on somebody else's work, and `#91`
+       * recomputes the affected counters inside the erasing transaction rather
+       * than making the citizen stay so the number stays tidy.
+       */
+      'report_feedback.agent_id c',
       'reputation_events.agent_id c',
       'social_challenges.agent_id c',
       'solana_wallet_challenges.agent_id c',
@@ -609,12 +672,9 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
        */
       'task_attempts.agent_id c',
       'task_resets.agent_id c',
-      'task_struggles.agent_id c',
-      'task_tips.agent_id c',
       // The model for anything that outlives a citizen: the task stays, its
       // author is unset.
       'tasks.created_by n',
-      'tip_feedback.agent_id c',
       'vision_challenges.agent_id c',
       'website_challenges.agent_id c',
     ])

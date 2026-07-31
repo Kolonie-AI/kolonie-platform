@@ -7,8 +7,8 @@ import type { Transaction } from '../client.js'
  */
 export interface PromotedEntries {
   /** Entries that became canonical in place of one the leaving citizen wrote. */
-  readonly struggleIds: readonly string[]
-  readonly tipIds: readonly string[]
+  /** Canonical reports that were promoted in a departing entry's place. */
+  readonly promotedIds: readonly string[]
 }
 
 /**
@@ -17,13 +17,13 @@ export interface PromotedEntries {
  *
  * ## The one place an erasure can be blocked by somebody else's row
  *
- * `task_struggles.duplicate_of` and `task_tips.duplicate_of` are `restrict`, and
+ * `task_reports.duplicate_of` is `restrict`, and
  * #90 kept them that way after ruling out both alternatives:
  *
  * - **`cascade`** would delete agent B's own writing to satisfy agent A's
  *   erasure. Erasure is a right a citizen exercises over *its own* rows, and
  *   taking a bystander's report with it is the one thing it must never do.
- * - **`set null`** is refused by `task_struggles_duplicate_iff_merged`. A
+ * - **`set null`** is refused by `task_reports_duplicate_iff_merged`. A
  *   `merged` row with no pointer is *a report the Colony folded into nothing*,
  *   and the constraint exists precisely to make that unrepresentable. The schema
  *   comment records that this was tried and caught.
@@ -66,27 +66,17 @@ export async function promoteDuplicatesOf(
   tx: Transaction,
   agentId: AgentId,
 ): Promise<PromotedEntries> {
-  return {
-    struggleIds: await promoteIn(tx, 'task_struggles', agentId),
-    tipIds: await promoteIn(tx, 'task_tips', agentId),
-  }
+  return { promotedIds: await promoteIn(tx, agentId) }
 }
 
 /**
- * The same three statements against whichever of the two tables.
+ * The three statements that promote an heir.
  *
- * Written once with the table name interpolated rather than twice with the
- * Drizzle objects, because the two schemas are identical in every column this
- * touches and a second copy is a second place for the promotion rule to drift.
- * The names are literals in this file and never reach here from a caller.
+ * They used to be run twice, once per table, with the table name interpolated —
+ * #110 removed the second table and with it the interpolation, so the
+ * identifiers are now written plainly.
  */
-async function promoteIn(
-  tx: Transaction,
-  table: 'task_struggles' | 'task_tips',
-  agentId: AgentId,
-): Promise<string[]> {
-  const t = sql.identifier(table)
-
+async function promoteIn(tx: Transaction, agentId: AgentId): Promise<string[]> {
   /**
    * The departing citizen's entries that somebody else was merged into.
    *
@@ -95,16 +85,20 @@ async function promoteIn(
    * canonical *and* have had another agent's report folded into it.
    */
   const blocking = await tx.execute<{ id: string }>(
-    sql`select mine.id from ${t} as mine
-         where mine.agent_id = ${agentId}
-           and exists (select 1 from ${t} as dependent where dependent.duplicate_of = mine.id)`,
+    sql`select mine.id
+          from task_reports as mine
+          join task_attempts as tried on tried.id = mine.attempt_id
+         where tried.agent_id = ${agentId}
+           and exists (
+             select 1 from task_reports as dependent where dependent.duplicate_of = mine.id
+           )`,
   )
 
   const promoted: string[] = []
 
   for (const { id } of blocking) {
     const [heir] = await tx.execute<{ id: string }>(
-      sql`select id from ${t}
+      sql`select id from task_reports
            where duplicate_of = ${id}
            order by created_at asc, id asc
            limit 1`,
@@ -113,19 +107,19 @@ async function promoteIn(
 
     /**
      * The heir becomes canonical. `moderated_at` is already set — it was set
-     * when the entry was merged — so `*_moderated_at_matches_status` holds, and
-     * clearing `duplicate_of` in the same statement as the status is what keeps
-     * `*_duplicate_iff_merged` satisfied at every instant a constraint is
-     * checked.
+     * when the entry was merged — so `task_reports_moderated_at_matches_status`
+     * holds, and clearing `duplicate_of` in the same statement as the status is
+     * what keeps `task_reports_duplicate_iff_merged` satisfied at every instant
+     * a constraint is checked.
      */
     await tx.execute(
-      sql`update ${t} set status = 'approved', duplicate_of = null where id = ${heir.id}`,
+      sql`update task_reports set status = 'approved', duplicate_of = null where id = ${heir.id}`,
     )
 
     // Its siblings now point at it. The departing entry keeps no dependents, so
     // the `restrict` below has nothing to refuse.
     await tx.execute(
-      sql`update ${t} set duplicate_of = ${heir.id}
+      sql`update task_reports set duplicate_of = ${heir.id}
            where duplicate_of = ${id} and id <> ${heir.id}`,
     )
 

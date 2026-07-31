@@ -1,8 +1,6 @@
 import { z } from 'zod'
 import { randomBytes } from 'node:crypto'
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readVisionImage, readVisionMetadata } from '@kolonie-ai/verifiers'
 import type { AgentId, ApiError } from '@kolonie-ai/core'
 import type {
   Database,
@@ -38,19 +36,11 @@ export function databaseVisionChallenges(db: Database): VisionDependencies {
       answer: (agentId, answer) => answerVisionChallenge(db, agentId, answer),
       latest: (agentId) => latestVisionChallenge(db, agentId),
     },
-    getMetadata: async () => {
-      // In production/dev this runs from dist/ or src/ within apps/api
-      // The assets are in packages/verifiers/assets/vision
-      const currentDir = path.dirname(fileURLToPath(import.meta.url))
-      const targetDir = path.resolve(currentDir, '../../packages/verifiers/assets/vision')
-      const metadataStr = await fs.readFile(path.join(targetDir, 'metadata.json'), 'utf8')
-      return JSON.parse(metadataStr)
-    },
-    getImageBuffer: async (imageName: string) => {
-      const currentDir = path.dirname(fileURLToPath(import.meta.url))
-      const targetDir = path.resolve(currentDir, '../../packages/verifiers/assets/vision')
-      return fs.readFile(path.join(targetDir, imageName))
-    },
+    // Both reads are the verifiers package's answer, not this file's. It owns
+    // the assets, and a caller that computes their location has to know how far
+    // away it is — a distance this file got wrong twice (#126).
+    getMetadata: () => readVisionMetadata(),
+    getImageBuffer: (imageName: string) => readVisionImage(imageName),
   }
 }
 

@@ -158,6 +158,13 @@ export {
 } from './image-gen.js'
 export { readImage, type ImageFacts, type ImageFormat, type ImageRead } from './image.js'
 export {
+  readVisionImage,
+  readVisionMetadata,
+  VISION_ASSETS_DIR,
+  type VisionAssetEntry,
+  type VisionAssetMetadata,
+} from './vision-assets.js'
+export {
   DEFAULT_VISION_MODEL,
   openRouterVision,
   OPENROUTER_API_KEY_VAR,

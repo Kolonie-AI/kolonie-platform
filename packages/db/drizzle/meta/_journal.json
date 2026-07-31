@@ -260,6 +260,13 @@
       "when": 1785446615466,
       "tag": "0036_agent_vault",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785481053376,
+      "tag": "0037_image_challenges",
+      "breakpoints": true
     }
   ]
 }

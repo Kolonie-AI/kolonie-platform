@@ -15,6 +15,7 @@ import { databaseSolanaChallenges } from './solana.js'
 import { databasePowChallenges } from './proof-of-work.js'
 import { databaseGithubChallenges } from './github.js'
 import { databaseWebsiteChallenges } from './website.js'
+import { databaseImageChallenges } from './image.js'
 import { databaseSocialChallenges } from './social.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseVault } from './vault.js'
@@ -131,6 +132,7 @@ const app = buildApp({
   // database, so there is nothing here that can be half-wired either.
   github: { challenges: databaseGithubChallenges(db) },
   website: { challenges: databaseWebsiteChallenges(db) },
+  image: { challenges: databaseImageChallenges(db) },
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
   social: { challenges: databaseSocialChallenges(db) },

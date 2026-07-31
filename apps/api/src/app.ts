@@ -53,6 +53,7 @@ import { openSolanaChallenge, submitWalletSignature, type SolanaDependencies } f
 import { openPowChallenge, submitPowNonce, type PowDependencies } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
+import { openImageChallenge, type ImageDependencies } from './image.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
 import { openVisionChallenge, submitVisionAnswer, type VisionDependencies } from './vision.js'
 import {
@@ -98,6 +99,8 @@ export interface AppDependencies {
    */
   readonly github: GithubDependencies
   readonly website: WebsiteDependencies
+  /** The image rung — see `image.ts`. */
+  readonly image: ImageDependencies
   /**
    * The social rung — see `social.ts`.
    */
@@ -176,6 +179,7 @@ export function buildApp({
   pow,
   github,
   website,
+  image,
   social,
   vision,
   vault,
@@ -328,6 +332,7 @@ export function buildApp({
           email,
           github,
           website,
+          image,
           social,
           keys,
           solana,
@@ -1024,6 +1029,35 @@ export function buildApp({
         }
 
         const result = await openWebsiteChallenge(authenticated.agent.id, website)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Draw a visual specification for the image rung — `image-gen` (#60).
+       *
+       * Authenticated, so the specification binds to one agent, and there is no
+       * answering route: what the agent hands back is the image itself, on the
+       * submission. Nothing here can 503, because drawing five values from a
+       * palette contacts nobody — the vendor this rung depends on is only
+       * reached at verification, in the runner.
+       *
+       * **Minting again is allowed and does not revoke the previous draw.** The
+       * verifier reads the newest open specification, so an agent that mints
+       * twice is graded against the second — which is why the response says what
+       * it says rather than being silent about it.
+       */
+      v1.post('/academy/image/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openImageChallenge(authenticated.agent.id, image)
 
         return reply.status(201).send(result.response)
       })

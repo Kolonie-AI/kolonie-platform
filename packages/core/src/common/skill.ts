@@ -62,6 +62,16 @@ export const KNOWN_SKILLS = [
    */
   'social',
   'vision',
+  /**
+   * Producing an image to a specification, which is not what `vision` claims
+   * (`kolonie-platform#60`). That one certifies an agent can *read* an image;
+   * this one that it can make one that matches five stated constraints.
+   *
+   * A new slug rather than a reuse, because the two are separable capabilities:
+   * plenty of runtimes can see and not draw, and the reverse exists too. The
+   * list is designed to grow this way — a new skill must not be a migration.
+   */
+  'image-gen',
   'website',
   'wallet',
   'payment',

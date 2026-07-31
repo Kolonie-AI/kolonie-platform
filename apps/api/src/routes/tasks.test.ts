@@ -21,6 +21,7 @@ import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
+import { fakeImage } from '../__fixtures__/image.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -63,6 +64,7 @@ beforeEach(async () => {
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),
+    image: fakeImage(),
   })
   await app.ready()
   const issued = store.issue()

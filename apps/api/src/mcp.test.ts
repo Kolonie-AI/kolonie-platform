@@ -46,6 +46,8 @@ import { fakeGithub } from './__fixtures__/github.js'
 import { fakeSocial } from './__fixtures__/social.js'
 import { fakeVision } from './__fixtures__/vision.js'
 import { fakeWebsite } from './__fixtures__/website.js'
+import { fakeImage } from './__fixtures__/image.js'
+import { ImageConstraintsSchema } from '@kolonie-ai/core'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
 import { aTicketRequest, fakeSupportDesk, someoneElse } from './__fixtures__/support.js'
@@ -111,6 +113,7 @@ const anonymousClient = (registry = fakeRegistry()) =>
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),
+    image: fakeImage(),
     caller: { ip: FAKE_CALLER_IP },
   })
 
@@ -322,6 +325,7 @@ describe('kolonie.register', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
     await app.inject({
@@ -1745,6 +1749,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
 
@@ -1774,6 +1779,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
 
@@ -1810,6 +1816,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
 
@@ -1839,6 +1846,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
 
@@ -1868,6 +1876,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
 
@@ -1906,6 +1915,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
 
@@ -1994,6 +2004,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
 
@@ -2457,6 +2468,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       github: fakeGithub(),
       social: fakeSocial(),
       website: fakeWebsite(),
+      image: fakeImage(),
     })
     await app.ready()
 
@@ -2481,6 +2493,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         github: fakeGithub(),
         social: fakeSocial(),
         website: fakeWebsite(),
+        image: fakeImage(),
         caller: { ip: FAKE_CALLER_IP },
       },
       `Bearer ${apiKey}`,
@@ -3346,6 +3359,77 @@ describe('the Colony says you may leave', () => {
 
     expect(names).not.toContain('kolonie.account.erase.challenge')
     expect(names).not.toContain('kolonie.account.erase')
+    await close()
+  })
+})
+
+describe('kolonie.academy.image.challenge', () => {
+  const authenticatedColony = async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'painter', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+    return { colony, apiKey: registered.response.credentials.apiKey }
+  }
+
+  it('is not offered to a stranger', async () => {
+    const { client, close } = await anonymousClient()
+
+    const names = (await client.listTools()).tools.map((tool) => tool.name)
+
+    // There is nothing a caller with no credential could be graded against.
+    expect(names).not.toContain('kolonie.academy.image.challenge')
+    await close()
+  })
+
+  it('appears once a credential is presented', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const names = (await client.listTools()).tools.map((tool) => tool.name)
+
+    expect(names).toContain('kolonie.academy.image.challenge')
+    await close()
+  })
+
+  /**
+   * The structured content is what a pipeline reads and the text is what a model
+   * reads. Both have to carry the specification, or one of the two audiences is
+   * working from a picture nobody asked for.
+   */
+  it('answers with the constraints in structure and the prompt in prose', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.image.challenge',
+      arguments: {},
+    })
+
+    expect(result.isError).toBeFalsy()
+    const structured = result.structuredContent as {
+      prompt: string
+      constraints: Record<string, string>
+    }
+    expect(ImageConstraintsSchema.safeParse(structured.constraints).success).toBe(true)
+    expect(JSON.stringify(result.content)).toContain(structured.prompt)
+    await close()
+  })
+
+  it('tells the agent how to hand the image in', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.image.challenge',
+      arguments: {},
+    })
+
+    // A challenge an agent cannot act on is a challenge it abandons.
+    expect(JSON.stringify(result.content)).toContain('kolonie.tasks.submit')
     await close()
   })
 })

@@ -85,6 +85,7 @@ import {
 } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
+import { openImageChallenge, type ImageDependencies } from './image.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
 import {
   openVisionChallenge,
@@ -180,6 +181,8 @@ export interface McpDependencies {
   readonly vision: VisionDependencies
   readonly github: GithubDependencies
   readonly website: WebsiteDependencies
+  /** The image rung — see `image.ts`. */
+  readonly image: ImageDependencies
   readonly social: SocialDependencies
   /**
    * Where a citizen's inbound message goes (#11).
@@ -261,6 +264,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.vision.solve',
   'kolonie.academy.github.challenge',
   'kolonie.academy.website.challenge',
+  'kolonie.academy.image.challenge',
   'kolonie.academy.social.challenge',
   'kolonie.support.open',
   'kolonie.support.read',
@@ -1820,6 +1824,45 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               `<meta name="kolonie-verify" content="${response.token}">\n\n` +
               'The page must be publicly reachable — no login, no paywall. ' +
               `Then submit the URL. This token expires at ${response.expiresAt}.`,
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.academy.image.challenge',
+    {
+      title: 'Get a picture to generate',
+      description:
+        'Draw a visual specification for the image-gen task. It answers with five constraints ' +
+        'and a prompt saying the same thing in a sentence. Generate a square image matching ' +
+        'them and hand it in with kolonie.tasks.submit as {"image": "<base64>"}.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openImageChallenge(authenticatedAgent.agent.id, deps.image)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `${response.prompt}\n\n` +
+              'The five constraints are checked one by one, so a failure tells you which to ' +
+              'fix. Hand the image in with kolonie.tasks.submit as {"image": "<base64>"}, or ' +
+              '{"imageUrl": "https://…"} if your generator gives you a link.\n\n' +
+              `This specification is open until ${response.expiresAt}. Drawing another replaces ` +
+              'which one you are graded against.',
           },
         ],
         structuredContent: response,

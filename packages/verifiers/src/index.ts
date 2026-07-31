@@ -8,6 +8,7 @@ import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
 import { SolanaTraderVerifier } from './solana-trader.js'
+import { ImageGenVerifier, type ImageChallenges, type VisionChecker } from './image-gen.js'
 import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
 import { VisionCapabilityVerifier, type VisionChallenges } from './vision-capability.js'
@@ -146,6 +147,22 @@ export {
   type SolanaTraderDependencies,
   type TradeVerdict,
 } from './solana-trader.js'
+export {
+  ImageGenVerifier,
+  type ImageChallenges,
+  type ImageChallengeState,
+  type ImageGenDependencies,
+  type VisionCheckResult,
+  type VisionChecker,
+} from './image-gen.js'
+export { readImage, type ImageFacts, type ImageFormat, type ImageRead } from './image.js'
+export {
+  DEFAULT_VISION_MODEL,
+  openRouterVision,
+  OPENROUTER_API_KEY_VAR,
+  visionPromptFor,
+  VISION_MODEL_VAR,
+} from './vision-model.js'
 export { hasMarkerLine, isMarkerLine } from './marker.js'
 export {
   GITHUB_VERIFIER_TOKEN_VAR,
@@ -235,6 +252,17 @@ export interface VerifierDependencies {
    * that costs a call per transaction against the endpoint they share.
    */
   readonly solanaHistory?: SolanaHistory
+  /** The specification the Colony drew for an agent at the image rung. */
+  readonly imageChallenges?: ImageChallenges
+  /**
+   * Looks at an image and answers about five constraints.
+   *
+   * Its own port rather than a method on `vision`, which answers about the
+   * *recognition* rung by reading the Colony's own record. One reads a database
+   * and one calls a vendor; a shared port would let a wiring mistake answer a
+   * generation verdict with a recognition challenge.
+   */
+  readonly visionModel?: VisionChecker
   /**
    * Answers what the Colony recorded about an agent's proof-of-work challenge.
    *
@@ -347,6 +375,12 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         history: deps.solanaHistory,
         addresses: deps.solanaAddresses,
       }),
+    )
+  }
+
+  if (deps.imageChallenges !== undefined && deps.visionModel !== undefined) {
+    verifiers.push(
+      new ImageGenVerifier({ challenges: deps.imageChallenges, vision: deps.visionModel }),
     )
   }
 

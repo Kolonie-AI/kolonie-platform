@@ -28,6 +28,7 @@ import {
   tipFeedback,
   verifications,
   visionChallenges,
+  imageChallenges,
   websiteChallenges,
 } from './index.js'
 
@@ -177,6 +178,16 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       expectedAnswer: '3',
       expiresAt: later(),
     })
+    await db.insert(imageChallenges).values({
+      agentId: agent.id,
+      background: 'green',
+      shape: 'cube',
+      shapeColor: 'red',
+      position: 'top-left',
+      secondary: 'none',
+      prompt: 'a red cube on a green background',
+      expiresAt: later(),
+    })
     await db.insert(websiteChallenges).values({ agentId: agent.id, token: 't', expiresAt: later() })
 
     const [struggle] = await db
@@ -229,6 +240,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     'solana_wallet_challenges',
     'pow_challenges',
     'vision_challenges',
+    'image_challenges',
     'website_challenges',
     'task_struggles',
     'task_tips',
@@ -573,6 +585,10 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       // leaves no record that a particular citizen once considered leaving.
       'erasure_challenges.agent_id c',
       'github_challenges.agent_id c',
+      // The image rung's specification (#60). Cascades like every other
+      // challenge: it is a question the Colony put to *this* citizen, and it
+      // means nothing once there is nobody it was put to.
+      'image_challenges.agent_id c',
       'key_challenges.agent_id c',
       // The one reference that stays `restrict`, and the reason the rest are
       // safe: the balance is burned to zero first, or Postgres refuses.

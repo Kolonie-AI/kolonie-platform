@@ -47,6 +47,12 @@ describe('the Academy task definitions', () => {
        */
       'solana-wallet',
       /**
+       * The mirror of `vision-capability` (#60): that rung reads an image, this
+       * one makes one. A skill of its own, because seeing and drawing are
+       * separable capabilities.
+       */
+      'image-gen',
+      /**
        * The first earning rung, directly above the wallet it reads payments at
        * (#61). It is one of four tasks that will grant the single `payment`
        * skill — the Colony cannot tell an API payment from a bounty payout

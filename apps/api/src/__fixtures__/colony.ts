@@ -25,6 +25,7 @@ import type { SolanaDependencies } from '../solana.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { GithubDependencies } from '../github.js'
 import type { WebsiteDependencies } from '../website.js'
+import type { ImageDependencies } from '../image.js'
 import type { SocialDependencies } from '../social.js'
 import type { VisionDependencies } from '../vision.js'
 import type { VaultDependencies } from '../vault.js'
@@ -36,6 +37,7 @@ import { fakePow } from './proof-of-work.js'
 import { fakeGithub } from './github.js'
 import { fakeSocial } from './social.js'
 import { fakeWebsite } from './website.js'
+import { fakeImage } from './image.js'
 import { fakeVision } from './vision.js'
 import { fakeVault } from './vault.js'
 import { register, type AgentRegistry, type Caller } from '../registration.js'
@@ -124,6 +126,7 @@ export interface FakeColony {
   readonly github: GithubDependencies
   readonly social: SocialDependencies
   readonly website: WebsiteDependencies
+  readonly image: ImageDependencies
   readonly vision: VisionDependencies
   /** The vault, behind both surfaces. Overridable the same way (#98). */
   readonly vault: VaultDependencies
@@ -240,6 +243,7 @@ export function fakeColony(): FakeColony {
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),
+    image: fakeImage(),
     vision: fakeVision(),
     vault: { vault: fakeVault() },
 

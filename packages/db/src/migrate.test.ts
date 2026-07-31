@@ -70,8 +70,11 @@ describe.skipIf(!target.available)('the migrations', () => {
     // makes twenty-eight — the two-step confirmation, which cascades from the
     // agent so that an attempt leaves no trace once the account is gone. And
     // `agent_vault` (#98) makes twenty-nine: the one table here whose contents
-    // the Colony cannot read, sealed with the citizen's own key (D-043).
-    expect(afterFirst.tables).toBe('29')
+    // the Colony cannot read, sealed with the citizen's own key (D-043). And
+    // `image_challenges` (#60) makes thirty — the visual specification the
+    // Colony draws for a citizen, whose columns are the five things a vision
+    // model is then asked about one by one.
+    expect(afterFirst.tables).toBe('30')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

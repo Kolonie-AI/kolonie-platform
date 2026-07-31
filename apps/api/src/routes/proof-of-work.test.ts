@@ -17,6 +17,7 @@ import { fakeGithub } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
+import { fakeImage } from '../__fixtures__/image.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import {
   FAKE_POW_DIFFICULTY,
@@ -54,6 +55,7 @@ beforeEach(async () => {
     github: fakeGithub(),
     social: fakeSocial(),
     website: fakeWebsite(),
+    image: fakeImage(),
     academy: fakeAcademy(),
     vision: fakeVision(),
   })

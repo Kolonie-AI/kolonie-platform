@@ -108,7 +108,17 @@ function extractTokens(html: string): string[] {
  * Fetches a URL with SSRF protection (up to 5 redirects).
  * Blocks loopback/private IP addresses.
  */
-async function safeFetch(url: string, redirects = 0): Promise<Response> {
+/**
+ * A fetch that refuses to be pointed at the Colony's own network.
+ *
+ * **Exported so the image rung uses this one rather than growing a second**
+ * (#60). Two SSRF implementations is two things to keep correct, and the one
+ * that gets forgotten is the one that lets a submission read the metadata
+ * service. It resolves the hostname before connecting, refuses every private
+ * range, and re-checks after each redirect — a public hostname that redirects to
+ * `169.254.169.254` is the whole attack and is what `redirect: 'manual'` is for.
+ */
+export async function safeFetch(url: string, redirects = 0): Promise<Response> {
   if (redirects > 5) {
     throw new Error('Too many redirects')
   }

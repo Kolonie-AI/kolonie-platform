@@ -159,6 +159,15 @@ describe.skipIf(!target.available)('schema', () => {
         'erasure_challenges',
         'erasures',
         'github_challenges',
+        /**
+         * `image_challenges` joined with the image rung (#60). Its columns are
+         * the five constraints a vision model is asked about one at a time,
+         * which is why they are columns rather than a blob: they are read by a
+         * verdict rather than displayed. `prompt` is stored alongside them even
+         * though it is derived, because what the agent was actually shown is the
+         * thing a dispute would be about.
+         */
+        'image_challenges',
         // `key_challenges` joined with the keypair rung (#36): the Academy's
         // first browser-free root, and the only challenge table whose exchange
         // touches nothing outside this process.

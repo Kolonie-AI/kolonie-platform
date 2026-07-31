@@ -13,6 +13,7 @@ import {
   latestSolanaChallenge,
   latestPowChallenge,
   latestVisionChallenge,
+  latestImageChallenge,
   openGithubNonces,
   openSocialNonces,
   socialAccountOf,
@@ -28,6 +29,10 @@ import {
   httpSocialReader,
   httpSolanaHistory,
   httpSolanaRpc,
+  openRouterVision,
+  OPENROUTER_API_KEY_VAR,
+  VISION_MODEL_VAR,
+  DEFAULT_VISION_MODEL,
   MASTODON_INSTANCES_VAR,
   mastodonAdapter,
   parseMastodonInstances,
@@ -135,6 +140,21 @@ const verifiers = createVerifiers({
   // The agent's spend does not become the Colony's, whatever it was.
   work: { latest: (agentId) => latestPowChallenge(db, AgentIdSchema.parse(agentId)) },
   vision: { latest: (agentId) => latestVisionChallenge(db, AgentIdSchema.parse(agentId)) },
+  /**
+   * The image rung (`#60`), which is the mirror of the one above: that verifier
+   * reads the Colony's own record of a recognition challenge, this one hands a
+   * picture to a vendor's model.
+   *
+   * **The only Academy verifier that spends money per submission.** A runner
+   * without the key still starts and the verdicts come back `pending`, so an
+   * unconfigured deploy leaves submissions waiting rather than failing agents —
+   * the same arrangement the GitHub token has, and for the same reason.
+   */
+  imageChallenges: { latest: (agentId) => latestImageChallenge(db, AgentIdSchema.parse(agentId)) },
+  visionModel: openRouterVision(
+    process.env[OPENROUTER_API_KEY_VAR],
+    process.env[VISION_MODEL_VAR] ?? DEFAULT_VISION_MODEL,
+  ),
   // The GitHub rung's Colony-side half: which nonces this agent may currently
   // publish. Credential-free like the three above — the *token* this rung needs
   // is `github` up top, which reads the gist. Splitting the two means a missing

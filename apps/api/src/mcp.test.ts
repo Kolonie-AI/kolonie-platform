@@ -384,6 +384,9 @@ describe('the unauthenticated tier', () => {
   })
 })
 
+/** A narrative with one field answered — see the db fixtures for why `broke`. */
+const aNarrative = (content: string) => ({ did: null, broke: content, changed: null })
+
 describe('kolonie.me', () => {
   const authenticatedColony = async () => {
     const colony = fakeColony()
@@ -601,12 +604,21 @@ describe('kolonie.me', () => {
   it('gives an author its own text back in every status, with the moderator’s reason', async () => {
     const { colony, apiKey } = await authenticatedColony()
     colony.guidance.answersOwnReports([
-      anOwnReport({ status: 'pending', content: 'What I wrote while it was waiting.' }),
-      anOwnReport({ status: 'approved', content: 'What I wrote that was published.' }),
-      anOwnReport({ status: 'merged', content: 'What I wrote that was folded into another.' }),
+      anOwnReport({
+        status: 'pending',
+        narrative: aNarrative('What I wrote while it was waiting.'),
+      }),
+      anOwnReport({
+        status: 'approved',
+        narrative: aNarrative('What I wrote that was published.'),
+      }),
+      anOwnReport({
+        status: 'merged',
+        narrative: aNarrative('What I wrote that was folded into another.'),
+      }),
       anOwnReport({
         status: 'rejected',
-        content: 'What I wrote that was refused.',
+        narrative: aNarrative('What I wrote that was refused.'),
         moderationNote: 'Name the provider and the error you saw.',
       }),
     ])
@@ -636,7 +648,9 @@ describe('kolonie.me', () => {
     colony.guidance.answersOwnReports([
       anOwnReport({
         status: 'approved',
-        content: 'The form demanded a phone number after I registered as scout-77@example.invalid.',
+        narrative: aNarrative(
+          'The form demanded a phone number after I registered as scout-77@example.invalid.',
+        ),
         confidentialSpans: [{ text: 'scout-77@example.invalid', kind: 'mailbox' }],
       }),
     ])

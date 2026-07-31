@@ -104,7 +104,9 @@ describe.skipIf(!target.available)('task guidance schema', () => {
       .insert(taskReports)
       .values({
         attemptId,
-        content: 'The provider started asking for a phone number during signup.',
+        // A default the overrides can null out, which is what the floor test
+        // needs — `broke: null` has to reach the column rather than be ignored.
+        broke: 'The provider started asking for a phone number during signup.',
         ...rest,
       })
       .returning()
@@ -164,13 +166,13 @@ describe.skipIf(!target.available)('task guidance schema', () => {
 
   describe('what a citizen may write', () => {
     it('refuses a report too short to judge', async () => {
-      await expectRejection(() => aReport({ content: 'broken' }), /task_reports_content_length/)
+      await expectRejection(() => aReport({ broke: 'broken' }), /task_reports_field_lengths/)
     })
 
     it('refuses a report longer than the ceiling', async () => {
       await expectRejection(
-        () => aReport({ content: 'x'.repeat(2001) }),
-        /task_reports_content_length/,
+        () => aReport({ broke: 'x'.repeat(2001) }),
+        /task_reports_field_lengths/,
       )
     })
 
@@ -187,7 +189,7 @@ describe.skipIf(!target.available)('task guidance schema', () => {
       const attempt = await anAttempt()
       await aReport({ attemptId: attempt.id })
       await expectRejection(
-        () => aReport({ attemptId: attempt.id, content: 'The same wall, said twice.' }),
+        () => aReport({ attemptId: attempt.id, broke: 'The same wall, said twice.' }),
         /task_reports_attempt_unique/,
       )
     })
@@ -197,10 +199,62 @@ describe.skipIf(!target.available)('task guidance schema', () => {
       await aReport({ attemptId: (await anAttempt()).id })
       const later = await aReport({
         attemptId: (await anAttempt()).id,
-        content: 'Changed the model and got one step further before it stopped.',
+        broke: 'Changed the model and got one step further before it stopped.',
       })
 
       expect(later.id).toBeTruthy()
+    })
+
+    /**
+     * The rejection case #113's definition of done names, at the layer that has
+     * to hold under a caller that is not the API.
+     *
+     * Three fields each inside the per-field bound and over the total between
+     * them. **Refused, never truncated** — a truncated report is false in the
+     * direction that matters, because the end of an account is where it says
+     * what finally happened.
+     */
+    it('refuses a report over the total ceiling with every field inside its own', async () => {
+      await expectRejection(
+        () =>
+          aReport({
+            did: 'a'.repeat(1800),
+            broke: 'b'.repeat(1800),
+            changed: 'c'.repeat(1800),
+          }),
+        /task_reports_total_length/,
+      )
+    })
+
+    it('accepts the same three fields once they fit inside the total', async () => {
+      const report = await aReport({
+        did: 'a'.repeat(1300),
+        broke: 'b'.repeat(1300),
+        changed: 'c'.repeat(1300),
+      })
+
+      expect(report.id).toBeTruthy()
+    })
+
+    /**
+     * The floor, and it is a property of the row rather than of a code path:
+     * #112's gate reads it, so an agent must not be able to open its next
+     * attempt by filing an empty one.
+     */
+    it('refuses a report that answers nothing at all', async () => {
+      await expectRejection(() => aReport({ broke: null }), /task_reports_says_something/)
+    })
+
+    /**
+     * Which questions went unanswered is the measurement that makes reducing the
+     * field set later an evidence-based decision — and it is only answerable
+     * because silence is a null rather than an empty string.
+     */
+    it('stores an unanswered question as null, not as nothing', async () => {
+      const report = await aReport({ changed: 'The model, and nothing else.' })
+
+      expect(report.changed).toBe('The model, and nothing else.')
+      expect(report.did).toBeNull()
     })
 
     /**
@@ -261,7 +315,7 @@ describe.skipIf(!target.available)('task guidance schema', () => {
       const canonical = await aReport()
       const later = await aReport({
         agentId: otherAgentId,
-        content: 'The same wall, from a different agent entirely.',
+        broke: 'The same wall, from a different agent entirely.',
       })
 
       await expectRejection(
@@ -300,7 +354,7 @@ describe.skipIf(!target.available)('task guidance schema', () => {
       const canonical = await aReport()
       const later = await aReport({
         agentId: otherAgentId,
-        content: 'The signup page asks for a telephone number now.',
+        broke: 'The signup page asks for a telephone number now.',
       })
       const at = new Date().toISOString()
 
@@ -398,7 +452,7 @@ describe.skipIf(!target.available)('task guidance schema', () => {
       const canonical = await aReport()
       const later = await aReport({
         agentId: otherAgentId,
-        content: 'The same wall again, reported independently.',
+        broke: 'The same wall again, reported independently.',
       })
       const at = new Date().toISOString()
 

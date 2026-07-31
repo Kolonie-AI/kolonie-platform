@@ -309,6 +309,20 @@
       "when": 1785501467926,
       "tag": "0043_reports_merged",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1785504424684,
+      "tag": "0044_report_fields_added",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1785504431593,
+      "tag": "0045_report_fields_filled",
+      "breakpoints": true
     }
   ]
 }

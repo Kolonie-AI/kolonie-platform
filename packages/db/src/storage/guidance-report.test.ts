@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { SubmissionIdSchema, type AgentId, type TaskId } from '@kolonie-ai/core'
+import {
+  SubmissionIdSchema,
+  type AgentId,
+  type ReportNarrative,
+  type TaskId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -11,6 +16,18 @@ const target = databaseTestTarget()
 if (!target.available) {
   console.warn(`\n${target.reason}\n`)
 }
+
+/**
+ * A narrative with one field answered.
+ *
+ * Most tests are about something other than which question was answered, and a
+ * fixture that made them all fill three would bury the ones that *are* about it.
+ * `broke` is the default because a wall is the ordinary report.
+ */
+const aNarrative = (
+  content: string,
+  field: 'did' | 'broke' | 'changed' = 'broke',
+): ReportNarrative => ({ did: null, broke: null, changed: null, [field]: content })
 
 /**
  * A report attached to a submission, and what the verdict makes of it (#56).
@@ -122,7 +139,9 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
     db
       .select({
         id: taskReports.id,
-        content: taskReports.content,
+        did: taskReports.did,
+        broke: taskReports.broke,
+        changed: taskReports.changed,
         status: taskReports.status,
         attemptId: taskReports.attemptId,
       })
@@ -163,8 +182,14 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
 
     expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'stored' })
 
+    /**
+     * **Into `did`, because the attempt passed.** `#56`'s field asks one open
+     * question and gets one open answer, so which of the three it belongs in has
+     * to be inferred — and the outcome is the only honest thing to infer it
+     * from. An agent that got through wrote an account of what it did.
+     */
     const [report] = await reports()
-    expect(report).toMatchObject({ content: REPORT, status: 'pending' })
+    expect(report).toMatchObject({ did: REPORT, broke: null, status: 'pending' })
     expect(report!.attemptId).toBe(await attemptOf(id))
     expect(await outcomeOf(id)).toBe('stored')
   })
@@ -175,7 +200,7 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
     expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'stored' })
 
     const [report] = await reports()
-    expect(report).toMatchObject({ content: REPORT, status: 'pending' })
+    expect(report).toMatchObject({ broke: REPORT, status: 'pending' })
     expect(report!.attemptId).toBe(await attemptOf(id))
   })
 
@@ -214,7 +239,7 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
 
     const rows = await reports()
     expect(rows).toHaveLength(2)
-    expect(rows.map((row) => row.content).sort()).toEqual([REPORT, LATER].sort())
+    expect(rows.map((row) => row.broke).sort()).toEqual([REPORT, LATER].sort())
   })
 
   /**
@@ -247,7 +272,7 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
 
     const rows = await reports()
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ content: LATER })
+    expect(rows[0]).toMatchObject({ broke: LATER })
     expect(await outcomeOf(second!.id)).toBe('replaced')
   })
 
@@ -283,7 +308,7 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
 
     const rows = await reports()
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ content: REPORT, status: 'approved' })
+    expect(rows[0]).toMatchObject({ did: REPORT, status: 'approved' })
     expect(await outcomeOf(second!.id)).toBe('superseded')
   })
 
@@ -325,7 +350,7 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
   it('accepts an endpoint write from an agent with an attempt and no skills', async () => {
     await submitted('failed')
 
-    const filed = await fileReport(db, { taskId, agentId, content: REPORT })
+    const filed = await fileReport(db, { taskId, agentId, narrative: aNarrative(REPORT) })
 
     expect(filed.outcome).toBe('recorded')
     expect(await reports()).toHaveLength(1)
@@ -334,7 +359,7 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
   it('refuses an endpoint write from an agent that never attempted the task', async () => {
     const stranger = await anAgent()
 
-    const filed = await fileReport(db, { taskId, agentId: stranger, content: REPORT })
+    const filed = await fileReport(db, { taskId, agentId: stranger, narrative: aNarrative(REPORT) })
 
     expect(filed.outcome).toBe('no-attempt')
     expect(await reports()).toHaveLength(0)

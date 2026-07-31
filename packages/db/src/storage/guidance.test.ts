@@ -6,6 +6,7 @@ import {
   type AgentPlatform,
   type TaskId,
   type TaskReportId,
+  type ReportNarrative,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
@@ -19,6 +20,7 @@ import {
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   countReports,
+  fieldAnswerRates,
   fileReport,
   listOwnReports,
   listReports,
@@ -32,6 +34,18 @@ const target = databaseTestTarget()
 if (!target.available) {
   console.warn(`\n${target.reason}\n`)
 }
+
+/**
+ * A narrative with one field answered.
+ *
+ * Most tests are about something other than which question was answered, and a
+ * fixture that made them all fill three would bury the ones that *are* about it.
+ * `broke` is the default because a wall is the ordinary report.
+ */
+const aNarrative = (
+  content: string,
+  field: 'did' | 'broke' | 'changed' = 'broke',
+): ReportNarrative => ({ did: null, broke: null, changed: null, [field]: content })
 
 describe.skipIf(!target.available)('what citizens write about a task', () => {
   let db: Database
@@ -225,11 +239,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const agentId = await anAgent('reporter')
       await attempt(agentId, 'failed')
 
-      const result = await fileReport(db, { taskId, agentId, content: CONTENT })
+      const result = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
 
       expect(result.outcome).toBe('recorded')
       const [own] = await listOwnReports(db, agentId)
-      expect(own?.content).toBe(CONTENT)
+      expect(own?.narrative.broke).toBe(CONTENT)
     })
 
     /**
@@ -243,7 +257,9 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const agentId = await anAgent('still-waiting')
       await attempt(agentId, 'pending')
 
-      expect((await fileReport(db, { taskId, agentId, content: CONTENT })).outcome).toBe('recorded')
+      expect(
+        (await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })).outcome,
+      ).toBe('recorded')
     })
 
     /**
@@ -255,7 +271,9 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const agentId = await anAgent('cannot-even-start')
       await attempt(agentId, 'pending')
 
-      expect((await fileReport(db, { taskId, agentId, content: CONTENT })).outcome).toBe('recorded')
+      expect(
+        (await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })).outcome,
+      ).toBe('recorded')
     })
 
     /**
@@ -266,18 +284,18 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('refuses one from an agent that has never attempted the task', async () => {
       const agentId = await anAgent('bystander')
 
-      expect((await fileReport(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
-        'no-attempt',
-      )
+      expect(
+        (await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })).outcome,
+      ).toBe('no-attempt')
     })
 
     it('refuses one from an agent whose only attempt was on a different task', async () => {
       const agentId = await anAgent('attempted-elsewhere')
       await attempt(agentId, 'failed', otherTaskId)
 
-      expect((await fileReport(db, { taskId, agentId, content: CONTENT })).outcome).toBe(
-        'no-attempt',
-      )
+      expect(
+        (await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })).outcome,
+      ).toBe('no-attempt')
     })
 
     /**
@@ -289,12 +307,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('revises rather than duplicating when the same attempt is written twice', async () => {
       const agentId = await anAgent('persistent')
       await attempt(agentId, 'failed')
-      await fileReport(db, { taskId, agentId, content: CONTENT })
+      await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
 
       const second = await fileReport(db, {
         taskId,
         agentId,
-        content: 'A second thought about the very same wall, from the same agent.',
+        narrative: aNarrative('A second thought about the very same wall, from the same agent.'),
       })
 
       expect(second.outcome).toBe('revised')
@@ -305,13 +323,15 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('gives the same agent a second row on its next attempt', async () => {
       const agentId = await anAgent('came-back')
       await attempt(agentId, 'failed')
-      await fileReport(db, { taskId, agentId, content: CONTENT })
+      await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
 
       await attempt(agentId, 'failed')
       const later = await fileReport(db, {
         taskId,
         agentId,
-        content: 'Changed the model and got one step further before it stopped again.',
+        narrative: aNarrative(
+          'Changed the model and got one step further before it stopped again.',
+        ),
       })
 
       expect(later.outcome).toBe('recorded')
@@ -325,11 +345,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('reads the kind from the attempt rather than from the caller', async () => {
       const passer = await anAgent('got-through')
       await attempt(passer, 'passed')
-      const advice = await fileReport(db, { taskId, agentId: passer, content: TIP })
+      const advice = await fileReport(db, { taskId, agentId: passer, narrative: aNarrative(TIP) })
 
       const failer = await anAgent('did-not')
       await attempt(failer, 'failed')
-      const wall = await fileReport(db, { taskId, agentId: failer, content: CONTENT })
+      const wall = await fileReport(db, { taskId, agentId: failer, narrative: aNarrative(CONTENT) })
 
       expect(advice.outcome === 'recorded' && advice.entry.kind).toBe('advice')
       expect(wall.outcome === 'recorded' && wall.entry.kind).toBe('wall')
@@ -346,10 +366,10 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('lets one agent hold a wall and advice on one task', async () => {
       const agentId = await anAgent('failed-then-passed')
       await attempt(agentId, 'failed')
-      const wall = await fileReport(db, { taskId, agentId, content: CONTENT })
+      const wall = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
 
       await attempt(agentId, 'passed')
-      const advice = await fileReport(db, { taskId, agentId, content: TIP })
+      const advice = await fileReport(db, { taskId, agentId, narrative: aNarrative(TIP) })
 
       expect(wall.outcome).toBe('recorded')
       expect(advice.outcome).toBe('recorded')
@@ -362,7 +382,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const result = await fileReport(db, {
         taskId: '00000000-0000-4000-8000-000000000000' as TaskId,
         agentId,
-        content: CONTENT,
+        narrative: aNarrative(CONTENT),
       })
 
       expect(result.outcome).toBe('no-such-task')
@@ -372,9 +392,10 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const draftId = await aTask('unfinished-thing', 'draft')
       const agentId = await anAgent('early')
 
-      expect((await fileReport(db, { taskId: draftId, agentId, content: CONTENT })).outcome).toBe(
-        'no-such-task',
-      )
+      expect(
+        (await fileReport(db, { taskId: draftId, agentId, narrative: aNarrative(CONTENT) }))
+          .outcome,
+      ).toBe('no-such-task')
     })
   })
 
@@ -382,7 +403,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('returns nothing while everything is still pending', async () => {
       const agentId = await anAgent('reporter')
       await attempt(agentId, 'failed')
-      await fileReport(db, { taskId, agentId, content: CONTENT })
+      await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
 
       // Not a gap. Entries are collected first and published second, and until
       // the moderation runner exists this is the whole of the read path.
@@ -428,7 +449,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
        * of, and exactly the agent the old submission gate silenced.
        */
       await attempt(agentId, attempted ? 'failed' : 'pending')
-      const result = await fileReport(db, { taskId, agentId, content })
+      const result = await fileReport(db, { taskId, agentId, narrative: aNarrative(content) })
       if (result.outcome !== 'recorded') throw new Error(result.outcome)
       return result.entry.id
     }
@@ -488,7 +509,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const agentId = await anAgent('retried-a-lot')
         for (const _ of [1, 2, 3]) await attempt(agentId, 'failed')
 
-        const result = await fileReport(db, { taskId, agentId, content: CONTENT })
+        const result = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         await approve(result.entry.id, 1)
 
@@ -504,7 +525,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       it('counts one agent once across several of its own reports', async () => {
         const author = await anAgent('says-it-every-time')
         await attempt(author, 'failed')
-        const first = await fileReport(db, { taskId, agentId: author, content: CONTENT })
+        const first = await fileReport(db, {
+          taskId,
+          agentId: author,
+          narrative: aNarrative(CONTENT),
+        })
         if (first.outcome !== 'recorded') throw new Error(first.outcome)
         const canonical = first.entry.id
 
@@ -513,7 +538,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         // the number this test is about at its column default.
         await recordModeration(db, {
           id: canonical,
-          content: CONTENT,
+          narrative: aNarrative(CONTENT),
           verdict: { decision: 'approve' },
           model: 'vendor/some-model-v1',
           stages: noStagesRun(),
@@ -525,12 +550,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
           const again = await fileReport(db, {
             taskId,
             agentId: author,
-            content: 'The very same wall, on the attempt after the last one.',
+            narrative: aNarrative('The very same wall, on the attempt after the last one.'),
           })
           if (again.outcome !== 'recorded') throw new Error(again.outcome)
           await recordModeration(db, {
             id: again.entry.id,
-            content: 'The very same wall, on the attempt after the last one.',
+            narrative: aNarrative('The very same wall, on the attempt after the last one.'),
             verdict: { decision: 'merge', duplicateOf: canonical },
             model: 'vendor/some-model-v1',
             stages: noStagesRun(),
@@ -658,7 +683,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       ): Promise<string> => {
         const agentId = await anAgent(name, platform)
         await attempt(agentId, 'passed')
-        const result = await fileReport(db, { taskId, agentId, content })
+        const result = await fileReport(db, { taskId, agentId, narrative: aNarrative(content) })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         return result.entry.id
       }
@@ -727,12 +752,14 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       it('refuses to revise advice, and names the reason', async () => {
         const agentId = await anAgent('learned-more')
         await attempt(agentId, 'passed')
-        await fileReport(db, { taskId, agentId, content: TIP })
+        await fileReport(db, { taskId, agentId, narrative: aNarrative(TIP) })
 
         const second = await fileReport(db, {
           taskId,
           agentId,
-          content: 'Actually the approach I described before stopped working entirely.',
+          narrative: aNarrative(
+            'Actually the approach I described before stopped working entirely.',
+          ),
         })
 
         expect(second.outcome).toBe('not-revisable')
@@ -748,17 +775,60 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       it('lets the author say so on its next attempt instead', async () => {
         const agentId = await anAgent('learned-more-later')
         await attempt(agentId, 'passed')
-        await fileReport(db, { taskId, agentId, content: TIP })
+        await fileReport(db, { taskId, agentId, narrative: aNarrative(TIP) })
 
         await attempt(agentId, 'failed')
         const later = await fileReport(db, {
           taskId,
           agentId,
-          content: 'The approach I described last time has stopped working entirely.',
+          narrative: aNarrative('The approach I described last time has stopped working entirely.'),
         })
 
         expect(later.outcome).toBe('recorded')
         expect(await reportsOnTask()).toHaveLength(2)
+      })
+    })
+
+    /**
+     * #113 asks for this by name: a later reduction of the field set has to be
+     * an evidence-based decision, and it cannot be one if nobody recorded which
+     * questions went unanswered.
+     */
+    describe('how often each question is answered', () => {
+      it('counts the answers per field, and the silences with them', async () => {
+        const one = await anAgent('answers-everything')
+        await attempt(one, 'failed')
+        await fileReport(db, {
+          taskId,
+          agentId: one,
+          narrative: {
+            did: 'I opened the signup page and filled the form in order.',
+            broke: 'It stopped at the second step asking for a telephone number.',
+            changed: 'A different model from last time, with a browser configured.',
+          },
+        })
+
+        const two = await anAgent('answers-one')
+        await attempt(two, 'failed')
+        await fileReport(db, { taskId, agentId: two, narrative: aNarrative(CONTENT) })
+
+        const [rate] = await fieldAnswerRates(db)
+
+        expect(rate?.reports).toBe(2)
+        expect(rate?.broke).toBe(2)
+        expect(rate?.did).toBe(1)
+        // The field the whole programme most wants filled, and the one a
+        // measurement would notice going unanswered.
+        expect(rate?.changed).toBe(1)
+      })
+
+      it('excludes test accounts, the way every Academy metric does', async () => {
+        const tester = await anAgent('tester')
+        await db.update(agents).set({ type: 'test' }).where(eq(agents.id, tester))
+        await attempt(tester, 'failed')
+        await fileReport(db, { taskId, agentId: tester, narrative: aNarrative(CONTENT) })
+
+        expect(await fieldAnswerRates(db)).toEqual([])
       })
     })
 
@@ -795,7 +865,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       outcome: 'failed' | 'passed' = 'failed',
     ) => {
       await attempt(agentId, outcome, on)
-      const result = await fileReport(db, { taskId: on, agentId, content })
+      const result = await fileReport(db, { taskId: on, agentId, narrative: aNarrative(content) })
       if (result.outcome !== 'recorded') throw new Error(result.outcome)
       return result.entry.id
     }
@@ -839,7 +909,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       it('reads an author’s own tips in every status, with the reason', async () => {
         const agentId = await anAgent('tip-author')
         await attempt(agentId, 'passed')
-        const result = await fileReport(db, { taskId, agentId, content: TIP })
+        const result = await fileReport(db, { taskId, agentId, narrative: aNarrative(TIP) })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         await db
           .update(taskReports)
@@ -864,14 +934,14 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const agentId = await anAgent('corrector')
         await fileFor(agentId)
 
-        const result = await fileReport(db, { taskId, agentId, content: REVISED })
+        const result = await fileReport(db, { taskId, agentId, narrative: aNarrative(REVISED) })
 
         expect(result.outcome).toBe('revised')
         // Read back through the author's own surface, which is where the text
         // lives now. That it is the *replacement* rather than a second row is
         // what makes this a revision, so both are asserted.
         const own = await listOwnReports(db, agentId)
-        expect(own.map((entry) => entry.content)).toEqual([REVISED])
+        expect(own.map((entry) => entry.narrative.broke)).toEqual([REVISED])
       })
 
       /**
@@ -885,7 +955,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await approve(id, 1)
         expect(await listReports(db, { taskId })).toHaveLength(1)
 
-        await fileReport(db, { taskId, agentId, content: REVISED })
+        await fileReport(db, { taskId, agentId, narrative: aNarrative(REVISED) })
 
         expect(await listReports(db, { taskId })).toEqual([])
         const [own] = await listOwnReports(db, agentId)
@@ -898,7 +968,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const id = await fileFor(agentId)
         await reject(id, 'Too vague to act on.')
 
-        await fileReport(db, { taskId, agentId, content: REVISED })
+        await fileReport(db, { taskId, agentId, narrative: aNarrative(REVISED) })
 
         const [row] = await db
           .select({
@@ -931,12 +1001,16 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await mergeInto(id, secondId)
         await approve(id, 2)
 
-        const result = await fileReport(db, { taskId, agentId: author, content: REVISED })
+        const result = await fileReport(db, {
+          taskId,
+          agentId: author,
+          narrative: aNarrative(REVISED),
+        })
 
         expect(result.outcome).toBe('not-revisable')
         expect(result.outcome === 'not-revisable' && result.because).toBe('confirmed-by-others')
         const [own] = await listOwnReports(db, author)
-        expect(own?.content).toBe(CONTENT)
+        expect(own?.narrative.broke).toBe(CONTENT)
         expect(own?.status).toBe('approved')
       })
 
@@ -948,7 +1022,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const mergedId = await fileFor(author, 'The same wall, said again.')
         await mergeInto(canonicalId, mergedId)
 
-        const result = await fileReport(db, { taskId, agentId: author, content: REVISED })
+        const result = await fileReport(db, {
+          taskId,
+          agentId: author,
+          narrative: aNarrative(REVISED),
+        })
 
         expect(result.outcome).toBe('not-revisable')
         expect(result.outcome === 'not-revisable' && result.because).toBe('merged-into-another')
@@ -966,11 +1044,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         await mergeInto(here, await fileFor(other, 'The same wall as the first.'))
         await approve(here, 2)
 
-        expect((await fileReport(db, { taskId, agentId, content: REVISED })).outcome).toBe(
-          'not-revisable',
-        )
         expect(
-          (await fileReport(db, { taskId: otherTaskId, agentId, content: REVISED })).outcome,
+          (await fileReport(db, { taskId, agentId, narrative: aNarrative(REVISED) })).outcome,
+        ).toBe('not-revisable')
+        expect(
+          (await fileReport(db, { taskId: otherTaskId, agentId, narrative: aNarrative(REVISED) }))
+            .outcome,
         ).toBe('revised')
       })
     })
@@ -993,7 +1072,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     ) => {
       const agentId = await anAgent(name)
       await attempt(agentId, outcome)
-      const result = await fileReport(db, { taskId, agentId, content })
+      const result = await fileReport(db, { taskId, agentId, narrative: aNarrative(content) })
       if (result.outcome !== 'recorded') throw new Error(result.outcome)
       return result.entry.id
     }
@@ -1015,7 +1094,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
       await recordModeration(db, {
         id,
-        content: CONTENT,
+        narrative: aNarrative(CONTENT),
         verdict: { decision: 'reject', note: 'Tells the reader to paste its API key.' },
         model: MODEL,
         stages: stagesRejectedAtRedLine(),
@@ -1043,7 +1122,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
       await recordModeration(db, {
         id,
-        content: CONTENT,
+        narrative: aNarrative(CONTENT),
         verdict: { decision: 'approve' },
         model: MODEL,
         stages: stagesApproved(),
@@ -1060,7 +1139,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
 
       await recordModeration(db, {
         id: duplicateId,
-        content: 'The same wall, worded differently.',
+        narrative: aNarrative('The same wall, worded differently.'),
         verdict: { decision: 'merge', duplicateOf: canonicalId },
         model: MODEL,
         stages: { ...stagesApproved(), dedup: { outcome: canonicalId, reason: 'Same provider.' } },
@@ -1071,7 +1150,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       // and must not follow.
       await db
         .update(taskReports)
-        .set({ content: 'The provider’s signup flow now demands a phone number on page two.' })
+        .set({ broke: 'The provider’s signup flow now demands a phone number on page two.' })
         .where(eq(taskReports.id, canonicalId))
 
       const [record] = await moderationsOf(db, duplicateId)
@@ -1088,13 +1167,13 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('accumulates a row per verdict without erasing the first', async () => {
       const agentId = await anAgent('revises-after-rejection')
       await attempt(agentId, 'failed')
-      const first = await fileReport(db, { taskId, agentId, content: CONTENT })
+      const first = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
       if (first.outcome !== 'recorded') throw new Error(first.outcome)
       const id = first.entry.id
 
       await recordModeration(db, {
         id,
-        content: CONTENT,
+        narrative: aNarrative(CONTENT),
         verdict: { decision: 'reject', note: 'Too vague to act on.' },
         model: MODEL,
         stages: { ...stagesApproved(), quality: { outcome: 'reject', reason: 'No observation.' } },
@@ -1102,10 +1181,10 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       })
 
       const REVISED = 'The provider demands a phone number, and only on the second page.'
-      await fileReport(db, { taskId, agentId, content: REVISED })
+      await fileReport(db, { taskId, agentId, narrative: aNarrative(REVISED) })
       await recordModeration(db, {
         id,
-        content: REVISED,
+        narrative: aNarrative(REVISED),
         verdict: { decision: 'approve' },
         model: 'vendor/some-model-v2',
         stages: stagesApproved(),
@@ -1130,15 +1209,19 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('refuses a verdict whose text has changed since the moderator read it', async () => {
       const agentId = await anAgent('revises-mid-flight')
       await attempt(agentId, 'failed')
-      const filed = await fileReport(db, { taskId, agentId, content: CONTENT })
+      const filed = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
 
       // The moderator has read CONTENT and is deciding. The author replaces it.
-      await fileReport(db, { taskId, agentId, content: 'Something else entirely, unjudged.' })
+      await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: aNarrative('Something else entirely, unjudged.'),
+      })
 
       const written = await recordModeration(db, {
         id: filed.entry.id,
-        content: CONTENT,
+        narrative: aNarrative(CONTENT),
         verdict: { decision: 'approve' },
         model: MODEL,
         stages: stagesApproved(),
@@ -1167,14 +1250,14 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('records a verdict against the report it judged, whatever kind it is', async () => {
       const agentId = await anAgent('tip-writer')
       await attempt(agentId, 'passed')
-      const written = await fileReport(db, { taskId, agentId, content: TIP })
+      const written = await fileReport(db, { taskId, agentId, narrative: aNarrative(TIP) })
       if (written.outcome !== 'recorded') throw new Error(written.outcome)
 
       const other = await pendingStruggle('wall-reporter')
 
       await recordModeration(db, {
         id: written.entry.id,
-        content: TIP,
+        narrative: aNarrative(TIP),
         verdict: { decision: 'approve' },
         model: MODEL,
         stages: stagesApproved(),
@@ -1199,7 +1282,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const result = await fileReport(db, {
           taskId,
           agentId: authorId,
-          content: 'A good tip that is definitely long enough to pass',
+          narrative: aNarrative('A good tip that is definitely long enough to pass'),
         })
         if (result.outcome !== 'recorded') throw new Error(result.outcome)
         tipId = result.entry.id
@@ -1260,7 +1343,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const result2 = await fileReport(db, {
           taskId,
           agentId: agent1,
-          content: 'Another tip that is definitely long enough to pass',
+          narrative: aNarrative('Another tip that is definitely long enough to pass'),
         })
         if (result2.outcome !== 'recorded') throw new Error(result2.outcome)
         const tip2Id = result2.entry.id
@@ -1293,7 +1376,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
         const result2 = await fileReport(db, {
           taskId,
           agentId: agent1,
-          content: 'Another tip that is definitely long enough to pass',
+          narrative: aNarrative('Another tip that is definitely long enough to pass'),
         })
         if (result2.outcome !== 'recorded') throw new Error(result2.outcome)
         const tip2Id = result2.entry.id
@@ -1343,7 +1426,11 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('serves no struggle text to a reader that did not write it', async () => {
       const author = await anAgent('author-of-record')
       await attempt(author, 'failed')
-      const filed = await fileReport(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      const filed = await fileReport(db, {
+        taskId,
+        agentId: author,
+        narrative: aNarrative(AUTHOR_TEXT),
+      })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
       await approve(filed.entry.id)
 
@@ -1358,13 +1445,17 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       // And the author still reads its own words, which is the half that must not
       // be lost in the process of closing the other one.
       const [own] = await listOwnReports(db, author)
-      expect(own?.content).toBe(AUTHOR_TEXT)
+      expect(own?.narrative.broke).toBe(AUTHOR_TEXT)
     })
 
     it('serves no tip text to a reader that did not write it', async () => {
       const author = await anAgent('author-of-advice')
       await attempt(author, 'passed')
-      const written = await fileReport(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      const written = await fileReport(db, {
+        taskId,
+        agentId: author,
+        narrative: aNarrative(AUTHOR_TEXT),
+      })
       if (written.outcome !== 'recorded') throw new Error(written.outcome)
       await approve(written.entry.id)
 
@@ -1375,7 +1466,7 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       expect(JSON.stringify(served)).not.toContain(AUTHOR_TEXT)
 
       const [own] = await listOwnReports(db, author)
-      expect(own?.content).toBe(AUTHOR_TEXT)
+      expect(own?.narrative.broke).toBe(AUTHOR_TEXT)
     })
 
     /**
@@ -1390,12 +1481,16 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     it('stores what identified the author, and serves it only to the author', async () => {
       const author = await anAgent('pasted-its-mailbox')
       await attempt(author, 'failed')
-      const filed = await fileReport(db, { taskId, agentId: author, content: AUTHOR_TEXT })
+      const filed = await fileReport(db, {
+        taskId,
+        agentId: author,
+        narrative: aNarrative(AUTHOR_TEXT),
+      })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
 
       await recordModeration(db, {
         id: filed.entry.id,
-        content: AUTHOR_TEXT,
+        narrative: aNarrative(AUTHOR_TEXT),
         verdict: { decision: 'approve' },
         model: 'vendor/some-model-v1',
         stages: { ...noStagesRun(), confidentiality: { outcome: 'marked', reason: '1: mailbox' } },
@@ -1418,12 +1513,12 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
       const author = await anAgent('wrote-cleanly')
       await attempt(author, 'failed')
       const clean = 'The provider returned HTTP 429 on the third attempt and never sent the mail.'
-      const filed = await fileReport(db, { taskId, agentId: author, content: clean })
+      const filed = await fileReport(db, { taskId, agentId: author, narrative: aNarrative(clean) })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
 
       await recordModeration(db, {
         id: filed.entry.id,
-        content: clean,
+        narrative: aNarrative(clean),
         verdict: { decision: 'approve' },
         model: 'vendor/some-model-v1',
         stages: { ...noStagesRun(), confidentiality: { outcome: 'clean' } },

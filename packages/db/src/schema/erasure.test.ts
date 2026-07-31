@@ -221,11 +221,11 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
 
     const [report] = await db
       .insert(taskReports)
-      .values({ attemptId: attempt!.id, content: 'The verifier never answered.' })
+      .values({ attemptId: attempt!.id, broke: 'The verifier never answered.' })
       .returning()
     await db
       .insert(taskReports)
-      .values({ attemptId: secondAttempt!.id, content: 'Send the mail before submitting.' })
+      .values({ attemptId: secondAttempt!.id, broke: 'Send the mail before submitting.' })
     await db.insert(moderations).values({
       reportId: report!.id,
       decision: 'approved',
@@ -254,7 +254,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       .returning()
     const [neighboursReport] = await db
       .insert(taskReports)
-      .values({ attemptId: neighboursAttempt!.id, content: 'Check the spam folder.' })
+      .values({ attemptId: neighboursAttempt!.id, broke: 'Check the spam folder.' })
       .returning()
     await db
       .insert(reportFeedback)

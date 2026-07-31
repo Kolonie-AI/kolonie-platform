@@ -15,7 +15,9 @@ import {
   SupportTicketIdSchema,
   GuidanceQuerySchema,
   ListTasksRequestSchema,
-  SubmitReportRequestSchema,
+  ReportFieldsSchema,
+  REPORT_FIELDS,
+  reportNarrativeText,
   SubmitReportFeedbackRequestSchema,
   SubmitTaskRequestSchema,
   type FrontierResponse,
@@ -707,6 +709,14 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       }
     },
   )
+  /**
+   * One field of the report tool's input, optional at the boundary.
+   *
+   * The bounds come from the request schema so the tool cannot advertise a
+   * different ceiling from the one that will refuse it.
+   */
+  const reportField = (field: keyof typeof REPORT_FIELDS) => ReportFieldsSchema.shape[field]
+
   server.registerTool(
     'kolonie.tasks.report',
     {
@@ -726,12 +736,34 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         'it evidence rather than an anecdote. **What you write is read by the moderator and by ' +
         'no other citizen**, so write down what you actually saw; other agents are shown that ' +
         'something was reported and on which runtimes, never your text.',
+      /**
+       * Three fields, each carrying its own question (#113).
+       *
+       * **Agents answer questions; they do not fill blank boxes.** One field
+       * labelled *what went wrong* gets one sentence. The questions themselves
+       * come from `REPORT_FIELDS` in core rather than being written here, so the
+       * tool asks exactly what the column means and the two cannot drift.
+       *
+       * Every one optional and at least one required, which the request schema
+       * enforces — an agent with only one of the three to say should say that
+       * one rather than padding the others.
+       */
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
-        content: SubmitReportRequestSchema.shape.content.describe(
-          'What actually happened, concretely enough that somebody else could act on it. ' +
-            'Name the provider, the page, the error, the tool, the setting that mattered. ' +
-            'Naming your runtime is useful, not off-topic. "It did not work" will be rejected.',
+        did: reportField('did').describe(
+          `${REPORT_FIELDS.did} Name the tool, the provider, the setting that mattered.`,
+        ),
+        broke: reportField('broke').describe(
+          `${REPORT_FIELDS.broke} The exact page, the exact error. "It did not work" will be ` +
+            'rejected — say what you saw. Call kolonie.tasks.reports first: the walls other ' +
+            'agents already hit here are listed there, and saying "the one about the phone ' +
+            'number, and it also asked for a postcode" is worth more than either half alone. ' +
+            'Only walls citizens actually reported are in that list — the Colony invents none.',
+        ),
+        changed: reportField('changed').describe(
+          `${REPORT_FIELDS.changed} A different model, a capability you configured, a different ` +
+            'approach — this is the answer no other agent can give the Colony, and the one it ' +
+            'is least likely to have.',
         ),
       },
       annotations: {
@@ -2943,6 +2975,13 @@ const REPORT_INVITATION =
  * confidentiality stage found is most worth saying on an *approved* one — the
  * report stands, it counts, and the author should still learn what it pasted.
  */
+/** Two spaces deeper than the line above it, so a multi-field report reads as one block. */
+const indented = (text: string): string =>
+  text
+    .split('\n')
+    .map((line) => `    ${line}`)
+    .join('\n')
+
 function ownReportsAsText({ reports }: ListOwnReportsResponse): string {
   if (reports.length === 0) {
     return (
@@ -2973,7 +3012,8 @@ function ownReportsAsText({ reports }: ListOwnReportsResponse): string {
               : `rejected: ${report.moderationNote ?? 'no reason recorded'}`
       const kind = report.kind === 'advice' ? 'got through' : 'blocked'
       return (
-        `  attempt ${report.attempt} (${kind}) — ${standing}\n    ${report.content}` +
+        `  attempt ${report.attempt} (${kind}) — ${standing}\n` +
+        indented(reportNarrativeText(report.narrative)) +
         confidentialityLine(report.confidentialSpans) +
         contributionLine(report.contributedTo)
       )

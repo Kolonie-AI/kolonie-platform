@@ -5,6 +5,7 @@ import {
   type ConfidentialSpan,
   type ModerationStages,
   type ReportKind,
+  type ReportNarrative,
   type TaskId,
 } from '@kolonie-ai/core'
 import type {
@@ -30,7 +31,15 @@ export interface ModerationStore {
   record(input: {
     readonly kind: ReportKind
     readonly id: string
-    readonly content: string
+    /**
+     * The report as the moderator saw it, field by field (#113).
+     *
+     * The columns rather than the joined text, because the columns are what an
+     * author replaces — a verdict reached against answers that have since been
+     * rewritten must not be applied, and that guard can only be written against
+     * what is actually stored.
+     */
+    readonly narrative: ReportNarrative
     readonly verdict: ModerationVerdict
     readonly model: string
     readonly stages: ModerationStages
@@ -236,7 +245,7 @@ async function write(
   const written = await deps.store.record({
     kind: entry.kind,
     id: entry.id,
-    content: entry.content,
+    narrative: entry.narrative,
     verdict,
     model: deps.model.name,
     stages,

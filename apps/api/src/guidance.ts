@@ -11,6 +11,7 @@ import {
   type ListReportsResponse,
   type OwnReport,
   type ReportKind,
+  type ReportNarrative,
   type RevisionRefusal,
   type SubmitReportResponse,
   type SubmitReportFeedbackResponse,
@@ -76,7 +77,8 @@ export interface TaskGuidance {
 export interface GuidanceWrite {
   readonly taskId: TaskId
   readonly agentId: AgentId
-  readonly content: string
+  /** What the agent answered, field by field. At least one, and the route checks that. */
+  readonly narrative: ReportNarrative
 }
 
 /** A validated read. `platform` absent means every runtime; `kind` absent means both. */
@@ -248,7 +250,7 @@ export async function listOwnReports(
 function validate(
   taskId: string | undefined,
   body: unknown,
-): { taskId: TaskId; content: string } | { error: ApiError } {
+): { taskId: TaskId; narrative: ReportNarrative } | { error: ApiError } {
   const id = TaskIdSchema.safeParse(taskId)
   if (!id.success) return { error: noSuchTask }
 
@@ -270,7 +272,17 @@ function validate(
     }
   }
 
-  return { taskId: id.data, content: parsed.data.content }
+  // Absent and empty are the same thing to a reader and different things to the
+  // column: a null is *this question went unanswered*, which is the measurement
+  // that makes reducing the field set later an evidence-based decision.
+  return {
+    taskId: id.data,
+    narrative: {
+      did: parsed.data.did ?? null,
+      broke: parsed.data.broke ?? null,
+      changed: parsed.data.changed ?? null,
+    },
+  }
 }
 
 /** The same, for a read: a task id, an optional platform and an optional kind. */

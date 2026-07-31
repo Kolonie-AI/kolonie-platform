@@ -7,6 +7,7 @@ import {
   TaskReportSchema,
   mayRevise,
   reportKindFor,
+  reportNarrativeText,
   type AgentId,
   type AgentPlatform,
   type ConfidentialSpan,
@@ -14,6 +15,7 @@ import {
   type ModerationStatus,
   type OwnReport,
   type ReportKind,
+  type ReportNarrative,
   type RevisionRefusal,
   type SubmissionId,
   type TaskId,
@@ -84,7 +86,11 @@ export type WriteReportResult =
  */
 export async function fileReport(
   db: Database,
-  input: { readonly taskId: TaskId; readonly agentId: AgentId; readonly content: string },
+  input: {
+    readonly taskId: TaskId
+    readonly agentId: AgentId
+    readonly narrative: ReportNarrative
+  },
 ): Promise<WriteReportResult> {
   const [task] = await db
     .select({ id: tasks.id })
@@ -121,12 +127,12 @@ export async function fileReport(
    */
   const inserted = await db
     .insert(taskReports)
-    .values({ attemptId: attempt.id, content: input.content })
+    .values({ attemptId: attempt.id, ...input.narrative })
     .onConflictDoNothing({ target: taskReports.attemptId })
     .returning({ id: taskReports.id })
 
   const id = inserted[0]?.id
-  if (id === undefined) return await reviseReport(db, attempt.id, input.content)
+  if (id === undefined) return await reviseReport(db, attempt.id, input.narrative)
 
   const entry = await readReport(db, id)
   if (entry === undefined) {
@@ -176,12 +182,12 @@ export async function fileReport(
 async function reviseReport(
   db: Database,
   attemptId: string,
-  content: string,
+  narrative: ReportNarrative,
 ): Promise<WriteReportResult> {
   const revised = await db
     .update(taskReports)
     .set({
-      content,
+      ...narrative,
       status: 'pending',
       moderatedAt: null,
       moderationNote: null,
@@ -518,7 +524,9 @@ export async function listOwnReports(
       ...publicFields,
       attemptId: taskReports.attemptId,
       attempt: taskAttempts.attempt,
-      content: taskReports.content,
+      did: taskReports.did,
+      broke: taskReports.broke,
+      changed: taskReports.changed,
       status: taskReports.status,
       moderationNote: taskReports.moderationNote,
       confidentialSpans: taskReports.confidentialSpans,
@@ -548,7 +556,7 @@ export async function listOwnReports(
        * not a claim about the world.
        */
       kind: reportKindFor(row.outcome) ?? 'wall',
-      content: row.content,
+      narrative: { did: row.did, broke: row.broke, changed: row.changed },
       confirmations: row.confirmations,
       platforms: row.platforms,
       attemptedCount: row.attemptedCount,
@@ -578,7 +586,21 @@ export interface PendingReport {
   readonly id: string
   readonly taskId: TaskId
   readonly taskTitle: string
+  /**
+   * The whole report as one text, each answer under the question it answers.
+   *
+   * What the moderator is shown and what its verdict is hashed against. Derived
+   * from {@link narrative} rather than stored, so the two cannot disagree.
+   */
   readonly content: string
+  /**
+   * The same, field by field.
+   *
+   * Carried alongside the joined text because `recordModeration` guards on the
+   * columns: a verdict reached against text an author has since replaced must
+   * not be applied, and the columns are what an author replaces.
+   */
+  readonly narrative: ReportNarrative
   readonly platform: AgentPlatform
 }
 
@@ -606,7 +628,9 @@ export async function pendingReports(
       taskId: taskAttempts.taskId,
       outcome: taskAttempts.outcome,
       taskTitle: tasks.title,
-      content: taskReports.content,
+      did: taskReports.did,
+      broke: taskReports.broke,
+      changed: taskReports.changed,
       platform: agents.platform,
     })
     .from(taskReports)
@@ -617,14 +641,18 @@ export async function pendingReports(
     .orderBy(taskReports.createdAt)
     .limit(limit)
 
-  return rows.map((row) => ({
-    kind: reportKindFor(row.outcome) as ReportKind,
-    id: row.id,
-    taskId: row.taskId as TaskId,
-    taskTitle: row.taskTitle,
-    content: row.content,
-    platform: AgentPlatformSchema.parse(row.platform),
-  }))
+  return rows.map((row) => {
+    const narrative = { did: row.did, broke: row.broke, changed: row.changed }
+    return {
+      kind: reportKindFor(row.outcome) as ReportKind,
+      id: row.id,
+      taskId: row.taskId as TaskId,
+      taskTitle: row.taskTitle,
+      content: reportNarrativeText(narrative),
+      narrative,
+      platform: AgentPlatformSchema.parse(row.platform),
+    }
+  })
 }
 
 /** An entry already published on the same task, as context for judging a new one. */
@@ -661,7 +689,9 @@ export async function approvedOnTask(
   const rows = await db
     .select({
       id: taskReports.id,
-      content: taskReports.content,
+      did: taskReports.did,
+      broke: taskReports.broke,
+      changed: taskReports.changed,
       platforms: platformBreakdown,
     })
     .from(taskReports)
@@ -678,7 +708,7 @@ export async function approvedOnTask(
 
   return rows.map((row) => ({
     id: row.id,
-    content: row.content,
+    content: reportNarrativeText({ did: row.did, broke: row.broke, changed: row.changed }),
     platforms: Object.keys(row.platforms).map((value) => AgentPlatformSchema.parse(value)),
   }))
 }
@@ -720,8 +750,15 @@ export async function recordModeration(
   db: Database,
   input: {
     readonly id: string
-    /** The text the moderator judged, as `pendingReports` handed it over. */
-    readonly content: string
+    /**
+     * The report the moderator judged, field by field, as `pendingReports`
+     * handed it over.
+     *
+     * The guard below compares the columns rather than a joined string, because
+     * the columns are what an author replaces — and a joined comparison would
+     * pass whenever two different sets of answers happened to render alike.
+     */
+    readonly narrative: ReportNarrative
     readonly verdict: ModerationVerdict
     /** The model that answered, as configured now. Copied, never resolved later. */
     readonly model: string
@@ -781,7 +818,9 @@ export async function recordModeration(
         and(
           eq(taskReports.id, input.id),
           eq(taskReports.status, 'pending'),
-          eq(taskReports.content, input.content),
+          sql`${taskReports.did} is not distinct from ${input.narrative.did}`,
+          sql`${taskReports.broke} is not distinct from ${input.narrative.broke}`,
+          sql`${taskReports.changed} is not distinct from ${input.narrative.changed}`,
         ),
       )
       .returning({ id: taskReports.id, attemptId: taskReports.attemptId })
@@ -814,7 +853,9 @@ export async function recordModeration(
       model: input.model,
       stages: input.stages,
       ...(input.verdict.decision === 'merge' ? { duplicateOf: input.verdict.duplicateOf } : {}),
-      contentSha256: createHash('sha256').update(input.content).digest('hex'),
+      contentSha256: createHash('sha256')
+        .update(reportNarrativeText(input.narrative))
+        .digest('hex'),
     })
 
     // The briefing is now out of date (#85). Approve adds an entry to the
@@ -1000,9 +1041,23 @@ export async function routeSubmissionReport(
   // own slowness in the corpus as if it were the task's.
   if (row.status !== 'passed' && row.status !== 'failed') return { outcome: 'nothing-to-do' }
 
+  /**
+   * Which question a submission-carried report answers.
+   *
+   * `#56`'s field asks one open question and gets one open answer, so the field
+   * it lands in has to be inferred — and the attempt's own outcome is the only
+   * honest thing to infer it from. An agent that got through wrote an account of
+   * what it did; one that did not wrote an account of where it stopped.
+   *
+   * `changed` is never filled this way. It is the one field whose answer a
+   * generic prompt cannot have elicited, and guessing at it would put invented
+   * evidence into the field this programme most wants to be trustworthy.
+   */
+  const field = row.status === 'passed' ? 'did' : 'broke'
+
   const inserted = await db
     .insert(taskReports)
-    .values({ attemptId: row.attemptId, content: row.report })
+    .values({ attemptId: row.attemptId, [field]: row.report })
     .onConflictDoNothing({ target: taskReports.attemptId })
     .returning({ id: taskReports.id })
 
@@ -1027,7 +1082,7 @@ export async function routeSubmissionReport(
    */
   const replaced = await db
     .update(taskReports)
-    .set({ content: row.report })
+    .set({ [field]: row.report })
     .where(and(eq(taskReports.attemptId, row.attemptId), eq(taskReports.status, 'pending')))
     .returning({ id: taskReports.id })
 
@@ -1054,4 +1109,57 @@ async function markReportOutcome(
     .update(submissions)
     .set({ reportOutcome: outcome })
     .where(eq(submissions.id, submissionId))
+}
+
+/** How often each question was answered, on one task's reports. */
+export interface FieldAnswerRate {
+  readonly taskType: string
+  readonly reports: number
+  readonly did: number
+  readonly broke: number
+  readonly changed: number
+}
+
+/**
+ * How often each question actually gets an answer, per task.
+ *
+ * **#113 asks for this by name, and the reason is that reducing the field set
+ * later has to be an evidence-based decision** — and it cannot be one if nobody
+ * recorded which questions went unanswered. Three fields is a starting position
+ * for two of them; this is what would justify dropping one, or keeping it.
+ *
+ * It is only answerable because silence is stored as a null rather than as an
+ * empty string, which is why the write path maps an absent field to `null`
+ * rather than to `''`.
+ *
+ * Every report counts, whatever the moderator decided. An answer rate over
+ * approved entries would measure what the moderator likes rather than what
+ * agents write, and the question here is about the latter.
+ *
+ * Test accounts are excluded, the way every Academy metric excludes them.
+ */
+export async function fieldAnswerRates(db: Database): Promise<readonly FieldAnswerRate[]> {
+  const rows = await db
+    .select({
+      taskType: tasks.type,
+      reports: sql<number>`count(*)::int`,
+      did: sql<number>`(count(*) filter (where ${taskReports.did} is not null))::int`,
+      broke: sql<number>`(count(*) filter (where ${taskReports.broke} is not null))::int`,
+      changed: sql<number>`(count(*) filter (where ${taskReports.changed} is not null))::int`,
+    })
+    .from(taskReports)
+    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+    .where(eq(agents.type, 'citizen'))
+    .groupBy(tasks.type)
+    .orderBy(tasks.type)
+
+  return rows.map((row) => ({
+    taskType: row.taskType,
+    reports: Number(row.reports),
+    did: Number(row.did),
+    broke: Number(row.broke),
+    changed: Number(row.changed),
+  }))
 }

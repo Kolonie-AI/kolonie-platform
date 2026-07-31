@@ -1,7 +1,12 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
+  CURRENT_CLAIM_ATTEMPTS,
+  RECENT_REPORTS_IN_CONTEXT,
+  now as currentTime,
   TaskBriefingSchema,
+  isCurrentClaim,
   reportKindFor,
+  reportNarrativeText,
   type AgentPlatform,
   type BriefingClaim,
   type ReportKind,
@@ -73,7 +78,9 @@ export async function briefingCorpus(
     .select({
       id: taskReports.id,
       outcome: taskAttempts.outcome,
-      content: taskReports.content,
+      did: taskReports.did,
+      broke: taskReports.broke,
+      changed: taskReports.changed,
       reports: taskReports.confirmations,
       platforms: reportPlatforms,
       lastSupportedAt: reportLastSupported,
@@ -87,12 +94,24 @@ export async function briefingCorpus(
         sql`${taskAttempts.outcome} is not null`,
       ),
     )
-    .orderBy(desc(taskReports.confirmations), asc(taskReports.createdAt))
+    /**
+     * **Bounded, and this is the sentence that pays for the larger report
+     * ceiling** (#113). The objection to raising it was that the whole approved
+     * corpus is read back as context, so the cost of moderating a task grew with
+     * the longest thing anybody ever wrote about it. Bound the context and the
+     * per-entry bound stops being load-bearing.
+     *
+     * Most-confirmed first and newest as the tiebreak, so what falls off the end
+     * on a busy task is the least-corroborated and oldest — which is what a
+     * reader would drop too.
+     */
+    .orderBy(desc(taskReports.confirmations), desc(taskReports.createdAt))
+    .limit(RECENT_REPORTS_IN_CONTEXT)
 
   return rows.map((row) => ({
     id: row.id,
     kind: reportKindFor(row.outcome) as ReportKind,
-    content: row.content,
+    content: reportNarrativeText({ did: row.did, broke: row.broke, changed: row.changed }),
     reports: row.reports,
     platforms: row.platforms as Readonly<Partial<Record<AgentPlatform, number>>>,
     lastSupportedAt: toTimestamp(row.lastSupportedAt),
@@ -232,12 +251,55 @@ export async function readBriefing(
 
   if (row === undefined || row.writtenAt === null || row.model === null) return undefined
 
+  /**
+   * Which claims still stand in the foreground (#113).
+   *
+   * **Computed on read, not stored.** Whether a claim is current is a fact about
+   * how much has happened since it was last confirmed, and that changes with
+   * every attempt that closes — a stored flag would be wrong between the moment
+   * it was written and the sweep that noticed. One extra query per briefing read
+   * is the honest price.
+   *
+   * **Nothing is deleted, and that is the rule rather than the implementation.**
+   * A provider that broke something can fix it, and a claim that was true in
+   * June can be true again in September. A demoted claim leaves the foreground
+   * and stays readable with its age visible, and a later report confirming it
+   * moves `lastSupportedAt` forward and brings it straight back.
+   */
+  const window = {
+    oldestCurrentAttempt: await oldestCurrentAttempt(db, taskId),
+    now: currentTime(),
+  }
+
   return TaskBriefingSchema.parse({
     taskId: row.taskId,
-    claims: row.claims,
+    claims: row.claims.map((claim) => ({ ...claim, current: isCurrentClaim(claim, window) })),
     model: row.model,
     writtenAt: toTimestamp(row.writtenAt),
   })
+}
+
+/**
+ * When the oldest attempt still inside the recency window closed, or `null`.
+ *
+ * `null` means the task has had fewer than {@link CURRENT_CLAIM_ATTEMPTS} closed
+ * attempts, so nothing has been pushed out of the window and every claim is
+ * inside it by definition.
+ *
+ * `offset` rather than a count per claim: one query answers the bound for every
+ * claim at once, and the bound is a property of the task rather than of any
+ * claim.
+ */
+async function oldestCurrentAttempt(db: Database, taskId: TaskId): Promise<string | null> {
+  const [row] = await db
+    .select({ closedAt: taskAttempts.closedAt })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.taskId, taskId), sql`${taskAttempts.outcome} is not null`))
+    .orderBy(desc(taskAttempts.closedAt))
+    .offset(CURRENT_CLAIM_ATTEMPTS - 1)
+    .limit(1)
+
+  return row?.closedAt === undefined || row.closedAt === null ? null : toTimestamp(row.closedAt)
 }
 
 /**

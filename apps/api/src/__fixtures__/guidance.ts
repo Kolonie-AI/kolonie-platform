@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import {
-  BriefingClaimSchema,
+  ServedBriefingClaimSchema,
   OwnReportSchema,
   TaskBriefingSchema,
   TaskReportSchema,
-  type BriefingClaim,
+  type ServedBriefingClaim,
   type OwnReport,
   type TaskBriefing,
   type TaskReport,
@@ -168,7 +168,7 @@ export function anOwnReport(overrides: Partial<OwnReport> = {}): OwnReport {
     ...aReport(),
     attemptId: randomUUID(),
     attempt: 1,
-    content: AUTHOR_TEXT,
+    narrative: { did: null, broke: AUTHOR_TEXT, changed: null },
     status: 'pending',
     moderationNote: null,
     // Empty by default, which is the ordinary entry. A test about the
@@ -224,9 +224,11 @@ export function aBriefing(overrides: Partial<TaskBriefing> = {}): TaskBriefing {
  * mail provider"* — which is what the synthesis prompt asks for and what a
  * fixture should therefore model.
  */
-export function aClaim(overrides: Partial<BriefingClaim> = {}): BriefingClaim {
-  return BriefingClaimSchema.parse({
+export function aClaim(overrides: Partial<ServedBriefingClaim> = {}): ServedBriefingClaim {
+  return ServedBriefingClaimSchema.parse({
     section: 'wall',
+    // Current unless a test is about the recency window (#113).
+    current: true,
     text: 'One mail provider holds outbound mail from new accounts for 48 hours.',
     reports: 1,
     platforms: { openclaw: 1 },

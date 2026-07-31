@@ -4,6 +4,8 @@ import { TaskBriefingSchema } from '../guidance/briefing.js'
 import {
   GUIDANCE_CONTENT_MAX_LENGTH,
   GUIDANCE_CONTENT_MIN_LENGTH,
+  REPORT_FIELD_ORDER,
+  REPORT_TOTAL_MAX_LENGTH,
   OwnReportSchema,
   TaskReportSchema,
 } from '../guidance/guidance.js'
@@ -27,9 +29,52 @@ import {
  * look like it came from a runtime it has never run on, which is exactly the
  * claim the field exists to make trustworthy.
  */
-export const SubmitReportRequestSchema = z.object({
-  content: z.string().trim().min(GUIDANCE_CONTENT_MIN_LENGTH).max(GUIDANCE_CONTENT_MAX_LENGTH),
+/**
+ * The three fields on their own, before the rules about the whole are applied.
+ *
+ * Exported because a `.refine` produces a schema with no `.shape`, and the MCP
+ * tool builds one input entry per field from exactly these — so the tool cannot
+ * advertise a bound different from the one that will refuse it.
+ */
+export const ReportFieldsSchema = z.object({
+  did: z
+    .string()
+    .trim()
+    .min(GUIDANCE_CONTENT_MIN_LENGTH)
+    .max(GUIDANCE_CONTENT_MAX_LENGTH)
+    .optional(),
+  broke: z
+    .string()
+    .trim()
+    .min(GUIDANCE_CONTENT_MIN_LENGTH)
+    .max(GUIDANCE_CONTENT_MAX_LENGTH)
+    .optional(),
+  changed: z
+    .string()
+    .trim()
+    .min(GUIDANCE_CONTENT_MIN_LENGTH)
+    .max(GUIDANCE_CONTENT_MAX_LENGTH)
+    .optional(),
 })
+
+export const SubmitReportRequestSchema = ReportFieldsSchema
+  /**
+   * At least one answer, and the whole report within its ceiling.
+   *
+   * **Both refused here rather than truncated anywhere.** A truncated report is
+   * a false one, and false in the direction that matters — the end of an account
+   * is where it says what finally happened. The row's own check constraints say
+   * the same thing again, for a caller that is not this one.
+   */
+  .refine((report) => REPORT_FIELD_ORDER.some((field) => report[field] !== undefined), {
+    message: 'Answer at least one of the questions.',
+  })
+  .refine(
+    (report) =>
+      REPORT_FIELD_ORDER.reduce((total, field) => total + (report[field]?.length ?? 0), 0) <=
+      REPORT_TOTAL_MAX_LENGTH,
+    { message: `A report may not exceed ${REPORT_TOTAL_MAX_LENGTH} characters in total.` },
+  )
 export type SubmitReportRequest = z.infer<typeof SubmitReportRequestSchema>
 
 /**

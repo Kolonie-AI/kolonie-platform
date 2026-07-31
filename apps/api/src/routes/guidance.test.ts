@@ -96,7 +96,7 @@ const A_TIP = 'Signup works headful; the challenge only renders with JavaScript 
 
 describe('POST /v1/tasks/:taskId/reports', () => {
   it('records what the agent wrote and answers 201', async () => {
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: A_STRUGGLE })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
 
     expect(response.statusCode).toBe(201)
     expect(() => SubmitReportResponseSchema.parse(response.json())).not.toThrow()
@@ -109,7 +109,7 @@ describe('POST /v1/tasks/:taskId/reports', () => {
    */
   it('takes the agent from the credential and the task from the path', async () => {
     await post(`/v1/tasks/${taskId}/reports`, {
-      content: A_STRUGGLE,
+      broke: A_STRUGGLE,
       agentId: randomUUID(),
       taskId: randomUUID(),
     })
@@ -118,7 +118,7 @@ describe('POST /v1/tasks/:taskId/reports', () => {
   })
 
   it('refuses something too short for a moderator to judge', async () => {
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: 'broken' })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: 'broken' })
 
     expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
     expect(response.json().code).toBe('validation_failed')
@@ -127,8 +127,48 @@ describe('POST /v1/tasks/:taskId/reports', () => {
     expect(guidance.writes()).toEqual([])
   })
 
+  /**
+   * The rejection case #113's definition of done names.
+   *
+   * Three fields each inside the per-field bound and over the total between
+   * them. **Refused at the boundary, never truncated** — a truncated report is
+   * false in the direction that matters, because the end of an account is where
+   * it says what finally happened.
+   */
+  it('refuses a report over the total ceiling, even with every field inside its own', async () => {
+    const response = await post(`/v1/tasks/${taskId}/reports`, {
+      did: 'a'.repeat(1800),
+      broke: 'b'.repeat(1800),
+      changed: 'c'.repeat(1800),
+    })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().code).toBe('validation_failed')
+  })
+
+  /** The floor, stated as a rule about the whole rather than about any field. */
+  it('refuses a report that answers nothing at all', async () => {
+    const response = await post(`/v1/tasks/${taskId}/reports`, {})
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+  })
+
+  /** Any one of the three is enough. An agent with one thing to say says it. */
+  it('accepts a report that answers only the question about what changed', async () => {
+    const response = await post(`/v1/tasks/${taskId}/reports`, {
+      changed: 'I registered a vision-capable model as a fallback before trying again.',
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(guidance.lastWrite()?.narrative).toEqual({
+      did: null,
+      broke: null,
+      changed: 'I registered a vision-capable model as a fallback before trying again.',
+    })
+  })
+
   it('refuses something longer than the ceiling', async () => {
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: 'x'.repeat(2001) })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: 'x'.repeat(2001) })
 
     expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
   })
@@ -155,7 +195,7 @@ describe('POST /v1/tasks/:taskId/reports', () => {
   it('asks for an attempt, and says a submission is not required', async () => {
     guidance.answersWrite('no-attempt')
 
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: A_STRUGGLE })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
 
     expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
     expect(response.json().code).toBe('forbidden')
@@ -171,7 +211,7 @@ describe('POST /v1/tasks/:taskId/reports', () => {
   it('answers 200 and says "revised" when the write replaced an earlier report', async () => {
     guidance.answersWrite('revised')
 
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: A_STRUGGLE })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
 
     expect(response.statusCode).toBe(200)
     expect(response.json().outcome).toBe('revised')
@@ -179,7 +219,7 @@ describe('POST /v1/tasks/:taskId/reports', () => {
   })
 
   it('says "filed" on the first one, so the two are never confused', async () => {
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: A_STRUGGLE })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
 
     expect(response.statusCode).toBe(201)
     expect(response.json().outcome).toBe('filed')
@@ -189,7 +229,7 @@ describe('POST /v1/tasks/:taskId/reports', () => {
   it('refuses a revision once the report is no longer the author’s alone', async () => {
     guidance.answersWrite({ outcome: 'not-revisable', because: 'confirmed-by-others' })
 
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: A_STRUGGLE })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
 
     expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
     expect(response.json().details).toEqual({ reason: 'confirmed-by-others' })
@@ -198,7 +238,7 @@ describe('POST /v1/tasks/:taskId/reports', () => {
   it('distinguishes a merged entry from a confirmed one in the reason it gives', async () => {
     guidance.answersWrite({ outcome: 'not-revisable', because: 'merged-into-another' })
 
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: A_STRUGGLE })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
 
     expect(response.json().details).toEqual({ reason: 'merged-into-another' })
   })
@@ -206,20 +246,20 @@ describe('POST /v1/tasks/:taskId/reports', () => {
   it('answers not_found for a task id that names nothing', async () => {
     guidance.answersWrite('no-such-task')
 
-    expect((await post(`/v1/tasks/${taskId}/reports`, { content: A_STRUGGLE })).statusCode).toBe(
+    expect((await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })).statusCode).toBe(
       ERROR_STATUS.not_found,
     )
   })
 
   it('answers not_found for something that is not an id, without asking storage', async () => {
-    const response = await post('/v1/tasks/not-a-uuid/reports', { content: A_STRUGGLE })
+    const response = await post('/v1/tasks/not-a-uuid/reports', { broke: A_STRUGGLE })
 
     expect(response.statusCode).toBe(ERROR_STATUS.not_found)
     expect(guidance.writes()).toEqual([])
   })
 
   it('refuses an anonymous caller', async () => {
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: A_STRUGGLE }, null)
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE }, null)
 
     expect(response.statusCode).toBe(401)
     expect(guidance.writes()).toEqual([])
@@ -242,11 +282,11 @@ describe('POST /v1/tasks/:taskId/reports', () => {
  */
 describe('POST /v1/tasks/:taskId/reports, whatever kind it turns out to be', () => {
   it('records advice through the same route, and answers 201', async () => {
-    const response = await post(`/v1/tasks/${taskId}/reports`, { content: A_TIP })
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_TIP })
 
     expect(response.statusCode).toBe(201)
     expect(() => SubmitReportResponseSchema.parse(response.json())).not.toThrow()
-    expect(guidance.lastWrite()?.content).toBe(A_TIP)
+    expect(guidance.lastWrite()?.narrative.broke).toBe(A_TIP)
   })
 })
 

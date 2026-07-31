@@ -146,6 +146,86 @@ export const BriefingClaimSchema = z.object({
 export type BriefingClaim = z.infer<typeof BriefingClaimSchema>
 
 /**
+ * A claim as a reader receives it: what was stored, plus whether it still
+ * stands in the foreground (#113).
+ *
+ * **A separate shape because `current` is never stored.** It is a fact about how
+ * much has happened since the claim was last confirmed, and that changes with
+ * every attempt that closes — a stored flag would be wrong between the moment it
+ * was written and the sweep that noticed. Putting it on {@link BriefingClaimSchema}
+ * would invite the synthesis to write one.
+ *
+ * A demoted claim is served with `false` rather than withheld: it stays readable
+ * with `lastSupportedAt` next to it, so a reader can see both that the Colony no
+ * longer stands behind it in the foreground and when it last did. Deleting it
+ * would throw away a claim that may become true again.
+ */
+export const ServedBriefingClaimSchema = BriefingClaimSchema.extend({
+  current: z.boolean(),
+})
+export type ServedBriefingClaim = z.infer<typeof ServedBriefingClaimSchema>
+
+/**
+ * How many closed attempts on a task may pass before an unconfirmed claim is
+ * demoted.
+ *
+ * **Two bounds rather than one, because tasks differ enormously in traffic.** On
+ * a busy task fifty attempts pass in days and the corpus turns over fast, which
+ * is right: that is where the outside world changes under us. On a quiet task
+ * the time bound below keeps a claim alive that nobody has had the *chance* to
+ * re-confirm — silence is not refutation.
+ *
+ * Chosen to be defensible rather than measured; there was no traffic to measure
+ * against. Both numbers live here, in one place with this comment, so the first
+ * agent with real data can move them without a new decision.
+ */
+export const CURRENT_CLAIM_ATTEMPTS = 50
+
+/** The other bound. See {@link CURRENT_CLAIM_ATTEMPTS} — whichever is more generous wins. */
+export const CURRENT_CLAIM_DAYS = 90
+
+/**
+ * How many of a task's most recent reports the moderator and the synthesis are
+ * shown.
+ *
+ * The sentence that pays for {@link REPORT_TOTAL_MAX_LENGTH}. The objection to a
+ * larger per-entry ceiling was that the corpus is read back as context, so the
+ * cost of moderating a task grew with the longest thing anybody ever wrote about
+ * it. Bounding the context is what makes the entry bound stop mattering.
+ */
+export const RECENT_REPORTS_IN_CONTEXT = 100
+
+/**
+ * Whether a claim still stands in the foreground of a briefing.
+ *
+ * > A claim is **current** while it has been confirmed within the last
+ * > {@link CURRENT_CLAIM_ATTEMPTS} closed attempts on that task, or within
+ * > {@link CURRENT_CLAIM_DAYS} days — whichever bound is the more generous.
+ *
+ * **Demoted, never deleted.** A provider that broke something can fix it, and a
+ * claim that was true in June can be true again in September. A demoted claim
+ * leaves the foreground and stays readable with its age visible, which is the
+ * whole difference between a corpus that decays and one that forgets.
+ *
+ * `oldestCurrentAttempt` is the closing time of the *n*th most recent closed
+ * attempt on the task, or `null` when the task has had fewer than that many —
+ * in which case every claim is inside the attempt bound by definition, because
+ * not enough has happened to push anything out of it.
+ */
+export function isCurrentClaim(
+  claim: Pick<BriefingClaim, 'lastSupportedAt'>,
+  window: { readonly oldestCurrentAttempt: string | null; readonly now: string },
+): boolean {
+  const supported = Date.parse(claim.lastSupportedAt)
+
+  if (window.oldestCurrentAttempt === null) return true
+  if (supported >= Date.parse(window.oldestCurrentAttempt)) return true
+
+  const days = (Date.parse(window.now) - supported) / (24 * 60 * 60 * 1000)
+  return days < CURRENT_CLAIM_DAYS
+}
+
+/**
  * One task's briefing as a reader receives it.
  *
  * `model` and `writtenAt` are served rather than kept internal, and that is the
@@ -157,7 +237,7 @@ export type BriefingClaim = z.infer<typeof BriefingClaimSchema>
  */
 export const TaskBriefingSchema = z.object({
   taskId: TaskIdSchema,
-  claims: z.array(BriefingClaimSchema),
+  claims: z.array(ServedBriefingClaimSchema),
   /** The model that wrote it, as configured then. Copied, never resolved later. */
   model: z.string().min(1),
   writtenAt: TimestampSchema,

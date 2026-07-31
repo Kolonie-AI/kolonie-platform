@@ -6,7 +6,13 @@ import type {
   ModerationVerdict,
   PendingReport,
 } from '@kolonie-ai/db'
-import type { BriefingClaim, ConfidentialSpan, ModerationStages, TaskId } from '@kolonie-ai/core'
+import type {
+  BriefingClaim,
+  ConfidentialSpan,
+  ModerationStages,
+  ReportNarrative,
+  TaskId,
+} from '@kolonie-ai/core'
 import { briefingTick, judge, tick, type BriefingStore, type ModerationStore } from './loop.js'
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
@@ -23,7 +29,7 @@ let model: FakeModel
 let written: {
   kind: string
   id: string
-  content: string
+  narrative: ReportNarrative
   verdict: ModerationVerdict
   model: string
   stages: ModerationStages
@@ -50,12 +56,15 @@ const store: ModerationStore = {
   },
 }
 
+const WALL = 'The provider’s signup form started demanding a phone number partway through.'
+
 const anEntry = (overrides: Partial<PendingReport> = {}): PendingReport => ({
   kind: 'wall',
   id: randomUUID(),
   taskId: randomUUID() as TaskId,
   taskTitle: 'Obtain an email address of your own',
-  content: 'The provider’s signup form started demanding a phone number partway through.',
+  content: WALL,
+  narrative: { did: null, broke: WALL, changed: null },
   platform: 'openclaw',
   ...overrides,
 })
@@ -340,7 +349,9 @@ describe('what the verdict records about how it was reached', () => {
 
     await judge(entry, deps())
 
-    expect(written[0]?.content).toBe(entry.content)
+    // The columns, not the joined text: a verdict is guarded against what an
+    // author can replace, and that is the fields (#113).
+    expect(written[0]?.narrative).toEqual(entry.narrative)
   })
 })
 

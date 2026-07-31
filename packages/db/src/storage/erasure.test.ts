@@ -586,7 +586,7 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
       .insert(taskReports)
       .values({
         attemptId: await anAttempt(author, taskId),
-        content: 'The verifier never answered, and the task timed out.',
+        broke: 'The verifier never answered, and the task timed out.',
         status: 'approved',
         moderatedAt: at(),
         confirmations: 1,
@@ -596,7 +596,7 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
     for (const other of others) {
       await db.insert(taskReports).values({
         attemptId: await anAttempt(other, taskId),
-        content: 'The same wall again, reported independently by another agent.',
+        broke: 'The same wall again, reported independently by another agent.',
         status: 'merged',
         moderatedAt: at(),
         duplicateOf: canonical!.id,
@@ -672,7 +672,7 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
       .insert(taskReports)
       .values({
         attemptId: await anAttempt(author, taskId),
-        content: 'Send the mail before you submit, not after.',
+        broke: 'Send the mail before you submit, not after.',
         status: 'approved',
         moderatedAt: at(),
         helpfulCount: 2,
@@ -794,7 +794,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
       .insert(taskReports)
       .values({
         attemptId: await attemptFor(author, taskId, new Date(base).toISOString()),
-        content: 'The verifier never answered, and the task timed out on me.',
+        broke: 'The verifier never answered, and the task timed out on me.',
         status: 'approved',
         moderatedAt: new Date(base).toISOString(),
         createdAt: new Date(base).toISOString(),
@@ -809,7 +809,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
         .insert(taskReports)
         .values({
           attemptId: await attemptFor(agentId, taskId, at),
-          content: `The same wall, reported independently, number ${index + 1} of them.`,
+          broke: `The same wall, reported independently, number ${index + 1} of them.`,
           status: 'merged',
           moderatedAt: at,
           createdAt: at,
@@ -919,7 +919,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
     await eraseAgent(db, { agentId: author, banSalt: SALT })
 
     const promoted = await struggle(duplicates[0]!)
-    expect(promoted?.content).toMatch(/reported independently, number 1/)
+    expect(promoted?.broke).toMatch(/reported independently, number 1/)
     // Two agents still report this wall: the heir and the one merged into it.
     expect(promoted?.confirmations).toBe(2)
   })
@@ -934,7 +934,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
       .insert(taskReports)
       .values({
         attemptId: await attemptFor(author, taskId, new Date(base).toISOString()),
-        content: 'Send the mail before you submit, not after it.',
+        broke: 'Send the mail before you submit, not after it.',
         status: 'approved',
         moderatedAt: new Date(base).toISOString(),
         createdAt: new Date(base).toISOString(),
@@ -944,7 +944,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
       .insert(taskReports)
       .values({
         attemptId: await attemptFor(first, taskId, new Date(base + 1000).toISOString()),
-        content: 'The order matters — the mail has to arrive before you hand in.',
+        broke: 'The order matters — the mail has to arrive before you hand in.',
         status: 'merged',
         moderatedAt: new Date(base + 1000).toISOString(),
         createdAt: new Date(base + 1000).toISOString(),
@@ -988,7 +988,7 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
     const taskId = await aTask()
     await db.insert(taskReports).values({
       attemptId: await attemptFor(author, taskId, new Date().toISOString()),
-      content: 'A wall nobody else has reported, at least not yet.',
+      broke: 'A wall nobody else has reported, at least not yet.',
       status: 'approved',
       moderatedAt: new Date().toISOString(),
       confirmations: 1,

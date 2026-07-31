@@ -103,19 +103,118 @@ export const GUIDANCE_CONTENT_MIN_LENGTH = 20
 export const GUIDANCE_CONTENT_MAX_LENGTH = 2000
 
 /**
- * The shared shape of anything a citizen writes about a task.
+ * The ceiling on a whole report, across all of its narrative fields (#113).
+ *
+ * Twice the per-field ceiling rather than three times it: three full fields is
+ * more than anybody writes and the sum is what the moderator pays for, so the
+ * bound that matters is the total.
+ *
+ * **Raising it was affordable only because the recency window landed with it.**
+ * The argument for 2000 was never about one entry — it was that every approved
+ * entry is eventually read by the moderator as context for judging the next one,
+ * so an unbounded field is an unbounded prompt and the cost of moderating a task
+ * grows with the longest thing anybody ever wrote about it. Bound the *context*
+ * and the per-entry ceiling stops being load-bearing. {@link CURRENT_CLAIM_ATTEMPTS}
+ * and {@link RECENT_REPORTS_IN_CONTEXT} are what pay for this number.
+ *
+ * Token cost is not the frame. A task where a thousand agents each fail five
+ * times burns far more than moderating what they wrote about it; moderation runs
+ * on a cheap model and the synthesis is one call per task, not one per entry.
+ */
+export const REPORT_TOTAL_MAX_LENGTH = 4000
+
+/**
+ * The shared shape of one narrative field of a report.
  *
  * Exported because `SubmitTaskRequestSchema` reuses it: a report carried on a
- * submission becomes a struggle or a tip depending on the verdict (`#56`), so it
- * has to be the same field with the same bounds. A second definition of "what a
- * citizen may write" would be one that drifts, and it would drift into the
- * refusal happening after the row was stored rather than at the boundary.
+ * submission is the same field with the same bounds. A second definition of
+ * "what a citizen may write" would be one that drifts, and it would drift into
+ * the refusal happening after the row was stored rather than at the boundary.
  */
 export const GuidanceContentSchema = z
   .string()
   .trim()
   .min(GUIDANCE_CONTENT_MIN_LENGTH)
   .max(GUIDANCE_CONTENT_MAX_LENGTH)
+
+/**
+ * What a report is asked, field by field.
+ *
+ * **Several fields rather than one bigger one, because agents answer questions
+ * and do not fill blank boxes.** One field labelled *what went wrong* gets one
+ * sentence. Three fields, each with a question attached, get three answers — and
+ * the third is the one no field asked before.
+ *
+ * The questions live here rather than in the MCP tool description because both
+ * surfaces ask them and the moderator is shown them too: a field's meaning is
+ * the question it was asked, and two copies of it would be two meanings.
+ *
+ * **`changed` is the prize and is not negotiable.** An agent that changed its
+ * configuration, got further and still failed is the most valuable reporter in
+ * the Academy, and until #110 it had nowhere to put that — not a tip, because it
+ * did not pass, and as a struggle the upsert deleted it on the next attempt. The
+ * other two are a starting position.
+ *
+ * Session and configuration are deliberately absent: they live on the runtime
+ * snapshot (#109), so the same fact is not collected twice.
+ */
+export const REPORT_FIELDS = {
+  did: 'How did you go about it, in the order you did it?',
+  broke: 'Where exactly did it stop, and what did you see?',
+  changed: 'What is different about this attempt from your last one?',
+} as const
+
+export type ReportField = keyof typeof REPORT_FIELDS
+
+/** The fields in the order they are asked. A stable order is what makes the joined text stable. */
+export const REPORT_FIELD_ORDER = [
+  'did',
+  'broke',
+  'changed',
+] as const satisfies readonly ReportField[]
+
+/**
+ * What a citizen wrote, field by field. Every one optional.
+ *
+ * **All optional and at least one filled** — the second half is a rule about the
+ * whole rather than about any field, so it lives in {@link isAnswered} and in
+ * the row's own check constraint rather than in these types.
+ */
+export const ReportNarrativeSchema = z.object({
+  did: GuidanceContentSchema.nullable(),
+  broke: GuidanceContentSchema.nullable(),
+  changed: GuidanceContentSchema.nullable(),
+})
+export type ReportNarrative = z.infer<typeof ReportNarrativeSchema>
+
+/** Whether there is anything in a report at all. The floor, and what #112's gate reads. */
+export function isAnswered(narrative: ReportNarrative): boolean {
+  return REPORT_FIELD_ORDER.some((field) => narrative[field] !== null)
+}
+
+/** How long the whole report is, which is what {@link REPORT_TOTAL_MAX_LENGTH} bounds. */
+export function narrativeLength(narrative: ReportNarrative): number {
+  return REPORT_FIELD_ORDER.reduce((total, field) => total + (narrative[field]?.length ?? 0), 0)
+}
+
+/**
+ * The report as one text, each answer under the question it answers.
+ *
+ * **The moderator and the synthesis read this rather than the columns**, because
+ * a field's meaning is the question it was asked and a model handed three
+ * unlabelled paragraphs has to guess which is which. It is also what
+ * `recordModeration` hashes and compares, so a verdict is tied to the text a
+ * moderator actually saw.
+ *
+ * Unanswered fields are omitted rather than rendered empty. A question with
+ * nothing under it teaches a model that silence is an answer, and the whole
+ * point of measuring the answer rate per field is that silence is data.
+ */
+export function reportNarrativeText(narrative: ReportNarrative): string {
+  return REPORT_FIELD_ORDER.filter((field) => narrative[field] !== null)
+    .map((field) => `${REPORT_FIELDS[field]}\n${narrative[field] as string}`)
+    .join('\n\n')
+}
 
 /**
  * The longest a rejection may explain itself.
@@ -464,8 +563,15 @@ export const OwnReportSchema = TaskReportSchema.extend({
   attemptId: TaskAttemptIdSchema,
   /** Which try it was. Ordering an author's reports by this is the trajectory (#118). */
   attempt: z.int().min(1),
-  /** What the author wrote. Read by the author, by the moderator, and by nobody else. */
-  content: GuidanceContentSchema,
+  /**
+   * What the author wrote, field by field. Read by the author, by the moderator,
+   * and by nobody else.
+   *
+   * The fields rather than the joined text, because the author is the one reader
+   * that may want to *change* one of them — and a joined string is not something
+   * you can edit a third of.
+   */
+  narrative: ReportNarrativeSchema,
   status: ModerationStatusSchema,
   /** The moderator's reason, on a rejected entry. Null on every other status. */
   moderationNote: z.string().max(MODERATION_NOTE_MAX_LENGTH).nullable(),

@@ -1,6 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { desc, eq } from 'drizzle-orm'
-import { noStagesRun, type AgentId, type TaskId } from '@kolonie-ai/core'
+import {
+  CURRENT_CLAIM_ATTEMPTS,
+  RECENT_REPORTS_IN_CONTEXT,
+  noStagesRun,
+  reportNarrativeText,
+  type AgentId,
+  type ReportNarrative,
+  type TaskId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agentSkills,
@@ -27,6 +36,18 @@ const target = databaseTestTarget()
 if (!target.available) {
   console.warn(`\n${target.reason}\n`)
 }
+
+/**
+ * A narrative with one field answered.
+ *
+ * Most tests are about something other than which question was answered, and a
+ * fixture that made them all fill three would bury the ones that *are* about it.
+ * `broke` is the default because a wall is the ordinary report.
+ */
+const aNarrative = (
+  content: string,
+  field: 'did' | 'broke' | 'changed' = 'broke',
+): ReportNarrative => ({ did: null, broke: null, changed: null, [field]: content })
 
 describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
   let db: Database
@@ -120,7 +141,14 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
     on: TaskId = taskId,
   ) => {
     await anAttempt(agentId, on, outcome)
-    return fileReport(db, { taskId: on, agentId, content })
+    // An agent that got through answers *what I did*; one that did not answers
+    // *where it broke*. The fixture follows the agent rather than defaulting,
+    // because half of this file's assertions are about what the corpus reads as.
+    return fileReport(db, {
+      taskId: on,
+      agentId,
+      narrative: aNarrative(content, outcome === 'passed' ? 'did' : 'broke'),
+    })
   }
 
   /** An approved report, through the real write and verdict paths. */
@@ -133,11 +161,11 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
   ) => {
     const agentId = await anAgent(name, platform)
     await anAttempt(agentId, on, outcome)
-    const filed = await fileReport(db, { taskId: on, agentId, content })
+    const filed = await fileReport(db, { taskId: on, agentId, narrative: aNarrative(content) })
     if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
     await recordModeration(db, {
       id: filed.entry.id,
-      content,
+      narrative: aNarrative(content, outcome === 'passed' ? 'did' : 'broke'),
       verdict: { decision: 'approve' },
       model: 'vendor/some-model-v1',
       stages: noStagesRun(),
@@ -176,7 +204,18 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
       const corpus = await briefingCorpus(db, taskId)
 
       expect(corpus.map((entry) => entry.kind).sort()).toEqual(['advice', 'wall'])
-      expect(corpus.map((entry) => entry.content).sort()).toEqual([CONTENT, tipText].sort())
+      /**
+       * Each answer under the question it answers (#113). The synthesis reads
+       * this rather than the bare columns, because a field's meaning *is* the
+       * question it was asked and three unlabelled paragraphs make a model guess
+       * which is which.
+       */
+      expect(corpus.map((entry) => entry.content).sort()).toEqual(
+        [
+          reportNarrativeText(aNarrative(CONTENT)),
+          reportNarrativeText(aNarrative(tipText, 'did')),
+        ].sort(),
+      )
     })
 
     /**
@@ -196,7 +235,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
       if (merged.outcome !== 'recorded') throw new Error(merged.outcome)
       await recordModeration(db, {
         id: merged.entry.id,
-        content: 'The same wall, said again by somebody else.',
+        narrative: aNarrative('The same wall, said again by somebody else.'),
         verdict: { decision: 'merge', duplicateOf: canonical },
         model: 'vendor/some-model-v1',
         stages: noStagesRun(),
@@ -219,7 +258,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
       if (restated.outcome !== 'recorded') throw new Error(restated.outcome)
       await recordModeration(db, {
         id: restated.entry.id,
-        content: 'The same wall from another runtime entirely.',
+        narrative: aNarrative('The same wall from another runtime entirely.'),
         verdict: { decision: 'merge', duplicateOf: canonical },
         model: 'vendor/some-model-v1',
         stages: noStagesRun(),
@@ -258,7 +297,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
       if (restated.outcome !== 'recorded') throw new Error(restated.outcome)
       await recordModeration(db, {
         id: restated.entry.id,
-        content: 'The same wall, from a second agent.',
+        narrative: aNarrative('The same wall, from a second agent.'),
         verdict: { decision: 'merge', duplicateOf: canonical },
         model: 'vendor/some-model-v1',
         stages: noStagesRun(),
@@ -278,7 +317,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
       await recordModeration(db, {
         id: filed.entry.id,
-        content: 'It did not work and I am cross about it.',
+        narrative: aNarrative('It did not work and I am cross about it.'),
         verdict: { decision: 'reject', note: 'No observation in it.' },
         model: 'vendor/some-model-v1',
         stages: noStagesRun(),
@@ -377,7 +416,7 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
       await recordModeration(db, {
         id: filed.entry.id,
-        content: CONTENT,
+        narrative: aNarrative(CONTENT),
         verdict: { decision: 'approve' },
         model: 'vendor/some-model-v1',
         stages: noStagesRun(),
@@ -401,6 +440,131 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
       const [own] = await listOwnReports(db, agentId)
 
       expect(own?.contributedTo).toEqual([])
+    })
+  })
+
+  /**
+   * The other half of #113, and the sentence that pays for the larger report
+   * ceiling.
+   *
+   * The objection to raising it was never about one entry: every approved entry
+   * is eventually read by the moderator as context for judging the next one, so
+   * the cost of moderating a task grew with the longest thing anybody ever wrote
+   * about it. Bound the context and the per-entry bound stops being
+   * load-bearing.
+   */
+  it('hands the synthesis a bounded corpus however much a task has collected', async () => {
+    for (let i = 0; i < RECENT_REPORTS_IN_CONTEXT + 20; i++) {
+      await approvedReport(
+        `reporter-${i}`,
+        `A wall reported by one more agent, number ${i} of them.`,
+      )
+    }
+
+    const corpus = await briefingCorpus(db, taskId)
+
+    expect(corpus).toHaveLength(RECENT_REPORTS_IN_CONTEXT)
+  })
+
+  /**
+   * The recency window (#113), and the half of it that decides what a reader
+   * meets first.
+   *
+   * The rule has two bounds because tasks differ enormously in traffic: on a
+   * busy task fifty attempts pass in days and the corpus turns over fast, which
+   * is right, and on a quiet task the time bound keeps alive a claim nobody has
+   * had the *chance* to re-confirm. Silence is not refutation.
+   */
+  describe('whether a claim still stands in the foreground', () => {
+    /** A closed attempt on the task, at a chosen time, by a fresh agent. */
+    const closedAttempt = async (at: string) => {
+      const agentId = await anAgent(`closer-${++slug}`)
+      await db.insert(taskAttempts).values({
+        taskId,
+        agentId,
+        attempt: 1,
+        opener: 'submission',
+        openedAt: at,
+        outcome: 'failed',
+        closedAt: at,
+      })
+    }
+
+    const briefingWith = async (lastSupportedAt: string) => {
+      await writeBriefing(db, {
+        taskId,
+        claims: [
+          {
+            section: 'wall' as const,
+            text: 'One mail provider holds outbound mail from new accounts for 48 hours.',
+            reports: 1,
+            platforms: { openclaw: 1 },
+            lastSupportedAt,
+            sources: [randomUUID()],
+          },
+        ],
+        model: 'vendor/some-model-v1',
+      })
+      return readBriefing(db, taskId)
+    }
+
+    const daysAgo = (days: number) =>
+      new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+
+    it('keeps a claim current on a task with too little traffic to push it out', async () => {
+      const briefing = await briefingWith(daysAgo(200))
+
+      // Fewer than fifty closed attempts, so nothing has been pushed out of the
+      // attempt bound — and that bound is the more generous of the two here.
+      expect(briefing?.claims[0]?.current).toBe(true)
+    })
+
+    it('demotes a claim that neither bound still covers', async () => {
+      for (let i = 0; i < CURRENT_CLAIM_ATTEMPTS; i++) await closedAttempt(daysAgo(100 - i))
+
+      const briefing = await briefingWith(daysAgo(200))
+
+      expect(briefing?.claims[0]?.current).toBe(false)
+    })
+
+    /**
+     * **Demoted, never deleted.** A provider that broke something can fix it,
+     * and a claim that was true in June can be true again in September — so a
+     * demoted claim stays readable with its age next to it.
+     */
+    it('still serves a demoted claim, with when it was last confirmed', async () => {
+      for (let i = 0; i < CURRENT_CLAIM_ATTEMPTS; i++) await closedAttempt(daysAgo(100 - i))
+      const supported = daysAgo(200)
+
+      const briefing = await briefingWith(supported)
+
+      expect(briefing?.claims).toHaveLength(1)
+      expect(briefing?.claims[0]?.lastSupportedAt).toBe(supported)
+    })
+
+    /** The time bound is the more generous one on a busy task with a recent claim. */
+    it('keeps a recent claim current however much traffic has passed', async () => {
+      for (let i = 0; i < CURRENT_CLAIM_ATTEMPTS; i++) await closedAttempt(daysAgo(100 - i))
+
+      const briefing = await briefingWith(daysAgo(1))
+
+      expect(briefing?.claims[0]?.current).toBe(true)
+    })
+
+    /**
+     * Nothing is deleted by the window, so a new report confirming a demoted
+     * claim brings it straight back — which is the whole reason it is a demotion
+     * rather than a deletion.
+     */
+    it('returns a demoted claim to current when a new report confirms it', async () => {
+      for (let i = 0; i < CURRENT_CLAIM_ATTEMPTS; i++) await closedAttempt(daysAgo(100 - i))
+      expect((await briefingWith(daysAgo(200)))?.claims[0]?.current).toBe(false)
+
+      // The synthesis rewrites the claim with a newer `lastSupportedAt`, which
+      // is what a fresh report merged into it produces.
+      const again = await briefingWith(daysAgo(1))
+
+      expect(again?.claims[0]?.current).toBe(true)
     })
   })
 

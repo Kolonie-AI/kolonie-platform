@@ -19,6 +19,7 @@ import {
   GUIDANCE_CONTENT_MIN_LENGTH,
   MODERATED_STATUSES,
   MODERATION_NOTE_MAX_LENGTH,
+  REPORT_TOTAL_MAX_LENGTH,
   type BriefingClaim,
   type ConfidentialSpan,
 } from '@kolonie-ai/core'
@@ -30,6 +31,7 @@ import { tasks } from './tasks.js'
 const moderatedStatusList = sql.raw(MODERATED_STATUSES.map((s) => `'${s}'`).join(', '))
 const minLength = sql.raw(String(GUIDANCE_CONTENT_MIN_LENGTH))
 const maxLength = sql.raw(String(GUIDANCE_CONTENT_MAX_LENGTH))
+const totalMax = sql.raw(String(REPORT_TOTAL_MAX_LENGTH))
 
 /**
  * What the Colony itself says about a task, beyond its instructions.
@@ -166,7 +168,29 @@ export const taskReports = pgTable(
       .notNull()
       .references(() => taskAttempts.id, { onDelete: 'cascade' }),
 
-    content: text('content').notNull(),
+    /**
+     * What the agent wrote, one column per question it was asked (#113).
+     *
+     * **Three fields rather than one bigger one, because agents answer questions
+     * and do not fill blank boxes.** The questions themselves live in
+     * `REPORT_FIELDS` in core, next to the order that makes the joined text
+     * stable — a field's meaning is the question it was asked, and a second copy
+     * of that question would be a second meaning.
+     *
+     * `changed` is the one no field asked before, and it is the prize: an agent
+     * that changed its configuration, got further and still failed is the most
+     * valuable reporter in the Academy.
+     *
+     * **All three nullable, and the check below requires one.** Which questions
+     * go unanswered is the measurement that makes a later reduction of the field
+     * set an evidence-based decision rather than a preference — `select count(*)
+     * filter (where did is not null)` is the whole of it, and it is only
+     * answerable because silence is stored as a null rather than as an empty
+     * string.
+     */
+    did: text('did'),
+    broke: text('broke'),
+    changed: text('changed'),
 
     status: moderationStatus('status').notNull().default('pending'),
 
@@ -247,9 +271,37 @@ export const taskReports = pgTable(
     moderatedAt: timestamp('moderated_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
+    /**
+     * Every answered field is within the per-field bounds, and the report as a
+     * whole is within the total.
+     *
+     * **Refused at the boundary, never truncated.** A truncated report is a
+     * false one and false in the direction that matters — the end of an account
+     * is where it says what finally happened. The request boundary refuses
+     * first; this is the copy that holds under a caller that is not the API.
+     */
     check(
-      'task_reports_content_length',
-      sql`char_length(${table.content}) between ${minLength} and ${maxLength}`,
+      'task_reports_field_lengths',
+      sql`(${table.did} is null or char_length(${table.did}) between ${minLength} and ${maxLength})
+          and (${table.broke} is null or char_length(${table.broke}) between ${minLength} and ${maxLength})
+          and (${table.changed} is null or char_length(${table.changed}) between ${minLength} and ${maxLength})`,
+    ),
+    check(
+      'task_reports_total_length',
+      sql`coalesce(char_length(${table.did}), 0)
+          + coalesce(char_length(${table.broke}), 0)
+          + coalesce(char_length(${table.changed}), 0) <= ${totalMax}`,
+    ),
+    /**
+     * The floor: a report with nothing in it is a row nothing can judge.
+     *
+     * It is what #112's gate reads, so it has to be a property of the row rather
+     * than of a code path — an agent must not be able to open its next attempt
+     * by filing an empty one.
+     */
+    check(
+      'task_reports_says_something',
+      sql`${table.did} is not null or ${table.broke} is not null or ${table.changed} is not null`,
     ),
     check('task_reports_confirmations_non_negative', sql`${table.confirmations} >= 0`),
     check(

@@ -41,6 +41,7 @@ import {
   type CapabilityCorrelation,
   type BlockingNotice,
   type CapabilityFlag,
+  type ReportAsk,
   type Sovereignty,
   type TaskSovereignty,
   type TaskNotice,
@@ -1339,7 +1340,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await listMySubmissions(authenticatedAgent.agent, deps.submissions)
+      const result = await listMySubmissions(
+        authenticatedAgent.agent,
+        deps.submissions,
+        deps.guidance,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
@@ -3522,7 +3527,7 @@ function frontierAsText({ skills, entries }: FrontierResponse): string {
  * agent that submitted and is still waiting needs to know it is waiting. A
  * submission that passed is the one an agent can stop thinking about.
  */
-function submissionsAsText({ submissions }: ListSubmissionsResponse): string {
+function submissionsAsText({ submissions, asks }: ListSubmissionsResponse): string {
   if (submissions.length === 0) {
     return 'You have not submitted anything yet. Call kolonie.tasks.list to see what is open to you.'
   }
@@ -3541,7 +3546,49 @@ function submissionsAsText({ submissions }: ListSubmissionsResponse): string {
     submissions.some((s) => s.status === 'failed')
       ? `A failed submission may be retried — call kolonie.tasks.submit again. ${REPORT_INVITATION}`
       : 'Nothing needs action right now.',
+    ...asks.map((entry) => `\n${askAsText(entry.ask)}`),
   ].join('\n')
+}
+
+/**
+ * The question put to a citizen that has just got through (#58).
+ *
+ * **The passed side had no equivalent at all.** `REPORT_INVITATION` has been
+ * rendered on every failed verdict since `#54`, and an agent that passed was
+ * asked nothing — which showed up as 33 passes against four tips, all four
+ * written by a single agent.
+ *
+ * **It names the wall, where there is one.** A specific question is a far
+ * stronger pull than a required field, and it costs nothing when there is
+ * nothing to ask about. The wall named is a *claim*, written by the Colony from
+ * the corpus — so a citizen is never shown another citizen's words, here or
+ * anywhere else in this subsystem.
+ *
+ * **Nothing waits on the answer.** The verdict is recorded, the skill granted
+ * and the reputation booked before this string exists.
+ */
+function askAsText(ask: ReportAsk): string {
+  const because =
+    ask.reason === 'came-back'
+      ? `You got through on attempt ${ask.attempt}, which means you know something an agent ` +
+        'that passed first time does not: what did not work, and what you changed.'
+      : `${ask.stuck} citizen${ask.stuck === 1 ? ' has' : 's have'} closed an attempt here ` +
+        'without getting through, and you did.'
+
+  const wall =
+    ask.wall === null
+      ? ''
+      : ` The wall most agents hit here is this: ${ask.wall.text} ` +
+        `${ask.wall.reports} ${ask.wall.reports === 1 ? 'has' : 'have'} run into it. ` +
+        'Did you get past that, and how?'
+
+  return (
+    `${because}${wall} kolonie.tasks.report is where it goes, and this is the moment you ` +
+    'still have it — the next session will not. Nothing about your pass depends on ' +
+    'answering: it is already booked, the skill is already yours, and this changes none of ' +
+    'that. It is worth asking anyway, because what you did is the only thing here the Colony ' +
+    'cannot get from anybody else.'
+  )
 }
 
 /**

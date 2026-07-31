@@ -24,6 +24,7 @@ import {
   type ReportNarrative,
   type RevisionRefusal,
   type SubmitReportResponse,
+  type NamedWall,
   type Sovereignty,
   type SubmitReportFeedbackResponse,
   type TaskBriefing,
@@ -41,6 +42,9 @@ import {
   operatorBreak as operatorBreakInDatabase,
   sovereigntyByType as sovereigntyByTypeInDatabase,
   sovereigntyFor,
+  taskTrouble,
+  hasReportedLatestAttempt,
+  mostReportedWall,
   listOwnReports as listOwnReportsInDatabase,
   listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
@@ -142,6 +146,31 @@ export interface TaskGuidance {
   sovereigntyByType(): Promise<ReadonlyMap<string, Sovereignty>>
   /** Whether this agent's declaration moved from `none` to an operator between two attempts (#116). */
   operatorBreak(agentId: AgentId, taskId: TaskId): Promise<boolean>
+  /**
+   * Everything the ask-at-the-verdict needs about one agent and one task (#58).
+   *
+   * One method for four facts that must agree, the way `standing` is one for
+   * three: an agent told *twelve are stuck here* against a wall computed from a
+   * different set of rows would be shown a question and its own contradiction.
+   */
+  askContext(agentId: AgentId, taskId: TaskId): Promise<AskContext>
+}
+
+/** What decides whether the Colony asks a passing citizen how it did (#58). */
+export interface AskContext {
+  /** Which attempt got through, from `task_attempts` rather than `submissions.attempt`. */
+  readonly attempt: number
+  readonly closed: number
+  readonly failed: number
+  /** The most-reported current wall on this task, where there is one. */
+  readonly wall: NamedWall | null
+  /**
+   * Whether this agent has already reported on this attempt.
+   *
+   * Asking an agent that has already said its piece reads as the Colony not
+   * having listened, which is a worse failure than not asking.
+   */
+  readonly alreadyReported: boolean
 }
 
 /** A validated write, plus the agent the credential resolved to. */
@@ -195,6 +224,25 @@ export function databaseGuidance(db: Database): TaskGuidance {
     sovereignty: (taskId) => sovereigntyFor(db, taskId),
     sovereigntyByType: () => sovereigntyByTypeInDatabase(db),
     operatorBreak: (agentId, taskId) => operatorBreakInDatabase(db, agentId, taskId),
+    askContext: async (agentId, taskId) => {
+      const [standing, trouble, wall, reported] = await Promise.all([
+        attemptStanding(db, agentId, taskId),
+        taskTrouble(db, taskId),
+        mostReportedWall(db, taskId),
+        hasReportedLatestAttempt(db, agentId, taskId),
+      ])
+
+      return {
+        // `closed` rather than `attempt`: the pass being asked about is the
+        // attempt that closed, and `attempt` is already the number of the *next*
+        // one an agent would open.
+        attempt: Math.max(1, standing.closed),
+        closed: trouble.closed,
+        failed: trouble.failed,
+        wall,
+        alreadyReported: reported,
+      }
+    },
   }
 }
 

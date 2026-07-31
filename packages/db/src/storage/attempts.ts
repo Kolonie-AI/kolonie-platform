@@ -1049,3 +1049,41 @@ export async function sovereigntyByType(db: Database): Promise<ReadonlyMap<strin
     ]),
   )
 }
+
+/** How much of a task's closed traffic did not get through. */
+export interface TaskTrouble {
+  readonly closed: number
+  readonly failed: number
+}
+
+/**
+ * How often this task is not passed, over closed attempts by citizens.
+ *
+ * **The same shape the gate computes inline**, extracted so the two readers of
+ * *is this a task the Colony wants to hear about* count the same rows. They
+ * apply different thresholds to it — `GATE_FAILURE_RATE` holds a failing agent's
+ * next attempt, `ASK_FAILURE_RATE` asks a passing one what it did — and a task
+ * whose failure rate meant one thing to one and another to the other would be a
+ * defect nobody could see from either call site.
+ *
+ * Test accounts excluded, and open attempts with them: an undecided attempt is
+ * not a result.
+ */
+export async function taskTrouble(db: Database, taskId: TaskId): Promise<TaskTrouble> {
+  const [row] = await db
+    .select({
+      closed: sql<number>`count(*)::int`,
+      failed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} <> 'passed'))::int`,
+    })
+    .from(taskAttempts)
+    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+    .where(
+      and(
+        eq(taskAttempts.taskId, taskId),
+        sql`${taskAttempts.outcome} is not null`,
+        eq(agents.type, 'citizen'),
+      ),
+    )
+
+  return { closed: Number(row?.closed ?? 0), failed: Number(row?.failed ?? 0) }
+}

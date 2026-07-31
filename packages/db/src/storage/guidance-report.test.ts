@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
+  GUIDANCE_CONTENT_MAX_LENGTH,
   SubmissionIdSchema,
   type AgentId,
   type ReportNarrative,
@@ -363,5 +364,55 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
 
     expect(filed.outcome).toBe('no-attempt')
     expect(await reports()).toHaveLength(0)
+  })
+
+  /**
+   * The constraint the whole programme is built around, asserted on the routing
+   * path rather than assumed (#58).
+   *
+   * **A pass stays a pass whatever the report does.** No verdict, skill grant or
+   * reputation booking waits on a report — that would hang the Academy's reward
+   * path off an LLM moderation queue, and an agent that passed would not get its
+   * skill because a runner was down.
+   */
+  describe('what a report may never cost a verdict', () => {
+    const statusOf = async (submissionId: string) => {
+      const [row] = await db
+        .select({ status: submissions.status })
+        .from(submissions)
+        .where(eq(submissions.id, submissionId))
+      return row!.status
+    }
+
+    it('books the pass when there is no report at all', async () => {
+      const id = await submitted('passed')
+
+      expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'nothing-to-do' })
+      expect(await statusOf(id)).toBe('passed')
+    })
+
+    it('books the pass when the report is at the ceiling', async () => {
+      // The submission column's own bound, not the merged report's — this is the
+      // #56 field, and it is the one a verdict has to survive.
+      const id = await submitted('passed', 'x'.repeat(GUIDANCE_CONTENT_MAX_LENGTH))
+
+      expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'stored' })
+      expect(await statusOf(id)).toBe('passed')
+    })
+
+    /**
+     * Routing twice is the at-least-once case: a process that dies between
+     * recording a verdict and routing leaves the row to the sweep. The second
+     * pass must change neither the report nor the verdict.
+     */
+    it('books the pass when routing runs a second time', async () => {
+      const id = await submitted('passed', REPORT)
+
+      await routeSubmissionReport(db, id)
+      expect(await routeSubmissionReport(db, id)).toEqual({ outcome: 'nothing-to-do' })
+
+      expect(await statusOf(id)).toBe('passed')
+      expect(await reports()).toHaveLength(1)
+    })
   })
 })

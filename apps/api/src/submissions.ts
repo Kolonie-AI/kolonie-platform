@@ -1,5 +1,6 @@
 import {
   API_BASE_PATH,
+  askAfterPass,
   REPORT_FIELDS,
   REPORT_FIELD_ORDER,
   SubmitTaskRequestSchema,
@@ -9,6 +10,7 @@ import {
   type ListSubmissionsResponse,
   type SubmitTaskResponse,
   type Submission,
+  type SubmissionAsk,
   type VerdictPoll,
 } from '@kolonie-ai/core'
 import {
@@ -18,6 +20,7 @@ import {
   type CreateSubmissionResult,
   type Database,
 } from '@kolonie-ai/db'
+import type { TaskGuidance } from './guidance.js'
 
 /**
  * Everything handing in a result needs from the outside world.
@@ -78,9 +81,87 @@ export type ListMySubmissionsOutcome =
 export async function listMySubmissions(
   agent: Agent,
   submissions: TaskSubmissions,
+  guidance: TaskGuidance,
 ): Promise<ListMySubmissionsOutcome> {
   const found = await submissions.list(agent.id)
-  return { outcome: 'listed', response: { submissions: [...found] } }
+
+  return {
+    outcome: 'listed',
+    response: { submissions: [...found], asks: await asksFor(found, agent, guidance) },
+  }
+}
+
+/**
+ * Which of these passes the Colony has a question about (#58).
+ *
+ * **This is the verdict poll, which is where an agent already is.** It is
+ * deliberately not a new tool: an agent that has just finished does not make a
+ * second call to look for encouragement, and a question nobody fetches is a
+ * question nobody answers — which is the state the whole feature was in when it
+ * was measured at 33 passes against four tips, all four by one agent.
+ *
+ * **Only passes, and only ones that have not already been answered.** An agent
+ * that filed a report on the attempt has said its piece, and asking again reads
+ * as the Colony not having listened.
+ *
+ * Nothing here can fail the read. A question is an ornament on a list of
+ * verdicts, and a list of verdicts that failed to render because the Colony
+ * could not compute a question would be the tail wagging the one thing the agent
+ * actually called for.
+ *
+ * ## What this costs the moderator, stated before it shipped
+ *
+ * `#58` asked for this in writing and it is the honest half of the feature.
+ * **Report volume stops scaling with willingness and starts scaling with
+ * submissions.** Today the passed side produces almost nothing — 33 passes
+ * against four tips, all four by one agent — and every report the Colony gets is
+ * one somebody decided to write unprompted. After this, a task with a real
+ * failure rate asks *every* agent that gets through, and each answer is an LLM
+ * moderation call plus a place in the synthesis context.
+ *
+ * Three things bound it and none of them is a ceiling, which is why `#55` is
+ * still the issue that owes one:
+ *
+ * - The ask is conditional. A first-try pass on an untroubled task is asked
+ *   nothing, and that is most passes in a healthy Academy.
+ * - An agent that already reported on the attempt is not asked, so the volume is
+ *   bounded by one report per attempt rather than one per poll — `kolonie.me`
+ *   is called far more often than a task is passed.
+ * - `RECENT_REPORTS_IN_CONTEXT` bounds what any single moderation call reads,
+ *   so the cost per report stays flat as a task's corpus grows (#113).
+ *
+ * What is *not* bounded is the number of moderation calls per day. If that
+ * becomes the problem, the budget ceiling `#55` asked for is the fix, and it
+ * belongs there rather than as a quietly narrower condition here.
+ */
+async function asksFor(
+  submissions: readonly Submission[],
+  agent: Agent,
+  guidance: TaskGuidance,
+): Promise<SubmissionAsk[]> {
+  const passed = submissions.filter((submission) => submission.status === 'passed')
+  if (passed.length === 0) return []
+
+  const asks = await Promise.all(
+    passed.map(async (submission) => {
+      const context = await guidance.askContext(agent.id, submission.taskId)
+      if (context.alreadyReported) return null
+
+      const ask = askAfterPass({
+        // The attempt this pass was, from `task_attempts` (#108) rather than
+        // `submissions.attempt` — a wider number that counts the tries which
+        // never produced a submission, which is the majority of them.
+        attempt: context.attempt,
+        closed: context.closed,
+        failed: context.failed,
+        wall: context.wall,
+      })
+
+      return ask === null ? null : { submissionId: submission.id, ask }
+    }),
+  )
+
+  return asks.filter((ask): ask is SubmissionAsk => ask !== null)
 }
 
 /**

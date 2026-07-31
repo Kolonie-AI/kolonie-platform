@@ -12,6 +12,7 @@ import {
   type BriefingClaim,
   type CapabilityDivide,
   type CapabilityFlag,
+  type NamedWall,
   type ReportKind,
   type TaskBriefing,
   type TaskId,
@@ -409,4 +410,33 @@ export async function readerContext(
   ])
 
   return { divides, declared, movesMoney: task[0]?.kind === 'quest' }
+}
+
+/**
+ * The wall the Colony names when it asks a passing citizen how it got through
+ * (#58).
+ *
+ * **A claim, not an entry**, which is what makes it safe to put in a question
+ * addressed to somebody else: the text is the Colony's own, written from the
+ * corpus rather than quoted out of it. Naming a struggle row here would be the
+ * 2026-07-30 incident again, in a new place.
+ *
+ * Most-reported first, because that is the one *"did you get past that?"* is
+ * worth asking about — a wall one agent hit is a question for that agent.
+ *
+ * **Demoted claims are not named.** A claim nobody has confirmed lately (#113)
+ * may describe a wall the provider has since taken down, and asking a citizen
+ * whether it got past something that is no longer there wastes the one sentence
+ * this programme gets from it.
+ */
+export async function mostReportedWall(db: Database, taskId: TaskId): Promise<NamedWall | null> {
+  const briefing = await readBriefing(db, taskId)
+  if (briefing === undefined) return null
+
+  const walls = briefing.claims
+    .filter((claim) => claim.section === 'wall' && claim.current)
+    .sort((left, right) => right.reports - left.reports)
+
+  const wall = walls[0]
+  return wall === undefined ? null : { text: wall.text, reports: wall.reports }
 }

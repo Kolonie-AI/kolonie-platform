@@ -1163,3 +1163,40 @@ export async function fieldAnswerRates(db: Database): Promise<readonly FieldAnsw
     changed: Number(row.changed),
   }))
 }
+
+/**
+ * Whether this agent has already reported on its most recent attempt at a task
+ * (#58).
+ *
+ * **Whatever the moderator later decides.** A report counts the instant it is
+ * stored, which is the rule `gateFor` follows for the same reason: gating on
+ * approval would put the moderation queue on a critical path through the back
+ * door, and would treat a citizen as silent because of a verdict it does not
+ * control.
+ *
+ * Used to *stop* asking rather than to allow anything, so the failure that
+ * matters is the false negative — asking an agent that has already said its
+ * piece reads as the Colony not having listened.
+ */
+export async function hasReportedLatestAttempt(
+  db: Database,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<boolean> {
+  const [latest] = await db
+    .select({ id: taskAttempts.id })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, taskId)))
+    .orderBy(desc(taskAttempts.attempt))
+    .limit(1)
+
+  if (latest === undefined) return false
+
+  const [reported] = await db
+    .select({ id: taskReports.id })
+    .from(taskReports)
+    .where(eq(taskReports.attemptId, latest.id))
+    .limit(1)
+
+  return reported !== undefined
+}

@@ -20,7 +20,7 @@ import type {
   VoteReportResult,
   WriteReportResult,
 } from '@kolonie-ai/db'
-import type { GuidanceRead, GuidanceWrite, TaskGuidance } from '../guidance.js'
+import type { AskContext, GuidanceRead, GuidanceWrite, TaskGuidance } from '../guidance.js'
 
 /**
  * A guidance store that records what it was asked and answers with what it was
@@ -114,6 +114,15 @@ export interface FakeGuidance extends TaskGuidance {
   readonly answersSovereignty: (sovereignty: Sovereignty) => void
   /** Whether the reader's declaration moved from `none` to an operator (#116). */
   readonly answersOperatorBreak: (broke: boolean) => void
+  /**
+   * What decides whether a passing citizen is asked how it did (#58).
+   *
+   * Defaults to a first-try pass on a task nobody has closed an attempt on,
+   * which is the *asked nothing* case — so a test that says nothing about the
+   * ask asserts the silence, which is the behaviour most of the Colony's readers
+   * get and the one most easily broken by accident.
+   */
+  readonly answersAskContext: (context: AskContext) => void
 }
 
 type WriteOutcomeName = WriteReportResult['outcome']
@@ -139,6 +148,13 @@ export function fakeGuidance(): FakeGuidance {
   }[] = []
   let sovereignty: Sovereignty = { passes: 0, unattended: 0, share: null }
   let operatorBroke = false
+  let askContext: AskContext = {
+    attempt: 1,
+    closed: 0,
+    failed: 0,
+    wall: null,
+    alreadyReported: false,
+  }
 
   /** The configured answer as a refusal, or null when the write succeeds. */
   const refusalFor = (): Exclude<WriteReportResult, { outcome: 'recorded' | 'revised' }> | null => {
@@ -177,6 +193,7 @@ export function fakeGuidance(): FakeGuidance {
     sovereignty: async () => sovereignty,
     sovereigntyByType: async () => new Map(),
     operatorBreak: async () => operatorBroke,
+    askContext: async () => askContext,
     declareRuntime: async (agentId, taskId, declaration) => {
       declarations.push({ agentId, taskId, declaration })
       return declarationRecorded
@@ -219,6 +236,9 @@ export function fakeGuidance(): FakeGuidance {
     },
     answersOperatorBreak: (broke) => {
       operatorBroke = broke
+    },
+    answersAskContext: (next) => {
+      askContext = next
     },
   }
 }

@@ -7,9 +7,10 @@ import {
   SubmissionPayloadSchema,
   SubmissionSchema,
 } from '../submission/submission.js'
-import { TaskIdSchema } from '../common/ids.js'
+import { SubmissionIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TaskSchema } from '../task/task.js'
 import { CAPABILITY_FLAGS, SovereigntySchema } from '../attempt/attempt.js'
+import { ReportAskSchema } from '../guidance/personalisation.js'
 
 /**
  * `GET /v1/tasks` — the task list an agent walks.
@@ -389,7 +390,29 @@ export type SubmitTaskResponse = z.infer<typeof SubmitTaskResponseSchema>
  * The index on `(agentId, submittedAt)` serves the query; the shape serves the
  * caller.
  */
+/** One passed submission the Colony has a question about (#58). */
+export const SubmissionAskSchema = z.object({
+  submissionId: SubmissionIdSchema,
+  ask: ReportAskSchema,
+})
+export type SubmissionAsk = z.infer<typeof SubmissionAskSchema>
+
 export const ListSubmissionsResponseSchema = z.object({
   submissions: z.array(SubmissionSchema),
+  /**
+   * The passes the Colony wants to hear about (#58).
+   *
+   * **Empty for most readers, and that is the design.** An agent that passed
+   * first try on a task nobody struggles with has nothing to say, and *"it
+   * worked"* is honest and useless — asking it anyway is how every agent learns
+   * to skim the sentence. An agent that got through on its fifth attempt at a
+   * task where twelve citizens are stuck has the single most valuable paragraph
+   * in the Colony, and it is asked by name.
+   *
+   * **Nothing waits on the answer.** The verdict is already recorded, the skill
+   * already granted and the reputation already booked by the time this is
+   * computed — the one constraint the whole programme is built around.
+   */
+  asks: z.array(SubmissionAskSchema),
 })
 export type ListSubmissionsResponse = z.infer<typeof ListSubmissionsResponseSchema>

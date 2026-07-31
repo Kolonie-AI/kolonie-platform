@@ -24,7 +24,7 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions, type FakeSubmissions } from '../__fixtures__/submissions.js'
-import { fakeGuidance } from '../__fixtures__/guidance.js'
+import { fakeGuidance, type FakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
@@ -36,6 +36,7 @@ import { erasure } from '../erasure.js'
 let app: FastifyInstance
 let store: FakeStore
 let submissions: FakeSubmissions
+let guidance: FakeGuidance
 let apiKey: ApiKey
 let agentId: AgentId
 
@@ -44,6 +45,7 @@ const taskId = randomUUID()
 beforeEach(async () => {
   store = fakeStore()
   submissions = fakeSubmissions()
+  guidance = fakeGuidance()
   app = buildApp({
     vault: { vault: fakeVault() },
     email: fakeEmail(),
@@ -51,7 +53,7 @@ beforeEach(async () => {
     store,
     catalogue: fakeCatalogue(),
     submissions,
-    guidance: fakeGuidance(),
+    guidance,
     support: support({ desk: fakeSupportDesk() }),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
@@ -456,5 +458,142 @@ describe('GET /v1/agents/me/submissions', () => {
     })
 
     expect(response.statusCode).toBe(404)
+  })
+
+  /**
+   * The ask at the verdict, passed side (#58).
+   *
+   * The failed side has had `REPORT_INVITATION` since `#54`. An agent that passed
+   * was asked nothing at all, which showed up as 33 passes against four tips —
+   * all four written by one agent.
+   */
+  describe('asking a citizen that got through how it did', () => {
+    const aPass = () => aSubmission({ status: 'passed' })
+
+    it('asks an agent that came back and got through', async () => {
+      const passed = aPass()
+      submissions.setList([passed])
+      guidance.answersAskContext({
+        attempt: 5,
+        closed: 20,
+        failed: 12,
+        wall: null,
+        alreadyReported: false,
+      })
+
+      const response = await get()
+      const body = ListSubmissionsResponseSchema.parse(response.json())
+
+      expect(body.asks).toHaveLength(1)
+      expect(body.asks[0]?.submissionId).toBe(passed.id)
+      expect(body.asks[0]?.ask.reason).toBe('came-back')
+      expect(body.asks[0]?.ask.attempt).toBe(5)
+    })
+
+    /**
+     * The case the issue names by name: *"an agent that passes first try has
+     * nothing to say and 'it worked' is honest and useless."*
+     */
+    it('asks a first-try pass on an untroubled task nothing', async () => {
+      submissions.setList([aPass()])
+      guidance.answersAskContext({
+        attempt: 1,
+        closed: 40,
+        failed: 1,
+        wall: null,
+        alreadyReported: false,
+      })
+
+      const body = ListSubmissionsResponseSchema.parse((await get()).json())
+
+      expect(body.asks).toEqual([])
+    })
+
+    it('asks a first-try pass on a task others are stuck on', async () => {
+      submissions.setList([aPass()])
+      guidance.answersAskContext({
+        attempt: 1,
+        closed: 20,
+        failed: 12,
+        wall: null,
+        alreadyReported: false,
+      })
+
+      const body = ListSubmissionsResponseSchema.parse((await get()).json())
+
+      expect(body.asks[0]?.ask.reason).toBe('others-stuck')
+      expect(body.asks[0]?.ask.stuck).toBe(12)
+    })
+
+    /** A brand-new task's first failure makes its rate 100%. That is not evidence. */
+    it('does not read one failure on a new task as trouble', async () => {
+      submissions.setList([aPass()])
+      guidance.answersAskContext({
+        attempt: 1,
+        closed: 2,
+        failed: 2,
+        wall: null,
+        alreadyReported: false,
+      })
+
+      expect(ListSubmissionsResponseSchema.parse((await get()).json()).asks).toEqual([])
+    })
+
+    it('names the wall when the Colony knows one', async () => {
+      submissions.setList([aPass()])
+      guidance.answersAskContext({
+        attempt: 3,
+        closed: 20,
+        failed: 12,
+        wall: { text: 'One mail provider holds outbound mail from new accounts.', reports: 9 },
+        alreadyReported: false,
+      })
+
+      const body = ListSubmissionsResponseSchema.parse((await get()).json())
+
+      expect(body.asks[0]?.ask.wall).toEqual({
+        text: 'One mail provider holds outbound mail from new accounts.',
+        reports: 9,
+      })
+    })
+
+    it('stops asking an agent that has already said its piece', async () => {
+      submissions.setList([aPass()])
+      guidance.answersAskContext({
+        attempt: 5,
+        closed: 20,
+        failed: 12,
+        wall: null,
+        alreadyReported: true,
+      })
+
+      expect(ListSubmissionsResponseSchema.parse((await get()).json()).asks).toEqual([])
+    })
+
+    it('asks nothing about a submission that has not been decided', async () => {
+      submissions.setList([aSubmission({ status: 'pending' })])
+      guidance.answersAskContext({
+        attempt: 5,
+        closed: 20,
+        failed: 12,
+        wall: null,
+        alreadyReported: false,
+      })
+
+      expect(ListSubmissionsResponseSchema.parse((await get()).json()).asks).toEqual([])
+    })
+
+    it('asks nothing about a failed submission — that side is the invitation’s', async () => {
+      submissions.setList([aSubmission({ status: 'failed' })])
+      guidance.answersAskContext({
+        attempt: 5,
+        closed: 20,
+        failed: 12,
+        wall: null,
+        alreadyReported: false,
+      })
+
+      expect(ListSubmissionsResponseSchema.parse((await get()).json()).asks).toEqual([])
+    })
   })
 })

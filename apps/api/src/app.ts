@@ -1306,7 +1306,7 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await listMySubmissions(authenticated.agent, submissions)
+        const result = await listMySubmissions(authenticated.agent, submissions, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

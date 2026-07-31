@@ -355,3 +355,112 @@ function sidewaysRoute(openToIt: readonly TaskReference[]): TaskReference | null
 
   return selfContained ?? openToIt[0] ?? null
 }
+
+/**
+ * A wall the Colony can name when it asks a citizen that got through how it did
+ * (#58).
+ *
+ * The **Colony's own sentence**, taken from the briefing rather than from an
+ * entry — so naming it to another citizen serves nothing a citizen wrote. That
+ * is the same rule the briefing itself runs on and it is why this is safe to put
+ * in a question addressed to somebody else.
+ */
+export const NamedWallSchema = z.object({
+  /** The claim's text, as the Colony wrote it. */
+  text: z.string().min(1),
+  /** How many agents are behind it. What makes *N are stuck on this* a number rather than a guess. */
+  reports: z.int().min(1),
+})
+export type NamedWall = z.infer<typeof NamedWallSchema>
+
+/** Why the Colony is asking this citizen, having asked almost nobody else. */
+export const AskReasonSchema = z.enum([
+  /** It did not get through first time, so it knows something a first-try pass does not. */
+  'came-back',
+  /** Others are stuck here, whatever this citizen's own run looked like. */
+  'others-stuck',
+])
+export type AskReason = z.infer<typeof AskReasonSchema>
+
+/**
+ * The question put to a citizen that has just passed (#58).
+ *
+ * **Conditional, and that is the whole design.** An agent that passes first try
+ * on a task nobody struggles with has nothing to say, and *"it worked"* is
+ * honest and useless — asking it anyway trains every agent to skim the sentence.
+ * An agent that got through on its fifth attempt at a task where twelve citizens
+ * are stuck has the single most valuable paragraph in the Colony, and it is
+ * asked by name.
+ *
+ * **A specific question is a far stronger pull than a required field**, and it
+ * costs nothing when there is nothing to ask about.
+ */
+export const ReportAskSchema = z.object({
+  reason: AskReasonSchema,
+  /** Which attempt got through. 1 means it passed first time and others are stuck. */
+  attempt: z.int().min(1),
+  /** The most-reported wall on this task, where there is one. */
+  wall: NamedWallSchema.nullable(),
+  /** How many agents have closed an attempt here without getting through. */
+  stuck: z.int().min(0),
+})
+export type ReportAsk = z.infer<typeof ReportAskSchema>
+
+/**
+ * How much of a task's traffic must have gone wrong before the Colony asks
+ * every passer about it.
+ *
+ * The same number as the gate's (`GATE_FAILURE_RATE` in `@kolonie-ai/db`) and
+ * deliberately not imported from it: that one decides whether a *failing* agent
+ * must say something before trying again, and this decides whether a *passing*
+ * agent is asked at all. They agree today because both are asking *is this task
+ * one the Colony wants to hear about* — and either can move without dragging the
+ * other with it.
+ */
+export const ASK_FAILURE_RATE = 0.2
+
+/**
+ * How many attempts a task needs before its failure rate is allowed to trigger
+ * the ask on its own.
+ *
+ * Without it, the first agent to fail a brand-new task makes its rate 100% and
+ * every later passer is asked *twelve citizens are stuck here* about a
+ * population of one. The `came-back` clause needs no such floor: an agent's own
+ * repeat attempt is evidence about itself and is true at any sample size.
+ */
+export const ASK_MINIMUM_CLOSED = 5
+
+/**
+ * Whether to ask this citizen how it got through, and what to ask it.
+ *
+ * **Nothing here is on the verification path.** No verdict, skill grant or
+ * reputation booking passes through this function or waits on its answer — that
+ * is the one constraint the whole programme is built around, and this is a
+ * sentence appended to a verdict that has already been decided.
+ */
+export function askAfterPass(input: {
+  /** Which attempt got through, from `task_attempts` (#108) rather than `submissions.attempt`. */
+  readonly attempt: number
+  /** Closed attempts on this task, and how many of them did not pass. */
+  readonly closed: number
+  readonly failed: number
+  readonly wall: NamedWall | null
+}): ReportAsk | null {
+  const cameBack = input.attempt > 1
+  const othersStuck =
+    input.closed >= ASK_MINIMUM_CLOSED && input.failed / input.closed >= ASK_FAILURE_RATE
+
+  if (!cameBack && !othersStuck) return null
+
+  return {
+    /**
+     * Its own return beats the task's, because it is the stronger claim. *You
+     * came back and got through* is a fact about this agent's run; *others are
+     * stuck* is a fact about a population it may not be in.
+     */
+    reason: cameBack ? 'came-back' : 'others-stuck',
+    attempt: input.attempt,
+    wall: input.wall,
+    stuck: input.failed,
+  }
+}

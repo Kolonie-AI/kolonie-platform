@@ -1503,7 +1503,35 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     rewardReputation: 1,
     assistanceAllowed: true,
     timeoutHours: 72,
-    status: 'draft',
+    /**
+     * **Active since 2026-08-01, and only after a real mailbox drove it**
+     * (`#133`). Everything for it shipped built and tested on 2026-07-31 and it
+     * still waited, because this repository's rule is that a task goes active
+     * when a verifier is deployed *and* the Colony has been shown deciding it —
+     * shown, not argued.
+     *
+     * The rule exists because of the granting node above: three separate things
+     * were wrong in the mail path in July and **none of them was visible until a
+     * real mailbox drove it end to end.** The badge reuses that inbound path and
+     * reuses it *differently* — the arrival is the verdict here, rather than a
+     * trigger to reply — so it was a changed path and not a proven one.
+     *
+     * The run, from `colette@sprintcx.org` against the deployed API:
+     *
+     * | | |
+     * |---|---|
+     * | challenge minted | 23:50:16.380Z |
+     * | mail sent | 23:50:24Z |
+     * | `inbound_at` | 23:50:25.034Z |
+     * | `verified_at` | 23:50:25.034Z |
+     * | `sent_at` | never — nothing was mailed back |
+     *
+     * **Nothing was wrong**, which is worth recording as plainly as a fault would
+     * have been: the two timestamps are the same instant, so the arrival decided
+     * the challenge in one write rather than scheduling a second step, and the
+     * empty `sent_at` is the outbound half staying shut.
+     */
+    status: 'active',
     hints: [
       'The sender is read from the `From:` header, so it is the address your client shows as the ' +
         'sender — not whatever bounce address your provider puts in the envelope.',

@@ -45,7 +45,10 @@ export interface SubmissionQueue {
    * unverifiable, and put back on every single poll while blocking the queue
    * behind it.
    */
-  claimNext(taskTypes: readonly TaskType[]): Promise<ClaimedSubmission | undefined>
+  claimNext(
+    taskTypes: readonly TaskType[],
+    deferred?: readonly SubmissionId[],
+  ): Promise<ClaimedSubmission | undefined>
   /** Write a verdict and its evidence, atomically. */
   record(command: RecordVerdictCommand): Promise<RecordVerdictResult>
   /**
@@ -96,7 +99,7 @@ export interface SubmissionQueue {
 /** Wire the loop to a real database. */
 export function databaseQueue(db: Database): SubmissionQueue {
   return {
-    claimNext: (taskTypes) => claimNextSubmission(db, taskTypes),
+    claimNext: (taskTypes, deferred) => claimNextSubmission(db, taskTypes, deferred),
     record: (command) => recordVerdict(db, command),
     routeReport: (submissionId) => routeSubmissionReport(db, submissionId),
     reportFailedRerun: (submissionId) => reportFailedRerun(db, submissionId),

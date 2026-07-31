@@ -9,7 +9,7 @@ import {
   type TaskType,
   type Verifier,
 } from '@kolonie-ai/core'
-import { startRunner, tick, type Log } from './loop.js'
+import { deferralFor, startRunner, tick, type Deferral, type Log } from './loop.js'
 import type {
   ClaimedSubmission,
   ExpiredSubmission,
@@ -107,14 +107,32 @@ class FakeQueue implements SubmissionQueue {
   readonly routed: SubmissionId[] = []
   routeFails: Error | undefined
   routing: ReportRoutingResult = { outcome: 'nothing-to-do' }
+  /** What `record` says the submission's status became. Production returns
+   *  `pending` when the outside world could not be read (#132). */
+  recordedStatus: 'passed' | 'failed' | 'pending' | undefined
 
   constructor(private queued: ClaimedSubmission[] = []) {}
 
-  async claimNext(taskTypes: readonly TaskType[]): Promise<ClaimedSubmission | undefined> {
+  /** Every exclusion list the loop has asked with, in order (#132). */
+  readonly deferredAsked: (readonly SubmissionId[])[] = []
+  /** Submissions that go back on the queue after being claimed, as production does. */
+  requeue = false
+
+  async claimNext(
+    taskTypes: readonly TaskType[],
+    deferred: readonly SubmissionId[] = [],
+  ): Promise<ClaimedSubmission | undefined> {
     if (this.claimFails) throw this.claimFails
-    const index = this.queued.findIndex((entry) => taskTypes.includes(entry.taskType))
+    this.deferredAsked.push([...deferred])
+    // Honouring the exclusion is the whole point: a fake that ignored it would
+    // let the head-of-line test below pass while production still blocked.
+    const index = this.queued.findIndex(
+      (entry) => taskTypes.includes(entry.taskType) && !deferred.includes(entry.submission.id),
+    )
     if (index === -1) return undefined
-    return this.queued.splice(index, 1)[0]
+    const [claimed] = this.queued.splice(index, 1)
+    if (this.requeue && claimed) this.queued.push(claimed)
+    return claimed
   }
 
   async record(command: RecordVerdictCommand): Promise<RecordVerdictResult> {
@@ -123,7 +141,10 @@ class FakeQueue implements SubmissionQueue {
     if (this.stale) return { outcome: 'stale', status: 'timeout' }
     return {
       outcome: 'recorded',
-      submission: { ...aSubmission(command.submissionId), status: 'passed' },
+      submission: {
+        ...aSubmission(command.submissionId),
+        status: this.recordedStatus ?? 'passed',
+      },
       verification: {
         id: '7d6c5b4a-3e2f-4a1b-8c9d-0e1f2a3b4c5d',
         submissionId: command.submissionId,
@@ -466,5 +487,125 @@ describe('a submission whose author erased itself', () => {
     await tick({ queue, verifiers, log: quiet })
 
     expect(queue.routed).toEqual([])
+  })
+})
+
+describe('a submission the world cannot answer for (#132)', () => {
+  /**
+   * The production failure, reproduced. On 2026-07-31 one `image-gen`
+   * submission came back `pending` — the vision model could not be reached —
+   * and `claimNextSubmission` orders by `submitted_at`, which a `pending`
+   * verdict does not touch. So it was permanently the oldest row, was claimed
+   * first on every poll, and **nothing behind it was verified** for at least
+   * half an hour while the runner flapped between healthy and unhealthy.
+   */
+  const stuck = (): FakeQueue => {
+    const queue = new FakeQueue([
+      {
+        submission: aSubmission('aaaaaaaa-1111-4111-8111-111111111111'),
+        taskType: EXAMPLE_TASK,
+        agent: anAgent(),
+      },
+      {
+        submission: aSubmission('bbbbbbbb-2222-4222-8222-222222222222'),
+        taskType: EXAMPLE_TASK,
+        agent: anAgent(),
+      },
+    ])
+    queue.recordedStatus = 'pending'
+    queue.requeue = true
+    return queue
+  }
+
+  it('does not hold the queue behind it', async () => {
+    const queue = stuck()
+    const deferrals = new Map<SubmissionId, Deferral>()
+
+    const first = await tick({ queue, verifiers, deferrals })
+    expect(first).toEqual({ kind: 'decided', status: 'pending' })
+
+    // The second poll must reach the *other* submission. Before #132 it claimed
+    // the same one again, and again, forever.
+    const second = await tick({ queue, verifiers, deferrals })
+    expect(second).toEqual({ kind: 'decided', status: 'pending' })
+
+    const claimed = queue.recorded.map((command) => command.submissionId)
+    expect(new Set(claimed).size).toBe(2)
+  })
+
+  it('asks the queue to skip what it is standing back from', async () => {
+    const queue = stuck()
+    const deferrals = new Map<SubmissionId, Deferral>()
+
+    await tick({ queue, verifiers, deferrals })
+    await tick({ queue, verifiers, deferrals })
+
+    // Not merely that the loop remembered — that it *told the query*, which is
+    // where the ordering lives and the only place the block can be broken.
+    expect(queue.deferredAsked[0]).toEqual([])
+    expect(queue.deferredAsked[1]).toHaveLength(1)
+  })
+
+  it('backs off further each time, and stops at a ceiling', async () => {
+    // A submission unverifiable for two hours is not helped by a two-hundredth
+    // attempt; a queue that never came back to it would be a silent refusal.
+    expect(deferralFor(1)).toBe(30_000)
+    expect(deferralFor(2)).toBe(60_000)
+    expect(deferralFor(3)).toBe(120_000)
+    expect(deferralFor(99)).toBe(900_000)
+    // A count of zero must not produce a longer wait than a count of one.
+    expect(deferralFor(0)).toBe(30_000)
+  })
+
+  it('comes back to it once the wait is over', async () => {
+    const queue = stuck()
+    const id = 'aaaaaaaa-1111-4111-8111-111111111111' as SubmissionId
+    // Expired by the time this tick runs.
+    const deferrals = new Map<SubmissionId, Deferral>([[id, { until: Date.now() - 1, count: 3 }]])
+
+    await tick({ queue, verifiers, deferrals })
+
+    expect(queue.deferredAsked[0]).toEqual([])
+    // And the wait grows from where it left off rather than restarting at 30s.
+    expect(deferrals.get(id)?.count).toBe(4)
+  })
+
+  it('says why, which the old line never did', async () => {
+    const queue = stuck()
+    const lines: string[] = []
+    const log: Log = { info: () => {}, warn: (m) => lines.push(m), error: () => {} }
+
+    await tick({ queue, verifiers, deferrals: new Map(), log })
+
+    // Half an hour of production logs said `→ pending (image-gen)` fifteen times
+    // and named no cause, while the reason sat in the submission's evidence.
+    expect(lines.join('\n')).toContain('attempt 1')
+    expect(lines.join('\n')).toContain('not retried for 30s')
+    expect(lines.join('\n')).toContain('Echoed.')
+  })
+
+  it('forgets a submission that finally resolves', async () => {
+    // One submission only, so the second tick provably claims *this* one — with
+    // two in the queue it picks the other, and the assertion below would then
+    // be reporting that the loop failed to forget something it never re-saw.
+    const id = 'aaaaaaaa-1111-4111-8111-111111111111'
+    const queue = new FakeQueue([
+      { submission: aSubmission(id), taskType: EXAMPLE_TASK, agent: anAgent() },
+    ])
+    queue.recordedStatus = 'pending'
+    queue.requeue = true
+    const deferrals = new Map<SubmissionId, Deferral>()
+
+    await tick({ queue, verifiers, deferrals })
+    expect(deferrals.has(id as SubmissionId)).toBe(true)
+
+    // Its wait is over, and this time the world answers.
+    deferrals.set(id as SubmissionId, { until: Date.now() - 1, count: 1 })
+    queue.recordedStatus = 'passed'
+    queue.requeue = false
+
+    await tick({ queue, verifiers, deferrals })
+    expect(queue.recorded).toHaveLength(2)
+    expect(deferrals.has(id as SubmissionId)).toBe(false)
   })
 })

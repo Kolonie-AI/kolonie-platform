@@ -1,4 +1,9 @@
-import { now as currentTime, type TaskType, type Timestamp } from '@kolonie-ai/core'
+import {
+  now as currentTime,
+  type SubmissionId,
+  type TaskType,
+  type Timestamp,
+} from '@kolonie-ai/core'
 import { createVerifiers, type VerifierRegistry } from '@kolonie-ai/verifiers'
 import { verifySubmission } from './runner.js'
 import type { SubmissionQueue } from './queue.js'
@@ -46,6 +51,57 @@ export interface LoopDependencies {
   readonly verify?: typeof verifySubmission
   readonly log?: Log
   readonly now?: () => Timestamp
+  /**
+   * Submissions this process is backing off from, and until when (#132).
+   *
+   * Held by the caller rather than inside `tick`, because `tick` is one pass and
+   * the whole point is that the next pass remembers. `startRunner` creates one
+   * and passes it to every tick; a test can pass its own and read it.
+   *
+   * **In memory, deliberately, and the trade-off is stated rather than
+   * hidden.** A restart forgets, so a stuck submission is retried once more and
+   * then backed off again — which is correct behaviour, just not free. Making it
+   * durable means a column and a migration, and the fault this fixes is a
+   * head-of-line block that needs no persistence to end: what matters is that
+   * the *next* poll looks at something else.
+   */
+  readonly deferrals?: Map<SubmissionId, Deferral>
+}
+
+/** What is known about one submission the loop is standing back from. */
+export interface Deferral {
+  /** Epoch milliseconds before which it is not claimed again. */
+  readonly until: number
+  /** How many times in a row it has come back `pending`. */
+  readonly count: number
+}
+
+/**
+ * How long to stand back after a verdict of `pending`, by consecutive count.
+ *
+ * Doubling from thirty seconds to a fifteen-minute ceiling. The floor is six
+ * poll intervals, so a transient outward failure costs an agent half a minute
+ * rather than a poll; the ceiling exists because a submission that has been
+ * unverifiable for two hours will not be helped by asking a two-hundredth time,
+ * and because a queue must still come back to it — a permanent skip would be a
+ * silent refusal, and the task's own deadline is what is allowed to end this.
+ */
+const DEFER_BASE_MS = 30_000
+const DEFER_CEILING_MS = 900_000
+
+/**
+ * How long after its wait expires a submission is still remembered.
+ *
+ * Only to bound the map in a process that runs for weeks: an entry whose
+ * submission the deadline sweep has since expired is never claimed again and
+ * would otherwise stay forever. Comfortably longer than the ceiling, so a
+ * genuinely stuck submission keeps escalating rather than being handed a fresh
+ * thirty seconds every hour.
+ */
+const DEFER_FORGET_MS = 3_600_000
+
+export function deferralFor(count: number): number {
+  return Math.min(DEFER_BASE_MS * 2 ** Math.max(0, count - 1), DEFER_CEILING_MS)
 }
 
 /**
@@ -70,7 +126,29 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
     ((submission, taskType, context) => verifySubmission(submission, taskType, context, verifiers))
   const taskTypes = deps.taskTypes ?? [...verifiers.keys()]
 
-  const claimed = await queue.claimNext(taskTypes)
+  // What is still inside its wait, and therefore not asked for.
+  //
+  // **An expired entry is kept, not deleted**, and that distinction is the
+  // escalation. Deleting it on expiry — the obvious reading of "prune" — throws
+  // away the count, so a submission that is stuck for hours comes back at
+  // thirty seconds every single time and the doubling never happens. A test
+  // caught that; nothing in production would have, because the symptom is a
+  // backoff that looks like it is working.
+  //
+  // Entries are dropped when the submission resolves, and swept here only once
+  // they are far past their wait — a submission the deadline sweep has since
+  // expired would otherwise sit in this map for the life of the process.
+  const deferrals = deps.deferrals
+  let deferred: SubmissionId[] = []
+  if (deferrals !== undefined) {
+    const nowMs = Date.now()
+    for (const [id, entry] of deferrals) {
+      if (nowMs - entry.until > DEFER_FORGET_MS) deferrals.delete(id)
+    }
+    deferred = [...deferrals].filter(([, entry]) => entry.until > nowMs).map(([id]) => id)
+  }
+
+  const claimed = await queue.claimNext(taskTypes, deferred)
   if (claimed === undefined) return { kind: 'idle' }
 
   const { submission, taskType, agent } = claimed
@@ -182,6 +260,26 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
     log.error(`could not file the failed re-test of submission ${submission.id}`, error)
   }
 
+  if (written.submission.status === 'pending') {
+    // The world could not be read, so the row goes back to the queue — and
+    // without this it goes back to the *front* of it, forever (#132).
+    const previous = deferrals?.get(submission.id)?.count ?? 0
+    const count = previous + 1
+    const wait = deferralFor(count)
+    deferrals?.set(submission.id, { until: Date.now() + wait, count })
+
+    // The reason, which this line has never carried. `verifySubmission` puts it
+    // in the submission's evidence, where a citizen sees it and an operator
+    // reading a container log does not — so half an hour of production flapping
+    // said only `→ pending (image-gen)`, fifteen times, and named no cause.
+    log.warn(
+      `submission ${submission.id} → pending (${taskType}), attempt ${count}, ` +
+        `not retried for ${Math.round(wait / 1000)}s: ${written.verification.evidence}`,
+    )
+    return { kind: 'decided', status: written.submission.status }
+  }
+
+  deferrals?.delete(submission.id)
   log.info(`submission ${submission.id} → ${written.submission.status} (${taskType})${booked}`)
   return { kind: 'decided', status: written.submission.status }
 }
@@ -246,6 +344,9 @@ const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
  * which is why the sweep exists.
  */
 export function startRunner(deps: LoopDependencies, options: RunnerOptions = {}): Runner {
+  // One per runner, not per poll: the whole value of a backoff is that the next
+  // poll remembers what the last one learned (#132).
+  const deferrals = deps.deferrals ?? new Map<SubmissionId, Deferral>()
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULTS.pollIntervalMs
   const maxBackoffMs = options.maxBackoffMs ?? DEFAULTS.maxBackoffMs
   const batchSize = options.batchSize ?? DEFAULTS.batchSize
@@ -303,7 +404,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
         while (running && taken < batchSize) {
           inFlight++
           try {
-            const outcome = await tick({ ...deps, taskTypes })
+            const outcome = await tick({ ...deps, taskTypes, deferrals })
             if (outcome.kind === 'idle') break
           } finally {
             inFlight--

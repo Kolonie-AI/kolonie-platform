@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import {
   canTransition,
   isTerminal,
@@ -99,6 +99,7 @@ export interface ClaimedSubmission {
 export async function claimNextSubmission(
   db: Database,
   taskTypes: readonly TaskType[],
+  deferred: readonly SubmissionId[] = [],
 ): Promise<ClaimedSubmission | undefined> {
   if (taskTypes.length === 0) return undefined
 
@@ -121,7 +122,27 @@ export async function claimNextSubmission(
       // unclaimed surfaces it as a stuck submission rather than paying it out
       // against an agent nobody can name.
       .innerJoin(agents, eq(agents.id, submissions.agentId))
-      .where(and(eq(submissions.status, 'pending'), inArray(tasks.type, [...taskTypes])))
+      .where(
+        and(
+          eq(submissions.status, 'pending'),
+          inArray(tasks.type, [...taskTypes]),
+          // Submissions the caller is backing off from (#132).
+          //
+          // A verdict of `pending` — the world could not be read — returns the
+          // row to `pending` without touching `submitted_at`. Under the ordering
+          // below that makes it *permanently the oldest*, so it is claimed
+          // first on every poll, forever, and **nothing behind it is ever
+          // verified**. On 2026-07-31 one image-gen submission held the whole
+          // queue for at least half an hour while the runner flapped.
+          //
+          // The failure mode was already named on `claimNext` in the runner, for
+          // a missing verifier: *"claimed, found unverifiable, and put back on
+          // every single poll while blocking the queue behind it"*. That case
+          // was defended by never claiming the type at all. This is the same
+          // shape one door along, and it is defended here.
+          ...(deferred.length > 0 ? [notInArray(submissions.id, [...deferred])] : []),
+        ),
+      )
       // Oldest first: an agent that has waited longest is served first, and a
       // submission cannot be starved by a steady arrival of newer ones.
       .orderBy(asc(submissions.submittedAt))

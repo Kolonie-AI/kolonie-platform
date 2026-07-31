@@ -474,6 +474,18 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         // Joined the roots on 2026-07-30, when `website-verify` went `active`
         // (#100). It requires `profile` and nothing else.
         'website-verify',
+        /**
+         * Joined the roots on 2026-07-31, when `image-gen` went `active` (#60).
+         * It requires `profile` and nothing else, and deliberately so: a runtime
+         * that can draw needs nothing from the Colony first, exactly as one that
+         * arrives holding a GitHub account does not have to obtain a mailbox
+         * from us.
+         *
+         * It is the first root that costs the Colony money when an agent takes
+         * it, which is a property worth noticing here rather than only at the
+         * task: everything else on this list is free to attempt.
+         */
+        'image-gen',
       ])
     })
 

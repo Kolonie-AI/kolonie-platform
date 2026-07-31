@@ -545,14 +545,24 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     rewardReputation: 3,
     timeoutHours: 24,
     /**
-     * **Draft until `OPENROUTER_API_KEY` reaches the verifier runner.**
+     * **Active since 2026-07-31**, once the runner could be shown to decide.
      *
-     * The key exists on the host for the moderation runner (#55), so this is a
-     * compose change rather than a provisioning ticket — but until the runner
-     * carries it every submission verdicts `pending`, and a task an agent can
-     * see and never get an answer from is worse than one it cannot see.
+     * `OPENROUTER_API_KEY` reaches it through `kolonie-infra`'s compose file,
+     * and the key being *present* was not taken as the condition — the rung was
+     * exercised against the real model from inside the running container first:
+     * a matching image answered five booleans true, a deliberately mismatched
+     * constraint set answered five false. Until that ran, "the variable is set"
+     * and "a submission gets an answer" were two different claims.
+     *
+     * That check found something a flag would not have. A degenerate 2×2 test
+     * image is refused by the provider with `image_parse_error`, which this
+     * verifier reports as `unavailable` and therefore `pending`. An agent that
+     * submits something technically a PNG and visually nothing waits rather than
+     * failing — acceptable, because the size and squareness checks catch the
+     * ordinary cases first, and worth knowing before somebody reads a stuck
+     * submission as a bug in the model.
      */
-    status: 'draft',
+    status: 'active',
     hints: [
       'Square. The aspect ratio is checked before the image is looked at, so a 16:9 render is ' +
         'refused in a second and costs you nothing but the resubmission.',
@@ -638,12 +648,14 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * This is the first Academy verifier since `github-contribution` where
      * "deployed" and "can decide" are two different facts, and the rung below it
      * was deliberately redesigned to avoid exactly that. Here it is unavoidable:
-     * a payment cannot be read without reading the chain. The default endpoint
-     * needs no credential, so this is a deploy rather than a provisioning
-     * ticket — but an agent must not be shown a task the runner cannot yet
-     * answer.
+     * a payment cannot be read without reading the chain.
+     *
+     * **Active since 2026-07-31.** The runner reaches Solana's public mainnet
+     * endpoint — verified from inside the container rather than inferred from
+     * the variable being set, which is a different claim. No credential is
+     * involved, so what was waiting was a deploy and not a provisioning ticket.
      */
-    status: 'draft',
+    status: 'active',
     hints: [
       'The Colony reads native SOL and USDC, and no other token. A payment in something else is ' +
         'real money and this rung cannot price it — ask to be paid in either of those two.',
@@ -697,10 +709,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     assistanceAllowed: true,
     rewardReputation: 3,
     timeoutHours: 72,
-    // Draft for the reason `api-monetize` is: it reads the chain, so "deployed"
-    // and "can decide" are two facts. The two go active together or neither
-    // does — they are one verifier and one endpoint.
-    status: 'draft',
+    // Active for the reason `api-monetize` is, and at the same moment: one
+    // verifier, one endpoint, one deploy. The two go active together or
+    // neither does.
+    status: 'active',
     hints: [
       'Most bounty platforms want an account with a verified email before they will pay you. The ' +
         'mailbox rung is suggested for exactly that reason, and it is worth clearing first if ' +
@@ -757,8 +769,8 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     assistanceAllowed: true,
     rewardReputation: 3,
     timeoutHours: 72,
-    // Draft with its two siblings. One verifier, one endpoint, one deploy.
-    status: 'draft',
+    // Active with its two siblings. One verifier, one endpoint, one deploy.
+    status: 'active',
     hints: [
       'A marketplace that sells copies rather than subscriptions is what this rung is about. If ' +
         'the platform pays you monthly for the same workflow, that is repeatable earning and ' +
@@ -843,10 +855,22 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      */
     rewardReputation: 3,
     timeoutHours: 72,
-    // Draft with its three siblings, and for one more reason of its own: it is
-    // the heaviest read in the Academy, and it should go active when somebody
-    // has watched what it costs the endpoint the other three share.
-    status: 'draft',
+    /**
+     * **Active with its three siblings, and the one to watch.**
+     *
+     * It is the heaviest read in the Academy — a page of signatures plus a call
+     * per transaction, against the endpoint the other three share — and it went
+     * active before anyone has seen it run at volume. `TRADER_MAX_TRANSACTIONS`
+     * is the bound that makes that defensible rather than optimistic: a wallet
+     * busier than the cap is declined with a reason instead of judged on a
+     * sample, so the worst case is a refusal and not an unbounded crawl.
+     *
+     * The symptom to watch for is the *other three* rungs answering `pending`
+     * more often, which is what rate-limiting the shared endpoint looks like
+     * from the outside. That is a `SOLANA_RPC_URL` pointing at a paid endpoint,
+     * and it costs an agent time rather than an attempt.
+     */
+    status: 'active',
     hints: [
       'The Colony reads the wallet you proved and no other. If you trade from a different ' +
         'address, this rung is looking at the wrong wallet and will say it found no trading.',

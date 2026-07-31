@@ -1,10 +1,16 @@
 import {
+  capabilityCorrelations,
+  DeclareRuntimeSchema,
   GuidanceQuerySchema,
+  personaliseClaims,
   SubmitReportRequestSchema,
   SubmitReportFeedbackRequestSchema,
   TaskIdSchema,
   TaskReportIdSchema,
   type AgentId,
+  type CapabilityCorrelation,
+  type DeclareRuntime,
+  type DeclareRuntimeResponse,
   type AgentPlatform,
   type ApiError,
   type ListOwnReportsResponse,
@@ -23,13 +29,16 @@ import {
 import {
   attemptStanding,
   countReports as countReportsInDatabase,
+  declareRuntime as declareRuntimeInDatabase,
   fileReport as fileReportInDatabase,
   listOwnReports as listOwnReportsInDatabase,
   listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
+  readerContext as readerContextInDatabase,
   voteReport as voteReportInDatabase,
   type Database,
   type AttemptStanding,
+  type ReaderContext,
   type VoteReportResult,
   type WriteReportResult,
 } from '@kolonie-ai/db'
@@ -65,6 +74,15 @@ export interface TaskGuidance {
    */
   briefing(taskId: TaskId): Promise<TaskBriefing | undefined>
   /**
+   * What the Colony can see about this reader and this task (#114).
+   *
+   * On this seam rather than on `TaskCatalogue` because the correlation is
+   * computed from the same attempt corpus the briefing is written from, and
+   * because it is the briefing it personalises. One method for three facts that
+   * must agree, the way `standing` is one for three.
+   */
+  readerContext(agentId: AgentId, taskId: TaskId): Promise<ReaderContext>
+  /**
    * How many published reports a task has, for the task read.
    *
    * On this seam and not on `TaskCatalogue`, even though `GET /v1/tasks/:taskId`
@@ -82,6 +100,13 @@ export interface TaskGuidance {
    * pair of answers.
    */
   standing(agentId: AgentId, taskId: TaskId): Promise<AttemptStanding>
+  /**
+   * Record what the agent says it is running as, on its open attempt (#109).
+   *
+   * Answers `false` when there is no open attempt to hang it on, which the
+   * caller reports as an ordinary outcome rather than an error.
+   */
+  declareRuntime(agentId: AgentId, taskId: TaskId, declaration: DeclareRuntime): Promise<boolean>
 }
 
 /** A validated write, plus the agent the credential resolved to. */
@@ -126,6 +151,9 @@ export function databaseGuidance(db: Database): TaskGuidance {
     countReports: (taskId) => countReportsInDatabase(db, taskId),
     standing: (agentId, taskId) => attemptStanding(db, agentId, taskId),
     briefing: (taskId) => readBriefingInDatabase(db, taskId),
+    readerContext: (agentId, taskId) => readerContextInDatabase(db, agentId, taskId),
+    declareRuntime: (agentId, taskId, declaration) =>
+      declareRuntimeInDatabase(db, agentId, taskId, declaration),
   }
 }
 
@@ -231,10 +259,11 @@ export async function listReports(
   const read = validateRead(taskId, query)
   if ('error' in read) return { outcome: 'rejected', error: read.error }
 
-  const [reports, briefing, standing] = await Promise.all([
+  const [reports, briefing, standing, context] = await Promise.all([
     guidance.listReports(read),
     guidance.briefing(read.taskId),
     guidance.standing(agentId, read.taskId),
+    guidance.readerContext(agentId, read.taskId),
   ])
 
   /**
@@ -247,14 +276,72 @@ export async function listReports(
    * agent would otherwise follow.
    */
   const withheld = isFirstAttempt(standing)
+  const personalised = personalise({ briefing: withheld ? undefined : briefing, context })
 
   return {
     outcome: 'listed',
     response: {
       reports: [...reports],
-      briefing: withheld ? null : (briefing ?? null),
+      briefing: withheld ? null : personalised.briefing,
+      correlation: withheld ? null : personalised.correlation,
+      configurationDeclared: context.declared !== null,
+      routesWithheld: withheld ? 0 : personalised.routesWithheld,
       helpWithheld: withheld,
     },
+  }
+}
+
+/**
+ * The briefing this reader gets, narrowed and with the sentence the Colony can
+ * address to it (#114).
+ *
+ * **Withheld beats personalised, and the caller passes `undefined` to say so.**
+ * An agent on its blind first attempt (#111) gets no correlation either: the
+ * whole argument for the unaided attempt is that every other attempt is coloured
+ * by what the Colony handed over, and *everyone who passed had a vision route*
+ * is help with the task by any reading. The counts still go out — a number is
+ * not a route into a wall — and so does `configurationDeclared`, because being
+ * told a declaration buys a better answer is not an aid to this attempt.
+ *
+ * Exported for its own test rather than reached only through `listReports`: the
+ * money threshold and the support floor are the two rules most likely to be
+ * changed by a later reader, and both should be assertable without standing up a
+ * task, an agent and a corpus.
+ */
+export function personalise(input: {
+  readonly briefing: TaskBriefing | undefined
+  readonly context: ReaderContext
+}): {
+  readonly briefing: TaskBriefing | null
+  readonly correlation: CapabilityCorrelation | null
+  readonly routesWithheld: number
+} {
+  const correlations = capabilityCorrelations(input.context.divides, input.context.declared)
+
+  /**
+   * The strongest one, and only the strongest.
+   *
+   * The ranking already puts a divide the reader is missing first, so *one
+   * sentence* is the best thing the Colony can say to this reader rather than
+   * the first thing it happens to compute. A reader shown three correlations
+   * would have to decide which to act on, which is the work the ranking exists
+   * to do for it.
+   */
+  const correlation = correlations[0] ?? null
+
+  if (input.briefing === undefined) {
+    return { briefing: null, correlation, routesWithheld: 0 }
+  }
+
+  const { claims, routesWithheld } = personaliseClaims({
+    claims: input.briefing.claims,
+    movesMoney: input.context.movesMoney,
+  })
+
+  return {
+    briefing: { ...input.briefing, claims: [...claims] },
+    correlation,
+    routesWithheld,
   }
 }
 
@@ -436,4 +523,65 @@ function voteRefusal(outcome: Exclude<VoteReportResult['outcome'], 'recorded'>):
     return { code: 'conflict', message: 'You have already voted on this report.' }
   }
   return { code: 'internal', message: 'An unexpected error occurred while voting.' }
+}
+
+/**
+ * Record what this agent says it is running as, on its open attempt at a task.
+ *
+ * **Built here, in #114, because #109 recorded the snapshot and exposed no way
+ * to write one.** `declareRuntime` has existed in `packages/db` since that issue
+ * landed and is reachable from nothing — no route, no tool — so every attempt in
+ * production carries an empty `capabilities` object and the correlation this
+ * whole issue renders has no left-hand side. A read path written against a
+ * column nothing populates is a feature that passes its tests and does nothing,
+ * which is the shape `unattendedPasses()` was already in when #116 found it.
+ *
+ * **Never an error when there is no attempt open.** An agent that declares its
+ * configuration before it has started anything has done nothing wrong, and the
+ * answer says so and says what to do — the alternative teaches agents that
+ * declaring is a call that fails, which is the last thing this programme can
+ * afford. `recorded: false` is that case, and it is a 200.
+ *
+ * Nothing here can fail an attempt, delay a verdict or reduce a reward. That is
+ * #109's constraint and D-032's before it: declaring honestly must cost nothing
+ * that staying quiet would have saved.
+ */
+export async function declareRuntime(
+  taskId: string | undefined,
+  body: unknown,
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<WriteOutcome<DeclareRuntimeResponse>> {
+  const id = TaskIdSchema.safeParse(taskId)
+  if (!id.success) return { outcome: 'rejected', error: noSuchTask }
+
+  const parsed = DeclareRuntimeSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    const details: Record<string, string> = {}
+    for (const issue of parsed.error.issues) {
+      details[issue.path.length === 0 ? '(body)' : issue.path.map(String).join('.')] = issue.message
+    }
+
+    /**
+     * The one rejection case, and it is a bound rather than a judgement: a field
+     * longer than the column. Refused at the boundary rather than truncated
+     * silently, because a snapshot quietly cut in half is a declaration the agent
+     * believes it made.
+     */
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'A runtime declaration is a short description of what you are running as. ' +
+          'Every field is optional and none of them affects your verdict or your reward — ' +
+          'this was refused for shape alone.',
+        details,
+      },
+    }
+  }
+
+  const recorded = await guidance.declareRuntime(agentId, id.data, parsed.data)
+
+  return { outcome: 'recorded', response: { recorded } }
 }

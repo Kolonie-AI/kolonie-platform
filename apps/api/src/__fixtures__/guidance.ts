@@ -4,12 +4,20 @@ import {
   OwnReportSchema,
   TaskBriefingSchema,
   TaskReportSchema,
+  type AgentId,
+  type DeclareRuntime,
   type ServedBriefingClaim,
   type OwnReport,
+  type TaskId,
   type TaskBriefing,
   type TaskReport,
 } from '@kolonie-ai/core'
-import type { AttemptStanding, VoteReportResult, WriteReportResult } from '@kolonie-ai/db'
+import type {
+  AttemptStanding,
+  ReaderContext,
+  VoteReportResult,
+  WriteReportResult,
+} from '@kolonie-ai/db'
 import type { GuidanceRead, GuidanceWrite, TaskGuidance } from '../guidance.js'
 
 /**
@@ -70,6 +78,24 @@ export interface FakeGuidance extends TaskGuidance {
    * the *not written up yet* path, which is the one most likely to be got wrong.
    */
   readonly answersBriefing: (briefing: TaskBriefing | undefined) => void
+  /**
+   * What the Colony can see about the reader and the task (#114).
+   *
+   * Defaults to nothing known: no divides, no declaration, no money. So a test
+   * that says nothing about personalisation asserts the unpersonalised path,
+   * which is what every reader got before this issue and what a reader that has
+   * never declared still gets.
+   */
+  readonly answersReaderContext: (context: ReaderContext) => void
+  /** Every runtime declaration the routes have sent, in order. */
+  readonly declarations: () => { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[]
+  /**
+   * Whether the next declaration finds an attempt to hang itself on.
+   *
+   * `true` by default. The `false` case is #109's *declared before starting*,
+   * which is an outcome rather than an error and has its own test.
+   */
+  readonly answersDeclareRuntime: (recorded: boolean) => void
 }
 
 type WriteOutcomeName = WriteReportResult['outcome']
@@ -85,6 +111,9 @@ export function fakeGuidance(): FakeGuidance {
   let reportCount = 0
   let standing: AttemptStanding = { closed: 1, attempt: 2, passed: false }
   let briefing: TaskBriefing | undefined
+  let context: ReaderContext = { divides: [], declared: null, movesMoney: false }
+  const declarations: { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[] = []
+  let declarationRecorded = true
 
   /** The configured answer as a refusal, or null when the write succeeds. */
   const refusalFor = (): Exclude<WriteReportResult, { outcome: 'recorded' | 'revised' }> | null => {
@@ -114,6 +143,11 @@ export function fakeGuidance(): FakeGuidance {
     countReports: async () => reportCount,
     standing: async () => standing,
     briefing: async () => briefing,
+    readerContext: async () => context,
+    declareRuntime: async (agentId, taskId, declaration) => {
+      declarations.push({ agentId, taskId, declaration })
+      return declarationRecorded
+    },
     writes: () => [...writes],
     lastWrite: () => writes.at(-1),
     reads: () => [...reads],
@@ -138,6 +172,13 @@ export function fakeGuidance(): FakeGuidance {
     },
     answersBriefing: (next) => {
       briefing = next
+    },
+    answersReaderContext: (next) => {
+      context = next
+    },
+    declarations: () => [...declarations],
+    answersDeclareRuntime: (recorded) => {
+      declarationRecorded = recorded
     },
   }
 }

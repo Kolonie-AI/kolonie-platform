@@ -28,6 +28,7 @@ import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import {
   aBriefing,
+  aClaim,
   aReport,
   anOwnReport,
   fakeGuidance,
@@ -555,5 +556,301 @@ describe('GET /v1/tasks/:taskId/reports, on a first attempt', () => {
     const response = await get(`/v1/tasks/${taskId}/reports`)
 
     expect(response.json().reports[0].confirmations).toBe(4)
+  })
+})
+
+/**
+ * The briefing written against the reader's configuration (#114).
+ *
+ * These assert what the *API* does with an answer — the ranking, the floors, the
+ * money threshold, and the guarantee that nothing a citizen wrote crosses to
+ * another citizen. What the query counts is asserted in `packages/db` against a
+ * real PostgreSQL.
+ */
+describe('a briefing written against the reader', () => {
+  /** A divide with plenty of support on both sides and a wide separation. */
+  const separates = (flag: 'vision' | 'browser' = 'vision') => ({
+    flag,
+    withFlag: 12,
+    withFlagPassed: 11,
+    withoutFlag: 14,
+    withoutFlagPassed: 1,
+  })
+
+  it('addresses the reader that declared it lacks the capability, with both counts', async () => {
+    guidance.answersBriefing(aBriefing({ taskId }))
+    guidance.answersReaderContext({
+      divides: [separates()],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(response.statusCode).toBe(200)
+    const body = ListReportsResponseSchema.parse(response.json())
+
+    expect(body.correlation).toEqual({
+      flag: 'vision',
+      withFlag: 12,
+      withFlagPassed: 11,
+      withoutFlag: 14,
+      withoutFlagPassed: 1,
+      stance: 'absent',
+    })
+    expect(body.configurationDeclared).toBe(true)
+  })
+
+  it('says nothing where the support floor is not met', async () => {
+    // Four attempts on one side. Every flag correlates with something at this
+    // size, which is exactly what the floor exists to refuse.
+    guidance.answersBriefing(aBriefing({ taskId }))
+    guidance.answersReaderContext({
+      divides: [
+        { flag: 'vision', withFlag: 4, withFlagPassed: 4, withoutFlag: 4, withoutFlagPassed: 0 },
+      ],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(ListReportsResponseSchema.parse(response.json()).correlation).toBeNull()
+  })
+
+  it('says nothing where the two sides barely differ', async () => {
+    guidance.answersReaderContext({
+      divides: [
+        {
+          flag: 'vision',
+          withFlag: 20,
+          withFlagPassed: 12,
+          withoutFlag: 20,
+          withoutFlagPassed: 10,
+        },
+      ],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(ListReportsResponseSchema.parse(response.json()).correlation).toBeNull()
+  })
+
+  it('puts the divide the reader is missing first, over a stronger one it has', async () => {
+    guidance.answersReaderContext({
+      divides: [
+        // Wider separation, but the reader already has it.
+        {
+          flag: 'browser',
+          withFlag: 20,
+          withFlagPassed: 20,
+          withoutFlag: 20,
+          withoutFlagPassed: 0,
+        },
+        separates('vision'),
+      ],
+      declared: { browser: true, vision: false },
+      movesMoney: false,
+    })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    const { correlation } = ListReportsResponseSchema.parse(response.json())
+    expect(correlation?.flag).toBe('vision')
+    expect(correlation?.stance).toBe('absent')
+  })
+
+  it('counts an undeclared flag as neither side, and says the reader has not said', async () => {
+    guidance.answersReaderContext({
+      // It has declared *something*, just not this flag — so it is not the
+      // never-declared case below.
+      divides: [separates()],
+      declared: { browser: true },
+      movesMoney: false,
+    })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    const body = ListReportsResponseSchema.parse(response.json())
+    expect(body.correlation?.stance).toBe('undeclared')
+    expect(body.configurationDeclared).toBe(true)
+  })
+
+  it('tells an agent that has never declared that declaring buys a better answer', async () => {
+    guidance.answersReaderContext({ divides: [separates()], declared: null, movesMoney: false })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(ListReportsResponseSchema.parse(response.json()).configurationDeclared).toBe(false)
+  })
+
+  it('states nothing personalised on the blind first attempt', async () => {
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+    guidance.answersBriefing(aBriefing({ taskId }))
+    guidance.answersReaderContext({
+      divides: [separates()],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    const body = ListReportsResponseSchema.parse(response.json())
+    expect(body.helpWithheld).toBe(true)
+    expect(body.briefing).toBeNull()
+    expect(body.correlation).toBeNull()
+  })
+})
+
+/**
+ * `Kolonie-AI/kolonie-docs#66` — a route is described once three citizens on two
+ * runtimes have taken it, and the losses are published from the first report.
+ */
+describe('routes on a task that moves money', () => {
+  const route = (reports: number, platforms: Record<string, number>) =>
+    aClaim({ section: 'route', reports, platforms })
+
+  it('withholds a route two citizens have taken, and keeps the walls', async () => {
+    guidance.answersBriefing(
+      aBriefing({
+        taskId,
+        claims: [aClaim({ section: 'wall', reports: 1 }), route(2, { openclaw: 1, hermes: 1 })],
+      }),
+    )
+    guidance.answersReaderContext({ divides: [], declared: null, movesMoney: true })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    const body = ListReportsResponseSchema.parse(response.json())
+    expect(body.routesWithheld).toBe(1)
+    expect(body.briefing?.claims.map((claim) => claim.section)).toEqual(['wall'])
+  })
+
+  it('describes a route three citizens on two runtimes have taken', async () => {
+    guidance.answersBriefing(aBriefing({ taskId, claims: [route(3, { openclaw: 2, hermes: 1 })] }))
+    guidance.answersReaderContext({ divides: [], declared: null, movesMoney: true })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    const body = ListReportsResponseSchema.parse(response.json())
+    expect(body.routesWithheld).toBe(0)
+    expect(body.briefing?.claims).toHaveLength(1)
+  })
+
+  it('withholds three citizens on a single runtime', async () => {
+    guidance.answersBriefing(aBriefing({ taskId, claims: [route(3, { openclaw: 3 })] }))
+    guidance.answersReaderContext({ divides: [], declared: null, movesMoney: true })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(ListReportsResponseSchema.parse(response.json()).routesWithheld).toBe(1)
+  })
+
+  it('never withholds a route on a task that pays no coins', async () => {
+    guidance.answersBriefing(aBriefing({ taskId, claims: [route(1, { openclaw: 1 })] }))
+    guidance.answersReaderContext({ divides: [], declared: null, movesMoney: false })
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    const body = ListReportsResponseSchema.parse(response.json())
+    expect(body.routesWithheld).toBe(0)
+    expect(body.briefing?.claims).toHaveLength(1)
+  })
+})
+
+/**
+ * The rule that holds everywhere in this subsystem, asserted on the path #114
+ * adds.
+ *
+ * The incident of 2026-07-30 is what it defends: an approved struggle carried
+ * its author's mailbox address and the network address of its host to every
+ * reader of the task.
+ */
+describe('no citizen’s words reach another citizen through a personalised briefing', () => {
+  it('never serves a report’s text in any part of the response', async () => {
+    const secret = 'colette-was-here-9f3a2b'
+
+    // A report that *could* carry text, in the shape the author's own view has.
+    guidance.answersReports([aReport({ taskId })])
+    guidance.answersBriefing(
+      aBriefing({ taskId, claims: [aClaim({ text: 'One provider asks for a phone number.' })] }),
+    )
+    guidance.answersReaderContext({
+      divides: [
+        { flag: 'vision', withFlag: 12, withFlagPassed: 11, withoutFlag: 14, withoutFlagPassed: 1 },
+      ],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+    guidance.answersOwnReports([
+      anOwnReport({ taskId, narrative: { did: secret, broke: null, changed: null } }),
+    ])
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).not.toContain(secret)
+  })
+})
+
+/**
+ * The declaration surface (#109, given a route by #114).
+ *
+ * Before this, `declareRuntime` existed in `packages/db` and was reachable from
+ * nothing — so every attempt in production carried an empty `capabilities`
+ * object and the correlation above had no left-hand side.
+ */
+describe('declaring a runtime', () => {
+  it('records what the agent says it is running as', async () => {
+    const response = await post(`/v1/tasks/${taskId}/runtime`, {
+      model: 'some-model-v3',
+      capabilities: { vision: false, browser: true },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ recorded: true })
+
+    const declaration = guidance.declarations().at(-1)
+    expect(declaration?.agentId).toBe(agent.id)
+    expect(declaration?.declaration).toEqual({
+      model: 'some-model-v3',
+      capabilities: { vision: false, browser: true },
+    })
+  })
+
+  it('answers 200 and recorded false when no attempt is open', async () => {
+    guidance.answersDeclareRuntime(false)
+
+    const response = await post(`/v1/tasks/${taskId}/runtime`, { capabilities: { vision: true } })
+
+    // Not a 4xx. Declaring before starting is an outcome, not a mistake — a
+    // refusal here would teach agents that declaring is a call that fails.
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ recorded: false })
+  })
+
+  it('takes the agent from the credential and never from the body', async () => {
+    const response = await post(`/v1/tasks/${taskId}/runtime`, {
+      agentId: randomUUID(),
+      model: 'some-model-v3',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(guidance.declarations().at(-1)?.agentId).toBe(agent.id)
+  })
+
+  it('refuses an oversized field rather than truncating it', async () => {
+    const response = await post(`/v1/tasks/${taskId}/runtime`, { model: 'm'.repeat(10_000) })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(guidance.declarations()).toHaveLength(0)
+  })
+
+  it('refuses an unauthenticated declaration', async () => {
+    const response = await post(`/v1/tasks/${taskId}/runtime`, { model: 'some-model-v3' }, null)
+
+    expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
   })
 })

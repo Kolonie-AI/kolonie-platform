@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
+  CURRENT_CLAIM_ATTEMPTS,
   RegisterAgentRequestSchema,
   SNAPSHOT_TEXT_MAX_LENGTH,
   TaskIdSchema,
@@ -17,10 +19,12 @@ import {
   attemptStanding,
   attemptTallies,
   attemptsFor,
+  capabilityDivides,
   capabilityOutcomes,
   closeAttempt,
   closedAttemptCount,
   declareRuntime,
+  latestDeclaredCapabilities,
   runtimeChanges,
   gateFor,
   GATE_ATTEMPTS_BY_AGENT,
@@ -907,6 +911,189 @@ describe.skipIf(!target.available)('task attempts', () => {
 
         expect(refused).toEqual({ outcome: 'report-first', attempt: 1 })
       })
+    })
+  })
+
+  /**
+   * The divide a briefing is written against (#114).
+   *
+   * Distinct from `capabilityOutcomes` in exactly one way — it is bounded by the
+   * recency window — and everything else about it is asserted through that one.
+   */
+  describe('the divide a briefing is written against', () => {
+    const closedAttempt = async (
+      agentId: AgentId,
+      taskId: TaskId,
+      capabilities: Record<string, boolean>,
+      outcome: 'passed' | 'failed',
+    ) => {
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await declareRuntime(db, agentId, taskId, { capabilities })
+      await closeAttempt(db, attempt.id, outcome)
+      return attempt
+    }
+
+    it('counts both sides of a flag for the task the reader is on', async () => {
+      const taskId = await aTask({ type: 'the-captcha-rung' })
+
+      for (let i = 0; i < 3; i++) {
+        await closedAttempt(await anAgent(), taskId, { vision: true }, 'passed')
+      }
+      for (let i = 0; i < 2; i++) {
+        await closedAttempt(await anAgent(), taskId, { vision: false }, 'failed')
+      }
+
+      const vision = (await capabilityDivides(db, taskId)).find((row) => row.flag === 'vision')
+
+      expect(vision).toEqual({
+        flag: 'vision',
+        withFlag: 3,
+        withFlagPassed: 3,
+        withoutFlag: 2,
+        withoutFlagPassed: 0,
+      })
+    })
+
+    /** Absent is not false — the one error this must not make. */
+    it('counts an undeclared flag in neither column', async () => {
+      const taskId = await aTask()
+      const agentId = await anAgent()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })
+      await closeAttempt(db, attempt.id, 'failed')
+
+      expect(
+        (await capabilityDivides(db, taskId)).find((row) => row.flag === 'vision'),
+      ).toBeUndefined()
+    })
+
+    it('excludes test accounts and open attempts', async () => {
+      const taskId = await aTask()
+      await closedAttempt(await anAgent({ type: 'test' }), taskId, { vision: true }, 'passed')
+
+      const stillGoing = await anAgent()
+      await openAttempt(db, { agentId: stillGoing, taskId, opener: 'challenge' })
+      await declareRuntime(db, stillGoing, taskId, { capabilities: { vision: true } })
+
+      expect(await capabilityDivides(db, taskId)).toEqual([])
+    })
+
+    /**
+     * The reason this exists beside `capabilityOutcomes`.
+     *
+     * A claim nobody has confirmed lately is demoted (#113), and a correlation is
+     * a claim like any other — the Colony should not tell an agent to configure a
+     * vision route on the strength of a wall that came down in June.
+     *
+     * **The two bounds are read exactly as `isCurrentClaim` reads them**, which
+     * is what these two cases are really asserting: whichever is the more
+     * generous wins, so evidence ages out only once the task has turned over
+     * enough attempts to push it out *and* it is older than the day bound. A
+     * quiet task keeps everything, because silence is not refutation.
+     */
+    it('keeps old evidence on a task that has not turned over enough attempts', async () => {
+      const taskId = await aTask()
+      const agentId = await anAgent()
+      const old = await closedAttempt(agentId, taskId, { vision: true }, 'passed')
+
+      // Opened as well as closed: the row's own constraint says an attempt cannot
+      // close before it opened, which is what makes backdating one a two-column
+      // edit rather than a one-column one.
+      await db
+        .update(taskAttempts)
+        .set({
+          openedAt: new Date(Date.now() - 401 * 86_400_000).toISOString(),
+          closedAt: new Date(Date.now() - 400 * 86_400_000).toISOString(),
+        })
+        .where(eq(taskAttempts.id, old.id))
+
+      // Far outside the day bound, and still counted: nothing has pushed it out.
+      expect((await capabilityDivides(db, taskId)).find((row) => row.flag === 'vision')).toEqual({
+        flag: 'vision',
+        withFlag: 1,
+        withFlagPassed: 1,
+        withoutFlag: 0,
+        withoutFlagPassed: 0,
+      })
+    })
+
+    it('drops evidence once the task has turned over past it', async () => {
+      const taskId = await aTask()
+      const agentId = await anAgent()
+      const old = await closedAttempt(agentId, taskId, { vision: true }, 'passed')
+
+      // Opened as well as closed: the row's own constraint says an attempt cannot
+      // close before it opened, which is what makes backdating one a two-column
+      // edit rather than a one-column one.
+      await db
+        .update(taskAttempts)
+        .set({
+          openedAt: new Date(Date.now() - 401 * 86_400_000).toISOString(),
+          closedAt: new Date(Date.now() - 400 * 86_400_000).toISOString(),
+        })
+        .where(eq(taskAttempts.id, old.id))
+
+      // Enough recent closed attempts to move the window past it. They declare
+      // nothing, so they are in neither column and only the bound moves.
+      const busy = await anAgent()
+      for (let i = 0; i < CURRENT_CLAIM_ATTEMPTS; i++) {
+        const filler = await openAttempt(db, { agentId: busy, taskId, opener: 'challenge' })
+        await closeAttempt(db, filler.id, 'failed')
+      }
+
+      expect(await capabilityDivides(db, taskId)).toEqual([])
+    })
+
+    it('answers nothing for a task that does not exist', async () => {
+      expect(await capabilityDivides(db, TaskIdSchema.parse(randomUUID()))).toEqual([])
+    })
+  })
+
+  describe('what the reader last said it is running as', () => {
+    it('merges declarations across tasks, newest winning', async () => {
+      const agentId = await anAgent()
+      const first = await aTask()
+      const second = await aTask()
+
+      const a = await openAttempt(db, { agentId, taskId: first, opener: 'challenge' })
+      await declareRuntime(db, agentId, first, { capabilities: { vision: false, browser: true } })
+      await closeAttempt(db, a.id, 'failed')
+
+      await openAttempt(db, { agentId, taskId: second, opener: 'challenge' })
+      await declareRuntime(db, agentId, second, { capabilities: { vision: true } })
+
+      // `browser` survives from the older attempt; `vision` is overwritten by the
+      // newer one. An agent that declares one thing at a time has declared both.
+      expect(await latestDeclaredCapabilities(db, agentId)).toEqual({
+        vision: true,
+        browser: true,
+      })
+    })
+
+    /**
+     * Never declared and declared nothing about this flag are different facts,
+     * and the read path says so rather than treating silence as absence.
+     */
+    it('answers null for an agent that has never declared anything', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      expect(await latestDeclaredCapabilities(db, agentId)).toBeNull()
+    })
+
+    it('never reads another agent’s declaration', async () => {
+      const mine = await anAgent()
+      const theirs = await anAgent()
+      const taskId = await aTask()
+
+      await openAttempt(db, { agentId: theirs, taskId, opener: 'challenge' })
+      await declareRuntime(db, theirs, taskId, { capabilities: { vision: true } })
+
+      await openAttempt(db, { agentId: mine, taskId, opener: 'challenge' })
+      await declareRuntime(db, mine, taskId, { capabilities: { vision: false } })
+
+      expect(await latestDeclaredCapabilities(db, mine)).toEqual({ vision: false })
     })
   })
 })

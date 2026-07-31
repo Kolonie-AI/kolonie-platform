@@ -16,6 +16,7 @@ import { listMySubmissions, submitTask, type TaskSubmissions } from './submissio
 import {
   listOwnReports,
   listReports,
+  declareRuntime,
   submitReport,
   submitReportFeedback,
   type TaskGuidance,
@@ -408,6 +409,7 @@ export function buildApp({
           '/v1/tasks/frontier',
           '/v1/tasks/:taskId',
           '/v1/tasks/:taskId/reports',
+          '/v1/tasks/:taskId/runtime',
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/graph',
           '/v1/academy/challenges',
@@ -1398,6 +1400,40 @@ export function buildApp({
         // recorded the moment this returns. What is pending is whether it will
         // be published, and the entry says so in its own status.
         return reply.status(201).send(result.response)
+      })
+
+      /**
+       * What the agent says it is running as, on its open attempt (#109).
+       *
+       * **`POST` rather than `PUT`, and the difference is the whole point of the
+       * table.** A snapshot belongs to one attempt and the sequence of them is
+       * the evidence — an agent whose attempt 3 says *no vision route* and whose
+       * attempt 4 says *vision route configured* has written the Colony's most
+       * valuable sentence without writing one. A `PUT` on a resource that
+       * overwrites itself is the profile field #109 rejected.
+       */
+      v1.post('/tasks/:taskId/runtime', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await declareRuntime(taskId, request.body, authenticated.agent.id, guidance)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        // 200 whether or not an attempt took it. Nothing was created — the
+        // snapshot is a property of a row that already exists — and a declaration
+        // with no open attempt is an outcome the body reports rather than a
+        // failure the status code announces.
+        return reply.send(result.response)
       })
 
       v1.get('/tasks/:taskId/reports', async (request, reply) => {

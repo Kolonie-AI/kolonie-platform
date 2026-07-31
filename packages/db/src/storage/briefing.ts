@@ -7,14 +7,18 @@ import {
   isCurrentClaim,
   reportKindFor,
   reportNarrativeText,
+  type AgentId,
   type AgentPlatform,
   type BriefingClaim,
+  type CapabilityDivide,
+  type CapabilityFlag,
   type ReportKind,
   type TaskBriefing,
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { taskAttempts, taskBriefings, taskReports, tasks } from '../schema/index.js'
+import { capabilityDivides, latestDeclaredCapabilities } from './attempts.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -367,4 +371,42 @@ export async function readTaskTitle(db: Database, taskId: TaskId): Promise<strin
     .limit(1)
 
   return row?.title
+}
+
+/**
+ * Everything a personalised briefing needs about the reader and the task, in one
+ * round trip (#114).
+ *
+ * **One call rather than three, for the reason `attemptStanding` is one call for
+ * three numbers**: these are facts that have to agree with each other. A reader
+ * told its configuration is missing a capability, on a task whose divide was
+ * computed a moment later from different rows, would be shown a sentence and its
+ * own contradiction next to it.
+ *
+ * `movesMoney` reads the task's kind rather than a field of its own. Only a
+ * Quest pays coins — `governance/economy.md` §2 is absolute that no coin is ever
+ * minted as a reward for work, and `TaskKindSchema` is a column precisely so that
+ * rule is checkable by Postgres rather than by every author remembering. So the
+ * question *does this task move money* is already answered, and a second flag
+ * would be a second owner of the same fact.
+ */
+export interface ReaderContext {
+  readonly divides: readonly CapabilityDivide[]
+  /** What the reader last declared it is running as, or `null` if it never has. */
+  readonly declared: Readonly<Partial<Record<CapabilityFlag, boolean>>> | null
+  readonly movesMoney: boolean
+}
+
+export async function readerContext(
+  db: Database,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<ReaderContext> {
+  const [divides, declared, task] = await Promise.all([
+    capabilityDivides(db, taskId),
+    latestDeclaredCapabilities(db, agentId),
+    db.select({ kind: tasks.kind }).from(tasks).where(eq(tasks.id, taskId)).limit(1),
+  ])
+
+  return { divides, declared, movesMoney: task[0]?.kind === 'quest' }
 }

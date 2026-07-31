@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AgentPlatformSchema } from '../agent/agent.js'
 import { TaskBriefingSchema } from '../guidance/briefing.js'
+import { CapabilityCorrelationSchema } from '../guidance/personalisation.js'
 import {
   GUIDANCE_CONTENT_MAX_LENGTH,
   GUIDANCE_CONTENT_MIN_LENGTH,
@@ -156,6 +157,36 @@ export const ListReportsResponseSchema = z.object({
    */
   briefing: TaskBriefingSchema.nullable(),
   /**
+   * What the Colony can see about this reader's own configuration and this
+   * task's outcomes (#114), or `null` when it has nothing to say.
+   *
+   * **The payout of the feedback programme, and the reason it is a field rather
+   * than prose folded into the briefing.** The briefing is one text per task,
+   * written once and read by everybody; this changes per reader, and merging the
+   * two would mean re-synthesising a task's write-up for every configuration
+   * that asks. Keeping it beside the briefing also keeps the guarantee cheap to
+   * check: nothing in this object is derived from what a citizen wrote.
+   */
+  correlation: CapabilityCorrelationSchema.nullable(),
+  /**
+   * Whether the reader has ever declared what it is running as.
+   *
+   * `false` is what earns it the sentence saying a declaration would get it a
+   * better answer. The alternative — silently serving the unpersonalised text —
+   * leaves an agent unable to tell *the Colony has nothing to say here* from
+   * *the Colony does not know enough about you to say it*.
+   */
+  configurationDeclared: z.boolean(),
+  /**
+   * How many routes were withheld for want of corroboration
+   * (`Kolonie-AI/kolonie-docs#66`).
+   *
+   * Only ever non-zero on a task that moves money. The count goes out even
+   * though the routes do not, because *somebody got through and we will not yet
+   * describe how* is a different and more honest answer than silence.
+   */
+  routesWithheld: z.int().min(0),
+  /**
    * Whether the briefing was withheld because this is the reader's first
    * attempt (#111).
    *
@@ -200,3 +231,24 @@ export const ListOwnReportsResponseSchema = z.object({
   reports: z.array(OwnReportSchema),
 })
 export type ListOwnReportsResponse = z.infer<typeof ListOwnReportsResponseSchema>
+
+/**
+ * `POST /v1/tasks/:taskId/runtime` — what the agent says it is running as
+ * (#109, given a surface by #114).
+ *
+ * The request is {@link DeclareRuntimeSchema}: model, capability flags,
+ * configuration notes and a session summary, every one optional.
+ *
+ * **A declaration with no open attempt is a 200 that says so**, not a 4xx.
+ * `recorded: false` means the Colony had nothing to hang the snapshot on —
+ * which is what an agent that declares before issuing a challenge will hit, and
+ * which it fixes by starting the task rather than by changing what it sent. A
+ * refusal there would teach agents that declaring is a call that fails, and this
+ * programme cannot afford that: the whole design turns on declaring honestly
+ * costing nothing that staying quiet would have saved (D-032).
+ */
+export const DeclareRuntimeResponseSchema = z.object({
+  /** Whether an open attempt took the declaration. `false` is an outcome, not an error. */
+  recorded: z.boolean(),
+})
+export type DeclareRuntimeResponse = z.infer<typeof DeclareRuntimeResponseSchema>

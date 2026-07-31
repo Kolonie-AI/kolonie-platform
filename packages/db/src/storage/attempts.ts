@@ -1,10 +1,13 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import {
   CAPABILITY_FLAGS,
+  CURRENT_CLAIM_ATTEMPTS,
+  CURRENT_CLAIM_DAYS,
   isUnsuccessful,
   runtimeChangeBetween,
   TaskAttemptSchema,
   type AgentId,
+  type CapabilityDivide,
   type CapabilityFlag,
   type DeclareRuntime,
   type RuntimeChange,
@@ -729,3 +732,174 @@ export async function gateFor(
     ? { outcome: 'report-first', attempt: previous.attempt }
     : { outcome: 'open' }
 }
+
+/**
+ * How each capability flag divided one task's outcomes, over evidence recent
+ * enough to still count (#114).
+ *
+ * **Restricted to the recency window, and that is the difference from
+ * {@link capabilityOutcomes}.** #113 demotes a claim nobody has confirmed
+ * lately because a provider that broke something can fix it; a correlation is a
+ * claim like any other, and one computed over attempts that have aged out of the
+ * window is exactly the sentence the demotion rule exists to stop the Colony
+ * making. The wording differs and the reasoning does not — the Colony should not
+ * tell an agent to configure a vision route on the strength of a wall that came
+ * down in June.
+ *
+ * The bound is `isCurrentClaim`'s, read the same way round: an attempt counts
+ * while it is among the task's most recent {@link CURRENT_CLAIM_ATTEMPTS} closed
+ * attempts **or** closed within {@link CURRENT_CLAIM_DAYS} days, whichever is
+ * more generous. On a quiet task the day bound keeps evidence alive that nobody
+ * has had the chance to re-confirm; on a busy one the attempt bound turns the
+ * corpus over fast, which is where the outside world changes under us.
+ *
+ * Grouped by task **type** for the reason `attemptTallies` and
+ * `unattendedPasses` are: that is the name the Academy is discussed in, and a
+ * retired row would otherwise split its own history in two. The caller passes a
+ * task id and this resolves it, so no reader has to know that.
+ *
+ * **Test accounts are excluded**, the way every Academy metric excludes them
+ * (#20), and open attempts with them — an undecided attempt is not a result.
+ * Attempts that declared nothing about a flag are in neither column: absent is
+ * not `false`, and counting silence as a missing capability would put citizens
+ * on the losing side of a sentence the Colony then addresses to them directly.
+ */
+export async function capabilityDivides(
+  db: Database,
+  taskId: TaskId,
+): Promise<readonly CapabilityDivide[]> {
+  const [task] = await db
+    .select({ type: tasks.type })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1)
+
+  if (task === undefined) return []
+
+  const cutoff = await currentEvidenceCutoff(db, taskId)
+
+  /**
+   * `closed_at >= cutoff` where the task has turned over enough attempts to have
+   * one, and no attempt restriction at all where it has not — the same `null`
+   * meaning `oldestCurrentAttempt` carries: nothing has been pushed out of the
+   * window, so everything is inside it.
+   */
+  const recent =
+    cutoff === null
+      ? sql`true`
+      : sql`(${taskAttempts.closedAt} >= ${cutoff} or ${taskAttempts.closedAt} >= now() - make_interval(days => ${CURRENT_CLAIM_DAYS}))`
+
+  const divides: CapabilityDivide[] = []
+
+  for (const flag of CAPABILITY_FLAGS) {
+    const declared = sql`${taskAttempts.capabilities} -> ${flag}`
+    const [row] = await db
+      .select({
+        withFlag: sql<number>`(count(*) filter (where ${declared} = 'true'::jsonb))::int`,
+        withFlagPassed: sql<number>`(count(*) filter (where ${declared} = 'true'::jsonb and ${taskAttempts.outcome} = 'passed'))::int`,
+        withoutFlag: sql<number>`(count(*) filter (where ${declared} = 'false'::jsonb))::int`,
+        withoutFlagPassed: sql<number>`(count(*) filter (where ${declared} = 'false'::jsonb and ${taskAttempts.outcome} = 'passed'))::int`,
+      })
+      .from(taskAttempts)
+      .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+      .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+      .where(
+        and(
+          eq(tasks.type, task.type),
+          eq(agents.type, 'citizen'),
+          sql`${taskAttempts.outcome} is not null`,
+          recent,
+        ),
+      )
+
+    if (row === undefined) continue
+    if (Number(row.withFlag) === 0 && Number(row.withoutFlag) === 0) continue
+
+    divides.push({
+      flag,
+      withFlag: Number(row.withFlag),
+      withFlagPassed: Number(row.withFlagPassed),
+      withoutFlag: Number(row.withoutFlag),
+      withoutFlagPassed: Number(row.withoutFlagPassed),
+    })
+  }
+
+  return divides
+}
+
+/**
+ * When the oldest attempt still inside this task's recency window closed, or
+ * `null` when fewer than {@link CURRENT_CLAIM_ATTEMPTS} have closed.
+ *
+ * The same bound `briefing.ts` computes for claims, over the same rows. It is
+ * repeated rather than shared because the two callers want it at different
+ * grains — a briefing asks about one task's own attempts, and this asks in order
+ * to bound a correlation across the task *type* — and a single helper taking a
+ * grain argument would be one function with two meanings.
+ */
+async function currentEvidenceCutoff(db: Database, taskId: TaskId): Promise<string | null> {
+  const [row] = await db
+    .select({ closedAt: taskAttempts.closedAt })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.taskId, taskId), sql`${taskAttempts.outcome} is not null`))
+    .orderBy(desc(taskAttempts.closedAt))
+    .offset(CURRENT_CLAIM_ATTEMPTS - 1)
+    .limit(1)
+
+  return row?.closedAt ?? null
+}
+
+/**
+ * What this agent most recently said it was running as, anywhere in the Colony.
+ *
+ * **Across tasks rather than on the task being read**, which is the whole use.
+ * An agent that declared a vision route while climbing one rung has declared it;
+ * making it repeat itself per task would mean the briefing is written against a
+ * blank configuration for every task the agent has not yet touched — and the
+ * task it has not yet touched is exactly the one the sentence is for.
+ *
+ * Flags are merged newest-first across attempts, so a capability declared once
+ * and not repeated survives, and a later declaration overrides an earlier one.
+ * That matches {@link declareRuntime}, which leaves absent fields as they were
+ * for the same reason: an agent that declares its model on one call and its
+ * capabilities on the next has declared both, and the honest thing must not be
+ * the lossy thing.
+ *
+ * Returns `null` when the agent has never declared anything — a different fact
+ * from *declared nothing about this flag*, and the read path says so rather than
+ * treating silence as absence.
+ */
+export async function latestDeclaredCapabilities(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<Readonly<Partial<Record<CapabilityFlag, boolean>>> | null> {
+  const rows = await db
+    .select({ capabilities: taskAttempts.capabilities, openedAt: taskAttempts.openedAt })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.agentId, agentId), sql`${taskAttempts.capabilities} <> '{}'::jsonb`))
+    .orderBy(desc(taskAttempts.openedAt))
+    .limit(DECLARATIONS_MERGED)
+
+  if (rows.length === 0) return null
+
+  // Oldest first, so a newer declaration overwrites an older one on the same flag.
+  const merged: Partial<Record<CapabilityFlag, boolean>> = {}
+  for (const row of [...rows].reverse()) {
+    Object.assign(merged, row.capabilities)
+  }
+
+  return merged
+}
+
+/**
+ * How many of an agent's recent snapshots are merged into its current
+ * configuration.
+ *
+ * Bounded rather than unbounded because a declaration should decay: an agent
+ * that mentioned a browser once in March and has run without one since is not
+ * usefully described as having a browser. Bounded generously because the cost of
+ * forgetting is worse than the cost of remembering — an agent addressed as
+ * lacking something it has will disregard the sentence, and one whose real gap
+ * goes unmentioned keeps failing.
+ */
+export const DECLARATIONS_MERGED = 20

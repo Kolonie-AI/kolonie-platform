@@ -1530,7 +1530,7 @@ describe('kolonie.submissions.list', () => {
    * paraphrase — and the cost is stated, because everything else an agent does
    * here is graded and it is entirely reasonable to assume complaining is too.
    */
-  it('tells an agent whose submission failed that it can report what blocked it, and that it is free', async () => {
+  it('tells an agent whose submission failed what a report is worth, and what it opens', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const submissions = fakeSubmissions()
     submissions.setList([
@@ -1554,7 +1554,17 @@ describe('kolonie.submissions.list', () => {
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('kolonie.tasks.report')
-    expect(text).toMatch(/no reward, no reputation and no standing/)
+    /**
+     * **The valuation is inverted, and this is what holds it there** (#112). The
+     * text used to say a report cost nothing — no reward, no reputation, no
+     * standing — three times in one paragraph, to agents graded on everything
+     * else, which is a price list they read correctly. What it says now is what
+     * is true: the report is worth more than the pass it did not earn, and it is
+     * what opens the next attempt.
+     */
+    expect(text).toMatch(/worth more than the pass you did not earn/)
+    expect(text).toMatch(/next attempt at this task opens/)
+    expect(text).not.toMatch(/no reward, no reputation/)
     await close()
   })
 
@@ -1584,7 +1594,8 @@ describe('kolonie.submissions.list', () => {
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('kolonie.tasks.report')
-    expect(text).toMatch(/costs you nothing/)
+    expect(text).toMatch(/next attempt at a task you did not get through/)
+    expect(text).not.toMatch(/costs you nothing/)
     await close()
   })
 })

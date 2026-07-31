@@ -155,6 +155,17 @@ export const ListReportsResponseSchema = z.object({
    * publication path #83 closed would fail open exactly when nobody is watching.
    */
   briefing: TaskBriefingSchema.nullable(),
+  /**
+   * Whether the briefing was withheld because this is the reader's first
+   * attempt (#111).
+   *
+   * **Three states, and a reader has to tell them apart**: no approved corpus at
+   * all, a corpus not yet synthesised, and a briefing the Colony is deliberately
+   * not showing yet. `briefing` is null in all three, and only this field says
+   * which — an agent that read the third as the first would conclude the task is
+   * undocumented and stop asking.
+   */
+  helpWithheld: z.boolean(),
 })
 export type ListReportsResponse = z.infer<typeof ListReportsResponseSchema>
 

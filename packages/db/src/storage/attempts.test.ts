@@ -10,10 +10,11 @@ import {
   type TaskStatus,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, submissions, taskAttempts, tasks } from '../schema/index.js'
+import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
+  attemptStanding,
   attemptTallies,
   attemptsFor,
   capabilityOutcomes,
@@ -21,10 +22,13 @@ import {
   closedAttemptCount,
   declareRuntime,
   runtimeChanges,
+  gateFor,
+  GATE_ATTEMPTS_BY_AGENT,
   medianAttemptsToPass,
   openAttempt,
   openAttemptFor,
   sweepAbandonedAttempts,
+  unaidedPassRates,
 } from './attempts.js'
 import { openAttemptForChallenge } from './challenge-tasks.js'
 import { mintChallenge } from './challenges.js'
@@ -635,6 +639,274 @@ describe.skipIf(!target.available)('task attempts', () => {
       await closeAttempt(db, second.id, 'passed')
 
       expect((await runtimeChanges(db, agentId, taskId))[0]?.capabilitiesChanged).toEqual([])
+    })
+  })
+  /**
+   * The blind first attempt (#111) and the gate (#112), which are one describe
+   * because they are two halves of one bargain: the Colony withholds its help
+   * once, and asks for one sentence in return before it helps at all.
+   */
+  describe('what the first attempt costs and what the next one waits on', () => {
+    it('reports an agent that has never tried as being on attempt 1', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      expect(await attemptStanding(db, agentId, taskId)).toEqual({
+        closed: 0,
+        attempt: 1,
+        passed: false,
+      })
+    })
+
+    it('reports the open attempt as the one it is on, not the next one', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      const first = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await closeAttempt(db, first.id, 'failed')
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      expect(await attemptStanding(db, agentId, taskId)).toMatchObject({ closed: 1, attempt: 2 })
+    })
+
+    /** A task it has passed is never withheld from it — re-reading is not an attempt. */
+    it('remembers that it got through, so nothing is withheld afterwards', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'submission' })
+      await closeAttempt(db, attempt.id, 'passed')
+
+      expect(await attemptStanding(db, agentId, taskId)).toMatchObject({ passed: true })
+    })
+
+    /**
+     * The unaided pass rate: the denominator for everything else in this
+     * programme. Every attempt was potentially contaminated by what the Colony
+     * handed over, so there was no baseline at all.
+     */
+    it('measures the pass rate over first attempts alone', async () => {
+      const taskId = await aTask({ type: 'the-rung' })
+
+      const passer = await anAgent()
+      await closeAttempt(
+        db,
+        (await openAttempt(db, { agentId: passer, taskId, opener: 'submission' })).id,
+        'passed',
+      )
+
+      const failer = await anAgent()
+      const one = await openAttempt(db, { agentId: failer, taskId, opener: 'submission' })
+      await closeAttempt(db, one.id, 'failed')
+      // Its second attempt is aided by construction and must not count.
+      const two = await openAttempt(db, { agentId: failer, taskId, opener: 'submission' })
+      await closeAttempt(db, two.id, 'passed')
+
+      const [rate] = await unaidedPassRates(db)
+
+      expect(rate?.first).toBe(2)
+      expect(rate?.passed).toBe(1)
+    })
+
+    it('excludes test accounts from the unaided rate', async () => {
+      const taskId = await aTask()
+      const tester = await anAgent({ type: 'test' })
+      await closeAttempt(
+        db,
+        (await openAttempt(db, { agentId: tester, taskId, opener: 'submission' })).id,
+        'passed',
+      )
+
+      expect(await unaidedPassRates(db)).toEqual([])
+    })
+
+    describe('the gate on the next attempt', () => {
+      /** A task nobody has closed an attempt on counts as above the threshold. */
+      const aHardTask = async () => aTask()
+
+      it('opens the next attempt when the last one was reported', async () => {
+        const agentId = await anAgent()
+        const taskId = await aHardTask()
+        const attempt = await openAttempt(db, { agentId, taskId, opener: 'submission' })
+        await closeAttempt(db, attempt.id, 'failed')
+        await db
+          .insert(taskReports)
+          .values({ attemptId: attempt.id, broke: 'The signup page asked for a phone number.' })
+
+        expect(await gateFor(db, agentId, taskId)).toEqual({ outcome: 'open' })
+      })
+
+      it('holds the next attempt when the last one said nothing', async () => {
+        const agentId = await anAgent()
+        const taskId = await aHardTask()
+        const attempt = await openAttempt(db, { agentId, taskId, opener: 'submission' })
+        await closeAttempt(db, attempt.id, 'failed')
+
+        expect(await gateFor(db, agentId, taskId)).toEqual({
+          outcome: 'report-first',
+          attempt: 1,
+        })
+      })
+
+      /** An abandoned attempt is an unsuccessful one, and the agent that comes back pays for it. */
+      it('holds it after an abandoned attempt too', async () => {
+        const agentId = await anAgent()
+        const taskId = await aHardTask()
+        const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+        await closeAttempt(db, attempt.id, 'abandoned')
+
+        expect((await gateFor(db, agentId, taskId)).outcome).toBe('report-first')
+      })
+
+      /**
+       * The rejection case #112 names: an attempt the Colony could not decide is
+       * not the citizen's silence. It is still open, and an open attempt never
+       * triggers the gate.
+       */
+      it('never fires while an attempt is still open', async () => {
+        const agentId = await anAgent()
+        const taskId = await aHardTask()
+        await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+        expect(await gateFor(db, agentId, taskId)).toEqual({ outcome: 'open' })
+      })
+
+      it('never fires after a pass', async () => {
+        const agentId = await anAgent()
+        const taskId = await aHardTask()
+        const attempt = await openAttempt(db, { agentId, taskId, opener: 'submission' })
+        await closeAttempt(db, attempt.id, 'passed')
+
+        expect(await gateFor(db, agentId, taskId)).toEqual({ outcome: 'open' })
+      })
+
+      /**
+       * **A report counts the instant it is stored, whatever the moderator later
+       * decides.** Gating on approval would put the moderation queue back on the
+       * critical path through the back door, and would punish a citizen for a
+       * verdict it does not control.
+       */
+      it('opens the next attempt even when the report was rejected', async () => {
+        const agentId = await anAgent()
+        const taskId = await aHardTask()
+        const attempt = await openAttempt(db, { agentId, taskId, opener: 'submission' })
+        await closeAttempt(db, attempt.id, 'failed')
+        await db.insert(taskReports).values({
+          attemptId: attempt.id,
+          broke: 'Something the moderator threw out entirely, and rightly.',
+          status: 'rejected',
+          moderationNote: 'Too vague to act on.',
+          moderatedAt: new Date().toISOString(),
+        })
+
+        expect(await gateFor(db, agentId, taskId)).toEqual({ outcome: 'open' })
+      })
+
+      /**
+       * A single failure on a task almost everybody passes says something about
+       * that agent, not about the task. The machinery does not fire there.
+       */
+      it('does not fire on a task with a low measured failure rate', async () => {
+        const taskId = await aTask()
+        for (let i = 0; i < 10; i++) {
+          const passer = await anAgent()
+          await closeAttempt(
+            db,
+            (await openAttempt(db, { agentId: passer, taskId, opener: 'submission' })).id,
+            'passed',
+          )
+        }
+
+        const unlucky = await anAgent()
+        const attempt = await openAttempt(db, { agentId: unlucky, taskId, opener: 'submission' })
+        await closeAttempt(db, attempt.id, 'failed')
+
+        expect(await gateFor(db, unlucky, taskId)).toEqual({ outcome: 'open' })
+      })
+
+      /**
+       * The second clause, which catches an agent personally stuck on an easy
+       * task — worth knowing precisely because it is unusual.
+       */
+      it('fires on an easy task once one agent has failed it three times', async () => {
+        const taskId = await aTask()
+        for (let i = 0; i < 20; i++) {
+          const passer = await anAgent()
+          await closeAttempt(
+            db,
+            (await openAttempt(db, { agentId: passer, taskId, opener: 'submission' })).id,
+            'passed',
+          )
+        }
+
+        const stuck = await anAgent()
+        for (let i = 0; i < GATE_ATTEMPTS_BY_AGENT; i++) {
+          const attempt = await openAttempt(db, { agentId: stuck, taskId, opener: 'challenge' })
+          await closeAttempt(db, attempt.id, 'failed')
+        }
+
+        expect((await gateFor(db, stuck, taskId)).outcome).toBe('report-first')
+      })
+    })
+    /**
+     * **The one constraint the whole programme is built around.** A report
+     * gating the reward path would hang the Academy off an LLM moderation queue
+     * — runner down, budget gone, and an agent that passed does not get its
+     * skill. So the gate refuses *before* a submission row exists, and nothing
+     * downstream of a verdict can wait on anything.
+     */
+    describe('what the gate must never touch', () => {
+      const passThrough = async (agentId: AgentId, taskId: TaskId) => {
+        const created = await submit(taskId, agentId)
+        if (created.outcome !== 'accepted') throw new Error(created.outcome)
+        const claimed = await claimNextSubmission(db, [TaskTypeSchema.parse('example-task')])
+        if (claimed === undefined) throw new Error('nothing to claim')
+        return recordVerdict(db, {
+          submissionId: created.submission.id,
+          taskType: claimed.taskType,
+          result: { status: 'pass', evidence: 'Everything the task asked for.' },
+        })
+      }
+
+      it('books a pass normally when no report was ever filed', async () => {
+        const agentId = await anAgent()
+        const taskId = await aTask({ type: 'example-task' })
+
+        const verdict = await passThrough(agentId, taskId)
+
+        expect(verdict.outcome).toBe('recorded')
+        expect((await attemptsFor(db, agentId, taskId))[0]?.outcome).toBe('passed')
+      })
+
+      /**
+       * The gate holds the *next* attempt, so a submission that is already open
+       * finishes and is decided regardless — an agent must never be left with a
+       * verdict it cannot obtain.
+       */
+      it('decides an attempt that was already open, whatever the gate would say', async () => {
+        const agentId = await anAgent()
+        const taskId = await aTask({ type: 'example-task' })
+
+        // A previous failure with nothing said, which is what the gate fires on.
+        const earlier = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+        await closeAttempt(db, earlier.id, 'failed')
+        // And an attempt already open, which the gate must not reach.
+        await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+        const verdict = await passThrough(agentId, taskId)
+
+        expect(verdict.outcome).toBe('recorded')
+      })
+
+      /** And the refusal itself carries the attempt it is asking about. */
+      it('refuses the next submission, naming the attempt that said nothing', async () => {
+        const agentId = await anAgent()
+        const taskId = await aTask({ type: 'example-task' })
+        const earlier = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+        await closeAttempt(db, earlier.id, 'failed')
+
+        const refused = await submit(taskId, agentId)
+
+        expect(refused).toEqual({ outcome: 'report-first', attempt: 1 })
+      })
     })
   })
 })

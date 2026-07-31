@@ -1,6 +1,7 @@
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import {
   CAPABILITY_FLAGS,
+  isUnsuccessful,
   runtimeChangeBetween,
   TaskAttemptSchema,
   type AgentId,
@@ -14,7 +15,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents, submissions, taskAttempts, tasks } from '../schema/index.js'
+import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
 type AttemptRow = typeof taskAttempts.$inferSelect
@@ -109,8 +110,21 @@ export async function openAttemptForSubmission(
   db: Database | Transaction,
   agentId: AgentId,
   taskId: TaskId,
-): Promise<TaskAttempt> {
+): Promise<TaskAttempt | { readonly gated: Extract<GateDecision, { outcome: 'report-first' }> }> {
   const existing = await openAttemptFor(db, agentId, taskId)
+
+  /**
+   * The gate, checked before an attempt is opened and never after (#112).
+   *
+   * Only when a *new* one would be opened: an agent finishing the attempt it
+   * already has open is not opening anything, and holding it there would block a
+   * submission rather than the next try — which is exactly the reward path the
+   * whole design keeps this away from.
+   */
+  if (existing === null) {
+    const gate = await gateFor(db, agentId, taskId)
+    if (gate.outcome === 'report-first') return { gated: gate }
+  }
 
   if (existing !== null) {
     const [taken] = await db
@@ -485,4 +499,233 @@ export async function runtimeChanges(
   return attempts
     .slice(1)
     .map((later, index) => runtimeChangeBetween(attempts[index] as TaskAttempt, later))
+}
+
+/** Where an agent stands on one task, as the read paths need to know it. */
+export interface AttemptStanding {
+  /** How many attempts it has closed here. Zero is the blind first attempt (#111). */
+  readonly closed: number
+  /** Which attempt it is on, or about to open. 1 when it has never tried. */
+  readonly attempt: number
+  /** Whether it has already got through. A task it passed is never withheld from it. */
+  readonly passed: boolean
+}
+
+/**
+ * Where this agent stands on this task.
+ *
+ * One query for the three numbers every read path needs, because they are three
+ * facts about the same rows and asking separately would let them disagree — an
+ * agent could be told it is on attempt 2 and refused the hints that arrive with
+ * attempt 2, which is the worst possible pair of answers.
+ *
+ * **Reading it opens nothing**, the rule the attempt table rests on.
+ */
+export async function attemptStanding(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<AttemptStanding> {
+  const [row] = await db
+    .select({
+      closed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} is not null))::int`,
+      passed: sql<boolean>`bool_or(${taskAttempts.outcome} = 'passed')`,
+    })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, taskId)))
+
+  const closed = Number(row?.closed ?? 0)
+
+  return {
+    closed,
+    /**
+     * `closed + 1` either way, and the two cases collapsing is worth stating:
+     * with an attempt open, that open one *is* attempt `closed + 1`; with none
+     * open, the next one it would open is also `closed + 1`. So the number an
+     * agent is told when it picks the task up is the number of the try it is
+     * about to make or is already making.
+     */
+    attempt: closed + 1,
+    passed: row?.passed === true,
+  }
+}
+
+/**
+ * How often a task is passed by an agent that was given nothing.
+ *
+ * **The denominator for everything else in this programme** (#111). Every
+ * attempt was potentially contaminated by what the Colony handed over, so there
+ * was no baseline — nothing distinguished a hard task from bad instructions. An
+ * unaided first attempt gives every task a permanent, clean number.
+ *
+ * First attempts only, and passes among them. An agent's later attempts are
+ * aided by construction, so counting them would measure the help rather than the
+ * task.
+ *
+ * Test accounts excluded, the way every Academy metric excludes them.
+ */
+export async function unaidedPassRates(
+  db: Database,
+): Promise<
+  readonly { readonly taskType: string; readonly first: number; readonly passed: number }[]
+> {
+  const rows = await db
+    .select({
+      taskType: tasks.type,
+      first: sql<number>`count(*)::int`,
+      passed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'passed'))::int`,
+    })
+    .from(taskAttempts)
+    .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+    .where(
+      and(
+        eq(taskAttempts.attempt, 1),
+        sql`${taskAttempts.outcome} is not null`,
+        eq(agents.type, 'citizen'),
+      ),
+    )
+    .groupBy(tasks.type)
+    .orderBy(tasks.type)
+
+  return rows.map((row) => ({
+    taskType: row.taskType,
+    first: Number(row.first),
+    passed: Number(row.passed),
+  }))
+}
+
+/**
+ * When the Colony asks for a report before it opens the next attempt (#112).
+ *
+ * Not on every task. A single failure on a task that 98 % of agents pass says
+ * something about that agent, not about the task, and the machinery should not
+ * fire there.
+ *
+ * **A starting position, not a measurement.** Both numbers were chosen to be
+ * defensible because there was no data to measure them against. They live here,
+ * in one place with this comment, so the first agent with a month of traffic can
+ * move them with one edit — that is expected and needs no new decision.
+ */
+export const GATE_FAILURE_RATE = 0.2
+
+/** The other clause: an agent personally stuck on a task, whatever the task's rate. */
+export const GATE_ATTEMPTS_BY_AGENT = 3
+
+/** Why the next attempt is being held, or that it is not. */
+export type GateDecision =
+  | { readonly outcome: 'open' }
+  /**
+   * The previous attempt ended badly, said nothing, and the task is one the
+   * Colony wants to hear about.
+   */
+  | { readonly outcome: 'report-first'; readonly attempt: number }
+
+/**
+ * Whether this agent must say something about its last attempt before opening
+ * another.
+ *
+ * **Nothing about a verdict, a skill grant or a reputation booking passes
+ * through here.** That is the one constraint the whole programme is built around
+ * — a report gating the reward path would hang the Academy off a moderation
+ * queue. The pressure sits entirely on the *next* attempt, which is where the
+ * agent that is coming back anyway will meet it, and where the agent that walks
+ * away never does.
+ *
+ * **An open attempt never triggers it**, including one whose verdict is
+ * `pending` because the Colony could not decide. The Colony not having answered
+ * is not the citizen's silence.
+ *
+ * **A report counts the instant it is stored**, whatever the moderator later
+ * decides. Gating on approval would put the moderation queue back on the
+ * critical path through the back door, and would punish a citizen for a verdict
+ * it does not control — so this asks whether a row exists, not what became of
+ * it.
+ */
+export async function gateFor(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<GateDecision> {
+  const [previous] = await db
+    .select({
+      id: taskAttempts.id,
+      attempt: taskAttempts.attempt,
+      outcome: taskAttempts.outcome,
+    })
+    .from(taskAttempts)
+    .where(
+      and(
+        eq(taskAttempts.agentId, agentId),
+        eq(taskAttempts.taskId, taskId),
+        sql`${taskAttempts.outcome} is not null`,
+      ),
+    )
+    .orderBy(desc(taskAttempts.attempt))
+    .limit(1)
+
+  if (previous === undefined) return { outcome: 'open' }
+  if (!isUnsuccessful(previous.outcome)) return { outcome: 'open' }
+
+  /**
+   * Its own statement rather than a correlated `exists` in the select above.
+   *
+   * **Whether a row exists is the whole of the question**, and nothing about
+   * what became of it is read — a report counts the instant it is stored,
+   * whatever the moderator later decides.
+   */
+  const [reported] = await db
+    .select({ id: taskReports.id })
+    .from(taskReports)
+    .where(eq(taskReports.attemptId, previous.id))
+    .limit(1)
+
+  if (reported !== undefined) return { outcome: 'open' }
+
+  const [own] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(taskAttempts)
+    .where(
+      and(
+        eq(taskAttempts.agentId, agentId),
+        eq(taskAttempts.taskId, taskId),
+        sql`${taskAttempts.outcome} is not null`,
+      ),
+    )
+
+  /**
+   * The clause that catches an agent personally stuck on an easy task, which is
+   * worth knowing precisely because it is unusual.
+   */
+  if (Number(own?.count ?? 0) >= GATE_ATTEMPTS_BY_AGENT) {
+    return { outcome: 'report-first', attempt: previous.attempt }
+  }
+
+  const [task] = await db
+    .select({
+      closed: sql<number>`count(*)::int`,
+      failed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} <> 'passed'))::int`,
+    })
+    .from(taskAttempts)
+    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+    .where(
+      and(
+        eq(taskAttempts.taskId, taskId),
+        sql`${taskAttempts.outcome} is not null`,
+        eq(agents.type, 'citizen'),
+      ),
+    )
+
+  const closed = Number(task?.closed ?? 0)
+
+  /**
+   * **A task with too few closed attempts to have a rate counts as above the
+   * threshold.** Unknown difficulty is exactly when the Colony most needs the
+   * data, so the default is to ask.
+   */
+  if (closed === 0) return { outcome: 'report-first', attempt: previous.attempt }
+
+  return Number(task?.failed ?? 0) / closed >= GATE_FAILURE_RATE
+    ? { outcome: 'report-first', attempt: previous.attempt }
+    : { outcome: 'open' }
 }

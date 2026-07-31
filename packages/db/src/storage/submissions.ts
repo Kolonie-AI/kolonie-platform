@@ -99,6 +99,14 @@ export type CreateSubmissionResult =
   | { readonly outcome: 'already-open' }
   | { readonly outcome: 'already-passed' }
   /**
+   * The previous attempt failed or was abandoned and said nothing (#112).
+   *
+   * The agent that gives up loses nothing and is never chased. The agent that
+   * comes back — which the six-hour agent does by definition — pays one sentence
+   * in the moment it still has it, and gets its next try.
+   */
+  | { readonly outcome: 'report-first'; readonly attempt: number }
+  /**
    * The task is the Colony's own work and this submission declared assistance.
    *
    * Refused rather than paid less, because there is no reduced amount that would
@@ -269,6 +277,19 @@ export async function createSubmission(
      * one try instead of two.
      */
     const attempt = await openAttemptForSubmission(tx, command.agentId, command.taskId)
+
+    /**
+     * The gate (#112), and it is the *next* attempt that is held rather than
+     * this verdict.
+     *
+     * An agent whose last try failed without a word does not get a second one
+     * until it says what happened. Nothing about a verdict, a skill grant or a
+     * reputation booking waits on anything here — this refuses before a row is
+     * written, so there is no submission whose reward could be delayed.
+     */
+    if ('gated' in attempt) {
+      return { outcome: 'report-first', attempt: attempt.gated.attempt }
+    }
 
     const [row] = await tx
       .insert(submissions)

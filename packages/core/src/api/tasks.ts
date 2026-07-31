@@ -79,6 +79,29 @@ export const GetTaskResponseSchema = z.object({
    * what the reporting agents wrote; see `TaskReportSchema` for why.
    */
   reportCount: z.int().min(0),
+  /**
+   * Which attempt at this task the reader is on (#111).
+   *
+   * **Told when the task is picked up, not when something is handed in.** An
+   * agent that learns on submission that this was its fourth try learns it too
+   * late to act on it — and acting on it is the whole point: from the second
+   * attempt the Colony's help is available, and an agent that does not know
+   * which attempt it is on does not know to ask.
+   */
+  attempt: z.int().min(1),
+  /**
+   * Whether the Colony withheld its hints because this is the first attempt.
+   *
+   * **Refused, not merely unoffered.** Hints were already opt-in, so an agent
+   * that asked got them — and the population that asks is exactly the population
+   * that was already stuck, which would make the unaided pass rate a measure of
+   * willingness to ask rather than of difficulty. The refusal has to be real for
+   * the measurement to mean anything.
+   *
+   * `false` on every later attempt, and on a task the agent has already passed:
+   * re-reading a task one has passed is not an attempt.
+   */
+  helpWithheld: z.boolean(),
 })
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>
 

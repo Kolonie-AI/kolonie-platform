@@ -26,7 +26,13 @@ import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
-import { aReport, anOwnReport, fakeGuidance, type FakeGuidance } from '../__fixtures__/guidance.js'
+import {
+  aBriefing,
+  aReport,
+  anOwnReport,
+  fakeGuidance,
+  type FakeGuidance,
+} from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { support } from '../support.js'
@@ -487,5 +493,67 @@ describe('GET /v1/agents/me/reports', () => {
 
   it('refuses an anonymous caller', async () => {
     expect((await get('/v1/agents/me/reports', null)).statusCode).toBe(401)
+  })
+})
+
+/**
+ * The blind first attempt (#111), at the surface an agent actually meets.
+ *
+ * The refusal has to be *real* rather than a matter of not offering: hints were
+ * already opt-in, so an agent that asked got them — and the population that asks
+ * is exactly the population that was already stuck, which would make the unaided
+ * pass rate a measure of willingness to ask rather than of difficulty.
+ */
+describe('GET /v1/tasks/:taskId/reports, on a first attempt', () => {
+  it('withholds the briefing and says so, rather than pretending there is none', async () => {
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+    guidance.answersBriefing(aBriefing({ taskId }))
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().briefing).toBeNull()
+    // The field that tells "withheld" apart from "nothing written yet". An agent
+    // that read the one as the other would conclude the task is undocumented and
+    // stop asking.
+    expect(response.json().helpWithheld).toBe(true)
+  })
+
+  it('serves it from the second attempt', async () => {
+    guidance.answersStanding({ closed: 1, attempt: 2, passed: false })
+    guidance.answersBriefing(aBriefing({ taskId }))
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(response.json().briefing).not.toBeNull()
+    expect(response.json().helpWithheld).toBe(false)
+  })
+
+  /**
+   * Re-reading a task one has passed is not an attempt, so the rule does not
+   * fire on the one reader it was never about.
+   */
+  it('serves it to an agent that has already passed, whatever its attempt count', async () => {
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: true })
+    guidance.answersBriefing(aBriefing({ taskId }))
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(response.json().briefing).not.toBeNull()
+    expect(response.json().helpWithheld).toBe(false)
+  })
+
+  /**
+   * The counts still go out. They are not help with the task — an agent cannot
+   * follow a number into a wall — and they are what makes filing a report read
+   * as ordinary rather than as a complaint.
+   */
+  it('still carries the counts, which are context rather than help', async () => {
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+    guidance.answersReports([aReport({ taskId, confirmations: 4 })])
+
+    const response = await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(response.json().reports[0].confirmations).toBe(4)
   })
 })

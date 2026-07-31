@@ -9,7 +9,7 @@ import {
   type TaskBriefing,
   type TaskReport,
 } from '@kolonie-ai/core'
-import type { VoteReportResult, WriteReportResult } from '@kolonie-ai/db'
+import type { AttemptStanding, VoteReportResult, WriteReportResult } from '@kolonie-ai/db'
 import type { GuidanceRead, GuidanceWrite, TaskGuidance } from '../guidance.js'
 
 /**
@@ -54,6 +54,15 @@ export interface FakeGuidance extends TaskGuidance {
   /** What `GET /v1/tasks/:taskId` is told about how many reports a task has. */
   readonly answersReportCount: (count: number) => void
   /**
+   * Where the caller stands on the task (#111).
+   *
+   * Defaults to a *second* attempt, so a test that says nothing about the
+   * standing asserts the ordinary aided path. The blind first attempt is the
+   * special case and the tests about it say so — a default of attempt 1 would
+   * silently withhold help in every test that forgot.
+   */
+  readonly answersStanding: (standing: AttemptStanding) => void
+  /**
    * What the task-scoped reads serve as the Colony's write-up (#85).
    *
    * `undefined` by default, which is the state of every task before the
@@ -74,6 +83,7 @@ export function fakeGuidance(): FakeGuidance {
   let voteOutcome: VoteReportResult['outcome'] = 'recorded'
   let ownReports: readonly OwnReport[] = []
   let reportCount = 0
+  let standing: AttemptStanding = { closed: 1, attempt: 2, passed: false }
   let briefing: TaskBriefing | undefined
 
   /** The configured answer as a refusal, or null when the write succeeds. */
@@ -102,6 +112,7 @@ export function fakeGuidance(): FakeGuidance {
     voteReport: async (_input) => ({ outcome: voteOutcome }),
     listOwnReports: async () => ownReports,
     countReports: async () => reportCount,
+    standing: async () => standing,
     briefing: async () => briefing,
     writes: () => [...writes],
     lastWrite: () => writes.at(-1),
@@ -121,6 +132,9 @@ export function fakeGuidance(): FakeGuidance {
     },
     answersReportCount: (count) => {
       reportCount = count
+    },
+    answersStanding: (next) => {
+      standing = next
     },
     answersBriefing: (next) => {
       briefing = next

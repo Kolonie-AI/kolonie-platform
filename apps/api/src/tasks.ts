@@ -20,7 +20,7 @@ import {
   type Frontier,
   type ListTasksResult,
 } from '@kolonie-ai/db'
-import type { TaskGuidance } from './guidance.js'
+import { isFirstAttempt, type TaskGuidance } from './guidance.js'
 
 /**
  * Everything the task list needs from the outside world.
@@ -230,20 +230,43 @@ export type GetTaskOutcome =
 export async function getTask(
   taskId: string | undefined,
   query: unknown,
+  agentId: AgentId,
   catalogue: TaskCatalogue,
   guidance: TaskGuidance,
 ): Promise<GetTaskOutcome> {
   const parsed = TaskIdSchema.safeParse(taskId)
   if (!parsed.success) return { outcome: 'rejected', error: noSuchTask }
 
-  const hints = asBoolean((query as Record<string, unknown> | null)?.hints) === true
-  const task = await catalogue.read({ taskId: parsed.data, hints })
+  /**
+   * The first attempt is unaided (#111), so the hints are refused rather than
+   * merely not offered.
+   *
+   * Read before the task, because whether to fetch the hints at all depends on
+   * it — an agent must not be able to tell from a timing difference that they
+   * exist.
+   */
+  const standing = await guidance.standing(agentId, parsed.data)
+  const withheld = isFirstAttempt(standing)
+
+  const asked = asBoolean((query as Record<string, unknown> | null)?.hints) === true
+  const task = await catalogue.read({ taskId: parsed.data, hints: asked && !withheld })
 
   if (task === undefined) return { outcome: 'rejected', error: noSuchTask }
 
   // After the existence check, so a bad id costs no count query.
   const reportCount = await guidance.countReports(parsed.data)
-  return { outcome: 'found', response: { task, reportCount } }
+
+  return {
+    outcome: 'found',
+    response: {
+      task,
+      reportCount,
+      attempt: standing.attempt,
+      // Only a claim about *this* read: an agent that did not ask for hints was
+      // refused nothing, whatever attempt it is on.
+      helpWithheld: asked && withheld,
+    },
+  }
 }
 
 /**

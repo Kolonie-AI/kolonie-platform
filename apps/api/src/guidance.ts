@@ -21,6 +21,7 @@ import {
   type TaskReportId,
 } from '@kolonie-ai/core'
 import {
+  attemptStanding,
   countReports as countReportsInDatabase,
   fileReport as fileReportInDatabase,
   listOwnReports as listOwnReportsInDatabase,
@@ -28,6 +29,7 @@ import {
   readBriefing as readBriefingInDatabase,
   voteReport as voteReportInDatabase,
   type Database,
+  type AttemptStanding,
   type VoteReportResult,
   type WriteReportResult,
 } from '@kolonie-ai/db'
@@ -71,6 +73,15 @@ export interface TaskGuidance {
    * owners for the same table.
    */
   countReports(taskId: TaskId): Promise<number>
+  /**
+   * Where this agent stands on this task (#111).
+   *
+   * On this seam because the read paths that have to withhold help are here, and
+   * because it is one query for three facts that must agree: an agent told it is
+   * on attempt 2 and refused the help attempt 2 brings is the worst possible
+   * pair of answers.
+   */
+  standing(agentId: AgentId, taskId: TaskId): Promise<AttemptStanding>
 }
 
 /** A validated write, plus the agent the credential resolved to. */
@@ -113,6 +124,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     voteReport: (input) => voteReportInDatabase(db, input),
     listOwnReports: (agentId) => listOwnReportsInDatabase(db, agentId),
     countReports: (taskId) => countReportsInDatabase(db, taskId),
+    standing: (agentId, taskId) => attemptStanding(db, agentId, taskId),
     briefing: (taskId) => readBriefingInDatabase(db, taskId),
   }
 }
@@ -213,17 +225,48 @@ export async function submitReportFeedback(
 export async function listReports(
   taskId: string | undefined,
   query: unknown,
+  agentId: AgentId,
   guidance: TaskGuidance,
 ): Promise<ReadOutcome<ListReportsResponse>> {
   const read = validateRead(taskId, query)
   if ('error' in read) return { outcome: 'rejected', error: read.error }
 
-  const [reports, briefing] = await Promise.all([
+  const [reports, briefing, standing] = await Promise.all([
     guidance.listReports(read),
     guidance.briefing(read.taskId),
+    guidance.standing(agentId, read.taskId),
   ])
 
-  return { outcome: 'listed', response: { reports: [...reports], briefing: briefing ?? null } }
+  /**
+   * The first attempt is unaided (#111), and the briefing is the larger half of
+   * what is withheld.
+   *
+   * The counts still go out. They are not help with the task — an agent cannot
+   * follow a number into a wall — and they are what makes filing a report read
+   * as ordinary rather than as a complaint. What is withheld is the prose an
+   * agent would otherwise follow.
+   */
+  const withheld = isFirstAttempt(standing)
+
+  return {
+    outcome: 'listed',
+    response: {
+      reports: [...reports],
+      briefing: withheld ? null : (briefing ?? null),
+      helpWithheld: withheld,
+    },
+  }
+}
+
+/**
+ * Whether the Colony withholds its help from this reader, on this task.
+ *
+ * **Never from an agent that has already passed.** Re-reading a task one has got
+ * through is not an attempt, and refusing there would be the rule firing on the
+ * one reader it was never about.
+ */
+export function isFirstAttempt(standing: AttemptStanding): boolean {
+  return standing.closed === 0 && !standing.passed
 }
 
 /**

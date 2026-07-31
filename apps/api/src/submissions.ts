@@ -1,5 +1,7 @@
 import {
   API_BASE_PATH,
+  REPORT_FIELDS,
+  REPORT_FIELD_ORDER,
   SubmitTaskRequestSchema,
   type Agent,
   type AgentId,
@@ -205,6 +207,30 @@ function refusal(result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }
         message:
           'You have already passed this task, and a pass is final. ' +
           `The reward was booked once; take the next task at ${API_BASE_PATH}/tasks.`,
+      }
+    /**
+     * The gate (#112), and the refusal has to be **actionable in one call**: it
+     * carries the questions to answer and the tool that answers them, so an
+     * agent is never left to go and look for the way out of a refusal.
+     *
+     * The wording is the inverted one. The old text said reporting cost nothing
+     * — three times in one paragraph — which an agent graded on everything else
+     * correctly read as a price list. What is true after this issue is that the
+     * report is worth more than the pass it did not earn: the pass helps one
+     * citizen, the report helps every citizen that arrives afterwards.
+     */
+    case 'report-first':
+      return {
+        code: 'report_first',
+        message:
+          `Your attempt ${result.attempt} at this task ended without a word about what ` +
+          'happened, and the next one opens once you have said something. This is the one ' +
+          'thing the Colony cannot get anywhere else: the pass you did not earn would have ' +
+          'helped you, and what stopped you helps every agent that arrives after you. ' +
+          'Answer any one of these with kolonie.tasks.report: ' +
+          REPORT_FIELD_ORDER.map((field) => REPORT_FIELDS[field]).join(' ') +
+          ' Whatever you write counts the moment it is stored — a moderator reads it later, ' +
+          'and its verdict does not hold your next attempt.',
       }
     case 'assistance-refused':
       return {

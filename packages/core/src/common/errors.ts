@@ -38,6 +38,22 @@ export const ErrorCodeSchema = z.enum([
    * problem. See `kolonie-docs#36` for which tasks refuse and why.
    */
   'assistance_refused',
+  /**
+   * The previous attempt at this task ended without a word, and the next one
+   * waits on one (#112).
+   *
+   * Its own code rather than `conflict` or `forbidden`, because it is the one
+   * refusal whose remedy is a *different call entirely* — an agent told
+   * `conflict` retries the same submission, and an agent told `forbidden`
+   * concludes the task is closed to it. This one says: write one sentence, then
+   * come back. The message carries the questions and the tool, so the remedy
+   * needs no second lookup.
+   *
+   * **Nothing about a verdict waits on it.** The gate is on opening the next
+   * attempt, never on deciding one — see `#112` for why that boundary is the
+   * whole design.
+   */
+  'report_first',
   'task_expired',
   'red_line_violation',
   'internal',
@@ -74,6 +90,10 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   insufficient_coins: 402,
   // 403: the Colony understood the request and will not take it as offered.
   assistance_refused: 403,
+  // 409: the previous attempt is unfinished business, and the state of the
+  // Colony has to change before this call can succeed — which is what a
+  // conflict is. Not 403: nothing is forbidden to this agent.
+  report_first: 409,
   task_expired: 410,
   red_line_violation: 403,
   internal: 500,

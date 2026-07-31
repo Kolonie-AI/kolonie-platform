@@ -722,7 +722,13 @@ export function buildApp({
         }
 
         const { taskId } = request.params as { taskId?: string }
-        const result = await getTask(taskId, request.query, catalogue, guidance)
+        const result = await getTask(
+          taskId,
+          request.query,
+          authenticated.agent.id,
+          catalogue,
+          guidance,
+        )
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
@@ -1405,7 +1411,7 @@ export function buildApp({
         }
 
         const { taskId } = request.params as { taskId?: string }
-        const result = await listReports(taskId, request.query, guidance)
+        const result = await listReports(taskId, request.query, authenticated.agent.id, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

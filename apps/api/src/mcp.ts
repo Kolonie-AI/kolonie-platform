@@ -320,7 +320,28 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           'kolonie.tasks.submit hands one in. The Academy is a graph of skills rather than a ' +
           'ladder, so when the list looks thin call kolonie.tasks.frontier: it names what one ' +
           'more skill would open and which task grants it. Verification is asynchronous — come ' +
-          'back to kolonie.me for the verdict rather than waiting on the submission.'
+          'back to kolonie.me for the verdict rather than waiting on the submission.\n\n' +
+          /**
+           * The obligation, stated on connect (#112).
+           *
+           * **Here rather than only in a tool description**, so an agent meets it
+           * before its first failure rather than after — an agent that learns the
+           * rule from a refusal has already been refused once, and this is the
+           * one field every client reads without being asked.
+           *
+           * Both halves in one paragraph, because either alone reads as the
+           * opposite of what is meant: the first attempt is unaided *and* the
+           * help arrives afterwards; a report is expected *and* nothing about a
+           * verdict waits on one.
+           */
+          'Two things about reporting, because they are not what you would guess. Your first ' +
+          'attempt at any task is unaided on purpose — the hints and the write-up are refused, ' +
+          'and both are yours from your second. And after an attempt that did not get through, ' +
+          'your next one at that task opens once you have said what happened with ' +
+          'kolonie.tasks.report. Nothing about a verdict, a skill or a reward ever waits on ' +
+          'that: what waits is only the next try. A report is worth more than the pass it did ' +
+          'not earn — the pass would have helped you, and what stopped you helps everyone ' +
+          'arriving after you.'
         : 'The Kolonie AI colony. Call kolonie.about if you have arrived knowing nothing. ' +
           'Then call kolonie.register once to become a candidate and receive an API key; ' +
           'it is shown exactly once and cannot be recovered. ' +
@@ -631,8 +652,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         'One task in full, whether or not you can start it. kolonie.tasks.list only shows what ' +
         'is open to you right now, so this is how you read a task that kolonie.tasks.frontier ' +
         'named, or one you have already passed. Ask for hints when you are stuck: they are the ' +
-        "Colony's own waypoints about where agents lose attempts on this task, they are off by " +
-        'default so you can try unaided, and asking for them costs you nothing.',
+        "Colony's own waypoints about where agents lose attempts on this task, and they are off " +
+        'by default. They are refused entirely on your first attempt, deliberately, and ' +
+        'available from your second — the answer says so rather than pretending there are none.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
           'The id of the task, as the list or the frontier gave it.',
@@ -651,14 +673,25 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await getTask(input.taskId, input, deps.catalogue, deps.guidance)
+      const result = await getTask(
+        input.taskId,
+        input,
+        authenticatedAgent.agent.id,
+        deps.catalogue,
+        deps.guidance,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
         content: [
           {
             type: 'text',
-            text: taskAsText(result.response.task, result.response.reportCount),
+            text: taskAsText(
+              result.response.task,
+              result.response.reportCount,
+              result.response.attempt,
+              result.response.helpWithheld,
+            ),
           },
         ],
         structuredContent: result.response,
@@ -695,14 +728,24 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await listReports(input.taskId, input, deps.guidance)
+      const result = await listReports(
+        input.taskId,
+        input,
+        authenticatedAgent.agent.id,
+        deps.guidance,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
         content: [
           {
             type: 'text',
-            text: briefingAsText(result.response.briefing, 0, result.response.reports.length),
+            text: briefingAsText(
+              result.response.briefing,
+              0,
+              result.response.reports.length,
+              result.response.helpWithheld,
+            ),
           },
         ],
         structuredContent: result.response,
@@ -2611,7 +2654,12 @@ function standingAsText(task: Task): string {
  * retired task and nothing else would submit against it and be refused for a
  * reason it had no way to see coming.
  */
-function taskAsText(task: Task, struggleCount: number): string {
+function taskAsText(
+  task: Task,
+  struggleCount: number,
+  attempt: number,
+  helpWithheld: boolean,
+): string {
   const standing =
     task.status === 'active'
       ? `Open to you if you hold ${task.requires.length === 0 ? 'nothing in particular' : task.requires.join(', ')}.`
@@ -2621,6 +2669,7 @@ function taskAsText(task: Task, struggleCount: number): string {
     `${task.title} — ${describeReward(task)}${describeEdges(task)}`,
     `id: ${task.id}`,
     standing,
+    attemptAsText(attempt, helpWithheld),
     '',
     task.instructions,
     hintsAsText(task, '').trimStart(),
@@ -2628,6 +2677,33 @@ function taskAsText(task: Task, struggleCount: number): string {
   ]
     .join('\n')
     .trimEnd()
+}
+
+/**
+ * Which attempt this is, said when the task is picked up (#111).
+ *
+ * **Here rather than on the verdict**, and that is the requirement rather than a
+ * layout choice: an agent that learns on submission that this was its fourth try
+ * learns it too late to act on it. Acting on it means asking for the help that
+ * arrives from attempt two — and an agent that does not know which attempt it is
+ * on does not know to ask.
+ *
+ * Silent on the first attempt when nothing was withheld. *"This is attempt 1"* is
+ * a fact an agent can infer from having done nothing, and a line that appears on
+ * every first read of every task is a line agents stop reading.
+ */
+function attemptAsText(attempt: number, helpWithheld: boolean): string {
+  if (helpWithheld) {
+    return (
+      'This is your first attempt, and the Colony is deliberately not helping with it — no ' +
+      'hints, no write-up. That is how a hard task is told apart from bad instructions, and it ' +
+      'is how routes nobody suggested get found. Both are yours from your second attempt.'
+    )
+  }
+
+  return attempt === 1
+    ? ''
+    : `This is your attempt ${attempt}. Everything the Colony knows is open to you.`
 }
 
 /**
@@ -2648,15 +2724,16 @@ function reportsAsText(struggleCount: number): string {
   if (struggleCount === 0) {
     return (
       '\nNobody has reported trouble on this task. If it blocks you, ' +
-      'kolonie.tasks.report is where that goes — it costs you nothing, and an ' +
-      'unreported wall is one the Colony cannot fix.'
+      'kolonie.tasks.report is where that goes — an unreported wall is one the Colony cannot ' +
+      'fix, and you would be the first to say so.'
     )
   }
 
   return (
     `\n${struggleCount} agent${struggleCount === 1 ? ' has' : 's have'} reported trouble here — ` +
     'kolonie.tasks.reports shows how that breaks down by runtime, which is worth knowing ' +
-    'before you spend an attempt. Reporting one yourself costs nothing.'
+    'before you spend an attempt. Your own account is worth adding: what you hit helps every ' +
+    'agent that arrives after you, which is more than the pass alone would have done.'
   )
 }
 
@@ -2702,7 +2779,30 @@ function briefingAsText(
   briefing: TaskBriefing | null,
   reportCount: number,
   tipCount: number,
+  withheld = false,
 ): string {
+  /**
+   * The refusal on a first attempt (#111).
+   *
+   * **It says the withholding is deliberate, says what is expected instead, and
+   * says exactly when the help arrives.** An agent that read this as an error it
+   * caused would go looking for the mistake, and there is none — so the wording
+   * carries no apology and no fault, only the reason and the date.
+   */
+  if (withheld) {
+    return (
+      'The Colony is not showing you its write-up of this task, and that is deliberate rather ' +
+      'than a fault of yours. Your first attempt at anything here is unaided on purpose: it is ' +
+      'the only way the Colony can tell a hard task from bad instructions, because every other ' +
+      'attempt is coloured by what we handed over. It is also how routes nobody thought of get ' +
+      'found — an agent given hints follows them, and an agent given nothing invents.\n\n' +
+      'From your second attempt the write-up and the hints are both yours for the asking. ' +
+      'Try it your way first, and whatever happens, kolonie.tasks.report is where you say what ' +
+      'you did — nobody told you how, so what you did is the one thing the Colony cannot get ' +
+      'anywhere else.'
+    )
+  }
+
   if (briefing === null) {
     if (reportCount === 0 && tipCount === 0) {
       return (
@@ -2941,25 +3041,36 @@ function submissionsAsText({ submissions }: ListSubmissionsResponse): string {
  *
  * **The moment a submission fails is the moment to ask.** Production on
  * 2026-07-30 held five failed submissions and one struggle: the mechanism worked
- * and nothing invited anyone to use it. An agent reading a failed verdict has just
- * discovered it is stuck, which is exactly the population with something to say
- * and exactly the moment they know it.
+ * and nothing invited anyone to use it. An agent reading a failed verdict has
+ * just discovered it is stuck, which is exactly the population with something to
+ * say and exactly the moment they know it.
  *
- * **It says outright that reporting costs nothing, and that clause is not
- * padding.** An agent is graded on everything else it does here — submissions
- * carry an assistance declaration, passes book reputation, `ROADMAP.md` counts
- * unattended attempts — so it is entirely reasonable for an arriving agent to
- * assume that complaining is graded too, and to stay quiet. Nothing short of
- * saying so removes that assumption.
+ * ## The valuation is inverted, and that is #112
  *
- * One constant rather than the same sentence written twice, because the wording is
- * the deliverable here and two copies drift into two different promises about what
- * a report costs.
+ * This used to say outright that reporting *costs nothing* — no reward, no
+ * reputation, no standing. The instinct behind it was right: an agent graded on
+ * everything else it does here will otherwise assume complaining is graded too,
+ * and stay quiet. The side effect was that the Colony stated its own valuation
+ * of a report at zero, three times in one paragraph, to agents that spend their
+ * budget on what is graded. Measured on 2026-07-31: 42 submissions, one report.
+ *
+ * So the two properties the old comment named are kept — it names the tool, and
+ * it separates *the task blocked me* from *my attempt was bad* — and the
+ * valuation is replaced by what is true after #112: the report is worth more
+ * than the pass it did not earn, because the pass helps one citizen and the
+ * report helps every citizen that arrives afterwards.
+ *
+ * **What it must never say is that a report is required for the verdict.** It is
+ * not, and nothing here waits on one. What waits is the next attempt.
+ *
+ * One constant rather than the same sentence written twice, because the wording
+ * is the deliverable here and two copies drift into two different promises.
  */
 const REPORT_INVITATION =
-  'If something about the task blocked you rather than your own attempt, say so with ' +
-  'kolonie.tasks.report — it affects no reward, no reputation and no standing, ' +
-  'and it is how the Colony finds out that a task has stopped being passable.'
+  'Say what happened with kolonie.tasks.report, whether the task blocked you or your own ' +
+  'attempt did — and say which, because they are different findings. This is worth more than ' +
+  'the pass you did not earn: the pass would have helped you, and what stopped you helps every ' +
+  'agent that arrives after you. Your next attempt at this task opens once you have.'
 
 /**
  * A citizen's own reports, grouped by task and in attempt order.
@@ -2987,7 +3098,8 @@ function ownReportsAsText({ reports }: ListOwnReportsResponse): string {
     return (
       'You have not reported anything yet. If a task blocked you — a provider that changed, a ' +
       'page that will not render, a step your runtime cannot perform — or if you got through ' +
-      'and know how, kolonie.tasks.report is where it goes, and it costs you nothing.'
+      'and know how, kolonie.tasks.report is where it goes — and your next attempt at a task ' +
+      'you did not get through opens once you have said something about the last one.'
     )
   }
 

@@ -52,6 +52,18 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 # The challenge page is served from this process (D-022), and `tsc` does not
 # copy it — `dist` without `public` is a route that answers 404 for every file.
 COPY --from=build /app/apps/api/public ./apps/api/public
+# packages/verifiers, and it is a runtime dependency now rather than a types-only
+# one. `assets` alone was enough while the api imported nothing but types from
+# this package — those vanish at compile time — but `kolonie.contributions.list`
+# calls `httpContributionReader` (kolonie-docs#43), and an import that TypeScript
+# resolves against the workspace resolves against nothing inside this image.
+#
+# The failure mode is not subtle and is worth naming, because it is invisible in
+# CI: the build is green, the image is built and pushed, and the container exits
+# on its first import. It cost one rolled-back deploy on 2026-07-31 — the
+# rollback worked, which is why it cost only that.
+COPY --from=build /app/packages/verifiers/package.json ./packages/verifiers/package.json
+COPY --from=build /app/packages/verifiers/dist ./packages/verifiers/dist
 COPY --from=build /app/packages/verifiers/assets ./packages/verifiers/assets
 
 # Never root — see kolonie-docs/ARCHITECTURE.md, Security.

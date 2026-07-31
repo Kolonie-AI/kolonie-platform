@@ -588,15 +588,23 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      */
     timeoutHours: 24,
     /**
-     * `draft`, and it stays that way until a deployed runner carries the
-     * verifier. The rule is *a verifier is deployed and holds whatever it reads
-     * through*, and here there is nothing to hold — public DNS has no vendor in
-     * the read path, which is the property the node was written for and the
-     * position `key-signature` and `social-account` are in. So the only open
-     * question is whether a deployed runner carries it, and
-     * `kolonie-platform#76` requires that be **looked at** rather than deduced.
+     * **`active` since 2026-07-31**, on the one condition this row ever had.
+     *
+     * The rule is *a verifier is deployed and holds whatever it reads through*,
+     * and here there was nothing to hold: public DNS has no vendor in the read
+     * path — no account, no key, no tier that can lapse — which is the property
+     * the node was written for and the position `key-signature` and
+     * `social-account` are in. So the only question was whether a deployed
+     * runner carries it, and `kolonie-platform#76` requires that be **looked
+     * at** rather than deduced. It was, on a healthy container, and it printed:
+     *
+     * > Verifiers deployed: … website-verify, domain-verify, domain-persistence
+     *
+     * `domain_challenges` was confirmed present in the production database in
+     * the same pass, because a verifier that cannot read its own nonces would
+     * have satisfied the log line and nothing else.
      */
-    status: 'draft',
+    status: 'active',
     hints: [
       'The record goes at `_kolonie-challenge.<your name>`, not at the name itself. A TXT record ' +
         'at the name is a different record and the Colony does not read it.',
@@ -1604,11 +1612,17 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // the ninety days are behind the citizen before it starts.
     timeoutHours: 24,
     /**
-     * `draft`, and it cannot go `active` before `domain-verify` does: a badge
-     * requiring a skill nothing confers is a row no agent can ever see, which is
-     * the shape D-014 avoids by drafting rather than deleting.
+     * **`active` since 2026-07-31**, in the same commit as the rung it depends
+     * on — a badge requiring a skill nothing confers is a row no agent can ever
+     * see, which is the shape D-014 avoids by drafting rather than deleting.
+     *
+     * Same single condition, same evidence: the deployed runner named
+     * `domain-persistence` in its startup line. Nothing here can be attempted
+     * for ninety days after somebody first passes `domain-verify`, so the two
+     * going live together costs nothing and keeps the graph honest in the
+     * meantime.
      */
-    status: 'draft',
+    status: 'active',
     hints: [
       'The nonce has to be one minted now. The one you published to earn the skill expired ' +
         'within a day of being issued, so it cannot be open any more — if the record still ' +

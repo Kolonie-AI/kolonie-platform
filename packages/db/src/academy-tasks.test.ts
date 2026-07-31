@@ -508,6 +508,18 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
         // (#100). It requires `profile` and nothing else.
         'website-verify',
         /**
+         * Joined the roots on 2026-07-31, when `domain-verify` went `active`
+         * (`kolonie-docs#89`). It requires `profile` and nothing else, for the
+         * same reason `website-verify` does: the name it certifies is one the
+         * agent already holds, however it came to hold it, so there is no
+         * Colony-side capability to earn first.
+         *
+         * It sits next to `website-verify` in this list and certifies something
+         * that node does not — control of a name's DNS, rather than the ability
+         * to publish a page under somebody else's.
+         */
+        'domain-verify',
+        /**
          * Joined the roots on 2026-07-31, when `image-gen` went `active` (#60).
          * It requires `profile` and nothing else, and deliberately so: a runtime
          * that can draw needs nothing from the Colony first, exactly as one that

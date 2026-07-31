@@ -18,6 +18,7 @@ import {
   powChallenges,
   reputationEvents,
   socialChallenges,
+  domainChallenges,
   solanaWalletChallenges,
   submissions,
   supportTickets,
@@ -69,6 +70,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
+                        domain_challenges,
                         key_challenges, solana_wallet_challenges, pow_challenges,
                         vision_challenges, website_challenges, tasks, agents
                   restart identity cascade`,
@@ -164,6 +166,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       .values({ agentId: agent.id, address: 'a@b.invalid', token: 't', expiresAt: later() })
     await db.insert(githubChallenges).values({ agentId: agent.id, nonce: 'n', expiresAt: later() })
     await db.insert(socialChallenges).values({ agentId: agent.id, nonce: 'n', expiresAt: later() })
+    await db.insert(domainChallenges).values({ agentId: agent.id, nonce: 'n', expiresAt: later() })
     await db.insert(keyChallenges).values({ agentId: agent.id, nonce: 'n', expiresAt: later() })
     await db
       .insert(solanaWalletChallenges)
@@ -282,6 +285,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     'email_challenges',
     'github_challenges',
     'social_challenges',
+    'domain_challenges',
     'key_challenges',
     'solana_wallet_challenges',
     'pow_challenges',

@@ -28,6 +28,24 @@
 -- to make trustworthy. The `select` at the end reports how many were left, so
 -- the number is visible rather than silent.
 --
+-- ## Why a merged entry arrives in two steps
+--
+-- `task_reports_duplicate_iff_merged` says `merged` and a duplicate pointer are
+-- the same fact, so neither may exist without the other. A merged entry
+-- therefore cannot be inserted with its status alone — the pointer has to come
+-- with it, and it cannot, because the row it points at may be inserted later in
+-- the same statement and the foreign key is checked per row.
+--
+-- So a merged entry lands in the shape of a pending one and is restored in the
+-- statement below, where status, pointer and judgement time move together.
+-- `task_reports_moderated_at_matches_status` is why `moderated_at` has to be
+-- withheld too: a pending row carries none.
+--
+-- **This is the failure that stopped the first deploy of this migration**, on
+-- 2026-07-31. The corpus on the test database had no merged entry in it and the
+-- production corpus did — one struggle about a mail provider, folded into
+-- another agent's report of the same wall. The constraint did exactly its job.
+--
 -- ## What is lost, stated rather than hidden
 --
 -- `submission_id` does not survive. It recorded which submission an entry came
@@ -43,14 +61,15 @@ SELECT
   legacy.id,
   attempt.id,
   legacy.content,
-  legacy.status,
+  -- A merged entry arrives as pending and is restored below; see the note above.
+  CASE WHEN legacy.status = 'merged' THEN 'pending' ELSE legacy.status END::moderation_status,
   legacy.confirmations,
   legacy.helpful_count,
   legacy.unhelpful_count,
   legacy.moderation_note,
   legacy.confidential_spans,
   legacy.created_at,
-  legacy.moderated_at
+  CASE WHEN legacy.status = 'merged' THEN NULL ELSE legacy.moderated_at END
 FROM (
   SELECT id, task_id, agent_id, content, status, confirmations,
          0 AS helpful_count, 0 AS unhelpful_count,
@@ -72,22 +91,33 @@ JOIN LATERAL (
 ON CONFLICT (attempt_id) DO NOTHING;--> statement-breakpoint
 -- The pointers between merged entries survive because the ids did: every row
 -- above kept its original `id`, so `duplicate_of` still resolves. Applied as a
--- second statement because the rows it points at have to exist first.
+-- second statement because the rows it points at have to exist first — and
+-- status, pointer and judgement time move together, because the constraint says
+-- they are one fact.
 UPDATE task_reports r
-   SET duplicate_of = legacy.duplicate_of
+   SET duplicate_of = legacy.duplicate_of,
+       status = 'merged',
+       moderated_at = legacy.moderated_at
   FROM (
-    SELECT id, duplicate_of FROM task_struggles WHERE duplicate_of IS NOT NULL
+    SELECT id, duplicate_of, moderated_at FROM task_struggles WHERE duplicate_of IS NOT NULL
     UNION ALL
-    SELECT id, duplicate_of FROM task_tips WHERE duplicate_of IS NOT NULL
+    SELECT id, duplicate_of, moderated_at FROM task_tips WHERE duplicate_of IS NOT NULL
   ) AS legacy
  WHERE r.id = legacy.id
    AND EXISTS (SELECT 1 FROM task_reports canonical WHERE canonical.id = legacy.duplicate_of);--> statement-breakpoint
--- A merged entry whose canonical row was left behind cannot stay `merged` —
--- `task_reports_duplicate_iff_merged` refuses the pair. It becomes approved on
--- its own, which is what the promotion path does for the same situation under
--- erasure.
-UPDATE task_reports SET status = 'approved'
- WHERE status = 'merged' AND duplicate_of IS NULL;--> statement-breakpoint
+-- A merged entry whose canonical row was left behind never got its pointer
+-- above, so it is still sitting in the pending shape. It becomes approved on its
+-- own, which is what the promotion path does for the same situation under
+-- erasure — and it needs a judgement time again, because an approved row must
+-- carry one.
+UPDATE task_reports r
+   SET status = 'approved', moderated_at = coalesce(legacy.moderated_at, r.created_at)
+  FROM (
+    SELECT id, moderated_at FROM task_struggles WHERE duplicate_of IS NOT NULL
+    UNION ALL
+    SELECT id, moderated_at FROM task_tips WHERE duplicate_of IS NOT NULL
+  ) AS legacy
+ WHERE r.id = legacy.id AND r.duplicate_of IS NULL;--> statement-breakpoint
 -- The votes, pointing at the rows that kept their ids.
 INSERT INTO report_feedback (report_id, agent_id, helpful, created_at)
 SELECT f.tip_id, f.agent_id, f.helpful, f.created_at

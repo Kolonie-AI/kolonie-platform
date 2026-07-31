@@ -337,6 +337,13 @@
       "when": 1785513818700,
       "tag": "0047_windy_colleen_wing",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1785517710210,
+      "tag": "0048_gifted_wonder_man",
+      "breakpoints": true
     }
   ]
 }

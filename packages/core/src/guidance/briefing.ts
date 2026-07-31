@@ -214,9 +214,31 @@ export const RECENT_REPORTS_IN_CONTEXT = 100
  */
 export function isCurrentClaim(
   claim: Pick<BriefingClaim, 'lastSupportedAt'>,
-  window: { readonly oldestCurrentAttempt: string | null; readonly now: string },
+  window: {
+    readonly oldestCurrentAttempt: string | null
+    readonly now: string
+    /**
+     * When the Colony last concluded the world moved under this task (#115).
+     *
+     * **It overrides both bounds, and it is the only thing that does.** The two
+     * bounds above answer *has this had a chance to be re-confirmed*, and silence
+     * is not refutation — which is right for a claim that is merely ageing. A
+     * detected provider change is not silence: it is positive evidence that the
+     * thing the claim describes has moved, and a wall that came down should leave
+     * the foreground now rather than in ninety days.
+     */
+    readonly changeDetectedAt?: string | null
+  },
 ): boolean {
   const supported = Date.parse(claim.lastSupportedAt)
+
+  if (
+    window.changeDetectedAt !== undefined &&
+    window.changeDetectedAt !== null &&
+    supported < Date.parse(window.changeDetectedAt)
+  ) {
+    return false
+  }
 
   if (window.oldestCurrentAttempt === null) return true
   if (supported >= Date.parse(window.oldestCurrentAttempt)) return true

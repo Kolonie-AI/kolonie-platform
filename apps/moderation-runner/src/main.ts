@@ -3,9 +3,11 @@ import {
   briefingCorpus,
   createDatabase,
   databaseUrlFromEnv,
+  detectProviderChange,
   pendingReports,
   readTaskTitle,
   recordModeration,
+  recordProviderChange,
   staleBriefings,
   writeBriefing,
 } from '@kolonie-ai/db'
@@ -13,10 +15,13 @@ import {
   BRIEFING_TICK_MULTIPLIER,
   startBriefingRunner,
   startRunner,
+  synthesiseNow,
   type BriefingStore,
   type Log,
   type ModerationStore,
 } from './loop.js'
+import type { TaskId } from '@kolonie-ai/core'
+import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
@@ -107,7 +112,28 @@ const briefings: BriefingStore = {
   write: (input) => writeBriefing(db, input),
 }
 
-const runner = startRunner({ store, model, log }, { pollIntervalMs: POLL_INTERVAL_MS })
+/**
+ * The provider-change tripwire (#115).
+ *
+ * `resynthesise` is the *immediate* half — one task's briefing rewritten now
+ * rather than on the slow tick, which is the whole reason this exists: the value
+ * of the update decays by the hour, and every agent arriving in the meantime is
+ * sent at the old wall with the old advice.
+ *
+ * It reuses `briefingTick`'s own machinery through the same store, so there is
+ * one path that turns a corpus into claims rather than two that could disagree
+ * about what a briefing is.
+ */
+const tripwire = {
+  detect: (taskId: TaskId) => detectProviderChange(db, taskId),
+  record: (taskId: TaskId) => recordProviderChange(db, taskId),
+  resynthesise: async (taskId: TaskId) => {
+    await synthesiseNow(briefings, model, taskId, log)
+  },
+  issues: githubIssues(process.env[TRIPWIRE_TOKEN_VAR], log),
+}
+
+const runner = startRunner({ store, model, log, tripwire }, { pollIntervalMs: POLL_INTERVAL_MS })
 const briefingRunner = startBriefingRunner(
   { store: briefings, model, log },
   { pollIntervalMs: BRIEFING_INTERVAL_MS },

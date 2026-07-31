@@ -18,7 +18,7 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { taskAttempts, taskBriefings, taskReports, tasks } from '../schema/index.js'
+import { agents, taskAttempts, taskBriefings, taskReports, tasks } from '../schema/index.js'
 import { capabilityDivides, latestDeclaredCapabilities } from './attempts.js'
 import { toTimestamp } from './rows.js'
 
@@ -249,6 +249,7 @@ export async function readBriefing(
       claims: taskBriefings.claims,
       model: taskBriefings.model,
       writtenAt: taskBriefings.writtenAt,
+      changeDetectedAt: taskBriefings.changeDetectedAt,
     })
     .from(taskBriefings)
     .where(eq(taskBriefings.taskId, taskId))
@@ -274,6 +275,14 @@ export async function readBriefing(
   const window = {
     oldestCurrentAttempt: await oldestCurrentAttempt(db, taskId),
     now: currentTime(),
+    /**
+     * The demotion line a detected provider change draws (#115).
+     *
+     * It overrides both recency bounds, because it is positive evidence rather
+     * than silence: a wall the provider has taken down should leave the
+     * foreground now, not in ninety days.
+     */
+    changeDetectedAt: row.changeDetectedAt,
   }
 
   return TaskBriefingSchema.parse({
@@ -439,4 +448,152 @@ export async function mostReportedWall(db: Database, taskId: TaskId): Promise<Na
 
   const wall = walls[0]
   return wall === undefined ? null : { text: wall.text, reports: wall.reports }
+}
+
+/**
+ * Whether the outside world appears to have moved under this task, and the
+ * evidence for it (#115).
+ *
+ * **The detector already exists and is doing this work for another purpose.**
+ * The dedup stage answers, per entry, *is this a restatement of something
+ * already reported, or something new?* Today that answer merges duplicates and
+ * raises a confirmation count. Read at the level of a task it is a change
+ * detector: a task that has been stable, suddenly collecting several reports the
+ * dedup stage calls distinct, is a task whose provider changed. No new model
+ * call, no new classifier — a query over verdicts the pipeline already writes.
+ *
+ * **It counts distinct agents, not rows**, which is the one thing that would
+ * have made it wrong. Since #110 an agent can hold several reports on a task, and
+ * three reports from one agent stuck on the same wall across three attempts are
+ * not a provider change — they are one agent's bad week. The merge path counts
+ * agents for exactly this reason and so does this.
+ *
+ * **A new task cannot trigger it.** Everything on a task nobody has reported on
+ * is distinct by definition, so the stability precondition has to be real: the
+ * task needs {@link CHANGE_STABILITY_ATTEMPTS} closed attempts behind it before
+ * a cluster means anything at all.
+ *
+ * **A cooldown, because a provider change produces reports for days.** The
+ * Colony should conclude it once; `change_detected_at` is both the anchor for
+ * that and the demotion line the conclusion draws.
+ */
+export interface ProviderChange {
+  readonly taskId: TaskId
+  /** Distinct agents whose reports the dedup stage judged new, inside the window. */
+  readonly reporters: number
+  readonly windowHours: number
+}
+
+/**
+ * How many distinct agents must independently report something new before the
+ * Colony concludes the world moved.
+ *
+ * **Three in 48 hours on a task with at least twenty closed attempts.** A
+ * reasonable starting position and not a measurement — said out loud here so the
+ * first false positive is an argument against a stated number rather than a
+ * mystery. Two would fire on a pair of agents hitting an ordinary intermittent
+ * failure; four would wait through most of a day of agents walking into a wall
+ * that is already known.
+ */
+export const CHANGE_DISTINCT_REPORTERS = 3
+
+/** The window those reporters must fall inside. See {@link CHANGE_DISTINCT_REPORTERS}. */
+export const CHANGE_WINDOW_HOURS = 48
+
+/**
+ * How much history a task needs before a cluster on it means anything.
+ *
+ * The stability precondition, and it has to be real: a detector that fires on
+ * every new task is a detector nobody reads. Twenty closed attempts is enough
+ * that *this task used to work* is a statement about evidence.
+ */
+export const CHANGE_STABILITY_ATTEMPTS = 20
+
+/**
+ * How long after concluding a change the Colony stays quiet about that task.
+ *
+ * Longer than the detection window on purpose. A change that is still producing
+ * distinct reports on day three is the same change, and the second conclusion
+ * would say nothing the first did not.
+ */
+export const CHANGE_COOLDOWN_HOURS = 24 * 14
+
+/**
+ * Look for a provider change on one task.
+ *
+ * Returns `null` far more often than not, which is the intended shape: this runs
+ * after moderation on whichever task was just judged, so its cost is one query
+ * per judged report and its answer is almost always *no*.
+ */
+export async function detectProviderChange(
+  db: Database,
+  taskId: TaskId,
+): Promise<ProviderChange | null> {
+  const [cooldown] = await db
+    .select({ changeDetectedAt: taskBriefings.changeDetectedAt })
+    .from(taskBriefings)
+    .where(eq(taskBriefings.taskId, taskId))
+    .limit(1)
+
+  if (cooldown?.changeDetectedAt != null) {
+    const hours = (Date.now() - Date.parse(toTimestamp(cooldown.changeDetectedAt))) / 3_600_000
+    if (hours < CHANGE_COOLDOWN_HOURS) return null
+  }
+
+  const [stability] = await db
+    .select({ closed: sql<number>`count(*)::int` })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.taskId, taskId), sql`${taskAttempts.outcome} is not null`))
+
+  if (Number(stability?.closed ?? 0) < CHANGE_STABILITY_ATTEMPTS) return null
+
+  /**
+   * `approved` is what *distinct* means here.
+   *
+   * The dedup stage merges a restatement and approves something new, so an
+   * approved row inside the window is precisely an entry it judged it had not
+   * seen before. Reading the stage's own verdict out of `moderations` would say
+   * the same thing one join further away and would miss an entry approved before
+   * the stage existed.
+   */
+  const [cluster] = await db
+    .select({ reporters: sql<number>`count(distinct ${taskAttempts.agentId})::int` })
+    .from(taskReports)
+    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+    .where(
+      and(
+        eq(taskAttempts.taskId, taskId),
+        eq(taskReports.status, 'approved'),
+        eq(agents.type, 'citizen'),
+        sql`${taskReports.createdAt} >= now() - make_interval(hours => ${CHANGE_WINDOW_HOURS})`,
+      ),
+    )
+
+  const reporters = Number(cluster?.reporters ?? 0)
+  if (reporters < CHANGE_DISTINCT_REPORTERS) return null
+
+  return { taskId, reporters, windowHours: CHANGE_WINDOW_HOURS }
+}
+
+/**
+ * Record that the Colony has concluded the world moved under this task.
+ *
+ * **One write does three things**, and they are one fact rather than three: it
+ * demotes every claim not confirmed since, it starts the cooldown, and it marks
+ * the briefing stale so the immediate re-synthesis has something to consume.
+ * Nothing is deleted — a demoted claim stays readable with its age visible, and a
+ * later report confirming it moves its `lastSupportedAt` past this line and
+ * brings it back.
+ */
+export async function recordProviderChange(db: Database, taskId: TaskId): Promise<void> {
+  const at = new Date().toISOString()
+
+  await db
+    .insert(taskBriefings)
+    .values({ taskId, changeDetectedAt: at })
+    .onConflictDoUpdate({
+      target: taskBriefings.taskId,
+      set: { changeDetectedAt: at, dirty: true },
+    })
 }

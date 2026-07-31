@@ -490,6 +490,28 @@ export const taskBriefings = pgTable(
      */
     dirty: boolean('dirty').notNull().default(true),
 
+    /**
+     * When the Colony last concluded that the world moved under this task
+     * (#115).
+     *
+     * **Two jobs, one timestamp, and they are the same fact.**
+     *
+     * It is the *demotion line*: a claim last supported before this is no longer
+     * in the foreground, whatever the recency window would otherwise say. That
+     * window is deliberately slow — fifty closed attempts or ninety days — which
+     * is right for a claim that is merely ageing and exactly wrong for one a
+     * provider change has just contradicted. Nothing is deleted; the claim stays
+     * readable with its age visible, and a later report confirming it moves its
+     * `lastSupportedAt` past this line and brings it straight back.
+     *
+     * It is also the *cooldown anchor*: a provider change produces reports for
+     * days, and the Colony should conclude it once.
+     *
+     * `null` on almost every row, which is the ordinary state — the outside world
+     * has not moved under most tasks.
+     */
+    changeDetectedAt: timestamp('change_detected_at', { withTimezone: true, mode: 'string' }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

@@ -1,0 +1,1 @@
+ALTER TABLE "task_briefings" ADD COLUMN "change_detected_at" timestamp with time zone;

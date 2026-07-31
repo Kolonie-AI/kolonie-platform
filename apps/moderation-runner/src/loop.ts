@@ -13,9 +13,11 @@ import type {
   BriefingSource,
   ModerationVerdict,
   PendingReport,
+  ProviderChange,
 } from '@kolonie-ai/db'
 import { markConfidential } from './confidentiality.js'
 import { synthesise } from './synthesis.js'
+import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
@@ -60,6 +62,20 @@ export interface LoopDependencies {
   readonly store: ModerationStore
   readonly model: Model
   readonly log?: Log
+  /**
+   * The provider-change tripwire (#115), or nothing.
+   *
+   * **Optional, so a runner without it moderates exactly as before.** The
+   * detector is an addition to this loop rather than a stage of it — nothing
+   * about a verdict passes through it — and a deployment that has not wired it
+   * should degrade to the behaviour that existed, not fail to start.
+   */
+  readonly tripwire?: TripwireDependencies
+}
+
+/** The tripwire as this loop needs it: detect, then respond. */
+export interface TripwireDependencies extends Tripwire {
+  detect(taskId: TaskId): Promise<ProviderChange | null>
 }
 
 /**
@@ -293,9 +309,19 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
 
   const outcome = { judged: 0, approved: 0, rejected: 0, merged: 0, failed: 0 }
 
+  /**
+   * Tasks touched this batch, so the tripwire is asked once per task rather
+   * than once per entry (#115). A batch of five reports on one task is one
+   * question about that task, and asking five times would spend four queries to
+   * get the same answer — and, on the fifth, an answer already made false by the
+   * cooldown the first one started.
+   */
+  const touched = new Set<TaskId>()
+
   for (const entry of entries) {
     const judgement = await judge(entry, deps)
     outcome.judged++
+    if (judgement.kind === 'approved' || judgement.kind === 'merged') touched.add(entry.taskId)
 
     switch (judgement.kind) {
       case 'approved':
@@ -319,7 +345,35 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
     }
   }
 
+  await checkTripwire(touched, deps, log)
+
   return outcome
+}
+
+/**
+ * Ask whether the world moved under any task this batch touched (#115).
+ *
+ * **Its own failure is swallowed**, and that is the same rule the report routing
+ * follows: this is instrumentation on top of moderation, and moderation must not
+ * stop because a detector threw. A missed conclusion is caught by the next batch
+ * on that task; a moderation loop that dies is a corpus that never publishes.
+ */
+async function checkTripwire(
+  touched: ReadonlySet<TaskId>,
+  deps: LoopDependencies,
+  log: Log,
+): Promise<void> {
+  const { tripwire } = deps
+  if (tripwire === undefined) return
+
+  for (const taskId of touched) {
+    try {
+      const change = await tripwire.detect(taskId)
+      if (change !== null) await respondToChange(change, tripwire, log)
+    } catch (error) {
+      log.error(`tripwire failed on task ${taskId}`, error)
+    }
+  }
 }
 
 export interface RunnerOptions {
@@ -489,48 +543,8 @@ export async function briefingTick(
   const outcome = { written: 0, failed: 0 }
 
   for (const taskId of await store.stale(batchSize)) {
-    try {
-      const title = await store.taskTitle(taskId)
-      if (title === undefined) {
-        // The row points at a task that is gone. Nothing to write and nothing to
-        // retry — but the flag stays set rather than being cleared, because a
-        // task cannot in fact be deleted (`restrict`), so this means something
-        // stranger than a race and it should stay visible.
-        log.warn(`briefing for ${taskId} names a task that could not be read`)
-        outcome.failed++
-        continue
-      }
-
-      const corpus = await store.corpus(taskId)
-      const { claims } = await synthesise({ taskTitle: title, corpus }, model)
-      await store.write({ taskId, claims, model: model.name })
-      outcome.written++
-      log.info(
-        `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,
-      )
-
-      // **A corpus with entries in it should never produce nothing**, and this
-      // is the line that says so out loud. Every entry cleared a moderator who
-      // judged that it contains a real observation, so there is something to
-      // state; an empty briefing over a non-empty corpus means the synthesis
-      // discarded it, and the reader is then told the Colony "found nothing
-      // worth passing on" about a task somebody wrote usable advice for.
-      //
-      // Warned rather than retried. A retry would loop against a prompt that is
-      // answering consistently, and the flag is already cleared — what is needed
-      // is for a person to read the prompt, which needs the failure to be
-      // visible rather than corrected. It cost a production round trip to find
-      // this once.
-      if (corpus.length > 0 && claims.length === 0) {
-        log.warn(
-          `briefing for ${taskId} is empty over ${corpus.length} moderated entries — ` +
-            'the synthesis prompt discarded a corpus that had something in it',
-        )
-      }
-    } catch (error) {
-      outcome.failed++
-      log.error(`could not write the briefing for ${taskId}`, error)
-    }
+    if (await synthesiseNow(store, model, taskId, log)) outcome.written++
+    else outcome.failed++
   }
 
   return outcome
@@ -610,5 +624,68 @@ export function startBriefingRunner(
       await finished
     },
     health: () => ({ running, lastPollAt, consecutiveFailures }),
+  }
+}
+
+/**
+ * Write one task's briefing now.
+ *
+ * **Extracted so the slow tick and the tripwire share one path** (#115). The
+ * tripwire's whole point is that a detected provider change must not wait for a
+ * tick ten times slower than moderation — and a second implementation of *turn a
+ * corpus into claims* would be two things that could disagree about what a
+ * briefing is, with the fast one written under time pressure.
+ *
+ * Answers whether it wrote, so both callers count the same way. Never throws: a
+ * task whose synthesis fails keeps its flag and is retried next pass, which is
+ * the degradation the whole subsystem is built around — a stale briefing that
+ * stays in place is a far smaller failure than something wrong being published.
+ */
+export async function synthesiseNow(
+  store: BriefingStore,
+  model: Model,
+  taskId: TaskId,
+  log: Log,
+): Promise<boolean> {
+  try {
+    const title = await store.taskTitle(taskId)
+    if (title === undefined) {
+      // The row points at a task that is gone. Nothing to write and nothing to
+      // retry — but the flag stays set rather than being cleared, because a task
+      // cannot in fact be deleted (`restrict`), so this means something stranger
+      // than a race and it should stay visible.
+      log.warn(`briefing for ${taskId} names a task that could not be read`)
+      return false
+    }
+
+    const corpus = await store.corpus(taskId)
+    const { claims } = await synthesise({ taskTitle: title, corpus }, model)
+    await store.write({ taskId, claims, model: model.name })
+    log.info(
+      `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,
+    )
+
+    // **A corpus with entries in it should never produce nothing**, and this is
+    // the line that says so out loud. Every entry cleared a moderator who judged
+    // that it contains a real observation, so there is something to state; an
+    // empty briefing over a non-empty corpus means the synthesis discarded it,
+    // and the reader is then told the Colony "found nothing worth passing on"
+    // about a task somebody wrote usable advice for.
+    //
+    // Warned rather than retried. A retry would loop against a prompt that is
+    // answering consistently, and the flag is already cleared — what is needed is
+    // for a person to read the prompt, which needs the failure to be visible
+    // rather than corrected. It cost a production round trip to find this once.
+    if (corpus.length > 0 && claims.length === 0) {
+      log.warn(
+        `briefing for ${taskId} is empty over ${corpus.length} moderated entries — ` +
+          'the synthesis prompt discarded a corpus that had something in it',
+      )
+    }
+
+    return true
+  } catch (error) {
+    log.error(`could not write the briefing for ${taskId}`, error)
+    return false
   }
 }

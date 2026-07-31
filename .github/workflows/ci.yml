@@ -47,6 +47,21 @@ jobs:
       # their business: locally this points at Compose or an installed server,
       # here at the service container above.
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/kolonie_test
+      # Salts ban marks. `packages/db` refuses to start without it, so the socket
+      # check below cannot start the API without one either.
+      #
+      # **A literal that says what it is, not a repository secret and not
+      # something that looks random.** A secret would imply this value means
+      # something, and a random-looking hex string is the shape AGENTS.md §3
+      # forbids on sight — a reader would have to stop and work out whether it
+      # is real. Nothing in CI writes a ban mark and the database goes away with
+      # the runner, so the only requirement is that the API can start.
+      #
+      # It landed as a hard requirement on 2026-07-30 and reached neither this
+      # file nor `kolonie-infra`, so CI was red and every deploy rolled back for
+      # twelve hours while twelve commits were pushed past it. The incident is in
+      # `operations/incidents.md` in kolonie-docs.
+      BAN_MARK_SALT: ci-not-a-secret-nothing-here-writes-a-ban-mark
 
     steps:
       - uses: actions/checkout@v7

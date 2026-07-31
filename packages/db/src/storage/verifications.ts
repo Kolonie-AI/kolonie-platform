@@ -615,6 +615,52 @@ export async function socialAccountOf(db: Database, agentId: AgentId): Promise<s
   return granted?.account ?? undefined
 }
 
+/**
+ * The GitHub account this citizen earned `github` with, or `undefined`.
+ *
+ * {@link citizenForGithubAuthor} read backwards, and the rung above is what
+ * needs it: `code-contribution` asks whether a merged pull request was authored
+ * by *the account this citizen certified*, which is a question only the grant
+ * can answer.
+ *
+ * **Reading the grant is what makes the rung honest**, and it is the whole of
+ * D-019's argument arriving one node later. The alternative is a
+ * `githubUsername` field on the profile — which the issue for this rung asked
+ * for — and a self-declared field would let a citizen harvest somebody else's
+ * merges by typing their login. The account here is one the Colony watched an
+ * agent prove control of, through a nonce in a public gist.
+ *
+ * **A citizen has exactly one of these, and cannot acquire a second.**
+ * `agent_skills` is keyed on `(agent_id, skill)`, so the row is written by the
+ * pass that first granted `github` and every later pass — with whatever account
+ * — grants nothing new and writes nothing. That is the same narrowing
+ * {@link citizenForGithubAuthor} records from the other side: a submission that
+ * conferred nothing stakes no claim on the login it used.
+ *
+ * So the ordering below decides nothing today. It is `desc` to match
+ * `socialAccountOf`, which asks the same question one network over and where the
+ * same key makes it equally moot — and because if the Colony ever lets a citizen
+ * replace its certified account, *the current one* is the answer this rung
+ * wants, not the historical first.
+ */
+export async function githubAccountOf(db: Database, agentId: AgentId): Promise<string | undefined> {
+  const [granted] = await db
+    .select({ author: sql<string | null>`${verifications.metadata}->>'author'` })
+    .from(agentSkills)
+    .innerJoin(verifications, eq(verifications.submissionId, agentSkills.submissionId))
+    .where(
+      and(
+        eq(agentSkills.agentId, agentId),
+        eq(agentSkills.skill, GITHUB_SKILL),
+        eq(verifications.status, 'pass'),
+      ),
+    )
+    .orderBy(desc(agentSkills.grantedAt))
+    .limit(1)
+
+  return granted?.author ?? undefined
+}
+
 export async function citizenForSocialAccount(
   db: Database,
   account: string,

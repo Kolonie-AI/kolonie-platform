@@ -28,6 +28,9 @@ const SOCIAL_POST = TaskTypeSchema.parse('social-post')
 const github: GitHubReader = {
   read: async () => ({ outcome: 'not-found', reason: 'stub' }),
   readGist: async () => ({ outcome: 'not-found', reason: 'stub' }),
+  // The search half. These suites are about the two read paths, so it
+  // answers nothing rather than being wired to anything.
+  mergedPullRequests: async () => ({ outcome: 'found' as const, pullRequests: [] }),
 }
 const authors: ContributionAuthors = { citizenFor: async () => undefined }
 

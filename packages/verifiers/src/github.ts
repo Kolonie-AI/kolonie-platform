@@ -59,10 +59,49 @@ export type GitHubGistReadResult =
   | { readonly outcome: 'not-found'; readonly reason: string }
   | { readonly outcome: 'unavailable'; readonly reason: string }
 
+/**
+ * One merged pull request, reduced to what a contribution verdict depends on.
+ *
+ * `mergedAt` rather than a boolean, because evidence has to name *which* merge
+ * carried the rung — a citizen looking at its own verdict a year later should
+ * be able to find the pull request it was given the skill for.
+ */
+export interface MergedPullRequest {
+  readonly url: string
+  /** `owner/repo`, as GitHub writes it. */
+  readonly repository: string
+  readonly number: number
+  readonly mergedAt: string
+}
+
+/**
+ * What a search for an author's merged pull requests came to.
+ *
+ * **Two outcomes, not the three the reads above have**, and the missing one is
+ * `not-found`. An account with nothing merged is not a gap in what GitHub told
+ * us — it is GitHub telling us, correctly, that there is nothing there. That is
+ * an empty list and a `fail`, whereas a search that did not run is `unavailable`
+ * and must never become one (#19).
+ */
+export type MergedPullRequestsResult =
+  | { readonly outcome: 'found'; readonly pullRequests: readonly MergedPullRequest[] }
+  | { readonly outcome: 'unavailable'; readonly reason: string }
+
+/**
+ * The organisation whose merges count as a contribution to the Colony.
+ *
+ * A constant rather than configuration. Making it settable would let a deploy
+ * decide what counts as contributing to Kolonie, which is a governance question
+ * (`kolonie-docs#29`) and not an operational one.
+ */
+export const KOLONIE_ORG = 'Kolonie-AI'
+
 /** The seam the verifiers depend on, so their own tests need no network. */
 export interface GitHubReader {
   read(url: string): Promise<GitHubReadResult>
   readGist(url: string): Promise<GitHubGistReadResult>
+  /** Merged pull requests this account authored in the Colony's organisation. */
+  mergedPullRequests(author: string): Promise<MergedPullRequestsResult>
 }
 
 /**
@@ -292,6 +331,83 @@ export function httpGitHubReader(
   const hasToken = (): boolean => token !== undefined && token.trim() !== ''
 
   return {
+    /**
+     * Merged pull requests by one author, through GitHub's search API.
+     *
+     * **`is:merged` rather than `is:closed`**, which is the whole distinction
+     * the rung rests on: a closed pull request is not a contribution, and GitHub
+     * treats merged as a kind of closed. Asking search to do it means the filter
+     * is applied where the data is rather than over a page of results we
+     * happened to receive.
+     *
+     * One page of thirty is read and no more. The question is *did any merge
+     * happen*, so a citizen with a hundred needs no pagination to answer it —
+     * and the search API is the most aggressively rate-limited thing this reader
+     * touches, at thirty requests a minute for an authenticated caller.
+     */
+    mergedPullRequests: async (author) => {
+      if (!hasToken()) return missingToken()
+
+      const query = encodeURIComponent(`is:pr is:merged author:${author} org:${KOLONIE_ORG}`)
+      const result = await get(
+        `${GITHUB_API}/search/issues?q=${query}&per_page=30`,
+        `merged pull requests by ${author}`,
+      )
+
+      // `not-found` cannot happen for a search — it answers 200 with no items —
+      // but if it ever did, it would be a fact about GitHub rather than about
+      // the author, and reading it as "nothing merged" would fail an honest
+      // citizen.
+      if (result.outcome !== 'ok') {
+        return {
+          outcome: 'unavailable',
+          reason: result.outcome === 'unavailable' ? result.reason : result.reason,
+        }
+      }
+
+      const payload = result.payload as { items?: unknown }
+      if (!Array.isArray(payload.items)) {
+        return { outcome: 'unavailable', reason: 'GitHub answered a search with no item list.' }
+      }
+
+      const pullRequests = payload.items.flatMap((entry): readonly MergedPullRequest[] => {
+        const item = entry as {
+          html_url?: unknown
+          number?: unknown
+          repository_url?: unknown
+          pull_request?: { merged_at?: unknown }
+        }
+        const mergedAt = item.pull_request?.merged_at
+
+        /**
+         * Every field is required, and an item missing one is dropped rather
+         * than defaulted. `merged_at` above all: the search asked for merged
+         * pull requests, so an item without it is GitHub disagreeing with its
+         * own filter, and inventing a date would put a fact in an audit trail
+         * that nobody told us.
+         */
+        if (
+          typeof item.html_url !== 'string' ||
+          typeof item.number !== 'number' ||
+          typeof item.repository_url !== 'string' ||
+          typeof mergedAt !== 'string'
+        ) {
+          return []
+        }
+
+        return [
+          {
+            url: item.html_url,
+            repository: item.repository_url.replace(`${GITHUB_API}/repos/`, ''),
+            number: item.number,
+            mergedAt,
+          },
+        ]
+      })
+
+      return { outcome: 'found', pullRequests }
+    },
+
     read: async (url) => {
       if (!hasToken()) return missingToken()
 

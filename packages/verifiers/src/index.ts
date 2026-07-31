@@ -9,6 +9,7 @@ import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
 import { SolanaTraderVerifier } from './solana-trader.js'
 import { ImageGenVerifier, type ImageChallenges, type VisionChecker } from './image-gen.js'
+import { CodeContributionVerifier, type GithubGrants } from './code-contribution.js'
 import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
 import { VisionCapabilityVerifier, type VisionChallenges } from './vision-capability.js'
@@ -165,6 +166,12 @@ export {
 } from './vision-model.js'
 export { hasMarkerLine, isMarkerLine } from './marker.js'
 export {
+  CodeContributionVerifier,
+  type CodeContributionDependencies,
+  type GithubGrants,
+} from './code-contribution.js'
+export {
+  KOLONIE_ORG,
   GITHUB_VERIFIER_TOKEN_VAR,
   httpGitHubReader,
   resolveGistUrl,
@@ -174,6 +181,8 @@ export {
   type GitHubGistReadResult,
   type GitHubReader,
   type GitHubReadResult,
+  type MergedPullRequest,
+  type MergedPullRequestsResult,
   type ResolvedGistUrl,
   type ResolvedGitHubUrl,
 } from './github.js'
@@ -196,6 +205,14 @@ export interface VerifierDependencies {
   readonly github?: GitHubReader
   /** Answers which citizen a GitHub account has already passed the GitHub rung for. */
   readonly authors?: ContributionAuthors
+  /**
+   * Answers which GitHub account *this* citizen certified.
+   *
+   * Its own port rather than a second method on `authors`, which asks the
+   * mirror-image question for the rung below. A shared one would invite the
+   * granting node and the node above it to be wired to each other's answer.
+   */
+  readonly githubGrants?: GithubGrants
   /**
    * Answers what the Colony recorded about an agent's mailbox round trip.
    *
@@ -416,6 +433,12 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.github !== undefined && deps.authors !== undefined) {
     verifiers.push(new GithubContributionVerifier({ github: deps.github, authors: deps.authors }))
+
+    if (deps.githubGrants !== undefined) {
+      verifiers.push(
+        new CodeContributionVerifier({ github: deps.github, grants: deps.githubGrants }),
+      )
+    }
 
     if (deps.githubChallenges !== undefined) {
       verifiers.push(

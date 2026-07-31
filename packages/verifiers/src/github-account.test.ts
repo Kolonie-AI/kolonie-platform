@@ -54,6 +54,8 @@ const submission = submissionWith({ url: URL })
 const githubAnswering = (result: GitHubGistReadResult): GitHubReader => ({
   read: () => Promise.reject(new Error('the account node reads gists, not issues')),
   readGist: async () => result,
+  mergedPullRequests: () =>
+    Promise.reject(new Error('the account node reads gists, not merged pull requests')),
 })
 
 const githubServing = (body: string, author = 'octocat'): GitHubReader =>

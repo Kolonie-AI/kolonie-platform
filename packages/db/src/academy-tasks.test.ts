@@ -101,6 +101,12 @@ describe('the Academy task definitions', () => {
       // nodes go active together or neither does (`kolonie-docs#49`).
       'social-post',
       'github-contribution',
+      /**
+       * The deepest granting node in the graph (#48) and the only one whose
+       * evidence is another person's decision: a merged pull request. It sits
+       * last because it pays most, and it pays most for that reason.
+       */
+      'code-contribution',
     ])
   })
 

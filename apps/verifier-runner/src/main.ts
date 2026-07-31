@@ -1,5 +1,6 @@
 import {
   citizenForGithubAuthor,
+  githubAccountOf,
   citizenForPaymentTxid,
   citizenForSocialAccount,
   createDatabase,
@@ -85,6 +86,9 @@ const db = createDatabase(databaseUrlFromEnv())
 const verifiers = createVerifiers({
   github: httpGitHubReader(process.env[GITHUB_VERIFIER_TOKEN_VAR]),
   authors: { citizenFor: (login) => citizenForGithubAuthor(db, login) },
+  // The rung above the account (`#48`): which login *this* citizen proved, so a
+  // merged pull request can be attributed without believing a profile field.
+  githubGrants: { accountOf: (agentId) => githubAccountOf(db, AgentIdSchema.parse(agentId)) },
   // Needs no credential of its own: both browser challenges were already
   // decided by the API, and this only reads what that recorded (D-024). The
   // kind is passed straight through, so the capability rung and the hCaptcha

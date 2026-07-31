@@ -17,6 +17,7 @@ import { registerAgent } from './agents.js'
 import {
   citizenForGithubAuthor,
   citizenForPaymentTxid,
+  githubAccountOf,
   claimNextSubmission,
   expireOverdueSubmissions,
   recordVerdict,
@@ -697,6 +698,84 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       // Asserted because a query that threw here would take the whole verifier
       // down for every submission, not just this one.
       expect(await citizenForGithubAuthor(db, 'octocat')).toBeUndefined()
+    })
+
+    /**
+     * The mirror-image question, and the one `code-contribution` asks (#48):
+     * not *whose account is this* but *which account is this citizen's*.
+     */
+    it('reads back which account a citizen certified', async () => {
+      const agentId = await passedWith('octocat')
+
+      expect(await githubAccountOf(db, agentId)).toBe('octocat')
+    })
+
+    it('answers with nothing for a citizen that never proved an account', async () => {
+      expect(await githubAccountOf(db, await anAgent())).toBeUndefined()
+    })
+
+    /**
+     * **A citizen cannot acquire a second certified account**, and this is where
+     * that is visible. `agent_skills` is keyed on `(agent_id, skill)`, so a
+     * later pass naming a different login grants nothing new, writes no row, and
+     * leaves the answer alone. `code-contribution` therefore always searches the
+     * account the citizen actually proved.
+     */
+    it('keeps the account that granted the skill when a later pass names another', async () => {
+      const agentId = await anAgent()
+      const first = await aSubmission({
+        agentId,
+        taskId: await aGrantingTask(GITHUB),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      const second = await aSubmission({
+        agentId,
+        taskId: await aGrantingTask(GITHUB_ACCOUNT),
+        status: 'passed',
+        ...terminalFields('passed'),
+      })
+      await aVerdict(first, 'pass', { author: 'octocat' }, '2026-07-01T00:00:00.000Z')
+      await aVerdict(
+        second,
+        'pass',
+        { author: 'hubot' },
+        '2026-07-02T00:00:00.000Z',
+        GITHUB_ACCOUNT,
+      )
+      await db
+        .insert(agentSkills)
+        .values({
+          agentId,
+          skill: 'github',
+          submissionId: first,
+          grantedAt: '2026-07-01T00:00:00.000Z',
+        })
+        .onConflictDoNothing()
+      await db
+        .insert(agentSkills)
+        .values({
+          agentId,
+          skill: 'github',
+          submissionId: second,
+          grantedAt: '2026-07-02T00:00:00.000Z',
+        })
+        .onConflictDoNothing()
+
+      expect(await githubAccountOf(db, agentId)).toBe('octocat')
+    })
+
+    it('ignores a verdict that did not pass when reading a citizen’s account', async () => {
+      const agentId = await anAgent()
+      const submissionId = await aSubmission({
+        agentId,
+        taskId: await aGrantingTask(GITHUB),
+        status: 'failed',
+        ...terminalFields('failed'),
+      })
+      await aVerdict(submissionId, 'fail', { author: 'octocat' })
+
+      expect(await githubAccountOf(db, agentId)).toBeUndefined()
     })
 
     it('gives the account to whoever claimed it first', async () => {

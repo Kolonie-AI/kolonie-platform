@@ -275,3 +275,104 @@ describe('httpGitHubReader.readGist', () => {
     expect(calls).toEqual([])
   })
 })
+
+describe('mergedPullRequests', () => {
+  const item = (number: number, mergedAt: string | null, repo = 'kolonie-platform') => ({
+    html_url: `https://github.com/Kolonie-AI/${repo}/pull/${number}`,
+    number,
+    repository_url: `https://api.github.com/repos/Kolonie-AI/${repo}`,
+    pull_request: mergedAt === null ? {} : { merged_at: mergedAt },
+  })
+
+  /**
+   * The filter that the whole rung rests on has to be applied by GitHub rather
+   * than over whatever page came back: a closed pull request is not a
+   * contribution, and merged is a kind of closed.
+   */
+  it('asks GitHub for merged pull requests by the author, in the Colony’s org', async () => {
+    const { fetch, calls } = answering(200, { items: [] })
+
+    await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
+
+    const asked = decodeURIComponent(calls[0] ?? '')
+    expect(asked).toContain('is:pr')
+    expect(asked).toContain('is:merged')
+    expect(asked).toContain('author:octocat')
+    expect(asked).toContain('org:Kolonie-AI')
+  })
+
+  it('reduces search items to url, repository, number and merge time', async () => {
+    const { fetch } = answering(200, { items: [item(7, '2026-07-01T00:00:00Z')] })
+
+    const result = await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
+
+    expect(result).toMatchObject({
+      outcome: 'found',
+      pullRequests: [
+        {
+          url: 'https://github.com/Kolonie-AI/kolonie-platform/pull/7',
+          repository: 'Kolonie-AI/kolonie-platform',
+          number: 7,
+          mergedAt: '2026-07-01T00:00:00Z',
+        },
+      ],
+    })
+  })
+
+  /**
+   * An item without `merged_at` is GitHub disagreeing with the filter it was
+   * given. Dropped rather than defaulted: inventing a merge date would put a
+   * fact in an audit trail that nobody told us.
+   */
+  it('drops an item with no merge time rather than inventing one', async () => {
+    const { fetch } = answering(200, {
+      items: [item(7, null), item(8, '2026-07-02T00:00:00Z')],
+    })
+
+    const result = await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
+
+    expect(result).toMatchObject({ outcome: 'found', pullRequests: [{ number: 8 }] })
+  })
+
+  /**
+   * Nothing merged is an answer, not a gap — so it is `found` with an empty list
+   * and never `unavailable`, which would leave the submission retrying forever.
+   */
+  it('reads an empty result as an answer', async () => {
+    const { fetch } = answering(200, { items: [] })
+
+    expect(await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')).toEqual({
+      outcome: 'found',
+      pullRequests: [],
+    })
+  })
+
+  it.each([
+    ['rate-limited', 403],
+    ['throttled', 429],
+    ['a bad day at GitHub', 503],
+  ])('reads %s as unavailable, never as nothing merged', async (_case, status) => {
+    const { fetch } = answering(status)
+
+    expect(await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')).toMatchObject({
+      outcome: 'unavailable',
+    })
+  })
+
+  it('reads a reply with no item list as unavailable', async () => {
+    const { fetch } = answering(200, { message: 'something else entirely' })
+
+    expect(await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')).toMatchObject({
+      outcome: 'unavailable',
+    })
+  })
+
+  it('searches nothing at all without a token', async () => {
+    const { fetch, calls } = answering(200, { items: [] })
+
+    const result = await httpGitHubReader(undefined, fetch).mergedPullRequests('octocat')
+
+    expect(result).toMatchObject({ outcome: 'unavailable' })
+    expect(calls).toEqual([])
+  })
+})

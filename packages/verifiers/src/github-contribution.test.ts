@@ -62,6 +62,8 @@ const githubAnswering = (result: GitHubReadResult): GitHubReader => ({
   // a future edit that reached for the wrong door fails loudly here instead of
   // quietly passing on a canned issue.
   readGist: () => Promise.reject(new Error('the contribution node reads issues, not gists')),
+  mergedPullRequests: () =>
+    Promise.reject(new Error('the badge reads issues; code-contribution reads merges')),
 })
 
 const githubServing = (body: string, author = 'octocat'): GitHubReader =>

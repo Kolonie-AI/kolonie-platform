@@ -63,12 +63,14 @@ interface RpcTransactionPayload {
  * from and the runner's wiring stays the single place it is named.
  */
 export function httpSolanaRpc(
-  url: string = DEFAULT_SOLANA_RPC_URL,
+  url: string | undefined = DEFAULT_SOLANA_RPC_URL,
   fetchImpl: typeof fetch = fetch,
 ): SolanaRpc {
+  const endpoint = endpointOr(url)
+
   return {
     getTransaction: async (txid): Promise<SolanaReadResult> => {
-      const answer = await rpcCall(url, fetchImpl, 'getTransaction', [
+      const answer = await rpcCall(endpoint, fetchImpl, 'getTransaction', [
         txid,
         {
           encoding: 'jsonParsed',
@@ -133,12 +135,14 @@ export function httpSolanaRpc(
  * expensive half.
  */
 export function httpSolanaHistory(
-  url: string = DEFAULT_SOLANA_RPC_URL,
+  url: string | undefined = DEFAULT_SOLANA_RPC_URL,
   fetchImpl: typeof fetch = fetch,
 ): SolanaHistory {
+  const endpoint = endpointOr(url)
+
   return {
     signaturesFor: async (address, limit): Promise<SolanaHistoryResult> => {
-      const answer = await rpcCall(url, fetchImpl, 'getSignaturesForAddress', [
+      const answer = await rpcCall(endpoint, fetchImpl, 'getSignaturesForAddress', [
         address,
         { limit, commitment: 'confirmed' },
       ])
@@ -172,6 +176,25 @@ export function httpSolanaHistory(
       return { outcome: 'found', signatures }
     },
   }
+}
+
+/**
+ * The endpoint to actually use, treating a blank one as unset.
+ *
+ * **A default parameter is not enough, and the reason is Compose.** The runner
+ * reads this from `process.env`, and `docker-compose.yml` writes
+ * `SOLANA_RPC_URL: ${SOLANA_RPC_URL:-}` — the pattern every optional variable in
+ * that file uses, so that a missing one degrades a service instead of refusing
+ * to start it. What that hands the process is an **empty string, not `undefined`**,
+ * and a default parameter only fires on `undefined`. Without this the reader
+ * would POST to `''`, every read would answer `unavailable`, and all four
+ * earning rungs would sit `pending` on a deploy that looked correct.
+ *
+ * `httpGitHubReader` has the same shape one credential over, where it is spelled
+ * `token !== undefined && token.trim() !== ''`.
+ */
+function endpointOr(url: string | undefined): string {
+  return url === undefined || url.trim() === '' ? DEFAULT_SOLANA_RPC_URL : url
 }
 
 /**

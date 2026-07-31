@@ -88,9 +88,18 @@ export function visionPromptFor(constraints: ImageConstraints): string {
  */
 export function openRouterVision(
   apiKey: string | undefined,
-  model: string = DEFAULT_VISION_MODEL,
+  model: string | undefined = DEFAULT_VISION_MODEL,
   fetchImpl: typeof fetch = fetch,
 ): VisionChecker {
+  /**
+   * A blank model name is an unset one, and a default parameter would not catch
+   * it. `docker-compose.yml` writes `VISION_MODEL: ${VISION_MODEL:-}` so that a
+   * missing variable degrades the runner rather than refusing to start it, and
+   * what that hands the process is an empty string. Without this the Colony
+   * would ask OpenRouter for a model called `""` on every submission.
+   */
+  const chosen = model === undefined || model.trim() === '' ? DEFAULT_VISION_MODEL : model
+
   return {
     check: async ({ image, format, constraints }): Promise<VisionCheckResult> => {
       if (apiKey === undefined || apiKey.trim() === '') {
@@ -111,7 +120,7 @@ export function openRouterVision(
             'content-type': 'application/json',
           },
           body: JSON.stringify({
-            model,
+            model: chosen,
             // Nothing creative is wanted. The same picture and the same
             // constraints should produce the same verdict twice.
             temperature: 0,
@@ -182,7 +191,7 @@ export function openRouterVision(
         }
       }
 
-      return { outcome: 'checked', check: check.data, model }
+      return { outcome: 'checked', check: check.data, model: chosen }
     },
   }
 }

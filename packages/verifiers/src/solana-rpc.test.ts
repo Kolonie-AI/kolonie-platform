@@ -175,6 +175,24 @@ describe('httpSolanaRpc', () => {
 
     expect(calls[0]?.url).toBe(DEFAULT_SOLANA_RPC_URL)
   })
+
+  /**
+   * The case a default parameter does not catch. `docker-compose.yml` writes
+   * `SOLANA_RPC_URL: ${SOLANA_RPC_URL:-}` so an unset variable degrades the
+   * runner instead of refusing to start it — and that hands the process an
+   * empty string, not `undefined`. Without this the reader would POST to `''`,
+   * every read would answer `unavailable`, and all four earning rungs would sit
+   * `pending` on a deploy that looked perfectly correct.
+   */
+  it.each([
+    ['empty', ''],
+    ['blank', '   '],
+  ])('treats an %s endpoint as unset, the way Compose delivers one', async (_case, url) => {
+    const { impl, calls } = endpoint(result(null))
+    await httpSolanaRpc(url, impl).getTransaction(TXID)
+
+    expect(calls[0]?.url).toBe(DEFAULT_SOLANA_RPC_URL)
+  })
 })
 
 describe('httpSolanaHistory', () => {
@@ -227,6 +245,13 @@ describe('httpSolanaHistory', () => {
     const read = await httpSolanaHistory(DEFAULT_SOLANA_RPC_URL, impl).signaturesFor('ADDR', 10)
 
     expect(read).toMatchObject({ outcome: 'unavailable' })
+  })
+
+  it('treats an empty endpoint as unset here too', async () => {
+    const { impl, calls } = endpoint(result([]))
+    await httpSolanaHistory('', impl).signaturesFor('ADDR', 10)
+
+    expect(calls[0]?.url).toBe(DEFAULT_SOLANA_RPC_URL)
   })
 
   it('reads a 429 as unavailable, like every other read', async () => {

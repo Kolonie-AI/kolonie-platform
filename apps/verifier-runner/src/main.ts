@@ -33,7 +33,6 @@ import {
   openRouterVision,
   OPENROUTER_API_KEY_VAR,
   VISION_MODEL_VAR,
-  DEFAULT_VISION_MODEL,
   MASTODON_INSTANCES_VAR,
   mastodonAdapter,
   parseMastodonInstances,
@@ -155,10 +154,10 @@ const verifiers = createVerifiers({
    * the same arrangement the GitHub token has, and for the same reason.
    */
   imageChallenges: { latest: (agentId) => latestImageChallenge(db, AgentIdSchema.parse(agentId)) },
-  visionModel: openRouterVision(
-    process.env[OPENROUTER_API_KEY_VAR],
-    process.env[VISION_MODEL_VAR] ?? DEFAULT_VISION_MODEL,
-  ),
+  // Both are passed straight through, blank and all: `openRouterVision` treats
+  // an empty string as unset, because Compose writes `${VAR:-}` for every
+  // optional variable and that is an empty string rather than `undefined`.
+  visionModel: openRouterVision(process.env[OPENROUTER_API_KEY_VAR], process.env[VISION_MODEL_VAR]),
   // The GitHub rung's Colony-side half: which nonces this agent may currently
   // publish. Credential-free like the three above — the *token* this rung needs
   // is `github` up top, which reads the gist. Splitting the two means a missing

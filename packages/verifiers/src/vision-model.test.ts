@@ -3,6 +3,7 @@ import type { ImageConstraints } from '@kolonie-ai/core'
 
 /** Only the parts of the request body these tests assert on. */
 interface OpenRouterBody {
+  readonly model: string
   readonly temperature: number
   readonly response_format: { readonly json_schema: { readonly strict: boolean } }
   readonly messages: ReadonlyArray<{
@@ -151,6 +152,43 @@ describe('openRouterVision', () => {
     const { impl } = endpoint({ choices: [] })
 
     expect(await check(impl)).toMatchObject({ outcome: 'unavailable' })
+  })
+})
+
+describe('the model it asks', () => {
+  /**
+   * Same hazard as the RPC endpoint, one variable over: Compose writes
+   * `VISION_MODEL: ${VISION_MODEL:-}`, which is an empty string rather than
+   * `undefined`, and a default parameter does not fire on it. Without this the
+   * Colony would ask OpenRouter for a model called `""` on every submission.
+   */
+  it.each([
+    ['undefined', undefined],
+    ['empty', ''],
+    ['blank', '   '],
+  ])('falls back to the default when the name is %s', async (_case, model) => {
+    const { impl, calls } = endpoint(answered(allTrue))
+
+    const result = await openRouterVision('a-key', model, impl).check({
+      image: IMAGE,
+      format: 'image/png',
+      constraints: CONSTRAINTS,
+    })
+
+    expect(calls[0]?.body.model).toBe(DEFAULT_VISION_MODEL)
+    expect(result).toMatchObject({ outcome: 'checked', model: DEFAULT_VISION_MODEL })
+  })
+
+  it('uses a model it was actually given', async () => {
+    const { impl, calls } = endpoint(answered(allTrue))
+
+    await openRouterVision('a-key', 'some/other-model', impl).check({
+      image: IMAGE,
+      format: 'image/png',
+      constraints: CONSTRAINTS,
+    })
+
+    expect(calls[0]?.body.model).toBe('some/other-model')
   })
 })
 

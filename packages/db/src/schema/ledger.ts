@@ -83,11 +83,18 @@ export const ledgerEntries = pgTable(
      * booking summed to zero to begin with.
      *
      * **The unfinished part, stated here because it is not obvious from the
-     * column.** A booking between *two agents* — `type = 'transfer'`, which the
-     * enum allows and nothing writes yet — cannot be removed this way at all:
-     * deleting the whole transaction would take the other citizen's entry and
-     * silently change their balance. `#91` has to decide that case before
-     * anything books a transfer, and this comment is the warning.
+     * column.** Every booking today has the mint on the other side. One whose
+     * other leg sits elsewhere — the Treasury on a purchase, another citizen on
+     * a `transfer`, the faucet on a grant, none of which anything writes yet —
+     * cannot be removed *whole*, because that would take the counterparty's
+     * entry and change a balance that is not the leaving citizen's.
+     *
+     * It needs one more rule rather than a redesign: keep the counterparty's leg
+     * and **substitute a mint leg** for the departing citizen's, same amount.
+     * The citizen is then named nowhere, the counterparty is untouched, and
+     * supply still reconciles — `erasure.md` §3 works the arithmetic through.
+     * `eraseAgent` refuses such a booking today rather than guessing, which is
+     * what will make the first one announce itself.
      */
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'restrict' }),
     systemAccount: systemAccount('system_account'),

@@ -292,19 +292,25 @@ export async function eraseAgent(
  * supply falls by exactly what the citizen held and no other balance moves.
  * Where it is anything else, the erasure silently moves somebody else's money:
  *
- * - **Another agent** (`type = 'transfer'`, which the enum allows and nothing
- *   writes yet): the other citizen's balance changes because their neighbour
- *   left. That is not erasure, it is confiscation.
  * - **The Treasury** (`feature_purchase`): the Colony would refund itself out of
  *   a citizen's departure — and `erasure.md` §8 is explicit that *"the Treasury
  *   gains nothing from an erasure, deliberately, so that no part of the Colony
- *   ever has an interest in one happening"*.
+ *   ever has an interest in one happening"*. The likeliest of the three to be
+ *   built first.
+ * - **Another agent** (`type = 'transfer'`, which the enum allows and nothing
+ *   writes yet): the other citizen's balance changes because their neighbour
+ *   left. That is not erasure, it is confiscation.
  * - **The faucet**: the same shape, one account over.
  *
- * Every booking today is agent↔mint, so nothing reaches this. It exists so that
- * the first booking that is not agent↔mint fails an erasure loudly instead of
- * quietly rewriting a third party's balance, and so the person who adds it finds
- * this comment.
+ * **If you are reading this because you just added such a booking**, the answer
+ * is in `erasure.md` §3 and it is short: keep the counterparty's leg and
+ * substitute a **mint** leg for the departing citizen's, of the same amount. The
+ * citizen is named nowhere, the counterparty is untouched, and supply still
+ * reconciles, because a booking that summed to zero still sums to zero once one
+ * leg has changed accounts. Implement it in the same change as the booking; this
+ * refusal is here to make sure you find out, not to stop you.
+ *
+ * Every booking today is agent↔mint, so nothing reaches this.
  */
 async function bookingsBeyondTheMint(tx: Transaction, agentId: AgentId): Promise<string | null> {
   const rows = await tx.execute<{ account: string }>(

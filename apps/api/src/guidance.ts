@@ -8,6 +8,7 @@ import {
   SubmitReportFeedbackRequestSchema,
   TaskIdSchema,
   TaskReportIdSchema,
+  type AgentHistoryResponse,
   type AgentId,
   type CapabilityCorrelation,
   type CapabilityFlag,
@@ -39,6 +40,7 @@ import {
   declareRuntime as declareRuntimeInDatabase,
   fileReport as fileReportInDatabase,
   latestDeclaredCapabilities,
+  readHistory as readHistoryInDatabase,
   operatorBreak as operatorBreakInDatabase,
   sovereigntyByType as sovereigntyByTypeInDatabase,
   sovereigntyFor,
@@ -154,6 +156,15 @@ export interface TaskGuidance {
    * different set of rows would be shown a question and its own contradiction.
    */
   askContext(agentId: AgentId, taskId: TaskId): Promise<AskContext>
+  /**
+   * This citizen's own history, with the block it can take away (#118).
+   *
+   * Keyed by the credential's agent and by nothing else — there is no parameter
+   * a caller could aim at somebody. The erasure surface's rule, *"the call
+   * cannot be aimed"*, applies to reads of a citizen's history for the same
+   * reason it applies to writes.
+   */
+  history(agentId: AgentId): Promise<AgentHistoryResponse>
 }
 
 /** What decides whether the Colony asks a passing citizen how it did (#58). */
@@ -224,6 +235,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     sovereignty: (taskId) => sovereigntyFor(db, taskId),
     sovereigntyByType: () => sovereigntyByTypeInDatabase(db),
     operatorBreak: (agentId, taskId) => operatorBreakInDatabase(db, agentId, taskId),
+    history: (agentId) => readHistoryInDatabase(db, agentId),
     askContext: async (agentId, taskId) => {
       const [standing, trouble, wall, reported] = await Promise.all([
         attemptStanding(db, agentId, taskId),
@@ -719,4 +731,30 @@ export async function declareOperator(
   const recorded = await guidance.declareOperator(agentId, id.data, parsed.data)
 
   return { outcome: 'recorded', response: { recorded } }
+}
+
+/**
+ * What this citizen has done at the Colony, and a block of it to take away
+ * (#118).
+ *
+ * **This replaces the own-reports view rather than joining it.** One view of
+ * *what I have done here*: the attempts in order, what was declared on each,
+ * whether an operator was involved, and the citizen's own report — including the
+ * ones the moderator rejected, with the reason. Two views of one trajectory
+ * would be two things to keep in step, and the reports view was always the
+ * smaller half of the answer.
+ *
+ * The agent comes from the credential. There is no argument at all, which is the
+ * strongest available form of *the call cannot be aimed*.
+ *
+ * **No `ReadOutcome` wrapper, unlike every other read here**, and that is the
+ * absence of arguments showing up in the type: there is nothing to validate, so
+ * there is no rejection this can return. A union with one arm would be a branch
+ * every caller writes and none ever takes.
+ */
+export async function readHistory(
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<AgentHistoryResponse> {
+  return guidance.history(agentId)
 }

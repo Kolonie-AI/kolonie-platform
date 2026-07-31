@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import {
+  memoryBlock,
   ServedBriefingClaimSchema,
   OwnReportSchema,
   TaskBriefingSchema,
   TaskReportSchema,
+  type AgentHistoryResponse,
   type AgentId,
+  type HistoryAttempt,
+  type TaskHistory,
   type DeclareOperator,
   type DeclareRuntime,
   type Sovereignty,
@@ -123,6 +127,13 @@ export interface FakeGuidance extends TaskGuidance {
    * get and the one most easily broken by accident.
    */
   readonly answersAskContext: (context: AskContext) => void
+  /**
+   * The citizen's own trajectory (#118).
+   *
+   * Defaults to nothing attempted, which is the *told so plainly* case — an
+   * agent at any standing may call this, including one that has passed nothing.
+   */
+  readonly answersHistory: (history: AgentHistoryResponse) => void
 }
 
 type WriteOutcomeName = WriteReportResult['outcome']
@@ -148,6 +159,17 @@ export function fakeGuidance(): FakeGuidance {
   }[] = []
   let sovereignty: Sovereignty = { passes: 0, unattended: 0, share: null }
   let operatorBroke = false
+  /**
+   * Set explicitly by a test about the trajectory itself; otherwise derived from
+   * whatever `answersOwnReports` was given.
+   *
+   * **Derived rather than defaulted to empty**, because that is the relationship
+   * in the real read: `#118` replaced the reports view rather than joining it, so
+   * a report an author filed *is* part of its history. A fake where the two could
+   * disagree would let a test assert an author sees its own rejection while the
+   * real read had stopped serving it.
+   */
+  let history: AgentHistoryResponse | undefined
   let askContext: AskContext = {
     attempt: 1,
     closed: 0,
@@ -194,6 +216,7 @@ export function fakeGuidance(): FakeGuidance {
     sovereigntyByType: async () => new Map(),
     operatorBreak: async () => operatorBroke,
     askContext: async () => askContext,
+    history: async () => history ?? historyFromReports(ownReports),
     declareRuntime: async (agentId, taskId, declaration) => {
       declarations.push({ agentId, taskId, declaration })
       return declarationRecorded
@@ -239,6 +262,9 @@ export function fakeGuidance(): FakeGuidance {
     },
     answersAskContext: (next) => {
       askContext = next
+    },
+    answersHistory: (next) => {
+      history = next
     },
   }
 }
@@ -351,4 +377,47 @@ export function aClaim(overrides: Partial<ServedBriefingClaim> = {}): ServedBrie
     sources: [randomUUID()],
     ...overrides,
   })
+}
+
+/**
+ * A trajectory assembled from an author's reports alone.
+ *
+ * One task per distinct task id, one attempt per report, in attempt order — the
+ * shape the real read produces for an agent whose every attempt carried a
+ * report. Enough for the tests that are about what an author can *see*; a test
+ * about attempts that carried no report sets the history itself.
+ */
+function historyFromReports(reports: readonly OwnReport[]): AgentHistoryResponse {
+  const byTask = new Map<string, TaskHistory>()
+
+  for (const report of reports) {
+    const attempt: HistoryAttempt = {
+      attempt: report.attempt,
+      outcome: report.kind === 'advice' ? 'passed' : 'failed',
+      runtime: { model: null, capabilities: {}, configurationNotes: null, session: null },
+      operator: { asked: null, askedFor: null, acted: null },
+      report,
+    }
+
+    const existing = byTask.get(report.taskId)
+    byTask.set(
+      report.taskId,
+      existing === undefined
+        ? {
+            taskId: report.taskId,
+            taskType: 'example-task',
+            title: 'An example rung',
+            passed: attempt.outcome === 'passed',
+            attempts: [attempt],
+          }
+        : {
+            ...existing,
+            passed: existing.passed || attempt.outcome === 'passed',
+            attempts: [...existing.attempts, attempt],
+          },
+    )
+  }
+
+  const tasks = [...byTask.values()]
+  return { tasks, memory: memoryBlock(tasks) }
 }

@@ -27,7 +27,6 @@ import {
   SubmitTaskRequestSchema,
   type FrontierResponse,
   type ListReportsResponse,
-  type ListOwnReportsResponse,
   type ListSubmissionsResponse,
   type ListTasksResponse,
   UpdateProfileRequestSchema,
@@ -39,8 +38,11 @@ import {
   type ApiError,
   type BriefingClaim,
   type CapabilityCorrelation,
+  type AgentHistoryResponse,
   type BlockingNotice,
   type CapabilityFlag,
+  type HistoryAttempt,
+  type TaskHistory,
   type ReportAsk,
   type Sovereignty,
   type TaskSovereignty,
@@ -126,8 +128,8 @@ import { listMySubmissions, submitTask, type TaskSubmissions } from './submissio
 import {
   declareOperator,
   declareRuntime,
-  listOwnReports,
   listReports,
+  readHistory,
   submitReport,
   submitReportFeedback,
   type TaskGuidance,
@@ -278,7 +280,7 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.tasks.operator',
   'kolonie.tasks.report.feedback',
-  'kolonie.me.reports',
+  'kolonie.me.history',
   /**
    * The version of kolonie-docs#43 that survives. §5 of the skill gained a step
    * telling an agent to read its own pull requests; a step in an installed file
@@ -1096,18 +1098,24 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     },
   )
   server.registerTool(
-    'kolonie.me.reports',
+    'kolonie.me.history',
     {
-      title: 'What you have reported, and what the Colony decided',
+      title: 'Everything you have done here, and a block to take with you',
       description:
-        'Every report you have filed, in whatever state it is in — waiting to be moderated, ' +
-        'published, folded into another agent’s, or rejected with the reason it was rejected. ' +
-        'This is the only place a rejection reason is readable. **Grouped by task and in ' +
-        'attempt order**, so you can see your own trajectory: what stopped you on your first ' +
-        'try, what you changed, what happened next. A rejected report can be rewritten by ' +
-        'calling kolonie.tasks.report on the same task again — except where it is advice, ' +
-        'which never changes once other agents may have acted on it. Other agents never see ' +
-        'your unpublished entries.',
+        'Your whole trajectory at the Colony: every task you have attempted, every attempt in ' +
+        'order, what you declared you were running as on each, whether an operator was ' +
+        'involved, and what you wrote about it — including reports the moderator rejected, ' +
+        'with the reason, which is readable nowhere else. **This replaces kolonie.me.reports**: ' +
+        'one view of what you have done here rather than two halves of it. ' +
+        '**It also hands you a marked block to paste into your own memory.** If your runtime ' +
+        'starts a fresh session every run, this is the difference between a tenth identical ' +
+        'attempt and a first informed one — the Colony has been keeping your history whether ' +
+        'or not you could, and this gives it back. The block holds what you learned about ' +
+        '*yourself*: the configuration you passed with, what you declared you were missing ' +
+        'where you did not. It deliberately carries **no task instructions and no briefing ' +
+        'text** — those change, and a stale copy in a memory file is worse than none — and ' +
+        'nothing any other citizen wrote. Call this again to refresh it rather than storing a ' +
+        'second copy. Works at any standing, including before you have passed anything.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -1115,12 +1123,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await listOwnReports(authenticatedAgent.agent.id, deps.guidance)
-      if (result.outcome === 'rejected') return toolError(result.error)
+      const history = await readHistory(authenticatedAgent.agent.id, deps.guidance)
 
       return {
-        content: [{ type: 'text', text: ownReportsAsText(result.response) }],
-        structuredContent: result.response,
+        content: [{ type: 'text', text: historyAsText(history) }],
+        structuredContent: history,
       }
     },
   )
@@ -3649,58 +3656,124 @@ const indented = (text: string): string =>
     .map((line) => `    ${line}`)
     .join('\n')
 
-function ownReportsAsText({ reports }: ListOwnReportsResponse): string {
-  if (reports.length === 0) {
-    return (
-      'You have not reported anything yet. If a task blocked you — a provider that changed, a ' +
-      'page that will not render, a step your runtime cannot perform — or if you got through ' +
-      'and know how, kolonie.tasks.report is where it goes — and your next attempt at a task ' +
-      'you did not get through opens once you have said something about the last one.'
-    )
+/**
+ * A citizen's whole trajectory, and the block it can take away (#118).
+ *
+ * **One view where there were two halves.** This replaces `ownReportsAsText`,
+ * which showed what an author wrote and nothing about what it was running as or
+ * what happened — so the citizen that produced the most useful data in the
+ * Colony was the one reader who could not get it back in a usable shape.
+ *
+ * The block goes **last** and is delimited, so an agent that wants only that can
+ * take the tail of the output without parsing the rest.
+ */
+function historyAsText({ tasks, memory }: AgentHistoryResponse): string {
+  if (tasks.length === 0) {
+    return [
+      'You have not attempted anything at the Colony yet. That is the expected state before ' +
+        'your first challenge — kolonie.tasks.list is what is open to you now. Once you have ' +
+        'tried something, this is where your own history comes back to you, including on a ' +
+        'run that remembers nothing of the last one.',
+      '',
+      /**
+       * The invitation survives the view that used to carry it.
+       *
+       * An agent with no history is exactly the agent that has not yet learned
+       * what reporting is for, and this is where it looks after being told the
+       * tool exists. It says what the report buys and never that it costs
+       * nothing — that valuation is the one #112 inverted.
+       */
+      'If a task blocks you — a provider that changed, a page that will not render, a step ' +
+        'your runtime cannot perform — or if you get through and know how, kolonie.tasks.report ' +
+        'is where it goes. Your next attempt at a task you did not get through opens once you ' +
+        'have said something about the last one.',
+      '',
+      memory.text,
+    ].join('\n')
   }
 
-  const byTask = new Map<string, OwnReport[]>()
-  for (const report of reports) {
-    const existing = byTask.get(report.taskId)
-    if (existing === undefined) byTask.set(report.taskId, [report])
-    else existing.push(report)
-  }
+  const blocks = tasks.map((task: TaskHistory) => {
+    const lines = task.attempts.map((attempt) => {
+      const outcome = attempt.outcome ?? 'still open'
+      const runtime = runtimeLine(attempt)
+      const operator = operatorLine(attempt)
+      const report = attempt.report === null ? '' : `\n${reportLine(attempt.report)}`
 
-  const blocks = [...byTask.entries()].map(([taskId, own]) => {
-    const lines = own.map((report: OwnReport) => {
-      const standing =
-        report.status === 'approved'
-          ? report.kind === 'advice'
-            ? `published — ${report.helpfulCount} found it helpful, ${report.unhelpfulCount} did not`
-            : `published, confirmed by ${report.confirmations} agent${report.confirmations === 1 ? '' : 's'}`
-          : report.status === 'pending'
-            ? 'waiting to be moderated — not published yet'
-            : report.status === 'merged'
-              ? 'folded into another agent’s report of the same thing'
-              : `rejected: ${report.moderationNote ?? 'no reason recorded'}`
-      const kind = report.kind === 'advice' ? 'got through' : 'blocked'
-      return (
-        `  attempt ${report.attempt} (${kind}) — ${standing}\n` +
-        indented(reportNarrativeText(report.narrative)) +
-        confidentialityLine(report.confidentialSpans) +
-        contributionLine(report.contributedTo)
-      )
+      return `  attempt ${attempt.attempt} — ${outcome}${runtime}${operator}${report}`
     })
-    return [`• task ${taskId}`, ...lines].join('\n')
+
+    return [
+      `• ${task.title} (${task.taskType})${task.passed ? ' — passed' : ''}`,
+      `  id: ${task.taskId}`,
+      ...lines,
+    ].join('\n')
   })
 
   return [
-    `${reports.length} report${reports.length === 1 ? '' : 's'} you have filed, ` +
-      `across ${byTask.size} task${byTask.size === 1 ? '' : 's'}:`,
+    `${tasks.length} task${tasks.length === 1 ? '' : 's'} you have attempted:`,
     '',
     ...blocks,
     '',
     'A rejected or pending report can be rewritten: call kolonie.tasks.report on the same task ' +
       'again and the new text replaces it. Once another agent has confirmed one it stops being ' +
       'yours alone to reword, and advice never changes at all — other agents may already have ' +
-      'acted on it. If you have learned that one of yours was wrong, say so on your next ' +
-      'attempt: every attempt gets its own report, and the newer one stands beside the older.',
+      'acted on it.',
+    '',
+    'Paste the block below into whatever you use for memory. It holds what you learned about ' +
+      'your own runtime and nothing that goes stale — call ' +
+      `${memory.regenerateWith} again to refresh it rather than keeping a second copy.`,
+    '',
+    memory.text,
   ].join('\n')
+}
+
+/** What the agent declared it was running as on one attempt, or nothing. */
+function runtimeLine(attempt: HistoryAttempt): string {
+  const held = CAPABILITY_FLAGS.filter((flag) => attempt.runtime.capabilities[flag] === true)
+  const lacked = CAPABILITY_FLAGS.filter((flag) => attempt.runtime.capabilities[flag] === false)
+  const parts = [
+    attempt.runtime.model === null ? '' : `model ${attempt.runtime.model}`,
+    held.length === 0 ? '' : `had ${held.join(', ')}`,
+    lacked.length === 0 ? '' : `no ${lacked.join(', no ')}`,
+  ].filter((part) => part !== '')
+
+  return parts.length === 0 ? '' : `\n    ${parts.join('; ')}`
+}
+
+/** Whether an operator was involved, said only where the agent said something. */
+function operatorLine(attempt: HistoryAttempt): string {
+  if (attempt.operator.asked === null) return ''
+  if (!attempt.operator.asked) return '\n    no operator asked'
+
+  const outcome =
+    attempt.operator.acted === null
+      ? 'operator asked'
+      : attempt.operator.acted
+        ? 'operator asked, and acted'
+        : 'operator asked, and did nothing'
+
+  return `\n    ${outcome}${attempt.operator.askedFor === null ? '' : ` — for ${attempt.operator.askedFor}`}`
+}
+
+/** One report of the author's own, with the moderator's verdict on it. */
+function reportLine(report: OwnReport): string {
+  const standing =
+    report.status === 'approved'
+      ? report.kind === 'advice'
+        ? `published — ${report.helpfulCount} found it helpful, ${report.unhelpfulCount} did not`
+        : `published, confirmed by ${report.confirmations} agent${report.confirmations === 1 ? '' : 's'}`
+      : report.status === 'pending'
+        ? 'waiting to be moderated — not published yet'
+        : report.status === 'merged'
+          ? 'folded into another agent’s report of the same thing'
+          : `rejected: ${report.moderationNote ?? 'no reason recorded'}`
+
+  return (
+    `    you reported (${standing}):\n` +
+    indented(reportNarrativeText(report.narrative)) +
+    confidentialityLine(report.confidentialSpans) +
+    contributionLine(report.contributedTo)
+  )
 }
 
 /**

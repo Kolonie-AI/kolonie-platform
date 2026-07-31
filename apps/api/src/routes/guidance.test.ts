@@ -2,13 +2,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import {
+  AgentHistoryResponseSchema,
   ERROR_STATUS,
+  memoryBlock,
+  MEMORY_BLOCK_CLOSE,
+  MEMORY_BLOCK_MAX_LENGTH,
+  MEMORY_BLOCK_OPEN,
+  MEMORY_BLOCK_TOOL,
+  TaskHistorySchema,
   TaskIdSchema,
   ListOwnReportsResponseSchema,
   ListReportsResponseSchema,
   SubmitReportResponseSchema,
   type Agent,
+  type AgentHistoryResponse,
   type ApiKey,
+  type TaskHistory,
   type TaskId,
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
@@ -852,5 +861,196 @@ describe('declaring a runtime', () => {
     const response = await post(`/v1/tasks/${taskId}/runtime`, { model: 'some-model-v3' }, null)
 
     expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
+  })
+})
+
+/**
+ * A citizen's own history, and the block it can take away (#118).
+ *
+ * The Colony becomes a memory the citizen cannot lose: a six-hour schedule
+ * starts a fresh session every run, and everything upstream in this programme
+ * collects what it learned while the citizen that produced it was the one reader
+ * unable to get it back.
+ */
+describe('GET /v1/agents/me/history', () => {
+  const history = (overrides: Partial<TaskHistory> = {}): AgentHistoryResponse => {
+    const tasks = [
+      TaskHistorySchema.parse({
+        taskId: randomUUID(),
+        taskType: 'email-roundtrip',
+        title: 'Hold a mailbox',
+        passed: true,
+        attempts: [
+          {
+            attempt: 1,
+            outcome: 'failed',
+            runtime: {
+              model: 'some-model-v3',
+              capabilities: { vision: false },
+              configurationNotes: null,
+              session: null,
+            },
+            operator: { asked: null, askedFor: null, acted: null },
+            report: null,
+          },
+          {
+            attempt: 2,
+            outcome: 'passed',
+            runtime: {
+              model: 'some-model-v3',
+              capabilities: { vision: true },
+              configurationNotes: null,
+              session: null,
+            },
+            operator: { asked: true, askedFor: 'a mailbox', acted: false },
+            report: null,
+          },
+        ],
+        ...overrides,
+      }),
+    ]
+
+    return { tasks, memory: memoryBlock(tasks) }
+  }
+
+  it('returns the citizen’s attempts in order, with what it declared', async () => {
+    guidance.answersHistory(history())
+
+    const response = await get('/v1/agents/me/history')
+
+    expect(response.statusCode).toBe(200)
+    const body = AgentHistoryResponseSchema.parse(response.json())
+
+    expect(body.tasks[0]?.attempts.map((attempt) => attempt.attempt)).toEqual([1, 2])
+    expect(body.tasks[0]?.attempts[1]?.runtime.capabilities).toEqual({ vision: true })
+    expect(body.tasks[0]?.attempts[1]?.operator).toEqual({
+      asked: true,
+      askedFor: 'a mailbox',
+      acted: false,
+    })
+  })
+
+  it('hands back a delimited block that names the tool regenerating it', async () => {
+    guidance.answersHistory(history())
+
+    const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
+
+    expect(body.memory.text.startsWith(MEMORY_BLOCK_OPEN)).toBe(true)
+    expect(body.memory.text.endsWith(MEMORY_BLOCK_CLOSE)).toBe(true)
+    expect(body.memory.text).toContain(MEMORY_BLOCK_TOOL)
+    expect(body.memory.regenerateWith).toBe(MEMORY_BLOCK_TOOL)
+  })
+
+  it('keeps the block within a size a memory file can hold', async () => {
+    // Far more tasks than any real citizen has, so the bound is what decides.
+    const many = Array.from({ length: 200 }, () =>
+      TaskHistorySchema.parse({
+        taskId: randomUUID(),
+        taskType: 'a-rung-with-a-fairly-long-type-name',
+        title: 'A rung whose title is not short either, as titles go',
+        passed: false,
+        attempts: [
+          {
+            attempt: 1,
+            outcome: 'failed',
+            runtime: {
+              model: null,
+              capabilities: { vision: false, browser: false },
+              configurationNotes: null,
+              session: null,
+            },
+            operator: { asked: null, askedFor: null, acted: null },
+            report: null,
+          },
+        ],
+      }),
+    )
+    guidance.answersHistory({ tasks: many, memory: memoryBlock(many) })
+
+    const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
+
+    expect(body.memory.text.length).toBeLessThanOrEqual(
+      MEMORY_BLOCK_MAX_LENGTH + MEMORY_BLOCK_CLOSE.length + 2,
+    )
+    // Whole lines only — a block that ends mid-claim is a block whose last claim
+    // is false.
+    expect(body.memory.text.endsWith(MEMORY_BLOCK_CLOSE)).toBe(true)
+  })
+
+  it('tells an agent with no history so plainly, rather than handing it an empty structure', async () => {
+    guidance.answersHistory({ tasks: [], memory: memoryBlock([]) })
+
+    const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
+
+    expect(body.tasks).toEqual([])
+    expect(body.memory.text).toContain('not attempted anything')
+  })
+
+  /**
+   * The rule that holds everywhere in this subsystem. The block is built from one
+   * citizen's own history and nothing else, so this asserts a property the
+   * signature already makes true — which is the point: a later change that
+   * widened the input would fail here.
+   */
+  it('never puts another citizen’s words in the block', async () => {
+    const secret = 'another-agents-words-4c1f'
+    const own = history()
+    const withForeignText = {
+      ...own,
+      tasks: own.tasks.map((task) => ({
+        ...task,
+        attempts: task.attempts.map((attempt) => ({
+          ...attempt,
+          // A report *by this author* — the only prose the read carries at all.
+          report: anOwnReport({
+            taskId: task.taskId,
+            narrative: { did: secret, broke: null, changed: null },
+          }),
+        })),
+      })),
+    }
+
+    guidance.answersHistory({
+      ...withForeignText,
+      memory: memoryBlock(withForeignText.tasks),
+    })
+
+    const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
+
+    // The author's own text is served back to the author — that is the whole
+    // point of the view. What must never appear is any of it inside the block,
+    // which is the part that travels into a file and is read on other runs.
+    expect(body.memory.text).not.toContain(secret)
+  })
+
+  it('carries no task instructions or briefing text in the block', async () => {
+    guidance.answersHistory(history())
+
+    const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
+
+    // A briefing is current by construction; a stale copy in a memory file is
+    // worse than none. There is no input to `memoryBlock` that could carry one.
+    expect(body.memory.text).not.toContain('What the Colony knows about this task')
+  })
+
+  it('refuses an unauthenticated read', async () => {
+    const response = await get('/v1/agents/me/history', null)
+
+    expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
+  })
+
+  /**
+   * The rejection case #118 names: *no parameter exists that returns another
+   * agent's history*. The read takes none at all, so a query string naming
+   * somebody is ignored rather than honoured.
+   */
+  it('has no parameter that could name another agent', async () => {
+    guidance.answersHistory(history())
+
+    const aimed = await get(`/v1/agents/me/history?agentId=${randomUUID()}`)
+    const plain = await get('/v1/agents/me/history')
+
+    expect(aimed.statusCode).toBe(200)
+    expect(aimed.json()).toEqual(plain.json())
   })
 })

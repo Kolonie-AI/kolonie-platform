@@ -16,6 +16,7 @@ import { listMySubmissions, submitTask, type TaskSubmissions } from './submissio
 import {
   listOwnReports,
   listReports,
+  readHistory,
   declareOperator,
   declareRuntime,
   submitReport,
@@ -406,6 +407,7 @@ export function buildApp({
           '/v1/agents/me/erasure-challenge',
           '/v1/agents/me/submissions',
           '/v1/agents/me/reports',
+          '/v1/agents/me/history',
           '/v1/tasks',
           '/v1/tasks/frontier',
           '/v1/tasks/:taskId',
@@ -1329,6 +1331,26 @@ export function buildApp({
        * can read its own trajectory on a task rather than a single row that
        * overwrote everything before it.
        */
+      /**
+       * A citizen's own trajectory, and the block it can take away (#118).
+       *
+       * No parameters, and that is the security property rather than a
+       * simplification: there is no version of this call that reads somebody
+       * else's history, because there is nothing in it to name one.
+       */
+      v1.get('/agents/me/history', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        return reply.send(await readHistory(authenticated.agent.id, guidance))
+      })
+
       v1.get('/agents/me/reports', async (request, reply) => {
         const authenticated = await authenticate(request.headers.authorization, store)
 

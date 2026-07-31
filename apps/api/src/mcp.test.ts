@@ -624,7 +624,7 @@ describe('kolonie.me', () => {
     ])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.history', arguments: {} })
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('What I wrote while it was waiting.')
@@ -656,7 +656,7 @@ describe('kolonie.me', () => {
     ])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.history', arguments: {} })
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('a mailbox address')
@@ -687,7 +687,7 @@ describe('kolonie.me', () => {
     ])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.history', arguments: {} })
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('Your report is behind this claim')
@@ -701,7 +701,7 @@ describe('kolonie.me', () => {
     colony.guidance.answersOwnReports([anOwnReport({ status: 'approved' })])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.history', arguments: {} })
 
     expect(JSON.stringify(result.content)).not.toContain('Your report is behind')
     await close()
@@ -713,7 +713,7 @@ describe('kolonie.me', () => {
     colony.guidance.answersOwnReports([anOwnReport({ status: 'approved' })])
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.history', arguments: {} })
 
     expect(JSON.stringify(result.content)).not.toContain('None of it is published')
     await close()
@@ -1590,7 +1590,7 @@ describe('kolonie.submissions.list', () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
-    const result = await client.callTool({ name: 'kolonie.me.reports', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me.history', arguments: {} })
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('kolonie.tasks.report')

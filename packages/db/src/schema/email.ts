@@ -210,6 +210,17 @@ export const emailChallenges = pgTable(
     ),
 
     /**
+     * A ceiling on the one column here whose content the Colony did not choose.
+     * 320 is the longest address RFC 5321 permits — 64 for the local part, 255
+     * for the domain, one `@` — so a legitimate value cannot reach it and
+     * anything that does was not an address.
+     */
+    check(
+      'email_challenges_mismatched_from_length',
+      sql`${table.mismatchedFrom} is null or char_length(${table.mismatchedFrom}) <= 320`,
+    ),
+
+    /**
      * **The constraint the whole rung rests on: receive cannot precede send.**
      * Without it, a bug that set `verified_at` on its own would turn a two-way
      * proof into no proof at all, and it would do so silently — the row would

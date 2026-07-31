@@ -216,7 +216,13 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
         // looking like a grant that failed.
         (written.booking.grantedSkills.length === 0
           ? ', granting no new skill'
-          : `, granting ${written.booking.grantedSkills.join(', ')}`)
+          : `, granting ${written.booking.grantedSkills.join(', ')}`) +
+        // A role is rarer than a skill and means more — one rung in the whole
+        // Academy awards one (`#88`) — so it is named when it happens and silent
+        // when it does not, rather than adding "no new role" to every line.
+        (written.booking.grantedRoles.length === 0
+          ? ''
+          : ` and the role ${written.booking.grantedRoles.join(', ')}`)
 
   /**
    * What the agent said it learned, filed now that the verdict has decided what

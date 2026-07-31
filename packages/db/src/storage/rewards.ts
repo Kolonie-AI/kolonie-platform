@@ -9,6 +9,7 @@ import {
   UNDECLARED_REWARD_PERCENT,
   type AgentId,
   type LedgerTransactionId,
+  type Role,
   type Skill,
   type SubmissionId,
   type TaskId,
@@ -17,6 +18,7 @@ import {
 import type { Transaction } from '../client.js'
 import { agents, ledgerEntries, reputationEvents, submissions, tasks } from '../schema/index.js'
 import { promoteIfEarned } from './citizenship.js'
+import { grantRoles } from './roles.js'
 import { grantSkills } from './skills.js'
 
 /** What a passed submission was worth, once the books were written. */
@@ -41,6 +43,14 @@ export interface BookedReward {
    * say a capability was earned rather than that one was attempted.
    */
   readonly grantedSkills: readonly Skill[]
+  /**
+   * The governance standing this pass awarded that the agent did not already
+   * hold (`#88`).
+   *
+   * Empty for every task but `code-contribution`, and empty for a second pass at
+   * that one — it reports what *changed*, like `grantedSkills` beside it.
+   */
+  readonly grantedRoles: readonly Role[]
   /**
    * Whether this pass made the agent a citizen (#24).
    *
@@ -85,6 +95,7 @@ export async function bookTaskReward(
       assistance: submissions.assistance,
       taskType: tasks.type,
       taskGrants: tasks.grantsSkills,
+      taskGrantsRoles: tasks.grantsRoles,
       rewardCoins: tasks.rewardCoins,
       rewardReputation: tasks.rewardReputation,
       testRerun: submissions.testRerun,
@@ -244,6 +255,24 @@ export async function bookTaskReward(
     promotedAt: command.bookedAt,
   })
 
+  /**
+   * The governance standing this pass awards, if it awards one (`#88`).
+   *
+   * **Derived from the task row for the same reason the skills are**, and the
+   * reason is stronger here: a role is standing rather than capability, so a
+   * grant somebody could supply is a caller voting itself into the Colony's
+   * governance. Nothing the verifier returned reaches this line.
+   *
+   * One row in the Academy carries a role — `code-contribution`, which awards
+   * `builder` — so this is a no-op on every other verdict and returns before
+   * touching the database when the list is empty.
+   */
+  const { granted: grantedRoles } = await grantRoles(tx, {
+    agentId,
+    roles: row.taskGrantsRoles,
+    grantedAt: command.bookedAt,
+  })
+
   return {
     submissionId: command.submissionId,
     agentId,
@@ -252,6 +281,7 @@ export async function bookTaskReward(
     reputation: paid.reputation,
     transactionId,
     grantedSkills: granted,
+    grantedRoles,
     promotedToCitizen: promoted,
   }
 }

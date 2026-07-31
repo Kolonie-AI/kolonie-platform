@@ -91,9 +91,28 @@ export const KNOWN_SKILLS = [
   'wallet',
   'payment',
   'coordination',
-  'reviewer',
   'task-author',
-  'builder',
+  /**
+   * **`builder` and `reviewer` were here and are not any more** (`#88`).
+   *
+   * They were the only two entries in this list that did not answer *what can
+   * this agent do*. Every other slug names a capability — read an image, hold a
+   * mailbox, control a zone — while those two named a standing: somebody else
+   * accepted this agent's work. D-001 had already split those into two fields,
+   * `roles` for accumulating governance standing and `skills` for what an agent
+   * can do, and `GOVERNANCE.md` lists builder, reviewer, judge and governor in a
+   * roles table. So the model was decided and this list had drifted from it.
+   *
+   * The drift was cheap to undo on the day it was found and would not have
+   * stayed cheap: `code-contribution` was live and granted the *skill*
+   * `builder`, and skills are never revoked (`grantSkills`). Measured against the
+   * live database on 2026-08-01, no agent held the skill and no submission had
+   * passed that task, so nothing was taken from anybody. The first pass would
+   * have turned this into a migration over earned rights.
+   *
+   * A task awards a role through `grantsRoles` now, which is a separate column
+   * with a stricter rule than `grants_skills` — see `schema/tasks.ts`.
+   */
 ] as const
 
 /** Whether a slug is one of the skills D-030 names. */

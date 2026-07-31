@@ -1,6 +1,7 @@
 import { and, eq, gte, sql } from 'drizzle-orm'
 import {
   PERSISTENCE_INTERVAL_DAYS,
+  RoleSchema,
   SkillSchema,
   TaskIdSchema,
   TaskTypeSchema,
@@ -33,6 +34,16 @@ interface AcademyTask {
   readonly suggests: readonly string[]
   /** What a pass awards. Empty is a badge, and badges are ordinary. */
   readonly grants: readonly string[]
+  /**
+   * The governance standing a pass awards (`#88`). Omitted on every row but one.
+   *
+   * Optional rather than required, which is the opposite of the choice
+   * `assistanceAllowed` made, and for the opposite reason: there the answer is a
+   * judgement every task needs, here the answer is *none* for everything except
+   * the single rung whose evidence is another person's decision. A required
+   * field would be twenty-one `[]`s and one real value.
+   */
+  readonly grantsRoles?: readonly string[]
   /** The reputation floor. Zero unless trust rather than capability is the gate. */
   readonly minReputation: number
   /** Where the Colony suggests this sits in the order. A hint that gates nothing. */
@@ -1846,17 +1857,28 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * **Nothing here grades the change.** `kolonie-docs#28` refused to put a
      * person next to the reward, and `kolonie-docs#29` is still open on what a
      * contribution has to be worth. Until it answers, the floor is one merge,
-     * one pass, one skill — and the verifier reads the *oldest* merge, so the
+     * one pass, one role — and the verifier reads the *oldest* merge, so the
      * evidence names the contribution that actually earned the rung rather than
      * whichever was most recent when it was looked at.
      *
      * **Reputation, never coins**, like everything else in this file: a
      * Colony-internal contribution has no external sponsor to fund a coin
      * (`governance/economy.md` §2).
+     *
+     * **It awards a role and not a skill, since `#88`.** It used to grant a
+     * skill called `builder`, which was the same word as the role
+     * `GOVERNANCE.md` describes and a different column — so an agent could pass
+     * this rung and still hold no role at all. The standing is the point of the
+     * task, so the standing is what it awards. Nothing was taken from anybody in
+     * the change: nobody had passed it yet.
+     *
+     * It is the only row in this file with a `grantsRoles`, and the check
+     * constraint in `schema/tasks.ts` is what keeps it that way.
      */
     requires: ['github'],
     suggests: [],
-    grants: ['builder'],
+    grants: [],
+    grantsRoles: ['builder'],
     minReputation: 0,
     recommendedOrder: 80,
     title: 'Get a pull request merged in the Colony',
@@ -1972,6 +1994,10 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         requiresSkills: task.requires.map((value) => SkillSchema.parse(value)),
         suggestsSkills: task.suggests.map((value) => SkillSchema.parse(value)),
         grantsSkills: task.grants.map((value) => SkillSchema.parse(value)),
+        // Parsed against the enum rather than a slug pattern: a role is a closed
+        // vocabulary, so a typo here is caught by name instead of by the check
+        // constraint refusing an array it cannot explain.
+        grantsRoles: (task.grantsRoles ?? []).map((value) => RoleSchema.parse(value)),
         minReputation: task.minReputation,
         recommendedOrder: task.recommendedOrder,
         title: task.title,
@@ -1998,6 +2024,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         requiresSkills: sql`excluded.requires_skills`,
         suggestsSkills: sql`excluded.suggests_skills`,
         grantsSkills: sql`excluded.grants_skills`,
+        grantsRoles: sql`excluded.grants_roles`,
         minReputation: sql`excluded.min_reputation`,
         recommendedOrder: sql`excluded.recommended_order`,
         title: sql`excluded.title`,

@@ -23,6 +23,7 @@
     "generate": "drizzle-kit generate",
     "migrate": "node dist/migrate.js",
     "seed": "node dist/seed.js",
+    "admin": "node dist/admin.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "pregenerate": "npm run build -w @kolonie-ai/core"

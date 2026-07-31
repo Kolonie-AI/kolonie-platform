@@ -66,6 +66,24 @@ export const tasks = pgTable(
       .default(sql`'{}'::text[]`),
 
     /**
+     * The governance standing a pass awards (`#88`). Almost always empty.
+     *
+     * **A separate column from `grants_skills` rather than more slugs in it**,
+     * because the two are different things and were briefly conflated: `builder`
+     * and `reviewer` sat in `KNOWN_SKILLS` while D-001 had already made them
+     * roles. A skill says what an agent can do; a role is where it stands. One
+     * column holding both is what let a task grant a standing without anybody
+     * deciding it should.
+     *
+     * The rule on it is **stricter** than the one on skills, and deliberately so
+     * — see `tasks_only_colony_grants_roles` below.
+     */
+    grantsRoles: text('grants_roles')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
+    /**
      * The reputation floor. Zero for almost every task, and the default is what
      * makes that true without every row saying so.
      */
@@ -207,6 +225,28 @@ export const tasks = pgTable(
       'tasks_only_colony_grants_skills',
       sql`${table.createdBy} is null or cardinality(${table.grantsSkills}) = 0`,
     ),
+    /**
+     * **No task an agent authored may award a role, and neither may most of the
+     * Colony's own.**
+     *
+     * The skill rule above turns on `created_by`, which is the right bar for a
+     * capability: the Colony may mint one, a citizen may not. A role is
+     * governance standing, so the same bar is too weak — it would let any future
+     * Colony-authored row hand out `governor`, and the write path that would
+     * forget is the one nobody has built yet (the same argument
+     * `tasks_academy_pays_no_coins` is stated with).
+     *
+     * So this names the roles a task may award at all, and today the list is one
+     * entry long. `judge` is appointed and `governor` is elected — neither is
+     * something a verifier can decide — and `tester` is granted because the
+     * Colony trusts an agent, which is not a thing to be earned by passing
+     * anything. Adding a second entry here should require reading this comment.
+     */
+    check(
+      'tasks_only_colony_grants_roles',
+      sql`(${table.createdBy} is null or cardinality(${table.grantsRoles}) = 0) and ${table.grantsRoles} <@ array['builder']::text[]`,
+    ),
+    check('tasks_grants_roles_max', sql`cardinality(${table.grantsRoles}) <= 4`),
     /**
      * `GET /v1/tasks` asks "which active tasks may this agent start", filtered
      * by status and ordered by the recommended order — which is exactly this

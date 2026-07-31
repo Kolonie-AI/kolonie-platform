@@ -16,6 +16,7 @@ import {
 import { createDatabase, type Database } from '../client.js'
 import {
   agentSkills,
+  agents,
   ledgerEntries,
   reputationEvents,
   submissions,
@@ -63,13 +64,19 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
   }
 
   const aTask = async (
-    options: { coins?: number; reputation?: number; grants?: string[] } = {},
+    options: {
+      coins?: number
+      reputation?: number
+      grants?: string[]
+      grantsRoles?: string[]
+    } = {},
   ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
         type: 'example-task',
         grantsSkills: options.grants ?? [],
+        grantsRoles: options.grantsRoles ?? [],
         title: 'Make an API call',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
@@ -366,6 +373,74 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       await pass(await aClaimedSubmission({ taskId, agentId: holder }))
 
       expect(await heldBy(bystander)).toEqual([])
+    })
+  })
+
+  /**
+   * `#88`: `agents.roles` defaulted to `{}` and nothing anywhere wrote any other
+   * value, so the field an agent reads in `kolonie.me` was decoration. One rung
+   * awards one — `code-contribution` awards `builder`, because a merged pull
+   * request is somebody else accepting the work.
+   */
+  describe('the role a pass awards', () => {
+    const rolesOf = async (agentId: AgentId): Promise<readonly string[]> => {
+      const [row] = await db
+        .select({ roles: agents.roles })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .limit(1)
+      return row?.roles ?? []
+    }
+
+    it('writes it in the same transaction as the verdict, and reports it', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ grantsRoles: ['builder'] })
+      const submissionId = await aClaimedSubmission({ taskId, agentId })
+
+      const written = await pass(submissionId)
+
+      expect(written.outcome).toBe('recorded')
+      if (written.outcome !== 'recorded') throw new Error(written.outcome)
+      expect(written.booking?.grantedRoles).toEqual(['builder'])
+      expect(await rolesOf(agentId)).toEqual(['builder'])
+    })
+
+    it('awards none for every other task, which is all but one of them', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ grants: ['browser'] })
+      const submissionId = await aClaimedSubmission({ taskId, agentId })
+
+      const written = await pass(submissionId)
+
+      if (written.outcome !== 'recorded') throw new Error(written.outcome)
+      expect(written.booking?.grantedRoles).toEqual([])
+      expect(await rolesOf(agentId)).toEqual([])
+    })
+
+    /** A tester re-running the rung must not come out holding it twice. */
+    it('does not award it twice to an agent that already holds it', async () => {
+      const agentId = await anAgent()
+
+      const first = await aTask({ grantsRoles: ['builder'] })
+      await pass(await aClaimedSubmission({ taskId: first, agentId }))
+
+      const second = await aTask({ grantsRoles: ['builder'] })
+      const written = await pass(await aClaimedSubmission({ taskId: second, agentId }))
+
+      if (written.outcome !== 'recorded') throw new Error(written.outcome)
+      expect(written.booking?.grantedRoles).toEqual([])
+      expect(await rolesOf(agentId)).toEqual(['builder'])
+    })
+
+    it("keeps one agent's standing out of another agent's record", async () => {
+      const earner = await anAgent()
+      const bystander = await anAgent()
+      const taskId = await aTask({ grantsRoles: ['builder'] })
+
+      await pass(await aClaimedSubmission({ taskId, agentId: earner }))
+
+      expect(await rolesOf(earner)).toEqual(['builder'])
+      expect(await rolesOf(bystander)).toEqual([])
     })
   })
 

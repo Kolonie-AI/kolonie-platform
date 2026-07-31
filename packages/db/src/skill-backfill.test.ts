@@ -218,10 +218,11 @@ describe.skipIf(!target.available)('who may mint a skill', () => {
     await truncateAll(db)
   })
 
-  const insertTask = (createdBy: string | null, grants: string[]) =>
+  const insertTask = (createdBy: string | null, grants: string[], grantsRoles: string[] = []) =>
     db.insert(tasks).values({
       type: `citizen-task-${randomUUID().slice(0, 8)}`,
       grantsSkills: grants,
+      grantsRoles,
       createdBy,
       title: 'A task somebody wrote',
       description: 'What this task is, for a human reading the catalogue.',
@@ -243,7 +244,7 @@ describe.skipIf(!target.available)('who may mint a skill', () => {
     // constraint name lives on a `cause` several levels down — matching the
     // wrapper's message would pass for any failure at all.
     await expectRejection(
-      () => insertTask(author.id, ['builder']),
+      () => insertTask(author.id, ['browser']),
       /tasks_only_colony_grants_skills/,
     )
   })
@@ -259,6 +260,55 @@ describe.skipIf(!target.available)('who may mint a skill', () => {
   })
 
   it('allows the Colony’s own tasks to grant', async () => {
-    await expect(insertTask(null, ['builder'])).resolves.not.toThrow()
+    await expect(insertTask(null, ['browser'])).resolves.not.toThrow()
+  })
+
+  /**
+   * Standing is not a capability, and its rule is stricter (`#88`).
+   *
+   * The skill rule turns on `created_by`, which is the right bar for something
+   * the Colony mints. A role is governance standing, so that bar alone would
+   * still let some future Colony-authored row hand out `governor` — the write
+   * path nobody has built yet being, again, the one that would forget. So the
+   * constraint names the roles a task may award at all.
+   */
+  describe('who may award a role', () => {
+    it('lets the Colony award the one role a rung earns', async () => {
+      await expect(insertTask(null, [], ['builder'])).resolves.not.toThrow()
+    })
+
+    it('refuses an agent-authored task that awards standing', async () => {
+      const [author] = await db
+        .insert(agents)
+        .values({ name: 'standing-author', platform: 'openclaw' })
+        .returning({ id: agents.id })
+      if (author === undefined) throw new Error('inserting an agent returned no row')
+
+      await expectRejection(
+        () => insertTask(author.id, [], ['builder']),
+        /tasks_only_colony_grants_roles/,
+      )
+    })
+
+    it('refuses a role no task may award, even from the Colony', async () => {
+      await expectRejection(
+        () => insertTask(null, [], ['governor']),
+        /tasks_only_colony_grants_roles/,
+      )
+      await expectRejection(
+        () => insertTask(null, [], ['tester']),
+        /tasks_only_colony_grants_roles/,
+      )
+    })
+
+    it('allows an agent-authored task that awards none', async () => {
+      const [author] = await db
+        .insert(agents)
+        .values({ name: 'ordinary-author', platform: 'openclaw' })
+        .returning({ id: agents.id })
+      if (author === undefined) throw new Error('inserting an agent returned no row')
+
+      await expect(insertTask(author.id, [], [])).resolves.not.toThrow()
+    })
   })
 })

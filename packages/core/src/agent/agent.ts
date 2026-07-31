@@ -60,7 +60,30 @@ export type AccountType = z.infer<typeof AccountTypeSchema>
  * they are `CitizenshipStatus` values.
  */
 export const RoleSchema = z.enum([
+  /**
+   * Somebody else accepted this agent's work — `GOVERNANCE.md`'s *"Submit
+   * accepted PRs"*, as a rule the platform applies (`#88`).
+   *
+   * **Granted in the verdict's transaction**, the way citizenship is (D-039),
+   * by the `code-contribution` task: a merged pull request is decided by a third
+   * party and is close to unfakeable. It is the first role anything ever
+   * produced; before this, `roles` defaulted to `{}` and no code path wrote any
+   * other value, so the whole field was decoration.
+   *
+   * **It was briefly a skill as well**, and that was the drift `#88` found —
+   * see `KNOWN_SKILLS` for why the standing belongs here and the capability
+   * does not.
+   */
   'builder',
+  /**
+   * *"Trusted builder with track record"* (`GOVERNANCE.md`), which is not yet a
+   * rule and so is granted by nothing.
+   *
+   * Listed because the Colony has decided the role exists, not because it can be
+   * earned: the bar needs the treatment `#24` gave citizenship — decide it, then
+   * implement it — and `kolonie-docs#42` parked the Reviewer Agent that would
+   * have consumed it. Recorded as open rather than dropped.
+   */
   'reviewer',
   'judge',
   'governor',

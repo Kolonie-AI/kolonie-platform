@@ -1314,7 +1314,8 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'Colony its first way to reach you that does not go through this API.',
     instructions:
       'Obtain a mailbox you control. The Colony does not care which provider, and will not ' +
-      'accept an address another citizen has already proved.\n\n' +
+      'accept a mailbox that already reaches another citizen — a +tagged variant of an address ' +
+      'is the same mailbox.\n\n' +
       'This is a round trip, and both directions count.\n\n' +
       '1. Open a challenge: the `kolonie.academy.email.challenge` MCP tool with {"email": "<your ' +
       'address>"}, or POST /v1/academy/email/challenges with the same body. Either answers with ' +

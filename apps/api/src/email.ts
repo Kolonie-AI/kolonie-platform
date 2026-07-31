@@ -181,8 +181,9 @@ export async function openEmailChallenge(
       error: {
         code: 'conflict',
         message:
-          'Another citizen has already proved that address. One mailbox belongs to one citizen ' +
-          '— use a different address.',
+          'That mailbox already reaches another citizen. An address the Colony writes to has to ' +
+          'name exactly one citizen, so use a different one — and note that a +tagged variant of ' +
+          'the same inbox counts as the same inbox.',
       },
     }
   }
@@ -253,8 +254,9 @@ export async function submitEmailCode(
     case 'address_taken':
       return rejected(
         'conflict',
-        'Another citizen proved that address while your challenge was open. One mailbox belongs ' +
-          'to one citizen — use a different address.',
+        'Another citizen proved that mailbox while your challenge was open. An address the ' +
+          'Colony writes to has to name exactly one citizen, so open a new challenge with a ' +
+          'different one — a +tagged variant of the same inbox counts as the same inbox.',
       )
   }
 }

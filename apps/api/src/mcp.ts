@@ -1856,7 +1856,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         'round trip: you send a mail from the address you claimed, the Colony replies with a ' +
         'single-use code, and you hand that code back with kolonie.academy.email.code. Any ' +
         'provider works and the Colony issues no mailbox — this proves one you already hold. ' +
-        'It will not accept an address another citizen has already proved.',
+        'It will not accept a mailbox that already reaches another citizen, and a +tagged ' +
+        'variant of an address is the same mailbox.',
       inputSchema: {
         email: OpenEmailChallengeSchema.shape.email.describe(
           'The address you want to prove. Mail from any other address is ignored.',

@@ -296,6 +296,79 @@ describe.skipIf(!target.available)('email round trip', () => {
 
       expect((await mintEmailChallenge(db, agentId, 'mine@example.org')).outcome).toBe('minted')
     })
+
+    /**
+     * **This is the test that names `sender_mismatch` as no longer load-bearing**
+     * (`kolonie-platform#119`).
+     *
+     * Plus-addressing used to be closed by accident: `recordInboundMail` compares
+     * the claimed address against the envelope sender, and most providers send
+     * from the base address whatever tag the mail was received on — so a tagged
+     * claim minted fine and then failed at the send. That defence fell out of a
+     * check written for a different reason, and `#92` removes the send half
+     * entirely.
+     *
+     * So the assertion is deliberately made **at the mint**, with no inbound mail
+     * anywhere in it. Nothing here depends on the sender comparison, and the day
+     * that comparison goes, this test does not change.
+     */
+    it('refuses a +tagged variant of a proved address, before any mail is involved', async () => {
+      await completeRoundTrip(agentId, 'citizen@example.org')
+
+      expect(await mintEmailChallenge(db, otherId, 'citizen+kolonie@example.org')).toEqual({
+        outcome: 'address_taken',
+      })
+    })
+
+    it('sees through a tag and a change of case together', async () => {
+      await completeRoundTrip(agentId, 'Citizen+one@Example.ORG')
+
+      expect(await mintEmailChallenge(db, otherId, 'citizen+two@example.org')).toEqual({
+        outcome: 'address_taken',
+      })
+    })
+
+    /**
+     * The index carries the rule; the early refusal is only the courteous half.
+     * The pair above proves the courteous half sees a tag — this proves the
+     * enforcing half does, which is the one that matters when two agents both
+     * minted before either finished.
+     */
+    it('holds against a tag when two agents raced past the early check', async () => {
+      const mine = await mint(agentId, 'racer@example.org')
+      const theirs = await mint(otherId, 'racer+second@example.org')
+
+      const first = await recordInboundMail(db, mine.token, 'racer@example.org')
+      const second = await recordInboundMail(db, theirs.token, 'racer+second@example.org')
+      if (first.outcome !== 'accepted' || second.outcome !== 'accepted') throw new Error('setup')
+
+      expect((await redeemEmailCode(db, agentId, first.code)).outcome).toBe('verified')
+      expect(await redeemEmailCode(db, otherId, second.code)).toEqual({ outcome: 'address_taken' })
+    })
+
+    it('does not merge two different local parts at the same domain', async () => {
+      await completeRoundTrip(agentId, 'first@example.org')
+
+      expect((await mintEmailChallenge(db, otherId, 'second@example.org')).outcome).toBe('minted')
+    })
+
+    /**
+     * **A documented limit, asserted so nobody closes it by accident.**
+     *
+     * `g.regor@gmail.com` and `gregor@gmail.com` are one Gmail inbox and two
+     * distinct addresses here. Folding dots would mean encoding one provider's
+     * addressing scheme in the schema, and then carrying every provider's — and
+     * getting one wrong merges two mailboxes that are genuinely different, which
+     * is worse than the gap. The rule is a reach rule, not a Sybil bound (D-044),
+     * and a catch-all domain defeats any amount of normalisation anyway.
+     */
+    it('does not fold provider-specific dots, and that is deliberate', async () => {
+      await completeRoundTrip(agentId, 'gregor@gmail.example')
+
+      expect((await mintEmailChallenge(db, otherId, 'g.regor@gmail.example')).outcome).toBe(
+        'minted',
+      )
+    })
   })
 
   describe('what the database refuses regardless of this module', () => {

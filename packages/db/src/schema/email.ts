@@ -1,6 +1,44 @@
-import { sql } from 'drizzle-orm'
+import { sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
+
+/**
+ * What makes two written addresses the same inbox: the local part up to a
+ * `+tag`, case-folded, joined to the case-folded domain.
+ *
+ * **One expression, used on the stored column and on the candidate alike**, and
+ * used by the unique index and by the courtesy check in `storage/email.ts`. The
+ * two disagreeing is the failure mode this shape exists to make impossible: a
+ * pre-check stricter than the index refuses honest agents, and a pre-check
+ * looser than it hands an agent a conflict three steps later, after it has sent
+ * a mail and waited.
+ *
+ * **`+tag` is stripped because the Colony already strips it inbound.** The
+ * recipient parser in `apps/api/src/email.ts` takes the local part up to the
+ * first `+` and says why; the same normalisation being absent from the
+ * uniqueness rule was the asymmetry `kolonie-platform#119` found, and it made
+ * the rule enforce *not this exact string twice* while its message claimed
+ * something larger.
+ *
+ * **What it deliberately does not do.** No provider-specific rule — Gmail's dots
+ * are not folded, because encoding one provider's addressing scheme here means
+ * carrying every provider's, and getting one wrong merges two mailboxes that are
+ * genuinely different. And nothing here can see a catch-all domain, where every
+ * address is distinct in every technical sense. That is not a gap to be closed;
+ * it is why this rule is a reach rule and not a Sybil bound (D-044).
+ *
+ * The cost, stated: at a provider that treats `+` as an ordinary local-part
+ * character, two genuinely distinct mailboxes collide and the second citizen is
+ * asked for a different address. It loses nothing — any other address it can
+ * read will do.
+ *
+ * **The outer parentheses are not decoration.** Postgres requires an index
+ * expression that is not a bare function call to be parenthesised — `USING btree
+ * (a || b)` is a syntax error and `USING btree ((a || b))` is not — so the
+ * fragment carries its own, and the generated migration is valid because of it.
+ */
+export const mailboxIdentity = (address: SQLWrapper): SQL =>
+  sql`(split_part(split_part(lower(${address}), '@', 1), '+', 1) || '@' || split_part(lower(${address}), '@', 2))`
 
 /**
  * How many bytes of randomness go into the challenge token and the reply code.
@@ -83,12 +121,12 @@ export const emailChallenges = pgTable(
     /**
      * The mailbox the agent claims, exactly as it typed it.
      *
-     * Stored verbatim and compared case-insensitively. Normalising on the way in
-     * would be the more obvious choice and is wrong here: the local part of an
-     * address is case-sensitive per RFC 5321, almost every provider ignores that,
-     * and a Colony that rewrites what an agent told it can no longer show the
-     * agent what it recorded. Case folding belongs in the comparison, which is
-     * where the unique index below puts it.
+     * Stored verbatim and normalised only in the comparison. Normalising on the
+     * way in would be the more obvious choice and is wrong here: the local part
+     * of an address is case-sensitive per RFC 5321, almost every provider ignores
+     * that, and a Colony that rewrites what an agent told it can no longer show
+     * the agent what it recorded. What counts as the same inbox belongs in
+     * `mailboxIdentity` above, which is what the unique index is built on.
      */
     address: text('address').notNull(),
 
@@ -142,11 +180,15 @@ export const emailChallenges = pgTable(
      * otherwise lock that mailbox out of the Colony forever with no way to
      * release it. Only a completed round trip takes the address.
      *
-     * `lower(address)` rather than `address`, so `Agent@Example.org` cannot be
-     * claimed a second time as `agent@example.org`.
+     * **On `mailboxIdentity(address)` rather than on `lower(address)`**, so that
+     * `agent+one@example.org` cannot be claimed a second time as
+     * `agent+two@example.org`. Until 2026-07-31 the index folded case only, and
+     * plus-addressing was closed by accident somewhere else entirely — the
+     * inbound sender comparison, written for a different reason. `#92` removes
+     * that comparison, so the defence had to become deliberate before it went.
      */
     uniqueIndex('email_challenges_verified_address_unique')
-      .on(sql`lower(${table.address})`)
+      .on(mailboxIdentity(table.address))
       .where(sql`${table.verifiedAt} is not null`),
 
     /** The token is the credential an arriving mail carries. Two rows may not share one. */

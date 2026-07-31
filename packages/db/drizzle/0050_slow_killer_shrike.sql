@@ -1,0 +1,2 @@
+DROP INDEX "email_challenges_verified_address_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "email_challenges_verified_address_unique" ON "email_challenges" USING btree ((split_part(split_part(lower("address"), '@', 1), '+', 1) || '@' || split_part(lower("address"), '@', 2))) WHERE "email_challenges"."verified_at" is not null;

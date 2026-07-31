@@ -351,6 +351,13 @@
       "when": 1785520854964,
       "tag": "0049_domain_challenges",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785531727551,
+      "tag": "0050_slow_killer_shrike",
+      "breakpoints": true
     }
   ]
 }

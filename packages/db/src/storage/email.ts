@@ -2,7 +2,12 @@ import { randomBytes } from 'node:crypto'
 import { and, desc, eq, gt, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import { now as currentTime, type AgentId, type Timestamp } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { emailChallenges, EMAIL_CODE_BYTES, EMAIL_TOKEN_BYTES } from '../schema/email.js'
+import {
+  emailChallenges,
+  mailboxIdentity,
+  EMAIL_CODE_BYTES,
+  EMAIL_TOKEN_BYTES,
+} from '../schema/email.js'
 import { isUniqueViolation } from './errors.js'
 import { toTimestamp } from './rows.js'
 import { openAttemptForChallenge } from './challenge-tasks.js'
@@ -265,7 +270,16 @@ export async function latestEmailChallenge(
   }
 }
 
-/** Is this mailbox already proved by somebody else? The rule the index enforces. */
+/**
+ * Is this mailbox already proved by somebody else? The rule the index enforces.
+ *
+ * **The comparison is `mailboxIdentity` on both sides**, which is the same
+ * expression the unique index is built on. Writing the normalisation out here a
+ * second time is what would let the two drift, and a pre-check that disagrees
+ * with the index is worse than no pre-check: looser and the agent learns three
+ * steps later, stricter and an honest agent is refused an address nothing
+ * actually holds.
+ */
 async function addressBelongsToAnother(
   db: Database,
   agentId: AgentId,
@@ -276,7 +290,7 @@ async function addressBelongsToAnother(
     .from(emailChallenges)
     .where(
       and(
-        sql`lower(${emailChallenges.address}) = lower(${address})`,
+        sql`${mailboxIdentity(emailChallenges.address)} = ${mailboxIdentity(sql`${address}`)}`,
         isNotNull(emailChallenges.verifiedAt),
         ne(emailChallenges.agentId, agentId),
       ),

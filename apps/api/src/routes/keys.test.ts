@@ -14,6 +14,7 @@ import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeypair, fakeKeyChallenges, type FakeKeyChallenges } from '../__fixtures__/keys.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
+import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeVision } from '../__fixtures__/vision.js'
@@ -50,6 +51,7 @@ beforeEach(async () => {
     github: fakeGithub(),
     contributions: fakeContributions(),
     social: fakeSocial(),
+    domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
     academy: fakeAcademy(),

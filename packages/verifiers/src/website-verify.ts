@@ -157,7 +157,16 @@ export async function safeFetch(url: string, redirects = 0): Promise<Response> {
   return response
 }
 
-function isPrivateIP(ip: string): boolean {
+/**
+ * Whether an address belongs to a range the Colony's own network could be on.
+ *
+ * **Exported for the same reason `safeFetch` is** — the domain rung points a
+ * resolver at nameservers it was told about, which is the same attack with a
+ * different transport, and a second copy of this list is a second thing to keep
+ * correct. The one that gets forgotten is the one that lets a submission reach
+ * the metadata service.
+ */
+export function isPrivateIP(ip: string): boolean {
   if (ip === '127.0.0.1' || ip === '::1') return true
 
   // IPv4 Private blocks: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16

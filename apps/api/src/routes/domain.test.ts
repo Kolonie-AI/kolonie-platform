@@ -14,13 +14,9 @@ import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
-import {
-  fakeContributions,
-  fakeGithubChallenges,
-  type FakeGithubChallenges,
-} from '../__fixtures__/github.js'
+import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
-import { fakeDomain } from '../__fixtures__/domain.js'
+import { fakeDomainChallenges, type FakeDomainChallenges } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeVault } from '../__fixtures__/vault.js'
@@ -29,13 +25,13 @@ import { erasure } from '../erasure.js'
 
 let app: FastifyInstance
 let store: FakeStore
-let challenges: FakeGithubChallenges
+let challenges: FakeDomainChallenges
 let apiKey: string
 let issued: ReturnType<FakeStore['issue']>
 
 beforeEach(async () => {
   store = fakeStore()
-  challenges = fakeGithubChallenges()
+  challenges = fakeDomainChallenges()
   app = buildApp({
     vault: { vault: fakeVault() },
     email: fakeEmail(),
@@ -47,15 +43,15 @@ beforeEach(async () => {
     support: support({ desk: fakeSupportDesk() }),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
-    contributions: fakeContributions(),
     keys: fakeKeys(),
     solana: fakeSolana(),
     pow: fakePow(),
     vision: fakeVision(),
     academy: fakeAcademy(),
-    github: { challenges },
+    github: fakeGithub(),
+    contributions: fakeContributions(),
     social: fakeSocial(),
-    domain: fakeDomain(),
+    domain: { challenges },
     website: fakeWebsite(),
     image: fakeImage(),
   })
@@ -71,11 +67,11 @@ afterEach(async () => {
 const mint = () =>
   app.inject({
     method: 'POST',
-    url: '/v1/academy/github/challenges',
+    url: '/v1/academy/domain/challenges',
     headers: { authorization: `Bearer ${apiKey}` },
   })
 
-describe('POST /v1/academy/github/challenges', () => {
+describe('POST /v1/academy/domain/challenges', () => {
   it('answers 201 with a nonce and an expiry', async () => {
     const response = await mint()
 
@@ -86,11 +82,11 @@ describe('POST /v1/academy/github/challenges', () => {
   })
 
   it('refuses a caller with no credential', async () => {
-    const response = await app.inject({ method: 'POST', url: '/v1/academy/github/challenges' })
+    const response = await app.inject({ method: 'POST', url: '/v1/academy/domain/challenges' })
 
     // Authenticating is what binds the nonce to one agent. Without it the value
-    // would prove that *somebody* controls an account, which is not a fact about
-    // any citizen.
+    // would prove that *somebody* controls a zone, which is not a fact about any
+    // citizen.
     expect(response.statusCode).toBe(401)
     expect(response.headers['www-authenticate']).toBeDefined()
   })
@@ -99,35 +95,33 @@ describe('POST /v1/academy/github/challenges', () => {
     const first = (await mint()).json().nonce
     const second = (await mint()).json().nonce
 
-    // Both stay acceptable. Each was issued to this same agent, so a gist
-    // carrying either proves exactly what one carrying the newest would —
-    // refusing would only strand an agent that published and then minted again.
     expect(first).not.toBe(second)
     expect(challenges.minted(issued.agent.id)).toEqual([first, second])
   })
 
   /**
-   * There is no configuration this rung could be missing, so there is no state
-   * in which it answers 503 — unlike every other Academy route. The token it is
-   * eventually checked with belongs to the *verifier* and lives in the runner,
-   * so its absence stalls a verdict rather than closing this door.
+   * There is no configuration this rung could be missing, on either side, and
+   * here that is stronger than on the social rung it copies. The API mints random
+   * bytes; the *verifier* holds no credential because public DNS has no vendor in
+   * the read path at all — no account, no key, no quota that can lapse
+   * (`kolonie-docs#89`).
    */
   it('serves on an app wired with nothing else configured', async () => {
     expect((await mint()).statusCode).toBe(201)
   })
 
-  it('has no answering route — the gist arrives as a submission', async () => {
+  it('has no answering route — the name arrives as a submission', async () => {
     const response = await app.inject({
       method: 'POST',
-      url: '/v1/academy/github/gists',
+      url: '/v1/academy/domain/names',
       headers: { authorization: `Bearer ${apiKey}` },
-      payload: { url: 'https://gist.github.com/octocat/aa11bb22cc33' },
+      payload: { name: 'colette.example' },
     })
 
     // Asserted rather than left to be inferred. An endpoint taking the agent's
-    // word for which account it published from would be a claim the Colony
-    // cannot check, which is D-018 — and the natural thing to add by reflex,
-    // because every other rung has a second door.
+    // word for a name would be a claim the Colony cannot check, which is D-018 —
+    // and it is the natural thing to add by reflex, because every other rung has
+    // a second door.
     expect(response.statusCode).toBe(404)
   })
 })

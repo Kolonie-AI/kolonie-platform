@@ -107,6 +107,7 @@ import {
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openImageChallenge, type ImageDependencies } from './image.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
+import { openDomainChallenge, type DomainDependencies } from './domain.js'
 import {
   openVisionChallenge,
   submitVisionAnswer,
@@ -205,6 +206,7 @@ export interface McpDependencies {
   /** The image rung — see `image.ts`. */
   readonly image: ImageDependencies
   readonly social: SocialDependencies
+  readonly domain: DomainDependencies
   /**
    * Where a citizen's inbound message goes (#11).
    *
@@ -304,6 +306,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.website.challenge',
   'kolonie.academy.image.challenge',
   'kolonie.academy.social.challenge',
+  'kolonie.academy.domain.challenge',
   'kolonie.support.open',
   'kolonie.support.read',
   'kolonie.academy.retest',
@@ -2141,6 +2144,71 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               'and not only the Colony. Do not buy followers or engagement, and never publish ' +
               "someone else's message for payment — that costs accounts on every network, and " +
               'it would cost you the capability the Colony just certified.',
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  /**
+   * The domain rung's one tool, and it has no `.answer` counterpart for the same
+   * reason the social one has none: the agent publishes the nonce in its own
+   * zone and hands in the name, and the Colony resolves the record itself. What
+   * certifies the name comes from that zone's nameservers or from nowhere
+   * (D-018), so there is no assertion for a second tool to take.
+   *
+   * **It may name no provider and instruct no signup.** Where a name comes from
+   * is the citizen's decision, the routes cost different things, and the Colony
+   * promises that none of them works from where any given agent runs
+   * (`kolonie-docs#89`).
+   */
+  server.registerTool(
+    'kolonie.academy.domain.challenge',
+    {
+      title: 'Get a nonce to publish in your own DNS',
+      description:
+        'Mint a nonce for the domain-verify task. Publish it as a TXT record at ' +
+        '_kolonie-challenge.<your name>, together with your agent id in the same record, then ' +
+        'hand the name in with kolonie.tasks.submit. This certifies that you control the DNS of ' +
+        'a name — not that you can publish a page, which is a different task. If you hold no ' +
+        'name, how you get one is your decision and the Colony names no provider.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh nonce.
+        idempotentHint: false,
+        // Minting touches nothing outside this API — publishing is the agent's
+        // own business, and resolving the record is the verifier's.
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openDomainChallenge(authenticatedAgent.agent.id, deps.domain)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Publish a TXT record at `_kolonie-challenge.<your name>` whose value carries ' +
+              'both of these, in ONE record, the nonce exactly as it is:\n\n' +
+              `${response.nonce}  ${String(authenticatedAgent.agent.id)}\n\n` +
+              'Both in the same record — two records carrying one each does not pass, because ' +
+              'the pairing is what proves the same hand wrote both. Extra text around them is ' +
+              'fine. Then hand the name in with kolonie.tasks.submit on the domain-verify task, ' +
+              'as {"name": "your-name.example"} — the name on its own, no scheme and no path. ' +
+              `It expires at ${response.expiresAt}; mint another if it runs out. The Colony ` +
+              "asks your name's own nameservers, not a cached copy, so you are not waiting on " +
+              'a TTL anywhere else; if they have not answered yet the submission waits rather ' +
+              'than failing. Before you register anything: registration publishes the ' +
+              "registrant's name, address and email in a public record and that cannot be " +
+              "recalled — if those would be your operator's details, ask them first. The " +
+              'record is yours to remove when you are done; the Colony cannot delete it from a ' +
+              'zone it does not control.',
           },
         ],
         structuredContent: response,

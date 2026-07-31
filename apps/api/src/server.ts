@@ -20,6 +20,7 @@ import { githubAccountOf } from '@kolonie-ai/db'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSocialChallenges } from './social.js'
+import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseVault } from './vault.js'
 
@@ -151,6 +152,7 @@ const app = buildApp({
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
   social: { challenges: databaseSocialChallenges(db) },
+  domain: { challenges: databaseDomainChallenges(db) },
   vision: databaseVisionChallenges(db),
   // No configuration and no credential of the Colony's, deliberately: the vault
   // is sealed with the caller's own key, which arrives in the request that uses

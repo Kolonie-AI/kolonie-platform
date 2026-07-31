@@ -28,6 +28,7 @@ import type { ContributionDependencies } from '../contributions.js'
 import type { WebsiteDependencies } from '../website.js'
 import type { ImageDependencies } from '../image.js'
 import type { SocialDependencies } from '../social.js'
+import type { DomainDependencies } from '../domain.js'
 import type { VisionDependencies } from '../vision.js'
 import type { VaultDependencies } from '../vault.js'
 import { fakeAcademy } from './academy.js'
@@ -37,6 +38,7 @@ import { fakeSolanaChallenges } from './solana.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeContributions, fakeGithub } from './github.js'
 import { fakeSocial } from './social.js'
+import { fakeDomain } from './domain.js'
 import { fakeWebsite } from './website.js'
 import { fakeImage } from './image.js'
 import { fakeVision } from './vision.js'
@@ -127,6 +129,7 @@ export interface FakeColony {
   readonly github: GithubDependencies
   readonly contributions: ContributionDependencies
   readonly social: SocialDependencies
+  readonly domain: DomainDependencies
   readonly website: WebsiteDependencies
   readonly image: ImageDependencies
   readonly vision: VisionDependencies
@@ -245,6 +248,7 @@ export function fakeColony(): FakeColony {
     github: fakeGithub(),
     contributions: fakeContributions(),
     social: fakeSocial(),
+    domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
     vision: fakeVision(),

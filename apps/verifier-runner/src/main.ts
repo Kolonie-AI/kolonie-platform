@@ -18,6 +18,9 @@ import {
   openGithubNonces,
   openSocialNonces,
   socialAccountOf,
+  openDomainNonces,
+  lastDomainExpiry,
+  citizenForDomainName,
   openWebsiteTokens,
   verifiedSolanaAddress,
 } from '@kolonie-ai/db'
@@ -28,6 +31,7 @@ import {
   GITHUB_VERIFIER_TOKEN_VAR,
   httpGitHubReader,
   httpSocialReader,
+  nodeDnsReader,
   httpSolanaHistory,
   httpSolanaRpc,
   openRouterVision,
@@ -202,6 +206,27 @@ const verifiers = createVerifiers({
     accountOf: (agentId) => socialAccountOf(db, agentId),
     noncesIssuedTo: (agentId) => issuedSocialNonces(db, agentId),
   },
+  /**
+   * The domain rung, and a stronger version of the property above it.
+   *
+   * The social reader needs no credential because both networks serve public
+   * records; this one needs no *vendor*. Public DNS has no account, no key and
+   * no quota that can lapse, so there is not even a free API tier that could be
+   * withdrawn — which is what `kolonie-docs#89` argued the node was worth having
+   * for, beyond what it certifies.
+   *
+   * Nothing here is configured, deliberately. The reader finds each name's own
+   * nameservers and asks them, rather than trusting a recursive resolver this
+   * process happens to be pointed at: a cached negative answer and a record the
+   * citizen published five minutes ago are the same answer otherwise, and the
+   * citizen would pay for the Colony's cache.
+   */
+  dns: nodeDnsReader(),
+  domainChallenges: {
+    openNonces: (agentId) => openDomainNonces(db, agentId),
+    lastExpiry: (agentId) => lastDomainExpiry(db, agentId),
+  },
+  domainNames: { citizenFor: (name) => citizenForDomainName(db, name) },
 })
 
 const runner = startRunner(

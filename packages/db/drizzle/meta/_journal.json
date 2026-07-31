@@ -344,6 +344,13 @@
       "when": 1785517710210,
       "tag": "0048_gifted_wonder_man",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1785520854964,
+      "tag": "0049_domain_challenges",
+      "breakpoints": true
     }
   ]
 }

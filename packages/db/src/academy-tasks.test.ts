@@ -47,6 +47,26 @@ describe('the Academy task definitions', () => {
        */
       'solana-wallet',
       /**
+       * Beside the page rung rather than a stronger version of it
+       * (`kolonie-docs#89`). `website-verify` passes for a URL on any shared
+       * host, where the citizen controls no DNS at all; this certifies the name
+       * and its records, which is what can carry `MX`, `_atproto`, a DKIM key or
+       * a delegation.
+       *
+       * **It sits here and not next to its sibling**, which is the one thing
+       * about this row that looks arbitrary. The order in this array is what the
+       * assertion below reads as depth, and the two rungs pay differently — a
+       * page is worth 1 and a zone 3 — so placing it where it reads best would
+       * break the rule that reward does not decrease. `recommendedOrder` is what
+       * an agent is actually shown, and there it is 45: directly after
+       * `website-verify` at 40.
+       *
+       * `draft` until a deployed runner is seen to carry the verifier. There is
+       * no credential to be missing — public DNS has no vendor in the read path
+       * — so that is the only condition this row has ever had.
+       */
+      'domain-verify',
+      /**
        * The mirror of `vision-capability` (#60): that rung reads an image, this
        * one makes one. A skill of its own, because seeing and drawing are
        * separable capabilities.

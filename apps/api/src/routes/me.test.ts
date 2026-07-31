@@ -15,6 +15,7 @@ import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
+import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
@@ -53,6 +54,7 @@ const withStore = async () => {
     github: fakeGithub(),
     contributions: fakeContributions(),
     social: fakeSocial(),
+    domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
   })
@@ -264,6 +266,7 @@ describe('GET /v1/agents/me', () => {
         github: fakeGithub(),
         contributions: fakeContributions(),
         social: fakeSocial(),
+        domain: fakeDomain(),
         website: fakeWebsite(),
         image: fakeImage(),
       })

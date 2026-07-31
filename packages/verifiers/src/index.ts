@@ -21,8 +21,10 @@ import {
 } from './social-account.js'
 import { WebsiteVerifyVerifier, type WebsiteChallenges } from './website-verify.js'
 import { SocialPostVerifier, type SocialGrants } from './social-post.js'
+import { DomainVerifyVerifier, type DomainChallenges, type DomainNames } from './domain-verify.js'
 import type { GitHubReader } from './github.js'
 import type { SocialReader } from './social.js'
+import type { DnsReader } from './dns.js'
 
 export {
   BrowserCaptchaVerifier,
@@ -78,10 +80,31 @@ export {
   type GithubChallenges,
 } from './github-account.js'
 export {
+  isPrivateIP,
   WebsiteVerifyVerifier,
   type WebsiteVerifyDependencies,
   type WebsiteChallenges,
 } from './website-verify.js'
+export {
+  DomainVerifyVerifier,
+  type DomainChallenges,
+  type DomainNames,
+  type DomainVerifyDependencies,
+} from './domain-verify.js'
+export {
+  CHALLENGE_LABEL,
+  DNS_TIMEOUT_MS,
+  DNS_TRIES,
+  looksLikeName,
+  MAX_NAMESERVERS,
+  MAX_TXT_RECORDS,
+  MAX_ZONE_WALK,
+  nodeDnsReader,
+  normaliseName,
+  txtFailure,
+  type DnsReader,
+  type DnsReadResult,
+} from './dns.js'
 export {
   SocialAccountVerifier,
   type SocialAccountDependencies,
@@ -349,6 +372,26 @@ export interface VerifierDependencies {
    * invite one to be wired to the other.
    */
   readonly socialGrants?: SocialGrants
+  /**
+   * Reads `TXT` from a name's authoritative nameservers.
+   *
+   * **Like `social`, it needs no credential to be useful** — public DNS has no
+   * vendor in the read path at all — so there is no equivalent of the token
+   * check that leaves the GitHub reader answering `unavailable` when it is
+   * unconfigured. It stays optional for the rule this interface exists to serve:
+   * a verifier whose dependencies are missing is left out of the registry rather
+   * than built half-wired.
+   */
+  readonly dns?: DnsReader
+  /**
+   * Answers which nonces the Colony has issued to an agent for the domain rung.
+   *
+   * Its own port for the same reason `socialChallenges` is: a shared one would
+   * let a wiring mistake answer one rung with another's evidence.
+   */
+  readonly domainChallenges?: DomainChallenges
+  /** Answers which citizen a name has already certified. */
+  readonly domainNames?: DomainNames
 }
 
 /**
@@ -476,6 +519,26 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.websiteChallenges !== undefined) {
     verifiers.push(new WebsiteVerifyVerifier({ challenges: deps.websiteChallenges }))
+  }
+
+  /**
+   * All three or none. A domain verdict rests on the zone answering, on the
+   * Colony knowing which nonce it issued this agent, and on the name not having
+   * certified somebody else already — and a rung built without the last of those
+   * would let one zone certify every citizen that could read it.
+   */
+  if (
+    deps.dns !== undefined &&
+    deps.domainChallenges !== undefined &&
+    deps.domainNames !== undefined
+  ) {
+    verifiers.push(
+      new DomainVerifyVerifier({
+        dns: deps.dns,
+        challenges: deps.domainChallenges,
+        names: deps.domainNames,
+      }),
+    )
   }
 
   return new Map(verifiers.map((verifier) => [verifier.taskType, verifier]))

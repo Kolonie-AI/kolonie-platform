@@ -56,6 +56,7 @@ import type { ContributionDependencies } from './contributions.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openImageChallenge, type ImageDependencies } from './image.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
+import { openDomainChallenge, type DomainDependencies } from './domain.js'
 import { openVisionChallenge, submitVisionAnswer, type VisionDependencies } from './vision.js'
 import {
   forgetVaultEntry,
@@ -114,6 +115,13 @@ export interface AppDependencies {
    * that an unset variable could switch off.
    */
   readonly social: SocialDependencies
+  /**
+   * The domain rung — see `domain.ts`. Like the social rung the verifier holds
+   * no credential, and here that is structural: public DNS has no vendor in
+   * the read path at all, so there is nothing an unset variable could switch
+   * off.
+   */
+  readonly domain: DomainDependencies
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */
@@ -185,6 +193,7 @@ export function buildApp({
   website,
   image,
   social,
+  domain,
   vision,
   vault,
   limiter = registrationLimiter(),
@@ -339,6 +348,7 @@ export function buildApp({
           website,
           image,
           social,
+          domain,
           keys,
           solana,
           pow,
@@ -1098,6 +1108,33 @@ export function buildApp({
         }
 
         const result = await openSocialChallenge(authenticated.agent.id, social)
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Mint a nonce for the domain rung — `domain-verify`.
+       *
+       * The social route above, one surface out, and everything said there
+       * holds: authenticated so the nonce binds to one agent, no answering route
+       * because there is nothing for the agent to hand back, and no 503 branch
+       * because this issues 32 random bytes.
+       *
+       * **The name is checked, never taken on trust.** The agent submits it with
+       * the task, and what certifies it is the record its own nameservers serve
+       * (D-018) — so a name in a payload is a claim and never evidence.
+       */
+      v1.post('/academy/domain/challenges', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await openDomainChallenge(authenticated.agent.id, domain)
 
         return reply.status(201).send(result.response)
       })

@@ -38,6 +38,7 @@ export const CHALLENGE_TASK_TYPES = {
   keySignature: 'key-signature',
   github: 'github-account',
   social: 'social-account',
+  domain: 'domain-verify',
 } as const
 
 export type ChallengeName = keyof typeof CHALLENGE_TASK_TYPES

@@ -15,6 +15,7 @@ import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
+import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
@@ -55,6 +56,7 @@ beforeEach(async () => {
     github: fakeGithub(),
     contributions: fakeContributions(),
     social: fakeSocial(),
+    domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
     academy: fakeAcademy(),

@@ -73,6 +73,21 @@ export const KNOWN_SKILLS = [
    */
   'image-gen',
   'website',
+  /**
+   * Control of a name's DNS — the zone and its records, not a page served under
+   * somebody else's name (`kolonie-docs#89`).
+   *
+   * **A separate slug from `website`, and the distinction is the whole node.** A
+   * URL on a shared host passes `website-verify` while the citizen controls no
+   * DNS at all. This one is what can carry `MX`, `_atproto`, a DKIM key, a
+   * delegation or a DNS-01 challenge, and none of those follow from being able
+   * to publish a page.
+   *
+   * The hard/soft test comes out clean in both directions, which is what says
+   * these are two capabilities rather than one: an agent holding `website` may
+   * control no zone, and an agent controlling a zone may serve no page.
+   */
+  'domain',
   'wallet',
   'payment',
   'coordination',

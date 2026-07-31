@@ -41,6 +41,12 @@ const GITHUB_SKILL = 'github'
  */
 const SOCIAL_SKILL = 'social'
 
+/**
+ * The skill control of a name's DNS certifies, named here for the same reason
+ * and read by the same shape of query (`kolonie-docs#89`).
+ */
+const DOMAIN_SKILL = 'domain'
+
 /** A submission the runner now owns, together with what it needs to check it. */
 export interface ClaimedSubmission {
   /** Already moved to `verifying` in the same transaction that handed it over. */
@@ -682,6 +688,48 @@ export async function githubAccountOf(db: Database, agentId: AgentId): Promise<s
     .limit(1)
 
   return granted?.author ?? undefined
+}
+
+/**
+ * Which citizen, if any, has already earned `domain` with this name.
+ *
+ * {@link citizenForSocialAccount} one surface out, and every argument there
+ * applies unchanged: it reads the **grant** rather than a task type, the oldest
+ * claim wins because two agents racing the same name is what this exists to
+ * stop, and a passing submission that granted nothing new stakes no claim.
+ *
+ * **The name is compared as the verifier normalised it**, which for DNS means
+ * lowercased and stripped of the trailing dot. Both are presentation rather than
+ * identity — `Example.COM.` and `example.com` are the same name to a resolver —
+ * so comparing the unnormalised forms would let one zone certify two citizens
+ * by being submitted in two spellings. The normalisation lives in the verifier,
+ * beside the read that produced the value, and this query trusts it for the same
+ * reason the social one trusts a `did`.
+ *
+ * **`name` and not `domain`.** The key is load-bearing exactly as `account` and
+ * `author` are on the rungs above, where writing a different word for it would
+ * produce a row this shape of query cannot see — one zone silently free to
+ * certify a second agent, with every other check still passing (#42).
+ */
+export async function citizenForDomainName(
+  db: Database,
+  name: string,
+): Promise<AgentId | undefined> {
+  const [claimed] = await db
+    .select({ agentId: agentSkills.agentId })
+    .from(agentSkills)
+    .innerJoin(verifications, eq(verifications.submissionId, agentSkills.submissionId))
+    .where(
+      and(
+        eq(agentSkills.skill, DOMAIN_SKILL),
+        eq(verifications.status, 'pass'),
+        sql`${verifications.metadata}->>'name' = ${name}`,
+      ),
+    )
+    .orderBy(asc(agentSkills.grantedAt))
+    .limit(1)
+
+  return claimed === undefined ? undefined : AgentIdSchema.parse(claimed.agentId)
 }
 
 export async function citizenForSocialAccount(

@@ -2,7 +2,7 @@
   "name": "@kolonie-ai/db",
   "version": "0.1.0",
   "private": true,
-  "description": "Persistence for the Kolonie AI platform — Drizzle schema, SQL migrations, connection",
+  "description": "Persistence for the Kolonie AI platform \u2014 Drizzle schema, SQL migrations, connection",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
@@ -24,7 +24,8 @@
     "migrate": "node dist/migrate.js",
     "seed": "node dist/seed.js",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "pregenerate": "npm run build -w @kolonie-ai/core"
   },
   "dependencies": {
     "@kolonie-ai/core": "*",

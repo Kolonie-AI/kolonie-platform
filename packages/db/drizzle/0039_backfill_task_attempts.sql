@@ -1,5 +1,18 @@
 -- Reconstruct the attempts that happened before `task_attempts` existed.
 --
+-- ## Why this migration has no snapshot, and why that is correct
+--
+-- `drizzle/meta/` holds a snapshot per migration and there is none for this one.
+-- That gap is deliberate rather than damage: this file contains no DDL. It moves
+-- rows; it does not change the shape of the database. `0038`'s snapshot is still
+-- an accurate picture afterwards, which is why `0040`'s `prevId` points straight
+-- at `0038`'s id and the chain is unbroken.
+--
+-- Written down because the gap invites exactly one wrong repair — fabricating a
+-- snapshot to fill it — and a fabricated snapshot is a claim about the schema
+-- that nothing generated and nothing checked. `packages/db/scripts/check-migrations.sh`
+-- is what makes the chain's correctness verifiable rather than assumed (#123).
+--
 -- `0038` created the table. Without this statement the Academy's first briefing
 -- would be written from an empty corpus, and every rate this programme exists to
 -- produce would start at zero on the day it deployed — while the evidence for

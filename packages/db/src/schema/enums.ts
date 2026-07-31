@@ -24,6 +24,54 @@ import {
 } from '@kolonie-ai/core'
 
 /**
+ * Every schema this file derives an enum from, checked before any of them is
+ * dereferenced.
+ *
+ * **The failure this replaces looked like a broken schema file and was not.**
+ * These are read from the *built* `@kolonie-ai/core`, so when its `dist` is
+ * behind its source — a fresh clone, a rebase that added an enum, a
+ * `drizzle-kit generate` run before `npm run build` — the symbol is `undefined`
+ * and `XSchema.options` throws `Cannot read properties of undefined` pointing
+ * here. It cost one wrong conclusion and a hand-written migration (#123).
+ *
+ * Shorthand keys on purpose: the name in the message is the identifier itself,
+ * so this list cannot drift from the imports above without failing to compile.
+ */
+const DERIVED_FROM = {
+  AccountTypeSchema,
+  AgentPlatformSchema,
+  AssistanceSchema,
+  AttemptOpenerSchema,
+  BanMarkKindSchema,
+  CitizenshipStatusSchema,
+  CredentialKindSchema,
+  ErasureReasonSchema,
+  LedgerEntryTypeSchema,
+  ModerationStatusSchema,
+  ReportOutcomeSchema,
+  ReputationReasonSchema,
+  RoleSchema,
+  SubmissionStatusSchema,
+  SupportTicketKindSchema,
+  SupportTicketStatusSchema,
+  SystemAccountSchema,
+  TaskAttemptOutcomeSchema,
+  TaskKindSchema,
+  TaskStatusSchema,
+  VerificationStatusSchema,
+}
+
+for (const [name, schema] of Object.entries(DERIVED_FROM)) {
+  if (schema === undefined) {
+    throw new Error(
+      `@kolonie-ai/core exports no ${name}. The schema here is almost certainly fine and ` +
+        `the built package is stale — run \`npm run build\` at the repository root. ` +
+        `See packages/db/scripts/check-migrations.sh.`,
+    )
+  }
+}
+
+/**
  * Every enum in the database is derived from the Zod enum in `packages/core`,
  * never retyped.
  *

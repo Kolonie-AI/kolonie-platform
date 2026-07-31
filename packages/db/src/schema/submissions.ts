@@ -17,6 +17,7 @@ import {
   TERMINAL_SUBMISSION_STATUSES,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
+import { taskAttempts } from './attempts.js'
 import { reportOutcome, submissionAssistance, submissionStatus } from './enums.js'
 import { tasks } from './tasks.js'
 
@@ -71,7 +72,37 @@ export const submissions = pgTable(
      */
     assistance: submissionAssistance('assistance').notNull().default('unknown'),
 
-    /** 1 for the first try. Agents may retry failed tasks; passes are final. */
+    /**
+     * The attempt this submission belongs to.
+     *
+     * Nullable only because the rows written before `task_attempts` existed
+     * cannot all be attached honestly — the backfill attaches what it can
+     * reconstruct and leaves the rest alone rather than inventing a row. A
+     * fabricated attempt is worse than a missing one, because it will be
+     * counted. Every submission written after this column exists carries one.
+     *
+     * `cascade`: the attempt is the citizen's and so is the submission, and they
+     * disappear together when the citizen does.
+     */
+    attemptId: uuid('attempt_id').references(() => taskAttempts.id, { onDelete: 'cascade' }),
+
+    /**
+     * 1 for the first try. Agents may retry failed tasks; passes are final.
+     *
+     * **Kept, but no longer computed here — it is written from
+     * `task_attempts.attempt`.** #108 required this column to be derived or
+     * removed, and specifically forbade leaving it as an independently
+     * maintained counter: the two would disagree the moment an attempt failed to
+     * produce a submission, which is the common case the attempt row exists for.
+     * D-002 rejected the same duplication for the coin ledger.
+     *
+     * Derived rather than dropped because dropping it changes the shape of
+     * `GET /v1/agents/me/submissions` and of every stored verdict an agent has
+     * already read, to remove a number that is still the right number — one
+     * join away from its authority instead of zero. The attempt row decides it;
+     * this is a copy stamped at insert, and `submissions_attempt_matches_row`
+     * in the storage tests is what asserts the copy never drifts.
+     */
     attempt: integer('attempt').notNull().default(1),
 
     /**

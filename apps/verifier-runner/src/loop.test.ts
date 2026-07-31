@@ -162,6 +162,18 @@ class FakeQueue implements SubmissionQueue {
     this.sweeps++
     return this.overdue
   }
+
+  /**
+   * Counted rather than stubbed away, so a sweep that stops running is visible
+   * here (#108). It rides the same tick as `expireOverdue` and the loop must
+   * keep working when it finds nothing, which is the ordinary case.
+   */
+  abandonedSweeps = 0
+
+  async sweepAbandoned(): Promise<number> {
+    this.abandonedSweeps++
+    return 0
+  }
 }
 
 const claimed = (id: string, taskType = EXAMPLE_TASK): ClaimedSubmission => ({

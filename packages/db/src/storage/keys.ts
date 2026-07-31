@@ -11,6 +11,7 @@ import type { Database } from '../client.js'
 import { keyChallenges, KEY_NONCE_BYTES } from '../schema/keys.js'
 import { isUniqueViolation } from './errors.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 /**
  * How long a minted nonce stays signable. See `expiresAt` in `schema/keys.ts`
@@ -84,6 +85,11 @@ export async function mintKeyChallenge(
   })
 
   if (row === undefined) throw new Error('key_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'keySignature', agentId, toTimestamp(row.expiresAt))
 
   return { id: row.id, nonce: row.nonce, expiresAt: toTimestamp(row.expiresAt) }
 }

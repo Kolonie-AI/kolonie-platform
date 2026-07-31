@@ -267,6 +267,20 @@
       "when": 1785481053376,
       "tag": "0037_image_challenges",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785493530094,
+      "tag": "0038_special_viper",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785493531094,
+      "tag": "0039_backfill_task_attempts",
+      "breakpoints": true
     }
   ]
 }

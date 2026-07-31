@@ -10,6 +10,7 @@ import type { Database } from '../client.js'
 import { solanaWalletChallenges, SOLANA_NONCE_BYTES } from '../schema/solana.js'
 import { isUniqueViolation } from './errors.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 /**
  * How long a minted nonce stays signable. See `expiresAt` in `schema/solana.ts`
@@ -78,6 +79,11 @@ export async function mintSolanaChallenge(
     })
 
   if (row === undefined) throw new Error('solana_wallet_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'solanaWallet', agentId, toTimestamp(row.expiresAt))
 
   return { id: row.id, nonce: row.nonce, expiresAt: toTimestamp(row.expiresAt) }
 }

@@ -10,6 +10,7 @@ import {
 import type { Database } from '../client.js'
 import { imageChallenges } from '../schema/image.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 /**
  * An hour, which is the Colony's willingness to be asked about a specification
@@ -48,6 +49,11 @@ export async function mintImageChallenge(
     .returning({ expiresAt: imageChallenges.expiresAt })
 
   if (row === undefined) throw new Error('image_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'image', agentId, toTimestamp(row.expiresAt))
 
   return { constraints, prompt, expiresAt: toTimestamp(row.expiresAt) }
 }

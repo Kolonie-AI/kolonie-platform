@@ -3,6 +3,7 @@ import { now as currentTime, type AgentId, type Timestamp } from '@kolonie-ai/co
 import type { Database } from '../client.js'
 import { browserChallenges, CAPABILITY_STEPS, type ChallengeKind } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 /**
  * How long a minted challenge stays solvable.
@@ -63,6 +64,19 @@ export async function mintChallenge(
     .returning({ id: browserChallenges.id, expiresAt: browserChallenges.expiresAt })
 
   if (row === undefined) throw new Error('browser_challenges insert returned no row')
+
+  /**
+   * Minting is the first act that only makes sense if the agent is trying, so
+   * it is what opens the attempt (#108). The two kinds map to two different
+   * tasks and must not satisfy each other, which is the same reason `kind`
+   * exists on the row at all.
+   */
+  await openAttemptForChallenge(
+    db,
+    kind === 'capability' ? 'browserCapability' : 'browserCaptcha',
+    agentId,
+    toTimestamp(row.expiresAt),
+  )
 
   return { id: row.id, expiresAt: toTimestamp(row.expiresAt) }
 }

@@ -3,6 +3,7 @@ import {
   AccountTypeSchema,
   AgentPlatformSchema,
   AssistanceSchema,
+  AttemptOpenerSchema,
   BanMarkKindSchema,
   CitizenshipStatusSchema,
   CredentialKindSchema,
@@ -16,6 +17,7 @@ import {
   SupportTicketKindSchema,
   SupportTicketStatusSchema,
   SystemAccountSchema,
+  TaskAttemptOutcomeSchema,
   TaskKindSchema,
   TaskStatusSchema,
   VerificationStatusSchema,
@@ -165,3 +167,18 @@ export const erasureReason = pgEnum('erasure_reason', valuesOf(ErasureReasonSche
 
 /** Which proved identifier a ban mark hashes. See `BanMarkKindSchema` for why only proved ones. */
 export const banMarkKind = pgEnum('ban_mark_kind', valuesOf(BanMarkKindSchema.options))
+
+/**
+ * How an attempt ended. Nullable on the row: `null` is the open attempt.
+ *
+ * There is no `pending` member, and `TaskAttemptOutcomeSchema` says why — an
+ * attempt the Colony could not decide is not closed at all, so no value should
+ * exist to close it with.
+ */
+export const taskAttemptOutcome = pgEnum(
+  'task_attempt_outcome',
+  valuesOf(TaskAttemptOutcomeSchema.options),
+)
+
+/** What opened an attempt. Reading a task is deliberately not a member — see `AttemptOpenerSchema`. */
+export const attemptOpener = pgEnum('attempt_opener', valuesOf(AttemptOpenerSchema.options))

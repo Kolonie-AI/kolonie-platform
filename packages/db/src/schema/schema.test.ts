@@ -226,6 +226,15 @@ describe.skipIf(!target.available)('schema', () => {
          * generation: a briefing is a current statement, and `moderations` is
          * where the history that anyone would dispute already lives.
          */
+        /**
+         * `task_attempts` joined with #108, and it is what made failure
+         * countable. Before it the Colony saw a failure only if it reached a
+         * submission — so the 28 challenges that were issued and never
+         * completed, measured on 2026-07-31, existed in no row that said an
+         * agent had tried and stopped. One row per try, `abandoned` as a real
+         * outcome, and the authority for which try a submission belongs to.
+         */
+        'task_attempts',
         'task_briefings',
         // The five that carry what is known about a task beyond its
         // instructions (#52). `task_hints` and `task_briefings` are the Colony's

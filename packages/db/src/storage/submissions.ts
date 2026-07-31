@@ -10,6 +10,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, submissions, tasks } from '../schema/index.js'
+import { openAttemptForSubmission } from './attempts.js'
 import { reputationOfAgent } from './balance.js'
 import { toSubmission } from './rows.js'
 import { passIsSupersededByReset } from './resets.js'
@@ -251,6 +252,24 @@ export async function createSubmission(
     if (history.some((row) => OPEN_STATUSES.includes(row.status)))
       return { outcome: 'already-open' }
 
+    /**
+     * The attempt this submission belongs to — the one already open if a
+     * challenge started it, a new one otherwise.
+     *
+     * **This is where `submissions.attempt` stopped being its own counter.** It
+     * used to be `(history[0]?.attempt ?? 0) + 1`, computed from the submission
+     * history alone, which is exactly the independently maintained second record
+     * #108 forbids: an agent whose first two tries expired without a submission
+     * would have handed in "attempt 1" on its third real try. Now the attempt
+     * row decides and this copies it.
+     *
+     * Opening is idempotent, so a submission that follows a challenge lands on
+     * that challenge's attempt rather than starting another one. That is what
+     * makes a mailbox rung that took three challenges and one submission read as
+     * one try instead of two.
+     */
+    const attempt = await openAttemptForSubmission(tx, command.agentId, command.taskId)
+
     const [row] = await tx
       .insert(submissions)
       .values({
@@ -258,7 +277,8 @@ export async function createSubmission(
         agentId: command.agentId,
         payload: command.payload,
         assistance: declared,
-        attempt: (history[0]?.attempt ?? 0) + 1,
+        attemptId: attempt.id,
+        attempt: attempt.attempt,
         /**
          * Stamped now, not worked out at booking time (#47).
          *

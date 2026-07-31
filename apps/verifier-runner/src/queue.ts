@@ -2,6 +2,7 @@ import type { SubmissionId, TaskType } from '@kolonie-ai/core'
 import {
   claimNextSubmission,
   expireOverdueSubmissions,
+  sweepAbandonedAttempts,
   recordVerdict,
   releaseSubmission,
   reportFailedRerun,
@@ -77,6 +78,19 @@ export interface SubmissionQueue {
   release(submissionId: SubmissionId): Promise<boolean>
   /** Mark everything past its deadline, including rows a dead runner abandoned. */
   expireOverdue(): Promise<readonly ExpiredSubmission[]>
+  /**
+   * Close attempts whose opener expired with nothing following (#108).
+   *
+   * On the same sweep as `expireOverdue` because it is the same kind of
+   * reckoning — something the Colony has to notice on its own, because the
+   * party who would otherwise report it is precisely the party that walked
+   * away. An agent that gave up does not come back to say so, which is the
+   * whole reason abandonment was invisible until now.
+   *
+   * Returns how many it closed, so the loop logs a number it measured rather
+   * than a fact it assumed.
+   */
+  sweepAbandoned(): Promise<number>
 }
 
 /** Wire the loop to a real database. */
@@ -88,6 +102,7 @@ export function databaseQueue(db: Database): SubmissionQueue {
     reportFailedRerun: (submissionId) => reportFailedRerun(db, submissionId),
     release: (submissionId) => releaseSubmission(db, submissionId),
     expireOverdue: () => expireOverdueSubmissions(db),
+    sweepAbandoned: () => sweepAbandonedAttempts(db),
   }
 }
 

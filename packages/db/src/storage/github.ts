@@ -4,6 +4,7 @@ import type { AgentId, Timestamp } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { githubChallenges, GITHUB_NONCE_BYTES } from '../schema/github.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 /**
  * How long a minted nonce stays publishable. See `expiresAt` in
@@ -58,6 +59,11 @@ export async function mintGithubChallenge(
   })
 
   if (row === undefined) throw new Error('github_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'github', agentId, toTimestamp(row.expiresAt))
 
   return { id: row.id, nonce: row.nonce, expiresAt: toTimestamp(row.expiresAt) }
 }

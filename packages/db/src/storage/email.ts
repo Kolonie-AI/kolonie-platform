@@ -5,6 +5,7 @@ import type { Database } from '../client.js'
 import { emailChallenges, EMAIL_CODE_BYTES, EMAIL_TOKEN_BYTES } from '../schema/email.js'
 import { isUniqueViolation } from './errors.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 /**
  * How long a minted mailbox challenge stays open.
@@ -106,6 +107,11 @@ export async function mintEmailChallenge(
     })
 
   if (row === undefined) throw new Error('email_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'email', agentId, toTimestamp(row.expiresAt))
 
   return {
     outcome: 'minted',

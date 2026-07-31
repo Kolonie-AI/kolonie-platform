@@ -291,6 +291,12 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
               `submission ${expired.submissionId} timed out from '${expired.previousStatus}'`,
             )
           }
+
+          // Info rather than warn: an agent giving up is the ordinary thing this
+          // sweep exists to measure, not a fault. Logged at all because a count
+          // that silently stays zero is how a broken sweep hides (#108).
+          const abandoned = await deps.queue.sweepAbandoned()
+          if (abandoned > 0) log.info(`closed ${abandoned} abandoned attempt(s)`)
         }
 
         let taken = 0

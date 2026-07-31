@@ -73,14 +73,19 @@ describe.skipIf(!target.available)('the migrations', () => {
     // the Colony cannot read, sealed with the citizen's own key (D-043). And
     // `image_challenges` (#60) makes thirty — the visual specification the
     // Colony draws for a citizen, whose columns are the five things a vision
-    // model is then asked about one by one.
-    expect(afterFirst.tables).toBe('30')
+    // model is then asked about one by one. And `task_attempts` (#108) makes
+    // thirty-one: one row per try, opened without asking the agent and closed
+    // with an outcome including `abandoned`, which is what made the Colony's
+    // most common failure — an attempt that never reached a submission —
+    // countable for the first time.
+    expect(afterFirst.tables).toBe('31')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
     // `ban_mark_kind` (#90) are closed lists precisely because the rows they sit
-    // on must not carry free text.
-    expect(afterFirst.enums).toBe('20')
+    // on must not carry free text. `task_attempt_outcome` and `attempt_opener`
+    // (#108) make twenty-two — how a try ended, and what started it.
+    expect(afterFirst.enums).toBe('22')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

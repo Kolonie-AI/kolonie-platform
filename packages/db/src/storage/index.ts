@@ -1,5 +1,7 @@
 export * from './agents.js'
+export * from './attempts.js'
 export * from './authentication.js'
+export * from './challenge-tasks.js'
 export * from './balance.js'
 export * from './challenges.js'
 export * from './citizenship.js'

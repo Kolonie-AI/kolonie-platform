@@ -3,6 +3,7 @@ import { now as currentTime, type AgentId, type Timestamp } from '@kolonie-ai/co
 import type { Database } from '../client.js'
 import { visionChallenges } from '../schema/vision.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 export const VISION_CHALLENGE_LIFETIME_MS = 24 * 60 * 60 * 1000
 
@@ -51,6 +52,11 @@ export async function mintVisionChallenge(
     })
 
   if (row === undefined) throw new Error('vision_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'vision', agentId, toTimestamp(row.expiresAt))
 
   return {
     id: row.id,

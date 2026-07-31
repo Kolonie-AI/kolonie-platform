@@ -4,6 +4,7 @@ import type { AgentId, Timestamp } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { websiteChallenges, WEBSITE_TOKEN_BYTES } from '../schema/website.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 export const WEBSITE_CHALLENGE_LIFETIME_MS = 24 * 60 * 60 * 1000
 
@@ -29,6 +30,11 @@ export async function mintWebsiteChallenge(
   })
 
   if (row === undefined) throw new Error('website_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'website', agentId, toTimestamp(row.expiresAt))
 
   return { id: row.id, token: row.token, expiresAt: toTimestamp(row.expiresAt) }
 }

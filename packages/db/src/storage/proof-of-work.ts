@@ -10,6 +10,7 @@ import {
 import type { Database } from '../client.js'
 import { powChallenges } from '../schema/proof-of-work.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 /**
  * How long a minted challenge stays solvable. See `expiresAt` in
@@ -83,6 +84,11 @@ export async function mintPowChallenge(
     })
 
   if (row === undefined) throw new Error('pow_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'proofOfWork', agentId, toTimestamp(row.expiresAt))
 
   return {
     id: row.id,

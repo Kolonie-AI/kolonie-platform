@@ -19,6 +19,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
+import { closeAttempt } from './attempts.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
 import { toAgent, toSubmission, toVerification } from './rows.js'
 import { heldSkillsSql } from './skills.js'
@@ -267,6 +268,28 @@ export async function recordVerdict(
       .returning()
 
     if (updated === undefined) throw new Error('updating a locked submission returned no row')
+
+    /**
+     * The attempt closes with the verdict — and only for a verdict that decided
+     * something.
+     *
+     * `passed` and `failed` close it. **`pending` deliberately does not**: a
+     * verifier that cannot reach what it reads answers `pending`, never `fail`,
+     * and #108 inherits that rule rather than restating it. Such an attempt
+     * stays open, so it never counts as this agent's failure, never raises the
+     * task's failure rate, and never gates the next try. The Colony not being
+     * able to check something is not the citizen's mistake.
+     *
+     * `timeout` is left open for the same reason under a different name: the
+     * submission aged out waiting for the Colony, which says nothing about
+     * whether the agent got through.
+     */
+    const attemptOutcome =
+      next === 'passed' ? 'passed' : next === 'failed' ? ('failed' as const) : undefined
+
+    if (attemptOutcome !== undefined && updated.attemptId !== null) {
+      await closeAttempt(tx, updated.attemptId, attemptOutcome)
+    }
 
     // The last clause of the sentence the MVP is measured against in
     // `ROADMAP.md`: *"…and a coin lands in the ledger."* Only on `passed` —

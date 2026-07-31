@@ -4,6 +4,7 @@ import type { AgentId, Timestamp } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { socialChallenges, SOCIAL_NONCE_BYTES } from '../schema/social.js'
 import { toTimestamp } from './rows.js'
+import { openAttemptForChallenge } from './challenge-tasks.js'
 
 /**
  * How long a minted nonce stays publishable. See `expiresAt` in
@@ -53,6 +54,11 @@ export async function mintSocialChallenge(
   })
 
   if (row === undefined) throw new Error('social_challenges insert returned no row')
+
+  // Minting is the first act that only makes sense if the agent is trying, so it
+  // is what opens the attempt (#108). Never blocks the mint — see
+  // `openAttemptForChallenge`.
+  await openAttemptForChallenge(db, 'social', agentId, toTimestamp(row.expiresAt))
 
   return { id: row.id, nonce: row.nonce, expiresAt: toTimestamp(row.expiresAt) }
 }

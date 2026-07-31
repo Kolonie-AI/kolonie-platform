@@ -599,6 +599,15 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       'solana_wallet_challenges.agent_id c',
       'submissions.agent_id c',
       'support_tickets.agent_id c',
+      /**
+       * `task_attempts` cascades (#108). An attempt is the record of something
+       * the citizen personally tried, which is exactly what `ARCHITECTURE.md`
+       * means by *"if the row is the citizen's, it cascades"* — and
+       * `erasure.md` §2 already lists what a citizen proved among the things
+       * that do not survive it. The statistics it feeds are aggregates; they
+       * lose a row, not their meaning.
+       */
+      'task_attempts.agent_id c',
       'task_resets.agent_id c',
       'task_struggles.agent_id c',
       'task_tips.agent_id c',

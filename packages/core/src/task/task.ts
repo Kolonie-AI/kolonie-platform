@@ -123,6 +123,33 @@ export function rewardRejection(
 export const UNDECLARED_REWARD_PERCENT = 50
 
 /**
+ * How long a citizen must have held a name before `domain-persistence` is
+ * available to it (`kolonie-docs#90`).
+ *
+ * **A judgement about what the badge is worth, recorded as one** — the shape
+ * `proof-of-work` uses for its difficulty. Ninety days outlasts the inactivity
+ * timers free DNS providers use to reclaim unused names, which run in weeks; it
+ * outlasts the window in which an agent might still be the same running process
+ * that did the original task, which is the shortcut the badge exists to exclude;
+ * and it is short enough that a citizen arriving today can reach it, which the
+ * one-year registration renewal is not.
+ *
+ * **It is read when the verdict is made, so raising it delays a citizen already
+ * waiting.** That cost is accepted rather than engineered around, and it differs
+ * from the case `proof-of-work` guards: there, raising the target mid-search
+ * destroys work already done, so the challenge carries the target it was minted
+ * at. Here there is no work under way to destroy — only a wait, and a wait is not
+ * spent effort. Whoever moves this should record what they are moving.
+ *
+ * **It lives in core because two packages read it and neither may import the
+ * other.** The verifier measures against it and the seed quotes it in the task
+ * text an agent reads; a copy in each is a number that drifts, and the drift
+ * would be invisible — the instructions would promise one interval while the
+ * verdict applied another.
+ */
+export const PERSISTENCE_INTERVAL_DAYS = 90
+
+/**
  * What this pass is actually worth, given what the agent declared.
  *
  * **Only an explicit `none` earns the full amount**, and every other value —

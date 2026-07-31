@@ -22,6 +22,7 @@ import {
 import { WebsiteVerifyVerifier, type WebsiteChallenges } from './website-verify.js'
 import { SocialPostVerifier, type SocialGrants } from './social-post.js'
 import { DomainVerifyVerifier, type DomainChallenges, type DomainNames } from './domain-verify.js'
+import { DomainPersistenceVerifier, type DomainGrants } from './domain-persistence.js'
 import type { GitHubReader } from './github.js'
 import type { SocialReader } from './social.js'
 import type { DnsReader } from './dns.js'
@@ -91,6 +92,12 @@ export {
   type DomainNames,
   type DomainVerifyDependencies,
 } from './domain-verify.js'
+export {
+  DomainPersistenceVerifier,
+  PERSISTENCE_INTERVAL_DAYS,
+  type DomainGrants,
+  type DomainPersistenceDependencies,
+} from './domain-persistence.js'
 export {
   CHALLENGE_LABEL,
   DNS_TIMEOUT_MS,
@@ -392,6 +399,17 @@ export interface VerifierDependencies {
   readonly domainChallenges?: DomainChallenges
   /** Answers which citizen a name has already certified. */
   readonly domainNames?: DomainNames
+  /**
+   * Answers what the Colony recorded about this citizen's name: which one it
+   * certified, and when.
+   *
+   * Its own port rather than a second method on `domainNames`, which asks the
+   * mirror-image question for the rung below. The badge reads the grant forwards
+   * and the granting node reads it backwards, and a shared port would invite one
+   * to be wired to the other — the arrangement `socialGrants` already has for the
+   * same reason.
+   */
+  readonly domainGrants?: DomainGrants
 }
 
 /**
@@ -537,6 +555,26 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         dns: deps.dns,
         challenges: deps.domainChallenges,
         names: deps.domainNames,
+      }),
+    )
+  }
+
+  /**
+   * The badge reads the same zone and the same nonces, and one thing more: the
+   * grant, which is what tells it which name to ask about and when the clock
+   * started. It needs no `domainNames` — one name certifying one citizen is the
+   * granting node's rule, and a badge that opens nothing stakes no claim.
+   */
+  if (
+    deps.dns !== undefined &&
+    deps.domainChallenges !== undefined &&
+    deps.domainGrants !== undefined
+  ) {
+    verifiers.push(
+      new DomainPersistenceVerifier({
+        dns: deps.dns,
+        challenges: deps.domainChallenges,
+        grants: deps.domainGrants,
       }),
     )
   }

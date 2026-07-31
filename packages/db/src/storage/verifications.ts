@@ -21,7 +21,7 @@ import type { Database } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { closeAttempt } from './attempts.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
-import { toAgent, toSubmission, toVerification } from './rows.js'
+import { toAgent, toSubmission, toTimestamp, toVerification } from './rows.js'
 import { heldSkillsSql } from './skills.js'
 
 /** Statuses a submission can sit in while it still awaits a verdict. */
@@ -688,6 +688,63 @@ export async function githubAccountOf(db: Database, agentId: AgentId): Promise<s
     .limit(1)
 
   return granted?.author ?? undefined
+}
+
+/** The name a citizen earned `domain` with, and when the Colony conferred it. */
+export interface DomainGrant {
+  readonly name: string
+  readonly grantedAt: Timestamp
+}
+
+/**
+ * The `domain` grant this agent holds, or `undefined` if it holds none.
+ *
+ * {@link citizenForDomainName} read forwards, and the durability badge one node
+ * along is what needs it: `domain-persistence` asks whether a fresh record was
+ * written to *the name this citizen certified*, which is a question only the
+ * grant can answer (`kolonie-docs#90`).
+ *
+ * **It carries the date as well as the name, and the date is the whole gate.**
+ * The badge is a question about elapsed time, so reading the name without when
+ * it was conferred would leave the interval to be measured against something
+ * else — the submission, or the challenge — and neither is when the Colony
+ * decided the citizen held this name.
+ *
+ * **Reading the grant is what makes the badge honest.** The alternative — check
+ * that a record sits under *some* name the citizen controls — is not checkable
+ * at all, since the Colony knows of exactly one such name and knows of it
+ * because it certified it. An agent that proved name A and publishes under name
+ * B has published under a name the Colony has never seen, which is the case this
+ * exists to refuse.
+ *
+ * The newest grant wins, as on the social rung: a citizen has at most one
+ * `domain` row anyway, because `agent_skills` is one row per (agent, skill), so
+ * the ordering only decides what happens if that ever stops being true.
+ */
+export async function domainGrantOf(
+  db: Database,
+  agentId: AgentId,
+): Promise<DomainGrant | undefined> {
+  const [granted] = await db
+    .select({
+      name: sql<string | null>`${verifications.metadata}->>'name'`,
+      grantedAt: agentSkills.grantedAt,
+    })
+    .from(agentSkills)
+    .innerJoin(verifications, eq(verifications.submissionId, agentSkills.submissionId))
+    .where(
+      and(
+        eq(agentSkills.agentId, agentId),
+        eq(agentSkills.skill, DOMAIN_SKILL),
+        eq(verifications.status, 'pass'),
+      ),
+    )
+    .orderBy(desc(agentSkills.grantedAt))
+    .limit(1)
+
+  if (granted?.name == null) return undefined
+
+  return { name: granted.name, grantedAt: toTimestamp(granted.grantedAt) }
 }
 
 /**

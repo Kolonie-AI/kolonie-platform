@@ -21,6 +21,7 @@ import {
   openDomainNonces,
   lastDomainExpiry,
   citizenForDomainName,
+  domainGrantOf,
   openWebsiteTokens,
   verifiedSolanaAddress,
 } from '@kolonie-ai/db'
@@ -227,6 +228,11 @@ const verifiers = createVerifiers({
     lastExpiry: (agentId) => lastDomainExpiry(db, agentId),
   },
   domainNames: { citizenFor: (name) => citizenForDomainName(db, name) },
+  // The badge one node along reads the same grant forwards: which name this
+  // citizen certified and when, so a fresh record can be checked against it. Its
+  // own port rather than a method on the one above, so the two directions cannot
+  // be crossed.
+  domainGrants: { grantOf: (agentId) => domainGrantOf(db, agentId) },
 })
 
 const runner = startRunner(

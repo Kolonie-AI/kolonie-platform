@@ -120,6 +120,19 @@ describe('the Academy task definitions', () => {
       // the other outward badge because that is what it is, and the two social
       // nodes go active together or neither does (`kolonie-docs#49`).
       'social-post',
+      /**
+       * The durability badge for the rung above (`kolonie-docs#90`). It measures
+       * the one thing `domain-verify` structurally cannot: that control survived,
+       * shown by writing a *fresh* nonce rather than by the old record still
+       * sitting there — a record nobody deleted proves only that nobody deleted
+       * it.
+       *
+       * A badge and not a stronger grant, because a grant a later read could
+       * revoke is a change to the skill model rather than to a task. It pays and
+       * opens nothing, so the Colony measures something allowed to fail without
+       * taking anything away.
+       */
+      'domain-persistence',
       'github-contribution',
       /**
        * The deepest granting node in the graph (#48) and the only one whose

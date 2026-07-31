@@ -26,6 +26,7 @@ import {
   GITHUB_VERIFIER_TOKEN_VAR,
   httpGitHubReader,
   httpSocialReader,
+  httpSolanaHistory,
   httpSolanaRpc,
   MASTODON_INSTANCES_VAR,
   mastodonAdapter,
@@ -122,6 +123,13 @@ const verifiers = createVerifiers({
     verifiedAddress: (agentId) => verifiedSolanaAddress(db, AgentIdSchema.parse(agentId)),
   },
   paymentClaims: { citizenFor: (txid) => citizenForPaymentTxid(db, txid) },
+  /**
+   * The trading rung's half, and the expensive one (`#65`). A payment verdict is
+   * one RPC call; a trading verdict is a page of signatures plus a call per
+   * transaction, against the endpoint the payment rungs share — which is why the
+   * verifier caps what it will read rather than paging until it has everything.
+   */
+  solanaHistory: httpSolanaHistory(process.env[SOLANA_RPC_URL_VAR]),
   // Credential-free like the keypair rung, and cheaper than any of them: the
   // verifier recomputes one SHA-256 against the stored input, nonce and target.
   // The agent's spend does not become the Colony's, whatever it was.

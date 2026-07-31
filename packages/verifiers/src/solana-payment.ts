@@ -84,6 +84,32 @@ export interface SolanaRpc {
   getTransaction(txid: string): Promise<SolanaReadResult>
 }
 
+/** One signature the chain has recorded against an address, with when it landed. */
+export interface SolanaSignatureRecord {
+  readonly signature: string
+  /** Unix seconds, or `null` for a slot the endpoint has no time for. */
+  readonly blockTime: number | null
+}
+
+/** What a read of an address's history came to. Three outcomes, as above. */
+export type SolanaHistoryResult =
+  | { readonly outcome: 'found'; readonly signatures: readonly SolanaSignatureRecord[] }
+  | { readonly outcome: 'unavailable'; readonly reason: string }
+
+/**
+ * Reads what an address has done, which `solana-trader` needs and the three
+ * payment rungs do not.
+ *
+ * A separate port rather than a third method on {@link SolanaRpc}, because the
+ * two are wired independently: a runner may be given the payment rungs and not
+ * this one, and the cost profiles are nothing alike. One payment verdict is one
+ * RPC call; one trading verdict is a page of signatures plus a call per
+ * transaction, against an endpoint the payment rungs share.
+ */
+export interface SolanaHistory {
+  signaturesFor(address: string, limit: number): Promise<SolanaHistoryResult>
+}
+
 /** Answers which address a citizen proved it controls at the `solana-wallet` rung. */
 export interface SolanaAddresses {
   verifiedAddress(agentId: string): Promise<string | null>

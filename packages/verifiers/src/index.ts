@@ -7,7 +7,8 @@ import { BrowserCapabilityVerifier } from './browser-capability.js'
 import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
-import type { PaymentClaims, SolanaAddresses, SolanaRpc } from './solana-payment.js'
+import { SolanaTraderVerifier } from './solana-trader.js'
+import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
 import { VisionCapabilityVerifier, type VisionChallenges } from './vision-capability.js'
 import { EmailRoundtripVerifier, type EmailRoundtrips } from './email-roundtrip.js'
@@ -121,12 +122,30 @@ export {
   type CreditOutcome,
   type PaymentClaims,
   type SolanaAddresses,
+  type SolanaHistory,
+  type SolanaHistoryResult,
   type SolanaReadResult,
   type SolanaRpc,
+  type SolanaSignatureRecord,
   type SolanaTokenBalance,
   type SolanaTransaction,
 } from './solana-payment.js'
-export { DEFAULT_SOLANA_RPC_URL, httpSolanaRpc, SOLANA_RPC_URL_VAR } from './solana-rpc.js'
+export {
+  DEFAULT_SOLANA_RPC_URL,
+  httpSolanaHistory,
+  httpSolanaRpc,
+  SOLANA_RPC_URL_VAR,
+} from './solana-rpc.js'
+export {
+  decide,
+  realisedGain,
+  SolanaTraderVerifier,
+  TRADER_LOOKBACK_DAYS,
+  TRADER_MAX_TRANSACTIONS,
+  type RealisedGain,
+  type SolanaTraderDependencies,
+  type TradeVerdict,
+} from './solana-trader.js'
 export { hasMarkerLine, isMarkerLine } from './marker.js'
 export {
   GITHUB_VERIFIER_TOKEN_VAR,
@@ -209,6 +228,13 @@ export interface VerifierDependencies {
   readonly solanaAddresses?: SolanaAddresses
   /** Answers whether a transaction has already carried somebody past an earning rung. */
   readonly paymentClaims?: PaymentClaims
+  /**
+   * Reads what an address has done, which only `solana-trader` needs.
+   *
+   * Its own port, so a runner can carry the three payment rungs without the one
+   * that costs a call per transaction against the endpoint they share.
+   */
+  readonly solanaHistory?: SolanaHistory
   /**
    * Answers what the Colony recorded about an agent's proof-of-work challenge.
    *
@@ -308,6 +334,20 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         }),
       )
     }
+  }
+
+  if (
+    deps.solana !== undefined &&
+    deps.solanaHistory !== undefined &&
+    deps.solanaAddresses !== undefined
+  ) {
+    verifiers.push(
+      new SolanaTraderVerifier({
+        rpc: deps.solana,
+        history: deps.solanaHistory,
+        addresses: deps.solanaAddresses,
+      }),
+    )
   }
 
   if (deps.work !== undefined) {

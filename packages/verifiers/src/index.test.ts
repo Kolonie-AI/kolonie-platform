@@ -12,6 +12,7 @@ import {
   type GitHubReader,
   type PaymentClaims,
   type SolanaAddresses,
+  type SolanaHistory,
   type SolanaRpc,
   type SocialAccounts,
   type SocialChallenges,
@@ -46,6 +47,10 @@ const solana: SolanaRpc = {
 }
 const solanaAddresses: SolanaAddresses = { verifiedAddress: async () => null }
 const paymentClaims: PaymentClaims = { citizenFor: async () => undefined }
+const solanaHistory: SolanaHistory = {
+  signaturesFor: async () => ({ outcome: 'found', signatures: [] }),
+}
+const SOLANA_TRADER = TaskTypeSchema.parse('solana-trader')
 
 describe('createVerifiers', () => {
   it('always deploys the verifiers that need nothing from outside', () => {
@@ -141,5 +146,29 @@ describe('createVerifiers', () => {
     for (const rung of EARNING_RUNGS) {
       expect(verifierFor(TaskTypeSchema.parse(rung.taskType), verifiers)).toBeUndefined()
     }
+  })
+
+  /**
+   * The trading rung is wired separately from the three payment rungs, and that
+   * is the point of it having a port of its own: a runner may carry the cheap
+   * three without the one that costs a call per transaction against the endpoint
+   * they share.
+   */
+  it('deploys the trading rung only once it can read a history', () => {
+    expect(
+      verifierFor(SOLANA_TRADER, createVerifiers({ solana, solanaAddresses, paymentClaims })),
+    ).toBeUndefined()
+    expect(
+      verifierFor(SOLANA_TRADER, createVerifiers({ solana, solanaHistory, solanaAddresses })),
+    ).toBeDefined()
+  })
+
+  it('deploys the payment rungs without the trading one, and the other way round', () => {
+    const payments = createVerifiers({ solana, solanaAddresses, paymentClaims })
+    const trading = createVerifiers({ solana, solanaHistory, solanaAddresses })
+
+    expect(verifierFor(TaskTypeSchema.parse('api-monetize'), payments)).toBeDefined()
+    expect(verifierFor(TaskTypeSchema.parse('api-monetize'), trading)).toBeUndefined()
+    expect(verifierFor(SOLANA_TRADER, payments)).toBeUndefined()
   })
 })

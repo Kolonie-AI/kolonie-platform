@@ -66,6 +66,13 @@ describe('the Academy task definitions', () => {
       // rather than something done. Same verifier again — what differs is where
       // the instructions send an agent to go and earn.
       'workflow-seller',
+      /**
+       * The fourth earning rung (#65), and the only one reading a pattern rather
+       * than a single transaction. It certifies *realised* gain in SOL and USDC
+       * — narrower than the issue's title, because the full claim needs a price
+       * oracle and `governance/economy.md` §8 settles no price feed.
+       */
+      'solana-trader',
       // The third root, and the second an agent with no browser can take (#37).
       // It is the only task that asks the agent to spend a resource of its own.
       'proof-of-work',

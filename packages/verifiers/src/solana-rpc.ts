@@ -1,4 +1,11 @@
-import type { SolanaReadResult, SolanaRpc, SolanaTokenBalance } from './solana-payment.js'
+import type {
+  SolanaHistory,
+  SolanaHistoryResult,
+  SolanaReadResult,
+  SolanaRpc,
+  SolanaSignatureRecord,
+  SolanaTokenBalance,
+} from './solana-payment.js'
 
 /**
  * The environment variable the Solana endpoint arrives in.
@@ -61,72 +68,29 @@ export function httpSolanaRpc(
 ): SolanaRpc {
   return {
     getTransaction: async (txid): Promise<SolanaReadResult> => {
-      let response: Response
-      try {
-        response = await fetchImpl(url, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'user-agent': 'kolonie-verifier-runner' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'getTransaction',
-            params: [
-              txid,
-              {
-                encoding: 'jsonParsed',
-                commitment: 'confirmed',
-                // Without this, the endpoint refuses every versioned
-                // transaction with an error rather than returning it — and
-                // versioned is what any wallet built since 2022 sends. Omitting
-                // it would make this reader answer `unavailable` for most of the
-                // chain.
-                maxSupportedTransactionVersion: 0,
-              },
-            ],
-          }),
-        })
-      } catch (error) {
-        return {
-          outcome: 'unavailable',
-          reason: `the endpoint could not be reached (${error instanceof Error ? error.message : String(error)}).`,
-        }
-      }
+      const answer = await rpcCall(url, fetchImpl, 'getTransaction', [
+        txid,
+        {
+          encoding: 'jsonParsed',
+          commitment: 'confirmed',
+          // Without this, the endpoint refuses every versioned transaction with
+          // an error rather than returning it — and versioned is what any wallet
+          // built since 2022 sends. Omitting it would make this reader answer
+          // `unavailable` for most of the chain.
+          maxSupportedTransactionVersion: 0,
+        },
+      ])
 
-      /**
-       * Every non-2xx is ours, not the agent's — 429 above all, which is what a
-       * free endpoint answers under load and is the single most likely failure
-       * here. None of them is evidence about a payment, so none may produce a
-       * `fail` (#19).
-       */
-      if (!response.ok) {
-        return { outcome: 'unavailable', reason: `the endpoint answered ${response.status}.` }
-      }
-
-      let body: { readonly result?: unknown; readonly error?: { readonly message?: unknown } }
-      try {
-        body = (await response.json()) as typeof body
-      } catch {
-        return {
-          outcome: 'unavailable',
-          reason: 'the endpoint answered with something that is not JSON.',
-        }
-      }
-
-      if (body.error !== undefined && body.error !== null) {
-        return {
-          outcome: 'unavailable',
-          reason: `the endpoint reported an error (${String(body.error.message ?? 'no message')}).`,
-        }
-      }
+      if (answer.outcome === 'unavailable') return answer
 
       // A null result is Solana's way of saying it has no confirmed transaction
       // under that signature — which is a fact about the chain right now, not
       // forever, and is why the verifier reads it as `pending`.
-      if (body.result === null || body.result === undefined) {
+      if (answer.result === null || answer.result === undefined) {
         return { outcome: 'not-found', reason: 'The endpoint returned no transaction for it.' }
       }
 
-      const payload = body.result as RpcTransactionPayload
+      const payload = answer.result as RpcTransactionPayload
       const meta = payload.meta
       if (meta === null || meta === undefined) {
         return {
@@ -159,6 +123,115 @@ export function httpSolanaRpc(
       }
     },
   }
+}
+
+/**
+ * Read what an address has done, for `solana-trader` (#65).
+ *
+ * Its own factory rather than a third method on {@link httpSolanaRpc}, mirroring
+ * the ports: the runner wires the two independently, and this one is the
+ * expensive half.
+ */
+export function httpSolanaHistory(
+  url: string = DEFAULT_SOLANA_RPC_URL,
+  fetchImpl: typeof fetch = fetch,
+): SolanaHistory {
+  return {
+    signaturesFor: async (address, limit): Promise<SolanaHistoryResult> => {
+      const answer = await rpcCall(url, fetchImpl, 'getSignaturesForAddress', [
+        address,
+        { limit, commitment: 'confirmed' },
+      ])
+
+      if (answer.outcome === 'unavailable') return answer
+
+      /**
+       * An address the chain has never seen answers with an empty array, not
+       * with null — so a null here is the endpoint misbehaving, and reading it
+       * as "no history" would fail an agent for our own bad read.
+       */
+      if (!Array.isArray(answer.result)) {
+        return {
+          outcome: 'unavailable',
+          reason: 'the endpoint answered the signature list with something that is not a list.',
+        }
+      }
+
+      const signatures = answer.result.flatMap((entry): readonly SolanaSignatureRecord[] => {
+        const record = entry as { signature?: unknown; blockTime?: unknown }
+        if (typeof record.signature !== 'string') return []
+
+        return [
+          {
+            signature: record.signature,
+            blockTime: typeof record.blockTime === 'number' ? record.blockTime : null,
+          },
+        ]
+      })
+
+      return { outcome: 'found', signatures }
+    },
+  }
+}
+
+/**
+ * One JSON-RPC call, with the status mapping both readers depend on.
+ *
+ * Shared because the mapping *is* the rule rather than plumbing: which failures
+ * are the agent's problem and which are the Colony's is the whole of #19's *"an
+ * agent must not lose an attempt to our outage"*, and two copies of it would be
+ * two chances to drift. `httpGitHubReader` shares its `get` for the same reason.
+ */
+async function rpcCall(
+  url: string,
+  fetchImpl: typeof fetch,
+  method: string,
+  params: readonly unknown[],
+): Promise<
+  | { readonly outcome: 'ok'; readonly result: unknown }
+  | { readonly outcome: 'unavailable'; readonly reason: string }
+> {
+  let response: Response
+  try {
+    response = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'user-agent': 'kolonie-verifier-runner' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    })
+  } catch (error) {
+    return {
+      outcome: 'unavailable',
+      reason: `the endpoint could not be reached (${error instanceof Error ? error.message : String(error)}).`,
+    }
+  }
+
+  /**
+   * Every non-2xx is ours, not the agent's — 429 above all, which is what a free
+   * endpoint answers under load and is the single most likely failure here. None
+   * of them is evidence about a payment, so none may produce a `fail` (#19).
+   */
+  if (!response.ok) {
+    return { outcome: 'unavailable', reason: `the endpoint answered ${response.status}.` }
+  }
+
+  let body: { readonly result?: unknown; readonly error?: { readonly message?: unknown } }
+  try {
+    body = (await response.json()) as typeof body
+  } catch {
+    return {
+      outcome: 'unavailable',
+      reason: 'the endpoint answered with something that is not JSON.',
+    }
+  }
+
+  if (body.error !== undefined && body.error !== null) {
+    return {
+      outcome: 'unavailable',
+      reason: `the endpoint reported an error (${String(body.error.message ?? 'no message')}).`,
+    }
+  }
+
+  return { outcome: 'ok', result: body.result }
 }
 
 /**

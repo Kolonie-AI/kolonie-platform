@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SOLANA_RPC_URL, httpSolanaRpc } from './solana-rpc.js'
+import { DEFAULT_SOLANA_RPC_URL, httpSolanaHistory, httpSolanaRpc } from './solana-rpc.js'
 import { USDC_MINT } from './solana-payment.js'
 
 const TXID = '5wHu1qwD4kLmNbVcXzAsDfGhJkLpQwErTyUiOpAsDfGhJkLzXcVbNmQwErTyUiOp'
@@ -174,5 +174,65 @@ describe('httpSolanaRpc', () => {
     await httpSolanaRpc(undefined, impl).getTransaction(TXID)
 
     expect(calls[0]?.url).toBe(DEFAULT_SOLANA_RPC_URL)
+  })
+})
+
+describe('httpSolanaHistory', () => {
+  it('asks for the address history at the limit it was given', async () => {
+    const { impl, calls } = endpoint(result([]))
+    await httpSolanaHistory(DEFAULT_SOLANA_RPC_URL, impl).signaturesFor('ADDR', 120)
+
+    const sent = calls[0]?.body as { method: string; params: [string, Record<string, unknown>] }
+    expect(sent.method).toBe('getSignaturesForAddress')
+    expect(sent.params[0]).toBe('ADDR')
+    expect(sent.params[1]).toMatchObject({ limit: 120, commitment: 'confirmed' })
+  })
+
+  it('reads signatures and their block times', async () => {
+    const { impl } = endpoint(
+      result([
+        { signature: 'one', blockTime: 1_780_000_000, slot: 1 },
+        // Solana returns null for a slot it has no time for. Dropped to null
+        // here rather than guessed — the verifier's window is a claim, and a
+        // row nothing can date cannot support it.
+        { signature: 'two', blockTime: null, slot: 2 },
+        { slot: 3 },
+      ]),
+    )
+    const read = await httpSolanaHistory(DEFAULT_SOLANA_RPC_URL, impl).signaturesFor('ADDR', 10)
+
+    expect(read).toMatchObject({
+      outcome: 'found',
+      signatures: [
+        { signature: 'one', blockTime: 1_780_000_000 },
+        { signature: 'two', blockTime: null },
+      ],
+    })
+  })
+
+  it('reads an empty history as an answer, not as an outage', async () => {
+    const { impl } = endpoint(result([]))
+    const read = await httpSolanaHistory(DEFAULT_SOLANA_RPC_URL, impl).signaturesFor('ADDR', 10)
+
+    expect(read).toMatchObject({ outcome: 'found', signatures: [] })
+  })
+
+  /**
+   * An address the chain has never seen answers with an empty array, so a null
+   * is the endpoint misbehaving. Reading it as "no history" would fail an agent
+   * for our own bad read.
+   */
+  it('reads a null history as unavailable', async () => {
+    const { impl } = endpoint(result(null))
+    const read = await httpSolanaHistory(DEFAULT_SOLANA_RPC_URL, impl).signaturesFor('ADDR', 10)
+
+    expect(read).toMatchObject({ outcome: 'unavailable' })
+  })
+
+  it('reads a 429 as unavailable, like every other read', async () => {
+    const { impl } = endpoint({ error: 'slow down' }, 429)
+    const read = await httpSolanaHistory(DEFAULT_SOLANA_RPC_URL, impl).signaturesFor('ADDR', 10)
+
+    expect(read).toMatchObject({ outcome: 'unavailable' })
   })
 })

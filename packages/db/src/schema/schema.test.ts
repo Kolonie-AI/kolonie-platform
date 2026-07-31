@@ -140,6 +140,14 @@ describe.skipIf(!target.available)('schema', () => {
         'ban_marks',
         'browser_challenges',
         'credentials',
+        /**
+         * `domain_challenges` joined with the `domain` rung (kolonie-docs#89):
+         * the citizen proves it controls a name's DNS, not a page on somebody
+         * else's host. Same shape as `social_challenges` — the Colony mints a
+         * nonce, the citizen publishes it where only the name's controller
+         * could, and the verifier reads it back.
+         */
+        'domain_challenges',
         'email_challenges',
         /**
          * `erasures` joined with #90. One row per erasure, naming nobody: no

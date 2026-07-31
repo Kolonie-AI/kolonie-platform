@@ -635,6 +635,11 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       'agent_vault.agent_id c',
       'browser_challenges.agent_id c',
       'credentials.agent_id c',
+      // The `domain` rung (kolonie-docs#89). Cascades, matching every other
+      // challenge table: a challenge is the citizen's own attempt at a rung, and
+      // `erasure.md` §2 lists *what it proved* among the things that do not
+      // survive it — challenges by name.
+      'domain_challenges.agent_id c',
       'email_challenges.agent_id c',
       // #92. It cascades so that an abandoned or successful erasure attempt
       // leaves no record that a particular citizen once considered leaving.

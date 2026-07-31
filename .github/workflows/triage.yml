@@ -1,0 +1,32 @@
+name: Triage inbound
+
+# The rules live once, in kolonie-docs. This file only says which repository is
+# calling and what `area:` its work carries — everything else is
+# `.github/workflows/inbound-triage.yml` there, so a change to the triage policy
+# is one edit rather than five (kolonie-docs#41).
+#
+# `pull_request_target` rather than `pull_request`: a pull request from a fork
+# gets a read-only token and cannot label anything, and forks are precisely the
+# case this exists for. The called workflow never checks out the pull request's
+# code, which is what makes that trigger safe here.
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  triage:
+    uses: Kolonie-AI/kolonie-docs/.github/workflows/inbound-triage.yml@main
+    with:
+      area: platform
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read

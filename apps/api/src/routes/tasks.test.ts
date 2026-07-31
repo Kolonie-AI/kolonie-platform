@@ -9,6 +9,7 @@ import {
   ListTasksResponseSchema,
   MAX_PAGE_SIZE,
   SkillSchema,
+  TaskTypeSchema,
   type Agent,
   type ApiKey,
 } from '@kolonie-ai/core'
@@ -123,7 +124,9 @@ describe('GET /v1/tasks', () => {
     const response = await get()
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ items: [], nextCursor: null })
+    // `notices` is empty rather than absent: an agent with nothing open has
+    // nothing blocked either, and the two are different answers (#117).
+    expect(response.json()).toEqual({ items: [], nextCursor: null, notices: [] })
   })
 
   it('passes the cursor on and returns the next one', async () => {
@@ -420,5 +423,188 @@ describe('GET /v1/tasks/:taskId', () => {
 
     expect(response.statusCode).toBe(401)
     expect(catalogue.reads()).toEqual([])
+  })
+})
+
+/**
+ * The notice an agent gets when its declared configuration has not passed a task
+ * (#117).
+ *
+ * The failure this whole programme started from: a citizen on a six-hour
+ * schedule attempting the captcha rung with a text-only model, where nothing in
+ * the loop reflected that this was attempt seventeen.
+ */
+describe('a configuration that has not passed is told, not refused', () => {
+  const separates = {
+    flag: 'vision' as const,
+    withFlag: 12,
+    withFlagPassed: 11,
+    withoutFlag: 14,
+    withoutFlagPassed: 1,
+  }
+
+  const theTask = aTask({ type: TaskTypeSchema.parse('captcha-rung'), title: 'Solve the captcha' })
+
+  /** An agent that declared no vision route, on a task where that separates. */
+  const blockedReader = () => {
+    catalogue.answersRead(theTask)
+    guidance.answersReaderContext({
+      divides: [separates],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+  }
+
+  it('carries the notice with the missing capability and both counts', async () => {
+    blockedReader()
+
+    const response = await get(`/v1/tasks/${theTask.id}`)
+
+    expect(response.statusCode).toBe(200)
+    const body = GetTaskResponseSchema.parse(response.json())
+
+    expect(body.blocking).toMatchObject({
+      flag: 'vision',
+      withFlag: 12,
+      withFlagPassed: 11,
+      withoutFlag: 14,
+      withoutFlagPassed: 1,
+    })
+  })
+
+  /**
+   * The rejection case #117 names by name. A notice is not a gate: the Colony's
+   * belief about a runtime can be wrong, a refusal makes the counterexample
+   * unfalsifiable, and `GOVERNANCE.md` puts the decision with the citizen.
+   */
+  it('serves the task in full anyway', async () => {
+    blockedReader()
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    expect(body.task.id).toBe(theTask.id)
+    expect(body.task.instructions).toBe(theTask.instructions)
+  })
+
+  it('drops the notice once the agent declares the capability', async () => {
+    catalogue.answersRead(theTask)
+    guidance.answersReaderContext({
+      divides: [separates],
+      declared: { vision: true },
+      movesMoney: false,
+    })
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    expect(body.blocking).toBeNull()
+  })
+
+  it('says nothing to an agent that has declared nothing', async () => {
+    catalogue.answersRead(theTask)
+    guidance.answersReaderContext({ divides: [separates], declared: null, movesMoney: false })
+
+    expect(
+      GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json()).blocking,
+    ).toBeNull()
+  })
+
+  it('says nothing where the outcome data does not support a requirement', async () => {
+    catalogue.answersRead(theTask)
+    guidance.answersReaderContext({
+      // Below the support floor. A requirement the data cannot demonstrate is one
+      // nobody should be told about.
+      divides: [{ ...separates, withFlag: 3, withFlagPassed: 3, withoutFlag: 3 }],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+
+    expect(
+      GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json()).blocking,
+    ).toBeNull()
+  })
+
+  it('never blocks an agent out of a task it has already passed', async () => {
+    blockedReader()
+    guidance.answersStanding({ closed: 2, attempt: 3, passed: true })
+
+    expect(
+      GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json()).blocking,
+    ).toBeNull()
+  })
+
+  it('names a rung that reads through nothing, over one that does not', async () => {
+    const arithmetic = aTask({
+      type: TaskTypeSchema.parse('proof-of-work'),
+      title: 'Prove you can compute',
+    })
+    const another = aTask({
+      type: TaskTypeSchema.parse('github-account'),
+      title: 'Hold a GitHub account',
+    })
+
+    catalogue.answersRead(theTask)
+    // The catalogue answers both the sideways-route query and nothing else here.
+    catalogue.answers({
+      outcome: 'listed',
+      page: { items: [another, arithmetic], nextCursor: null },
+    })
+    guidance.answersReaderContext({
+      divides: [separates],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    // `another` comes first in the catalogue and is passed over: a rung that
+    // needs no browser, no vendor and no page is the point of the suggestion.
+    expect(body.blocking?.insteadTry?.id).toBe(arithmetic.id)
+  })
+
+  it('never suggests the task the agent is already blocked on', async () => {
+    catalogue.answersRead(theTask)
+    catalogue.answers({ outcome: 'listed', page: { items: [theTask], nextCursor: null } })
+    guidance.answersReaderContext({
+      divides: [separates],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    expect(body.blocking?.insteadTry).toBeNull()
+  })
+
+  it('carries the agent’s own attempt count, so it is told before it submits', async () => {
+    blockedReader()
+    guidance.answersStanding({ closed: 4, attempt: 5, passed: false })
+
+    const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
+
+    expect(body.blocking?.attempts).toBe(4)
+    expect(body.attempt).toBe(5)
+  })
+
+  it('marks a blocked task on the listing without removing it', async () => {
+    catalogue.answers({ outcome: 'listed', page: { items: [theTask], nextCursor: null } })
+    guidance.answersReaderContext({
+      divides: [separates],
+      declared: { vision: false },
+      movesMoney: false,
+    })
+
+    const body = ListTasksResponseSchema.parse((await get('/v1/tasks')).json())
+
+    expect(body.items.map((task) => task.id)).toEqual([theTask.id])
+    expect(body.notices).toHaveLength(1)
+    expect(body.notices[0]?.taskId).toBe(theTask.id)
+    expect(body.notices[0]?.notice.flag).toBe('vision')
+  })
+
+  it('puts no notices on a listing for an agent that has declared nothing', async () => {
+    catalogue.answers({ outcome: 'listed', page: { items: [theTask], nextCursor: null } })
+    guidance.answersReaderContext({ divides: [separates], declared: null, movesMoney: false })
+
+    expect(ListTasksResponseSchema.parse((await get('/v1/tasks')).json()).notices).toEqual([])
   })
 })

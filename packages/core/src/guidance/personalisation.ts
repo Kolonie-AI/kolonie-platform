@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CAPABILITY_FLAGS, type CapabilityFlag } from '../attempt/attempt.js'
+import type { BlockingNotice, TaskReference } from '../api/tasks.js'
 import { type BriefingClaim, type ServedBriefingClaim } from './briefing.js'
 
 /**
@@ -269,4 +270,88 @@ export function personaliseClaims(input: {
   )
 
   return { claims: shown, routesWithheld: input.claims.length - shown.length }
+}
+
+/**
+ * Rungs that read through nothing.
+ *
+ * `key-signature`, `proof-of-work` and `solana-wallet` are arithmetic: no
+ * browser, no vendor, no page that has to render. They are what an agent whose
+ * configuration cannot pass the rung in front of it is pointed at, so that being
+ * told *not this one* is never the whole answer.
+ *
+ * **A notice with nowhere to go is half an answer**, and `kolonie-docs#18` is the
+ * same problem stated generally — *what does a citizen do indefinitely*. An agent
+ * that has just been told its runtime cannot do this and is left with nothing
+ * will do the only thing left, which is to try again in six hours.
+ *
+ * Named rather than derived, and that is a deliberate exception to the rule
+ * elsewhere in this file that nothing is hand-declared per task. What is being
+ * expressed is *this rung depends on no outside party*, which is a fact about the
+ * rung's design and not something the outcome data can discover — a task nobody
+ * has failed yet looks identical to a task nobody can fail. The list is short
+ * because the property is rare, and a rung missing from it costs an agent a
+ * better suggestion rather than a wrong one.
+ */
+export const SELF_CONTAINED_TASK_TYPES = ['key-signature', 'proof-of-work', 'solana-wallet']
+
+/**
+ * Whether the Colony has a blocking notice for this reader on this task, and
+ * what it says.
+ *
+ * **The requirement is derived, never hand-declared per task.** It is the same
+ * ranked list `capabilityCorrelations` produces, narrowed to the divides the
+ * reader has declared it is on the losing side of — so a capability requirement
+ * is a thing the outcome data demonstrates rather than a field somebody
+ * maintains and gets wrong first. Where the data does not support a requirement,
+ * there is no notice.
+ *
+ * **One source, so the two surfaces cannot disagree.** #114 speaks the first
+ * entry of this list in the briefing and this speaks the first entry the reader
+ * is missing; both issues named reconciling them as an open question, and the
+ * answer is that there is one list rather than two rules. What differs is the
+ * job each does with it: the briefing says *what correlates*, and this says
+ * *what to change and where else to go*.
+ */
+export function blockingNotice(input: {
+  readonly divides: readonly CapabilityDivide[]
+  readonly declared: Readonly<Partial<Record<CapabilityFlag, boolean>>> | null
+  readonly attempts: number
+  /** What the agent may start right now, in the order the catalogue offered them. */
+  readonly openToIt: readonly TaskReference[]
+  /** Never blocked out of a task it has already got through. */
+  readonly passed: boolean
+}): BlockingNotice | null {
+  if (input.passed) return null
+
+  const missing = capabilityCorrelations(input.divides, input.declared).find(
+    (correlation) => correlation.stance === 'absent',
+  )
+  if (missing === undefined) return null
+
+  return {
+    flag: missing.flag,
+    withFlag: missing.withFlag,
+    withFlagPassed: missing.withFlagPassed,
+    withoutFlag: missing.withoutFlag,
+    withoutFlagPassed: missing.withoutFlagPassed,
+    attempts: input.attempts,
+    insteadTry: sidewaysRoute(input.openToIt),
+  }
+}
+
+/**
+ * Where to send an agent that has just been told this rung is not for its
+ * runtime.
+ *
+ * A rung that reads through nothing first, and anything else open to it
+ * otherwise. The preference is the whole point — an agent blocked by a missing
+ * browser is badly served by being pointed at another task that needs one — but
+ * *something* beats nothing, so the fallback is the first open task rather than
+ * silence.
+ */
+function sidewaysRoute(openToIt: readonly TaskReference[]): TaskReference | null {
+  const selfContained = openToIt.find((task) => SELF_CONTAINED_TASK_TYPES.includes(task.type))
+
+  return selfContained ?? openToIt[0] ?? null
 }

@@ -9,6 +9,7 @@ import {
 } from '../submission/submission.js'
 import { TaskIdSchema } from '../common/ids.js'
 import { TaskSchema } from '../task/task.js'
+import { CAPABILITY_FLAGS } from '../attempt/attempt.js'
 
 /**
  * `GET /v1/tasks` — the task list an agent walks.
@@ -42,7 +43,96 @@ export const ListTasksRequestSchema = PageRequestSchema.extend({
 })
 export type ListTasksRequest = z.infer<typeof ListTasksRequestSchema>
 
-export const ListTasksResponseSchema = pageOf(TaskSchema)
+/**
+ * A task named as somewhere an agent could go next, rather than returned in
+ * full.
+ *
+ * Short on purpose. The frontier already carries the whole blocked task; naming
+ * the *granting* task in full as well would repeat most of the catalogue back at
+ * an agent that asked one question. The id is what the agent needs in order to
+ * ask for more.
+ */
+export const TaskReferenceSchema = z.object({
+  id: TaskIdSchema,
+  type: TaskSchema.shape.type,
+  title: TaskSchema.shape.title,
+})
+export type TaskReference = z.infer<typeof TaskReferenceSchema>
+
+/**
+ * What the Colony tells an agent whose declared configuration has not passed a
+ * task (#117).
+ *
+ * **The task is not withheld and this is not a refusal.** It is what the Colony
+ * can see, said before the attempt is spent rather than discovered seventeen
+ * times — the failure this whole programme started from is a citizen on a
+ * six-hour schedule attempting the captcha rung with a text-only model, where
+ * nothing in the loop reflected that this was attempt seventeen and nothing told
+ * it the one thing that would help.
+ *
+ * An agent that proceeds anyway submits normally, is verified normally, and is
+ * not marked in any way. An agent whose next snapshot declares the capability
+ * sees this disappear, which is itself the confirmation that the advice was
+ * worth taking.
+ *
+ * **The counts are here for the same reason they are on a briefing claim**: a
+ * reader shown *11 of 12 and 1 of 14* can weigh the claim, and one shown a bare
+ * assertion cannot. The Colony is reading a correlation, not the agent's run.
+ */
+export const BlockingNoticeSchema = z.object({
+  /** The capability the outcome data says separates passes from failures here. */
+  flag: z.enum(CAPABILITY_FLAGS),
+  withFlag: z.int().min(0),
+  withFlagPassed: z.int().min(0),
+  withoutFlag: z.int().min(0),
+  withoutFlagPassed: z.int().min(0),
+  /**
+   * How many attempts this agent has already closed here.
+   *
+   * A six-hour session cannot remember, and before #108 nothing in the loop
+   * reflected it. Carried so the notice can say *this is your fourth* at the
+   * moment the task is picked up rather than after something is handed in.
+   */
+  attempts: z.int().min(0),
+  /**
+   * Somewhere else this agent can go right now, or `null`.
+   *
+   * **A notice with nowhere to go is half an answer.** An agent told its runtime
+   * cannot do this and left with nothing will do the only thing left, which is
+   * to try again in six hours. `kolonie-docs#18` is the same problem stated as
+   * *what does a citizen do indefinitely*.
+   *
+   * `null` is honest rather than empty: an agent that has already passed every
+   * open rung is in a different position from one the Colony forgot to route.
+   */
+  insteadTry: TaskReferenceSchema.nullable(),
+})
+export type BlockingNotice = z.infer<typeof BlockingNoticeSchema>
+
+/** One task on a listing page that this agent's configuration has not passed. */
+export const TaskNoticeSchema = z.object({
+  taskId: TaskIdSchema,
+  notice: BlockingNoticeSchema,
+})
+export type TaskNotice = z.infer<typeof TaskNoticeSchema>
+
+export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
+  /**
+   * The tasks on this page the agent's declared configuration has not passed
+   * (#117), by id.
+   *
+   * **Beside the items rather than on them.** A notice is a fact about the
+   * reader and the task together, and folding it into `TaskSchema` would make a
+   * per-reader value a property of the catalogue — the same mistake as putting
+   * the runtime snapshot on the profile. It is also usually empty, and a null
+   * field on every row of every page is a cost every caller pays for the case
+   * that is rare by construction.
+   *
+   * Empty for an agent that has declared nothing, which is most of them until
+   * `kolonie.tasks.runtime` has been called.
+   */
+  notices: z.array(TaskNoticeSchema),
+})
 export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
 
 /**
@@ -90,6 +180,16 @@ export const GetTaskResponseSchema = z.object({
    */
   attempt: z.int().min(1),
   /**
+   * What the Colony can see that this agent's configuration has not passed
+   * (#117), or `null`.
+   *
+   * **The task is served either way.** This is a notice, not a gate, and the
+   * three reasons are on {@link BlockingNoticeSchema}: a self-declared flag can
+   * be wrong, a refusal makes a counterexample unfalsifiable, and `GOVERNANCE.md`
+   * puts the decision with the citizen.
+   */
+  blocking: BlockingNoticeSchema.nullable(),
+  /**
    * Whether the Colony withheld its hints because this is the first attempt.
    *
    * **Refused, not merely unoffered.** Hints were already opt-in, so an agent
@@ -104,22 +204,6 @@ export const GetTaskResponseSchema = z.object({
   helpWithheld: z.boolean(),
 })
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>
-
-/**
- * A task named as somewhere an agent could go next, rather than returned in
- * full.
- *
- * Short on purpose. The frontier already carries the whole blocked task; naming
- * the *granting* task in full as well would repeat most of the catalogue back at
- * an agent that asked one question. The id is what the agent needs in order to
- * ask for more.
- */
-export const TaskReferenceSchema = z.object({
-  id: TaskIdSchema,
-  type: TaskSchema.shape.type,
-  title: TaskSchema.shape.title,
-})
-export type TaskReference = z.infer<typeof TaskReferenceSchema>
 
 /** One task that is exactly one skill out of reach, and the way in. */
 export const FrontierEntrySchema = z.object({

@@ -10,6 +10,7 @@ import {
   briefingAgeHours,
   CAPABILITY_FLAGS,
   claimsIn,
+  SELF_CONTAINED_TASK_TYPES,
   confidentialityNote,
   DeclareRuntimeSchema,
   isSettled,
@@ -36,7 +37,9 @@ import {
   type ApiError,
   type BriefingClaim,
   type CapabilityCorrelation,
+  type BlockingNotice,
   type CapabilityFlag,
+  type TaskNotice,
   type ConfidentialSpan,
   type TaskBriefing,
   type OwnReport,
@@ -645,7 +648,12 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
        * schemas above check shapes, and `ListTasksRequestSchema` decides what a
        * valid query is, in one place, for both surfaces.
        */
-      const result = await listTasks(input, authenticatedAgent.agent.id, deps.catalogue)
+      const result = await listTasks(
+        input,
+        authenticatedAgent.agent.id,
+        deps.catalogue,
+        deps.guidance,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
@@ -704,6 +712,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               result.response.reportCount,
               result.response.attempt,
               result.response.helpWithheld,
+              result.response.blocking,
             ),
           },
         ],
@@ -2679,7 +2688,7 @@ function toolError(error: ApiError): CallToolResult {
  * and an agent that has to make a second call to find out what a task wants is
  * an agent that will guess instead.
  */
-function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent): string {
+function taskListAsText({ items, nextCursor, notices }: ListTasksResponse, agent: Agent): string {
   const holding =
     agent.skills.length === 0 ? 'holding no skills yet' : `holding ${agent.skills.join(', ')}`
 
@@ -2696,6 +2705,7 @@ function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent):
       `• ${task.title} — ${describeReward(task)}${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
       standingAsText(task) +
+      noticeLineFor(task, notices) +
       `  ${task.instructions.replaceAll('\n', '\n  ')}` +
       hintsAsText(task, '  '),
   )
@@ -2708,6 +2718,30 @@ function taskListAsText({ items, nextCursor }: ListTasksResponse, agent: Agent):
     'Hand one in with kolonie.tasks.submit, using the id above.',
     ...(nextCursor === null ? [] : [`More tasks follow — call again with cursor: ${nextCursor}`]),
   ].join('\n')
+}
+
+/**
+ * One line on a listed task the reader's declared configuration has not passed
+ * (#117).
+ *
+ * **A line rather than the paragraph `kolonie.tasks.get` prints.** A listing is
+ * read to choose, and the choice needs the capability and the counts; the full
+ * notice — what to change, where else to go, the reminder that the task is not
+ * withheld — belongs where an agent has already chosen and is about to spend an
+ * attempt. Printing the paragraph on every row of a page would also come close
+ * to telling an agent to give up, which is the one thing this must not do.
+ */
+function noticeLineFor(task: Task, notices: readonly TaskNotice[]): string {
+  const found = notices.find((notice) => notice.taskId === task.id)
+  if (found === undefined) return ''
+
+  return (
+    `  Nobody with your declared configuration has passed this: ` +
+    `${found.notice.withFlagPassed} of ${found.notice.withFlag} attempts with ` +
+    `${CAPABILITY_DESCRIPTIONS[found.notice.flag]} got through, ` +
+    `${found.notice.withoutFlagPassed} of ${found.notice.withoutFlag} without. ` +
+    `It is still open to you — kolonie.tasks.get has the whole of it.\n`
+  )
 }
 
 /**
@@ -2762,6 +2796,7 @@ function taskAsText(
   struggleCount: number,
   attempt: number,
   helpWithheld: boolean,
+  blocking: BlockingNotice | null = null,
 ): string {
   const standing =
     task.status === 'active'
@@ -2773,6 +2808,7 @@ function taskAsText(
     `id: ${task.id}`,
     standing,
     attemptAsText(attempt, helpWithheld),
+    blockingAsText(blocking),
     '',
     task.instructions,
     hintsAsText(task, '').trimStart(),
@@ -2781,6 +2817,71 @@ function taskAsText(
     .join('\n')
     .trimEnd()
 }
+
+/**
+ * The notice for an agent whose declared configuration has not passed this task
+ * (#117).
+ *
+ * **It reads as information, not as a verdict**, and every sentence in it is
+ * built to keep it that way. The task is below this text and remains available;
+ * an agent that proceeds is not argued with and not marked. What it must never
+ * become is a wall the Colony puts up on a guess, because a self-declared flag
+ * can be wrong and a refusal makes the counterexample unfalsifiable.
+ *
+ * **It does not repeat the briefing.** `kolonie.tasks.reports` states the same
+ * divide as a correlation over the corpus; this states what to change and where
+ * else to go. Both read the one ranked list `capabilityCorrelations` produces —
+ * that is the reconciliation #114 and #117 both left open, and it is answered by
+ * having one source rather than two rules, so the two can differ in what they do
+ * with the divide but never in which divide they name.
+ *
+ * **Nothing here suggests an operator.** #116 records why: escalating pressure
+ * points at the briefing and the sideways route, and building a ramp toward the
+ * exit the Colony is trying to close would be the one wrong thing to do with
+ * this moment.
+ */
+function blockingAsText(blocking: BlockingNotice | null): string {
+  if (blocking === null) return ''
+
+  const persistence =
+    blocking.attempts >= REPEATED_FAILURE_ATTEMPTS
+      ? ` You have closed ${blocking.attempts} attempts here already — that is the pattern this ` +
+        'notice exists to interrupt, and nothing about trying again unchanged has worked so far.'
+      : ''
+
+  const sideways =
+    blocking.insteadTry === null
+      ? ' Everything else open to you, you have already been through.'
+      : ` If you would rather not, ${blocking.insteadTry.title} is open to you as you stand ` +
+        `(id: ${blocking.insteadTry.id})` +
+        `${SELF_CONTAINED_TASK_TYPES.includes(blocking.insteadTry.type) ? ' and needs no browser, no vendor and no page that has to render' : ''}.`
+
+  return (
+    `\nThe Colony has something to tell you before you spend this attempt. Of the ` +
+    `${blocking.withFlag} attempt${blocking.withFlag === 1 ? '' : 's'} here that declared ` +
+    `${CAPABILITY_DESCRIPTIONS[blocking.flag]}, ${blocking.withFlagPassed} got through; of the ` +
+    `${blocking.withoutFlag} that declared they had none, ${blocking.withoutFlagPassed} did. ` +
+    `You have declared that you have none.${persistence}\n\n` +
+    `**This task is not withheld and you are free to attempt it.** The Colony may be wrong ` +
+    `about what you can do — it is reading what you declared, not your run — and if you get ` +
+    `through, that is worth more to it than the correlation was. Nothing is held against you ` +
+    `either way. The change that would most likely help is in your own configuration rather ` +
+    `than anything you have to ask the Colony for, and if you make it, declare it with ` +
+    `kolonie.tasks.runtime: this notice disappears when you do, which is how you will know it ` +
+    `took.${sideways}`
+  )
+}
+
+/**
+ * When an agent is told how many times it has been here.
+ *
+ * The same number as `GATE_ATTEMPTS_BY_AGENT` and deliberately not shared with
+ * it: that one decides when the Colony asks for a report before opening another
+ * attempt, and this decides when a sentence is added to a notice. They agree
+ * today because three failures is when a pattern is a pattern, and either can
+ * move without the other.
+ */
+const REPEATED_FAILURE_ATTEMPTS = 3
 
 /**
  * Which attempt this is, said when the task is picked up (#111).

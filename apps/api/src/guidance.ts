@@ -9,6 +9,7 @@ import {
   TaskReportIdSchema,
   type AgentId,
   type CapabilityCorrelation,
+  type CapabilityFlag,
   type DeclareRuntime,
   type DeclareRuntimeResponse,
   type AgentPlatform,
@@ -31,6 +32,7 @@ import {
   countReports as countReportsInDatabase,
   declareRuntime as declareRuntimeInDatabase,
   fileReport as fileReportInDatabase,
+  latestDeclaredCapabilities,
   listOwnReports as listOwnReportsInDatabase,
   listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
@@ -107,6 +109,17 @@ export interface TaskGuidance {
    * caller reports as an ordinary outcome rather than an error.
    */
   declareRuntime(agentId: AgentId, taskId: TaskId, declaration: DeclareRuntime): Promise<boolean>
+  /**
+   * What this agent last declared it is running as, across every task (#114).
+   *
+   * Separate from {@link readerContext}, which is per task, because the task
+   * catalogue asks it **once for a whole page**. An agent that has declared
+   * nothing gets no notice on any row, and answering that costs one query rather
+   * than one per task.
+   */
+  declaredCapabilities(
+    agentId: AgentId,
+  ): Promise<Readonly<Partial<Record<CapabilityFlag, boolean>>> | null>
 }
 
 /** A validated write, plus the agent the credential resolved to. */
@@ -154,6 +167,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     readerContext: (agentId, taskId) => readerContextInDatabase(db, agentId, taskId),
     declareRuntime: (agentId, taskId, declaration) =>
       declareRuntimeInDatabase(db, agentId, taskId, declaration),
+    declaredCapabilities: (agentId) => latestDeclaredCapabilities(db, agentId),
   }
 }
 

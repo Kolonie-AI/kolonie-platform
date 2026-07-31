@@ -666,7 +666,7 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await listTasks(request.query, authenticated.agent.id, catalogue)
+        const result = await listTasks(request.query, authenticated.agent.id, catalogue, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

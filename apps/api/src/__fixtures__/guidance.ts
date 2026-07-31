@@ -144,6 +144,7 @@ export function fakeGuidance(): FakeGuidance {
     standing: async () => standing,
     briefing: async () => briefing,
     readerContext: async () => context,
+    declaredCapabilities: async () => context.declared,
     declareRuntime: async (agentId, taskId, declaration) => {
       declarations.push({ agentId, taskId, declaration })
       return declarationRecorded

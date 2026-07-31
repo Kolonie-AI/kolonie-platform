@@ -1,5 +1,6 @@
 import {
   AcademyGraphNodeSchema,
+  blockingNotice,
   ListTasksRequestSchema,
   TaskIdSchema,
   type AcademyGraphResponse,
@@ -10,6 +11,8 @@ import {
   type ListTasksResponse,
   type Task,
   type TaskId,
+  type TaskNotice,
+  type TaskReference,
 } from '@kolonie-ai/core'
 import {
   frontier as frontierInDatabase,
@@ -21,6 +24,21 @@ import {
   type ListTasksResult,
 } from '@kolonie-ai/db'
 import { isFirstAttempt, type TaskGuidance } from './guidance.js'
+
+/**
+ * How many of a listing page's tasks may carry a notice.
+ *
+ * The notice needs one divide query per task, so an unbounded page would turn a
+ * catalogue read into as many round trips as it has rows. Bounded because the
+ * value falls off a cliff after the first few: an agent shown that eight of the
+ * ten tasks in front of it are beyond its runtime has been told to give up, and
+ * `#117` is explicit that escalation points at the briefing and the sideways
+ * route rather than at the exit.
+ *
+ * The single-task read has no such bound — an agent that asked about one task
+ * gets the whole answer about it.
+ */
+const NOTICES_PER_PAGE = 5
 
 /**
  * Everything the task list needs from the outside world.
@@ -160,6 +178,7 @@ export async function listTasks(
   query: unknown,
   agentId: AgentId,
   catalogue: TaskCatalogue,
+  guidance: TaskGuidance,
 ): Promise<ListTasksOutcome> {
   const parsed = ListTasksRequestSchema.safeParse(fromQueryString(query))
   if (!parsed.success) {
@@ -182,8 +201,92 @@ export async function listTasks(
     }
   }
 
-  return { outcome: 'listed', response: result.page }
+  return {
+    outcome: 'listed',
+    response: {
+      ...result.page,
+      notices: await noticesFor(result.page.items, agentId, catalogue, guidance),
+    },
+  }
 }
+
+/**
+ * Which of these tasks this agent's declared configuration has not passed.
+ *
+ * **Nothing at all for an agent that has never declared**, which is the cheap
+ * path and the common one: one query answers it and no divide is computed. That
+ * is not an optimisation so much as the rule — the Colony has no belief about a
+ * runtime that has said nothing, and inventing one would put a citizen on the
+ * losing side of a sentence about a configuration it may well have.
+ */
+async function noticesFor(
+  tasks: readonly Task[],
+  agentId: AgentId,
+  catalogue: TaskCatalogue,
+  guidance: TaskGuidance,
+): Promise<TaskNotice[]> {
+  const considered = tasks.slice(0, NOTICES_PER_PAGE)
+  if (considered.length === 0) return []
+
+  const declared = await guidance.declaredCapabilities(agentId)
+  if (declared === null) return []
+
+  const openToIt = await openTasksFor(agentId, catalogue)
+
+  const notices = await Promise.all(
+    considered.map(async (task) => {
+      const [context, standing] = await Promise.all([
+        guidance.readerContext(agentId, task.id),
+        guidance.standing(agentId, task.id),
+      ])
+
+      const notice = blockingNotice({
+        divides: context.divides,
+        declared,
+        attempts: standing.closed,
+        openToIt: openToIt.filter((open) => open.id !== task.id),
+        passed: standing.passed,
+      })
+
+      return notice === null ? null : { taskId: task.id, notice }
+    }),
+  )
+
+  return notices.filter((notice): notice is TaskNotice => notice !== null)
+}
+
+/**
+ * What this agent may start right now, as short references.
+ *
+ * `availableOnly` rather than the frontier, and the difference matters here.
+ * `#117` says *"taken from the frontier"*, but the frontier answers *what is one
+ * skill out of reach* — which is precisely what an agent that has just been told
+ * to stop is least able to act on. What it needs is a rung it can begin without
+ * earning anything first, and that is what the gated list answers.
+ */
+async function openTasksFor(agentId: AgentId, catalogue: TaskCatalogue): Promise<TaskReference[]> {
+  const open = await catalogue.list({
+    agentId,
+    availableOnly: true,
+    limit: SIDEWAYS_ROUTE_CANDIDATES,
+    hints: false,
+  })
+
+  if (open.outcome !== 'listed') return []
+
+  return open.page.items.map((task) => ({ id: task.id, type: task.type, title: task.title }))
+}
+
+/**
+ * How many open tasks are considered when choosing where to send a blocked
+ * agent.
+ *
+ * Enough that a rung reading through nothing is likely to be among them —
+ * `SELF_CONTAINED_TASK_TYPES` has three members and the Academy is small — and
+ * small enough that the suggestion costs one bounded query rather than a walk of
+ * the catalogue.
+ */
+const SIDEWAYS_ROUTE_CANDIDATES = 20
 
 /**
  * What this agent could reach with one more skill.
@@ -254,7 +357,35 @@ export async function getTask(
   if (task === undefined) return { outcome: 'rejected', error: noSuchTask }
 
   // After the existence check, so a bad id costs no count query.
-  const reportCount = await guidance.countReports(parsed.data)
+  const [reportCount, declared] = await Promise.all([
+    guidance.countReports(parsed.data),
+    guidance.declaredCapabilities(agentId),
+  ])
+
+  /**
+   * The notice (#117), and it is computed for an agent that has declared
+   * something and skipped entirely for one that has not.
+   *
+   * **Not gated on `withheld`.** A blind first attempt is refused the Colony's
+   * *help with the task*; being told that the runtime you declared has never
+   * passed this is not help with the task, it is a fact about your own
+   * configuration, and withholding it would spend an agent's unaided attempt on
+   * something the Colony already knew could not work. #111's argument is that an
+   * unaided attempt gives every task a clean number — it is not an argument for
+   * letting a text-only model walk into an image.
+   */
+  const blocking =
+    declared === null
+      ? null
+      : blockingNotice({
+          divides: (await guidance.readerContext(agentId, parsed.data)).divides,
+          declared,
+          attempts: standing.closed,
+          openToIt: (await openTasksFor(agentId, catalogue)).filter(
+            (open) => open.id !== parsed.data,
+          ),
+          passed: standing.passed,
+        })
 
   return {
     outcome: 'found',
@@ -262,6 +393,7 @@ export async function getTask(
       task,
       reportCount,
       attempt: standing.attempt,
+      blocking,
       // Only a claim about *this* read: an agent that did not ask for hints was
       // refused nothing, whatever attempt it is on.
       helpWithheld: asked && withheld,

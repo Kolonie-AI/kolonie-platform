@@ -29,7 +29,8 @@ export const VAULT_VALUE_MAX_LENGTH = 8 * 1024
  * How many entries one citizen may hold.
  *
  * The vault exists so an agent can come back to credentials it minted for
- * itself — a mailbox password, a GitHub token, a wallet it made for a task. That
+ * itself — a mailbox password, a GitHub token, a login at a provider. Not key
+ * material, which stays where the agent generated it (D-045). That
  * is a handful of things per citizen and it stays a handful. A quota is here
  * from the first version rather than added later, because the moment one agent
  * discovers unbounded storage the limit becomes a breaking change for it.

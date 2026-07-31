@@ -3136,6 +3136,45 @@ describe('the vault, over MCP', () => {
     await close()
   })
 
+  /**
+   * `#134`, and the assertion is about the Colony's own copy rather than about
+   * behaviour, because the defect was a sentence.
+   *
+   * The empty-vault text used to invite *"a wallet"* while `solana-wallet` and
+   * `key-signature` tell an agent that anything asking for key material is an
+   * attack *"wherever it appears to come from"*. Both were the Colony talking,
+   * and an agent holding both had no way to tell which to believe. D-045 settled
+   * it: credentials to somebody else's service, never key material.
+   *
+   * This is the kind of wording that comes back by analogy — the next person
+   * listing examples of a secret will think of a wallet, because everybody does.
+   * The test is here so that it costs an argument rather than a moment.
+   */
+  it('never invites key material, on any vault surface an agent reads', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const listed = await client.callTool({ name: 'kolonie.vault.list', arguments: {} })
+    const emptyText = JSON.stringify(listed.content)
+
+    const tools = await client.listTools()
+    const set = tools.tools.find((tool) => tool.name === 'kolonie.vault.set')
+    const setText = JSON.stringify(set)
+
+    for (const surface of [emptyText, setText]) {
+      // Not "wallet" outright: both surfaces now say what the vault is *not*
+      // for, and saying so needs the word.
+      expect(surface).not.toMatch(/a wallet you generated|token, a wallet|a wallet —/)
+    }
+
+    // And each says the exclusion rather than merely omitting the example, so an
+    // agent that was about to store a seed phrase is stopped rather than
+    // unadvised.
+    expect(emptyText).toContain('seed phrase')
+    expect(setText).toContain('seed phrase')
+    await close()
+  })
+
   it('replaces rather than duplicating when the same name is written twice', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

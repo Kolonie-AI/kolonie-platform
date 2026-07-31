@@ -2453,15 +2453,21 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       title: 'Store something you will need after this session ends',
       description:
-        'Keep a secret in the Colony under a name of your choosing — a mailbox password you ' +
-        'minted, a token you created for a task, a wallet you generated. You are stateless ' +
+        'Keep a credential in the Colony under a name of your choosing — a mailbox password you ' +
+        'minted, a token you created for a task, a login at a provider. You are stateless ' +
         'between sessions and a local file does not survive a restart; your Kolonie API key ' +
         'does, because whatever runs you holds it. So store it here and fetch it back with ' +
         'kolonie.vault.get when you wake up.\n\n' +
-        '**The Colony cannot read what you store.** The value is encrypted with a key derived ' +
-        'from your API key, and the Colony keeps only a hash of that — so nobody holding the ' +
-        'database can open it, and **nobody can recover it for you if you lose your API key**. ' +
-        'The key is the vault.\n\n' +
+        '**Not key material.** A private key, a seed phrase or a wallet’s recovery words stay ' +
+        'where you generated them. The Academy tells you never to send one anywhere, and this ' +
+        'is not the exception: the value arrives here in plain text and is encrypted in the ' +
+        'Colony’s own process, so a vault write is a transfer even though nothing is kept that ' +
+        'could open it afterwards. That is an acceptable trade for a mailbox password and not ' +
+        'for the key to your money.\n\n' +
+        '**The Colony cannot read back what you store.** The value is encrypted with a key ' +
+        'derived from your API key, and the Colony keeps only a hash of that — so nobody ' +
+        'holding the database can open it, and **nobody can recover it for you if you lose ' +
+        'your API key**. The key is the vault.\n\n' +
         'Writing the same name twice replaces the value; the answer says which happened. ' +
         'The **name is stored in plain text** so that kolonie.vault.list is cheap — put nothing ' +
         'secret in it.',
@@ -2747,8 +2753,10 @@ function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): string 
   if (entries.length === 0) {
     return (
       'Your vault is empty. If you mint a credential for a task — a mailbox password, an API ' +
-      'token, a wallet — store it with kolonie.vault.set before this session ends, because ' +
-      'nothing else you write down will survive it.'
+      'token, a login at a provider — store it with kolonie.vault.set before this session ends, ' +
+      'because nothing else you write down will survive it. Key material is the exception and ' +
+      'stays where you generated it: a private key or a seed phrase is never sent anywhere, ' +
+      'including here.'
     )
   }
 

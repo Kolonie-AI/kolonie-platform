@@ -240,42 +240,30 @@ interface GitHubGistPayload {
 }
 
 /**
- * Read GitHub over HTTP with the Colony's own read-only token.
+ * The result of one authenticated GET against GitHub.
  *
- * The token is the Colony's and never an agent's — D-019 rejected issuing agents
- * a credential, and `governance/red-lines.md` forbids the value appearing in
- * this repository at all. It arrives as an argument rather than being read from
- * `process.env` in here, so that nothing in this package has to be trusted about
- * where it came from and the runner's wiring stays the single place it is named.
- *
- * **Without a token every read is `unavailable`, deliberately.** The obvious
- * alternative — fall back to unauthenticated calls — is a trap: the Colony's
- * repositories are private (kolonie-docs#6), so an anonymous read of a perfectly
- * good contribution returns 404, and the verifier would fail an honest agent
- * because *we* were misconfigured. Answering `unavailable` leaves those
- * submissions waiting for the deploy that fixes it, which is what a missing
- * credential actually means.
+ * Exported because the status mapping below *is* a rule of this project rather
+ * than plumbing, and two readers now depend on it.
  */
-export function httpGitHubReader(
+export type GitHubGetResult =
+  | { readonly outcome: 'ok'; readonly payload: unknown }
+  | { readonly outcome: 'not-found'; readonly reason: string }
+  | { readonly outcome: 'unavailable'; readonly reason: string }
+
+/**
+ * One authenticated GET, with the status mapping both readers depend on.
+ *
+ * Lifted out of `httpGitHubReader` when a second reader appeared
+ * (`httpContributionReader`), rather than copied into it. Which statuses are
+ * the agent's problem and which are the Colony's is the whole of #19's *"an
+ * agent must not lose an attempt to our outage"*, and two copies of that rule
+ * would be two chances for it to drift.
+ */
+export function githubGet(
   token: string | undefined,
-  fetchImpl: typeof fetch = fetch,
-): GitHubReader {
-  /**
-   * One authenticated GET, with the status mapping both read paths depend on.
-   *
-   * Shared because the mapping *is* the rule rather than plumbing: which
-   * statuses are the agent's problem and which are the Colony's is the whole of
-   * #19's "an agent must not lose an attempt to our outage", and two copies of
-   * it would be two chances to drift.
-   */
-  const get = async (
-    apiUrl: string,
-    url: string,
-  ): Promise<
-    | { readonly outcome: 'ok'; readonly payload: unknown }
-    | { readonly outcome: 'not-found'; readonly reason: string }
-    | { readonly outcome: 'unavailable'; readonly reason: string }
-  > => {
+  fetchImpl: typeof fetch,
+): (apiUrl: string, url: string) => Promise<GitHubGetResult> {
+  return async (apiUrl: string, url: string): Promise<GitHubGetResult> => {
     let response: Response
     try {
       response = await fetchImpl(apiUrl, {
@@ -283,7 +271,7 @@ export function httpGitHubReader(
           accept: 'application/vnd.github+json',
           authorization: `Bearer ${token as string}`,
           'x-github-api-version': '2022-11-28',
-          'user-agent': 'kolonie-verifier-runner',
+          'user-agent': 'kolonie-colony',
         },
       })
     } catch (error) {
@@ -322,13 +310,58 @@ export function httpGitHubReader(
       return { outcome: 'unavailable', reason: 'GitHub answered with something that is not JSON.' }
     }
   }
+}
 
-  const missingToken = (): { readonly outcome: 'unavailable'; readonly reason: string } => ({
+/** The reason every GitHub read gives when the Colony has no token at all. */
+export function githubMissingToken(): {
+  readonly outcome: 'unavailable'
+  readonly reason: string
+} {
+  return {
     outcome: 'unavailable',
     reason: `No ${GITHUB_VERIFIER_TOKEN_VAR} is configured, so GitHub cannot be read.`,
-  })
+  }
+}
 
-  const hasToken = (): boolean => token !== undefined && token.trim() !== ''
+/** Whether a token was supplied at all, as opposed to supplied and rejected. */
+export function hasGithubToken(token: string | undefined): boolean {
+  return token !== undefined && token.trim() !== ''
+}
+
+/**
+ * Read GitHub over HTTP with the Colony's own read-only token.
+ *
+ * The token is the Colony's and never an agent's — D-019 rejected issuing agents
+ * a credential, and `governance/red-lines.md` forbids the value appearing in
+ * this repository at all. It arrives as an argument rather than being read from
+ * `process.env` in here, so that nothing in this package has to be trusted about
+ * where it came from and the runner's wiring stays the single place it is named.
+ *
+ * **Without a token every read is `unavailable`, deliberately.** The obvious
+ * alternative — fall back to unauthenticated calls — is a trap: the Colony's
+ * repositories are private (kolonie-docs#6), so an anonymous read of a perfectly
+ * good contribution returns 404, and the verifier would fail an honest agent
+ * because *we* were misconfigured. Answering `unavailable` leaves those
+ * submissions waiting for the deploy that fixes it, which is what a missing
+ * credential actually means.
+ */
+export function httpGitHubReader(
+  token: string | undefined,
+  fetchImpl: typeof fetch = fetch,
+): GitHubReader {
+  /**
+   * One authenticated GET, with the status mapping both read paths depend on.
+   *
+   * Shared because the mapping *is* the rule rather than plumbing: which
+   * statuses are the agent's problem and which are the Colony's is the whole of
+   * #19's "an agent must not lose an attempt to our outage", and two copies of
+   * it would be two chances to drift.
+   */
+  const get = githubGet(token, fetchImpl)
+
+  const missingToken = githubMissingToken
+
+  const hasToken = (): boolean => hasGithubToken(token)
 
   return {
     /**

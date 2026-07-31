@@ -14,7 +14,11 @@ import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
-import { fakeGithubChallenges, type FakeGithubChallenges } from '../__fixtures__/github.js'
+import {
+  fakeContributions,
+  fakeGithubChallenges,
+  type FakeGithubChallenges,
+} from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
@@ -42,6 +46,7 @@ beforeEach(async () => {
     support: support({ desk: fakeSupportDesk() }),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
+    contributions: fakeContributions(),
     keys: fakeKeys(),
     solana: fakeSolana(),
     pow: fakePow(),

@@ -187,6 +187,22 @@ export {
   type ResolvedGitHubUrl,
 } from './github.js'
 
+/**
+ * Reading a citizen's *own* open contributions, which is not a verdict.
+ *
+ * It lives in this package because the GitHub plumbing and the status rule do —
+ * splitting the token handling across two packages is how `kolonie-infra#7`
+ * happened, one layer down. It is exported separately because nothing in the
+ * verifier registry uses it: the API serves it, the runner does not.
+ */
+export {
+  httpContributionReader,
+  summariseReviews,
+  type ContributionReader,
+  type OpenPullRequest,
+  type OpenPullRequestsResult,
+} from './contributions.js'
+
 /** The verifiers one process has deployed, keyed by the task type each handles. */
 export type VerifierRegistry = ReadonlyMap<TaskType, Verifier>
 

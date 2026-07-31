@@ -52,6 +52,7 @@ import { openKeyChallenge, submitKeySignature, type KeyDependencies } from './ke
 import { openSolanaChallenge, submitWalletSignature, type SolanaDependencies } from './solana.js'
 import { openPowChallenge, submitPowNonce, type PowDependencies } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
+import type { ContributionDependencies } from './contributions.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openImageChallenge, type ImageDependencies } from './image.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
@@ -98,6 +99,8 @@ export interface AppDependencies {
    * stops a challenge being issued.
    */
   readonly github: GithubDependencies
+  /** A citizen's own open pull requests — see `contributions.ts`. */
+  readonly contributions: ContributionDependencies
   readonly website: WebsiteDependencies
   /** The image rung — see `image.ts`. */
   readonly image: ImageDependencies
@@ -178,6 +181,7 @@ export function buildApp({
   solana,
   pow,
   github,
+  contributions,
   website,
   image,
   social,
@@ -331,6 +335,7 @@ export function buildApp({
           academy,
           email,
           github,
+          contributions,
           website,
           image,
           social,

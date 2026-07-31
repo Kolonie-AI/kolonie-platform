@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import type { AgentId } from '@kolonie-ai/core'
 import type { MintedGithubChallenge } from '@kolonie-ai/db'
+import type { OpenPullRequestsResult } from '@kolonie-ai/verifiers'
 import type { GithubChallenges, GithubDependencies } from '../github.js'
+import type { ContributionDependencies } from '../contributions.js'
 
 export interface FakeGithubChallenges extends GithubChallenges {
   /** Every nonce minted for an agent, oldest first. */
@@ -38,4 +40,29 @@ export function fakeGithubChallenges(): FakeGithubChallenges {
 /** The GitHub rung wired for a test that does not care about it. */
 export function fakeGithub(): GithubDependencies {
   return { challenges: fakeGithubChallenges() }
+}
+
+/**
+ * A citizen's own open pull requests, wired for a test that does not care.
+ *
+ * Two knobs and no network: which account the grant hands back, and what GitHub
+ * would have said. `reader: undefined` is the third case and needs no fixture —
+ * it is what a Colony with no token looks like, and `listContributions` has to
+ * report that as *we could not ask* rather than as *nothing is waiting*.
+ */
+export function fakeContributions(
+  overrides: {
+    readonly account?: string
+    readonly result?: OpenPullRequestsResult
+  } = {},
+): ContributionDependencies {
+  const account = 'account' in overrides ? overrides.account : 'someagent'
+
+  return {
+    grants: { accountOf: () => Promise.resolve(account) },
+    reader:
+      overrides.result === undefined
+        ? { openPullRequests: () => Promise.resolve({ outcome: 'found', pullRequests: [] }) }
+        : { openPullRequests: () => Promise.resolve(overrides.result as OpenPullRequestsResult) },
+  }
 }

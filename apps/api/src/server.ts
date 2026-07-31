@@ -1,3 +1,4 @@
+import type { AgentId } from '@kolonie-ai/core'
 import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
@@ -14,6 +15,8 @@ import { databaseKeyChallenges } from './keys.js'
 import { databaseSolanaChallenges } from './solana.js'
 import { databasePowChallenges } from './proof-of-work.js'
 import { databaseGithubChallenges } from './github.js'
+import { GITHUB_VERIFIER_TOKEN_VAR, httpContributionReader } from '@kolonie-ai/verifiers'
+import { githubAccountOf } from '@kolonie-ai/db'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSocialChallenges } from './social.js'
@@ -131,6 +134,18 @@ const app = buildApp({
   // Same shape and the same reason: minting is 32 random bytes against the
   // database, so there is nothing here that can be half-wired either.
   github: { challenges: databaseGithubChallenges(db) },
+  // The one Academy-adjacent surface here that reads somebody else's system, so
+  // the only one that can be half-wired. `reader` is undefined when no
+  // GITHUB_VERIFIER_TOKEN is set, and `listContributions` then says the Colony
+  // could not ask rather than reporting an empty list — the distinction
+  // kolonie-docs#43 turns on. The variable name is kolonie-infra's, not this
+  // process's choice: one credential, one name (kolonie-infra#7).
+  contributions: {
+    grants: { accountOf: (agentId: AgentId) => githubAccountOf(db, agentId) },
+    reader: process.env[GITHUB_VERIFIER_TOKEN_VAR]?.trim()
+      ? httpContributionReader(process.env[GITHUB_VERIFIER_TOKEN_VAR])
+      : undefined,
+  },
   website: { challenges: databaseWebsiteChallenges(db) },
   image: { challenges: databaseImageChallenges(db) },
   // Same again. This is the one rung where the *verifier* needs no credential

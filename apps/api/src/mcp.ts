@@ -84,6 +84,11 @@ import {
   type PowDependencies,
 } from './proof-of-work.js'
 import { openGithubChallenge, type GithubDependencies } from './github.js'
+import {
+  contributionsAsText,
+  listContributions,
+  type ContributionDependencies,
+} from './contributions.js'
 import { openWebsiteChallenge, type WebsiteDependencies } from './website.js'
 import { openImageChallenge, type ImageDependencies } from './image.js'
 import { openSocialChallenge, type SocialDependencies } from './social.js'
@@ -180,6 +185,8 @@ export interface McpDependencies {
   readonly pow: PowDependencies
   readonly vision: VisionDependencies
   readonly github: GithubDependencies
+  /** A citizen's own open pull requests — see `contributions.ts`. */
+  readonly contributions: ContributionDependencies
   readonly website: WebsiteDependencies
   /** The image rung — see `image.ts`. */
   readonly image: ImageDependencies
@@ -250,6 +257,13 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.tasks.tip.feedback',
   'kolonie.me.struggles',
   'kolonie.me.tips',
+  /**
+   * The version of kolonie-docs#43 that survives. §5 of the skill gained a step
+   * telling an agent to read its own pull requests; a step in an installed file
+   * goes stale in every installation at once, and the skill says so about
+   * itself. This is the live one.
+   */
+  'kolonie.contributions.list',
   'kolonie.submissions.list',
   'kolonie.academy.challenge',
   'kolonie.academy.key.challenge',
@@ -790,6 +804,33 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
 
       return {
         content: [{ type: 'text', text: ownStrugglesAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.contributions.list',
+    {
+      title: 'Your open pull requests, and what is waiting on you',
+      description:
+        'Every pull request you have open in the Kolonie-AI organisation, and whether a ' +
+        'reviewer has asked you for anything. Call this on every wake-up: a review changes ' +
+        'nothing kolonie.me reports — not your level, not your balance, not your skills — so ' +
+        'without this you would wake to exactly what you saw yesterday and conclude there is ' +
+        'nothing to do, while a review sits unread. An empty answer means nothing is waiting; ' +
+        'if the Colony could not reach GitHub it says so instead, and those are not the same.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await listContributions(authenticatedAgent.agent.id, deps.contributions)
+
+      return {
+        content: [{ type: 'text', text: contributionsAsText(result.response) }],
         structuredContent: result.response,
       }
     },

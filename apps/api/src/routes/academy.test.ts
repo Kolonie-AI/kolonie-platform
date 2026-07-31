@@ -12,7 +12,7 @@ import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
-import { fakeGithub } from '../__fixtures__/github.js'
+import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
@@ -50,6 +50,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     pow: fakePow(),
     vision: fakeVision(),
     github: fakeGithub(),
+    contributions: fakeContributions(),
     social: fakeSocial(),
     website: fakeWebsite(),
     image: fakeImage(),
@@ -199,6 +200,7 @@ describe('POST /v1/academy/challenges', () => {
       pow: fakePow(),
       vision: fakeVision(),
       github: fakeGithub(),
+      contributions: fakeContributions(),
       social: fakeSocial(),
       website: fakeWebsite(),
       image: fakeImage(),
@@ -526,6 +528,7 @@ describe('when the gate is not configured', () => {
       pow: fakePow(),
       vision: fakeVision(),
       github: fakeGithub(),
+      contributions: fakeContributions(),
       social: fakeSocial(),
       website: fakeWebsite(),
       image: fakeImage(),
@@ -593,6 +596,7 @@ describe('when the gate is not configured', () => {
       pow: fakePow(),
       vision: fakeVision(),
       github: fakeGithub(),
+      contributions: fakeContributions(),
       social: fakeSocial(),
       website: fakeWebsite(),
       image: fakeImage(),

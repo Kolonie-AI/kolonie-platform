@@ -2,8 +2,14 @@ import { Resolver } from 'node:dns/promises'
 import { isIPv4, isIPv6 } from 'node:net'
 import { isPrivateIP } from './website-verify.js'
 
-/** The label the Colony's challenge record is published under. */
-export const CHALLENGE_LABEL = '_kolonie-challenge'
+/**
+ * The label the Colony's challenge record is published under.
+ *
+ * Defined in `@kolonie-ai/core` and re-exported here so every existing importer
+ * is unaffected: the erasure receipt names the same record and lives in
+ * `packages/db`, which cannot see this package.
+ */
+export { CHALLENGE_LABEL } from '@kolonie-ai/core'
 
 /** How long one query may take, and how many times it is retried. */
 export const DNS_TIMEOUT_MS = 5_000

@@ -2,6 +2,19 @@ import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 
 /**
+ * The label the Colony's DNS challenge record is published under.
+ *
+ * **In core rather than in the verifier that writes it**, because a second
+ * reader arrived: the erasure receipt names the record so a departing citizen
+ * knows what is left in its own zone, and `packages/db` cannot import
+ * `packages/verifiers`. Two literals would be two chances to drift, and the
+ * direction of the drift is a receipt naming a record that does not exist —
+ * which is worse than saying nothing, because it is unactionable and looks
+ * authoritative. `verifiers/dns.ts` re-exports this.
+ */
+export const CHALLENGE_LABEL = '_kolonie-challenge'
+
+/**
  * The receipt an erasure returns, and why it is not a courtesy.
  *
  * `governance/erasure.md` §5 lists things the Colony deletes nothing of, because
@@ -30,6 +43,8 @@ export const ErasureLimitKindSchema = z.enum([
   'wallet-holdings',
   /** Database backups, until they roll past their retention window. */
   'backups',
+  /** A TXT record in a zone the Colony never held a credential for. */
+  'dns',
 ])
 export type ErasureLimitKind = z.infer<typeof ErasureLimitKindSchema>
 

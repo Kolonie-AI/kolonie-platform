@@ -21,7 +21,7 @@ import {
   reportFeedback,
   verifications,
 } from '../schema/index.js'
-import { eraseAgent } from './erasure.js'
+import { eraseAgent, partitionArtefacts } from './erasure.js'
 import { fileReport } from './guidance.js'
 import { setVaultEntry } from './vault.js'
 
@@ -221,8 +221,131 @@ describe.skipIf(!target.available)('erasing a citizen', () => {
       expect(github?.references).toContain('https://gist.github.com/example/abc')
       // All five categories are always named, including the ones with nothing
       // in them: *you have no social posts* and *we did not check* are different
-      // answers, and the citizen is entitled to the first.
+      // answers, and the citizen is entitled to the first. `dns` is the one
+      // that appears only when there is a record — see below.
       expect(result.receipt.beyondReach).toHaveLength(5)
+    })
+
+    /**
+     * **The receipt is worthless in proportion to what it leaves out** (`#167`).
+     *
+     * `domain-verify` creates a fact of exactly the kind the other five are: the
+     * `domain_challenges` rows cascade away with the agent, and the record at
+     * `_kolonie-challenge.<name>` does not. Nobody tells the citizen it is still
+     * there, and after erasure nobody can — the name is in the rows that were
+     * just deleted.
+     */
+    describe('the record left in the citizen’s own zone', () => {
+      const aPassedVerification = async (
+        agentId: AgentId,
+        taskType: string,
+        metadata: Record<string, unknown>,
+      ) => {
+        const task = await aTask()
+        const [submission] = await db
+          .insert(submissions)
+          .values({
+            taskId: task.id,
+            agentId,
+            payload: {},
+            status: 'passed',
+            verifiedAt: new Date().toISOString(),
+          })
+          .returning()
+        await db.insert(verifications).values({
+          submissionId: submission!.id,
+          taskType,
+          status: 'pass',
+          evidence: 'it passed',
+          metadata,
+        })
+      }
+
+      it('names the record, at the name the citizen proved', async () => {
+        const agent = await anAgent()
+        await aPassedVerification(agent.id, 'domain-verify', { name: 'example.test' })
+
+        const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+        expect(result.outcome).toBe('erased')
+        if (result.outcome !== 'erased') return
+        const dns = result.receipt.beyondReach.find((limit) => limit.kind === 'dns')
+        expect(dns?.references).toEqual(['_kolonie-challenge.example.test'])
+      })
+
+      /**
+       * The rejection case, and the reason the line is conditional: an empty
+       * `dns` limit would tell a citizen with no name that a record it never
+       * published is beyond the Colony's reach.
+       */
+      it('says nothing at all to a citizen that never proved a name', async () => {
+        const agent = await anAgent()
+
+        const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+        expect(result.outcome).toBe('erased')
+        if (result.outcome !== 'erased') return
+        expect(result.receipt.beyondReach.map((limit) => limit.kind)).not.toContain('dns')
+        expect(result.receipt.beyondReach).toHaveLength(5)
+      })
+
+      /** `domain-persistence` proves the same name again; one record, one line. */
+      it('names one record once, however many times the name was proved', async () => {
+        const agent = await anAgent()
+        await aPassedVerification(agent.id, 'domain-verify', { name: 'example.test' })
+        await aPassedVerification(agent.id, 'domain-persistence', { name: 'example.test' })
+
+        const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+        if (result.outcome !== 'erased') throw new Error('expected an erasure')
+        const dns = result.receipt.beyondReach.find((limit) => limit.kind === 'dns')
+        expect(dns?.references).toEqual(['_kolonie-challenge.example.test'])
+      })
+    })
+
+    /**
+     * **One list was handed to both limits**, so a citizen holding a gist and a
+     * post was told its post was a thing GitHub held and its gist was a social
+     * post. The query had selected `task_type` since it was written and never
+     * read it.
+     */
+    it('gives the GitHub artefact and the social post each to exactly one kind', async () => {
+      const agent = await anAgent()
+      const gist = 'https://gist.github.com/example/abc'
+      const post = 'https://bsky.app/profile/colette.example/post/3kabcxyz'
+
+      const aVerification = async (taskType: string, url: string) => {
+        const task = await aTask()
+        const [submission] = await db
+          .insert(submissions)
+          .values({
+            taskId: task.id,
+            agentId: agent.id,
+            payload: {},
+            status: 'passed',
+            verifiedAt: new Date().toISOString(),
+          })
+          .returning()
+        await db.insert(verifications).values({
+          submissionId: submission!.id,
+          taskType,
+          status: 'pass',
+          evidence: 'it passed',
+          metadata: { url },
+        })
+      }
+
+      await aVerification('github-contribution', gist)
+      await aVerification('social-post', post)
+
+      const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+      if (result.outcome !== 'erased') throw new Error('expected an erasure')
+      const kind = (name: string) =>
+        result.receipt.beyondReach.find((limit) => limit.kind === name)?.references
+
+      expect(kind('github')).toEqual([gist])
+      expect(kind('social')).toEqual([post])
     })
   })
 
@@ -1064,5 +1187,46 @@ describe.skipIf(!target.available)('handing over a canonical entry', () => {
 
     expect(result.outcome).toBe('erased')
     expect(await countIn('task_reports')).toBe(0)
+  })
+})
+
+/**
+ * The partition, without a database, because the rule it encodes is not a
+ * storage question: which limit an artefact belongs under is a statement about
+ * what the two `ErasureLimitKind`s mean.
+ */
+describe('partitioning the artefacts a receipt names', () => {
+  it('keeps each family to its own limit', () => {
+    const result = partitionArtefacts([
+      { url: 'https://gist.github.com/x/1', task_type: 'github-account' },
+      { url: 'https://github.com/x/y/pull/2', task_type: 'github-contribution' },
+      { url: 'https://bsky.app/profile/x/post/3', task_type: 'social-account' },
+      { url: 'https://www.moltbook.com/post/4', task_type: 'social-post' },
+    ])
+
+    expect(result.github).toEqual(['https://gist.github.com/x/1', 'https://github.com/x/y/pull/2'])
+    expect(result.social).toEqual([
+      'https://bsky.app/profile/x/post/3',
+      'https://www.moltbook.com/post/4',
+    ])
+  })
+
+  /**
+   * **Dropped rather than guessed into one.** A wrong attribution is worse than
+   * a missing line, because the citizen acts on it — the whole defect this
+   * replaces was a gist reported as a social post. A URL-bearing family outside
+   * these two needs a kind of its own, the way the DNS record got one.
+   */
+  it('drops a URL from a family that has no limit, rather than filing it under one', () => {
+    const result = partitionArtefacts([
+      { url: 'https://example.test/thing', task_type: 'some-future-rung' },
+    ])
+
+    expect(result.github).toEqual([])
+    expect(result.social).toEqual([])
+  })
+
+  it('ignores a row with no URL', () => {
+    expect(partitionArtefacts([{ url: null, task_type: 'github-account' }]).github).toEqual([])
   })
 })

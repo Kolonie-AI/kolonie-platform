@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
+  CHALLENGE_LABEL,
   LedgerTransactionIdSchema,
   type AgentId,
   type ErasureLimit,
@@ -399,8 +400,32 @@ async function whatIsBeyondReach(
       ),
     )
 
-  const urls = artefacts.flatMap((row) => (row.url === null ? [] : [row.url]))
+  /**
+   * The names whose zones carry a record the Colony published the citizen's
+   * nonce into, read from the verifications rather than from
+   * `domain_challenges` — that table holds the nonce and the expiry and has no
+   * name column at all. `domain-verify` writes the normalised name to
+   * `metadata->>'name'` on its pass, and check 4 of that verifier already reads
+   * it back, so it is the one place the name is durable.
+   *
+   * `distinct` because `domain-persistence` records the same name again on
+   * every later pass, and a citizen does not need to be told twice about one
+   * record.
+   */
+  const domains = await tx.execute<{ name: string | null }>(
+    sql`select distinct v.metadata->>'name' as name
+          from verifications v
+          join submissions s on s.id = v.submission_id
+         where s.agent_id = ${agentId} and v.status = 'pass'
+           and v.task_type in ('domain-verify', 'domain-persistence')
+           and v.metadata->>'name' is not null`,
+  )
+
+  const { github, social } = partitionArtefacts(artefacts)
   const addresses = wallets.flatMap((row) => (row.address === null ? [] : [row.address]))
+  const records = domains.flatMap((row) =>
+    row.name === null ? [] : [`${CHALLENGE_LABEL}.${row.name}`],
+  )
 
   return [
     {
@@ -409,14 +434,14 @@ async function whatIsBeyondReach(
         'Gists, commits and pull requests are on your own GitHub account. The Colony never held ' +
         'a credential for it (D-019), so it cannot delete them and never could — they are yours ' +
         'to remove.',
-      references: urls,
+      references: github,
     },
     {
       kind: 'social',
       explanation:
         'A post you published to prove an account is public and permanent by design. After this ' +
         'it points at an agent id that no longer resolves, and the post is still there.',
-      references: urls,
+      references: social,
     },
     {
       kind: 'on-chain',
@@ -448,7 +473,63 @@ async function whatIsBeyondReach(
         'publishes its retention policy in the kolonie-infra repository.',
       references: [],
     },
+    /**
+     * **Only when there is one**, unlike every other kind here.
+     *
+     * The five above are categories that apply to any citizen — a citizen that
+     * proved no social account still has *no posts*, which is a true thing to
+     * be told, and `ErasureLimitSchema` says so. A DNS record is not a category
+     * but an artefact: either the citizen's zone carries one or the receipt has
+     * nothing to say. An empty line here would be noise in a document whose
+     * whole value is that every line is true of the reader.
+     */
+    ...(records.length === 0
+      ? []
+      : [
+          {
+            kind: 'dns' as const,
+            explanation:
+              'A TXT record is still published in your own zone, and the Colony cannot remove ' +
+              'it: it never held a credential for that zone, which is exactly why the record ' +
+              'proved anything. Nothing the Colony holds names it after this — the rows that ' +
+              'knew are the ones being deleted — so this is the last time anybody can tell you ' +
+              'it is there. Delete it at whoever serves your DNS.',
+            references: records,
+          },
+        ]),
   ]
+}
+
+/**
+ * Split the artefact URLs by the family of task that produced them.
+ *
+ * **Both limits used to get the same flat list**, so a citizen holding a gist
+ * and a Bluesky post was told its post was a thing GitHub held and its gist was
+ * a social post. The query has selected `task_type` since it was written and
+ * never read it — the intent was there and was not finished.
+ *
+ * By family rather than by an exhaustive list of task types, because the
+ * families are what the two `ErasureLimitKind`s mean. A URL-bearing task type
+ * in neither family belongs to neither limit and is deliberately dropped rather
+ * than guessed into one: a wrong attribution here is worse than a missing line,
+ * because the citizen acts on it. Today there is no such type — `github-account`,
+ * `github-contribution`, `social-account` and `social-post` are the four that
+ * write `metadata->>'url'` — and a fifth family needs a kind of its own, the way
+ * the DNS record got one.
+ */
+export function partitionArtefacts(
+  rows: Iterable<{ readonly url: string | null; readonly task_type?: string | null }>,
+): { readonly github: readonly string[]; readonly social: readonly string[] } {
+  const github: string[] = []
+  const social: string[] = []
+
+  for (const row of rows) {
+    if (row.url === null) continue
+    if (row.task_type?.startsWith('github-') === true) github.push(row.url)
+    else if (row.task_type?.startsWith('social-') === true) social.push(row.url)
+  }
+
+  return { github, social }
 }
 
 /**

@@ -199,6 +199,19 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   const counts = { seen: 0, known: 0, answered: 0, filed: 0, held: 0, failed: 0 }
   if (queue.length === 0) return counts
 
+  // **No App means no triage, not triage against nothing.** See `Issues.available`:
+  // a model shown an empty corpus cannot recognise a ticket the Colony already
+  // has an issue for, so it would hold it or propose a duplicate — on somebody's
+  // real report. Doing nothing leaves the queue exactly where it was before this
+  // service existed, which is the honest degradation.
+  if (!deps.issues.available) {
+    log.warn(
+      `${queue.length} ticket(s) waiting and no GitHub App is configured; ` +
+        'not triaging, because matching against an empty corpus is worse than waiting',
+    )
+    return counts
+  }
+
   const issues = [...(await deps.issues.open())]
   const answered: AnsweredTicket[] = (await deps.store.answered(ANSWERED_CORPUS))
     .filter((t) => t.status === 'resolved' && t.resolution !== null)

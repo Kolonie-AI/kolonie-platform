@@ -58,6 +58,21 @@ export interface NewIssue {
  * and a runner with none degrades rather than stops.
  */
 export interface Issues {
+  /**
+   * Whether this seam can reach GitHub at all.
+   *
+   * **Not a nicety: without it the loop cannot tell an empty corpus from an
+   * unreadable one**, and those must not be treated the same. With no App
+   * configured, `open()` answers `[]` — and a model shown no open issues cannot
+   * conclude `known` about a ticket that *is* already known. It would hold it for
+   * a human or propose filing a duplicate, on a real citizen's report, which is
+   * the noise this service exists to remove.
+   *
+   * So a runner with no App does not triage. That is a stronger promise than
+   * degrading, and it is the honest one: the state before this service existed
+   * was tickets nobody read, not tickets somebody guessed at.
+   */
+  readonly available: boolean
   /** Every open issue across the repositories triage covers. */
   open(): Promise<readonly KnownIssue[]>
   /** File one. Answers the URL, or `null` when GitHub refused. */
@@ -68,6 +83,7 @@ export interface Issues {
 
 /** An `Issues` that reads nothing and writes nothing, for a runner with no App. */
 export const noIssues: Issues = {
+  available: false,
   open: async () => [],
   create: async () => null,
   comment: async () => false,
@@ -198,6 +214,7 @@ export function githubIssues(options: GitHubOptions): Issues {
   }
 
   return {
+    available: true,
     open: async () => {
       const headers = await authed()
       if (headers === undefined) return []

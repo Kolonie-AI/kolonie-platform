@@ -40,6 +40,7 @@ function fakeIssues(overrides: Partial<Issues> = {}) {
   const created: NewIssue[] = []
   const comments: Array<{ url: string; body: string }> = []
   const issues: Issues = {
+    available: true,
     open: async () => [],
     create: async (issue) => {
       created.push(issue)
@@ -305,5 +306,32 @@ describe('a tick over the queue', () => {
     await tick(deps({ store, model }), 10)
 
     expect(offered).toBe(1)
+  })
+})
+
+/**
+ * The promise `Issues.available` exists to keep. Without an App the corpus is
+ * empty, and a model shown an empty corpus cannot recognise a ticket the Colony
+ * already has an issue for — so it would hold it for a human or propose filing a
+ * duplicate, on somebody's real report.
+ */
+describe('a runner with no GitHub App', () => {
+  it('does not triage, rather than triaging against nothing', async () => {
+    const { store, written } = fakeStore([aTicket(), aTicket()])
+    const classify = vi.fn(async () => ({ kind: 'human', why: 'x' }))
+
+    const outcome = await tick(
+      deps({
+        store,
+        issues: { ...fakeIssues().issues, available: false },
+        model: { name: 'f', classify },
+      }),
+      10,
+    )
+
+    expect(outcome.seen).toBe(0)
+    expect(classify).not.toHaveBeenCalled()
+    // The rows are untouched: exactly where they were before this service existed.
+    expect(written).toEqual([])
   })
 })

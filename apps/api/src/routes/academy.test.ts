@@ -1,3 +1,4 @@
+import { CAPABILITY_STAGE, RETIRED_CHALLENGE_STAGE } from '@kolonie-ai/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
@@ -89,7 +90,7 @@ const mint = async () => {
  */
 const mintCaptcha = async () => {
   const { agent } = store.issue()
-  const { id } = await challenges.mint(agent.id, 'captcha')
+  const { id } = await challenges.mint(agent.id, RETIRED_CHALLENGE_STAGE)
   return { challengeId: id, agent }
 }
 
@@ -137,15 +138,17 @@ describe('POST /v1/academy/challenges', () => {
     const cleared = await walk(challengeId, 3)
 
     expect(cleared?.statusCode).toBe(200)
-    expect(await academy.challenges.clearedAt(agent.id, 'capability')).toBeTruthy()
+    expect(await academy.challenges.clearedAt(agent.id, CAPABILITY_STAGE)).toBeTruthy()
   })
 
   /**
-   * The badge's door. It had none between `#29` and `#34`: the rebuild pointed
-   * this route at the capability challenge and the hCaptcha row was drafted, so
-   * an active badge would have been a task nobody could start.
+   * **The badge is retired and its door is closed** (`#160`).
+   *
+   * It had none between `#29` and `#34`, then had one until now. What replaced it is
+   * the Colony's own staged ladder; this asserts the refusal names *retired* rather
+   * than a fault, because those two words lead an agent to opposite next actions.
    */
-  it('mints the badge’s challenge when the body asks for one', async () => {
+  it('refuses the retired badge rather than minting it', async () => {
     const { apiKey } = store.issue()
 
     const response = await app.inject({
@@ -155,9 +158,24 @@ describe('POST /v1/academy/challenges', () => {
       payload: { kind: 'captcha' },
     })
 
-    expect(response.statusCode).toBe(201)
-    // The badge's page, not the rung's — the two never satisfy each other.
-    expect(response.json().url).toContain('/captcha/')
+    expect(response.statusCode).toBe(404)
+    expect(response.json().message).toMatch(/retired/i)
+  })
+
+  it('names the stages that can be opened when an unknown one is asked for', async () => {
+    const { apiKey } = store.issue()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/academy/challenges',
+      headers: { authorization: `Bearer ${apiKey}` },
+      payload: { kind: 'no-such-stage' },
+    })
+
+    // 422, which is what this API maps `validation_failed` to.
+    expect(response.statusCode).toBe(422)
+    // The list, not just a refusal: a citizen that guessed wrong can act on this.
+    expect(response.json().message).toContain('capability')
   })
 
   it('mints the rung’s challenge when no kind is given', async () => {
@@ -225,7 +243,14 @@ describe('POST /v1/academy/challenges', () => {
     })
     await withoutCaptcha.close()
 
-    expect(badge.statusCode).toBe(503)
+    /**
+     * **404 rather than 503 since `#160`.** The badge is retired, so its refusal no
+     * longer depends on whether hCaptcha is configured — it is closed either way.
+     * What this test is actually for survives that change and is why it is kept: the
+     * rung serves whatever the badge does, which is the property `#29` was opened
+     * for when an unset third-party sitekey stalled every arriving agent.
+     */
+    expect(badge.statusCode).toBe(404)
     expect(rung.statusCode).toBe(201)
   })
 })
@@ -272,7 +297,7 @@ describe('POST /v1/academy/verify-captcha', () => {
 
   it('refuses an expired challenge', async () => {
     const { agent } = store.issue()
-    const challengeId = challenges.mintExpired(agent.id, 'captcha')
+    const challengeId = challenges.mintExpired(agent.id, RETIRED_CHALLENGE_STAGE)
 
     const response = await app.inject({
       method: 'POST',
@@ -388,7 +413,7 @@ describe('the capability rung — GET/POST /v1/academy/browser', () => {
 
     expect(cleared?.statusCode).toBe(200)
     expect(cleared?.json()).toMatchObject({ status: 'verified', challengeType: 'capability' })
-    expect(await academy.challenges.clearedAt(agent.id, 'capability')).toBeTruthy()
+    expect(await academy.challenges.clearedAt(agent.id, CAPABILITY_STAGE)).toBeTruthy()
   })
 
   /**
@@ -407,7 +432,7 @@ describe('the capability rung — GET/POST /v1/academy/browser', () => {
     })
 
     expect(wrong.statusCode).toBe(422)
-    expect(await academy.challenges.clearedAt(agent.id, 'capability')).toBeNull()
+    expect(await academy.challenges.clearedAt(agent.id, CAPABILITY_STAGE)).toBeNull()
   })
 
   /**
@@ -456,12 +481,12 @@ describe('the capability rung — GET/POST /v1/academy/browser', () => {
 
     expect(replayed.statusCode).toBe(422)
     expect(replayed.json().message).toMatch(/not the one outstanding/i)
-    expect(await academy.challenges.clearedAt(agent.id, 'capability')).toBeNull()
+    expect(await academy.challenges.clearedAt(agent.id, CAPABILITY_STAGE)).toBeNull()
   })
 
   it('refuses an expired challenge', async () => {
     const { agent } = store.issue()
-    const challengeId = challenges.mintExpired(agent.id, 'capability')
+    const challengeId = challenges.mintExpired(agent.id, CAPABILITY_STAGE)
 
     const response = await app.inject({ method: 'GET', url: `/v1/academy/browser/${challengeId}` })
 
@@ -470,11 +495,16 @@ describe('the capability rung — GET/POST /v1/academy/browser', () => {
   })
 
   /**
-   * The kinds must not satisfy each other. An hCaptcha id here is not a stale
-   * challenge — it is not this rung's challenge at all, and saying "expired"
+   * The stages must not satisfy each other. An id from another stage here is not a
+   * stale challenge — it is not this rung's challenge at all, and saying "expired"
    * would send an agent back to an id that can never work.
+   *
+   * **Since `#160` the storage read no longer filters by stage**, so this is
+   * enforced by the route instead. That makes this test the one that keeps the
+   * relaxation honest: without the check in `currentProbe` it serves a foreign
+   * challenge a probe it cannot clear.
    */
-  it('does not recognise a challenge minted for the badge', async () => {
+  it('does not recognise a challenge minted for another stage', async () => {
     const { challengeId } = await mintCaptcha()
 
     const response = await app.inject({ method: 'GET', url: `/v1/academy/browser/${challengeId}` })
@@ -487,8 +517,8 @@ describe('the capability rung — GET/POST /v1/academy/browser', () => {
 
     await walk(response.json().challengeId, 3)
 
-    expect(await academy.challenges.clearedAt(agent.id, 'capability')).toBeTruthy()
-    expect(await academy.challenges.clearedAt(agent.id, 'captcha')).toBeNull()
+    expect(await academy.challenges.clearedAt(agent.id, CAPABILITY_STAGE)).toBeTruthy()
+    expect(await academy.challenges.clearedAt(agent.id, RETIRED_CHALLENGE_STAGE)).toBeNull()
   })
 })
 

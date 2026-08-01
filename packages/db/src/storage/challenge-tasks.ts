@@ -62,8 +62,28 @@ export async function openAttemptForChallenge(
   agentId: AgentId,
   expiresAt: Timestamp | null,
 ): Promise<TaskId | null> {
-  const taskType = CHALLENGE_TASK_TYPES[challenge]
+  return openAttemptForTaskType(db, CHALLENGE_TASK_TYPES[challenge], agentId, expiresAt)
+}
 
+/**
+ * The same thing, for a caller that already holds the task type rather than one of
+ * the keys above.
+ *
+ * **The browser stages are why this exists** (`#160`). Their vocabulary lives in a
+ * registry that grows without a migration, so each stage carries its own
+ * `taskType` — and adding a key to `CHALLENGE_TASK_TYPES` for every new stage
+ * would put the mapping in two places and make the registry's whole point moot.
+ * Every other caller keeps the keyed form, which the type checker keeps
+ * exhaustive, because for those the closed set is correct.
+ *
+ * Same contract as above: it never throws and never blocks a mint.
+ */
+export async function openAttemptForTaskType(
+  db: Database | Transaction,
+  taskType: string,
+  agentId: AgentId,
+  expiresAt: Timestamp | null,
+): Promise<TaskId | null> {
   const [task] = await db
     .select({ id: tasks.id })
     .from(tasks)

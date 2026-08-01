@@ -1,13 +1,20 @@
 import { z } from 'zod'
-import type { AgentId, ApiError, Timestamp } from '@kolonie-ai/core'
+import {
+  browserStage,
+  CAPABILITY_STAGE,
+  CAPABILITY_STEPS,
+  mintableBrowserStages,
+  type AgentId,
+  type ApiError,
+  type BrowserStage,
+  type Timestamp,
+} from '@kolonie-ai/core'
 import {
   advanceChallenge,
   challengeProgress,
   hasClearedGate,
   mintChallenge,
   redeemChallenge,
-  CAPABILITY_STEPS,
-  type ChallengeKind,
   type ChallengeProgress,
   type ChallengeRedemption,
   type Database,
@@ -24,11 +31,16 @@ import {
  * database; what the API does with the answer is asserted here.
  */
 export interface Challenges {
-  mint(agentId: AgentId, kind: ChallengeKind): Promise<MintedChallenge>
+  mint(agentId: AgentId, kind: BrowserStage, variant?: string | null): Promise<MintedChallenge>
   redeem(challengeId: string): Promise<ChallengeRedemption>
   progress(challengeId: string): Promise<ChallengeProgress>
-  advance(challengeId: string, fromStep: number): Promise<StepOutcome>
-  clearedAt(agentId: AgentId, kind: ChallengeKind): Promise<Timestamp | null>
+  advance(
+    challengeId: string,
+    fromStep: number,
+    stage: BrowserStage,
+    observation?: unknown,
+  ): Promise<StepOutcome>
+  clearedAt(agentId: AgentId, kind: BrowserStage): Promise<Timestamp | null>
 }
 
 /** What hCaptcha said about a token. `unavailable` is not `false` — see below. */
@@ -44,31 +56,47 @@ export interface AcademyDependencies {
   readonly challenges: Challenges
   readonly captcha: CaptchaService
   /**
+   * Where each stage's page lives, keyed by stage — the one place a mint resolves
+   * an address from (`#160`).
+   *
+   * **One map rather than a field per stage**, because a field per stage is how the
+   * branch grows two places to edit for one change and eventually disagrees with
+   * itself. Each stage names its own environment variable in the registry
+   * (`pageUrlEnv`) and `server.ts` fills this from those names, so a stage added
+   * next month is configured without touching this interface.
+   *
+   * A stage missing from the map is a stage that cannot serve; the reason is in
+   * `stageUnavailableReasons` under the same key. `AGENTS.md` §3 keeps host names
+   * out of this repository, so the API is handed the answers and composes links.
+   */
+  readonly stagePages: Readonly<Record<string, string>>
+  /**
+   * Why a stage cannot serve, keyed by stage. Absent means it can.
+   *
+   * Per stage rather than one reason for the branch, which is the whole lesson of
+   * `#29`: a shared reason let a third party's unset sitekey disable the Colony's
+   * own promoting rung and stall every arriving agent.
+   */
+  readonly stageUnavailableReasons: Readonly<Record<string, string>>
+  /**
    * Where the capability page lives, from configuration. Same reasoning as
    * `challengePageUrl` below: `AGENTS.md` §3 keeps host names out of this
    * repository, so the API is handed the answer and composes the link.
    */
   readonly capabilityPageUrl: string
-  /**
-   * Set when the **capability** rung cannot serve, and why.
-   *
-   * Separate from `unavailableReason` on purpose, and the separation is the
-   * point of the rebuild. The old arrangement made one reason cover the whole
-   * Academy surface, so an unset `HCAPTCHA_SITEKEY` disabled the promoting
-   * Level 1 rung along with the badge — a third party's configuration deciding
-   * whether the Colony's own ladder works.
-   *
-   * This rung talks to nobody. The only thing it can be missing is the URL of a
-   * page this same process serves, so in practice it is unset — which is exactly
-   * the property `kolonie-docs#33` asks a promoting rung to have.
-   */
-  readonly capabilityUnavailableReason?: string | undefined
+  // `capabilityUnavailableReason` used to sit here. `#160` removed it: the entry
+  // rung's reason is `stageUnavailableReasons` under its own stage, like every
+  // other stage's. A dedicated field beside the map meant two recordings of one
+  // fact, and they disagreed within the hour — minting refused while the step
+  // routes served. The separation it existed for (`#29`: a third party's sitekey
+  // must not disable the Colony's own rung) is preserved by the map being *per
+  // stage*, which is stronger than one extra field.
   /**
    * Set when the **hCaptcha badge** cannot run, and the reason why.
    *
    * Since the Level 1 rebuild this covers the badge alone. It used to cover the
    * whole Academy surface, which meant a missing sitekey took the promoting rung
-   * with it — see `capabilityUnavailableReason`.
+   * with it — the entry rung's own reason now lives in `stageUnavailableReasons`.
    *
    * **The gate degrades; it does not take the API down with it.** The first
    * version of this made `HCAPTCHA_SITEKEY` mandatory at startup, on the same
@@ -164,23 +192,32 @@ export function gateUnavailable({ unavailableReason }: AcademyDependencies): Api
 /** Wire the gate to a real database. */
 export function databaseChallenges(db: Database): Challenges {
   return {
-    mint: (agentId, kind) => mintChallenge(db, agentId, kind),
+    mint: (agentId, kind, variant = null) => mintChallenge(db, agentId, kind, variant),
     redeem: (challengeId) => redeemChallenge(db, challengeId),
     progress: (challengeId) => challengeProgress(db, challengeId),
-    advance: (challengeId, fromStep) => advanceChallenge(db, challengeId, fromStep),
+    advance: (challengeId, fromStep, stage, observation) =>
+      advanceChallenge(db, challengeId, fromStep, stage, observation),
     clearedAt: (agentId, kind) => hasClearedGate(db, agentId, kind),
   }
 }
 
-/** The capability rung's answer when it cannot serve, or `undefined` when it can. */
-export function capabilityUnavailable({
-  capabilityUnavailableReason,
-}: AcademyDependencies): ApiError | undefined {
-  if (capabilityUnavailableReason === undefined) return undefined
+/**
+ * The capability rung's answer when it cannot serve, or `undefined` when it can.
+ *
+ * **Reads the same map `mintUnavailable` reads, and that is a fix rather than a
+ * refactor.** `#160` first added `stageUnavailableReasons` beside the existing
+ * `capabilityUnavailableReason`, and the two promptly disagreed: minting refused
+ * while the step routes served, for one rung, from two recordings of one fact. That
+ * is the failure D-002 rejected for the coin ledger and this file argues for
+ * everywhere else. One record.
+ */
+export function capabilityUnavailable(deps: AcademyDependencies): ApiError | undefined {
+  const reason = deps.stageUnavailableReasons[CAPABILITY_STAGE]
+  if (reason === undefined) return undefined
 
   return {
     code: 'internal',
-    message: `The browser capability rung is not available: ${capabilityUnavailableReason}`,
+    message: `The browser capability rung is not available: ${reason}`,
   }
 }
 
@@ -239,7 +276,25 @@ export function hcaptchaService(sitekey: string, secret: string): CaptchaService
  * other's verdict.
  */
 export const MintChallengeRequestSchema = z.object({
-  kind: z.enum(['capability', 'captcha']).default('capability'),
+  /**
+   * **Validated against the stage registry rather than a literal union** (`#160`).
+   * A closed enum here would have been the second place a new stage has to be
+   * added, beside the check constraint the registry replaced — and the whole point
+   * is that a stage is a registry entry.
+   *
+   * A retired stage is refused separately, by `mintUnavailable`, so that the answer
+   * can say *retired* rather than *no such stage*. The two are different facts and
+   * the citizen can act on only one of them.
+   */
+  kind: z
+    .string()
+    .default(CAPABILITY_STAGE)
+    .refine((value) => browserStage(value) !== undefined, {
+      message: `Unknown stage. Open one of: ${mintableBrowserStages()
+        .map((stage) => stage.kind)
+        .join(', ')}.`,
+    })
+    .transform((value) => value as BrowserStage),
 })
 
 /**
@@ -251,19 +306,66 @@ export const MintChallengeRequestSchema = z.object({
  * own promoting rung (`#29`), and this function is where that stays fixed.
  */
 export function mintUnavailable(
-  kind: ChallengeKind,
+  kind: BrowserStage,
   deps: AcademyDependencies,
 ): ApiError | undefined {
-  return kind === 'capability' ? capabilityUnavailable(deps) : gateUnavailable(deps)
+  const stage = browserStage(kind)
+
+  if (stage === undefined) {
+    return {
+      code: 'validation_failed',
+      message: `No such browser stage. Open one of: ${mintableBrowserStages()
+        .map((entry) => entry.kind)
+        .join(', ')}.`,
+    }
+  }
+
+  /**
+   * **A retired stage says so, rather than reporting itself as broken** (`#160`).
+   * A citizen that reads *temporarily unavailable* will retry for as long as it has
+   * attempts; one that reads *retired* takes another task. Its verdicts and its
+   * record are untouched — this refuses new work, not old evidence.
+   */
+  if (stage.retired === true) {
+    return {
+      code: 'not_found',
+      message:
+        `The ${kind} challenge is retired and no longer minted. What replaced it is in ` +
+        `onboarding/academy.md; your existing record of it is unchanged.`,
+    }
+  }
+
+  /**
+   * Per stage, and that is the point rather than a detail. `#29` is what happens
+   * when one reason covers several rungs: an unset third-party sitekey disabled the
+   * Colony's own promoting rung and stalled every arriving agent.
+   */
+  const reason = deps.stageUnavailableReasons[kind]
+  if (reason !== undefined) {
+    return { code: 'internal', message: `The ${kind} stage is not available: ${reason}` }
+  }
+
+  return undefined
 }
 
 export async function openChallenge(
   agentId: AgentId,
   deps: AcademyDependencies,
-  kind: ChallengeKind = 'capability',
+  kind: BrowserStage = CAPABILITY_STAGE,
+  variant: string | null = null,
 ): Promise<MintOutcome> {
-  const minted = await deps.challenges.mint(agentId, kind)
-  const url = new URL(kind === 'capability' ? deps.capabilityPageUrl : deps.challengePageUrl)
+  const minted = await deps.challenges.mint(agentId, kind, variant)
+
+  /**
+   * Resolved from the stage's own configured address. A caller reaching here has
+   * already passed `mintUnavailable`, which is what guarantees the entry exists —
+   * so a missing one is a code path that skipped the check rather than a citizen's
+   * problem, and it fails loudly instead of composing a `undefined` URL.
+   */
+  const pageUrl = deps.stagePages[kind]
+  if (pageUrl === undefined) throw new Error(`no page configured for browser stage: ${kind}`)
+
+  const url = new URL(pageUrl)
   url.searchParams.set('c', minted.id)
 
   return {
@@ -392,6 +494,25 @@ export async function currentProbe(
     return { outcome: 'rejected', error: PROGRESS_ERRORS[progress.outcome] }
   }
 
+  /**
+   * **This route belongs to one stage and enforces that itself** (`#160`).
+   *
+   * The read below it stopped filtering by stage, deliberately: with a ladder, a
+   * page handed an id from a neighbouring stage should be able to say so, and it
+   * can only do that if the stage comes back. But the *entry rung's* endpoint must
+   * still refuse a foreign id, and `not_found` is the honest answer — an id from
+   * another stage is not a stale challenge here, it is not this rung's challenge at
+   * all, and answering "expired" would send an agent back to an id that can never
+   * work.
+   *
+   * Missing this is what made the read's relaxation a regression rather than an
+   * improvement; the test that catches it is `does not recognise a challenge minted
+   * for another stage`.
+   */
+  if (progress.stage !== CAPABILITY_STAGE) {
+    return { outcome: 'rejected', error: PROGRESS_ERRORS.unknown }
+  }
+
   return { outcome: 'issued', response: probeFor(challengeId, progress.steps) }
 }
 
@@ -445,7 +566,10 @@ export async function reportStep(
     }
   }
 
-  const advanced = await challenges.advance(challengeId, parsed.data.step)
+  // The entry rung's own stage, named rather than defaulted. `advanceChallenge`
+  // filters on it, so a probe reported against a challenge from a neighbouring
+  // stage is refused instead of advancing the wrong row.
+  const advanced = await challenges.advance(challengeId, parsed.data.step, CAPABILITY_STAGE)
 
   switch (advanced.outcome) {
     case 'advanced':

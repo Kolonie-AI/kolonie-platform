@@ -7,6 +7,7 @@ import {
   API_BASE_PATH,
   API_KEY_PREFIX,
   API_VERSION,
+  CAPABILITY_STAGE,
   DEFAULT_RHYTHM_BOUNDS,
   FrontierResponseSchema,
   GetMeResponseSchema,
@@ -2309,7 +2310,17 @@ describe('kolonie.academy.challenge', () => {
     await close()
   })
 
-  it('describes the badge’s page rather than the rung’s when the badge is asked for', async () => {
+  /**
+   * **The badge is retired** (`#160`), so asking for it is refused rather than
+   * served — and the refusal says *retired* rather than *unavailable*, because a
+   * citizen that reads "temporarily unavailable" retries until its attempts are
+   * gone while one that reads "retired" takes another task.
+   *
+   * This test used to assert the badge's page copy. That copy is not the thing that
+   * changed: the node it belonged to is gone, and asserting its wording now would
+   * be pinning a page nothing sends anybody to.
+   */
+  it('refuses the retired badge, and says it is retired rather than broken', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
@@ -2319,11 +2330,10 @@ describe('kolonie.academy.challenge', () => {
     })
 
     const text = JSON.stringify(result.content)
-    // An agent told "it works through its steps on its own" would sit waiting
-    // for a page that is waiting for it, and burn a single-use challenge.
-    expect(text).toContain('not asked to solve it yourself')
-    expect(text).toContain('declining')
-    expect(text).not.toContain('works through')
+    expect(result.isError).toBeTruthy()
+    expect(text).toMatch(/retired/i)
+    // Not the vocabulary of a fault. An agent must not read this as "try later".
+    expect(text).not.toMatch(/not available|unavailable|try again/i)
     await close()
   })
 
@@ -2364,7 +2374,10 @@ describe('kolonie.academy.challenge', () => {
     const { colony, apiKey } = await registeredCitizen()
     const academy = {
       ...fakeAcademy(),
-      capabilityUnavailableReason: 'CAPABILITY_PAGE_URL not set',
+      // Per stage since `#160`. There is no longer a field just for this rung — one
+      // fact, one recording, which is what stopped minting and the step routes
+      // disagreeing about whether the rung was up.
+      stageUnavailableReasons: { [CAPABILITY_STAGE]: 'CAPABILITY_PAGE_URL not set' },
     }
     const { client, close } = await connectedClient({ ...colony, academy }, `Bearer ${apiKey}`)
 

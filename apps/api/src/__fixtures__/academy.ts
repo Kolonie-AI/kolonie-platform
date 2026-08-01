@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { now as currentTime, type AgentId, type Timestamp } from '@kolonie-ai/core'
 import {
+  browserStage,
+  CAPABILITY_STAGE,
   CAPABILITY_STEPS,
-  type ChallengeKind,
+  now as currentTime,
+  RETIRED_CHALLENGE_STAGE,
+  type AgentId,
+  type BrowserStage,
+  type Timestamp,
+} from '@kolonie-ai/core'
+import {
   type ChallengeProgress,
   type ChallengeRedemption,
   type MintedChallenge,
@@ -21,7 +28,7 @@ import type { AcademyDependencies, CaptchaCheck, CaptchaService, Challenges } fr
  */
 export interface FakeChallenges extends Challenges {
   /** Mint an already-expired challenge, which minting normally cannot produce. */
-  readonly mintExpired: (agentId: AgentId, kind?: ChallengeKind) => string
+  readonly mintExpired: (agentId: AgentId, kind?: BrowserStage) => string
 }
 
 export function fakeChallenges(): FakeChallenges {
@@ -29,9 +36,12 @@ export function fakeChallenges(): FakeChallenges {
     string,
     {
       agentId: AgentId
-      kind: ChallengeKind
+      kind: BrowserStage
       expired: boolean
       steps: number
+      stepsRequired: number
+      variant: string | null
+      observation: unknown
       verifiedAt: Timestamp | null
     }
   >()
@@ -41,27 +51,48 @@ export function fakeChallenges(): FakeChallenges {
    * fake that answered across kinds would let a test pass that the database
    * would refuse, which is the failure mode a fixture exists to avoid.
    */
-  const find = (challengeId: string, kind: ChallengeKind) => {
+  const find = (challengeId: string, kind: BrowserStage) => {
     const row = rows.get(challengeId)
     return row === undefined || row.kind !== kind ? undefined : row
   }
 
   return {
-    async mint(agentId, kind) {
+    async mint(agentId, kind, variant = null) {
       const id = randomUUID()
-      rows.set(id, { agentId, kind, expired: false, steps: 0, verifiedAt: null })
+      // The step count comes from the registry, exactly as the real mint writes it
+      // onto the row. A fake that guessed it would let a test pass against a
+      // completeness rule the database would refuse.
+      rows.set(id, {
+        agentId,
+        kind,
+        expired: false,
+        steps: 0,
+        stepsRequired: browserStage(kind)?.steps ?? CAPABILITY_STEPS,
+        variant,
+        observation: null,
+        verifiedAt: null,
+      })
       const minted: MintedChallenge = { id, expiresAt: currentTime() }
       return minted
     },
 
-    mintExpired(agentId, kind = 'captcha') {
+    mintExpired(agentId, kind = RETIRED_CHALLENGE_STAGE) {
       const id = randomUUID()
-      rows.set(id, { agentId, kind, expired: true, steps: 0, verifiedAt: null })
+      rows.set(id, {
+        agentId,
+        kind,
+        expired: true,
+        steps: 0,
+        stepsRequired: browserStage(kind)?.steps ?? CAPABILITY_STEPS,
+        variant: null,
+        observation: null,
+        verifiedAt: null,
+      })
       return id
     },
 
     async redeem(challengeId): Promise<ChallengeRedemption> {
-      const row = find(challengeId, 'captcha')
+      const row = find(challengeId, RETIRED_CHALLENGE_STAGE)
       if (row === undefined) return { outcome: 'unknown' }
       if (row.verifiedAt !== null) return { outcome: 'already_verified' }
       if (row.expired) return { outcome: 'expired' }
@@ -70,26 +101,40 @@ export function fakeChallenges(): FakeChallenges {
       return { outcome: 'verified', agentId: row.agentId }
     },
 
+    /**
+     * Unfiltered by stage, matching the real read since `#160`: the answer names
+     * the stage so a page can refuse an id from a neighbouring one.
+     */
     async progress(challengeId): Promise<ChallengeProgress> {
-      const row = find(challengeId, 'capability')
+      const row = rows.get(challengeId)
       if (row === undefined) return { outcome: 'unknown' }
       if (row.verifiedAt !== null) return { outcome: 'already_verified' }
       if (row.expired) return { outcome: 'expired' }
 
-      return { outcome: 'open', steps: row.steps, total: CAPABILITY_STEPS }
+      return {
+        outcome: 'open',
+        stage: row.kind,
+        steps: row.steps,
+        total: row.stepsRequired,
+        variant: row.variant,
+      }
     },
 
-    async advance(challengeId, fromStep): Promise<StepOutcome> {
-      const row = find(challengeId, 'capability')
+    async advance(challengeId, fromStep, stage, observation): Promise<StepOutcome> {
+      // Filtered by stage, matching the real write. This is the half that protects
+      // the record, so the fake has to model it or a test would pass against
+      // something the database refuses.
+      const row = find(challengeId, stage)
       if (row === undefined) return { outcome: 'unknown' }
       if (row.verifiedAt !== null) return { outcome: 'already_verified' }
       if (row.expired) return { outcome: 'expired' }
       if (row.steps !== fromStep) return { outcome: 'out_of_order', steps: row.steps }
 
       row.steps = fromStep + 1
+      if (observation !== undefined) row.observation = observation
 
-      if (row.steps < CAPABILITY_STEPS) {
-        return { outcome: 'advanced', steps: row.steps, total: CAPABILITY_STEPS }
+      if (row.steps < row.stepsRequired) {
+        return { outcome: 'advanced', steps: row.steps, total: row.stepsRequired }
       }
 
       row.verifiedAt = currentTime()
@@ -122,5 +167,12 @@ export function fakeAcademy(
     captcha: fakeCaptcha(answer),
     challengePageUrl: 'https://challenge.example/captcha/',
     capabilityPageUrl: 'https://challenge.example/browser/',
+    // Keyed by stage, as `server.ts` fills it from the registry. Values, never
+    // real hosts.
+    stagePages: {
+      [CAPABILITY_STAGE]: 'https://challenge.example/browser/',
+      [RETIRED_CHALLENGE_STAGE]: 'https://challenge.example/captcha/',
+    },
+    stageUnavailableReasons: {},
   }
 }

@@ -1529,8 +1529,34 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * deployment host — checked there rather than assumed, which is the standing
      * lesson of `kolonie-infra#7` — and the mint route answers 503 rather than
      * failing an agent if either goes missing.
+     *
+     * ---
+     *
+     * **Retired 2026-08-01 by `#160`, and drafted rather than deleted** — this
+     * file's standing rule, because a deleted row takes the evidence behind a paid
+     * reward with it. Three reasons, recorded in `onboarding/academy.md` so they
+     * are not rediscovered as a gap:
+     *
+     * 1. **It measures worse.** hCaptcha returns one bit. A page the Colony writes
+     *    can say *you found the target and clicked 40 px low — that is your
+     *    `devicePixelRatio`*, which is a diagnosis rather than a verdict, and the
+     *    Academy exists so an agent finds out where it stands.
+     * 2. **It carries an ambiguity the project kept having to defend** — the
+     *    prohibition above exists because the argument it forbids is one an agent
+     *    can be talked into again by somebody with worse intentions.
+     * 3. **The capability worth certifying is not the one it names.** There are
+     *    surfaces where agents are welcome *and* an interstitial still stands. What
+     *    belongs on the record is *can get through an interstitial*, not *can
+     *    defeat bot protection*.
+     *
+     * What replaced it is the Colony's own staged ladder (`#161`–`#164`), built on
+     * the stage registry in `packages/core/src/browser/stage.ts`. Existing verdicts
+     * are untouched, the skill nobody was granted here is unaffected, and the
+     * citizen's record of having cleared it still reads. The mint surface refuses
+     * the stage by name — *retired*, not *unavailable*, because those two words
+     * lead an agent to opposite next actions.
      */
-    status: 'active',
+    status: 'draft',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000004'),

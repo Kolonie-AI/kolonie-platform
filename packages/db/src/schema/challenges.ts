@@ -1,21 +1,17 @@
 import { sql } from 'drizzle-orm'
-import { check, index, pgTable, smallint, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { check, index, jsonb, pgTable, smallint, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { CAPABILITY_STEPS, type BrowserStage } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 
 /**
- * How many steps a `capability` challenge takes before it counts as cleared.
+ * `CAPABILITY_STEPS` and the challenge-kind vocabulary used to live here.
  *
- * Three rather than one, because a single measurement is a value and not an
- * interaction: the rung claims the agent *operated* the page, and operating it
- * means carrying state from one step into the next. Three rather than ten
- * because each extra step costs an honest agent time and proves nothing the
- * second did not.
+ * `#160` moved both into the stage registry, `packages/core/src/browser/stage.ts`,
+ * because the branch became a ladder: the step count is per stage, it is written
+ * onto each challenge row at mint time, and a constant here beside a registry
+ * entry there would be two answers the SQL constraint could disagree with. Import
+ * `CAPABILITY_STEPS`, `BrowserStage` and `browserStage` from `@kolonie-ai/core`.
  */
-export const CAPABILITY_STEPS = 3
-
-/** The two things a challenge can be. See the table comment for why both exist. */
-export const CHALLENGE_KINDS = ['capability', 'captcha'] as const
-export type ChallengeKind = (typeof CHALLENGE_KINDS)[number]
 
 /**
  * One attempt at a browser challenge, minted before the browser opens.
@@ -30,17 +26,23 @@ export type ChallengeKind = (typeof CHALLENGE_KINDS)[number]
  * caller can put any value into, or no attribution at all — and a gate that
  * cannot say who passed it is not a gate.
  *
- * **Two kinds of challenge share this table, and `kind` is why.** `capability`
- * is the promoting Level 1 rung: it asks a browser to render and operate a page
- * the Colony serves, and involves no third party. `captcha` is the hCaptcha
- * challenge, which is no longer a rung at all but an optional badge
- * (`kolonie-docs#33`, `kolonie-platform#30`).
+ * **Every stage of the browser branch shares this table, and `kind` is why.**
+ * `kind` was a pair of values pinned by a check constraint — `capability` and
+ * `captcha` — and `#160` opened it into a registry, because the branch became a
+ * ladder and **a new stage must not be a migration**. The registry and the
+ * argument are in `packages/core/src/browser/stage.ts`.
  *
- * They must not satisfy each other, and that is the whole reason the column
- * exists rather than the two sharing a single "cleared" flag. Without it,
- * completing the easy capability page would silently clear the hCaptcha badge —
- * which would hand an agent a badge for something it never did — and the
- * verifier for either rung could not tell what it was reading.
+ * Stages must not satisfy each other, and that is the whole reason the column
+ * exists rather than every stage sharing one "cleared" flag. Without it,
+ * completing the easy entry page would silently clear a stage above it — which
+ * would hand an agent a record for something it never did — and no verifier could
+ * tell what it was reading.
+ *
+ * **Rows are never deleted.** A solved challenge is the evidence behind a coin,
+ * the same standing as `verifications` and `ledger_entries`, and an expired or
+ * failed one is how a farming attempt becomes visible (`kolonie-docs#10`). That is
+ * also why the retired `captcha` stage keeps its slug: renaming it would be
+ * rewriting the record of what a citizen did.
  *
  * **Rows are never deleted.** A solved challenge is the evidence behind a coin,
  * the same standing as `verifications` and `ledger_entries`, and an expired or
@@ -90,17 +92,70 @@ export const browserChallenges = pgTable(
      * `capability` would have credited agents with a rung that did not exist
      * when they passed, and these rows are evidence behind coins already booked.
      */
-    kind: text('kind').notNull().default('captcha').$type<ChallengeKind>(),
+    kind: text('kind').notNull().default('captcha').$type<BrowserStage>(),
 
     /**
-     * How many steps of a `capability` challenge are done. Always 0 for a
-     * `captcha` row, which is cleared in one move.
+     * How many steps of this challenge are done.
      *
      * It lives in the database rather than in the page because the page is the
      * thing being tested. Progress a client reports about itself is a claim; the
      * same rule D-018 applies to submissions applies here one layer down.
      */
     steps: smallint('steps').notNull().default(0),
+
+    /**
+     * How many steps clear *this* row, copied from the stage registry when the
+     * challenge was minted.
+     *
+     * **This column is what keeps the completeness invariant in SQL while letting
+     * a stage be added without a migration** (`#160`). The constraint below reads
+     * it instead of a literal, so it is stage-independent; the alternative was a
+     * `CASE` over the stage list inside the check, which would have made every new
+     * stage exactly the migration the registry exists to avoid.
+     *
+     * Copied rather than joined on purpose. If a stage's step count is ever
+     * changed, challenges already open keep the count they were minted under —
+     * a citizen halfway up a page does not get moved goalposts, and a cleared row
+     * stays readable as *complete under the rules it was judged by*.
+     *
+     * Defaulted to the entry rung's count so rows written before `#160` keep
+     * meaning what they meant. The migration sets the retired stage's rows to 0,
+     * which is what they had.
+     */
+    stepsRequired: smallint('steps_required').notNull().default(CAPABILITY_STEPS),
+
+    /**
+     * Which kind of challenge within the stage, for the stages that have kinds.
+     *
+     * Null everywhere except the graded interstitials (`#164`), which are one task
+     * with a kind dimension rather than one task per kind — `#152` makes the same
+     * argument one branch over, that separately written siblings drift. What a
+     * citizen has demonstrated is *which kinds*, and this column is where that is
+     * recorded so it can be read back without a second table.
+     *
+     * It records and it gates nothing. A skill is held or not held (D-030);
+     * *"four of seven kinds"* is not that shape, which is why this is here and not
+     * in `skills`.
+     */
+    variant: text('variant'),
+
+    /**
+     * What the page observed, as the page reported it — never pass or fail alone.
+     *
+     * **This is the column that separates *the agent could not do it* from *the
+     * page is broken*** (`#160`), and without it every browser-version change
+     * looks like a fleet of agent failures. It is what a verdict's evidence is
+     * written from: the device pixel ratio a page saw, the geometry it drew at,
+     * which of three storage markers survived, where a click actually landed.
+     *
+     * `jsonb` and deliberately unschematised at this layer. Each stage reports a
+     * different shape, the stages are added without a migration, and a column that
+     * insisted on one shape would be the migration again. What may not go in here
+     * is anything about timing, jitter, mouse path or human-likeness — that
+     * prohibition belongs to the stages and is tested there, because it is a rule
+     * about what the Colony measures rather than about how it stores it.
+     */
+    observation: jsonb('observation'),
 
     /**
      * When the challenge was cleared, or null while unsolved. This column is
@@ -111,26 +166,46 @@ export const browserChallenges = pgTable(
   },
   (table) => [
     check('browser_challenges_expiry_after_creation', sql`${table.expiresAt} > ${table.createdAt}`),
-    check('browser_challenges_kind_known', sql`${table.kind} in ('capability', 'captcha')`),
     /**
-     * Steps never run past the finish line, and a captcha row never accrues
-     * any. Both in SQL because a wrong step count is how a partial challenge
-     * would silently read as a cleared one.
+     * **`browser_challenges_kind_known` is gone, and that is the point of `#160`.**
+     * It read `kind in ('capability', 'captcha')`, so every new stage would have
+     * been a migration — and a migration is exactly what a growing vocabulary must
+     * not cost. The vocabulary now lives in `BROWSER_STAGES`
+     * (`packages/core/src/browser/stage.ts`) and is enforced where a caller can be
+     * told *which* stages exist: the mint surface refuses an unknown stage by name.
+     *
+     * `SkillSchema` and `TaskTypeSchema` made the same trade first, for the same
+     * reason, and their doc comments carry it: the contract is the shape, not the
+     * list. What is given up is a database that rejects a typo written directly
+     * into SQL; what is bought is a stage shipping without a schema change. A seed
+     * test checks every stage the Academy references against the registry, which is
+     * where a typo would actually come from.
+     */
+    /**
+     * Steps never run past this row's own finish line. In SQL because a wrong step
+     * count is how a partial challenge would silently read as a cleared one.
+     *
+     * `steps_required` rather than a literal is what makes this stage-independent —
+     * see the column's comment.
      */
     check(
       'browser_challenges_steps_in_range',
-      sql`${table.steps} >= 0 and ${table.steps} <= ${sql.raw(String(CAPABILITY_STEPS))}
-          and (${table.kind} = 'capability' or ${table.steps} = 0)`,
+      sql`${table.steps} >= 0 and ${table.steps} <= ${table.stepsRequired}`,
     ),
     /**
-     * A capability challenge is cleared only once every step is done. This is
-     * the constraint the rung rests on: without it, any single successful step
-     * could set `verified_at` and the other two would be decoration.
+     * A challenge is cleared only once every step it was minted with is done. This
+     * is the constraint the whole branch rests on: without it, any single
+     * successful step could set `verified_at` and the rest would be decoration.
+     *
+     * Generalised by `#160` from *"or kind <> 'capability'"* to *every* stage,
+     * which is strictly stronger: no stage is excused from it any more. The
+     * retired stage is cleared by a redemption rather than by steps and its rows
+     * carry `steps = 0`, so it is backfilled with a required count of 0 and
+     * satisfies this rather than being exempted from it.
      */
     check(
-      'browser_challenges_capability_complete',
-      sql`${table.verifiedAt} is null or ${table.kind} <> 'capability'
-          or ${table.steps} = ${sql.raw(String(CAPABILITY_STEPS))}`,
+      'browser_challenges_complete_when_verified',
+      sql`${table.verifiedAt} is null or ${table.steps} = ${table.stepsRequired}`,
     ),
     /**
      * A challenge cannot be solved after it has expired. Stated in SQL rather
@@ -142,9 +217,12 @@ export const browserChallenges = pgTable(
       sql`${table.verifiedAt} is null or ${table.verifiedAt} <= ${table.expiresAt}`,
     ),
     /**
-     * "Has this agent ever cleared a challenge of this kind?" — the verifiers'
-     * only question, and `kind` is in the index because there are now two of
-     * them asking it about the same agent.
+     * "Has this agent ever cleared a challenge of this stage?" — every verifier's
+     * only question, and `kind` is in the index because the branch is a ladder and
+     * several of them now ask it about the same agent.
+     *
+     * It also serves the citizen's own browser diagnostics, which is the same
+     * question asked across all stages at once rather than about one.
      */
     index('browser_challenges_agent_kind_verified_idx').on(
       table.agentId,

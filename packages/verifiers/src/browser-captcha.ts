@@ -1,6 +1,6 @@
 import type { Submission, VerificationContext, VerifyResult, Verifier } from '@kolonie-ai/core'
-import { TaskTypeSchema } from '@kolonie-ai/core'
-import type { AgentId, Timestamp } from '@kolonie-ai/core'
+import { RETIRED_CHALLENGE_STAGE, TaskTypeSchema } from '@kolonie-ai/core'
+import type { AgentId, BrowserStage, Timestamp } from '@kolonie-ai/core'
 
 /**
  * Whether an agent has ever cleared the Browser Capability Gate.
@@ -15,20 +15,22 @@ export interface ClearedGates {
 }
 
 /**
- * Which challenge a verifier is asking about.
+ * Which stage of the browser branch a verifier is asking about.
  *
- * Declared here rather than imported from `packages/db`, for the reason the port
- * above exists at all: this package reads the world through what it is handed
- * and must not depend on the storage layer. Two values duplicated across a
- * boundary is the cheaper half of that trade.
+ * **Now the shared type from `@kolonie-ai/core` rather than a local union.** It was
+ * declared here for the reason the port above exists at all — this package reads
+ * the world through what it is handed and must not depend on the storage layer —
+ * and two duplicated values were the cheaper half of that trade. `#160` ended
+ * that: the branch is a ladder, the vocabulary grows without a migration, and a
+ * local copy of a growing list is a copy that goes stale silently. `core` is not
+ * the storage layer, so importing the stage vocabulary from it costs the boundary
+ * nothing.
  *
- * **`capability` and `captcha` must never satisfy each other.** The capability
- * page is the promoting Level 1 rung and involves no third party; the hCaptcha
- * challenge is an optional badge (`kolonie-docs#33`). Clearing one says nothing
- * about the other, and a verifier that asked without naming which it meant would
- * pay out for work that was never done.
+ * **No two stages may satisfy each other.** Clearing one says nothing about
+ * another, and a verifier that asked without naming which it meant would pay out
+ * for work that was never done.
  */
-export type ChallengeKind = 'capability' | 'captcha'
+export type ChallengeKind = BrowserStage
 
 export interface BrowserCaptchaDependencies {
   readonly gates: ClearedGates
@@ -64,7 +66,7 @@ export class BrowserCaptchaVerifier implements Verifier {
   }
 
   async verify(submission: Submission, context: VerificationContext): Promise<VerifyResult> {
-    const clearedAt = await this.#gates.clearedAt(context.agent.id, 'captcha')
+    const clearedAt = await this.#gates.clearedAt(context.agent.id, RETIRED_CHALLENGE_STAGE)
 
     if (clearedAt === null) {
       return {

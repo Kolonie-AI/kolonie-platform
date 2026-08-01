@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
+import {
+  CAPABILITY_STAGE,
+  RegisterAgentRequestSchema,
+  RETIRED_CHALLENGE_STAGE,
+  type AgentId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { browserChallenges } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -65,33 +70,66 @@ describe.skipIf(!target.available)('browser challenges', () => {
       .where(eq(browserChallenges.id, challengeId))
   }
 
+  /**
+   * A row of the retired stage, written directly.
+   *
+   * **`mintChallenge` refuses it now** (`#160`), which is the behaviour a separate
+   * test below asserts. The redemption path it was cleared through still has to
+   * work — a challenge minted in the ten minutes before that deploy is one a
+   * citizen is entitled to finish — so these tests exercise it against rows they
+   * insert rather than against a mint that is correctly gone.
+   */
+  const aRetiredChallenge = async (owner: AgentId = agentId): Promise<{ id: string }> => {
+    const [row] = await db
+      .insert(browserChallenges)
+      .values({
+        agentId: owner,
+        kind: RETIRED_CHALLENGE_STAGE,
+        stepsRequired: 0,
+        expiresAt: sql`now() + interval '10 minutes'`,
+      })
+      .returning({ id: browserChallenges.id })
+    if (row === undefined) throw new Error('insert returned no row')
+    return row
+  }
+
+  it('refuses to mint the retired stage, and says which stages remain', async () => {
+    await expect(mintChallenge(db, agentId, RETIRED_CHALLENGE_STAGE)).rejects.toThrow(/retired/)
+  })
+
   it('mints a challenge that is unsolved and in the future', async () => {
-    const minted = await mintChallenge(db, agentId, 'captcha')
+    const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
 
     expect(minted.id).toMatch(/^[0-9a-f-]{36}$/i)
     expect(Date.parse(minted.expiresAt)).toBeGreaterThan(Date.now())
-    expect(await hasClearedGate(db, agentId, 'captcha')).toBeNull()
+    expect(await hasClearedGate(db, agentId, CAPABILITY_STAGE)).toBeNull()
+  })
+
+  it('leaves an unminted stage unrecorded for its owner', async () => {
+    await aRetiredChallenge()
+
+    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeNull()
   })
 
   it('credits the agent that minted the challenge, never the caller', async () => {
-    const minted = await mintChallenge(db, agentId, 'captcha')
+    const minted = await aRetiredChallenge()
 
     const redeemed = await redeemChallenge(db, minted.id)
 
     expect(redeemed).toEqual({ outcome: 'verified', agentId })
-    expect(await hasClearedGate(db, agentId, 'captcha')).toBeTruthy()
+    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeTruthy()
     // The other agent solved nothing, and holding the id would not have helped.
-    expect(await hasClearedGate(db, otherId, 'captcha')).toBeNull()
+    expect(await hasClearedGate(db, otherId, RETIRED_CHALLENGE_STAGE)).toBeNull()
   })
 
   it('tells apart an unknown id, an expired one and one already used', async () => {
     expect(await redeemChallenge(db, crypto.randomUUID())).toEqual({ outcome: 'unknown' })
 
-    const used = await mintChallenge(db, agentId, 'captcha')
+    const used = await aRetiredChallenge()
     await redeemChallenge(db, used.id)
     expect(await redeemChallenge(db, used.id)).toEqual({ outcome: 'already_verified' })
 
-    const stale = await mintChallenge(db, agentId, 'captcha')
+    const stale = await aRetiredChallenge()
     await expire(stale.id)
     expect(await redeemChallenge(db, stale.id)).toEqual({ outcome: 'expired' })
   })
@@ -103,7 +141,7 @@ describe.skipIf(!target.available)('browser challenges', () => {
    * test needs a real database.
    */
   it('lets exactly one of two concurrent redemptions win', async () => {
-    const minted = await mintChallenge(db, agentId, 'captcha')
+    const minted = await aRetiredChallenge()
 
     const results = await Promise.all([
       redeemChallenge(db, minted.id),
@@ -133,17 +171,23 @@ describe.skipIf(!target.available)('browser challenges', () => {
   it('keeps a pass long after the challenge that earned it has expired', async () => {
     await db.insert(browserChallenges).values({
       agentId,
-      kind: 'captcha',
+      kind: RETIRED_CHALLENGE_STAGE,
+      // Zero, because that is what this stage's cleared rows actually carry: it was
+      // cleared by a redemption, never by reported steps. Omitting it takes the
+      // column default of 3 and `browser_challenges_complete_when_verified`
+      // correctly refuses the row — which is how this test proved the constraint
+      // does something when `#160` added it.
+      stepsRequired: 0,
       createdAt: sql`now() - interval '7 days'`,
       expiresAt: sql`now() - interval '7 days' + interval '10 minutes'`,
       verifiedAt: sql`now() - interval '7 days' + interval '2 minutes'`,
     })
 
-    expect(await hasClearedGate(db, agentId, 'captcha')).toBeTruthy()
+    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeTruthy()
   })
 
   it('refuses at the database to record a solve after expiry', async () => {
-    const minted = await mintChallenge(db, agentId, 'captcha')
+    const minted = await aRetiredChallenge()
     await expire(minted.id)
 
     // The check constraint is the backstop under the endpoint's own guard: this
@@ -162,30 +206,34 @@ describe.skipIf(!target.available)('browser challenges', () => {
    * exists rather than a single "cleared" flag.
    */
   it('keeps the two kinds from answering for each other', async () => {
-    const capability = await mintChallenge(db, agentId, 'capability')
-    for (let step = 0; step < 3; step += 1) await advanceChallenge(db, capability.id, step)
+    const capability = await mintChallenge(db, agentId, CAPABILITY_STAGE)
+    for (let step = 0; step < 3; step += 1)
+      await advanceChallenge(db, capability.id, step, CAPABILITY_STAGE)
 
-    expect(await hasClearedGate(db, agentId, 'capability')).toBeTruthy()
-    expect(await hasClearedGate(db, agentId, 'captcha')).toBeNull()
+    expect(await hasClearedGate(db, agentId, CAPABILITY_STAGE)).toBeTruthy()
+    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeNull()
     // And the badge's redemption does not recognise the capability row at all.
     expect(await redeemChallenge(db, capability.id)).toEqual({ outcome: 'unknown' })
   })
 
   it('clears a capability challenge only on its last step', async () => {
-    const minted = await mintChallenge(db, agentId, 'capability')
+    const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
 
-    expect(await advanceChallenge(db, minted.id, 0)).toMatchObject({
+    expect(await advanceChallenge(db, minted.id, 0, CAPABILITY_STAGE)).toMatchObject({
       outcome: 'advanced',
       steps: 1,
     })
-    expect(await advanceChallenge(db, minted.id, 1)).toMatchObject({
+    expect(await advanceChallenge(db, minted.id, 1, CAPABILITY_STAGE)).toMatchObject({
       outcome: 'advanced',
       steps: 2,
     })
-    expect(await hasClearedGate(db, agentId, 'capability')).toBeNull()
+    expect(await hasClearedGate(db, agentId, CAPABILITY_STAGE)).toBeNull()
 
-    expect(await advanceChallenge(db, minted.id, 2)).toEqual({ outcome: 'cleared', agentId })
-    expect(await hasClearedGate(db, agentId, 'capability')).toBeTruthy()
+    expect(await advanceChallenge(db, minted.id, 2, CAPABILITY_STAGE)).toEqual({
+      outcome: 'cleared',
+      agentId,
+    })
+    expect(await hasClearedGate(db, agentId, CAPABILITY_STAGE)).toBeTruthy()
   })
 
   /**
@@ -193,21 +241,27 @@ describe.skipIf(!target.available)('browser challenges', () => {
    * it in the `WHERE`, one solved step sent three times would clear the rung.
    */
   it('refuses a step that is not the one outstanding', async () => {
-    const minted = await mintChallenge(db, agentId, 'capability')
-    await advanceChallenge(db, minted.id, 0)
+    const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
+    await advanceChallenge(db, minted.id, 0, CAPABILITY_STAGE)
 
-    expect(await advanceChallenge(db, minted.id, 0)).toEqual({ outcome: 'out_of_order', steps: 1 })
-    expect(await advanceChallenge(db, minted.id, 2)).toEqual({ outcome: 'out_of_order', steps: 1 })
-    expect(await hasClearedGate(db, agentId, 'capability')).toBeNull()
+    expect(await advanceChallenge(db, minted.id, 0, CAPABILITY_STAGE)).toEqual({
+      outcome: 'out_of_order',
+      steps: 1,
+    })
+    expect(await advanceChallenge(db, minted.id, 2, CAPABILITY_STAGE)).toEqual({
+      outcome: 'out_of_order',
+      steps: 1,
+    })
+    expect(await hasClearedGate(db, agentId, CAPABILITY_STAGE)).toBeNull()
   })
 
   /** Same guard as the redemption, one layer along: the `UPDATE … WHERE` is it. */
   it('lets exactly one of two concurrent reports of the same step win', async () => {
-    const minted = await mintChallenge(db, agentId, 'capability')
+    const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
 
     const results = await Promise.all([
-      advanceChallenge(db, minted.id, 0),
-      advanceChallenge(db, minted.id, 0),
+      advanceChallenge(db, minted.id, 0, CAPABILITY_STAGE),
+      advanceChallenge(db, minted.id, 0, CAPABILITY_STAGE),
     ])
 
     expect(results.filter((r) => r.outcome === 'advanced')).toHaveLength(1)
@@ -215,21 +269,28 @@ describe.skipIf(!target.available)('browser challenges', () => {
   })
 
   it('refuses to advance an expired capability challenge', async () => {
-    const minted = await mintChallenge(db, agentId, 'capability')
+    const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
     await expire(minted.id)
 
-    expect(await advanceChallenge(db, minted.id, 0)).toEqual({ outcome: 'expired' })
+    expect(await advanceChallenge(db, minted.id, 0, CAPABILITY_STAGE)).toEqual({
+      outcome: 'expired',
+    })
     expect(await challengeProgress(db, minted.id)).toEqual({ outcome: 'expired' })
   })
 
   it('reports progress so a reloaded page resumes rather than starting over', async () => {
-    const minted = await mintChallenge(db, agentId, 'capability')
-    await advanceChallenge(db, minted.id, 0)
+    const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
+    await advanceChallenge(db, minted.id, 0, CAPABILITY_STAGE)
 
     expect(await challengeProgress(db, minted.id)).toEqual({
       outcome: 'open',
+      // The stage is in the answer since `#160`, so a page handed an id from a
+      // neighbouring stage can say so instead of drawing itself against a
+      // challenge it cannot clear.
+      stage: CAPABILITY_STAGE,
       steps: 1,
       total: 3,
+      variant: null,
     })
   })
 
@@ -239,8 +300,8 @@ describe.skipIf(!target.available)('browser challenges', () => {
    * make two of the three steps decoration.
    */
   it('refuses at the database to clear a capability challenge mid-sequence', async () => {
-    const minted = await mintChallenge(db, agentId, 'capability')
-    await advanceChallenge(db, minted.id, 0)
+    const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
+    await advanceChallenge(db, minted.id, 0, CAPABILITY_STAGE)
 
     await expect(
       db

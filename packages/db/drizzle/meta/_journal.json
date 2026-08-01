@@ -428,6 +428,13 @@
       "when": 1785602120846,
       "tag": "0060_sessions_are_named",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1785604465552,
+      "tag": "0061_the_branch_becomes_a_ladder",
+      "breakpoints": true
     }
   ]
 }

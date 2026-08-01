@@ -4,6 +4,7 @@ import {
   API_BASE_PATH,
   DEFAULT_RHYTHM_BOUNDS,
   ERROR_STATUS,
+  mintableBrowserStages,
   SessionDeclarationSchema,
   type ApiError,
   type RhythmBounds,
@@ -855,27 +856,34 @@ export function buildApp({
        */
       v1.post('/academy/challenges', async (request, reply) => {
         /**
-         * Which challenge, from the body — `capability` for the rung when the
-         * body is absent, `captcha` for the badge.
+         * Which stage of the browser branch, from the body — the entry rung when
+         * the body is absent.
          *
-         * The badge had no mint route at all between #29 and this change: the
-         * rebuild pointed this endpoint at the capability challenge and the
-         * hCaptcha row was drafted, so nothing noticed. A task that cannot be
-         * started is not a task, and #34 turned the badge back on — so the door
-         * it needs is here rather than in a second endpoint, because it is the
-         * same operation with a different subject.
+         * One door for every stage, because it is the same operation with a
+         * different subject. `#160` opened the vocabulary into a registry, so the
+         * list an agent may ask for is derived rather than written here twice.
          */
         const requested = MintChallengeRequestSchema.safeParse(request.body ?? {})
 
         if (!requested.success) {
           return reply.status(ERROR_STATUS['validation_failed']).send({
             code: 'validation_failed',
-            message: 'Send {"kind": "capability"} or {"kind": "captcha"}, or no body at all.',
+            message:
+              `Send {"kind": "<stage>"} or no body at all. Stages that can be opened: ` +
+              `${mintableBrowserStages()
+                .map((stage) => stage.kind)
+                .join(', ')}.`,
           })
         }
 
+        /**
+         * **The refusal's own status, not a blanket 503.** A retired stage answers
+         * `not_found` and an unconfigured one `internal`, and flattening both into
+         * 503 tells an agent to retry something that will never work. That was the
+         * shape of this line until `#160` gave the refusals distinct causes.
+         */
         const down = mintUnavailable(requested.data.kind, academy)
-        if (down !== undefined) return reply.status(503).send(down)
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
 
         const authenticated = await authenticate(request.headers.authorization, store)
 

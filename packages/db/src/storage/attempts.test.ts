@@ -13,6 +13,7 @@ import {
   type Assistance,
   type TaskId,
   type TaskStatus,
+  CAPABILITY_STAGE,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
@@ -174,7 +175,7 @@ describe.skipIf(!target.available)('task attempts', () => {
 
       expect(await countAttempts()).toBe(0)
 
-      await mintChallenge(db, agentId, 'capability')
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
 
       expect(await countAttempts()).toBe(1)
     })
@@ -216,8 +217,8 @@ describe.skipIf(!target.available)('task attempts', () => {
       const agentId = await anAgent()
       await aTask({ type: 'browser-capability' })
 
-      await mintChallenge(db, agentId, 'capability')
-      await mintChallenge(db, agentId, 'capability')
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
 
       expect(await countAttempts()).toBe(1)
     })
@@ -231,7 +232,7 @@ describe.skipIf(!target.available)('task attempts', () => {
       const agentId = await anAgent()
       const taskId = await aTask({ type: 'browser-capability' })
 
-      await mintChallenge(db, agentId, 'capability')
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
       await submit(taskId, agentId)
 
       const attempts = await attemptsFor(db, agentId, taskId)
@@ -278,7 +279,7 @@ describe.skipIf(!target.available)('task attempts', () => {
     it('mints the challenge anyway when the task it belongs to is not seeded', async () => {
       const agentId = await anAgent()
 
-      const minted = await mintChallenge(db, agentId, 'capability')
+      const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
 
       expect(minted.id).toBeTruthy()
       expect(await countAttempts()).toBe(0)

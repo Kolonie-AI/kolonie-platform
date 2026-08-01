@@ -7,6 +7,7 @@ import {
   TaskIdSchema,
   type AgentId,
   type TaskId,
+  CAPABILITY_STAGE,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { browserChallenges, submissions, taskAttempts, tasks } from '../schema/index.js'
@@ -107,7 +108,7 @@ describe.skipIf(!target.available)('the attempt backfill', () => {
 
     await db
       .insert(browserChallenges)
-      .values({ agentId, kind: 'capability', createdAt: ago(120), expiresAt: ago(110) })
+      .values({ agentId, kind: CAPABILITY_STAGE, createdAt: ago(120), expiresAt: ago(110) })
 
     await runBackfill()
 
@@ -122,7 +123,7 @@ describe.skipIf(!target.available)('the attempt backfill', () => {
 
     await db
       .insert(browserChallenges)
-      .values({ agentId, kind: 'capability', createdAt: ago(120), expiresAt: ago(110) })
+      .values({ agentId, kind: CAPABILITY_STAGE, createdAt: ago(120), expiresAt: ago(110) })
 
     await runBackfill()
 
@@ -136,7 +137,7 @@ describe.skipIf(!target.available)('the attempt backfill', () => {
 
     await db
       .insert(browserChallenges)
-      .values({ agentId, kind: 'capability', createdAt: ago(60), expiresAt: ago(50) })
+      .values({ agentId, kind: CAPABILITY_STAGE, createdAt: ago(60), expiresAt: ago(50) })
     await db.insert(submissions).values({
       agentId,
       taskId,

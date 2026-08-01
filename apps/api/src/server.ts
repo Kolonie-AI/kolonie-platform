@@ -1,3 +1,4 @@
+import { BROWSER_STAGES } from '@kolonie-ai/core'
 import type { AgentId } from '@kolonie-ai/core'
 import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
@@ -85,6 +86,40 @@ const capabilityConfig = (): { pageUrl: string } | string => {
 
 const gate = gateConfig()
 const capability = capabilityConfig()
+
+/**
+ * Every stage's page address and, for the ones that have no address, the reason.
+ *
+ * **Driven by the registry rather than by a list here** (`#160`). Each stage names
+ * the environment variable holding its page (`pageUrlEnv`), so a stage added next
+ * month is configured by declaring it — this loop does not change, and neither does
+ * `AcademyDependencies`.
+ *
+ * A retired stage is skipped: it is never minted, so an unset variable for it is
+ * not a fault to report at startup. That is the difference between *switched off*
+ * and *misconfigured*, and reporting the second for the first is how a startup line
+ * becomes noise people stop reading.
+ */
+const stagePages: Record<string, string> = {}
+const stageUnavailableReasons: Record<string, string> = {}
+
+for (const stage of BROWSER_STAGES) {
+  if (stage.retired === true) continue
+
+  const pageUrl = process.env[stage.pageUrlEnv] ?? ''
+  if (pageUrl === '') {
+    stageUnavailableReasons[stage.kind] = `${stage.pageUrlEnv} not set`
+    // Loud, per stage. A stage that quietly refuses is the wrong-but-ignored
+    // signal `state/STATUS.md` keeps warning about — and with a ladder, a silent
+    // one looks exactly like a stage nobody has built yet.
+    console.warn(
+      `kolonie-api: browser stage "${stage.kind}" disabled — ${stage.pageUrlEnv} not set`,
+    )
+    continue
+  }
+
+  stagePages[stage.kind] = pageUrl
+}
 
 if (typeof gate === 'string') {
   // Loud on purpose. An unconfigured gate that said nothing would be exactly the
@@ -199,15 +234,20 @@ const app = buildApp({
   },
   academy: {
     challenges: databaseChallenges(db),
+    // Per stage, from the registry. What the two fields below carry for the entry
+    // rung and the retired badge, this carries for every stage — including them.
+    stagePages,
+    stageUnavailableReasons,
     ...(typeof gate === 'string'
       ? { captcha: hcaptchaService('', ''), challengePageUrl: '', unavailableReason: gate }
       : {
           captcha: hcaptchaService(gate.sitekey, gate.secret),
           challengePageUrl: gate.pageUrl,
         }),
-    ...(typeof capability === 'string'
-      ? { capabilityPageUrl: '', capabilityUnavailableReason: capability }
-      : { capabilityPageUrl: capability.pageUrl }),
+    // The reason, if there is one, is already in `stageUnavailableReasons` under
+    // this stage — the loop above put it there from the registry. Only the address
+    // is still carried separately, for the routes that were written against it.
+    capabilityPageUrl: typeof capability === 'string' ? '' : capability.pageUrl,
   },
 })
 

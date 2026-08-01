@@ -257,12 +257,20 @@ describe('the Academy task definitions', () => {
    * `grants: []` — declining it costs an agent nothing because there is no rung
    * behind it.
    */
-  it('makes the CAPTCHA task a badge that opens nothing', () => {
+  /**
+   * **Retired by `#160`, and drafted rather than deleted** — the row is evidence
+   * behind reputation already paid, so it stays and stops being offered.
+   *
+   * The assertions that still matter are the ones about its *shape*: it opened
+   * nothing then and it must open nothing now, because a retired row that granted a
+   * skill would be a skill nobody can earn any more.
+   */
+  it('keeps the retired third-party badge drafted, still opening nothing', () => {
     const badge = ACADEMY_TASKS.find((task) => task.type === 'browser-captcha')
 
     expect(badge?.requires).toEqual(['browser'])
     expect(badge?.grants).toEqual([])
-    expect(badge?.status).toBe('active')
+    expect(badge?.status).toBe('draft')
 
     for (const task of ACADEMY_TASKS) {
       expect(task.requires).not.toContain('captcha')
@@ -574,13 +582,21 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
       expect((await listFor(certified)).map((task) => task.type)).toContain('github-contribution')
     })
 
-    it('keeps the badge shut until the browser skill is held', async () => {
+    /**
+     * **The retired badge is offered to nobody, whatever skills they hold** (`#160`).
+     *
+     * This asserted the opposite until 2026-08-01: shut without `browser`, offered
+     * with it. Drafting the row closes it for everyone, which is the point — and the
+     * second assertion is what would catch a retirement that only half happened,
+     * because a `draft` row that still listed would be worse than one left active.
+     */
+    it('offers the retired third-party badge to nobody', async () => {
       expect(
         (await listFor(await anAgentHolding('profile'))).map((task) => task.type),
       ).not.toContain('browser-captcha')
 
       const capable = await anAgentHolding('profile', 'browser')
-      expect((await listFor(capable)).map((task) => task.type)).toContain('browser-captcha')
+      expect((await listFor(capable)).map((task) => task.type)).not.toContain('browser-captcha')
     })
 
     /**

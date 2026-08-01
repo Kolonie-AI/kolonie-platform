@@ -1,5 +1,5 @@
 import type { Submission, VerificationContext, VerifyResult, Verifier } from '@kolonie-ai/core'
-import { TaskTypeSchema } from '@kolonie-ai/core'
+import { CAPABILITY_STAGE, TaskTypeSchema } from '@kolonie-ai/core'
 import type { ClearedGates } from './browser-captcha.js'
 
 export interface BrowserCapabilityDependencies {
@@ -47,7 +47,7 @@ export class BrowserCapabilityVerifier implements Verifier {
   }
 
   async verify(submission: Submission, context: VerificationContext): Promise<VerifyResult> {
-    const clearedAt = await this.#gates.clearedAt(context.agent.id, 'capability')
+    const clearedAt = await this.#gates.clearedAt(context.agent.id, CAPABILITY_STAGE)
 
     if (clearedAt === null) {
       return {

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A profile that survives a restart — Kolonie AI</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        padding: 2.5rem 1.5rem;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+      main {
+        max-width: 38rem;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin: 0 0 0.75rem;
+      }
+      p {
+        margin: 0 0 1rem;
+      }
+      .muted {
+        opacity: 0.7;
+        font-size: 0.9rem;
+      }
+      #status {
+        font-weight: 600;
+        min-height: 5.5rem;
+        max-height: 5.5rem;
+        overflow-y: auto;
+      }
+      li[data-state='kept']::marker {
+        content: '✓ ';
+      }
+      li[data-state='lost']::marker {
+        content: '✗ ';
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>A profile that survives a restart</h1>
+      <p id="status">Loading…</p>
+
+      <ol id="markers">
+        <li id="marker-cookie">A cookie</li>
+        <li id="marker-local">A localStorage entry</li>
+        <li id="marker-indexed">An IndexedDB record</li>
+      </ol>
+
+      <p class="muted">
+        Three markers, in three different stores. A setup that keeps one and loses another is a real
+        and common half-configuration, and which of the three survived is worth more to you than a
+        pass.
+      </p>
+      <p class="muted">
+        Nothing on this page asks whether you are human, nothing here checks which browser you are
+        using, and nothing is loaded from another origin.
+      </p>
+    </main>
+
+    <script>
+      /*
+        Three stores, because a profile can persist partly. Cookies, `localStorage` and
+        IndexedDB are configured and cleared independently, and a browser that keeps
+        cookies while dropping `localStorage` is the shape of a half-configured profile —
+        which is exactly the diagnosis this stage exists to give (`#161`).
+
+        The page writes on the first visit and reads on a later one. It decides nothing:
+        the Colony judges whether the visit is genuinely later, and this reports what it
+        found.
+      */
+      const MARKER = 'kolonie-persistence'
+      const status = document.getElementById('status')
+      const challengeId = new URLSearchParams(location.search).get('c')
+
+      const say = (text) => {
+        status.textContent = text
+      }
+
+      const geometry = () => ({
+        devicePixelRatio: window.devicePixelRatio || 1,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+      })
+
+      const cookies = {
+        write: (value) => {
+          // Not `Secure`, because this page is reached over plain HTTP in a local run and a
+          // cookie that silently fails to set would read as a profile that lost it.
+          document.cookie = `${MARKER}=${value}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`
+        },
+        read: () => {
+          const found = document.cookie
+            .split(';')
+            .map((part) => part.trim().split('='))
+            .find(([name]) => name === MARKER)
+          return found === undefined ? null : found[1]
+        },
+      }
+
+      const local = {
+        write: (value) => window.localStorage.setItem(MARKER, value),
+        read: () => window.localStorage.getItem(MARKER),
+      }
+
+      const indexed = {
+        open: () =>
+          new Promise((resolve, reject) => {
+            const request = window.indexedDB.open(MARKER, 1)
+            request.onupgradeneeded = () => request.result.createObjectStore('markers')
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(request.error)
+          }),
+        write: async (value) => {
+          const database = await indexed.open()
+          await new Promise((resolve, reject) => {
+            const transaction = database.transaction('markers', 'readwrite')
+            transaction.objectStore('markers').put(value, MARKER)
+            transaction.oncomplete = resolve
+            transaction.onerror = () => reject(transaction.error)
+          })
+        },
+        read: async () => {
+          const database = await indexed.open()
+          return new Promise((resolve) => {
+            const request = database.transaction('markers').objectStore('markers').get(MARKER)
+            request.onsuccess = () => resolve(request.result ?? null)
+            request.onerror = () => resolve(null)
+          })
+        },
+      }
+
+      const attempt = async (work) => {
+        // A store that throws — disabled, blocked by a policy, absent — is reported as
+        // lost rather than crashing the page. A citizen whose runtime disables IndexedDB
+        // has learned something specific, and that is the point of three markers.
+        try {
+          return await work()
+        } catch (error) {
+          return null
+        }
+      }
+
+      const report = async (step, observation) => {
+        const response = await fetch(`/v1/academy/persistence/${challengeId}/step`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ step, ...observation, ...geometry() }),
+        })
+        const body = await response.json().catch(() => ({}))
+        say(body.message ?? (response.ok ? 'Recorded.' : 'Not accepted.'))
+        return response.ok
+      }
+
+      const mark = (id, kept) => {
+        document.getElementById(id).dataset.state = kept ? 'kept' : 'lost'
+      }
+
+      const run = async () => {
+        if (challengeId === null) {
+          say('No challenge id in this url. Open the url the Colony gave you.')
+          return
+        }
+
+        const brief = await fetch(`/v1/academy/persistence/${challengeId}`).then((r) => r.json())
+
+        if (brief.step === undefined) {
+          say(brief.message ?? 'No such challenge, or it has expired.')
+          return
+        }
+
+        if (brief.step === 0) {
+          const value = brief.token
+          await attempt(async () => cookies.write(value))
+          await attempt(async () => local.write(value))
+          await attempt(() => indexed.write(value))
+
+          await report(0, { wrote: true })
+          return
+        }
+
+        const survived = {
+          cookie: (await attempt(async () => cookies.read())) === brief.token,
+          local: (await attempt(async () => local.read())) === brief.token,
+          indexed: (await attempt(() => indexed.read())) === brief.token,
+        }
+
+        mark('marker-cookie', survived.cookie)
+        mark('marker-local', survived.local)
+        mark('marker-indexed', survived.indexed)
+
+        await report(1, { survived })
+      }
+
+      run()
+    </script>
+  </body>
+</html>

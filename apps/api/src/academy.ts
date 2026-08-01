@@ -20,8 +20,10 @@ import {
   type ChallengeProgress,
   type ChallengeRedemption,
   type Database,
+  persistenceContext,
   recordObservation,
   type MintedChallenge,
+  type PersistenceContext,
   type ObservationOutcome,
   type StepOutcome,
 } from '@kolonie-ai/db'
@@ -58,6 +60,18 @@ export interface Challenges {
     stage: BrowserStage,
     observation: unknown,
   ): Promise<ObservationOutcome>
+  /**
+   * What the persistence stage needs in order to judge a return: when the challenge
+   * started, what the citizen declared about how often it works, and which run it is
+   * calling from now (`#161`).
+   *
+   * The first two decide; the third is corroboration that decides nothing, because the
+   * citizen names its own session.
+   */
+  persistenceContextOf(
+    challengeId: string,
+    stage: BrowserStage,
+  ): Promise<PersistenceContext | undefined>
 }
 
 /** What hCaptcha said about a token. `unavailable` is not `false` — see below. */
@@ -225,6 +239,7 @@ export function databaseChallenges(db: Database): Challenges {
     clearedAt: (agentId, kind) => hasClearedGate(db, agentId, kind),
     observe: (challengeId, stage, observation) =>
       recordObservation(db, challengeId, stage, observation),
+    persistenceContextOf: (challengeId, stage) => persistenceContext(db, challengeId, stage),
   }
 }
 

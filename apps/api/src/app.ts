@@ -8,6 +8,7 @@ import {
   INTERACTION_STAGE,
   INTERSTITIAL_STAGE,
   mintableBrowserStages,
+  PERSISTENCE_STAGE,
   PERCEPTION_STAGE,
   SessionDeclarationSchema,
   type ApiError,
@@ -43,6 +44,7 @@ import { rateLimited, type AgentRegistry } from './registration.js'
 import { recordPerceptionRender, reportPerceptionReading } from './perception.js'
 import { interactionBrief, reportInteractionStep } from './interaction.js'
 import { interstitialBrief, reportInterstitialAnswer } from './interstitial.js'
+import { persistenceBrief, reportPersistenceStep } from './persistence.js'
 import { clientIp } from './client-ip.js'
 import { registrationLimiter, type RateLimiter } from './rate-limit.js'
 import {
@@ -420,6 +422,7 @@ export function buildApp({
   const perceptionDown = () => stageUnavailable(PERCEPTION_STAGE, academy)
   const interactionDown = () => stageUnavailable(INTERACTION_STAGE, academy)
   const interstitialDown = () => stageUnavailable(INTERSTITIAL_STAGE, academy)
+  const persistenceDown = () => stageUnavailable(PERSISTENCE_STAGE, academy)
 
   /** The mailbox rung's own answer, separate for the same reason as the one above. */
   const emailDown = emailUnavailable(email)
@@ -1530,6 +1533,43 @@ export function buildApp({
 
         const { challengeId } = request.params as { challengeId: string }
         const result = await reportInterstitialAnswer(challengeId, request.body, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * The persistence stage (`#161`). Two visits: the page writes three markers, and on a
+       * genuinely later one it reports which survived.
+       *
+       * The brief is never cached — it carries *which visit this is*, and a cached copy is
+       * what made the entry rung unpassable on its third run until `no-store` was added
+       * there. Here it would be worse: a page told it was on visit one would rewrite the
+       * markers and destroy the measurement.
+       */
+      v1.get('/academy/persistence/:challengeId', async (request, reply) => {
+        const down = persistenceDown()
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await persistenceBrief(challengeId, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.header('cache-control', 'no-store').send(result.response)
+      })
+
+      v1.post('/academy/persistence/:challengeId/step', async (request, reply) => {
+        const down = persistenceDown()
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await reportPersistenceStep(challengeId, request.body, academy)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

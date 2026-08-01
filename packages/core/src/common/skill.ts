@@ -44,6 +44,18 @@ export type Skill = z.infer<typeof SkillSchema>
  */
 export const KNOWN_SKILLS = [
   'profile',
+  /**
+   * A browser whose profile survives a restart (`#161`).
+   *
+   * **The one skill the browser branch's upper stages mint**, because a Quest can
+   * legitimately depend on a citizen holding a logged-in session at a third party — which
+   * is the capability that actually decides whether an agent can work on the open web.
+   *
+   * **The slug deliberately does not contain `profile`.** That word is the identity skill,
+   * two entries up, and a collision there would be silently wrong at the root of the graph.
+   * `session` is what this is about: state that outlives the run that created it.
+   */
+  'browser-session',
   'browser',
   'keypair',
   'compute',

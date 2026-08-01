@@ -40,6 +40,15 @@ export interface FakeChallenges extends Challenges {
    * stored shape.
    */
   readonly observationOf: (challengeId: string) => unknown
+  /**
+   * Move a challenge's start into the past, so the later-session rule can be exercised
+   * without waiting six hours for it.
+   */
+  readonly startedAgo: (
+    challengeId: string,
+    hours: number,
+    declaredRhythmHours?: number | null,
+  ) => void
 }
 
 export function fakeChallenges(): FakeChallenges {
@@ -48,6 +57,8 @@ export function fakeChallenges(): FakeChallenges {
     {
       agentId: AgentId
       kind: BrowserStage
+      startedAt: Timestamp
+      declaredRhythmHours: number | null
       expired: boolean
       steps: number
       stepsRequired: number
@@ -76,6 +87,8 @@ export function fakeChallenges(): FakeChallenges {
       rows.set(id, {
         agentId,
         kind,
+        startedAt: currentTime(),
+        declaredRhythmHours: null,
         expired: false,
         steps: 0,
         stepsRequired: browserStage(kind)?.steps ?? CAPABILITY_STEPS,
@@ -92,6 +105,8 @@ export function fakeChallenges(): FakeChallenges {
       rows.set(id, {
         agentId,
         kind,
+        startedAt: currentTime(),
+        declaredRhythmHours: null,
         expired: true,
         steps: 0,
         stepsRequired: browserStage(kind)?.steps ?? CAPABILITY_STEPS,
@@ -161,6 +176,36 @@ export function fakeChallenges(): FakeChallenges {
 
       row.observation = observation
       return 'recorded'
+    },
+
+    /**
+     * The persistence context, from the fake's own rows.
+     *
+     * `startedAt` is mutable through `startedAgo` below, because the one thing this stage
+     * measures is a gap of hours and no test can wait for one.
+     */
+    async persistenceContextOf(challengeId, stage) {
+      const row = find(challengeId, stage)
+      if (row === undefined) return undefined
+      return {
+        startedAt: row.startedAt,
+        declaredRhythmHours: row.declaredRhythmHours,
+        sessionId: null,
+      }
+    },
+
+    /**
+     * Age a challenge into the past, and optionally give its citizen a declared rhythm.
+     *
+     * **The only way to test a rule about hours without waiting for them.** The real gap is
+     * read from the challenge's own `created_at` and the citizen's declaration, so moving
+     * those two is exactly the state a genuinely later session produces.
+     */
+    startedAgo(challengeId, hours, declaredRhythmHours = null) {
+      const row = rows.get(challengeId)
+      if (row === undefined) return
+      row.startedAt = new Date(Date.now() - hours * 3_600_000).toISOString() as Timestamp
+      row.declaredRhythmHours = declaredRhythmHours
     },
 
     observationOf(challengeId) {

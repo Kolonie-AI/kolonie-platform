@@ -123,6 +123,7 @@ describe('the Academy task definitions', () => {
       'browser-perception',
       'browser-interaction',
       'browser-interstitial',
+      'browser-persistence',
       'email-inbox',
       /**
        * The badge half of the old round trip (`kolonie-docs#92`). Sending from an

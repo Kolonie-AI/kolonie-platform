@@ -9,7 +9,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { browserChallenges } from '../schema/index.js'
+import { agents, browserChallenges } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 import { openAttemptForTaskType } from './challenge-tasks.js'
 
@@ -129,7 +129,9 @@ export async function mintChallenge(
   if (stage === undefined) throw new Error(`unknown browser stage: ${kind}`)
   if (stage.retired === true) throw new Error(`retired browser stage cannot be minted: ${kind}`)
 
-  const expiresAt = new Date(Date.now() + CHALLENGE_LIFETIME_MS).toISOString()
+  // Per stage, defaulting to the branch's ten minutes. The persistence stage overrides it
+  // because its whole measurement is a gap longer than that (`#161`).
+  const expiresAt = new Date(Date.now() + (stage.lifetimeMs ?? CHALLENGE_LIFETIME_MS)).toISOString()
 
   const [row] = await db
     .insert(browserChallenges)
@@ -468,6 +470,55 @@ export async function browserDiagnostics(
   }
 
   return [...byStage.values()]
+}
+
+/**
+ * What the persistence stage needs in order to judge a return (`#161`).
+ *
+ * One read rather than three, because all three answers belong to the same moment: when
+ * the challenge started, what the citizen said about how often it works, and which run it
+ * is calling from now.
+ *
+ * **The session id is corroboration and never the rule.** `#158` lets a citizen name its
+ * own run, so it cannot decide anything — it goes into the verdict's evidence, where a
+ * return from a different session is worth reading and a return from the same one changes
+ * nothing about whether the time rule was met.
+ */
+export interface PersistenceContext {
+  readonly startedAt: Timestamp
+  readonly declaredRhythmHours: number | null
+  readonly sessionId: string | null
+}
+
+export async function persistenceContext(
+  db: Database,
+  challengeId: string,
+  stage: BrowserStage,
+): Promise<PersistenceContext | undefined> {
+  if (!isUuid(challengeId)) return undefined
+
+  const [row] = await db
+    .select({
+      startedAt: browserChallenges.createdAt,
+      declaredRhythmHours: agents.declaredRhythmHours,
+      sessionId: sql<string | null>`(
+        select s.external_id from agent_sessions s
+         where s.agent_id = ${browserChallenges.agentId}
+         order by s.named_at desc
+         limit 1
+      )`,
+    })
+    .from(browserChallenges)
+    .innerJoin(agents, eq(agents.id, browserChallenges.agentId))
+    .where(and(eq(browserChallenges.id, challengeId), eq(browserChallenges.kind, stage)))
+
+  if (row === undefined) return undefined
+
+  return {
+    startedAt: toTimestamp(row.startedAt),
+    declaredRhythmHours: row.declaredRhythmHours,
+    sessionId: row.sessionId,
+  }
 }
 
 /** The distinct kinds cleared within a stage, in no particular order and without nulls. */

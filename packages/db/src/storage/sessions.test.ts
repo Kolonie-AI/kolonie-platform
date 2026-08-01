@@ -291,6 +291,20 @@ describe('nothing decides on a session', () => {
     'submissions.ts',
     // The citizen's own history, which serves them and computes nothing.
     'history.ts',
+    /**
+     * **`challenges.ts`, and only as corroboration** (`#161`).
+     *
+     * `persistenceContext` reads the citizen's newest session id so the persistence
+     * verdict's evidence can say which run the return came from. It decides nothing: that
+     * rung is gated on time — a different contact bucket and at least one declared rhythm
+     * interval — because the citizen names its own session and so cannot be the rule.
+     *
+     * Argued here rather than exempted quietly, which is what this test is for. If a future
+     * change makes anything in that file *branch* on a session, this entry is where the
+     * argument has to be revisited: the rule it protects is that nothing gates, orders or
+     * rewards on a session, and reading one into evidence is not any of those.
+     */
+    'challenges.ts',
   ])
 
   it('is referenced by no storage module that decides anything', async () => {

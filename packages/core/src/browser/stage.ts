@@ -89,6 +89,16 @@ export const INTERACTION_STAGE = BrowserStageSchema.parse('interaction')
 export const INTERSTITIAL_STAGE = BrowserStageSchema.parse('interstitial')
 
 /**
+ * The persistence stage (`#161`): a browser profile that survives a restart.
+ *
+ * **The only stage in this branch that mints a skill**, because a Quest can legitimately
+ * depend on a citizen holding a logged-in session somewhere. The slug of that skill is
+ * not and does not contain `profile` — that word is the identity skill, and a collision
+ * there would be silently wrong at the root of the graph.
+ */
+export const PERSISTENCE_STAGE = BrowserStageSchema.parse('persistence')
+
+/**
  * What the Colony needs to know about one stage to mint, serve and grade it.
  *
  * `steps` is the load-bearing field and it is written onto every challenge row at
@@ -142,6 +152,20 @@ export interface BrowserStageDefinition {
    * directory was named before the stage was.
    */
   readonly pagePath: string
+  /**
+   * How long a challenge of this stage stays open, in milliseconds, or `undefined` for
+   * the branch default.
+   *
+   * **Per stage because the persistence stage cannot fit in the default** (`#161`). Ten
+   * minutes was chosen so an id could not be minted now and solved by hand this evening —
+   * a real concern for a stage cleared in one sitting. It is the wrong bound for a stage
+   * whose entire measurement is a gap of at least six hours: the challenge has to outlive
+   * the wait it is measuring, or the rung is unpassable by construction.
+   *
+   * The concern the short window addressed does not transfer. A stage that *requires* a
+   * long gap cannot be shortened by giving it one.
+   */
+  readonly lifetimeMs?: number
   /**
    * Whether the stage may still be minted. A retired stage keeps answering reads
    * — its rows are evidence behind rewards already booked — and refuses new
@@ -268,6 +292,23 @@ export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
     pageUrlEnv: 'INTERSTITIAL_PAGE_URL',
     pagePath: '/interstitial/',
     hasVariants: true,
+  },
+  {
+    /**
+     * `#161`. Two steps, and the gap between them is the measurement: the page writes
+     * three markers, and on a genuinely later visit it reports which of them survived.
+     *
+     * **The lifetime is eight days**, which is the widest declared rhythm the Colony
+     * accepts (24 hours) with room for a citizen that returns late, plus slack. A
+     * challenge that expired inside the gap it is measuring would make the rung
+     * unpassable by construction — see `lifetimeMs`.
+     */
+    kind: PERSISTENCE_STAGE,
+    steps: 2,
+    taskType: 'browser-persistence',
+    pageUrlEnv: 'PERSISTENCE_PAGE_URL',
+    pagePath: '/persistence/',
+    lifetimeMs: 8 * 24 * 60 * 60 * 1000,
   },
 ]
 

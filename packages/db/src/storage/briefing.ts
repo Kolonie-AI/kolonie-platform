@@ -124,15 +124,8 @@ export async function briefingCorpus(
          * Whichever side owns the task. `task_reports_owner_is_one_or_the_other`
          * guarantees exactly one of them is set, so this is a total read rather
          * than a preference between two possible answers.
-         *
-         * **The table names are written out, and that is load-bearing.** Drizzle
-         * renders `${taskReports.taskId}` inside a `sql` template as a bare
-         * `"task_id"`, and both tables here have that column — so the
-         * interpolated version compares one table's column with itself and
-         * silently matches nothing. Caught by two existing tests, and it is the
-         * same defect #183 records in `sessions.ts`.
          */
-        sql`coalesce(task_attempts.task_id, task_reports.task_id) = ${taskId}`,
+        sql`coalesce(${taskAttempts.taskId}, ${taskReports.taskId}) = ${taskId}`,
         eq(taskReports.status, 'approved'),
         /**
          * **The *try is over* rule survives for rows that have a try.** The
@@ -141,12 +134,14 @@ export async function briefingCorpus(
          * something for it to be about. An attempt still running is still out:
          * the Colony not having decided is not the citizen's report.
          *
-         * **Parenthesised.** `and()` concatenates its parts with `AND`, so a bare
-         * `x or y` here binds as `(a and b and x) or y` and lets every row with a
-         * closed attempt through regardless of task or moderation status. Two
-         * existing tests caught it, which is the argument for having had them.
+         * **The parentheses are load-bearing.** `and()` concatenates its parts
+         * with `AND`, so a bare `x or y` here binds as `(a and b and x) or y`
+         * and lets every row with a closed attempt through regardless of task or
+         * moderation status. Two existing tests caught it, which is the argument
+         * for having had them — and it is the same mistake the revisability guard
+         * in `guidance.ts` records making, one file away.
          */
-        sql`(task_reports.attempt_id is null or task_attempts.outcome is not null)`,
+        sql`(${taskReports.attemptId} is null or ${taskAttempts.outcome} is not null)`,
       ),
     )
     /**
@@ -683,16 +678,17 @@ export async function detectProviderChange(
    */
   const [cluster] = await db
     .select({
-      // Written out for the reason `briefingCorpus` states: both tables carry
-      // `agent_id`, and the interpolated form renders it bare.
-      reporters: sql<number>`count(distinct coalesce(task_attempts.agent_id, task_reports.agent_id))::int`,
+      reporters: sql<number>`count(distinct coalesce(${taskAttempts.agentId}, ${taskReports.agentId}))::int`,
     })
     .from(taskReports)
     .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-    .innerJoin(agents, sql`agents.id = coalesce(task_attempts.agent_id, task_reports.agent_id)`)
+    .innerJoin(
+      agents,
+      sql`${agents.id} = coalesce(${taskAttempts.agentId}, ${taskReports.agentId})`,
+    )
     .where(
       and(
-        sql`coalesce(task_attempts.task_id, task_reports.task_id) = ${taskId}`,
+        sql`coalesce(${taskAttempts.taskId}, ${taskReports.taskId}) = ${taskId}`,
         eq(taskReports.status, 'approved'),
         eq(agents.type, 'citizen'),
         sql`${taskReports.createdAt} >= now() - make_interval(hours => ${CHANGE_WINDOW_HOURS})`,

@@ -7,7 +7,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents, agentSkills } from '../schema/index.js'
+import { agentSkills } from '../schema/index.js'
 
 /**
  * The skills an agent holds, as a correlated subquery over `agent_skills`.
@@ -23,10 +23,43 @@ import { agents, agentSkills } from '../schema/index.js'
  *
  * Only usable in a query that has `agents` in scope — it correlates on
  * `agents.id`.
+ *
+ * **Aliased, and every identifier written out** (#183). In a *select-field*
+ * position — which is the only position this is ever used in — Drizzle renders
+ * `${table.column}` as a bare `"skill"`, `"agent_id"`, `"id"`. Measured
+ * 2026-08-01, the interpolated version compiled to:
+ *
+ * ```sql
+ * (select array_agg("skill" order by "skill") from "agent_skills" where "agent_id" = "id")
+ * ```
+ *
+ * That was correct, and correct by luck: `agent_skills` has a composite primary
+ * key and no `id` column of its own, so `"id"` fell through to the outer
+ * `agents.id`. Give that table an `id` — an ordinary thing to do — and the
+ * predicate silently becomes `agent_skills.agent_id = agent_skills.id`, false
+ * for every row, and **every agent in the Colony reports holding no skills**.
+ * Skills are the gate (D-030), so that is the whole platform answering *you may
+ * do nothing*, from a query that still returns a row and raises nothing.
+ *
+ * A `where` position would have been safe — Drizzle qualifies there — but this
+ * is not one. The alias makes the expression mean the same thing wherever it is
+ * embedded, which is the remedy `currentSessionIdSql` already uses.
+ *
+ * **The outer reference is written out too, and that is the half that matters.**
+ * Aliasing the inner table alone still left `= "id"`, which resolves outward
+ * only because nothing nearer declares it — the same luck in a smaller place.
+ * `agents.id` says what is meant, and the doc line above is what keeps it
+ * honest: this fragment requires `agents` in scope, so naming it is not an
+ * assumption, it is the contract.
+ *
+ * The cost, stated rather than hidden: with no table object interpolated, a
+ * rename of either table is no longer a compile error here. That is the same
+ * trade `currentSessionIdSql` makes, and it is the right way round — a rename
+ * breaks loudly at the first query, and this bug does not break at all.
  */
 export const heldSkillsSql = sql<
   string[]
->`coalesce((select array_agg(${agentSkills.skill} order by ${agentSkills.skill}) from ${agentSkills} where ${agentSkills.agentId} = ${agents.id}), '{}'::text[])`
+>`coalesce((select array_agg(held.skill order by held.skill) from agent_skills held where held.agent_id = agents.id), '{}'::text[])`
 
 /** Parse what the database returned into the domain's branded slugs. */
 export function toSkills(raw: readonly string[]): Skill[] {

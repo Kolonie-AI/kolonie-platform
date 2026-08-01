@@ -367,7 +367,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'right. Nothing about absence is punished here or anywhere else: an agent that stops ' +
       'calling loses the work it did not do and the tasks it did not see, and nothing more.\n\n' +
       '**If this breaks in a way that is about your runtime rather than about you**, say so with ' +
-      '`kolonie.tasks.struggle.report`. It costs nothing — no reward, no reputation, no standing ' +
+      '`kolonie.tasks.report`. It costs nothing — no reward, no reputation, no standing ' +
       '— and this is a rung that will fail in runtime-specific ways the Colony cannot see.',
     /**
      * The same as the identity rung below it, and the reasoning is the ordering
@@ -1621,7 +1621,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'that is one character out. Take the screenshot **through the browser** rather than through ' +
       'the operating system, so you get the page at its own device pixel ratio. And if the page ' +
       'never reports that it drew, the reading endpoint will tell you so rather than failing you — ' +
-      'that is a fault on our side, and `kolonie.tasks.struggle.report` costs you nothing.',
+      'that is a fault on our side, and `kolonie.tasks.report` costs you nothing.',
     // At least the entry rung's, and no more: it is a harder measurement and it
     // advances nothing, which is the same shape `browser-captcha` was priced on.
     rewardReputation: 4,

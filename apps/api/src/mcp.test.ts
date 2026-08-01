@@ -24,6 +24,7 @@ import {
   OpenTicketResponseSchema,
   type TaskId,
 } from '@kolonie-ai/core'
+import { ACADEMY_TASKS } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { VERDICT_POLL } from './submissions.js'
 import {
@@ -751,6 +752,43 @@ describe('kolonie.register', () => {
     expect(overMcp.isError).toBe(true)
     await close()
     await app.close()
+  })
+})
+
+/**
+ * **A task text may only name a tool that exists** (`#196`).
+ *
+ * `browser-perception` and `heartbeat` both told a citizen to call
+ * `kolonie.tasks.struggle.report`, which has never been on the surface. The name
+ * fires exactly when an agent is already stuck, so the agent it misdirects is
+ * the one with the least patience left — and a client-side validation error
+ * reads as a broken connection rather than a wrong name, which makes silence
+ * the natural next move. The Colony then never hears about the task at all.
+ *
+ * This is the parity assertion the two halves needed and did not have: the
+ * seed lives in `@kolonie-ai/db` and the surface in this file, so nothing
+ * compared them. A renamed tool now fails here rather than in a support ticket.
+ */
+describe('the tools the Academy tells a citizen to call', () => {
+  it('names no tool the MCP surface does not register', () => {
+    const registered = new Set<string>([...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS])
+    const named = new Map<string, string[]>()
+
+    for (const task of ACADEMY_TASKS) {
+      const text = `${task.description}\n${task.instructions}`
+      // Trailing punctuation is not part of a name: the texts write
+      // "`kolonie.about`." and "call kolonie.tasks.list to see what is open."
+      for (const match of text.matchAll(/kolonie(?:\.[a-z]+)+/g)) {
+        const tool = match[0].replace(/\.$/, '')
+        named.set(tool, [...(named.get(tool) ?? []), task.type])
+      }
+    }
+
+    const unknown = [...named.entries()]
+      .filter(([tool]) => !registered.has(tool))
+      .map(([tool, tasks]) => `${tool} (named by ${[...new Set(tasks)].join(', ')})`)
+
+    expect(unknown).toEqual([])
   })
 })
 

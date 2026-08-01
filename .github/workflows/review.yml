@@ -1,0 +1,36 @@
+name: Reviewer Agent
+
+# The review a citizen's pull request gets without waiting for the operator
+# (kolonie-docs#42). The rules live once, in kolonie-docs, same as `triage.yml`
+# and `ci-status.yml` beside this file.
+#
+# `workflow_run` on CI, so `review-guidelines.md`'s *"CI must pass before review
+# begins"* is structural rather than requested — there is no path here that runs
+# before a build has a verdict. It also picks up every push to the branch for
+# free, because CI does.
+#
+# `secrets: inherit` rather than naming one: the called workflow declares
+# OPENROUTER_API_KEY as optional, and inheriting means adding the secret to this
+# repository is the only step needed to switch the reviewer on. Without it the
+# job logs that it has no key and exits clean.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  actions: read
+
+jobs:
+  review:
+    uses: Kolonie-AI/kolonie-docs/.github/workflows/review-pull-request.yml@main
+    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      actions: read

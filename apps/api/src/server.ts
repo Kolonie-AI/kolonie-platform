@@ -23,6 +23,7 @@ import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseVault } from './vault.js'
+import { rhythmBoundsFromEnv } from './rhythm.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -98,6 +99,19 @@ if (typeof capability === 'string') {
   console.warn(`kolonie-api: Level 1 browser capability rung disabled — ${capability}`)
 }
 
+/**
+ * The range a citizen may declare its wake-up rhythm inside (#142).
+ *
+ * Read at startup, like every other piece of configuration here, and for the
+ * sharpest of the reasons `banSaltFromEnv` gives: a contradictory range — a
+ * minimum above the maximum — would refuse every declaration a citizen makes,
+ * one at a time, with nothing in any response saying the configuration was
+ * wrong. Reading it here means the process refuses to boot in front of an
+ * operator who is watching a deploy. Setting none of the three is not a
+ * misconfiguration; it is the default range.
+ */
+const rhythm = rhythmBoundsFromEnv()
+
 const app = buildApp({
   registry: databaseRegistry(db),
   store: databaseStore(db),
@@ -158,6 +172,7 @@ const app = buildApp({
   // is sealed with the caller's own key, which arrives in the request that uses
   // it. There is no master key to provision here and none to leak (#98).
   vault: { vault: databaseVault(db) },
+  rhythm,
   email: {
     challenges: databaseEmailChallenges(db),
     // Present only when all three are configured. Absent, the rung answers 503

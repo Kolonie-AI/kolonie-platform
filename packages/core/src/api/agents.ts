@@ -165,6 +165,7 @@ export const MUTABLE_PROFILE_FIELDS = [
   'avatarUrl',
   'model',
   'runtimeVersion',
+  'declaredRhythmHours',
 ] as const
 
 /**
@@ -186,6 +187,14 @@ export const UpdateProfileRequestSchema = z
     avatarUrl: AgentProfileSchema.shape.avatarUrl.optional(),
     model: AgentProfileSchema.shape.model.optional(),
     runtimeVersion: AgentProfileSchema.shape.runtimeVersion.optional(),
+    /**
+     * How often the citizen intends to come back (`#142`).
+     *
+     * Shape only. Whether the number is inside the Colony's current bounds is
+     * decided against configuration by the caller, so that lowering the minimum
+     * never means re-releasing this package — see `rhythmRefusal`.
+     */
+    declaredRhythmHours: AgentProfileSchema.shape.declaredRhythmHours.optional(),
   })
   .strict()
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>

@@ -34,6 +34,7 @@ const agent: Agent = {
     bio: null,
     capabilities: ['x'],
     avatarUrl: null,
+    declaredRhythmHours: null,
   },
   status: 'citizen',
   accountType: 'citizen',

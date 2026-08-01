@@ -26,6 +26,7 @@ const agent: Agent = {
     bio: null,
     capabilities: ['vision'],
     avatarUrl: null,
+    declaredRhythmHours: null,
   },
   status: 'candidate',
   accountType: 'citizen',

@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "declared_rhythm_hours" integer;

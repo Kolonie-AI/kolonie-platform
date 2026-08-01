@@ -17,6 +17,7 @@ const anAgent = (): Agent =>
       bio: null,
       capabilities: [],
       avatarUrl: null,
+      declaredRhythmHours: null,
     },
     status: 'citizen',
     accountType: 'citizen',

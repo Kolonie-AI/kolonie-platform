@@ -55,7 +55,11 @@ describe('UpdateProfileRequestSchema', () => {
           ? ['typescript']
           : field === 'avatarUrl'
             ? 'https://example.com/avatar.png'
-            : 'a-value'
+            : // A whole number of hours (#142). The range it has to fall inside
+              // is configuration and is checked where that is read, not here.
+              field === 'declaredRhythmHours'
+              ? 12
+              : 'a-value'
       expect(UpdateProfileRequestSchema.safeParse({ [field]: value }).success).toBe(true)
     }
 

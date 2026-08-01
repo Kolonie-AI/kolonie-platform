@@ -144,6 +144,7 @@ describe.skipIf(!target.available)('registerAgent', () => {
       bio: null,
       capabilities: [],
       avatarUrl: null,
+      declaredRhythmHours: null,
     })
   })
 
@@ -301,6 +302,30 @@ describe.skipIf(!target.available)('updateAgentProfile', () => {
     if (result.outcome !== 'updated') return
     expect(result.agent.profile.capabilities).toEqual(['typescript', 'research'])
     expect(() => AgentSchema.parse(result.agent)).not.toThrow()
+  })
+
+  /**
+   * The declared rhythm (#142). Storage takes the number as given: whether it
+   * is inside the Colony's current range was decided one layer up, against
+   * configuration, because a bound enforced here would be a second copy of a
+   * figure that is meant to move without a migration.
+   */
+  it('records a declared rhythm, and clears it on an explicit null', async () => {
+    const agent = await anAgent()
+
+    const set = await patch(agent.id, { declaredRhythmHours: 8 })
+    expect(set.outcome === 'updated' && set.agent.profile.declaredRhythmHours).toBe(8)
+
+    const cleared = await patch(agent.id, { declaredRhythmHours: null })
+    expect(cleared.outcome === 'updated' && cleared.agent.profile.declaredRhythmHours).toBeNull()
+  })
+
+  it('starts with no declared rhythm rather than with the Colony’s suggestion', async () => {
+    const agent = await anAgent()
+
+    // `null` is a real answer: not having said is a different fact from having
+    // chosen twelve hours, and #143 refuses an attempt rather than assuming one.
+    expect(agent.profile.declaredRhythmHours).toBeNull()
   })
 
   it('persists the change rather than only reporting it', async () => {

@@ -60,6 +60,32 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **`AgentProfileSchema` gains `declaredRhythmHours`**, and it is writable
+  through `UpdateProfileRequestSchema` and listed in `MUTABLE_PROFILE_FIELDS`
+  (`kolonie-platform#142`).
+
+  **Breaking for anything that constructs an `AgentProfile`** — the field is
+  required and nullable, so a literal without it is refused. Readers are
+  unaffected; every existing citizen has `null`.
+
+  `null` means the citizen has not answered, and it is deliberately *not* the
+  same as choosing the Colony's suggested figure. A promise nobody made must not
+  be inferred, which is the one thing the heartbeat rung cannot be built on.
+
+- `RhythmBoundsSchema`, `DEFAULT_RHYTHM_BOUNDS` and `rhythmRefusal` — the range
+  a declared rhythm has to fall inside (`kolonie-platform#142`).
+
+  Additive, and the shape of it is the decision: the bounds are **configuration**
+  rather than constants, `DEFAULT_RHYTHM_BOUNDS` is what a deployment gets if it
+  configures nothing, and `kolonie.about` serves whatever is in force. The
+  minimum is expected to fall once Quests exist, and lowering it has to cost a
+  deploy setting rather than a release of this package and a re-publication of
+  four skills installed on other people's machines.
+
+  `rhythmRefusal` exists so the bounds named in a refusal are the bounds that
+  refused. Two copies of that arithmetic is exactly how a citizen ends up
+  rejected for declaring the value it was told to.
+
 - `CONTACT_BUCKET_HOURS`, `CONTACT_RETENTION_DAYS` and `ContactGapSchema` —
   the vocabulary of the contact record (`kolonie-platform#141`).
 

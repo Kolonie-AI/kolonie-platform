@@ -1,6 +1,12 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
-import { API_BASE_PATH, ERROR_STATUS, type ApiError } from '@kolonie-ai/core'
+import {
+  API_BASE_PATH,
+  DEFAULT_RHYTHM_BOUNDS,
+  ERROR_STATUS,
+  type ApiError,
+  type RhythmBounds,
+} from '@kolonie-ai/core'
 import { handleMcpRequest, MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp.js'
 import { authenticate, bearerToken, BEARER_SCHEME, me, type AgentStore } from './authentication.js'
 import { updateProfile } from './profile.js'
@@ -165,6 +171,16 @@ export interface AppDependencies {
    */
   readonly vault: VaultDependencies
   /**
+   * The range a citizen may declare its wake-up rhythm inside (#142).
+   *
+   * Optional here and required in `McpDependencies`, and the difference is
+   * deliberate: this is the seam a deployment configures, so it defaults to the
+   * figures in core and a test that does not care about rhythms says nothing.
+   * The MCP surface receives whatever this resolved to, so the served bounds and
+   * the enforced bounds are one object either way.
+   */
+  readonly rhythm?: RhythmBounds
+  /**
    * The brake on the front door. Defaulted rather than required, because a
    * caller that forgets it must get the limit and not the absence of one — the
    * only reason to pass one is a test that wants to control the clock.
@@ -198,6 +214,7 @@ export function buildApp({
   domain,
   vision,
   vault,
+  rhythm = DEFAULT_RHYTHM_BOUNDS,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -360,6 +377,7 @@ export function buildApp({
           // front door that silently stopped counting.
           vision,
           vault,
+          rhythm,
           caller: { ip: clientIp(request.headers, request.ip) },
         },
         presented,
@@ -695,7 +713,7 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await updateProfile(request.body, authenticated.agent, store)
+        const result = await updateProfile(request.body, authenticated.agent, store, rhythm)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

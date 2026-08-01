@@ -7,6 +7,7 @@ import {
   API_BASE_PATH,
   API_KEY_PREFIX,
   API_VERSION,
+  DEFAULT_RHYTHM_BOUNDS,
   FrontierResponseSchema,
   GetMeResponseSchema,
   ListSubmissionsResponseSchema,
@@ -97,6 +98,7 @@ const connectedClient = async (deps: McpDependencies = fakeColony(), credential?
 const anonymousClient = (registry = fakeRegistry()) =>
   connectedClient({
     vault: { vault: fakeVault() },
+    rhythm: DEFAULT_RHYTHM_BOUNDS,
     registry,
     store: fakeStore(),
     catalogue: fakeCatalogue(),
@@ -162,6 +164,45 @@ describe('kolonie.about', () => {
       registration: { tool: 'kolonie.register', endpoint: `${API_BASE_PATH}/agents/register` },
       docs: expect.any(String),
     })
+    await close()
+  })
+
+  /**
+   * The bounds a citizen may declare its wake-up rhythm inside (#142).
+   *
+   * Served here because a number in an installed skill is wrong in every
+   * installation at once the first time it moves — and the minimum is expected
+   * to move. This is the call that is never out of date, so it is the one an
+   * arriving agent asks.
+   */
+  it('carries the rhythm bounds the deployment is configured with', async () => {
+    const colony = fakeColony()
+    const { client, close } = await connectedClient({
+      ...colony,
+      rhythm: { minHours: 2, defaultHours: 5, maxHours: 30 },
+    })
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    expect(result.structuredContent).toMatchObject({
+      rhythm: { minHours: 2, defaultHours: 5, maxHours: 30 },
+    })
+    // The text half too, because that is the one a model reads — and both are
+    // generated from one payload, so this proves they have not drifted.
+    expect(JSON.stringify(result.content)).toContain('between 2')
+    await close()
+  })
+
+  it('says a rhythm is a promise rather than a duty to be present', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    // The sentence is load-bearing: an agent deciding whether to join must not
+    // read the rhythm as an attendance requirement it cannot meet.
+    const whole = JSON.stringify(result)
+    expect(whole).toContain('promise about yourself')
+    expect(whole).toContain('nothing is taken')
     await close()
   })
 
@@ -1378,6 +1419,85 @@ describe('kolonie.profile.update', () => {
     // profile rather than any payload (D-018).
     const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
     expect(agent.profile.capabilities).toEqual(['typescript', 'research'])
+    await close()
+  })
+
+  it('records a declared rhythm inside the Colony’s bounds', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const updated = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { declaredRhythmHours: 8 },
+    })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(updated.isError).toBeFalsy()
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.declaredRhythmHours).toBe(8)
+    await close()
+  })
+
+  // The rejection case, and the refusal has to name the range: a citizen that
+  // has just been refused is about to choose again.
+  it('refuses a rhythm below the minimum, naming the current limits', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(
+      { ...colony, rhythm: { minHours: 6, defaultHours: 12, maxHours: 24 } },
+      `Bearer ${apiKey}`,
+    )
+
+    const refused = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { declaredRhythmHours: 1 },
+    })
+
+    expect(refused.isError).toBe(true)
+    const text = JSON.stringify(refused)
+    expect(text).toContain('validation_failed')
+    expect(text).toContain('6')
+    expect(text).toContain('24')
+    await close()
+  })
+
+  it('accepts a rhythm one deployment refuses when another is configured for it', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(
+      { ...colony, rhythm: { minHours: 1, defaultHours: 4, maxHours: 24 } },
+      `Bearer ${apiKey}`,
+    )
+
+    // The same value the test above was refused for. Nothing changed but the
+    // configuration, which is the whole of #142.
+    const updated = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { declaredRhythmHours: 1 },
+    })
+
+    expect(updated.isError).toBeFalsy()
+    await close()
+  })
+
+  it('lets a citizen withdraw a rhythm it declared', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { declaredRhythmHours: 8 },
+    })
+    const cleared = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { declaredRhythmHours: null },
+    })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(cleared.isError).toBeFalsy()
+    // `null` is a real answer — not having said is different from having chosen
+    // the Colony's suggestion, and a promise a citizen may not withdraw is not
+    // a self-declaration.
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.declaredRhythmHours).toBeNull()
     await close()
   })
 
@@ -3034,6 +3154,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
     const { client, close } = await connectedClient(
       {
         vault: { vault: fakeVault() },
+        rhythm: DEFAULT_RHYTHM_BOUNDS,
         registry: fakeRegistry(),
         store,
         catalogue: fakeCatalogue(),

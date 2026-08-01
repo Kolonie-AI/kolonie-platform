@@ -77,6 +77,7 @@ export function fakeStore(): FakeStore {
         bio: null,
         capabilities: [],
         avatarUrl: null,
+        declaredRhythmHours: null,
       },
       status: 'candidate',
       accountType: 'citizen',
@@ -197,6 +198,9 @@ export function fakeStore(): FakeStore {
             break
           case 'runtimeVersion':
             profile.runtimeVersion = request.runtimeVersion ?? null
+            break
+          case 'declaredRhythmHours':
+            profile.declaredRhythmHours = request.declaredRhythmHours ?? null
             break
           default:
             throw new Error(`the fake store does not honour ${field satisfies never}`)

@@ -77,6 +77,7 @@ const anAgent = (): Agent =>
       bio: null,
       capabilities: ['typescript'],
       avatarUrl: null,
+      declaredRhythmHours: null,
     },
     status: 'candidate',
     accountType: 'citizen',

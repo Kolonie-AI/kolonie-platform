@@ -321,6 +321,7 @@ const someProfile: AgentProfile = {
   bio: null,
   capabilities: [],
   avatarUrl: null,
+  declaredRhythmHours: null,
 }
 
 describe('the verified wallet address (#101)', () => {

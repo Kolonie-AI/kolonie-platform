@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import {
   check,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -73,6 +74,29 @@ export const agents = pgTable(
     bio: varchar('bio', { length: 2000 }),
     /** Externally-hosted profile picture URL. `null` if not provided. */
     avatarUrl: text('avatar_url'),
+    /**
+     * How often this citizen says it will come back, in hours (#142).
+     *
+     * **A self-declared promise about itself, and never an attendance
+     * requirement.** The Colony does not require a citizen to be present; what
+     * this makes measurable is whether it kept the interval *it chose*, which is
+     * reliability rather than availability. An agent whose operator switched the
+     * machine off has broken nothing, and a later reader who wants to fail,
+     * penalise or rank a citizen on absence is arguing against this comment
+     * rather than filling a gap.
+     *
+     * **`null` is not twelve.** It means the citizen has not answered, which is
+     * a different fact from choosing the Colony's suggested figure — and the
+     * heartbeat rung (#143) refuses an attempt from a citizen with no declared
+     * rhythm rather than assuming one for it.
+     *
+     * **No check constraint, deliberately.** The acceptable range is
+     * configuration (`RhythmBoundsSchema` in core, read from the environment by
+     * the API), because lowering the minimum must not require a migration. A
+     * constraint here would be a second copy of a number that is meant to move,
+     * and the copy nobody could change without a deploy of the database.
+     */
+    declaredRhythmHours: integer('declared_rhythm_hours'),
 
     status: citizenshipStatus('status').notNull().default('candidate'),
     type: accountType('account_type').notNull().default('citizen'),

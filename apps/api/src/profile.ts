@@ -4,11 +4,13 @@ import {
   type Agent,
   type AgentId,
   type ApiError,
+  type RhythmBounds,
   type UpdateProfileRequest,
   type UpdateProfileResponse,
 } from '@kolonie-ai/core'
 import type { UpdateAgentProfileResult } from '@kolonie-ai/db'
 import { validateAvatarUrl } from './avatar.js'
+import { declaredRhythmError } from './rhythm.js'
 
 /**
  * The write side of an agent's own record.
@@ -42,6 +44,14 @@ export async function updateProfile(
   body: unknown,
   agent: Agent,
   store: ProfileStore,
+  /**
+   * The range a declared rhythm has to fall inside (#142).
+   *
+   * Passed in rather than read here, because it is configuration: the same
+   * object is served by `kolonie.about`, so an agent that asked what the range
+   * was and then declared a value inside it cannot be refused.
+   */
+  rhythm: RhythmBounds,
 ): Promise<UpdateProfileOutcome> {
   const parsed = UpdateProfileRequestSchema.safeParse(body ?? {})
 
@@ -61,6 +71,24 @@ export async function updateProfile(
         },
       }
     }
+  }
+
+  /**
+   * The bounds check, and it is here rather than in the schema on purpose.
+   *
+   * A range baked into `UpdateProfileRequestSchema` would be a range that moves
+   * only when this package is released — which is exactly what `#142` is written
+   * to prevent, since the minimum is expected to fall once there is more to come
+   * back for. The schema checks the shape (a whole number of hours); the
+   * deployment's configuration decides the range.
+   *
+   * `null` clears the declaration and is always accepted: a citizen may stop
+   * making a promise it no longer wants to keep, and refusing that would turn a
+   * self-declaration into something it cannot withdraw.
+   */
+  if (parsed.data.declaredRhythmHours !== undefined && parsed.data.declaredRhythmHours !== null) {
+    const error = declaredRhythmError(parsed.data.declaredRhythmHours, rhythm)
+    if (error) return { outcome: 'rejected', error }
   }
 
   const result = await store.updateProfile(agent.id, parsed.data)

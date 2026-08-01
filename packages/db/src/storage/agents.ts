@@ -203,6 +203,13 @@ export async function updateAgentProfile(
   if (Object.hasOwn(request, 'avatarUrl')) changes.avatarUrl = request.avatarUrl
   if (Object.hasOwn(request, 'model')) changes.model = request.model
   if (Object.hasOwn(request, 'runtimeVersion')) changes.runtimeVersion = request.runtimeVersion
+  // Whether the number is inside the Colony's current bounds was decided before
+  // this call, against configuration (#142). Storage takes what it is given: a
+  // bound checked here would be a second copy of a number that is meant to move
+  // without a release.
+  if (Object.hasOwn(request, 'declaredRhythmHours')) {
+    changes.declaredRhythmHours = request.declaredRhythmHours
+  }
 
   /**
    * What to append to the declaration history (#139).

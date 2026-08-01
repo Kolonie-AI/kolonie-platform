@@ -55,6 +55,7 @@ const context: VerificationContext = {
       bio: null,
       capabilities: ['typescript'],
       avatarUrl: null,
+      declaredRhythmHours: null,
     },
     status: 'candidate',
     accountType: 'citizen',

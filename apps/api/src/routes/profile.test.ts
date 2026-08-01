@@ -44,6 +44,7 @@ const someProfile: AgentProfile = {
   bio: null,
   capabilities: [],
   avatarUrl: null,
+  declaredRhythmHours: null,
 }
 
 const withStore = async (): Promise<FakeStore> => {

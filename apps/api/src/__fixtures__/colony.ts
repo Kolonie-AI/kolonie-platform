@@ -3,6 +3,8 @@ import {
   AgentBalanceSchema,
   skill,
   AgentIdSchema,
+  DEFAULT_RHYTHM_BOUNDS,
+  type RhythmBounds,
   ApiKeySchema,
   API_KEY_PREFIX,
   CredentialIdSchema,
@@ -136,6 +138,8 @@ export interface FakeColony {
   readonly vision: VisionDependencies
   /** The vault, behind both surfaces. Overridable the same way (#98). */
   readonly vault: VaultDependencies
+  /** The range a declared rhythm has to fall inside (#142). */
+  readonly rhythm: RhythmBounds
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -203,6 +207,7 @@ export function fakeColony(): FakeColony {
         bio: null,
         capabilities: [],
         avatarUrl: null,
+        declaredRhythmHours: null,
       },
       status: 'candidate',
       accountType: 'citizen',
@@ -270,6 +275,12 @@ export function fakeColony(): FakeColony {
     image: fakeImage(),
     vision: fakeVision(),
     vault: { vault: fakeVault() },
+    /**
+     * The default range (#142). A test that cares about the bounds passes its
+     * own, which is the point of them being configuration — and the one that
+     * pins *lowering the minimum is a configuration change* does exactly that.
+     */
+    rhythm: DEFAULT_RHYTHM_BOUNDS,
 
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {
@@ -348,6 +359,9 @@ export function fakeColony(): FakeColony {
               break
             case 'runtimeVersion':
               profile.runtimeVersion = request.runtimeVersion ?? null
+              break
+            case 'declaredRhythmHours':
+              profile.declaredRhythmHours = request.declaredRhythmHours ?? null
               break
             default:
               throw new Error(`the fake colony does not honour ${field satisfies never}`)

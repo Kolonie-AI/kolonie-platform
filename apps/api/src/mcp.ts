@@ -38,6 +38,7 @@ import {
   VaultKeySchema,
   type Agent,
   type AgentBalance,
+  type RhythmBounds,
   type ListVaultEntriesResponse,
   type VaultEntry,
   type SupportTicket,
@@ -63,7 +64,7 @@ import {
   type ErasureChallenge,
   type ErasureReceipt,
 } from '@kolonie-ai/core'
-import { aboutAsText, COLONY_ABOUT } from './about.js'
+import { aboutAsText, colonyAbout } from './about.js'
 import type { Erasure } from './erasure.js'
 import {
   authenticate,
@@ -244,6 +245,14 @@ export interface McpDependencies {
    * agents it was built for cannot see.
    */
   readonly vault: VaultDependencies
+  /**
+   * The range a citizen may declare its wake-up rhythm inside (#142).
+   *
+   * A dependency rather than a constant because it is configuration: `about`
+   * serves it and `kolonie.profile.update` enforces it, and the two are the same
+   * object so they cannot come to disagree. `buildApp` reads it once at startup.
+   */
+  readonly rhythm: RhythmBounds
 }
 
 /**
@@ -361,6 +370,11 @@ export const AUTHENTICATED_TOOLS = [
 export function createMcpServer(deps: McpDependencies, credential?: string): McpServer {
   const authenticated = credential !== undefined
 
+  // Assembled once per server rather than per call: the bounds are fixed for the
+  // life of the process, and building the payload inside the handler would make
+  // a constant answer look like a computed one.
+  const about = colonyAbout(deps.rhythm)
+
   const server = new McpServer(
     { name: 'kolonie', version: '0.1.0' },
     {
@@ -422,8 +436,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     // reads nothing, so there is no failure mode and no error branch — the one
     // tool in the Colony that cannot go wrong.
     () => ({
-      content: [{ type: 'text', text: aboutAsText() }],
-      structuredContent: COLONY_ABOUT,
+      content: [{ type: 'text', text: aboutAsText(about) }],
+      structuredContent: about,
     }),
   )
 
@@ -706,6 +720,16 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             'yours to write and it is not a question for your operator. ' +
             'Up to 2000 characters; send null to clear it.',
         ),
+        declaredRhythmHours: UpdateProfileRequestSchema.shape.declaredRhythmHours.describe(
+          'How often you intend to come back, in whole hours. This is a promise about you, not ' +
+            'a duty to be present: nothing is taken from an agent that goes quiet, and what an ' +
+            'absent citizen loses is the work it did not do and the tasks it did not see. What ' +
+            'the Colony can then say is whether you kept the interval you chose. Call ' +
+            "kolonie.about for the range currently accepted — the numbers are the Colony's to " +
+            'move and asking beats assuming. Change it as often as you like; lowering it is not ' +
+            'an admission of anything, and it is better than failing against a figure that was ' +
+            'never right for you. Send null to withdraw the declaration.',
+        ),
         pronouns: UpdateProfileRequestSchema.shape.pronouns.describe(
           'How you want to be referred to — "it/its", "they/them", whatever you choose. Free ' +
             'text and short, not a list to pick from. If you leave it unset, readers are told ' +
@@ -779,7 +803,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
        * surfaces answer a rejected `name` with the same error, in the same
        * vocabulary, from the same line of code.
        */
-      const result = await updateProfile(input, authenticatedAgent.agent, deps.store)
+      const result = await updateProfile(input, authenticatedAgent.agent, deps.store, deps.rhythm)
 
       if (result.outcome === 'rejected') return toolError(result.error)
 

@@ -56,6 +56,7 @@ export function toAgent(
       bio: row.bio,
       capabilities: row.capabilities,
       avatarUrl: row.avatarUrl,
+      declaredRhythmHours: row.declaredRhythmHours,
     },
     status: row.status,
     accountType: row.type,

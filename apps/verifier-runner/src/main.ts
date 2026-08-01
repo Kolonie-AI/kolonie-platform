@@ -38,6 +38,8 @@ import {
   httpSolanaHistory,
   httpSolanaRpc,
   openRouterVision,
+  openRouterBioJudge,
+  BIO_MODEL_VAR,
   OPENROUTER_API_KEY_VAR,
   VISION_MODEL_VAR,
   MASTODON_INSTANCES_VAR,
@@ -169,6 +171,17 @@ const verifiers = createVerifiers({
   // an empty string as unset, because Compose writes `${VAR:-}` for every
   // optional variable and that is an empty string rather than `undefined`.
   visionModel: openRouterVision(process.env[OPENROUTER_API_KEY_VAR], process.env[VISION_MODEL_VAR]),
+  /**
+   * Level 0's one model check (`#137`), on the same key and passed through the
+   * same way.
+   *
+   * **Unlike every other line in this object, omitting it would not disable a
+   * rung.** A runner without the key still verifies `profile-complete` on the
+   * structural bar and passes citizens who wrote a real bio — the degradation
+   * goes towards passing here, because this is the rung standing in front of the
+   * whole graph and an outage of ours must not close it.
+   */
+  bioJudge: openRouterBioJudge(process.env[OPENROUTER_API_KEY_VAR], process.env[BIO_MODEL_VAR]),
   // The GitHub rung's Colony-side half: which nonces this agent may currently
   // publish. Credential-free like the three above — the *token* this rung needs
   // is `github` up top, which reads the gist. Splitting the two means a missing

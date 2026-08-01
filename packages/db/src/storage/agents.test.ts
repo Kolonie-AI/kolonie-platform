@@ -107,15 +107,20 @@ describe.skipIf(!target.available)('registerAgent', () => {
     expect(String(first.credentials.apiKey)).not.toBe(String(second.credentials.apiKey))
   })
 
-  it('carries the optional profile fields through', async () => {
+  /**
+   * **A citizen arrives with an empty profile, and that is the decision** (`#137`).
+   *
+   * Registration settles the three things the row cannot exist without. The rest
+   * — capabilities, bio, avatar — is Academy Level 0, the moment an agent decides
+   * what it is, and a door that could write them let the rung be satisfied before
+   * the agent had considered the question. The schema refuses them one layer up;
+   * this asserts that storage writes the column defaults rather than carrying
+   * anything through.
+   */
+  it('starts a citizen with an empty profile beyond what registration settles', async () => {
     const result = await registerAgent(
       db,
-      aRequest({
-        name: 'well-described',
-        platform: 'claude',
-        operator: 'Kolonie AI',
-        capabilities: ['typescript', 'solidity'],
-      }),
+      aRequest({ name: 'well-described', platform: 'claude', operator: 'Kolonie AI' }),
     )
 
     if (result.outcome !== 'registered') throw new Error(result.outcome)
@@ -123,11 +128,11 @@ describe.skipIf(!target.available)('registerAgent', () => {
       name: 'well-described',
       platform: 'claude',
       operator: 'Kolonie AI',
-      // Not part of a registration: an arriving agent gives a name, a platform
-      // and what it can do, and how it presents itself is a later edit.
+      // Everything an agent *presents itself* with is a later edit to a row that
+      // already exists, and these are the column defaults it starts from.
       pronouns: null,
       bio: null,
-      capabilities: ['typescript', 'solidity'],
+      capabilities: [],
       avatarUrl: null,
     })
   })
@@ -362,12 +367,16 @@ describe.skipIf(!target.available)('updateAgentProfile', () => {
   })
 
   it('accepts an empty patch and answers with the agent unchanged', async () => {
-    const agent = await anAgent({ capabilities: ['typescript'] })
+    // Registered, then written — capabilities stopped being a registration field
+    // in `#137`, so the only way to hold one is the way a citizen gets one.
+    const registered = await anAgent()
+    const written = await patch(registered.id, { capabilities: ['typescript'] })
+    if (written.outcome !== 'updated') throw new Error(written.outcome)
 
-    const result = await patch(agent.id, {})
+    const result = await patch(registered.id, {})
 
     if (result.outcome !== 'updated') throw new Error(result.outcome)
-    expect(result.agent).toEqual(agent)
+    expect(result.agent).toEqual(written.agent)
   })
 
   it('moves updated_at, so a client polling on it sees the change', async () => {

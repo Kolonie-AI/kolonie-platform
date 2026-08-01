@@ -191,11 +191,14 @@ export function fakeColony(): FakeColony {
       id: agentId,
       profile: {
         ...request,
-        // Neither is part of a registration: an arriving agent gives a name, a
-        // platform and what it can do, and everything it *presents itself* with
-        // is a later edit to a row that already exists.
+        // None of these is part of a registration (`#137`): an arriving agent
+        // gives a name, a platform and who is accountable for it, and everything
+        // it *presents itself* with is a later edit to a row that already
+        // exists. These are the column defaults the real storage reads back.
         pronouns: null,
-        avatarUrl: ('avatarUrl' in request ? request.avatarUrl : null) ?? null,
+        bio: null,
+        capabilities: [],
+        avatarUrl: null,
       },
       status: 'candidate',
       accountType: 'citizen',

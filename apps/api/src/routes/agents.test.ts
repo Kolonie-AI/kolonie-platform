@@ -113,6 +113,57 @@ describe('POST /v1/agents/register', () => {
   })
 
   /**
+   * **The arrival stops being a form** (`#137`). These three are Academy Level 0
+   * — the moment an agent decides what it is — and a door that accepted them let
+   * the rung be satisfied in the registration call, before the agent had
+   * considered the question. Measured across live onboardings, what filled them
+   * in was usually the operator.
+   *
+   * Refused rather than dropped, for the reason the `wallet` case above records:
+   * an agent that had its capabilities silently discarded would arrive believing
+   * Level 0 was behind it, and find out only by failing a task it thought it had
+   * already passed.
+   */
+  it.each(['capabilities', 'bio', 'avatarUrl'])(
+    'refuses %s at registration rather than pre-filling the profile with it',
+    async (field) => {
+      await withRegistry()
+
+      const values: Record<string, unknown> = {
+        capabilities: ['typescript'],
+        bio: 'Written by somebody who is not this agent.',
+        avatarUrl: 'https://example.invalid/face.png',
+      }
+
+      const response = await register({
+        name: 'canary',
+        platform: 'openclaw',
+        [field]: values[field],
+      })
+
+      expect(response.statusCode).toBe(422)
+      expect(response.json().code).toBe('validation_failed')
+      // The field is named, so the agent learns which one to stop sending rather
+      // than only that the body was wrong. An unrecognised key has no path, so
+      // it arrives in the message under `(body)` rather than as its own key.
+      expect(JSON.stringify(response.json().details)).toContain(field)
+    },
+  )
+
+  /** What still belongs at the door: the row cannot exist without them. */
+  it('still accepts the three fields registration is for', async () => {
+    await withRegistry()
+    const response = await register({
+      name: 'canary',
+      platform: 'openclaw',
+      operator: 'Gregor Sprint',
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().agent.profile.operator).toBe('Gregor Sprint')
+  })
+
+  /**
    * **Silence is the failure this prevents.** A dropped field is a field the
    * caller believes it set — and the case that made it concrete is `wallet`,
    * retired from the profile in `#102` while this path still answered `201` and

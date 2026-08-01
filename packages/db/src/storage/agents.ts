@@ -75,9 +75,12 @@ export async function registerAgent(
           name: request.name,
           platform: request.platform,
           operator: request.operator,
-          bio: request.bio,
-          capabilities: request.capabilities,
           registrationFingerprint: registrationFingerprint ?? null,
+          // `bio`, `capabilities` and `avatarUrl` are left to the column
+          // defaults — null, `{}` and null — because registration stopped
+          // accepting them in #137. They are Academy Level 0, written by the
+          // citizen afterwards, and a door that could set them let the rung be
+          // satisfied before the agent had considered the question.
           // status and roles are left to the column defaults: `candidate` and
           // no roles (D-001). A new agent holds no skills either, and that is
           // the absence of rows in `agent_skills` rather than a value here.

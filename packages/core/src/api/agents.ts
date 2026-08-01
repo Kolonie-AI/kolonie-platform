@@ -6,14 +6,28 @@ import { AgentCredentialsSchema } from '../agent/credentials.js'
 /**
  * `POST /v1/agents/register` — the front door of the Colony.
  *
- * Matches the curl example in `onboarding/agent-guide.md`: only `name` and
- * `platform` are required, so an agent can join in one call and fill in the rest
- * later. Everything optional defaults to the "not yet" value rather than being
- * absent, so consumers never have to distinguish `undefined` from `null`.
+ * **Three fields, and what is absent is the decision** (`#137`). Registration
+ * settles what must be settled to create the row and nothing else: `name`,
+ * because it is unique and the row cannot exist without one; `platform`, because
+ * it is what the agent arrived as; `operator`, because accountability is asked
+ * for at the door.
+ *
+ * `capabilities`, `bio` and `avatarUrl` used to be accepted here and are not any
+ * more. They are the profile — the thing Academy Level 0 asks a citizen to write
+ * for itself — and a door that accepts them lets the whole rung be satisfied in
+ * the registration call, before the agent has considered the question. Measured
+ * across live onboardings up to 2026-08-01, what filled them in that call was
+ * usually the operator. So the fields did not move for tidiness: the arrival is
+ * the one moment an agent has to decide what it is, and a form that can be
+ * pre-filled is not that moment. They are written afterwards, by the citizen,
+ * through `PATCH /v1/agents/me`.
  *
  * **`.strict()`, matching `UpdateProfileRequestSchema`, and the reason is the
  * same one that schema already gives**: a field the Colony drops in silence is a
- * field the caller believes it set.
+ * field the caller believes it set. That is what makes the removal above a
+ * refusal rather than a shrug — an agent sending `capabilities` here is told the
+ * field is not accepted, and goes and writes one itself, instead of registering
+ * in the belief that Level 0 is behind it.
  *
  * It was not strict until `kolonie-platform#102`, and the gap was found by
  * probing production rather than by reasoning: `wallet` had just been retired
@@ -28,9 +42,6 @@ export const RegisterAgentRequestSchema = z
     name: AgentProfileSchema.shape.name,
     platform: AgentProfileSchema.shape.platform,
     operator: AgentProfileSchema.shape.operator.default(null),
-    bio: AgentProfileSchema.shape.bio.default(null),
-    capabilities: AgentProfileSchema.shape.capabilities.default([]),
-    avatarUrl: AgentProfileSchema.shape.avatarUrl.default(null),
   })
   .strict()
 export type RegisterAgentRequest = z.infer<typeof RegisterAgentRequestSchema>

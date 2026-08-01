@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   AgentSchema,
+  BIO_MIN_LENGTH,
   hasRole,
+  hasUsableBio,
   isActive,
   isProfileComplete,
   missingProfileFields,
@@ -115,26 +117,76 @@ describe('profile completeness', () => {
     ...overrides,
   })
 
-  it('is not met by a freshly registered agent', () => {
+  /** Past {@link BIO_MIN_LENGTH}, and about work rather than about being an AI. */
+  const realBio =
+    'I write TypeScript services and spend most of my time on data pipelines that have to keep ' +
+    'running when the upstream stops answering.'
+
+  it('is not met by a freshly registered agent, and names both requirements', () => {
     expect(isProfileComplete(profile())).toBe(false)
-    expect(missingProfileFields(profile())).toEqual(['capabilities'])
+    // Both, not the first one found. An agent told about `bio` alone would fix
+    // it, submit, and fail a second time on `capabilities`.
+    expect(missingProfileFields(profile())).toEqual(['bio', 'capabilities'])
   })
 
-  it('is met by one capability tag', () => {
-    expect(isProfileComplete(profile({ capabilities: ['typescript'] }))).toBe(true)
-    expect(missingProfileFields(profile({ capabilities: ['typescript'] }))).toEqual([])
+  it('is not met by a capability tag alone', () => {
+    const withTag = profile({ capabilities: ['typescript'] })
+    expect(isProfileComplete(withTag)).toBe(false)
+    expect(missingProfileFields(withTag)).toEqual(['bio'])
+  })
+
+  it('is not met by a bio alone', () => {
+    const withBio = profile({ bio: realBio })
+    expect(isProfileComplete(withBio)).toBe(false)
+    expect(missingProfileFields(withBio)).toEqual(['capabilities'])
+  })
+
+  it('is met by a bio and one capability tag', () => {
+    const complete = profile({ bio: realBio, capabilities: ['typescript'] })
+    expect(isProfileComplete(complete)).toBe(true)
+    expect(missingProfileFields(complete)).toEqual([])
   })
 
   /**
-   * A self-operated agent has no operator, and `wallet` belongs to Level 4.
-   * Requiring either here would make Level 0 unpassable for an honest agent —
-   * and Level 0 is the first step of the loop the whole MVP is measured on.
+   * The floor rejects a placeholder, which is what it is for. A bio one
+   * character short is the boundary worth pinning: the number is arguable and
+   * the behaviour at it should not be.
    */
-  it('does not require an operator or a wallet', () => {
-    expect(isProfileComplete(profile({ capabilities: ['research'] }))).toBe(true)
+  it('refuses a bio below the floor', () => {
+    const short = profile({ bio: 'x'.repeat(BIO_MIN_LENGTH - 1), capabilities: ['research'] })
+    expect(isProfileComplete(short)).toBe(false)
+    expect(missingProfileFields(short)).toEqual(['bio'])
+
+    const exact = profile({ bio: 'x'.repeat(BIO_MIN_LENGTH), capabilities: ['research'] })
+    expect(isProfileComplete(exact)).toBe(true)
+  })
+
+  /** Whitespace is not an answer, and a long enough run of it would otherwise be one. */
+  it('does not count whitespace towards the floor', () => {
+    const blank = profile({ bio: ' '.repeat(BIO_MIN_LENGTH + 10), capabilities: ['research'] })
+    expect(isProfileComplete(blank)).toBe(false)
+    expect(hasUsableBio(blank)).toBe(false)
+  })
+
+  /**
+   * A self-operated agent has no operator, `wallet` belongs to Level 4, and
+   * `pronouns` is asked for by the task and required by nothing — the field's own
+   * reason for existing is that `null` is a real answer. Requiring any of them
+   * here would make Level 0 unpassable for an honest agent, and Level 0 is the
+   * first step of the loop the whole MVP is measured on.
+   */
+  it('does not require an operator, a wallet or pronouns', () => {
+    const complete = profile({ bio: realBio, capabilities: ['research'] })
+    expect(complete.operator).toBeNull()
+    expect(complete.pronouns).toBeNull()
+    expect(isProfileComplete(complete)).toBe(true)
   })
 
   it('is lost again if the agent clears its capabilities', () => {
-    expect(isProfileComplete(profile({ capabilities: [] }))).toBe(false)
+    expect(isProfileComplete(profile({ bio: realBio, capabilities: [] }))).toBe(false)
+  })
+
+  it('is lost again if the agent clears its bio', () => {
+    expect(isProfileComplete(profile({ bio: null, capabilities: ['research'] }))).toBe(false)
   })
 })

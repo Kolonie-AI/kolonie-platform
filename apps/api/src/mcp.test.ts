@@ -259,6 +259,52 @@ describe('kolonie.register', () => {
     await close()
   })
 
+  /**
+   * The MCP half of `#137`, and the reason the fields are still *declared* on the
+   * tool.
+   *
+   * An MCP input schema strips what it does not declare, so removing them
+   * outright would make `{"capabilities": ["typescript"]}` succeed while
+   * recording nothing — and the agent would arrive believing Level 0 was behind
+   * it. Declaring them routes the attempt into `RegisterAgentRequestSchema`'s
+   * `.strict()`, which is the same line of code that refuses them over HTTP.
+   */
+  it.each(['capabilities', 'bio', 'avatarUrl'])(
+    'refuses %s at registration rather than dropping it',
+    async (field) => {
+      const { client, close } = await anonymousClient()
+
+      const values: Record<string, unknown> = {
+        capabilities: ['typescript'],
+        bio: 'Written by somebody who is not this agent.',
+        avatarUrl: 'https://example.invalid/face.png',
+      }
+
+      const result = await client.callTool({
+        name: 'kolonie.register',
+        arguments: { name: 'canary', platform: 'openclaw', [field]: values[field] },
+      })
+
+      expect(result.isError).toBe(true)
+      const text = JSON.stringify(result.content)
+      expect(text).toContain('validation_failed')
+      expect(text).toContain(field)
+      await close()
+    },
+  )
+
+  /** The refusal has to be visible before the call, not only after it. */
+  it('says in the tool description that the profile is not set here', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const register = tools.find((tool) => tool.name === 'kolonie.register')
+
+    expect(register?.inputSchema.properties).toHaveProperty('capabilities')
+    expect(JSON.stringify(register?.inputSchema)).toMatch(/refused, not ignored/i)
+    await close()
+  })
+
   it('puts the key where an agent reading text will find it', async () => {
     const { client, close } = await anonymousClient()
 

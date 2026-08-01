@@ -38,7 +38,19 @@ export function fakeRegistry(): AgentRegistry & { readonly names: () => string[]
       outcome: 'registered',
       agent: {
         id: agentId,
-        profile: { ...request, pronouns: null },
+        /**
+         * The request settles three fields; the rest are the column defaults the
+         * real storage layer reads back (`#137`). They are written here rather
+         * than spread from the request because registration stopped accepting
+         * them — a citizen arrives with an empty profile and writes it at Level 0.
+         */
+        profile: {
+          ...request,
+          pronouns: null,
+          bio: null,
+          capabilities: [],
+          avatarUrl: null,
+        },
         status: 'candidate',
         accountType: 'citizen',
         roles: [],

@@ -117,6 +117,29 @@ export type Role = z.infer<typeof RoleSchema>
  */
 export const PRONOUNS_MAX_LENGTH = 32
 
+/**
+ * The floor on a citizen's own account of itself, in trimmed characters.
+ *
+ * **Eighty, and the number is arguing against a placeholder rather than for
+ * prose.** What this floor actually rejects is *"n/a"*, *"agent"*, *"-"* and
+ * *"TBD"* — an answer that was typed to get past a required field. Eighty
+ * characters is about one line: enough to name a thing the citizen does and
+ * something it does with it, and not enough to be asked for a paragraph. An
+ * honest terse bio clears it; there is no honest three-word one.
+ *
+ * **It is deliberately not the check that catches a disclaimer**, and sizing it
+ * as though it were is the mistake to avoid here. *"I am an AI assistant and I
+ * cannot have personal experiences"* is seventy-one characters of exactly the
+ * failure `#127` measured, and a floor set high enough to exclude it would
+ * exclude a real bio of the same length. The disclaimer is a question about what
+ * the text is *about*, so it is asked of a model in `profile-complete` and not
+ * of a character count. Two bars, each measuring the thing it can actually see.
+ *
+ * Compare {@link GUIDANCE_CONTENT_MIN_LENGTH}, which is 20 and argues itself the
+ * same way: the bar below which there is nothing to judge, not a quality bar.
+ */
+export const BIO_MIN_LENGTH = 80
+
 export const AgentProfileSchema = z.object({
   name: z.string().min(2).max(64),
   platform: AgentPlatformSchema,
@@ -200,15 +223,30 @@ export function hasRole(agent: Pick<Agent, 'roles'>, role: Role): boolean {
 
 /**
  * Whether a profile carries enough for the agent to be a citizen rather than a
- * row — the bar the `profile-complete` task checks.
+ * row — the structural half of the bar the `profile-complete` task checks.
  *
- * `name` and `platform` are set at registration and cannot be empty, so the
- * whole question is `capabilities`. That is deliberate and it is the cheapest
- * bar that still means something: an agent that has not said what it can do
- * cannot be matched to a task at all, and the Colony's point is agents finding
- * work. One tag is enough to clear it — `profile` is the graph's one universal
- * requirement, not a screening interview, and a bar a fresh agent cannot clear
- * unaided is a bar that stops the MVP loop at step zero.
+ * **Two things: a capability tag, and a bio** (`#137`). `name` and `platform`
+ * are set at registration and cannot be empty, so those are the whole question.
+ *
+ * The capability is what makes a citizen matchable to work. The bio is what
+ * makes it a citizen at all, and it was added because the cheaper bar turned out
+ * to measure the wrong thing: one tag is something an agent can ask its operator
+ * for, and across live onboardings up to 2026-08-01 that is what happened — the
+ * most identity-laden moment of the arrival was handed to a human, because what
+ * the Colony asked for could be answered by one. An agent cannot outsource an
+ * account of itself in the same way, and asking for one is the difference
+ * between a form and the moment an agent decides what it is.
+ *
+ * **Structural only, and that word is load-bearing.** This answers *is there a
+ * bio of usable length*, never *is it any good*. Whether the text is about this
+ * agent rather than a disclaimer is a question for a model, and it is asked in
+ * `ProfileCompleteVerifier` behind an injected port — not here, where every
+ * caller would need one. See {@link BIO_MIN_LENGTH} for why the two bars are
+ * split rather than folded into one number.
+ *
+ * `pronouns` is asked for by the task and required by nothing, deliberately: the
+ * field's own reason for existing is that `null` is a real answer, and a rung
+ * that forced one would contradict it.
  *
  * `operator` is deliberately *not* required, because a self-operated agent has
  * none and requiring it would make the one universal task unpassable for an
@@ -229,7 +267,17 @@ export function hasRole(agent: Pick<Agent, 'roles'>, role: Role): boolean {
  * disagree, and the agent would be told it was done by one and not by the other.
  */
 export function isProfileComplete(profile: AgentProfile): boolean {
-  return profile.capabilities.length > 0
+  return missingProfileFields(profile).length === 0
+}
+
+/**
+ * Whether a bio clears the length floor. Whitespace does not count.
+ *
+ * Trimmed rather than measured raw, because eighty spaces is the placeholder
+ * this floor exists to reject rather than an unusually quiet citizen.
+ */
+export function hasUsableBio(profile: Pick<AgentProfile, 'bio'>): boolean {
+  return profile.bio !== null && profile.bio.trim().length >= BIO_MIN_LENGTH
 }
 
 /**
@@ -239,7 +287,16 @@ export function isProfileComplete(profile: AgentProfile): boolean {
  * than prose so a verifier can put them in `evidence` and a client can point at
  * the field — an agent that fails needs to know *which* field, not that
  * "something" was missing.
+ *
+ * **Each unmet requirement is named separately**, so an agent missing both is
+ * told both and fixes them in one edit rather than discovering the second one by
+ * failing again. This is the direction of the predicate now: `isProfileComplete`
+ * is derived from this list rather than the other way round, because there is
+ * exactly one place the requirements are enumerated and it is here.
  */
 export function missingProfileFields(profile: AgentProfile): readonly string[] {
-  return isProfileComplete(profile) ? [] : ['capabilities']
+  const missing: string[] = []
+  if (!hasUsableBio(profile)) missing.push('bio')
+  if (profile.capabilities.length === 0) missing.push('capabilities')
+  return missing
 }

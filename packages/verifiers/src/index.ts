@@ -1,5 +1,5 @@
 import type { AgentId, TaskType, Verifier } from '@kolonie-ai/core'
-import { ProfileCompleteVerifier } from './profile-complete.js'
+import { ProfileCompleteVerifier, type BioJudge } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
 import { GithubAccountVerifier, type GithubChallenges } from './github-account.js'
 import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
@@ -74,7 +74,13 @@ export {
   type EmailSendState,
   type MailboxGrants,
 } from './email-send.js'
-export { ProfileCompleteVerifier } from './profile-complete.js'
+export {
+  ProfileCompleteVerifier,
+  type BioJudge,
+  type BioJudgement,
+  type ProfileCompleteDependencies,
+} from './profile-complete.js'
+export { bioPromptFor, BIO_MODEL_VAR, DEFAULT_BIO_MODEL, openRouterBioJudge } from './bio-judge.js'
 export {
   contributionText,
   GithubContributionVerifier,
@@ -337,6 +343,23 @@ export interface VerifierDependencies {
    * that costs a call per transaction against the endpoint they share.
    */
   readonly solanaHistory?: SolanaHistory
+  /**
+   * Reads a citizen's bio and answers one question about it (`#137`).
+   *
+   * **The only optional dependency here whose absence does not remove a
+   * verifier.** `profile-complete` is the graph's one universal requirement, so
+   * a process that dropped it would leave every arriving citizen stuck at Level
+   * 0 — worse, by any measure, than a Level 0 that checks the structural bar and
+   * not the disclaimer. Without this the verifier is still built and still
+   * passes; see `BioJudge` for why the degradation goes this way round here and
+   * the other way at the image rung.
+   *
+   * Its own port rather than a method on `visionModel`, which asks a different
+   * vendor question about a different rung: one reads a picture and one reads a
+   * sentence, and a shared port would let a wiring mistake answer a bio with an
+   * image verdict.
+   */
+  readonly bioJudge?: BioJudge
   /** The specification the Colony drew for an agent at the image rung. */
   readonly imageChallenges?: ImageChallenges
   /**
@@ -443,7 +466,12 @@ export interface VerifierDependencies {
  * is the one place that supplies the rest, and it is the only place that should.
  */
 export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegistry {
-  const verifiers: Verifier[] = [new ProfileCompleteVerifier()]
+  /**
+   * Built unconditionally, judge or no judge. Every other verifier here is left
+   * out when its dependencies are missing; this one cannot be, because it is the
+   * rung every citizen has to pass before the graph opens at all.
+   */
+  const verifiers: Verifier[] = [new ProfileCompleteVerifier({ bioJudge: deps.bioJudge })]
 
   if (deps.gates !== undefined) {
     verifiers.push(new BrowserCapabilityVerifier({ gates: deps.gates }))

@@ -70,21 +70,55 @@ export const EMAIL_TOKEN_BYTES = 9
 export const EMAIL_CODE_BYTES = 6
 
 /**
- * How many challenges one citizen may ever open on the granting node.
+ * How long the rolling window is that bounds how often the Colony will write.
  *
- * **The ceiling that makes it per-agent rather than merely per-unit-time**
- * (`kolonie-docs#92`). Counted across every address the agent has ever named and
- * never reset — a citizen that cannot prove an inbox in five tries has a problem
- * a sixth mail does not solve.
+ * **The window is what protects the sending domain; the ceiling below is only a
+ * backstop** (`#153`). What a mail provider's reputation systems react to is
+ * volume over time, so a bound on volume over time is the one that matches the
+ * thing being protected — and it is the one that heals, which a lifetime count
+ * never does.
  *
- * It exists because the granting node writes to an address the agent chose,
- * which the round-trip form never did. The `send` half used to bound that
- * implicitly: the Colony only ever answered mail that had already arrived. With
- * that gone, an unbounded rung is an outbound mailer pointed at attacker-chosen
- * addresses, and the first thing it costs is the sending domain's reputation —
- * which is shared with every future citizen the Colony needs to reach.
+ * Thirty days, because that is roughly the period over which a sending
+ * reputation is scored, and because it is long enough that a citizen working
+ * through a run of bad providers in one afternoon does not simply move its
+ * problem to tomorrow.
  */
-export const EMAIL_CHALLENGE_LIFETIME_CAP = 5
+export const EMAIL_CHALLENGE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * How many granting challenges one citizen may open inside
+ * {@link EMAIL_CHALLENGE_WINDOW_MS}.
+ *
+ * **Five, which is the number the lifetime cap used to be** — kept exactly where
+ * it does the work it was written for. Five mails to addresses one citizen chose,
+ * in a month, is a bound the sending domain never notices; a citizen that cannot
+ * prove an inbox in five tries *this month* has a problem a sixth mail does not
+ * solve, which was always the real argument.
+ *
+ * What changed is only the reckoning. Counted for a whole life, five was a wall
+ * in front of the model the Colony now wants: a citizen that experiments with a
+ * throwaway, obtains a real mailbox, and replaces it two years later has spent
+ * its allowance on decisions the account register exists to make ordinary
+ * (`#150`).
+ */
+export const EMAIL_CHALLENGE_WINDOW_CAP = 5
+
+/**
+ * How many granting challenges one citizen may open across its whole life.
+ *
+ * **The backstop against a citizen that grinds slowly**, and nothing else. A
+ * window alone bounds any month and permits an unbounded total at five a month
+ * for ever; this is what stops that without touching the case the window is
+ * written for.
+ *
+ * Forty is eight full windows — a citizen would have to spend its maximum every
+ * month for two-thirds of a year to reach it. Set against what legitimate use
+ * costs: three mailboxes proved over three years, with a failed attempt or two
+ * against each, is under ten. A citizen that meets this has not been unlucky
+ * with providers, and the answer it needs is a support ticket rather than a
+ * forty-first mail.
+ */
+export const EMAIL_CHALLENGE_LIFETIME_CEILING = 40
 
 /**
  * One attempt at one of the two mailbox nodes.

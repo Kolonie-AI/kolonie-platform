@@ -483,3 +483,203 @@ describe('POST /v1/academy/email/code', () => {
     expect(response.json().code).toBe('task_expired')
   })
 })
+
+/**
+ * The two bounds, over HTTP (`#153`).
+ *
+ * What the route has to get right is not the arithmetic — that is asserted
+ * against a real database in `packages/db` — but that the two refusals reach the
+ * agent as *different situations*. One is waited out and the other is not.
+ */
+describe('what bounds how often the Colony will write', () => {
+  const spendWindow = async () => {
+    for (let index = 0; index < 5; index += 1) {
+      await open(`try-${index}@example.org`)
+      challenges.expire(agentId)
+    }
+  }
+
+  it('refuses at the window and says when to ask again', async () => {
+    await spendWindow()
+
+    const refused = await open('one-more@example.org')
+
+    expect(refused.statusCode).toBe(409)
+    expect(refused.json().message).toContain('Ask again after')
+    // Machine-readable beside the prose, so an agent does not have to parse a
+    // sentence to learn when to come back.
+    expect(Date.parse(String(refused.json().details?.retryAfter))).toBeGreaterThan(Date.now())
+  })
+
+  it('lets the citizen through once the window has passed', async () => {
+    await spendWindow()
+    expect((await open('one-more@example.org')).statusCode).toBe(409)
+
+    challenges.ageOutOfWindow(agentId)
+
+    expect((await open('one-more@example.org')).statusCode).toBe(201)
+  })
+
+  /**
+   * The recoverable refusal must not read like the permanent one. An agent told
+   * to open a support ticket when all it had to do was wait has been sent to the
+   * wrong place, and it is the more common of the two.
+   */
+  it('does not tell a citizen at the window to open a support ticket', async () => {
+    await spendWindow()
+
+    expect((await open('one-more@example.org')).json().message).not.toContain('support')
+  })
+})
+
+/**
+ * The citizen's own mailbox record, and the move that keeps it usable (`#149`).
+ *
+ * D-047 made the first proved address permanent — which fixed the badge's moving
+ * subject and, with no promotion reachable from anywhere, left a citizen that
+ * lost that mailbox reachable for ever at an address it cannot read.
+ */
+describe('GET /v1/mailboxes', () => {
+  it('names what the citizen proved and which address the Colony writes to', async () => {
+    await climb('first@example.org')
+    challenges.proveDirectly(agentId, 'second@example.org')
+
+    const response = await post({
+      method: 'GET',
+      url: '/v1/mailboxes',
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().mailboxes).toEqual([
+      expect.objectContaining({ address: 'first@example.org', reach: true }),
+      expect.objectContaining({ address: 'second@example.org', reach: false }),
+    ])
+  })
+
+  /** Served rather than only written into a task text that cannot change with it. */
+  it('reports the limits and what has been spent against them', async () => {
+    await open('citizen@example.org')
+
+    const response = await post({
+      method: 'GET',
+      url: '/v1/mailboxes',
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+
+    expect(response.json().limits).toMatchObject({ openedInWindow: 1, openedEver: 1 })
+    expect(response.json().limits.windowCap).toBeGreaterThan(0)
+    expect(response.json().limits.ceiling).toBeGreaterThan(response.json().limits.windowCap)
+  })
+
+  it('refuses an anonymous caller', async () => {
+    const response = await post({ method: 'GET', url: '/v1/mailboxes' })
+
+    expect(response.statusCode).toBe(401)
+  })
+
+  /**
+   * **Not gated on the mailer**, unlike every rung route in this file. A citizen
+   * that cannot read the address the Colony writes to is exactly the citizen that
+   * needs this during a mail outage.
+   */
+  it('answers even when the Colony cannot send mail', async () => {
+    const withoutMailer = buildApp({
+      vault: { vault: fakeVault() },
+      registry: fakeRegistry(),
+      store,
+      catalogue: fakeCatalogue(),
+      submissions: fakeSubmissions(),
+      guidance: fakeGuidance(),
+      support: support({ desk: fakeSupportDesk() }),
+      erasure: erasure({ desk: fakeErasureDesk() }),
+      retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
+      academy: fakeAcademy(),
+      keys: fakeKeys(),
+      solana: fakeSolana(),
+      pow: fakePow(),
+      vision: fakeVision(),
+      github: fakeGithub(),
+      contributions: fakeContributions(),
+      social: fakeSocial(),
+      domain: fakeDomain(),
+      website: fakeWebsite(),
+      image: fakeImage(),
+      email: { ...fakeEmail(challenges), mailer: undefined, inboundSecret: FAKE_INBOUND_SECRET },
+    })
+    await withoutMailer.ready()
+
+    const response = await withoutMailer.inject({
+      method: 'GET',
+      url: '/v1/mailboxes',
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+
+    expect(response.statusCode).toBe(200)
+    await withoutMailer.close()
+  })
+})
+
+describe('POST /v1/mailboxes/promote', () => {
+  const promote = (email: string) => authed('/v1/mailboxes/promote', { email })
+
+  it('moves the address the Colony writes to', async () => {
+    await climb('first@example.org')
+    challenges.proveDirectly(agentId, 'second@example.org')
+
+    const response = await promote('second@example.org')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ address: 'second@example.org', moved: true })
+    expect(await challenges.proved(agentId)).toMatchObject({ address: 'second@example.org' })
+  })
+
+  /**
+   * The rejection case: an address this citizen never proved cannot become the
+   * one the Colony writes to. Otherwise the reach address would be an assertion
+   * rather than a proof, which is the whole point of the rung underneath it.
+   */
+  it('refuses an address the citizen has not proved', async () => {
+    await climb('first@example.org')
+
+    const response = await promote('never-proved@example.org')
+
+    expect(response.statusCode).toBe(404)
+    expect(response.json().message).toContain('have not proved')
+  })
+
+  /**
+   * `already_primary` must not flatten into a failure: a citizen asking for the
+   * state it already has wanted that state, and a retry after a dropped
+   * connection would otherwise look like a refusal.
+   */
+  it('succeeds when the address is already the one the Colony writes to', async () => {
+    await climb('first@example.org')
+
+    const response = await promote('first@example.org')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ address: 'first@example.org', moved: false })
+  })
+
+  it('refuses an anonymous caller', async () => {
+    const response = await post({
+      method: 'POST',
+      url: '/v1/mailboxes/promote',
+      payload: { email: 'first@example.org' },
+    })
+
+    expect(response.statusCode).toBe(401)
+  })
+
+  /** No agent id in the payload, on either operation: the subject is the key holder. */
+  it('never lets a caller name another citizen', async () => {
+    await climb('first@example.org')
+    const other = store.issue()
+    challenges.proveDirectly(other.agent.id, 'theirs@example.org')
+
+    const response = await promote('theirs@example.org')
+
+    expect(response.statusCode).toBe(404)
+  })
+})

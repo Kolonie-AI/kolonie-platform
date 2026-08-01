@@ -3314,7 +3314,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
   const bothDoors = async () => {
     const store = fakeStore()
     const mailer = fakeMailer()
-    const email = fakeEmail(fakeEmailChallenges(), mailer)
+    const challenges = fakeEmailChallenges()
+    const email = fakeEmail(challenges, mailer)
     const app = buildApp({
       vault: { vault: fakeVault() },
       email,
@@ -3340,7 +3341,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
     })
     await app.ready()
 
-    const { apiKey } = store.issue({})
+    const { apiKey, agent } = store.issue({})
     const { client, close } = await connectedClient(
       {
         vault: { vault: fakeVault() },
@@ -3387,6 +3388,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
       app,
       client,
       apiKey: String(apiKey),
+      agentId: agent.id,
+      challenges,
       deliver,
       codeFromMail,
       mailer,
@@ -3519,6 +3522,115 @@ describe('kolonie.academy.email.challenge and .code', () => {
     expect(names).not.toContain('kolonie.academy.email.challenge')
     expect(names).not.toContain('kolonie.academy.email.code')
     await close()
+  })
+
+  /**
+   * The mailbox record and the promotion, over MCP (`#149`).
+   *
+   * `promoteMailbox` and `provedMailboxes` were written with D-047 and reachable
+   * from nothing, so the trap that fix was written to prevent — a citizen
+   * reachable for ever at an address it cannot read — was live one layer above
+   * where the fix landed. These two tools are that layer.
+   */
+  describe('kolonie.mailboxes.list and .promote', () => {
+    it('names what the citizen proved and which one the Colony writes to', async () => {
+      const { client, challenges, agentId, codeFromMail, close } = await bothDoors()
+
+      await client.callTool({
+        name: 'kolonie.academy.email.challenge',
+        arguments: { email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.email.code',
+        arguments: { code: codeFromMail() },
+      })
+      challenges.proveDirectly(agentId, 'second@example.org')
+
+      const listed = await client.callTool({ name: 'kolonie.mailboxes.list', arguments: {} })
+
+      expect(listed.isError).toBeFalsy()
+      expect(listed.structuredContent).toMatchObject({
+        mailboxes: [
+          { address: CLAIMED, reach: true },
+          { address: 'second@example.org', reach: false },
+        ],
+      })
+      await close()
+    })
+
+    it('moves the address the Colony writes to', async () => {
+      const { client, challenges, agentId, codeFromMail, close } = await bothDoors()
+
+      await client.callTool({
+        name: 'kolonie.academy.email.challenge',
+        arguments: { email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.email.code',
+        arguments: { code: codeFromMail() },
+      })
+      challenges.proveDirectly(agentId, 'second@example.org')
+
+      const promoted = await client.callTool({
+        name: 'kolonie.mailboxes.promote',
+        arguments: { email: 'second@example.org' },
+      })
+
+      expect(promoted.isError).toBeFalsy()
+      expect(promoted.structuredContent).toEqual({ address: 'second@example.org', moved: true })
+      expect(await challenges.proved(agentId)).toMatchObject({ address: 'second@example.org' })
+      await close()
+    })
+
+    /**
+     * The sentence an agent needs before it dares call this. Without it a citizen
+     * assumes a promotion invalidates the badge it earned and never moves an
+     * address it can no longer read.
+     */
+    it('says the email-send badge is neither re-earned nor revoked', async () => {
+      const { client, close } = await bothDoors()
+
+      const { tools } = await client.listTools()
+      const tool = tools.find((candidate) => candidate.name === 'kolonie.mailboxes.promote')
+
+      expect(tool?.description).toMatch(/does not re-earn or revoke the email-send badge/i)
+      await close()
+    })
+
+    /** Neither operation takes an agent id: the subject is whoever holds the key. */
+    it('never offers a way to name another citizen', async () => {
+      const { client, close } = await bothDoors()
+
+      const { tools } = await client.listTools()
+      const list = tools.find((candidate) => candidate.name === 'kolonie.mailboxes.list')
+      const promote = tools.find((candidate) => candidate.name === 'kolonie.mailboxes.promote')
+
+      expect(Object.keys(list?.inputSchema.properties ?? {})).toEqual([])
+      expect(Object.keys(promote?.inputSchema.properties ?? {})).toEqual(['email'])
+      await close()
+    })
+
+    it('refuses an address the citizen has not proved', async () => {
+      const { client, codeFromMail, close } = await bothDoors()
+
+      await client.callTool({
+        name: 'kolonie.academy.email.challenge',
+        arguments: { email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.email.code',
+        arguments: { code: codeFromMail() },
+      })
+
+      const refused = await client.callTool({
+        name: 'kolonie.mailboxes.promote',
+        arguments: { email: 'never-proved@example.org' },
+      })
+
+      expect(refused.isError).toBeTruthy()
+      expect(JSON.stringify(refused.content)).toContain('have not proved')
+      await close()
+    })
   })
 })
 

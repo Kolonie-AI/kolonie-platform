@@ -64,8 +64,10 @@ import {
   emailUnavailable,
   handleInboundMail,
   inboundAuthorised,
+  listMailboxes,
   openEmailChallenge,
   openEmailSendChallenge,
+  promoteReachAddress,
   submitEmailCode,
   type EmailDependencies,
 } from './email.js'
@@ -464,6 +466,8 @@ export function buildApp({
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/graph',
           '/v1/academy/challenges',
+          '/v1/mailboxes',
+          '/v1/mailboxes/promote',
           '/v1/vault',
           '/v1/vault/:key',
         ],
@@ -1010,6 +1014,61 @@ export function buildApp({
         }
 
         return reply.status(200).send({ verified: true, ...result.response })
+      })
+
+      /**
+       * The mailboxes this citizen proved, and where the Colony writes (#149).
+       *
+       * **Outside `/academy/` and without the 503 branch its neighbours have.**
+       * This is not a rung: it is the citizen's own record, and answering it
+       * needs no mailer. Refusing it during a mail outage would take the remedy
+       * away from precisely the citizen that needs it — the one whose reach
+       * address it can no longer read.
+       */
+      v1.get('/mailboxes', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await listMailboxes(authenticated.agent.id, email)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send(result.response)
+      })
+
+      /**
+       * Move the reach address to another mailbox this citizen proved (#149).
+       *
+       * `POST /mailboxes/promote` rather than a `PATCH` on one address: what
+       * changes is not the mailbox but which of them the Colony writes to, and
+       * that is one fact about the citizen rather than a field on a row. The
+       * same reasoning that gives the vault `PUT /vault/:key` gives this a verb.
+       */
+      v1.post('/mailboxes/promote', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await promoteReachAddress(authenticated.agent.id, request.body, email)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send(result.response)
       })
 
       /**

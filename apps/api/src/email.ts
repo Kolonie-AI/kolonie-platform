@@ -4,19 +4,24 @@ import { fieldErrors } from './validation.js'
 import type { AgentId, ApiError } from '@kolonie-ai/core'
 import type {
   Database,
+  EmailChallengeLimits,
   EmailChallengeState,
   EmailMintOutcome,
   EmailRedemption,
   InboundOutcome,
+  MailboxPromotion,
 } from '@kolonie-ai/db'
 import {
   CHALLENGE_TASK_TYPES,
+  emailChallengeLimits,
   latestEmailChallenge,
   latestEmailSendChallenge,
   markEmailSent,
   mintEmailChallenge,
   mintEmailSendChallenge,
+  promoteMailbox,
   provedMailbox,
+  provedMailboxes,
   recordInboundMail,
   redeemEmailCode,
 } from '@kolonie-ai/db'
@@ -51,6 +56,33 @@ export interface EmailChallenges {
   latestSend(agentId: AgentId): Promise<EmailChallengeState | null>
   /** The mailbox the citizen proved, which the badge is about. D-018. */
   proved(agentId: AgentId): Promise<{ address: string; grantedAt: string } | undefined>
+  /**
+   * Every mailbox this citizen proved, the reach address first (#149).
+   *
+   * The read the promotion below is unusable without: a citizen that cannot see
+   * which of its addresses the Colony writes to cannot decide whether to move it.
+   */
+  held(agentId: AgentId): Promise<readonly ProvedMailbox[]>
+  /** Move the reach address to another mailbox this citizen proved (#149). */
+  promote(agentId: AgentId, address: string): Promise<MailboxPromotion>
+  /** What bounds this citizen's granting challenges, and what it has spent (#153). */
+  limits(agentId: AgentId): Promise<EmailChallengeLimits>
+}
+
+/** One proved mailbox, as the citizen it belongs to needs to see it. */
+export interface ProvedMailbox {
+  readonly address: string
+  readonly grantedAt: string
+  /**
+   * Whether this is the address the Colony writes to.
+   *
+   * **Called `reach` here where storage calls it `primary`**, because *primary*
+   * is two concepts and only one of them lives on mail (D-047, `#150`): for a
+   * mailbox it is an obligation — the Colony has exactly one place it writes to
+   * — and for every other kind of account it is a preference with nothing on the
+   * other end of it. The word an agent reads should be the one that says which.
+   */
+  readonly reach: boolean
 }
 
 /**
@@ -133,6 +165,14 @@ export function databaseEmailChallenges(db: Database): EmailChallenges {
     mintSend: (agentId, address) => mintEmailSendChallenge(db, agentId, address),
     latestSend: (agentId) => latestEmailSendChallenge(db, agentId),
     proved: (agentId) => provedMailbox(db, agentId),
+    held: async (agentId) =>
+      (await provedMailboxes(db, agentId)).map((mailbox) => ({
+        address: mailbox.address,
+        grantedAt: mailbox.grantedAt,
+        reach: mailbox.primary,
+      })),
+    promote: (agentId, address) => promoteMailbox(db, agentId, address),
+    limits: (agentId) => emailChallengeLimits(db, agentId),
   }
 }
 
@@ -202,6 +242,117 @@ export type OpenSendOutcome =
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**
+ * Which address to promote. **`email` rather than an id**, so that the citizen
+ * names the thing it read in the listing rather than a handle it has to carry
+ * between two calls — and so the same address it typed into the challenge is the
+ * one it types here.
+ *
+ * No agent id, in this schema or anywhere else on these two operations: the
+ * subject is whoever holds the key, and there is nowhere to put somebody else's
+ * (the rule `kolonie.me` and `updateProfile` are built on).
+ */
+export const PromoteMailboxSchema = z.object({ email: ClaimedAddressSchema })
+
+/** What a citizen holds in mail, and what it may still spend. */
+export type MailboxesResponse = {
+  readonly mailboxes: readonly ProvedMailbox[]
+  /**
+   * The bounds, served rather than only written down (#153).
+   *
+   * Here rather than on a surface of its own, because this is the read a citizen
+   * makes when it is thinking about mailboxes at all — and the numbers are only
+   * useful next to what it already holds.
+   */
+  readonly limits: EmailChallengeLimits
+}
+
+export type MailboxesOutcome =
+  | { readonly outcome: 'read'; readonly response: MailboxesResponse }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+export type PromotionOutcome =
+  | {
+      readonly outcome: 'promoted'
+      readonly response: { readonly address: string; readonly moved: boolean }
+    }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * Every mailbox this citizen proved, with the reach address marked (#149).
+ *
+ * **Not gated on the mailer.** Every other operation in this file needs one and
+ * refuses without it, but reading what you already proved — and moving the
+ * address the Colony writes to — send no mail at all. A citizen locked out of its
+ * reach address during a mail outage is exactly the citizen that most needs to
+ * move it.
+ */
+export async function listMailboxes(
+  agentId: AgentId,
+  deps: EmailDependencies,
+): Promise<MailboxesOutcome> {
+  const [mailboxes, limits] = await Promise.all([
+    deps.challenges.held(agentId),
+    deps.challenges.limits(agentId),
+  ])
+
+  return { outcome: 'read', response: { mailboxes, limits } }
+}
+
+/**
+ * Move the Colony's reach address to another mailbox this citizen proved (#149).
+ *
+ * **The trap this closes.** D-047 made the first proved address permanent, which
+ * fixed the badge's moving subject and, on its own, left a citizen that lost that
+ * mailbox reachable for ever at an address it cannot read. `promoteMailbox` was
+ * written in the same change to prevent exactly that and was reachable from
+ * nothing until this.
+ *
+ * **Promoting the address that is already the reach address is a success**, not
+ * an error. Storage answers `already_primary` and flattening that into a refusal
+ * would punish a citizen for asking about a state it wanted anyway — and would
+ * make a retry after a dropped connection look like a failure.
+ */
+export async function promoteReachAddress(
+  agentId: AgentId,
+  body: unknown,
+  deps: EmailDependencies,
+): Promise<PromotionOutcome> {
+  const parsed = PromoteMailboxSchema.safeParse(body)
+
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: 'Send {"email": "<one of the addresses you have proved>"}.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  const result = await deps.challenges.promote(agentId, parsed.data.email)
+
+  if (result.outcome === 'not_proved') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message:
+          `You have not proved ${parsed.data.email}, so it cannot become the address the Colony ` +
+          'writes to. kolonie.mailboxes.list names the ones you have. To add another, open a ' +
+          'mailbox challenge for it with kolonie.academy.email.challenge and hand the code back ' +
+          '— proving a second mailbox is ordinary and takes nothing away from the first.',
+      },
+    }
+  }
+
+  return {
+    outcome: 'promoted',
+    response: { address: result.address, moved: result.outcome === 'promoted' },
+  }
+}
+
+/**
  * Open the granting challenge and mail the code to the address the agent named.
  *
  * **The Colony writes first** (`kolonie-docs#92`). Reading a nonce it sent is the
@@ -250,17 +401,40 @@ export async function openEmailChallenge(
       }
     }
 
-    if (result.outcome === 'cap_reached') {
+    // **Two refusals rather than one, because they are two situations** (#153).
+    // The window is the common one and it is recoverable, so it says when to ask
+    // again; the ceiling is neither, so it says so and points somewhere a
+    // citizen can actually go. A single message could only have told the common
+    // case the permanent one's story.
+    if (result.outcome === 'window_reached') {
       return {
         outcome: 'rejected',
         error: {
           code: 'conflict',
           message:
-            `You have opened ${result.cap} mailbox challenges, which is the limit — it counts ` +
-            'every address you have ever named and does not reset. The Colony writes to an ' +
-            'address you choose, so the number of those it will write to for one citizen is ' +
-            'bounded. If you cannot read any mailbox you hold, this rung is not the problem to ' +
-            'solve next; open a support ticket.',
+            `You have opened ${result.limits.openedInWindow} mailbox challenges recently, which ` +
+            'is as many as the Colony will write for one citizen in that time. Ask again after ' +
+            `${result.retryAfter} and this will work. The bound is on how often the Colony ` +
+            'sends, not on how many mailboxes you may hold — proving a second or a third one is ' +
+            'ordinary, and kolonie.mailboxes.list reports where you stand against both limits.',
+          // Machine-readable beside the prose, the way `rate_limited` carries
+          // `retryAfterSeconds`: an agent should not have to parse a sentence to
+          // learn when to come back, and this is the recoverable refusal.
+          details: { retryAfter: result.retryAfter },
+        },
+      }
+    }
+
+    if (result.outcome === 'ceiling_reached') {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            `You have opened ${result.limits.openedEver} mailbox challenges, which is the most ` +
+            'the Colony will ever write for one citizen. This one does not reset and no waiting ' +
+            'clears it. If you cannot read any mailbox you hold, this rung is not the problem to ' +
+            'solve next; open a support ticket with kolonie.support.open.',
         },
       }
     }

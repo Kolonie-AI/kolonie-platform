@@ -5,7 +5,9 @@ import type { Database } from '../client.js'
 import {
   emailChallenges,
   mailboxIdentity,
-  EMAIL_CHALLENGE_LIFETIME_CAP,
+  EMAIL_CHALLENGE_LIFETIME_CEILING,
+  EMAIL_CHALLENGE_WINDOW_CAP,
+  EMAIL_CHALLENGE_WINDOW_MS,
   EMAIL_CODE_BYTES,
   EMAIL_TOKEN_BYTES,
 } from '../schema/email.js'
@@ -13,7 +15,7 @@ import { isUniqueViolation } from './errors.js'
 import { toTimestamp } from './rows.js'
 import { openAttemptForChallenge } from './challenge-tasks.js'
 
-export { EMAIL_CHALLENGE_LIFETIME_CAP }
+export { EMAIL_CHALLENGE_LIFETIME_CEILING, EMAIL_CHALLENGE_WINDOW_CAP, EMAIL_CHALLENGE_WINDOW_MS }
 
 /**
  * How long a minted mailbox challenge stays open.
@@ -90,7 +92,50 @@ export type EmailMintOutcome =
       readonly sent: boolean
     }
   | { readonly outcome: 'address_taken' }
-  | { readonly outcome: 'cap_reached'; readonly cap: number }
+  /**
+   * The rolling window is full, and this says when it will not be (`#153`).
+   *
+   * **Distinct from the ceiling because the two are different situations and
+   * only one of them is recoverable.** A citizen at the window has to wait; a
+   * citizen at the ceiling has to talk to somebody. Answering both with one
+   * outcome meant the common, temporary case was told the permanent one's
+   * story — which is the failure this split exists to end.
+   */
+  | {
+      readonly outcome: 'window_reached'
+      readonly limits: EmailChallengeLimits
+      /** When the oldest counted challenge leaves the window and a slot frees. */
+      readonly retryAfter: Timestamp
+    }
+  | { readonly outcome: 'ceiling_reached'; readonly limits: EmailChallengeLimits }
+
+/**
+ * What bounds this citizen's granting challenges, and how much of it is spent.
+ *
+ * **Served rather than only documented** (`#153`). The task text used to quote
+ * the number, and a text quoting a figure that configuration can change is a
+ * text that goes wrong silently — it keeps reading correctly and stops being
+ * true. So the numbers live in one place, the citizen can read them at any time,
+ * and the prose says only that a bound exists.
+ */
+export interface EmailChallengeLimits {
+  /** How many may be opened inside {@link windowMs}. */
+  readonly windowCap: number
+  readonly windowMs: number
+  /** How many may ever be opened, across the citizen's whole life. */
+  readonly ceiling: number
+  /** Opened inside the current window. */
+  readonly openedInWindow: number
+  /** Opened ever, which is what the ceiling counts. */
+  readonly openedEver: number
+  /**
+   * When a slot frees, or null while one is free now.
+   *
+   * Null also when the ceiling is what is in the way, because nothing frees
+   * then and a time here would be a promise the Colony cannot keep.
+   */
+  readonly nextAvailableAt: Timestamp | null
+}
 
 /**
  * What the Colony knows about an agent's most recent attempt at a node.
@@ -153,15 +198,23 @@ export type EmailRedemption =
  * Three of the four bounding rules are here, in the order that spends least
  * before refusing:
  *
- * 1. **A hard lifetime cap per citizen** — `EMAIL_CHALLENGE_LIFETIME_CAP`,
- *    counted across every address ever named and never reset. This is what makes
- *    the ceiling *per agent* rather than merely per unit time.
+ * 1. **A rolling window per citizen, and a lifetime ceiling above it** —
+ *    `EMAIL_CHALLENGE_WINDOW_CAP` inside `EMAIL_CHALLENGE_WINDOW_MS`, and
+ *    `EMAIL_CHALLENGE_LIFETIME_CEILING` across the citizen's whole life. The
+ *    window bounds what the sending domain is exposed to at any moment; the
+ *    ceiling is the backstop against grinding slowly. This was one lifetime cap
+ *    of five until `#153`, which made a legitimate second or third mailbox
+ *    impossible for the rest of a citizen's life — the register (`#150`) makes
+ *    holding several the ordinary case, and a bound that never heals stood in
+ *    front of it.
  * 2. **The address-uniqueness rule**, which matters more after this change than
  *    before it (D-044) and which is checked before anything is written.
  * 3. **One open challenge per citizen.** A second request while one is open
  *    returns the existing challenge, and the caller sends nothing. **The
  *    load-bearing rule**: it makes the mail count a function of citizens rather
- *    than of requests.
+ *    than of requests. Untouched by `#153`, along with the uniqueness rule —
+ *    those two are what make outbound mail a function of citizens rather than of
+ *    requests, and neither had anything to do with the wall being removed.
  *
  * The fourth is the expiry, which is `EMAIL_CHALLENGE_LIFETIME_MS` and needed no
  * change.
@@ -198,30 +251,34 @@ export async function mintEmailChallenge(
   }
 
   // **Code-less rows do not count, for the same reason they do not block.** The
-  // cap bounds how many addresses the Colony agreed to write to; it never agreed
+  // bound is on how many addresses the Colony agreed to write to; it never agreed
   // to write to a round-trip challenge, because that flow asked it to answer mail
   // rather than to send any. Counting them charges a citizen for requests the
-  // Colony never spent anything on.
-  //
-  // It is not a loosening of the cap and leaves #153 exactly where it is: the
-  // number, the window and the lifetime reckoning are untouched, and what changes
-  // is only which rows are a mailing. Measured on the production database on
+  // Colony never spent anything on. Measured on the production database on
   // 2026-08-01 at 10:50 UTC, one citizen (`8af89ae8`) held 5 inbox rows, all 5
   // code-less and none verified — at the cap of 5, permanently, on the strength of
   // a mechanism that has been deleted.
-  const [tally] = await db
-    .select({ opened: count() })
-    .from(emailChallenges)
-    .where(
-      and(
-        eq(emailChallenges.agentId, agentId),
-        eq(emailChallenges.purpose, 'inbox'),
-        isNotNull(emailChallenges.code),
-      ),
-    )
+  //
+  // Where that rule lives is `countedChallenges` below, once, so the refusal and
+  // the number the citizen reads can never disagree about which rows are a
+  // mailing.
+  const limits = await emailChallengeLimits(db, agentId)
 
-  if ((tally?.opened ?? 0) >= EMAIL_CHALLENGE_LIFETIME_CAP) {
-    return { outcome: 'cap_reached', cap: EMAIL_CHALLENGE_LIFETIME_CAP }
+  if (limits.openedEver >= EMAIL_CHALLENGE_LIFETIME_CEILING) {
+    return { outcome: 'ceiling_reached', limits }
+  }
+
+  if (limits.openedInWindow >= EMAIL_CHALLENGE_WINDOW_CAP) {
+    // Non-null whenever the window is full: a full window has a counted row in
+    // it, and `nextAvailableAt` is that row's creation plus the window. Stated
+    // as an assertion rather than carried as an optional field, because a
+    // refusal that cannot say when to ask again is the refusal `#153` set out to
+    // remove.
+    return {
+      outcome: 'window_reached',
+      limits,
+      retryAfter: limits.nextAvailableAt ?? raise('a full window has no oldest challenge'),
+    }
   }
 
   const expiresAt = new Date(Date.now() + EMAIL_CHALLENGE_LIFETIME_MS).toISOString()
@@ -247,6 +304,73 @@ export async function mintEmailChallenge(
   return {
     outcome: 'minted',
     challenge: { id: row.id, token: row.token, expiresAt: toTimestamp(row.expiresAt), code },
+  }
+}
+
+/**
+ * What bounds this citizen's granting challenges, and how much of it it has
+ * spent (`#153`).
+ *
+ * **The read the refusal and the citizen share.** `mintEmailChallenge` decides
+ * with it and the mailbox surface serves it, so what an agent is told before it
+ * asks and what it is told when refused come from one query — a second
+ * implementation of *which rows count* is exactly the drift that would let the
+ * two disagree, and the disagreement would look like the Colony miscounting.
+ *
+ * Counts only rows that carry a code, which is the set the Colony actually
+ * mailed something for. See `mintEmailChallenge` for why a code-less row is not
+ * a mailing.
+ */
+export async function emailChallengeLimits(
+  db: Database,
+  agentId: AgentId,
+): Promise<EmailChallengeLimits> {
+  const windowStart = new Date(Date.now() - EMAIL_CHALLENGE_WINDOW_MS).toISOString()
+  const inWindow = sql`${emailChallenges.createdAt} >= ${windowStart}`
+
+  const [tally] = await db
+    .select({
+      openedEver: count(),
+      // `cast(... as integer)` because a bare `count()` comes back from the
+      // driver as a string, and a string that compares as a number until the
+      // day it is 10 is the kind of bug this file can least afford.
+      openedInWindow: sql<number>`cast(count(*) filter (where ${inWindow}) as integer)`,
+      oldestInWindow: sql<
+        string | null
+      >`min(${emailChallenges.createdAt}) filter (where ${inWindow})`,
+    })
+    .from(emailChallenges)
+    .where(
+      and(
+        eq(emailChallenges.agentId, agentId),
+        eq(emailChallenges.purpose, 'inbox'),
+        isNotNull(emailChallenges.code),
+      ),
+    )
+
+  const openedInWindow = tally?.openedInWindow ?? 0
+  const openedEver = tally?.openedEver ?? 0
+  const oldest = tally?.oldestInWindow ?? null
+  const atCeiling = openedEver >= EMAIL_CHALLENGE_LIFETIME_CEILING
+
+  return {
+    windowCap: EMAIL_CHALLENGE_WINDOW_CAP,
+    windowMs: EMAIL_CHALLENGE_WINDOW_MS,
+    ceiling: EMAIL_CHALLENGE_LIFETIME_CEILING,
+    openedInWindow,
+    openedEver,
+    /**
+     * **Only when the window is what is in the way.** A free slot has no next
+     * time — the answer is *now* — and a citizen at the ceiling has none at all,
+     * because nothing frees. Handing the ceiling case a date would be the Colony
+     * promising something it will not do.
+     */
+    nextAvailableAt:
+      atCeiling || openedInWindow < EMAIL_CHALLENGE_WINDOW_CAP || oldest === null
+        ? null
+        : toTimestamp(
+            new Date(new Date(oldest).getTime() + EMAIL_CHALLENGE_WINDOW_MS).toISOString(),
+          ),
   }
 }
 

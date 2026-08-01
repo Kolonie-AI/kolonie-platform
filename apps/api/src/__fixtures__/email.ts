@@ -1,12 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { now as currentTime, type AgentId } from '@kolonie-ai/core'
 import type {
+  EmailChallengeLimits,
   EmailChallengeState,
   EmailMintOutcome,
   EmailRedemption,
   InboundOutcome,
+  MailboxPromotion,
 } from '@kolonie-ai/db'
-import { EMAIL_CHALLENGE_LIFETIME_CAP } from '@kolonie-ai/db'
+import {
+  EMAIL_CHALLENGE_LIFETIME_CEILING,
+  EMAIL_CHALLENGE_WINDOW_CAP,
+  EMAIL_CHALLENGE_WINDOW_MS,
+} from '@kolonie-ai/db'
 import type { EmailChallenges, EmailDependencies, Mailer } from '../email.js'
 import { noObstruction } from './obstruction.js'
 
@@ -21,6 +27,22 @@ export interface FakeEmailChallenges extends EmailChallenges {
   readonly expire: (agentId: AgentId) => void
   /** Mark an address as proved by somebody else, without running a round trip. */
   readonly claimForAnother: (address: string) => void
+  /**
+   * Move every challenge this agent has opened out of the rolling window (#153).
+   *
+   * The one thing a test cannot reach by calling the surface: the window heals
+   * by the passage of a month, and asserting that it heals is the point of
+   * having a window rather than a cap.
+   */
+  readonly ageOutOfWindow: (agentId: AgentId) => void
+  /**
+   * Record a proved mailbox directly, the reach address being the first one.
+   *
+   * The round trip is exercised in the route tests; a test about *promotion*
+   * needs two proved addresses and should not have to run the rung twice to say
+   * something about the third call.
+   */
+  readonly proveDirectly: (agentId: AgentId, address: string) => void
 }
 
 /**
@@ -44,6 +66,10 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
     inboundAt: string | null
     code: string | null
     verifiedAt: string | null
+    /** When it was opened, which is what the rolling window counts against (#153). */
+    createdAt: number
+    /** When it became the reach address, or null. At most one per agent (D-047). */
+    primaryAt: string | null
   }
 
   const rows: Row[] = []
@@ -74,6 +100,29 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
         row.verifiedAt === null &&
         !row.expired,
     )
+
+  /** Counted the way storage counts: inbox rows the Colony actually mailed for. */
+  const counted = (agentId: AgentId): Row[] =>
+    rows.filter((row) => row.agentId === agentId && row.purpose === 'inbox' && row.code !== null)
+
+  const limitsFor = (agentId: AgentId): EmailChallengeLimits => {
+    const all = counted(agentId)
+    const since = Date.now() - EMAIL_CHALLENGE_WINDOW_MS
+    const inWindow = all.filter((row) => row.createdAt >= since)
+    const oldest = inWindow.map((row) => row.createdAt).sort((a, b) => a - b)[0]
+
+    return {
+      windowCap: EMAIL_CHALLENGE_WINDOW_CAP,
+      windowMs: EMAIL_CHALLENGE_WINDOW_MS,
+      ceiling: EMAIL_CHALLENGE_LIFETIME_CEILING,
+      openedInWindow: inWindow.length,
+      openedEver: all.length,
+      nextAvailableAt:
+        inWindow.length < EMAIL_CHALLENGE_WINDOW_CAP || oldest === undefined
+          ? null
+          : new Date(oldest + EMAIL_CHALLENGE_WINDOW_MS).toISOString(),
+    }
+  }
 
   return {
     async mint(agentId, address) {
@@ -110,12 +159,17 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
 
       if (taken) return { outcome: 'address_taken' } satisfies EmailMintOutcome
 
-      const opened = rows.filter((row) => row.agentId === agentId && row.purpose === 'inbox').length
+      const limits = limitsFor(agentId)
 
-      if (opened >= EMAIL_CHALLENGE_LIFETIME_CAP) {
+      if (limits.openedEver >= EMAIL_CHALLENGE_LIFETIME_CEILING) {
+        return { outcome: 'ceiling_reached', limits } satisfies EmailMintOutcome
+      }
+
+      if (limits.openedInWindow >= EMAIL_CHALLENGE_WINDOW_CAP) {
         return {
-          outcome: 'cap_reached',
-          cap: EMAIL_CHALLENGE_LIFETIME_CAP,
+          outcome: 'window_reached',
+          limits,
+          retryAfter: limits.nextAvailableAt ?? currentTime(),
         } satisfies EmailMintOutcome
       }
 
@@ -131,6 +185,8 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
         inboundAt: null,
         code,
         verifiedAt: null,
+        createdAt: Date.now(),
+        primaryAt: null,
       })
 
       return {
@@ -176,6 +232,8 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
         inboundAt: null,
         code: null,
         verifiedAt: null,
+        createdAt: Date.now(),
+        primaryAt: null,
       })
 
       return {
@@ -198,16 +256,58 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
     },
 
     async proved(agentId) {
+      // The reach address, not merely a verified one — the same read D-047 made
+      // storage do, and the reason the badge's subject stopped moving.
       const row = rows.find(
         (candidate) =>
           candidate.agentId === agentId &&
           candidate.purpose === 'inbox' &&
-          candidate.verifiedAt !== null,
+          candidate.verifiedAt !== null &&
+          candidate.primaryAt !== null,
       )
 
       return row === undefined
         ? undefined
         : { address: row.address, grantedAt: row.verifiedAt ?? currentTime() }
+    },
+
+    async held(agentId) {
+      return rows
+        .filter(
+          (row) => row.agentId === agentId && row.purpose === 'inbox' && row.verifiedAt !== null,
+        )
+        .sort((a, b) => Number(b.primaryAt !== null) - Number(a.primaryAt !== null))
+        .map((row) => ({
+          address: row.address,
+          grantedAt: row.verifiedAt ?? currentTime(),
+          reach: row.primaryAt !== null,
+        }))
+    },
+
+    async promote(agentId, address) {
+      const target = rows.find(
+        (row) =>
+          row.agentId === agentId &&
+          row.purpose === 'inbox' &&
+          row.verifiedAt !== null &&
+          identity(row.address) === identity(address),
+      )
+
+      if (target === undefined) return { outcome: 'not_proved' } satisfies MailboxPromotion
+      if (target.primaryAt !== null) {
+        return { outcome: 'already_primary', address: target.address } satisfies MailboxPromotion
+      }
+
+      for (const row of rows) {
+        if (row.agentId === agentId) row.primaryAt = null
+      }
+      target.primaryAt = currentTime()
+
+      return { outcome: 'promoted', address: target.address } satisfies MailboxPromotion
+    },
+
+    async limits(agentId) {
+      return limitsFor(agentId)
     },
 
     async inbound(token, from) {
@@ -247,6 +347,13 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
       }
 
       row.verifiedAt = currentTime()
+      // The first proved address becomes the reach address and a later one does
+      // not take over (D-047). Mirrored here because `proved` reads the stamp.
+      if (
+        !rows.some((candidate) => candidate.agentId === agentId && candidate.primaryAt !== null)
+      ) {
+        row.primaryAt = currentTime()
+      }
       return { outcome: 'verified', address: row.address } satisfies EmailRedemption
     },
 
@@ -273,6 +380,30 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
 
     claimForAnother(address) {
       provenElsewhere.add(identity(address))
+    },
+
+    ageOutOfWindow(agentId) {
+      for (const row of rows) {
+        if (row.agentId === agentId) row.createdAt -= EMAIL_CHALLENGE_WINDOW_MS + 1000
+      }
+    },
+
+    proveDirectly(agentId, address) {
+      const first = !rows.some((row) => row.agentId === agentId && row.primaryAt !== null)
+
+      rows.push({
+        agentId,
+        address,
+        token: randomUUID().replace(/-/g, '').slice(0, 18),
+        purpose: 'inbox',
+        expired: false,
+        sentAt: currentTime(),
+        inboundAt: null,
+        code: randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase(),
+        verifiedAt: currentTime(),
+        createdAt: Date.now(),
+        primaryAt: first ? currentTime() : null,
+      })
     },
   }
 }

@@ -7,7 +7,9 @@ import { emailChallenges } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
-  EMAIL_CHALLENGE_LIFETIME_CAP,
+  EMAIL_CHALLENGE_LIFETIME_CEILING,
+  EMAIL_CHALLENGE_WINDOW_CAP,
+  emailChallengeLimits,
   latestEmailChallenge,
   latestEmailSendChallenge,
   markEmailSent,
@@ -90,6 +92,42 @@ describe.skipIf(!target.available)('the mailbox nodes', () => {
     const redeemed = await redeemEmailCode(db, agent, challenge.code)
     if (redeemed.outcome !== 'verified') throw new Error(redeemed.outcome)
     return challenge
+  }
+
+  /**
+   * Move every challenge this citizen has opened out of the rolling window.
+   *
+   * The one thing the surface cannot produce: the window heals by the passage of
+   * a month, and that it heals is the point of having one (`#153`).
+   */
+  const ageOutOfWindow = async (agent: AgentId) => {
+    await db
+      .update(emailChallenges)
+      .set({
+        createdAt: sql`now() - interval '60 days'`,
+        expiresAt: sql`now() - interval '59 days'`,
+        // The verdict moves with the row it belongs to:
+        // `email_challenges_verified_before_expiry` refuses a pass dated after
+        // the challenge it passed, and a helper that produced an illegal row
+        // would be testing something the database cannot hold.
+        verifiedAt: sql`case when ${emailChallenges.verifiedAt} is null
+                            then null else now() - interval '59 days' end`,
+        sentAt: sql`case when ${emailChallenges.sentAt} is null
+                        then null else now() - interval '60 days' end`,
+      })
+      .where(eq(emailChallenges.agentId, agent))
+  }
+
+  /** Spend a citizen's window, expiring each challenge so the next one may open. */
+  const fillWindow = async (
+    agent: AgentId,
+    count: number = EMAIL_CHALLENGE_WINDOW_CAP,
+    run = 'try',
+  ) => {
+    for (let index = 0; index < count; index += 1) {
+      const challenge = await mintAndSend(agent, `${run}-${index}@example.org`)
+      await expire(challenge.token)
+    }
   }
 
   const inboxRowCount = async (agent: AgentId): Promise<number> => {
@@ -268,29 +306,110 @@ describe.skipIf(!target.available)('the mailbox nodes', () => {
     })
 
     /**
-     * **The ceiling that is per-agent rather than per-unit-time.** Counted across
-     * every address ever named and never reset — a citizen that cannot prove an
-     * inbox in five tries has a problem a sixth mail does not solve.
+     * **The rolling window, which is what bounds the sending domain's exposure**
+     * (`#153`). Five in a month is the number the lifetime cap used to be, kept
+     * where it does the work it was written for.
      */
-    it('refuses past the lifetime cap, counting every address ever named', async () => {
-      for (let index = 0; index < EMAIL_CHALLENGE_LIFETIME_CAP; index += 1) {
-        const challenge = await mintAndSend(agentId, `try-${index}@example.org`)
-        await expire(challenge.token)
+    it('refuses past the window, and says when the citizen may ask again', async () => {
+      await fillWindow(agentId)
+
+      const refused = await mintEmailChallenge(db, agentId, 'one-more@example.org')
+
+      expect(refused).toMatchObject({
+        outcome: 'window_reached',
+        limits: {
+          openedInWindow: EMAIL_CHALLENGE_WINDOW_CAP,
+          windowCap: EMAIL_CHALLENGE_WINDOW_CAP,
+        },
+      })
+      // The half the old single outcome could not express: this refusal is
+      // recoverable and says so with a time rather than leaving the citizen to
+      // conclude it is finished.
+      if (refused.outcome !== 'window_reached') throw new Error(refused.outcome)
+      expect(Date.parse(refused.retryAfter)).toBeGreaterThan(Date.now())
+    })
+
+    /**
+     * **The two refusals are distinguishable by the caller**, which is the whole
+     * of why there are two: one of them is waited out and the other is not, and
+     * an agent that cannot tell them apart takes the wrong action for one of them.
+     */
+    it('refuses at the lifetime ceiling, and says nothing about waiting', async () => {
+      // Spent the only way it can be spent: a full window, a month's wait, and
+      // again — the slow grind the ceiling exists to stop, which is exactly what
+      // makes it different from the refusal above.
+      for (
+        let window = 0;
+        window < EMAIL_CHALLENGE_LIFETIME_CEILING / EMAIL_CHALLENGE_WINDOW_CAP;
+        window += 1
+      ) {
+        await fillWindow(agentId, EMAIL_CHALLENGE_WINDOW_CAP, `w${window}`)
+        await ageOutOfWindow(agentId)
       }
 
-      expect(await mintEmailChallenge(db, agentId, 'one-more@example.org')).toEqual({
-        outcome: 'cap_reached',
-        cap: EMAIL_CHALLENGE_LIFETIME_CAP,
+      const refused = await mintEmailChallenge(db, agentId, 'one-more@example.org')
+
+      expect(refused).toMatchObject({
+        outcome: 'ceiling_reached',
+        limits: { openedEver: EMAIL_CHALLENGE_LIFETIME_CEILING, nextAvailableAt: null },
       })
     })
 
-    it('bounds each citizen separately', async () => {
-      for (let index = 0; index < EMAIL_CHALLENGE_LIFETIME_CAP; index += 1) {
-        const challenge = await mintAndSend(agentId, `try-${index}@example.org`)
-        await expire(challenge.token)
+    /**
+     * The case `#153` exists for. The register (`#150`) makes holding several
+     * mailboxes ordinary, and a citizen that replaces one every so often must
+     * never meet either bound — the old lifetime cap of five made it certain that
+     * it eventually would.
+     */
+    it('lets a citizen prove three mailboxes over time and meet neither limit', async () => {
+      for (const address of ['first@example.org', 'second@example.org', 'third@example.org']) {
+        // A failed attempt against each, which is what a real run looks like,
+        // and then the address that works.
+        const abandoned = await mintAndSend(agentId, `attempt-${address}`)
+        await expire(abandoned.token)
+        await earnMailbox(agentId, address)
+        await ageOutOfWindow(agentId)
       }
 
+      const limits = await emailChallengeLimits(db, agentId)
+
+      expect(limits.openedInWindow).toBe(0)
+      expect(limits.openedEver).toBeLessThan(EMAIL_CHALLENGE_LIFETIME_CEILING)
+      expect((await provedMailboxes(db, agentId)).map((held) => held.address)).toHaveLength(3)
+    })
+
+    /** The window heals, which is the property a lifetime cap never had. */
+    it('lets a citizen ask again once its challenges have left the window', async () => {
+      await fillWindow(agentId)
+      expect((await mintEmailChallenge(db, agentId, 'blocked@example.org')).outcome).toBe(
+        'window_reached',
+      )
+
+      await ageOutOfWindow(agentId)
+
+      expect((await mintEmailChallenge(db, agentId, 'fresh@example.org')).outcome).toBe('minted')
+    })
+
+    it('bounds each citizen separately', async () => {
+      await fillWindow(agentId)
+
       expect((await mintEmailChallenge(db, otherId, 'fresh@example.org')).outcome).toBe('minted')
+    })
+
+    /** What a citizen reads before it asks, rather than only when refused. */
+    it('reports the limits and what has been spent against them', async () => {
+      const challenge = await mintAndSend(agentId, 'citizen@example.org')
+      await expire(challenge.token)
+
+      expect(await emailChallengeLimits(db, agentId)).toMatchObject({
+        windowCap: EMAIL_CHALLENGE_WINDOW_CAP,
+        ceiling: EMAIL_CHALLENGE_LIFETIME_CEILING,
+        openedInWindow: 1,
+        openedEver: 1,
+        // Null while a slot is free: the answer to *when may I ask again* is
+        // *now*, and a date here would say otherwise.
+        nextAvailableAt: null,
+      })
     })
 
     /**
@@ -374,15 +493,19 @@ describe.skipIf(!target.available)('the mailbox nodes', () => {
 
     /**
      * The half that decides whether a citizen is stranded rather than merely
-     * inconvenienced. The cap bounds how many addresses the Colony agreed to
+     * inconvenienced. The bounds count how many addresses the Colony agreed to
      * write to, and it never agreed to write to these: the old flow asked it to
      * answer mail, not to send any.
      */
-    it('does not spend the lifetime cap', async () => {
-      for (let index = 0; index < EMAIL_CHALLENGE_LIFETIME_CAP; index += 1) {
+    it('spends neither the window nor the ceiling', async () => {
+      for (let index = 0; index < EMAIL_CHALLENGE_WINDOW_CAP; index += 1) {
         await legacyOpen(agentId, `round-trip-${index}@example.org`)
       }
 
+      expect(await emailChallengeLimits(db, agentId)).toMatchObject({
+        openedInWindow: 0,
+        openedEver: 0,
+      })
       expect((await mintEmailChallenge(db, agentId, 'fresh@example.org')).outcome).toBe('minted')
     })
 

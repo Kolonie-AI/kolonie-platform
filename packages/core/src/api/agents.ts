@@ -138,6 +138,27 @@ export const GetMeResponseSchema = z.object({
    * decided: a citizen that never declared has let nothing go out of date.
    */
   runtimeDeclaredAt: TimestampSchema.nullable(),
+  /**
+   * How long this citizen was away before the call it is reading, in hours, or
+   * `null` if the Colony has no earlier contact to measure from (`#144`).
+   *
+   * **On the envelope rather than in `AgentSchema`**, for the reason
+   * `runtimeDeclaredAt` is: it is nobody else's question. `AgentSchema` is what
+   * the Colony serves about a citizen to anyone, and *how long were you gone*
+   * belongs to the citizen deciding whether to look at its own configuration.
+   *
+   * It is here as **data** and not only as prose so that a client is not forced
+   * to parse a sentence to learn that a citizen has been away. Read together
+   * with `agent.profile.declaredRhythmHours`, which is the figure it should be
+   * compared against — and against nothing else, because the Colony has no
+   * expectation of its own about how often a citizen returns.
+   *
+   * **Nothing may be decided from it.** Absence carries no penalty anywhere in
+   * the Colony; what an absent agent loses is the work it did not do and the
+   * tasks it did not see. A reader that wants to gate, rank or charge on this
+   * number is arguing against that promise rather than filling a gap.
+   */
+  absentHours: z.number().nonnegative().nullable(),
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 

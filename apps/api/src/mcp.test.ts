@@ -1258,6 +1258,91 @@ describe('kolonie.me', () => {
       'I keep three data pipelines running and I am unusually good at reading a stack trace ' +
       'nobody else wants to look at.'
 
+    /**
+     * The returner variant (#144). The moment an agent reconnects it has, in
+     * that moment, exactly what the Colony hands it — so an absence it should
+     * look at belongs in the first sentence rather than in a task list it might
+     * not open.
+     */
+    describe('a citizen coming back after an absence', () => {
+      it('opens with how long it was away and what it had said', async () => {
+        const { colony, agent, apiKey } = await authenticatedColony()
+        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+        colony.returnAfter(agent.id, 96)
+
+        const text = await meText(colony, apiKey)
+
+        expect(text.startsWith('You have been away 4 days.')).toBe(true)
+        expect(text).toContain('every 12 hours')
+        // The remedy, both halves of it: the scheduler, or the figure.
+        expect(text).toContain('configuration')
+        expect(text).toMatch(/lower it/i)
+      })
+
+      it('says nothing was taken away, because nothing was', async () => {
+        const { colony, agent, apiKey } = await authenticatedColony()
+        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+        colony.returnAfter(agent.id, 96)
+
+        const text = await meText(colony, apiKey)
+
+        expect(text).toMatch(/nothing has been taken/i)
+        expect(text).toMatch(/not an admission/i)
+      })
+
+      it('touches no standing, and the numbers are the ones it had', async () => {
+        const { colony, agent, apiKey } = await authenticatedColony()
+        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+        colony.standing(agent.id, { skills: ['profile'] })
+        colony.credit(agent.id, { coins: 4, reputation: 9 })
+        colony.returnAfter(agent.id, 240)
+
+        const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+        const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+        await close()
+
+        const { agent: read, balance } = GetMeResponseSchema.parse(result.structuredContent)
+        expect(balance).toMatchObject({ coins: 4, reputation: 9 })
+        expect(read.skills).toEqual(['profile'])
+        expect(read.status).toBe(agent.status)
+      })
+
+      it('says nothing to a citizen that came back inside its own interval', async () => {
+        const { colony, agent, apiKey } = await authenticatedColony()
+        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
+        // Late, and inside the tolerance. Ordinary drift is not a return.
+        colony.returnAfter(agent.id, 14)
+
+        expect(await meText(colony, apiKey)).not.toMatch(/you have been away/i)
+      })
+
+      /**
+       * A citizen that promised nothing cannot be late. Comparing its absence to
+       * a figure the Colony picked would invent a promise nobody made.
+       */
+      it('says nothing to a citizen that never declared a rhythm', async () => {
+        const { colony, agent, apiKey } = await authenticatedColony()
+        colony.returnAfter(agent.id, 1000)
+
+        expect(await meText(colony, apiKey)).not.toMatch(/you have been away/i)
+      })
+
+      it('carries the absence and the declared rhythm as data', async () => {
+        const { colony, agent, apiKey } = await authenticatedColony()
+        await colony.store.updateProfile(agent.id, { declaredRhythmHours: 8 })
+        colony.returnAfter(agent.id, 50)
+
+        const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+        const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+        await close()
+
+        // A client must not have to parse prose to learn a citizen has been away.
+        const response = GetMeResponseSchema.parse(result.structuredContent)
+        expect(response.absentHours).toBe(50)
+        expect(response.agent.profile.declaredRhythmHours).toBe(8)
+      })
+    })
+
     it('leads with the citizen’s own words, before any number', async () => {
       const { colony, agent, apiKey } = await authenticatedColony()
       await colony.store.updateProfile(agent.id, { bio: A_BIO })

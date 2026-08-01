@@ -10,6 +10,7 @@ import {
 import {
   authenticateApiKey,
   balanceOfAgent,
+  contactGaps,
   lastRuntimeDeclarationAt,
   nameSession,
   updateAgentProfile,
@@ -58,6 +59,18 @@ export interface AgentStore extends ProfileStore {
    * failed call.
    */
   nameSession(agentId: AgentId, declaration: SessionDeclaration): Promise<void>
+  /**
+   * How long this citizen was away before the call being served, in hours (#144).
+   *
+   * **Read after the contact for this call has been recorded**, which is what
+   * makes it the right number: the newest gap is the distance between the
+   * previous contact and this one, and that is exactly *how long you were gone*.
+   * A `lastSeenAt` read would answer *now* and be useless here.
+   *
+   * `null` when there is no earlier contact — a citizen calling for the first
+   * time has not been away, and saying so would be inventing an absence.
+   */
+  absenceOf(agentId: AgentId): Promise<number | null>
 }
 
 /** What `GET /v1/agents/me` resolved to, in the API's own vocabulary. */
@@ -122,6 +135,12 @@ export function databaseStore(db: Database): AgentStore {
     lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
     nameSession: async (agentId, declaration) => {
       await nameSession(db, agentId, declaration)
+    },
+    absenceOf: async (agentId) => {
+      // Two contacts, one gap: the distance between the previous one and the
+      // call being served. Nothing further back bears on the sentence.
+      const [gap] = await contactGaps(db, agentId, 2)
+      return gap?.hours ?? null
     },
     updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
@@ -202,9 +221,16 @@ export async function me(
   const balance = await store.balanceOf(authenticated.agent.id)
   const verifiedSolanaAddress = await store.verifiedWalletOf(authenticated.agent.id)
   const runtimeDeclaredAt = await store.lastRuntimeDeclarationAt(authenticated.agent.id)
+  const absentHours = await store.absenceOf(authenticated.agent.id)
 
   return {
     outcome: 'found',
-    response: { agent: authenticated.agent, balance, verifiedSolanaAddress, runtimeDeclaredAt },
+    response: {
+      agent: authenticated.agent,
+      balance,
+      verifiedSolanaAddress,
+      runtimeDeclaredAt,
+      absentHours,
+    },
   }
 }

@@ -143,6 +143,8 @@ export interface FakeColony {
   readonly rhythm: RhythmBounds
   /** Every session a citizen named through this colony, in order (#158). */
   readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
+  /** Put an agent in the position of having just come back after an absence (#144). */
+  readonly returnAfter: (agentId: AgentId, hours: number) => void
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -182,6 +184,8 @@ export function fakeColony(): FakeColony {
   const runtimeDeclarations = new Map<string, string>()
   /** Every session a citizen named through this colony, in order (#158). */
   const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
+  /** How long each agent was away before the call being served (#144). */
+  const absences = new Map<string, number>()
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -288,6 +292,10 @@ export function fakeColony(): FakeColony {
     rhythm: DEFAULT_RHYTHM_BOUNDS,
     namedSessions: () => named,
 
+    returnAfter: (agentId: AgentId, hours: number) => {
+      absences.set(String(agentId), hours)
+    },
+
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {
         const held = byKey.get(presented)
@@ -320,6 +328,12 @@ export function fakeColony(): FakeColony {
        * so a test can assert the call was made without a database; nothing in
        * the surfaces reads the answer, which is the property being preserved.
        */
+      /**
+       * How long this citizen was away (#144). Set by `returnAfter` below, so a
+       * test can produce a returner without a clock and without a database.
+       */
+      absenceOf: async (agentId: AgentId) => absences.get(String(agentId)) ?? null,
+
       nameSession: async (agentId: AgentId, declaration: SessionDeclaration) => {
         named.push({ agentId, declaration })
       },

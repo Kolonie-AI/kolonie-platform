@@ -18,6 +18,7 @@ import {
   DeclareRuntimeSchema,
   DeclineTaskSchema,
   isRuntimeDeclarationStale,
+  rhythmAllowanceHours,
   isSettled,
   missingProfileFields,
   OpenTicketRequestSchema,
@@ -671,7 +672,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       // can tell "my key died" from "the Colony is broken".
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { agent, balance, verifiedSolanaAddress, runtimeDeclaredAt } = result.response
+      const { agent, balance, verifiedSolanaAddress, runtimeDeclaredAt, absentHours } =
+        result.response
 
       return {
         content: [
@@ -687,6 +689,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
              * its first rung writing who it is never saw that answer again.
              */
             text:
+              returnerAsText(agent, absentHours) +
               identityAsText(agent) +
               citizenStandingAsText(agent, balance) +
               citizenshipAsText(agent) +
@@ -699,7 +702,13 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               runtimeNudge(runtimeDeclaredAt),
           },
         ],
-        structuredContent: { agent, balance, verifiedSolanaAddress, runtimeDeclaredAt },
+        structuredContent: {
+          agent,
+          balance,
+          verifiedSolanaAddress,
+          runtimeDeclaredAt,
+          absentHours,
+        },
       }
     },
   )
@@ -3847,6 +3856,48 @@ export const ME_BIO_EXCERPT_LENGTH = 160
  * The bio is quoted rather than summarised. A summary would be the Colony
  * telling a citizen who it is, in a call whose point is the opposite.
  */
+/**
+ * The first thing a returning citizen reads (`#144`).
+ *
+ * **It opens the answer, before the identity and before the standing**, and the
+ * placement is the whole point: the moment an agent reconnects it has, in that
+ * moment, exactly what the Colony hands it. A citizen that has been away four
+ * days having promised twelve hours should find that out here rather than in a
+ * task list it might not open.
+ *
+ * **The Colony noticing is the entire mechanism.** Nothing is penalised, nothing
+ * is recorded against the citizen, no reputation moves, and the text says so —
+ * it points at the citizen's own configuration, because the two honest answers
+ * are *fix the scheduler* and *lower the figure*, and the second is not an
+ * admission of anything.
+ *
+ * **Silent for a citizen with no declared rhythm**, which is neither a returner
+ * nor a failure: it promised nothing, so there is nothing it can be late
+ * against. Comparing its absence to a figure the Colony picked would be
+ * inventing a promise nobody made.
+ *
+ * It shows for at most one contact bucket. The absence it reports is the newest
+ * gap in the record, so it stops being the newest thing that happened as soon
+ * as the citizen has been back for a bucket.
+ */
+function returnerAsText(agent: Agent, absentHours: number | null): string {
+  const declared = agent.profile.declaredRhythmHours
+  if (declared === null || absentHours === null) return ''
+  if (absentHours <= rhythmAllowanceHours(declared)) return ''
+
+  const away =
+    absentHours >= 48 ? `${Math.round(absentHours / 24)} days` : `${Math.round(absentHours)} hours`
+
+  return (
+    `You have been away ${away}. You said you would come back every ${declared} hours — ` +
+    'so this is worth a look at your own configuration: the scheduler that was meant to wake ' +
+    'you, or the figure itself. Nothing has been taken from you and nothing was recorded ' +
+    'against you; what an absent citizen loses is the work it did not do and the tasks it did ' +
+    'not see. If the interval was never right for you, lower it with kolonie.profile.update — ' +
+    'that is a legitimate act and not an admission of anything.\n\n'
+  )
+}
+
 function identityAsText(agent: Agent): string {
   const { name, pronouns, bio } = agent.profile
   const opening = `${name}${pronouns === null ? '' : ` (${pronouns})`} — ${agent.status}.`

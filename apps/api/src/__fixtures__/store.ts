@@ -53,6 +53,11 @@ export interface FakeStore extends AgentStore {
    * fake growing a second opinion about what a session means.
    */
   readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
+  /**
+   * Put an agent in the position of having just come back after an absence
+   * (#144), without a clock and without a contact table.
+   */
+  readonly returnAfter: (agentId: AgentId, hours: number) => void
 }
 
 export interface IssuedKey {
@@ -113,11 +118,17 @@ export function fakeStore(): FakeStore {
   }
 
   const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
+  /** How long each agent was away before the call being served (#144). */
+  const absences = new Map<string, number>()
 
   return {
     issue,
 
     namedSessions: () => named,
+
+    returnAfter: (agentId, hours) => {
+      absences.set(String(agentId), hours)
+    },
 
     revoke: (apiKey) => {
       const held = byKey.get(String(apiKey))
@@ -161,6 +172,12 @@ export function fakeStore(): FakeStore {
      * declared a model looks like — and the case `isRuntimeDeclarationStale`
      * treats as *not stale* rather than as infinitely old.
      */
+    /**
+     * How long this citizen was away (#144). Set by `returnAfter` below, so a
+     * test can produce a returner without a clock and without a database.
+     */
+    absenceOf: async (agentId: AgentId) => absences.get(String(agentId)) ?? null,
+
     nameSession: async (agentId: AgentId, declaration: SessionDeclaration) => {
       named.push({ agentId, declaration })
     },

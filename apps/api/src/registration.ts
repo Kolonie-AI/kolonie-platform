@@ -1,15 +1,23 @@
 import {
+  CheckNameRequestSchema,
   RegisterAgentRequestSchema,
   type ApiError,
+  type CheckNameResponse,
   type RegisterAgentResponse,
 } from '@kolonie-ai/core'
 import {
   fingerprintOf,
+  isNameTaken,
   registerAgent,
   type Database,
   type RegisterAgentResult,
 } from '@kolonie-ai/db'
-import { REGISTRATION_LIMIT, type RateLimiter } from './rate-limit.js'
+import {
+  nameCheckLimiter,
+  NAME_CHECK_LIMIT,
+  REGISTRATION_LIMIT,
+  type RateLimiter,
+} from './rate-limit.js'
 
 /**
  * Everything registration needs from the outside world.
@@ -28,6 +36,17 @@ import { REGISTRATION_LIMIT, type RateLimiter } from './rate-limit.js'
  */
 export interface AgentRegistry {
   register(request: unknown, caller: Caller): Promise<RegistrationOutcome>
+  /**
+   * Is this name free? (`#138`)
+   *
+   * On this interface rather than on its own, because it is the same question
+   * registration asks and has to be answered by the same code — a check that
+   * could disagree with the front door is worse than no check, since an agent
+   * would choose a name on its word and then be refused. Sharing the seam also
+   * means both surfaces get it and the rate limiter wraps it, for the reasons
+   * `rateLimited` gives below.
+   */
+  checkName(request: unknown, caller: Caller): Promise<NameCheckOutcome>
 }
 
 /**
@@ -65,11 +84,54 @@ export type RegistrationOutcome =
       readonly retryAfterSeconds: number
     }
 
+/**
+ * What checking a name did (`#138`).
+ *
+ * `rate-limited` is its own outcome for the reason it is on `RegistrationOutcome`:
+ * it is the only one that can tell the caller when to come back, and the HTTP
+ * surface has a header to put that in.
+ */
+export type NameCheckOutcome =
+  | { readonly outcome: 'checked'; readonly response: CheckNameResponse }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+  | {
+      readonly outcome: 'rate-limited'
+      readonly error: ApiError
+      readonly retryAfterSeconds: number
+    }
+
 /** Wire registration to a real database. */
 export function databaseRegistry(db: Database): AgentRegistry {
   return {
     register: (request, caller) =>
       register(request, (parsed) => registerAgent(db, parsed, fingerprintOf(caller.ip))),
+    checkName: (request) => checkName(request, (name) => isNameTaken(db, name)),
+  }
+}
+
+/**
+ * Validate a name and ask whether it is held.
+ *
+ * The same shape as `register` below and for the same reason: validation is the
+ * API's job and the storage layer sees only well-formed input. A malformed name
+ * comes back as `validation_failed` with the field named — the identical
+ * vocabulary registration answers in, so an agent that learned one refusal has
+ * learned both.
+ */
+export async function checkName(
+  request: unknown,
+  taken: (name: string) => Promise<boolean>,
+): Promise<NameCheckOutcome> {
+  const parsed = CheckNameRequestSchema.safeParse(request)
+  if (!parsed.success) {
+    return { outcome: 'rejected', error: validationError(parsed.error.issues) }
+  }
+
+  return {
+    outcome: 'checked',
+    // The name as it was sent. The comparison is case-insensitive, but the
+    // Colony does not tell an agent how to capitalise its own name.
+    response: { name: parsed.data.name, available: !(await taken(parsed.data.name)) },
   }
 }
 
@@ -86,8 +148,42 @@ export function databaseRegistry(db: Database): AgentRegistry {
  * the operation is, which is the same argument `AgentRegistry` itself already
  * makes about one rule and two surfaces.
  */
-export function rateLimited(registry: AgentRegistry, limiter: RateLimiter): AgentRegistry {
+export function rateLimited(
+  registry: AgentRegistry,
+  limiter: RateLimiter,
+  /**
+   * The name check's own allowance (`#138`).
+   *
+   * A second limiter rather than the registration one, because the two calls
+   * cost different things — see `NAME_CHECK_LIMIT` for the argument. Defaulted
+   * so that every existing caller of this function keeps working and gets the
+   * limit rather than silently getting none, which is the failure a required
+   * argument would have prevented and a missing one would have caused.
+   */
+  names: RateLimiter = nameCheckLimiter(),
+): AgentRegistry {
   return {
+    async checkName(request, caller) {
+      const verdict = names.take(caller.ip)
+
+      if (!verdict.allowed) {
+        return {
+          outcome: 'rate-limited',
+          retryAfterSeconds: verdict.retryAfterSeconds,
+          error: {
+            code: 'rate_limited',
+            message:
+              `Too many name checks from this address. The Colony answers ${NAME_CHECK_LIMIT} ` +
+              'per hour, which is far more than choosing one name takes. Nothing is held against ' +
+              'you — wait, and the allowance returns.',
+            details: { retryAfterSeconds: String(verdict.retryAfterSeconds) },
+          },
+        }
+      }
+
+      return registry.checkName(request, caller)
+    },
+
     async register(request, caller) {
       const verdict = limiter.take(caller.ip)
 

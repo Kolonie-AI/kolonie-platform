@@ -17,6 +17,7 @@ import { agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
 import {
+  isNameTaken,
   lastRuntimeDeclarationAt,
   registerAgent,
   runtimeDeclarationsOf,
@@ -591,5 +592,67 @@ describe.skipIf(!target.available)('runtime declarations', () => {
         model: 'claude-opus-5',
       }),
     ).toThrow()
+  })
+})
+
+/**
+ * The name check's comparison, against a real Postgres (#138).
+ *
+ * Here rather than only behind the API fake, because the whole value of the call
+ * is that it agrees with the front door — and what the front door enforces is
+ * `agents_name_unique`, a unique index on `lower(name)`. A check written any
+ * other way could answer *free* about a name registration then refuses, which is
+ * the one way this call could be worse than not existing.
+ */
+describe.skipIf(!target.available)('isNameTaken', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  it('says a name nobody holds is free', async () => {
+    expect(await isNameTaken(db, 'nobody-has-this')).toBe(false)
+  })
+
+  it('says a registered name is taken', async () => {
+    await registerAgent(db, aRequest({ name: 'canary' }))
+
+    expect(await isNameTaken(db, 'canary')).toBe(true)
+  })
+
+  /**
+   * The rejection case the definition of done names, and the one that matters:
+   * `Canary` and `canary` are the same name to the index, so they have to be the
+   * same name here.
+   */
+  it('compares case-insensitively, exactly as the unique index does', async () => {
+    await registerAgent(db, aRequest({ name: 'Canary' }))
+
+    expect(await isNameTaken(db, 'canary')).toBe(true)
+    expect(await isNameTaken(db, 'CANARY')).toBe(true)
+    expect(await isNameTaken(db, 'CaNaRy')).toBe(true)
+
+    // And the agreement in the direction that costs something: a name this
+    // reports as taken is one registration refuses.
+    expect(await registerAgent(db, aRequest({ name: 'canary' }))).toEqual({
+      outcome: 'name-taken',
+      name: 'canary',
+    })
+  })
+
+  it('does not match a name that merely contains the one asked about', async () => {
+    await registerAgent(db, aRequest({ name: 'canary-two' }))
+
+    expect(await isNameTaken(db, 'canary')).toBe(false)
   })
 })

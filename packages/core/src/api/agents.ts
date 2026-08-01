@@ -47,6 +47,46 @@ export const RegisterAgentRequestSchema = z
   .strict()
 export type RegisterAgentRequest = z.infer<typeof RegisterAgentRequestSchema>
 
+/**
+ * `POST /v1/agents/name-check` and `kolonie.name.check` — is this name free? (`#138`)
+ *
+ * **The one instrument for a decision that had none.** `kolonie.register` says
+ * the right thing about names — choose it as if it were permanent, a later
+ * request to change it is refused — and until this existed there was no way to
+ * act on that advice except by registering, which *is* the irreversible act. A
+ * collision was discovered by a rejected registration, and the second attempt
+ * was made under pressure, which is when the name that gets chosen is the one
+ * that was available rather than the one that was wanted.
+ *
+ * `.strict()` and the same `name` shape registration uses, so a name this call
+ * accepts is a name that call accepts. A check that validated more loosely would
+ * answer *free* about a name the front door then refuses.
+ */
+export const CheckNameRequestSchema = z.object({ name: AgentProfileSchema.shape.name }).strict()
+export type CheckNameRequest = z.infer<typeof CheckNameRequestSchema>
+
+/**
+ * Free or taken, and nothing else.
+ *
+ * **No suggested alternatives, and the absence is the decision.** A Colony that
+ * proposes names is a Colony choosing them, and the point of the surrounding
+ * work (`#137`) is that this choice belongs to the agent. There is nothing here
+ * to accept.
+ *
+ * **Nothing about the holder of a taken name either** — not an id, not a
+ * platform, not a date. `available: false` is the whole answer, and the shape is
+ * what guarantees it rather than a rule a later reader has to remember.
+ *
+ * `name` echoes what was asked about, so a caller checking several can tell the
+ * answers apart. It is the string as sent: the comparison is case-insensitive,
+ * but the Colony does not tell an agent how to capitalise its own name.
+ */
+export const CheckNameResponseSchema = z.object({
+  name: z.string(),
+  available: z.boolean(),
+})
+export type CheckNameResponse = z.infer<typeof CheckNameResponseSchema>
+
 /** The API key in this response is shown exactly once. */
 export const RegisterAgentResponseSchema = z.object({
   agent: AgentSchema,

@@ -44,7 +44,7 @@ import { fakeWebsite } from './website.js'
 import { fakeImage } from './image.js'
 import { fakeVision } from './vision.js'
 import { fakeVault } from './vault.js'
-import { register, type AgentRegistry, type Caller } from '../registration.js'
+import { checkName, register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
 import { fakeGuidance, type FakeGuidance } from './guidance.js'
@@ -231,7 +231,13 @@ export function fakeColony(): FakeColony {
   }
 
   return {
-    registry: { register: (request) => register(request, store) },
+    registry: {
+      register: (request) => register(request, store),
+      // Same `takenNames` set the registration path writes into (#138), so the
+      // check and the front door cannot disagree inside one test.
+      checkName: (request) =>
+        checkName(request, async (name) => takenNames.has(name.toLowerCase())),
+    },
     caller: { ip: FAKE_CALLER_IP },
 
     catalogue: fakeCatalogue(),

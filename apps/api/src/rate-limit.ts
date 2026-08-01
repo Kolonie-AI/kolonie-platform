@@ -124,3 +124,37 @@ export function registrationLimiter(now?: () => number): RateLimiter {
     ...(now === undefined ? {} : { now }),
   })
 }
+
+/**
+ * How many name checks one address may make per window (`#138`).
+ *
+ * **Its own allowance rather than the registration one, and the reason is what
+ * each call costs.** A registration creates a row and takes a name forever;
+ * a check creates nothing and takes nothing, so the abuse it enables is
+ * enumeration rather than filling the table. Counting the two together would
+ * mean an agent that checked three names before choosing had two registrations
+ * left — punishing exactly the deliberation this call was built to make
+ * possible, which is the opposite of what `#138` is for.
+ *
+ * **Thirty, and it is still bounded**, because the call reads the `agents` table
+ * without a credential. An agent genuinely choosing a name tries a handful; an
+ * enumerator wants thousands. Thirty an hour leaves the first untouched and
+ * makes the second take years, which is as much as a limiter can do about
+ * enumeration — the answer to *should names be enumerable at all* is that a
+ * Colony of named citizens publishes them anyway, so this bounds the rate rather
+ * than pretending to close it.
+ *
+ * The same window as registration, so an operator reasoning about the front door
+ * has one period to hold in mind. Not configurable through the environment, for
+ * the reason `REGISTRATION_LIMIT` gives: changing it is a commit.
+ */
+export const NAME_CHECK_LIMIT = 30
+
+/** The limiter the name check runs with. Same window as registration, own allowance. */
+export function nameCheckLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: NAME_CHECK_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}

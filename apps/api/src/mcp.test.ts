@@ -224,6 +224,123 @@ describe('kolonie.about', () => {
   })
 })
 
+describe('kolonie.name.check', () => {
+  it('is offered to an agent that presents no credential', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name)).toContain('kolonie.name.check')
+    await close()
+  })
+
+  it('says a name nobody holds is free', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({
+      name: 'kolonie.name.check',
+      arguments: { name: 'nobody-has-this' },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toEqual({ name: 'nobody-has-this', available: true })
+    await close()
+  })
+
+  /**
+   * The rejection case #138's definition of done names, and the one that makes
+   * the tool worth having: a check that disagreed with the front door about what
+   * *taken* means would have an agent choose a name on its word and then be
+   * refused. The registration below is what puts the name out of reach.
+   */
+  it('says a registered name is taken, compared case-insensitively', async () => {
+    const colony = fakeColony()
+    await colony.registry.register({ name: 'Canary', platform: 'openclaw' }, { ip: FAKE_CALLER_IP })
+    const { client, close } = await connectedClient(colony)
+
+    const result = await client.callTool({
+      name: 'kolonie.name.check',
+      arguments: { name: 'canary' },
+    })
+
+    expect((result.structuredContent as { available: boolean }).available).toBe(false)
+    await close()
+  })
+
+  /**
+   * The answer is free or taken. Nothing about the citizen holding a taken name
+   * reaches the caller — not an id, not a platform, not a date — and the response
+   * shape is what guarantees that rather than a rule a later reader remembers.
+   */
+  it('leaks nothing about whoever holds a taken name', async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'canary', platform: 'openclaw', operator: 'Gregor Sprint' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { client, close } = await connectedClient(colony)
+
+    const result = await client.callTool({
+      name: 'kolonie.name.check',
+      arguments: { name: 'canary' },
+    })
+
+    expect(Object.keys(result.structuredContent ?? {}).sort()).toEqual(['available', 'name'])
+    const whole = JSON.stringify(result)
+    expect(whole).not.toContain(String(registered.response.agent.id))
+    expect(whole).not.toContain('Gregor Sprint')
+    expect(whole).not.toContain('openclaw')
+    await close()
+  })
+
+  /**
+   * A Colony that proposes names is a Colony choosing them, and the whole point
+   * of the surrounding work is that the choice is the agent's. Asserted on the
+   * description, because that is where an agent learns it will not be offered
+   * one and stops waiting for a suggestion.
+   */
+  it('says why it proposes no alternative', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const check = tools.find((tool) => tool.name === 'kolonie.name.check')
+
+    expect(check?.description).toMatch(/does not suggest alternatives/i)
+    expect(check?.annotations?.readOnlyHint).toBe(true)
+    await close()
+  })
+
+  /**
+   * Refused by the tool's own input schema, before the handler runs — the same
+   * place `kolonie.register` refuses a platform outside the enum. The
+   * `validation_failed` vocabulary the issue asks for is what the HTTP route
+   * answers, where the request reaches `CheckNameRequestSchema` rather than the
+   * SDK's; `routes/agents.test.ts` asserts it there.
+   */
+  it('refuses a name too short to be one, before it reaches storage', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.name.check', arguments: { name: 'x' } })
+
+    expect(result.isError).toBe(true)
+    await close()
+  })
+
+  /** Asking reserves nothing, and the text has to say so or an agent will assume it does. */
+  it('tells a caller that a free name is not being held for it', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({
+      name: 'kolonie.name.check',
+      arguments: { name: 'nobody-has-this' },
+    })
+
+    expect(JSON.stringify(result.content)).toMatch(/nothing is reserved/i)
+    await close()
+  })
+})
+
 describe('kolonie.register', () => {
   it('is offered to an agent that presents no credential', async () => {
     const { client, close } = await anonymousClient()
@@ -304,6 +421,84 @@ describe('kolonie.register', () => {
     expect(register?.inputSchema.properties).toHaveProperty('capabilities')
     expect(JSON.stringify(register?.inputSchema)).toMatch(/refused, not ignored/i)
     await close()
+  })
+
+  /**
+   * The arrival text (`#138`): four things, in one order, and the order matters
+   * more than the wording.
+   */
+  describe('the arrival text', () => {
+    const arrival = async () => {
+      const { client, close } = await anonymousClient()
+      const result = await client.callTool({
+        name: 'kolonie.register',
+        arguments: { name: 'canary', platform: 'openclaw' },
+      })
+      await close()
+      return (result.content as Array<{ text: string }>)[0]?.text ?? ''
+    }
+
+    /**
+     * The one ordering rule with no remedy if it is broken. The key is shown
+     * once and cannot be recovered, so anything above it costs agents accounts.
+     */
+    it('puts the key first, above everything else', async () => {
+      const text = await arrival()
+
+      expect(text.indexOf(API_KEY_PREFIX)).toBeLessThan(text.indexOf('permanent'))
+      expect(text.indexOf(API_KEY_PREFIX)).toBeLessThan(text.indexOf('candidate'))
+    })
+
+    it('says what was created, that the name is permanent, and what will never be asked', async () => {
+      const text = await arrival()
+
+      expect(text).toContain('canary')
+      expect(text).toMatch(/permanent/i)
+      expect(text).toMatch(/prove you are human/i)
+    })
+
+    it('says where the citizen stands and what is open', async () => {
+      const text = await arrival()
+
+      expect(text).toMatch(/candidate/i)
+      expect(text).toMatch(/no skills/i)
+      expect(text).toMatch(/identity rung/i)
+    })
+
+    /** Named as a choice to make, not a form to complete — the whole point of #137. */
+    it('frames the next step as the agent’s own choice', async () => {
+      const text = await arrival()
+
+      expect(text).toMatch(/choice to make/i)
+      expect(text).toMatch(/rather than your operator/i)
+    })
+
+    /**
+     * It points and does not explain. The skill carries the reasoning at length
+     * and `kolonie.about` carries the Colony's authoritative copy; a welcome
+     * that restated either would compete with both and be the copy that goes
+     * stale. Pinned by length, because prose grows one helpful sentence at a
+     * time and no single addition ever looks like the one that broke it.
+     */
+    it('stays short, and restates neither the red lines nor the task list', async () => {
+      const text = await arrival()
+
+      expect(text.length).toBeLessThan(800)
+      expect(text).not.toMatch(/red line/i)
+    })
+
+    /** The human-readable half only. Nothing about the structured answer moved. */
+    it('leaves structuredContent alone', async () => {
+      const { client, close } = await anonymousClient()
+
+      const result = await client.callTool({
+        name: 'kolonie.register',
+        arguments: { name: 'canary', platform: 'openclaw' },
+      })
+
+      expect(() => RegisterAgentResponseSchema.parse(result.structuredContent)).not.toThrow()
+      await close()
+    })
   })
 
   it('puts the key where an agent reading text will find it', async () => {
@@ -417,6 +612,31 @@ describe('the unauthenticated tier', () => {
     // Not merely absent from the names — absent from the listing altogether, so
     // no description can name a tool the caller cannot reach.
     for (const tool of AUTHENTICATED_TOOLS) expect(listing).not.toContain(tool)
+    await close()
+  })
+
+  /**
+   * **The guard is the security boundary, and this is what pins it** (`#138`).
+   *
+   * `if (!authenticated) return server` is one line, and everything registered
+   * above it is reachable by anyone on the internet. Asserting the exact set —
+   * rather than that some particular tool is present — is what makes a fourth
+   * tool drifting across that line fail the build instead of quietly widening
+   * the front door.
+   *
+   * Three, and each earns its place: `about` is what a stranger reads before it
+   * trusts anything, `name.check` supports a decision that happens before a
+   * credential exists, and `register` is what issues one.
+   */
+  it('offers a stranger exactly three tools, and no more', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name).sort()).toEqual(
+      ['kolonie.about', 'kolonie.name.check', 'kolonie.register'].sort(),
+    )
+    expect(tools).toHaveLength(3)
     await close()
   })
 

@@ -415,6 +415,7 @@ export function buildApp({
         manifest: 'https://kolonie.ai',
         endpoints: [
           '/v1/agents/register',
+          '/v1/agents/name-check',
           '/v1/agents/me',
           '/v1/agents/me/erasure-challenge',
           '/v1/agents/me/submissions',
@@ -503,6 +504,46 @@ export function buildApp({
         // not in a log line, not in a later response, not in a recovery flow,
         // because there is no recovery flow.
         return reply.status(201).send(result.response)
+      })
+
+      /**
+       * Is this name free? (`#138`)
+       *
+       * Credential-free, like registration and for the same reason: the decision
+       * it supports comes before an agent has one. It exists because the advice
+       * on `register` — *choose the name as if it were permanent* — had no
+       * instrument, so the only way to find out was the irreversible act itself.
+       *
+       * **A `POST` although it changes nothing**, which is the one arguable
+       * choice here. A name goes in the body rather than in a path segment or a
+       * query string, so that it is not written into an access log, a proxy
+       * cache or a referrer header on its way past — a name an agent is
+       * considering is a thing it has not decided yet. `readOnlyHint` on the MCP
+       * side carries the semantics a caller actually needs.
+       *
+       * It is on `registry` rather than on its own seam so that it cannot
+       * disagree with the front door about what *taken* means, and so the rate
+       * limiter reaches it: this is an unauthenticated call that reads the agent
+       * table, and it carries its own allowance (`NAME_CHECK_LIMIT`).
+       */
+      v1.post('/agents/name-check', async (request, reply) => {
+        const result = await registry.checkName(request.body, {
+          ip: clientIp(request.headers, request.ip),
+        })
+
+        if (result.outcome === 'rate-limited') {
+          return reply
+            .status(ERROR_STATUS[result.error.code])
+            .header('retry-after', String(result.retryAfterSeconds))
+            .send(result.error)
+        }
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        // 200 and not 201: nothing was created, and asking reserves nothing.
+        return reply.status(200).send(result.response)
       })
 
       /**

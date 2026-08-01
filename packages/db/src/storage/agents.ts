@@ -377,3 +377,28 @@ export async function runtimeDeclarationsOf(
     RuntimeDeclarationSchema.parse({ ...row, declaredAt: toTimestamp(row.declaredAt) }),
   )
 }
+
+/**
+ * Whether a name is already held, under the comparison registration uses (#138).
+ *
+ * **`lower(name)` and not `ilike`, because that is what the index is on.**
+ * `agents_name_unique` is a unique index on `lower(name)` (D-011), so this
+ * expression is both the same question the front door will ask and the one the
+ * planner can answer without a sequential scan. A check written any other way
+ * could answer *free* about a name the registration a second later refuses,
+ * which is the one way this call could be worse than not existing.
+ *
+ * It returns a boolean and reads no other column. Nothing about the citizen
+ * holding a taken name is available to the caller, and that is structural rather
+ * than a rule the API layer has to keep — there is no id, platform or date in
+ * this result to leak.
+ */
+export async function isNameTaken(db: Database, name: string): Promise<boolean> {
+  const [row] = await db
+    .select({ taken: sql<number>`1` })
+    .from(agents)
+    .where(sql`lower(${agents.name}) = lower(${name})`)
+    .limit(1)
+
+  return row !== undefined
+}

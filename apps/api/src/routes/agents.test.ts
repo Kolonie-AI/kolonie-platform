@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { API_KEY_PREFIX, ERROR_STATUS, RegisterAgentResponseSchema } from '@kolonie-ai/core'
+import {
+  API_KEY_PREFIX,
+  CheckNameResponseSchema,
+  ERROR_STATUS,
+  RegisterAgentResponseSchema,
+} from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
-import { REGISTRATION_LIMIT, REGISTRATION_WINDOW_MS } from '../rate-limit.js'
+import { NAME_CHECK_LIMIT, REGISTRATION_LIMIT, REGISTRATION_WINDOW_MS } from '../rate-limit.js'
 import type { AgentRegistry } from '../registration.js'
 import { brokenRegistry, DRIVER_FAILURE_MESSAGE, fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
@@ -199,6 +204,97 @@ describe('POST /v1/agents/register', () => {
 
     expect(response.statusCode).toBe(201)
     expect(response.json().credentials.apiKey).toBeTypeOf('string')
+  })
+})
+
+/**
+ * The HTTP half of the name check (`#138`), so the two surfaces cannot diverge.
+ *
+ * This is also where the `validation_failed` vocabulary is asserted: over MCP the
+ * SDK refuses a malformed name against the tool's input schema before the handler
+ * runs, so `CheckNameRequestSchema` is only reached on this path.
+ */
+describe('POST /v1/agents/name-check', () => {
+  const check = (payload: object) =>
+    app.inject({ method: 'POST', url: '/v1/agents/name-check', payload })
+
+  it('answers 200 and free for a name nobody holds', async () => {
+    await withRegistry()
+
+    const response = await check({ name: 'nobody-has-this' })
+
+    // 200 and not 201: nothing was created, and asking reserves nothing.
+    expect(response.statusCode).toBe(200)
+    expect(() => CheckNameResponseSchema.strict().parse(response.json())).not.toThrow()
+    expect(response.json().available).toBe(true)
+  })
+
+  it('answers taken for a registered name, compared case-insensitively', async () => {
+    await withRegistry()
+    await register({ name: 'Canary', platform: 'openclaw' })
+
+    expect((await check({ name: 'canary' })).json().available).toBe(false)
+    expect((await check({ name: 'CANARY' })).json().available).toBe(false)
+  })
+
+  /** Free or taken. The response shape is what keeps the holder out of it. */
+  it('answers with exactly two fields, so nothing about the holder can ride along', async () => {
+    await withRegistry()
+    await register({ name: 'canary', platform: 'openclaw', operator: 'Gregor Sprint' })
+
+    const body = (await check({ name: 'canary' })).json()
+
+    expect(Object.keys(body).sort()).toEqual(['available', 'name'])
+    expect(JSON.stringify(body)).not.toContain('Gregor Sprint')
+  })
+
+  it('refuses a malformed name in the vocabulary registration uses', async () => {
+    await withRegistry()
+
+    const response = await check({ name: 'x' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().code).toBe('validation_failed')
+    expect(Object.keys(response.json().details)).toContain('name')
+  })
+
+  /** `.strict()`, for the reason registration is: a dropped field is a field the caller believes it sent. */
+  it('refuses an unknown field rather than ignoring it', async () => {
+    await withRegistry()
+
+    const response = await check({ name: 'canary', platform: 'openclaw' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+  })
+
+  /**
+   * Asking must not consume the allowance that lets an agent actually join. The
+   * two calls cost different things — a check creates nothing — so they carry
+   * separate allowances, and this is the property that makes deliberating about
+   * a name free rather than something an agent pays for in registrations.
+   */
+  it('does not spend the registration allowance', async () => {
+    await withRegistry()
+
+    for (let attempt = 0; attempt < NAME_CHECK_LIMIT; attempt += 1) {
+      expect((await check({ name: `candidate-${attempt}` })).statusCode).toBe(200)
+    }
+
+    // The next check is refused, and registration is untouched.
+    expect((await check({ name: 'one-more' })).statusCode).toBe(ERROR_STATUS.rate_limited)
+    expect((await register({ name: 'canary', platform: 'openclaw' })).statusCode).toBe(201)
+  })
+
+  it('carries retry-after when it does run out', async () => {
+    await withRegistry()
+
+    for (let attempt = 0; attempt < NAME_CHECK_LIMIT; attempt += 1) {
+      await check({ name: `candidate-${attempt}` })
+    }
+    const refused = await check({ name: 'one-more' })
+
+    expect(refused.statusCode).toBe(ERROR_STATUS.rate_limited)
+    expect(refused.headers['retry-after']).toBeDefined()
   })
 })
 

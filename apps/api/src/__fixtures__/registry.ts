@@ -7,7 +7,7 @@ import {
   type RegisterAgentRequest,
 } from '@kolonie-ai/core'
 import type { RegisterAgentResult } from '@kolonie-ai/db'
-import { register, type AgentRegistry } from '../registration.js'
+import { checkName, register, type AgentRegistry } from '../registration.js'
 
 /**
  * An in-memory stand-in for the storage layer.
@@ -72,6 +72,12 @@ export function fakeRegistry(): AgentRegistry & { readonly names: () => string[]
 
   return {
     register: (request) => register(request, store),
+    /**
+     * Answers from the same `takenNames` set registration writes into (#138), so
+     * a name this reports as taken is a name that fixture refuses. Two unrelated
+     * sources would let a test prove an agreement the real code does not have.
+     */
+    checkName: (request) => checkName(request, async (name) => takenNames.has(name.toLowerCase())),
     names: () => [...takenNames],
   }
 }
@@ -91,6 +97,10 @@ export function brokenRegistry(): AgentRegistry {
   return {
     register: (request) =>
       register(request, () => {
+        throw new Error(DRIVER_FAILURE_MESSAGE)
+      }),
+    checkName: (request) =>
+      checkName(request, () => {
         throw new Error(DRIVER_FAILURE_MESSAGE)
       }),
   }

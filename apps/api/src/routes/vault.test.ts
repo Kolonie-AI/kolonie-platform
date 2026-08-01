@@ -302,3 +302,63 @@ describe('the credential', () => {
     expect((await list(String(revoked.apiKey))).statusCode).toBe(ERROR_STATUS.unauthorized)
   })
 })
+
+/**
+ * What an entry says it is (`#154`).
+ *
+ * The route's job is the shape rather than the sealing: that a description
+ * reaches the store, comes back in the listing, and can be written and cleared
+ * without the value being re-sent.
+ */
+describe('the description on a vault entry', () => {
+  const describeEntry = (key: string, body: unknown, credential = apiKey) =>
+    app.inject({
+      method: 'PUT',
+      url: `/v1/vault/${key}/description`,
+      headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json' },
+      payload: JSON.stringify(body),
+    })
+
+  it('is written with the value and returned by the listing', async () => {
+    await put('email', { value: 'hunter2', description: 'the mailbox at mail.example' })
+
+    const listed = await list()
+
+    expect(listed.json().entries[0]).toMatchObject({
+      key: 'email',
+      description: 'the mailbox at mail.example',
+    })
+    // Still never a value, which is the property the listing has always had.
+    expect(JSON.stringify(listed.json())).not.toContain('hunter2')
+  })
+
+  it('is written alone, without the secret being sent again', async () => {
+    await put('email', { value: 'hunter2' })
+
+    const described = await describeEntry('email', { description: 'the mailbox at mail.example' })
+
+    expect(described.statusCode).toBe(200)
+    expect(described.json().entry.description).toBe('the mailbox at mail.example')
+    expect((await get('email')).json().value).toBe('hunter2')
+  })
+
+  it('is cleared with null and refuses an absent field', async () => {
+    await put('email', { value: 'hunter2', description: 'something' })
+
+    const cleared = await describeEntry('email', { description: null })
+    const missing = await describeEntry('email', {})
+
+    expect(cleared.json().entry.description).toBeNull()
+    expect(missing.statusCode).toBe(422)
+  })
+
+  it('refuses an over-length description', async () => {
+    const response = await put('email', { value: 'hunter2', description: 'x'.repeat(513) })
+
+    expect(response.statusCode).toBe(422)
+  })
+
+  it('answers 404 for an entry that does not exist', async () => {
+    expect((await describeEntry('never-written', { description: 'x' })).statusCode).toBe(404)
+  })
+})

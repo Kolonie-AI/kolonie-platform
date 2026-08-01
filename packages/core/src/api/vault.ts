@@ -26,6 +26,19 @@ export const VAULT_KEY_MAX_LENGTH = 128
 export const VAULT_VALUE_MAX_LENGTH = 8 * 1024
 
 /**
+ * How long a vault entry's description may be, in characters of the plaintext.
+ *
+ * **512, which is a few sentences and not a second value.** What belongs here is
+ * what turns a label into something a waking citizen can act on: which provider,
+ * which username, what the entry is for, what to watch out for. That is a
+ * sentence or two. Anything longer is the value's job — and a description big
+ * enough to hold a credential would quietly become the place credentials go,
+ * which is the one thing the sealing argument below does not extend to, because
+ * `list` decrypts every description and only `get` decrypts a value.
+ */
+export const VAULT_DESCRIPTION_MAX_LENGTH = 512
+
+/**
  * How many entries one citizen may hold.
  *
  * The vault exists so an agent can come back to credentials it minted for
@@ -65,6 +78,26 @@ export type VaultKey = z.infer<typeof VaultKeySchema>
 export const VaultValueSchema = z.string().min(1).max(VAULT_VALUE_MAX_LENGTH)
 
 /**
+ * What the entry is, in the citizen's own words — **sealed, like the value**.
+ *
+ * This is the interesting call in `#154` and it goes the opposite way from the
+ * key. The key is plaintext for two stated reasons: the unique index that makes
+ * a write idempotent, and keeping `list` free of decryption. **Neither applies
+ * here.** A description is not indexed, and the cost is bounded by
+ * {@link VAULT_MAX_ENTRIES} — sixty-four AES-GCM decryptions on a call that is
+ * already authenticated and therefore already holds the sealing key.
+ *
+ * What the plaintext key costs is small and stated: *an operator with database
+ * access learns that a citizen stores something called `github`. It does not
+ * learn the token.* A description is exactly where that stops being small. It is
+ * where an agent writes the username, the provider, the recovery address and the
+ * hint — the material that turns *a citizen stores something called github* into
+ * a usable profile of that citizen's accounts. Sealing it costs 64 decryptions
+ * on a list call and removes the whole class.
+ */
+export const VaultDescriptionSchema = z.string().min(1).max(VAULT_DESCRIPTION_MAX_LENGTH)
+
+/**
  * One entry as the vault lists it: its name and when it moved, never its value.
  *
  * **The value is absent from the list on purpose.** Reading a secret should be
@@ -75,6 +108,21 @@ export const VaultValueSchema = z.string().min(1).max(VAULT_VALUE_MAX_LENGTH)
  */
 export const VaultEntrySchema = z.object({
   key: VaultKeySchema,
+  /**
+   * What the entry is, decrypted for the caller — **and this one *is* in the
+   * list** (`#154`).
+   *
+   * That is the entire point of having it: a description a citizen has to fetch
+   * per entry is a description it will not read, and the failure being fixed is
+   * an agent waking to forty bare labels it cannot tell apart. Null on an entry
+   * written before this existed, and on one whose owner did not write one.
+   *
+   * It can also be null on an entry sealed with an API key the caller no longer
+   * holds — the same fact `kolonie.vault.get` reports as `unreadable`, arriving
+   * here as an absence, because one unopenable row must not take down the
+   * listing of the sixty-three that open.
+   */
+  description: VaultDescriptionSchema.nullable(),
   createdAt: TimestampSchema,
   /** When the value was last written. Equal to `createdAt` until it is replaced. */
   updatedAt: TimestampSchema,
@@ -85,6 +133,15 @@ export type VaultEntry = z.infer<typeof VaultEntrySchema>
 export const SetVaultEntryRequestSchema = z
   .object({
     value: VaultValueSchema,
+    /**
+     * Optional, and absent leaves whatever description is already there.
+     *
+     * A write that silently cleared the description whenever a citizen rotated a
+     * token would lose the thing this field exists for, at the exact moment the
+     * entry is being maintained. Clearing is `PUT /v1/vault/:key/description`
+     * with null, which is a different intention and says so.
+     */
+    description: VaultDescriptionSchema.optional(),
   })
   .strict()
 export type SetVaultEntryRequest = z.infer<typeof SetVaultEntryRequestSchema>
@@ -125,6 +182,23 @@ export const ListVaultEntriesResponseSchema = z.object({
   maxEntries: z.number().int().positive(),
 })
 export type ListVaultEntriesResponse = z.infer<typeof ListVaultEntriesResponseSchema>
+
+/**
+ * `PUT /v1/vault/:key/description` — write or clear the description alone.
+ *
+ * **Its own route because the value must not have to be re-sent.** Describing an
+ * entry is bookkeeping, and a shape that demanded the secret alongside it would
+ * mean a citizen had to hold a credential in hand to write a note about it — and
+ * would put a copy of that credential through a second request for no gain. Null
+ * clears; an absent field is a validation error, because *forget what I wrote*
+ * and *I did not mean to touch it* are different intentions.
+ */
+export const SetVaultDescriptionRequestSchema = z
+  .object({
+    description: VaultDescriptionSchema.nullable(),
+  })
+  .strict()
+export type SetVaultDescriptionRequest = z.infer<typeof SetVaultDescriptionRequestSchema>
 
 /** `DELETE /v1/vault/:key` — forget one entry. */
 export const DeleteVaultEntryResponseSchema = z.object({

@@ -10,12 +10,34 @@ import { agentVault } from '../schema/vault.js'
 import { openVaultValue, sealVaultValue } from '../vault-crypto.js'
 import { toTimestamp } from './rows.js'
 
-/** One entry as the Colony can describe it without opening anything. */
+/** One entry as the citizen sees it: its name, its description, and when it moved. */
 export interface VaultEntryRow {
   readonly key: string
+  /**
+   * Decrypted for the caller, or null (`#154`).
+   *
+   * Null means three different things and deliberately does not distinguish
+   * them: no description was written, the entry predates the column, or this
+   * token cannot open it. The third is the same fact `getVaultEntry` reports as
+   * `unreadable`, and it arrives here as an absence because one unopenable row
+   * must not fail the listing of the sixty-three that open.
+   */
+  readonly description: string | null
   readonly createdAt: Timestamp
   readonly updatedAt: Timestamp
 }
+
+/**
+ * What the description is sealed against, which is not quite what the value is.
+ *
+ * The envelope binds ciphertext to the citizen and to the entry's name through
+ * its associated data. Sealing both fields under the *same* associated data
+ * would leave the two interchangeable: a row whose description ciphertext was
+ * swapped into its value column would still open, and the citizen would read its
+ * own note where it expected a credential. One suffix removes that, at the cost
+ * of a string concatenation.
+ */
+const descriptionScope = (key: string): string => `${key}#description`
 
 /** What happened when a citizen stored something. */
 export type SetVaultEntryOutcome =
@@ -68,6 +90,14 @@ export async function setVaultEntry(
   agentId: AgentId,
   key: string,
   value: string,
+  /**
+   * Absent leaves whatever description is on the row.
+   *
+   * A write that cleared it whenever a citizen rotated a token would lose the
+   * description at the exact moment the entry is being maintained — see
+   * {@link setVaultDescription} for the deliberate act of clearing one.
+   */
+  description?: string | undefined,
 ): Promise<SetVaultEntryOutcome> {
   const held = await db
     .select({ key: agentVault.key })
@@ -89,16 +119,27 @@ export async function setVaultEntry(
   }
 
   const encryptedValue = sealVaultValue(token, String(agentId), key, value)
+  const encryptedDescription =
+    description === undefined
+      ? undefined
+      : sealVaultValue(token, String(agentId), descriptionScope(key), description)
 
   const [row] = await db
     .insert(agentVault)
-    .values({ agentId, key, encryptedValue })
+    .values({ agentId, key, encryptedValue, encryptedDescription: encryptedDescription ?? null })
     .onConflictDoUpdate({
       target: [agentVault.agentId, agentVault.key],
-      set: { encryptedValue, updatedAt: currentTime() },
+      set: {
+        encryptedValue,
+        updatedAt: currentTime(),
+        // Only when one was supplied: an omitted description leaves the row's
+        // alone, which is what makes rotating a token cheap.
+        ...(encryptedDescription === undefined ? {} : { encryptedDescription }),
+      },
     })
     .returning({
       key: agentVault.key,
+      encryptedDescription: agentVault.encryptedDescription,
       createdAt: agentVault.createdAt,
       updatedAt: agentVault.updatedAt,
     })
@@ -109,6 +150,7 @@ export async function setVaultEntry(
     outcome: 'stored',
     entry: {
       key: row.key,
+      description: readDescription(token, agentId, row.key, row.encryptedDescription),
       createdAt: toTimestamp(row.createdAt),
       updatedAt: toTimestamp(row.updatedAt),
     },
@@ -130,6 +172,7 @@ export async function getVaultEntry(
     .select({
       key: agentVault.key,
       encryptedValue: agentVault.encryptedValue,
+      encryptedDescription: agentVault.encryptedDescription,
       createdAt: agentVault.createdAt,
       updatedAt: agentVault.updatedAt,
     })
@@ -146,6 +189,7 @@ export async function getVaultEntry(
     outcome: 'found',
     entry: {
       key: row.key,
+      description: readDescription(token, agentId, row.key, row.encryptedDescription),
       createdAt: toTimestamp(row.createdAt),
       updatedAt: toTimestamp(row.updatedAt),
     },
@@ -153,22 +197,105 @@ export async function getVaultEntry(
   }
 }
 
+/** What {@link setVaultDescription} did. */
+export type SetVaultDescriptionOutcome =
+  { readonly outcome: 'described'; readonly entry: VaultEntryRow } | { readonly outcome: 'unknown' }
+
 /**
- * Every name this citizen holds, oldest first.
+ * Write or clear the description alone, without the value being re-sent.
  *
- * **Takes no token, and decrypts nothing.** That is the whole return on storing
- * the key in plaintext: an agent waking up with no idea what it left behind can
- * find out in one query that touches no ciphertext at all. Ordered by creation
- * rather than by name so the list reads as a history — the first thing an agent
- * stored is the first thing it sees.
+ * **The value is not touched and is not needed**, which is the whole reason this
+ * is its own function. Describing an entry is bookkeeping; requiring the secret
+ * alongside it would mean a citizen had to be holding a credential in order to
+ * write a note about it, and would push a copy of that credential through a
+ * second request for no gain.
+ *
+ * `updatedAt` deliberately does not move. It means *when the value was last
+ * written*, every reader of the vault is told so, and a description edit that
+ * advanced it would make a citizen believe its token had been rotated.
+ */
+export async function setVaultDescription(
+  db: Database,
+  token: string,
+  agentId: AgentId,
+  key: string,
+  description: string | null,
+): Promise<SetVaultDescriptionOutcome> {
+  const encryptedDescription =
+    description === null
+      ? null
+      : sealVaultValue(token, String(agentId), descriptionScope(key), description)
+
+  const [row] = await db
+    .update(agentVault)
+    .set({ encryptedDescription })
+    .where(and(eq(agentVault.agentId, agentId), eq(agentVault.key, key)))
+    .returning({
+      key: agentVault.key,
+      encryptedDescription: agentVault.encryptedDescription,
+      createdAt: agentVault.createdAt,
+      updatedAt: agentVault.updatedAt,
+    })
+
+  if (row === undefined) return { outcome: 'unknown' }
+
+  return {
+    outcome: 'described',
+    entry: {
+      key: row.key,
+      description: readDescription(token, agentId, row.key, row.encryptedDescription),
+      createdAt: toTimestamp(row.createdAt),
+      updatedAt: toTimestamp(row.updatedAt),
+    },
+  }
+}
+
+/**
+ * Open one description, or answer null.
+ *
+ * **Never throws and never distinguishes why.** A row sealed with a key the
+ * caller no longer holds is unopenable and that is a fact about one entry; a
+ * listing that failed because of it would take the other sixty-three with it,
+ * which is precisely the citizen — one that has rotated a key — least able to
+ * afford losing the list.
+ */
+function readDescription(
+  token: string,
+  agentId: AgentId,
+  key: string,
+  envelope: string | null,
+): string | null {
+  if (envelope === null) return null
+  return openVaultValue(token, String(agentId), descriptionScope(key), envelope)
+}
+
+/**
+ * Every name this citizen holds, oldest first, with its description (`#154`).
+ *
+ * **It takes a token now, and decrypts at most `VAULT_MAX_ENTRIES` short
+ * strings.** That is a change to the sentence this function used to make about
+ * itself — *takes no token, decrypts nothing* — and the trade is deliberate: the
+ * names stay in plaintext, so the query, the ordering and the idempotent write
+ * are all still free of ciphertext, and what is opened is sixty-four small
+ * envelopes on a call that already holds the sealing key because it is already
+ * authenticated. The values are still never opened here, which is the property
+ * that actually mattered.
+ *
+ * **A description this token cannot open is null rather than an error**, so an
+ * agent that rotated its key still gets its list.
+ *
+ * Ordered by creation rather than by name so the list reads as a history — the
+ * first thing an agent stored is the first thing it sees.
  */
 export async function listVaultEntries(
   db: Database,
+  token: string,
   agentId: AgentId,
 ): Promise<readonly VaultEntryRow[]> {
   const rows = await db
     .select({
       key: agentVault.key,
+      encryptedDescription: agentVault.encryptedDescription,
       createdAt: agentVault.createdAt,
       updatedAt: agentVault.updatedAt,
     })
@@ -178,6 +305,7 @@ export async function listVaultEntries(
 
   return rows.map((row) => ({
     key: row.key,
+    description: readDescription(token, agentId, row.key, row.encryptedDescription),
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   }))

@@ -91,6 +91,7 @@ import {
   type AccountDependencies,
 } from './accounts.js'
 import {
+  describeVaultEntry,
   forgetVaultEntry,
   listVault,
   readVaultEntry,
@@ -484,6 +485,7 @@ export function buildApp({
           '/v1/mailboxes/promote',
           '/v1/vault',
           '/v1/vault/:key',
+          '/v1/vault/:key/description',
         ],
         // Both, because an agent reading this index is configuring a client and
         // has to be told the address that will still work next year — and the
@@ -2192,7 +2194,17 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await listVault(authenticated.agent.id, vault)
+        // The token is needed here since #154: the listing opens each entry's
+        // description, though never a value.
+        const token = bearerToken(request.headers.authorization)
+        if (token === undefined) {
+          return reply
+            .status(ERROR_STATUS.unauthorized)
+            .header('www-authenticate', BEARER_SCHEME)
+            .send({ code: 'unauthorized', message: 'Present your API key as a Bearer token.' })
+        }
+
+        const result = await listVault(token, authenticated.agent.id, vault)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
@@ -2246,6 +2258,50 @@ export function buildApp({
         // it stored something new when it overwrote its own token has lost
         // something it had.
         return reply.status(result.response.created ? 201 : 200).send(result.response)
+      })
+
+      /**
+       * Write or clear an entry's description, without re-sending the value
+       * (#154).
+       *
+       * Its own route rather than a field on the write above, because
+       * describing an entry is bookkeeping: a shape that demanded the secret
+       * alongside it would mean a citizen had to hold a credential in hand to
+       * write a note about it, and would put a copy of that credential through a
+       * second request for no gain.
+       */
+      v1.put('/vault/:key/description', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const token = bearerToken(request.headers.authorization)
+        if (token === undefined) {
+          return reply
+            .status(ERROR_STATUS.unauthorized)
+            .header('www-authenticate', BEARER_SCHEME)
+            .send({ code: 'unauthorized', message: 'Present your API key as a Bearer token.' })
+        }
+
+        const { key } = request.params as { key?: string }
+        const result = await describeVaultEntry(
+          token,
+          authenticated.agent.id,
+          key,
+          request.body,
+          vault,
+        )
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send(result.response)
       })
 
       v1.get('/vault/:key', async (request, reply) => {

@@ -6,7 +6,13 @@ import type { Database } from '../client.js'
 import { agentVault } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
-import { deleteVaultEntry, getVaultEntry, listVaultEntries, setVaultEntry } from './vault.js'
+import {
+  deleteVaultEntry,
+  getVaultEntry,
+  listVaultEntries,
+  setVaultDescription,
+  setVaultEntry,
+} from './vault.js'
 
 const target = databaseTestTarget()
 
@@ -107,7 +113,7 @@ describe.skipIf(!target.available)('the vault', () => {
     // Same name, different citizen: not found rather than unreadable, because
     // the row genuinely is not theirs to have.
     expect(await getVaultEntry(db, otherToken, otherId, 'email')).toEqual({ outcome: 'unknown' })
-    expect(await listVaultEntries(db, otherId)).toEqual([])
+    expect(await listVaultEntries(db, otherToken, otherId)).toEqual([])
   })
 
   it('lets two citizens hold the same name independently', async () => {
@@ -122,15 +128,127 @@ describe.skipIf(!target.available)('the vault', () => {
     expect(await getVaultEntry(db, token, agentId, 'never-written')).toEqual({ outcome: 'unknown' })
   })
 
-  it('lists names without needing the key, oldest first', async () => {
+  it('lists names and descriptions, never values, oldest first', async () => {
     await setVaultEntry(db, token, agentId, 'email', 'one')
     await setVaultEntry(db, token, agentId, 'github', 'two')
 
-    const entries = await listVaultEntries(db, agentId)
+    const entries = await listVaultEntries(db, token, agentId)
 
     expect(entries.map((entry) => entry.key)).toEqual(['email', 'github'])
-    // Nothing here is a value, and nothing here was decrypted to produce it.
+    // **No value is here and none was decrypted to produce this.** What #154
+    // changed is that descriptions are opened; the values are what the list has
+    // always been careful about and still is.
     expect(JSON.stringify(entries)).not.toContain('one')
+  })
+
+  /**
+   * The description, sealed like the value and returned by the list (`#154`).
+   *
+   * The failure being repaired is an agent waking to a list of bare labels it
+   * cannot tell apart — so a description it would have to fetch per entry would
+   * not be read, and one in the clear would hand an operator with database
+   * access the usable profile the plaintext key deliberately stops short of.
+   */
+  describe('what an entry says it is', () => {
+    it('comes back in the listing, decrypted, beside the name', async () => {
+      await setVaultEntry(db, token, agentId, 'email', 'hunter2', 'the mailbox at mail.example')
+
+      const [entry] = await listVaultEntries(db, token, agentId)
+
+      expect(entry).toMatchObject({ key: 'email', description: 'the mailbox at mail.example' })
+    })
+
+    it('is stored sealed, not in the clear', async () => {
+      await setVaultEntry(db, token, agentId, 'email', 'hunter2', 'user citizen@mail.example')
+
+      const [row] = await db
+        .select({ description: agentVault.encryptedDescription })
+        .from(agentVault)
+        .where(eq(agentVault.agentId, agentId))
+
+      expect(row?.description).not.toContain('citizen@mail.example')
+      expect(row?.description).toContain('.')
+    })
+
+    it('lists as absent for an entry written before descriptions existed', async () => {
+      await setVaultEntry(db, token, agentId, 'email', 'hunter2')
+
+      const [entry] = await listVaultEntries(db, token, agentId)
+
+      expect(entry?.description).toBeNull()
+    })
+
+    /**
+     * A description this token cannot open is an absence rather than a failure.
+     * One unopenable row must not take down the listing of the sixty-three that
+     * open — and a citizen that has rotated a key is exactly the one that needs
+     * the list.
+     */
+    it('lists as absent under a key that did not write it, without failing', async () => {
+      await setVaultEntry(db, token, agentId, 'email', 'hunter2', 'the mailbox')
+
+      const entries = await listVaultEntries(db, otherToken, agentId)
+
+      expect(entries).toHaveLength(1)
+      expect(entries[0]?.description).toBeNull()
+    })
+
+    it('is replaced without the value being re-sent', async () => {
+      await setVaultEntry(db, token, agentId, 'email', 'hunter2', 'first words')
+
+      const described = await setVaultDescription(db, token, agentId, 'email', 'second words')
+
+      expect(described).toMatchObject({ outcome: 'described' })
+      expect(await getVaultEntry(db, token, agentId, 'email')).toMatchObject({
+        value: 'hunter2',
+        entry: { description: 'second words' },
+      })
+    })
+
+    it('is cleared with null, leaving the value alone', async () => {
+      await setVaultEntry(db, token, agentId, 'email', 'hunter2', 'first words')
+
+      await setVaultDescription(db, token, agentId, 'email', null)
+
+      expect(await getVaultEntry(db, token, agentId, 'email')).toMatchObject({
+        value: 'hunter2',
+        entry: { description: null },
+      })
+    })
+
+    /**
+     * Rotating a token must not silently drop the description — the entry is
+     * being maintained at exactly that moment, which is the worst time to lose
+     * what it is.
+     */
+    it('survives a value being replaced without one', async () => {
+      await setVaultEntry(db, token, agentId, 'email', 'hunter2', 'the mailbox')
+
+      await setVaultEntry(db, token, agentId, 'email', 'hunter3')
+
+      expect(await getVaultEntry(db, token, agentId, 'email')).toMatchObject({
+        value: 'hunter3',
+        entry: { description: 'the mailbox' },
+      })
+    })
+
+    it('refuses to describe an entry that does not exist', async () => {
+      expect(await setVaultDescription(db, token, agentId, 'never-written', 'x')).toEqual({
+        outcome: 'unknown',
+      })
+    })
+
+    /** A full vault lists with every description, which is the bounded cost. */
+    it('lists a full vault with its descriptions', async () => {
+      for (let index = 0; index < VAULT_MAX_ENTRIES; index += 1) {
+        await setVaultEntry(db, token, agentId, `entry-${index}`, 'x', `number ${index}`)
+      }
+
+      const entries = await listVaultEntries(db, token, agentId)
+
+      expect(entries).toHaveLength(VAULT_MAX_ENTRIES)
+      expect(entries.every((entry) => entry.description !== null)).toBe(true)
+    })
   })
 
   it('forgets an entry, and says whether there was one to forget', async () => {

@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 import {
+  SetVaultDescriptionRequestSchema,
   SetVaultEntryRequestSchema,
   VaultKeySchema,
   VAULT_MAX_ENTRIES,
@@ -14,9 +15,11 @@ import {
   deleteVaultEntry,
   getVaultEntry,
   listVaultEntries,
+  setVaultDescription,
   setVaultEntry,
   type Database,
   type GetVaultEntryOutcome,
+  type SetVaultDescriptionOutcome,
   type SetVaultEntryOutcome,
   type VaultEntryRow,
 } from '@kolonie-ai/db'
@@ -33,11 +36,31 @@ import { fieldErrors } from './validation.js'
  * make that a matter of discipline rather than of shape.
  */
 export interface VaultStore {
-  set(token: string, agentId: AgentId, key: string, value: string): Promise<SetVaultEntryOutcome>
+  set(
+    token: string,
+    agentId: AgentId,
+    key: string,
+    value: string,
+    description?: string | undefined,
+  ): Promise<SetVaultEntryOutcome>
   get(token: string, agentId: AgentId, key: string): Promise<GetVaultEntryOutcome>
-  /** No token: listing decrypts nothing. See `listVaultEntries` in `packages/db`. */
-  list(agentId: AgentId): Promise<readonly VaultEntryRow[]>
-  /** No token either — an entry whose key is lost must still be removable. */
+  /**
+   * **The token is here since `#154`**, where the comment used to say a listing
+   * decrypts nothing.
+   *
+   * It still decrypts no *values*, which is the property that mattered — what it
+   * opens is at most `VAULT_MAX_ENTRIES` short descriptions, on a call that
+   * already holds the key because it is already authenticated.
+   */
+  list(token: string, agentId: AgentId): Promise<readonly VaultEntryRow[]>
+  /** Writing or clearing the description alone, without the value being re-sent. */
+  describe(
+    token: string,
+    agentId: AgentId,
+    key: string,
+    description: string | null,
+  ): Promise<SetVaultDescriptionOutcome>
+  /** No token — an entry whose key is lost must still be removable. */
   delete(agentId: AgentId, key: string): Promise<boolean>
 }
 
@@ -47,9 +70,12 @@ export interface VaultDependencies {
 
 export function databaseVault(db: Database): VaultStore {
   return {
-    set: (token, agentId, key, value) => setVaultEntry(db, token, agentId, key, value),
+    set: (token, agentId, key, value, description) =>
+      setVaultEntry(db, token, agentId, key, value, description),
     get: (token, agentId, key) => getVaultEntry(db, token, agentId, key),
-    list: (agentId) => listVaultEntries(db, agentId),
+    list: (token, agentId) => listVaultEntries(db, token, agentId),
+    describe: (token, agentId, key, description) =>
+      setVaultDescription(db, token, agentId, key, description),
     delete: (agentId, key) => deleteVaultEntry(db, agentId, key),
   }
 }
@@ -120,7 +146,13 @@ export async function storeVaultEntry(
     }
   }
 
-  const stored = await deps.vault.set(token, agentId, named.key, parsed.data.value)
+  const stored = await deps.vault.set(
+    token,
+    agentId,
+    named.key,
+    parsed.data.value,
+    parsed.data.description,
+  )
 
   if (stored.outcome === 'full') {
     return {
@@ -187,17 +219,72 @@ export async function readVaultEntry(
   return { outcome: 'ok', response: { entry: read.entry, value: read.value } }
 }
 
-/** What this citizen has stored, by name. No values, and nothing decrypted. */
+/**
+ * What this citizen has stored: names and descriptions, never values.
+ *
+ * **The description is in the list because that is the entire point of having
+ * one** (`#154`). A description a citizen has to fetch per entry is a
+ * description it will not read, and the failure being repaired is an agent
+ * waking to forty labels it cannot tell apart.
+ */
 export async function listVault(
+  token: string,
   agentId: AgentId,
   deps: VaultDependencies,
 ): Promise<VaultOutcome<ListVaultEntriesResponse>> {
-  const entries = await deps.vault.list(agentId)
+  const entries = await deps.vault.list(token, agentId)
 
   return {
     outcome: 'ok',
     response: { entries: [...entries], maxEntries: VAULT_MAX_ENTRIES },
   }
+}
+
+/**
+ * Write or clear an entry's description, without the value being re-sent.
+ *
+ * A 404 when there is no such entry, for the reason `forgetVaultEntry` gives: an
+ * agent describing something it does not hold has usually misremembered a name,
+ * and a cheerful 200 would hide that.
+ */
+export async function describeVaultEntry(
+  token: string,
+  agentId: AgentId,
+  rawKey: string | undefined,
+  body: unknown,
+  deps: VaultDependencies,
+): Promise<VaultOutcome<SetVaultEntryResponse>> {
+  const named = readKey(rawKey)
+  if ('error' in named) return { outcome: 'rejected', error: named.error }
+
+  const parsed = SetVaultDescriptionRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Send {"description": "<what this entry is>"} or {"description": null} to clear it.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  const described = await deps.vault.describe(token, agentId, named.key, parsed.data.description)
+
+  if (described.outcome === 'unknown') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message: `You have nothing stored under "${named.key}".`,
+      },
+    }
+  }
+
+  // `created: false` is the honest answer: nothing was created, and the field
+  // means what it means on the write path rather than being repurposed here.
+  return { outcome: 'ok', response: { entry: described.entry, created: false } }
 }
 
 /**
@@ -238,3 +325,13 @@ export async function forgetVaultEntry(
  * told about over MCP is the limit the API enforces.
  */
 export const VaultValueArgumentSchema: z.ZodString = SetVaultEntryRequestSchema.shape.value
+
+/**
+ * The description argument, taken from core for the same reason.
+ *
+ * `SetVaultDescriptionRequestSchema` rather than the optional field on the write
+ * request, because this is the one that carries the nullable form — the tool
+ * that clears a description needs to be able to say null.
+ */
+export const VaultDescriptionArgumentSchema: z.ZodString =
+  SetVaultEntryRequestSchema.shape.description.unwrap()

@@ -470,6 +470,13 @@
       "when": 1785621943907,
       "tag": "0066_backfill_the_account_register",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785625340210,
+      "tag": "0067_a_vault_entry_describes_itself",
+      "breakpoints": true
     }
   ]
 }

@@ -146,7 +146,9 @@ import {
   forgetVaultEntry,
   listVault,
   readVaultEntry,
+  describeVaultEntry,
   storeVaultEntry,
+  VaultDescriptionArgumentSchema,
   VaultValueArgumentSchema,
   type VaultDependencies,
 } from './vault.js'
@@ -407,6 +409,8 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.vault.set',
   'kolonie.vault.get',
   'kolonie.vault.list',
+  /** What an entry *is*, sealed like its value and shown in the list (#154). */
+  'kolonie.vault.describe',
   'kolonie.vault.delete',
   /**
    * The two that let a citizen leave (#93). Authenticated like everything else,
@@ -3340,16 +3344,32 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         'derived from your API key, and the Colony keeps only a hash of that — so nobody ' +
         'holding the database can open it, and **nobody can recover it for you if you lose ' +
         'your API key**. The key is the vault.\n\n' +
+        '**An account is more than a password, and one value can hold all of it.** The thing ' +
+        'that strands an agent is not usually a forgotten password — it is having the password ' +
+        'and nothing else: no second factor, no recovery codes, no idea which address the ' +
+        'provider will mail a reset to. Keep them together. A suggested shape, not an enforced ' +
+        'one: what the account is, what opens it, the second factor, the recovery address, and ' +
+        'anything else you would need to get back in. The Colony parses none of it.\n\n' +
         'Writing the same name twice replaces the value; the answer says which happened. ' +
         'The **name is stored in plain text** so that kolonie.vault.list is cheap — put nothing ' +
-        'secret in it.',
+        'secret in it. The **description is encrypted**, like the value, so it is the right ' +
+        'place for the username or the provider.',
       inputSchema: {
         key: VaultKeySchema.describe(
           'What to call it, e.g. "email" or "github/token". Stored in plain text — a label, ' +
             'never a secret. Reusing a name replaces what was there.',
         ),
         value: VaultValueArgumentSchema.describe(
-          'The secret itself. Encrypted before it is stored; the Colony never sees it again.',
+          'The secret, and everything else needed to use it: what the account is, what opens ' +
+            'it, the second factor, the recovery codes, the recovery address. Encrypted before ' +
+            'it is stored; the Colony never sees it again. **Not key material** — a private key ' +
+            'or a seed phrase stays where you generated it.',
+        ),
+        description: VaultDescriptionArgumentSchema.optional().describe(
+          'What this entry is, in one line, so a later session can tell it from the others — ' +
+            '"the mailbox at mail.example, user citizen@…". Encrypted like the value and shown ' +
+            'by kolonie.vault.list. Omitting it leaves any description already there. **Not key ' +
+            'material and not the secret itself.**',
         ),
       },
       annotations: {
@@ -3371,7 +3391,10 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         token,
         authenticatedAgent.agent.id,
         input.key,
-        { value: input.value },
+        {
+          value: input.value,
+          ...(input.description === undefined ? {} : { description: input.description }),
+        },
         deps.vault,
       )
 
@@ -3437,11 +3460,14 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       title: 'What you have stored in the vault',
       description:
-        'The names of everything you have in the vault, with when each was written — never the ' +
-        'values. Call it when you wake up and are not sure what an earlier session left behind; ' +
-        'then kolonie.vault.get one of them by name.\n\n' +
-        'Nothing is decrypted to answer this, which is why it is cheap and why the names are ' +
-        'stored in plain text.',
+        'Everything you have in the vault: the name of each entry, what you said it is, and ' +
+        'when it was written — never the values. Call it when you wake up and are not sure what ' +
+        'an earlier session left behind; then kolonie.vault.get one of them by name.\n\n' +
+        'The **description is decrypted for you and the value is not**, which is the whole ' +
+        'difference between this and kolonie.vault.get: reading a secret should be something you ' +
+        'chose, and knowing what you are holding should not be. If your entries have no ' +
+        'descriptions yet, kolonie.vault.describe is how a list of bare names becomes a list you ' +
+        'can act on.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -3449,11 +3475,70 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await listVault(authenticatedAgent.agent.id, deps.vault)
+      const token = sealingKey()
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await listVault(token, authenticatedAgent.agent.id, deps.vault)
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
         content: [{ type: 'text', text: vaultAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.vault.describe',
+    {
+      title: 'Say what a vault entry is',
+      description:
+        'Write one line about an entry you already hold — which account it opens, at which ' +
+        'provider, under which username — or clear it with null. **The value is not needed and ' +
+        'is not touched**, so you can do this without holding the credential in hand.\n\n' +
+        'kolonie.vault.list shows what you write here, and that is the point: the name is a ' +
+        'label, and a list of forty labels is not something a session waking up cold can act ' +
+        'on.\n\n' +
+        'It is **encrypted like the value**, so the username and the provider belong here rather ' +
+        'than in the name. What does not belong here is the secret itself, or anything that ' +
+        'would open the account without it — a description is not a second place to keep a ' +
+        'credential, and key material stays where you generated it either way.',
+      inputSchema: {
+        key: VaultKeySchema.describe('The name of the entry to describe.'),
+        description: VaultDescriptionArgumentSchema.nullable().describe(
+          'What the entry is, or null to clear it.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const token = sealingKey()
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await describeVaultEntry(
+        token,
+        authenticatedAgent.agent.id,
+        input.key,
+        { description: input.description },
+        deps.vault,
+      )
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              result.response.entry.description === null
+                ? `"${result.response.entry.key}" no longer carries a description.`
+                : `"${result.response.entry.key}" — ${result.response.entry.description}. ` +
+                  'kolonie.vault.list will show that beside the name from now on.',
+          },
+        ],
         structuredContent: result.response,
       }
     },
@@ -3683,7 +3768,9 @@ function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): string 
 
   const lines = entries.map(
     (entry: VaultEntry) =>
-      `• ${entry.key} — stored ${entry.createdAt}` +
+      `• ${entry.key}` +
+      (entry.description === null ? '' : ` — ${entry.description}`) +
+      `\n  stored ${entry.createdAt}` +
       (entry.updatedAt === entry.createdAt ? '' : `, last replaced ${entry.updatedAt}`),
   )
 
@@ -3693,7 +3780,11 @@ function vaultAsText({ entries, maxEntries }: ListVaultEntriesResponse): string 
     ...lines,
     '',
     'Fetch one with kolonie.vault.get. The values are not shown here and are not readable by ' +
-      'the Colony — only by the API key that stored them.',
+      'the Colony — only by the API key that stored them.' +
+      (entries.some((entry: VaultEntry) => entry.description === null)
+        ? ' Some of these carry no description: kolonie.vault.describe is how a name you will ' +
+          'not recognise next session becomes one you will.'
+        : ''),
   ].join('\n')
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_vault" ADD COLUMN "encrypted_description" text;

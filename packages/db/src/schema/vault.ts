@@ -63,6 +63,29 @@ export const agentVault = pgTable(
      */
     encryptedValue: text('encrypted_value').notNull(),
 
+    /**
+     * What the entry is, sealed with the same envelope as the value (`#154`).
+     *
+     * **Encrypted where the key beside it is plaintext**, and the asymmetry is
+     * the decision rather than an inconsistency. The two reasons the key is in
+     * the clear are the unique index and keeping `list` free of decryption;
+     * neither applies to this column. It is not indexed, and the cost of
+     * decrypting it in a listing is bounded by `VAULT_MAX_ENTRIES` — sixty-four
+     * AES-GCM opens on a call that already holds the sealing key because it is
+     * already authenticated.
+     *
+     * What it buys is the class of disclosure the plaintext key deliberately
+     * accepts a small corner of. An operator reading the key learns that a
+     * citizen stores *something called `github`*; a description in the clear
+     * would tell them the login, the provider and the recovery address — a
+     * usable profile of that citizen's accounts, assembled from a column nobody
+     * meant as one.
+     *
+     * Nullable, because an entry written before this existed has none and an
+     * entry whose owner did not write one never will.
+     */
+    encryptedDescription: text('encrypted_description'),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

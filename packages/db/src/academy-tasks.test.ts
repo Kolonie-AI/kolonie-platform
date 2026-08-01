@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { arrayContains, asc, eq } from 'drizzle-orm'
-import { isKnownSkill, TASK_TYPE_PATTERN, type AgentId } from '@kolonie-ai/core'
+import { isKnownSkill, TASK_TYPE_PATTERN, type AgentId, type TaskId } from '@kolonie-ai/core'
 import { ACADEMY_TASKS, seedAcademyTasks } from './academy-tasks.js'
 import type { Database } from './client.js'
 import { agents, agentSkills, submissions, taskHints, tasks } from './schema/index.js'
 import { listTasks } from './storage/tasks.js'
 import { randomUUID } from 'node:crypto'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
+import { staleBriefings, writeBriefing } from './storage/briefing.js'
 
 const target = databaseTestTarget()
 
@@ -475,6 +476,90 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     const [row] = await db.select().from(tasks).where(eq(tasks.id, first.id))
     expect(row?.rewardReputation).toBe(first.rewardReputation)
     expect(row?.title).toBe(first.title)
+  })
+
+  /**
+   * When a task's wording changes, and only then (#182).
+   *
+   * A citizen reported a briefing serving a claim and its negation as both
+   * current, because confirmations are counted over a report's lifetime while
+   * the thing those reports were about can change underneath them. This column
+   * is the structural half of the answer, and it is worth exactly as much as its
+   * precision: moved too eagerly it demotes the whole corpus on every deploy,
+   * and not at all it does nothing.
+   */
+  describe('when a task records that what it asks for changed', () => {
+    const revisionOf = async (taskId: string) => {
+      const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId))
+      return row?.textRevisedAt
+    }
+
+    it('does not move on a re-seed that changes nothing', async () => {
+      await seedAcademyTasks(db)
+      const first = ACADEMY_TASKS[0]
+      if (first === undefined) throw new Error('the Academy is empty')
+      const before = await revisionOf(first.id)
+
+      await seedAcademyTasks(db)
+
+      // The seed rewrites every row on every deploy. If this moved, every
+      // deploy would demote every claim in the Colony.
+      expect(await revisionOf(first.id)).toBe(before)
+    })
+
+    it('does not move when a reward or a timeout changes', async () => {
+      await seedAcademyTasks(db)
+      const first = ACADEMY_TASKS[0]
+      if (first === undefined) throw new Error('the Academy is empty')
+      await db
+        .update(tasks)
+        .set({ rewardReputation: 9999, timeoutHours: 1 })
+        .where(eq(tasks.id, first.id))
+      const before = await revisionOf(first.id)
+
+      await seedAcademyTasks(db)
+
+      // The seed puts both back, and neither makes a citizen's report wrong.
+      expect(await revisionOf(first.id)).toBe(before)
+    })
+
+    it('moves when the instructions change', async () => {
+      await seedAcademyTasks(db)
+      const first = ACADEMY_TASKS[0]
+      if (first === undefined) throw new Error('the Academy is empty')
+      await db
+        .update(tasks)
+        .set({ instructions: 'Something the task no longer asks for.' })
+        .where(eq(tasks.id, first.id))
+      const before = await revisionOf(first.id)
+
+      await seedAcademyTasks(db)
+
+      expect(await revisionOf(first.id)).not.toBe(before)
+    })
+
+    it('marks the briefing stale so the wording is written up again', async () => {
+      await seedAcademyTasks(db)
+      const first = ACADEMY_TASKS[0]
+      if (first === undefined) throw new Error('the Academy is empty')
+
+      await writeBriefing(db, {
+        taskId: first.id as TaskId,
+        claims: [],
+        model: 'vendor/some-model-v1',
+      })
+      await db
+        .update(tasks)
+        .set({ instructions: 'Something the task no longer asks for.' })
+        .where(eq(tasks.id, first.id))
+
+      await seedAcademyTasks(db)
+
+      // Demotion protects the reader now; only a rewrite describes the new
+      // wording. Nothing else would have marked it, because the corpus is
+      // exactly as it was.
+      expect(await staleBriefings(db, 50)).toContain(first.id)
+    })
   })
 
   /**

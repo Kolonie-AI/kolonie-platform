@@ -5,7 +5,7 @@ import {
   databaseUrlFromEnv,
   detectProviderChange,
   pendingReports,
-  readTaskTitle,
+  readTaskText,
   recordModeration,
   recordProviderChange,
   staleBriefings,
@@ -107,7 +107,7 @@ const store: ModerationStore = {
  */
 const briefings: BriefingStore = {
   stale: (limit) => staleBriefings(db, limit),
-  taskTitle: (taskId) => readTaskTitle(db, taskId),
+  taskText: (taskId) => readTaskText(db, taskId),
   corpus: (taskId) => briefingCorpus(db, taskId),
   write: (input) => writeBriefing(db, input),
 }

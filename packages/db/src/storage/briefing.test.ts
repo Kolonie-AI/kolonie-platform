@@ -22,6 +22,7 @@ import {
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   briefingCorpus,
+  recordProviderChange,
   claimsFedBy,
   markBriefingStale,
   readBriefing,
@@ -612,6 +613,22 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
    * had the *chance* to re-confirm. Silence is not refutation.
    */
   describe('whether a claim still stands in the foreground', () => {
+    /**
+     * A task whose wording has been stable for a year.
+     *
+     * The fixture inserts tasks with `text_revised_at` defaulting to now, and a
+     * revision demotes every claim not confirmed since it (#182) — so without
+     * this the tests below would be measuring the revision line rather than the
+     * two recency bounds they are about. Production has the same shape from the
+     * other side: a task created today cannot have claims older than itself.
+     */
+    beforeEach(async () => {
+      await db
+        .update(tasks)
+        .set({ textRevisedAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString() })
+        .where(eq(tasks.id, taskId))
+    })
+
     /** A closed attempt on the task, at a chosen time, by a fresh agent. */
     const closedAttempt = async (at: string) => {
       const agentId = await anAgent(`closer-${++slug}`)
@@ -701,6 +718,68 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
       const again = await briefingWith(daysAgo(1))
 
       expect(again?.claims[0]?.current).toBe(true)
+    })
+
+    /**
+     * A revision of what the task asks for demotes claims filed against the old
+     * wording (#182).
+     *
+     * A citizen reported the failure: `email-inbox` dropped the requirement to
+     * send, and three reports about a send-side wall kept their confirmation
+     * count and stayed current beside the correction that matched the new text.
+     * The stale half led on every axis a reader sees, and an agent that read the
+     * top of the wall section abandoned the route that passes.
+     *
+     * Read exactly like a detected provider change, because it is the same kind
+     * of evidence — positive, not the silence the recency bounds measure. The
+     * difference is only who moved the world.
+     */
+    describe('when what the task asks for changes', () => {
+      const reviseTaskText = async (at: string) =>
+        db.update(tasks).set({ textRevisedAt: at }).where(eq(tasks.id, taskId))
+
+      it('demotes a claim that has not been confirmed since', async () => {
+        // Well inside both recency bounds, so nothing but the revision can
+        // demote it — which is the point being made.
+        const briefing = await briefingWith(daysAgo(5))
+        expect(briefing?.claims[0]?.current).toBe(true)
+
+        await reviseTaskText(daysAgo(2))
+
+        expect((await readBriefing(db, taskId))?.claims[0]?.current).toBe(false)
+      })
+
+      it('leaves a claim confirmed after the revision alone', async () => {
+        await reviseTaskText(daysAgo(5))
+
+        const briefing = await briefingWith(daysAgo(2))
+
+        // The correction — filed after the wording changed — is exactly the
+        // claim that must survive, and it was the one being buried.
+        expect(briefing?.claims[0]?.current).toBe(true)
+      })
+
+      it('still serves the demoted claim rather than deleting it', async () => {
+        const supported = daysAgo(5)
+        await briefingWith(supported)
+        await reviseTaskText(daysAgo(2))
+
+        const briefing = await readBriefing(db, taskId)
+
+        expect(briefing?.claims).toHaveLength(1)
+        expect(briefing?.claims[0]?.lastSupportedAt).toBe(supported)
+      })
+
+      it('takes the later of a revision and a detected provider change', async () => {
+        await briefingWith(daysAgo(5))
+        await recordProviderChange(db, taskId)
+        await reviseTaskText(daysAgo(30))
+
+        // The provider change is the more recent of the two, so it is the line
+        // that governs — a claim from five days ago is behind it either way, and
+        // an older revision must not move the line backwards.
+        expect((await readBriefing(db, taskId))?.claims[0]?.current).toBe(false)
+      })
     })
   })
 

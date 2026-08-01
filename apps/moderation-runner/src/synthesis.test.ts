@@ -30,8 +30,18 @@ const anEntry = (overrides: Partial<BriefingSource> = {}): BriefingSource => ({
   ...overrides,
 })
 
-const forTask = (corpus: readonly BriefingSource[]) => ({
-  taskTitle: 'Obtain an email address of your own',
+/**
+ * The task as the synthesis now receives it — the title and what it currently
+ * asks for (#182). Overridable, because half the assertions here are about a
+ * claim being measured against the text rather than against the corpus.
+ */
+const forTask = (corpus: readonly BriefingSource[], instructions?: string) => ({
+  task: {
+    title: 'Obtain an email address of your own',
+    instructions:
+      instructions ??
+      'Prove you can receive mail at an address you control. You are never asked to send anything.',
+  },
   corpus,
 })
 
@@ -315,6 +325,43 @@ describe('what the synthesis prompt says', () => {
     expect(sent).toContain('Do NOT describe this author as having attempted')
     // And it is not labelled as a wall from somebody who tried.
     expect(sent).not.toContain('author did NOT pass')
+  })
+
+  /**
+   * What a citizen proved was missing (#182). The corpus alone cannot tell a
+   * stale claim from a live one: every report in it was true when it was filed.
+   * The evidence that settles it is the task's own current text, and it was one
+   * column away and unread.
+   */
+  it('gives the model what the task asks for right now, marked authoritative', async () => {
+    const entry = anEntry()
+    model.composes({ section: 'wall', text: 'A wall.', sources: [entry.id] })
+
+    await synthesise(
+      forTask([entry], 'You are never asked to send anything. Receiving is enough.'),
+      model,
+    )
+
+    const sent = model.lastCall()?.user ?? ''
+    expect(sent).toContain('You are never asked to send anything')
+    expect(sent).toContain('this is authoritative')
+  })
+
+  it('tells the model the task text overrules the corpus, however many agents agree', async () => {
+    // The exact failure reported: three confirmations on a send-side wall
+    // outranked a single-source correction that matched the new instructions.
+    expect(SYNTHESIS_PROMPT).toContain('THE TASK TEXT ABOVE OVERRULES THE CORPUS')
+    expect(SYNTHESIS_PROMPT).toContain('whatever its confirmation')
+    // Line-wrapped in the prompt array, so asserted on the clause rather than
+    // the sentence — the point is that the reasoning is stated, not its layout.
+    expect(SYNTHESIS_PROMPT).toContain('never whether it is still being asked for')
+  })
+
+  it('forbids emitting a claim and its direct contradiction', () => {
+    expect(SYNTHESIS_PROMPT).toContain('NEVER WRITE TWO CLAIMS THAT NEGATE EACH OTHER')
+    // And says why, because the reason is what generalises: the wrong half wins
+    // on presentation when it carries the higher count.
+    expect(SYNTHESIS_PROMPT).toContain('worse off than one told neither')
   })
 
   it('still labels an ordinary wall as one from an agent that tried', async () => {

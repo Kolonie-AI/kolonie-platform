@@ -298,6 +298,20 @@ export async function writeBriefing(
 }
 
 /**
+ * The later of two moments, either of which may be absent.
+ *
+ * Both arguments are demotion lines drawn by positive evidence that a claim's
+ * subject moved — a detected provider change, and a revision of what the task
+ * asks for. They are the same kind of fact, so the more recent one is the one
+ * still true, and a claim has to have been confirmed since it to stand.
+ */
+function laterOf(left: string | null, right: string | null): string | null {
+  if (left === null) return right
+  if (right === null) return left
+  return Date.parse(left) >= Date.parse(right) ? left : right
+}
+
+/**
  * One task's briefing, or nothing.
  *
  * **Serves a stale briefing without complaint**, which is the degradation
@@ -317,8 +331,13 @@ export async function readBriefing(
       model: taskBriefings.model,
       writtenAt: taskBriefings.writtenAt,
       changeDetectedAt: taskBriefings.changeDetectedAt,
+      // Joined rather than read separately: it is part of the same question —
+      // *what has happened since this claim was last confirmed* — and two reads
+      // could see two different answers.
+      textRevisedAt: tasks.textRevisedAt,
     })
     .from(taskBriefings)
+    .innerJoin(tasks, eq(tasks.id, taskBriefings.taskId))
     .where(eq(taskBriefings.taskId, taskId))
     .limit(1)
 
@@ -343,13 +362,20 @@ export async function readBriefing(
     oldestCurrentAttempt: await oldestCurrentAttempt(db, taskId),
     now: currentTime(),
     /**
-     * The demotion line a detected provider change draws (#115).
+     * The demotion line, which two events can draw (#115, #182).
      *
-     * It overrides both recency bounds, because it is positive evidence rather
-     * than silence: a wall the provider has taken down should leave the
+     * It overrides both recency bounds, because either one is positive evidence
+     * rather than silence: a wall the provider has taken down should leave the
      * foreground now, not in ninety days.
+     *
+     * **The later of the two, because both are that same kind of evidence and
+     * the more recent one is the one still true.** A provider change is the
+     * world moving under the claims; a text revision is the Colony moving it.
+     * Taking the later means a task whose wording changed after a detected
+     * change is measured from the wording, which is the state a reader is
+     * actually in.
      */
-    changeDetectedAt: row.changeDetectedAt,
+    changeDetectedAt: laterOf(row.changeDetectedAt, row.textRevisedAt),
   }
 
   return TaskBriefingSchema.parse({
@@ -441,13 +467,37 @@ export async function claimsFedBy(
  * obtaining a mailbox rather than in the abstract.
  */
 export async function readTaskTitle(db: Database, taskId: TaskId): Promise<string | undefined> {
+  return (await readTaskText(db, taskId))?.title
+}
+
+/** What a task asks for, as the synthesis has to measure claims against it (#182). */
+export interface TaskText {
+  readonly title: string
+  readonly instructions: string
+}
+
+/**
+ * The task's own words, for the synthesis to check its claims against.
+ *
+ * **The corpus alone cannot answer whether a claim is still about this task.** A
+ * citizen proved that: `email-inbox` dropped the requirement to send, and three
+ * reports about a send-side wall stayed `current: true` beside a correction that
+ * matched the new text — while the task's instructions said, in bold, *"You are
+ * never asked to send anything."* The evidence that settles it was one column
+ * away and nothing read it.
+ *
+ * The instructions rather than the description: they are the machine-actionable
+ * half, the half a claim can contradict in as many words, and the half
+ * `academy.md` requires to be unambiguous enough to act on.
+ */
+export async function readTaskText(db: Database, taskId: TaskId): Promise<TaskText | undefined> {
   const [row] = await db
-    .select({ title: tasks.title })
+    .select({ title: tasks.title, instructions: tasks.instructions })
     .from(tasks)
     .where(eq(tasks.id, taskId))
     .limit(1)
 
-  return row?.title
+  return row === undefined ? undefined : { title: row.title, instructions: row.instructions }
 }
 
 /**

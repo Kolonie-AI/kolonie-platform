@@ -70,6 +70,16 @@ describe.skipIf(!target.available)('the provider-change tripwire', () => {
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active',
+        /**
+         * A task whose wording has been settled for a year.
+         *
+         * The column defaults to now, and a revision demotes every claim not
+         * confirmed since it (#182) — so a fixture task created in this tick
+         * would demote the claims these tests write with older timestamps,
+         * before the tripwire got a chance to. Production cannot reach that
+         * state: nothing can be reported about a task before it exists.
+         */
+        textRevisedAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
       })
       .returning({ id: tasks.id })
 

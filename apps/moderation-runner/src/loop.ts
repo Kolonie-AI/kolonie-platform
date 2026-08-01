@@ -14,6 +14,7 @@ import type {
   ModerationVerdict,
   PendingReport,
   ProviderChange,
+  TaskText,
 } from '@kolonie-ai/db'
 import { markConfidential } from './confidentiality.js'
 import { synthesise } from './synthesis.js'
@@ -496,7 +497,13 @@ export interface BriefingStore {
   /** Tasks whose corpus has moved since their briefing was written. */
   stale(limit: number): Promise<readonly TaskId[]>
   /** What the task is called, for the synthesis prompt. */
-  taskTitle(taskId: TaskId): Promise<string | undefined>
+  /**
+   * What the task asks for, in its own words (#182).
+   *
+   * The title alone was not enough: a claim can contradict the instructions in
+   * as many words and the synthesis had no way to see it.
+   */
+  taskText(taskId: TaskId): Promise<TaskText | undefined>
   corpus(taskId: TaskId): Promise<readonly BriefingSource[]>
   write(input: {
     readonly taskId: TaskId
@@ -648,8 +655,8 @@ export async function synthesiseNow(
   log: Log,
 ): Promise<boolean> {
   try {
-    const title = await store.taskTitle(taskId)
-    if (title === undefined) {
+    const task = await store.taskText(taskId)
+    if (task === undefined) {
       // The row points at a task that is gone. Nothing to write and nothing to
       // retry — but the flag stays set rather than being cleared, because a task
       // cannot in fact be deleted (`restrict`), so this means something stranger
@@ -659,7 +666,7 @@ export async function synthesiseNow(
     }
 
     const corpus = await store.corpus(taskId)
-    const { claims } = await synthesise({ taskTitle: title, corpus }, model)
+    const { claims } = await synthesise({ task, corpus }, model)
     await store.write({ taskId, claims, model: model.name })
     log.info(
       `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,

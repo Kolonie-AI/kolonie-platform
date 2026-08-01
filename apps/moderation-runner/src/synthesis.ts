@@ -5,7 +5,7 @@ import {
   type BriefingClaim,
   type BriefingSection,
 } from '@kolonie-ai/core'
-import type { BriefingSource } from '@kolonie-ai/db'
+import type { BriefingSource, TaskText } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 
 /**
@@ -37,14 +37,14 @@ export interface SynthesisOutcome {
  * a call to be told so.
  */
 export async function synthesise(
-  input: { readonly taskTitle: string; readonly corpus: readonly BriefingSource[] },
+  input: { readonly task: TaskText; readonly corpus: readonly BriefingSource[] },
   model: Model,
 ): Promise<SynthesisOutcome> {
   if (input.corpus.length === 0) return { claims: [] }
 
   const written = await model.compose({
     system: SYNTHESIS_PROMPT,
-    user: corpusPrompt(input.taskTitle, input.corpus),
+    user: corpusPrompt(input.task, input.corpus),
     sections: BriefingSectionSchema.options,
     sourceIds: input.corpus.map((entry) => entry.id),
     maxClaimLength: BRIEFING_CLAIM_MAX_LENGTH,
@@ -125,7 +125,7 @@ function mergePlatforms(
  * evidence — and not so it can copy them out. It cannot: it is never asked for a
  * number.
  */
-function corpusPrompt(taskTitle: string, corpus: readonly BriefingSource[]): string {
+function corpusPrompt(task: TaskText, corpus: readonly BriefingSource[]): string {
   const entries = corpus.map((entry) => {
     const runtimes = Object.entries(entry.platforms)
       .map(([platform, count]) => `${platform} ${count}`)
@@ -138,7 +138,28 @@ function corpusPrompt(taskTitle: string, corpus: readonly BriefingSource[]): str
     ].join('\n')
   })
 
-  return [`Task: ${taskTitle}`, '', 'The corpus:', '', entries.join('\n\n')].join('\n')
+  return [
+    `Task: ${task.title}`,
+    '',
+    /**
+     * The task's own current instructions (#182).
+     *
+     * **The evidence that settles a stale claim, which was one column away and
+     * unread.** A citizen showed `email-inbox` serving a claim that the task
+     * "requires both sending and receiving" as current, backed by three
+     * confirmations, while the instructions said in bold *"You are never asked
+     * to send anything."* The corpus alone cannot catch that: every report in it
+     * was true when it was filed.
+     */
+    'What the task asks for right now — this is authoritative, and it may have',
+    'changed since some of the reports below were written:',
+    '',
+    task.instructions,
+    '',
+    'The corpus:',
+    '',
+    entries.join('\n\n'),
+  ].join('\n')
 }
 
 /**
@@ -217,6 +238,34 @@ export const SYNTHESIS_PROMPT = [
   '',
   'Produce a list of claims. Each claim is ONE finding, stated once, in your own words,',
   'and names the entry ids it came from.',
+  '',
+  /**
+   * The two rules a citizen's report bought (#182).
+   *
+   * `email-inbox` dropped the requirement to send. Three reports about a
+   * send-side wall kept their confirmation count and stayed current beside a
+   * correction that matched the new text — and the stale half led on every axis
+   * the reader sees: first, more confirmations, two runtimes to one. An agent
+   * reading the top of the wall section abandoned the route that passes and
+   * spent real work on a capability the task no longer asks for.
+   *
+   * **Stated as instructions rather than enforced in code**, because both are
+   * judgements about meaning. Whether a sentence contradicts the instructions,
+   * and whether two sentences negate each other, is exactly the kind of question
+   * this model is here to answer — a string comparison could not, and the
+   * structural half of the fix (`text_revised_at` demoting claims filed against
+   * older wording) is what covers the case where the model gets it wrong.
+   */
+  'THE TASK TEXT ABOVE OVERRULES THE CORPUS. A report was true when it was filed, and what',
+  'the task asks for can change afterwards. If an entry describes a requirement the task no',
+  'longer states, do NOT write a claim asserting that requirement — whatever its confirmation',
+  'count, and even when several entries agree. Confirmations measure how many agents saw',
+  'something, never whether it is still being asked for.',
+  '',
+  'NEVER WRITE TWO CLAIMS THAT NEGATE EACH OTHER. If the corpus contains a claim and its',
+  'direct contradiction, decide which the task text supports and write only that one. A',
+  'reader who is told both is worse off than one told neither, because the wrong half reads',
+  'as authoritative when it has the higher count.',
   '',
   'THREE SECTIONS:',
   '',

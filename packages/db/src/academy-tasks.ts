@@ -10,6 +10,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from './client.js'
 import { taskHints, tasks } from './schema/index.js'
+import { markBriefingStale } from './storage/briefing.js'
 
 /**
  * One Academy task as the Colony ships it.
@@ -2451,15 +2452,57 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         timeoutHours: sql`excluded.timeout_hours`,
         status: sql`excluded.status`,
         updatedAt: sql`now()`,
+        /**
+         * Moved only when what the task *asks for* actually changed (#182).
+         *
+         * A re-seed rewrites every row on every deploy, so `now()` here
+         * unconditionally would demote the whole corpus of every task each time
+         * anybody deployed — which is the opposite of the point. `is distinct
+         * from` rather than `<>` because it is null-safe, and the three columns
+         * are the ones a citizen's report can be made wrong by. A reward, a
+         * timeout or a status change makes no report wrong, and `updated_at`
+         * above is where those belong.
+         */
+        textRevisedAt: sql`case
+          when tasks.title is distinct from excluded.title
+            or tasks.description is distinct from excluded.description
+            or tasks.instructions is distinct from excluded.instructions
+          then now()
+          else tasks.text_revised_at
+        end`,
       },
     })
     // `xmax = 0` is true only for a row this statement inserted; an updated row
     // carries the id of the transaction that replaced its previous version. It
     // is the one way to tell the two apart in a single upsert, and the
     // alternative — counting rows before and after — cannot see an update at all.
-    .returning({ inserted: sql<boolean>`(xmax = 0)` })
+    .returning({
+      id: tasks.id,
+      inserted: sql<boolean>`(xmax = 0)`,
+      // True when *this statement* moved it, which is exactly the set of tasks
+      // whose published briefing is now measured against wording that has
+      // changed underneath it (#182).
+      revised: sql<boolean>`(${tasks.textRevisedAt} > now() - interval '1 second')`,
+    })
 
   const inserted = rows.filter((row) => row.inserted).length
+
+  /**
+   * A task whose wording changed gets its briefing rewritten (#182).
+   *
+   * **Demotion alone is the safety net, not the repair.** `text_revised_at`
+   * stops a claim filed against the old wording from standing in the
+   * foreground, which is what protects the reader immediately. It does not
+   * produce a briefing that describes the *new* wording — only a fresh synthesis
+   * does, and nothing else would have marked these stale, because the corpus did
+   * not move. Neither half is sufficient alone.
+   *
+   * Inserted rows are skipped: a task that has just come into existence has no
+   * corpus and nothing to rewrite.
+   */
+  const revised = rows.filter((row) => row.revised && !row.inserted).map((row) => row.id as TaskId)
+  for (const taskId of revised) await markBriefingStale(db, taskId)
+
   return { inserted, updated: rows.length - inserted, hints: await seedTaskHints(db) }
 }
 

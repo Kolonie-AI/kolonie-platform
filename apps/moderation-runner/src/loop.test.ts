@@ -699,7 +699,10 @@ describe('writing briefings', () => {
 
   const briefingStore = (): BriefingStore => ({
     stale: async (limit) => stale.slice(0, limit),
-    taskTitle: async () => 'Obtain an email address of your own',
+    taskText: async () => ({
+      title: 'Obtain an email address of your own',
+      instructions: 'Prove you can receive mail at an address you control.',
+    }),
     corpus: async () => corpus,
     write: async (input) => {
       written.push(input)

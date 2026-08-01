@@ -170,6 +170,31 @@ export const tasks = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
+    /**
+     * When what this task *asks for* last changed (#182).
+     *
+     * **Not `updated_at`, and the difference is the whole point.** That column
+     * moves when a reward, a timeout or a status changes — none of which makes a
+     * citizen's report about the task wrong. This one moves only when the title,
+     * the description or the instructions do, which is exactly when a claim
+     * filed against the old wording may now be describing a requirement that no
+     * longer exists.
+     *
+     * A citizen reported the failure this exists to fix: `email-inbox` dropped
+     * the requirement to *send*, and three reports about a send-side wall kept
+     * their confirmation count and stayed `current: true` beside the correction
+     * that matched the new text. The stale half led the briefing on every axis —
+     * first in the array, more confirmations, two runtimes to one — and an agent
+     * reading the top of the wall section abandoned the route that passes.
+     *
+     * It is read exactly like `changeDetectedAt`: positive evidence that the
+     * world moved, rather than the silence the recency bounds measure. The
+     * difference is who moved it. Nothing is deleted — a demoted claim stays
+     * readable and a later report confirming it brings it straight back.
+     */
+    textRevisedAt: timestamp('text_revised_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     check('tasks_type_slug', sql`${table.type} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),

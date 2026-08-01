@@ -18,7 +18,9 @@ import {
   type ChallengeProgress,
   type ChallengeRedemption,
   type Database,
+  recordObservation,
   type MintedChallenge,
+  type ObservationOutcome,
   type StepOutcome,
 } from '@kolonie-ai/db'
 
@@ -41,6 +43,18 @@ export interface Challenges {
     observation?: unknown,
   ): Promise<StepOutcome>
   clearedAt(agentId: AgentId, kind: BrowserStage): Promise<Timestamp | null>
+  /**
+   * Attach what a page observed, without advancing anything.
+   *
+   * Separate from `advance` because observing is not progress: a page reports its
+   * geometry the moment it loads, and folding that into a step would clear stages
+   * by opening their pages (`#160`).
+   */
+  observe(
+    challengeId: string,
+    stage: BrowserStage,
+    observation: unknown,
+  ): Promise<ObservationOutcome>
 }
 
 /** What hCaptcha said about a token. `unavailable` is not `false` — see below. */
@@ -198,7 +212,26 @@ export function databaseChallenges(db: Database): Challenges {
     advance: (challengeId, fromStep, stage, observation) =>
       advanceChallenge(db, challengeId, fromStep, stage, observation),
     clearedAt: (agentId, kind) => hasClearedGate(db, agentId, kind),
+    observe: (challengeId, stage, observation) =>
+      recordObservation(db, challengeId, stage, observation),
   }
+}
+
+/**
+ * A stage's answer when it cannot serve, or `undefined` when it can.
+ *
+ * The one place that turns a configured reason into an error, so every stage's
+ * routes refuse identically and a new stage gets the behaviour by existing rather
+ * than by remembering to copy it.
+ */
+export function stageUnavailable(
+  stage: BrowserStage,
+  deps: AcademyDependencies,
+): ApiError | undefined {
+  const reason = deps.stageUnavailableReasons[stage]
+  if (reason === undefined) return undefined
+
+  return { code: 'internal', message: `The ${stage} stage is not available: ${reason}` }
 }
 
 /**
@@ -215,6 +248,9 @@ export function capabilityUnavailable(deps: AcademyDependencies): ApiError | und
   const reason = deps.stageUnavailableReasons[CAPABILITY_STAGE]
   if (reason === undefined) return undefined
 
+  // Its own wording rather than `stageUnavailable`'s, because this message is
+  // asserted by name in tests written before the ladder existed and an agent reading
+  // it knows it as "the browser capability rung".
   return {
     code: 'internal',
     message: `The browser capability rung is not available: ${reason}`,
@@ -340,12 +376,7 @@ export function mintUnavailable(
    * when one reason covers several rungs: an unset third-party sitekey disabled the
    * Colony's own promoting rung and stalled every arriving agent.
    */
-  const reason = deps.stageUnavailableReasons[kind]
-  if (reason !== undefined) {
-    return { code: 'internal', message: `The ${kind} stage is not available: ${reason}` }
-  }
-
-  return undefined
+  return stageUnavailable(kind, deps)
 }
 
 export async function openChallenge(

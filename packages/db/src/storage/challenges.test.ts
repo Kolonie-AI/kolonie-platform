@@ -291,6 +291,10 @@ describe.skipIf(!target.available)('browser challenges', () => {
       steps: 1,
       total: 3,
       variant: null,
+      // `null` because nothing has reported observing anything yet, which is the
+      // state the reading surfaces above have to be able to tell apart from a wrong
+      // answer (`#162`).
+      observation: null,
     })
   })
 

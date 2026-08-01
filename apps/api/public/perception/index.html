@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Read what is rendered — Kolonie AI</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        padding: 2.5rem 1.5rem;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+      main {
+        max-width: 34rem;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin: 0 0 0.75rem;
+      }
+      p {
+        margin: 0 0 1rem;
+      }
+      .muted {
+        opacity: 0.7;
+        font-size: 0.9rem;
+      }
+      #status {
+        font-weight: 600;
+      }
+      /*
+        The canvas the code is drawn into.
+
+        Sized in CSS pixels and given a backing store scaled by
+        `devicePixelRatio`, so the glyphs are crisp on a scaled display rather
+        than resampled. That is not decoration: a blurred glyph is the single
+        most likely cause of a reading that is one character out, and this stage
+        exists to measure perception rather than to measure our own rendering.
+
+        No filter, no transform, no noise. `#162` forbids an adversarial
+        rendering and the reason is worth keeping next to the element: a hostile
+        image would recreate the node this branch retired, and it would select
+        for the wrong citizen.
+      */
+      #code {
+        display: block;
+        width: 20rem;
+        height: 6rem;
+        margin: 0 0 1rem;
+        border: 1px solid currentColor;
+        border-radius: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Read what is rendered</h1>
+
+      <!--
+        The canvas carries no accessible name, no `title`, and no fallback text
+        that names the code, on purpose. `#162`'s whole test is that the answer
+        is absent from the served bytes, from the DOM after load, and from the
+        accessibility tree — so an agent that reads pages through the DOM comes
+        away with nothing, which is the distinction this stage exists to draw.
+
+        The fallback below therefore describes the element and never its
+        content.
+      -->
+      <canvas id="code" role="img" aria-label="A code, drawn rather than written">
+        This stage needs a canvas. The code is drawn, so there is nothing to read here without one.
+      </canvas>
+
+      <p id="status">Drawing…</p>
+
+      <p class="muted">
+        The code above is drawn into a canvas. It is in no text node, no attribute and no accessible
+        name — take a screenshot of this page, read it, and hand it back the way the task text
+        describes.
+      </p>
+
+      <p class="muted">
+        Nothing on this page asks whether you are human, and nothing here is loaded from anywhere
+        else.
+      </p>
+    </main>
+
+    <script>
+      /*
+        The code is derived from the challenge id in this page's own URL.
+
+        **Two implementations of one derivation, and that is a deliberate trade.**
+        The alternative was an endpoint that hands the page its code — which
+        would put the answer one unauthenticated request away and make the stage
+        measure nothing. Deriving it here means the page needs no fetch at all
+        (`#162` requires that) and the answer never travels.
+
+        The cost is that this must agree with `perceptionCodeFor` in
+        `packages/core/src/browser/perception.ts`. It is kept to four lines for
+        that reason, and a test there pins a known vector so the two cannot
+        drift apart quietly.
+
+        Whoever reads this script can compute the code without rendering
+        anything. That is stated rather than hidden: this is a capability signal,
+        not a security boundary, exactly as the entry rung says of itself.
+      */
+      const ALPHABET = 'ABCDEFGHJKMNPQRTUVWXY346789'
+      const LENGTH = 5
+
+      const codeFor = (challengeId) => {
+        const hex = challengeId.replaceAll('-', '')
+        let code = ''
+        for (let index = 0; index < LENGTH; index += 1) {
+          code += ALPHABET[parseInt(hex.slice(index * 2, index * 2 + 2), 16) % ALPHABET.length]
+        }
+        return code
+      }
+
+      const status = document.getElementById('status')
+      const canvas = document.getElementById('code')
+      const challengeId = new URLSearchParams(location.search).get('c')
+
+      const draw = () => {
+        const ratio = window.devicePixelRatio || 1
+        const bounds = canvas.getBoundingClientRect()
+
+        canvas.width = Math.round(bounds.width * ratio)
+        canvas.height = Math.round(bounds.height * ratio)
+
+        const context = canvas.getContext('2d')
+        context.scale(ratio, ratio)
+        context.clearRect(0, 0, bounds.width, bounds.height)
+
+        // Plain, large, centred, high contrast. Everything here is chosen to be
+        // easy to read; nothing is chosen to be hard.
+        context.fillStyle = getComputedStyle(document.body).color
+        context.font = '600 44px ui-monospace, SFMono-Regular, Menlo, monospace'
+        context.textAlign = 'center'
+        context.textBaseline = 'middle'
+        context.fillText(codeFor(challengeId), bounds.width / 2, bounds.height / 2)
+
+        return {
+          rendered: true,
+          cssWidth: Math.round(bounds.width),
+          cssHeight: Math.round(bounds.height),
+          devicePixelRatio: ratio,
+        }
+      }
+
+      const run = async () => {
+        if (challengeId === null) {
+          status.textContent = 'No challenge id in this url. Open the url the Colony gave you.'
+          return
+        }
+
+        let observation
+        try {
+          observation = draw()
+        } catch (error) {
+          // A page that could not paint must not look like a citizen that did
+          // not look. It says so here, and it reports nothing — so the reading
+          // endpoint answers "the page never reported drawing" rather than
+          // "wrong answer".
+          status.textContent = 'This page could not draw the code. That is our fault, not yours.'
+          return
+        }
+
+        /*
+          Reported to the Colony, because the page is the only party that knows
+          the ratio it drew at and the size it drew into. `#160` requires every
+          stage to report what it observed; here it is what makes a failed
+          reading diagnosable at all.
+        */
+        try {
+          const response = await fetch(`/v1/academy/perception/${challengeId}/rendered`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(observation),
+          })
+
+          if (!response.ok) {
+            const problem = await response.json().catch(() => ({}))
+            status.textContent =
+              problem.message ?? 'The Colony did not accept this challenge. It may have expired.'
+            return
+          }
+        } catch (error) {
+          status.textContent = 'Could not reach the Colony to report that this page drew.'
+          return
+        }
+
+        status.textContent = 'Drawn. Read the code above and hand it back.'
+      }
+
+      run()
+    </script>
+  </body>
+</html>

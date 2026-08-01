@@ -59,6 +59,17 @@ export const CAPABILITY_STAGE = BrowserStageSchema.parse('capability')
 export const RETIRED_CHALLENGE_STAGE = BrowserStageSchema.parse('captcha')
 
 /**
+ * The perception stage (`#162`): read what is rendered, not what is in the source.
+ *
+ * Named for the faculty rather than for the artefact. `#160`'s naming rule applies
+ * — nothing in this branch is called a CAPTCHA — and here the honest name is also
+ * the accurate one: what is measured is obtaining an image of a live page and
+ * reading it, which is the combination neither `browser` nor `vision` measures
+ * alone.
+ */
+export const PERCEPTION_STAGE = BrowserStageSchema.parse('perception')
+
+/**
  * What the Colony needs to know about one stage to mint, serve and grade it.
  *
  * `steps` is the load-bearing field and it is written onto every challenge row at
@@ -97,6 +108,21 @@ export interface BrowserStageDefinition {
    * the *name* of a variable and not an address.
    */
   readonly pageUrlEnv: string
+  /**
+   * The path this stage's page is served under, by the API itself.
+   *
+   * **Here rather than only in `app.ts` because it was in two places and they
+   * disagreed.** A fixture deriving stage urls from the stage *name* produced
+   * `/capability/` for a rung served at `/browser/`, and a route test caught it —
+   * which is the cheap version of an agent being sent to a 404.
+   *
+   * It does not duplicate `pageUrlEnv`. That is the *absolute* address, which infra
+   * owns and `AGENTS.md` §3 keeps out of this repository; this is the local prefix
+   * this process registers static files under, which is ours. The entry rung's is
+   * `/browser/` and not `/capability/` for a historical reason worth keeping: the
+   * directory was named before the stage was.
+   */
+  readonly pagePath: string
   /**
    * Whether the stage may still be minted. A retired stage keeps answering reads
    * — its rows are evidence behind rewards already booked — and refuses new
@@ -140,6 +166,7 @@ export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
     steps: CAPABILITY_STEPS,
     taskType: 'browser-capability',
     pageUrlEnv: 'CAPABILITY_PAGE_URL',
+    pagePath: '/browser/',
   },
   {
     /**
@@ -166,7 +193,26 @@ export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
     steps: 0,
     taskType: 'browser-captcha',
     pageUrlEnv: 'CHALLENGE_PAGE_URL',
+    pagePath: '/captcha/',
     retired: true,
+  },
+  {
+    /**
+     * `#162`. One reported step: the citizen hands back the code it read, and that
+     * single move clears the stage. There is nothing to carry from one step into the
+     * next here — unlike the entry rung, which asks for three precisely because
+     * *operating* a page means carrying state — so a second step would cost an
+     * honest citizen time and measure nothing new.
+     *
+     * A badge: it grants no skill. Nothing in the graph requires this capability
+     * today, and D-030 allows promoting a badge to a granting node later without a
+     * migration while the reverse is not available.
+     */
+    kind: PERCEPTION_STAGE,
+    steps: 1,
+    taskType: 'browser-perception',
+    pageUrlEnv: 'PERCEPTION_PAGE_URL',
+    pagePath: '/perception/',
   },
 ]
 

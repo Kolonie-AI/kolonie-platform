@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
+  BROWSER_STAGES,
   browserStage,
-  CAPABILITY_STAGE,
   CAPABILITY_STEPS,
   now as currentTime,
   RETIRED_CHALLENGE_STAGE,
@@ -117,6 +117,7 @@ export function fakeChallenges(): FakeChallenges {
         steps: row.steps,
         total: row.stepsRequired,
         variant: row.variant,
+        observation: row.observation,
       }
     },
 
@@ -139,6 +140,16 @@ export function fakeChallenges(): FakeChallenges {
 
       row.verifiedAt = currentTime()
       return { outcome: 'cleared', agentId: row.agentId }
+    },
+
+    async observe(challengeId, stage, observation) {
+      const row = find(challengeId, stage)
+      if (row === undefined) return 'unknown'
+      if (row.verifiedAt !== null) return 'already_verified'
+      if (row.expired) return 'expired'
+
+      row.observation = observation
+      return 'recorded'
     },
 
     async clearedAt(agentId, kind) {
@@ -167,12 +178,19 @@ export function fakeAcademy(
     captcha: fakeCaptcha(answer),
     challengePageUrl: 'https://challenge.example/captcha/',
     capabilityPageUrl: 'https://challenge.example/browser/',
-    // Keyed by stage, as `server.ts` fills it from the registry. Values, never
-    // real hosts.
-    stagePages: {
-      [CAPABILITY_STAGE]: 'https://challenge.example/browser/',
-      [RETIRED_CHALLENGE_STAGE]: 'https://challenge.example/captcha/',
-    },
+    /**
+     * Keyed by stage and **built from the registry**, exactly as `server.ts` does.
+     *
+     * Listing the stages here instead was the first version, and it made every new
+     * stage arrive with its route tests failing on a 500 from a missing page — a
+     * fixture teaching a lesson about itself rather than about the code. Derived, a
+     * stage is configured in tests by existing.
+     *
+     * Values, never real hosts: `AGENTS.md` §3 applies to fixtures too.
+     */
+    stagePages: Object.fromEntries(
+      BROWSER_STAGES.map((stage) => [stage.kind, `https://challenge.example${stage.pagePath}`]),
+    ),
     stageUnavailableReasons: {},
   }
 }

@@ -119,6 +119,7 @@ describe('the Academy task definitions', () => {
       // because it opens nothing of its own: it requires `browser` and grants
       // nothing.
       'browser-captcha',
+      'browser-perception',
       'email-inbox',
       /**
        * The badge half of the old round trip (`kolonie-docs#92`). Sending from an

@@ -4,6 +4,7 @@ import { GithubContributionVerifier, type ContributionAuthors } from './github-c
 import { GithubAccountVerifier, type GithubChallenges } from './github-account.js'
 import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
+import { BrowserPerceptionVerifier } from './browser-perception.js'
 import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
@@ -40,6 +41,10 @@ export {
   BrowserCapabilityVerifier,
   type BrowserCapabilityDependencies,
 } from './browser-capability.js'
+export {
+  BrowserPerceptionVerifier,
+  type BrowserPerceptionDependencies,
+} from './browser-perception.js'
 export {
   KeySignatureVerifier,
   type KeyAttempt,
@@ -488,6 +493,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
   if (deps.gates !== undefined) {
     verifiers.push(new BrowserCapabilityVerifier({ gates: deps.gates }))
     verifiers.push(new BrowserCaptchaVerifier({ gates: deps.gates }))
+    // Same port, one more stage. `#160` is what makes this a one-line addition:
+    // every stage of the branch is answered by the same "has this agent cleared
+    // it" read, so a new stage needs no new dependency.
+    verifiers.push(new BrowserPerceptionVerifier({ gates: deps.gates }))
   }
 
   if (deps.keys !== undefined) {

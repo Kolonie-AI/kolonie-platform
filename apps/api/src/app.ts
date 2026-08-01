@@ -4,7 +4,9 @@ import {
   API_BASE_PATH,
   DEFAULT_RHYTHM_BOUNDS,
   ERROR_STATUS,
+  BROWSER_STAGES,
   mintableBrowserStages,
+  PERCEPTION_STAGE,
   SessionDeclarationSchema,
   type ApiError,
   type RhythmBounds,
@@ -36,10 +38,12 @@ import type { Support } from './support.js'
 import type { Erasure } from './erasure.js'
 import type { Retesting } from './retest.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
+import { recordPerceptionRender, reportPerceptionReading } from './perception.js'
 import { clientIp } from './client-ip.js'
 import { registrationLimiter, type RateLimiter } from './rate-limit.js'
 import {
   capabilityUnavailable,
+  stageUnavailable,
   currentProbe,
   gateUnavailable,
   MintChallengeRequestSchema,
@@ -277,38 +281,35 @@ export function buildApp({
   app.get('/health', async () => ({ status: 'ok' }))
 
   /**
-   * The Browser Capability Gate's page, served by this process rather than by a
-   * container of its own (D-022). Unversioned like `/health`, and for a related
-   * reason: the caller is a browser following a link, not an agent holding a
-   * contract.
+   * Every browser stage's page, served by this process rather than by a container
+   * of its own (D-022). Unversioned like `/health`, and for a related reason: the
+   * caller is a browser following a link, not an agent holding a contract.
    *
-   * The prefix is narrow on purpose. Registering static files at the root would
-   * put a wildcard route in front of the whole API, and the first filename that
-   * happened to collide with a path would win silently. Confined to
-   * `/captcha/`, it can only ever serve what is in that directory.
+   * **Driven by the stage registry, so a new stage costs no route code** (`#160`).
+   * Each stage declares the prefix it is served under, and the directory under
+   * `public/` matches it — `/browser/` for the entry rung, `/captcha/` for the
+   * retired badge, `/perception/` for the stage that renders a code.
    *
-   * `dist/app.js` sits one level below the package root, and the Dockerfile
-   * copies `public/` to the same place, so this resolves identically in the
-   * container and in a local run.
+   * The retired stage keeps its page. Nothing points citizens at it any more, but a
+   * challenge minted in the minutes before it was retired is one a citizen is
+   * entitled to finish.
+   *
+   * **The prefixes are narrow on purpose.** Registering static files at the root
+   * would put a wildcard route in front of the whole API, and the first filename
+   * that happened to collide with a path would win silently. Confined to one
+   * directory each, a stage can only ever serve what is in its own.
+   *
+   * `dist/app.js` sits one level below the package root, and the Dockerfile copies
+   * `public/` to the same place, so these resolve identically in the container and
+   * in a local run. `decorateReply` is true only for the first: the plugin's
+   * `sendFile` decorator may be added once.
    */
-  app.register(fastifyStatic, {
-    root: new URL('../public/captcha', import.meta.url),
-    prefix: '/captcha/',
-  })
-
-  /**
-   * The capability page — Level 1 since the rebuild (`#29`).
-   *
-   * A second directory rather than a second file in the first, so the two rungs
-   * cannot be confused by their URLs: `/captcha/` is the badge, `/browser/` is
-   * the rung that promotes. `decorateReply: false` because the plugin's
-   * `sendFile` decorator may only be added once, and the registration above
-   * already added it.
-   */
-  app.register(fastifyStatic, {
-    root: new URL('../public/browser', import.meta.url),
-    prefix: '/browser/',
-    decorateReply: false,
+  BROWSER_STAGES.forEach((stage, index) => {
+    app.register(fastifyStatic, {
+      root: new URL(`../public${stage.pagePath.replace(/\/$/, '')}`, import.meta.url),
+      prefix: stage.pagePath,
+      decorateReply: index === 0,
+    })
   })
 
   /**
@@ -409,6 +410,9 @@ export function buildApp({
    * nobody noticing.
    */
   const capabilityDown = capabilityUnavailable(academy)
+  // Evaluated per request rather than once, so a test may hand the routes a
+  // differently-configured academy without rebuilding the app.
+  const perceptionDown = () => stageUnavailable(PERCEPTION_STAGE, academy)
 
   /** The mailbox rung's own answer, separate for the same reason as the one above. */
   const emailDown = emailUnavailable(email)
@@ -1402,6 +1406,50 @@ export function buildApp({
 
         const { challengeId } = request.params as { challengeId: string }
         const result = await reportStep(challengeId, request.body, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * The perception stage's two doors (`#162`), and they are two because two
+       * different parties knock.
+       *
+       * **The page** reports that it drew and what it drew into — its geometry and
+       * device pixel ratio, which nothing else knows. That is not progress and does
+       * not advance the challenge: folding it into a step would clear the stage by
+       * opening its page.
+       *
+       * **The citizen** reports the code it read from the screenshot. That is the
+       * move that clears it.
+       *
+       * Both are unauthenticated, for the reason the steps route above already is:
+       * the caller is a browser holding no API key, and the challenge id — minted
+       * under a credential — is what binds either report to an agent (D-024).
+       */
+      v1.post('/academy/perception/:challengeId/rendered', async (request, reply) => {
+        const down = perceptionDown()
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await recordPerceptionRender(challengeId, request.body, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(204).send()
+      })
+
+      v1.post('/academy/perception/:challengeId/reading', async (request, reply) => {
+        const down = perceptionDown()
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await reportPerceptionReading(challengeId, request.body, academy)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

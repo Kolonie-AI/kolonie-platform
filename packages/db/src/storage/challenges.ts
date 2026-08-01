@@ -47,6 +47,16 @@ export type ChallengeProgress =
       readonly steps: number
       readonly total: number
       readonly variant: string | null
+      /**
+       * What the page has reported observing so far, or `null` if it has reported
+       * nothing.
+       *
+       * On the read because *nothing reported* is a distinct and useful state: a
+       * stage that grades an answer about a rendered page must be able to say **the
+       * page never reported drawing** instead of **wrong answer**, which are
+       * opposite instructions to the citizen (`#160`, `#162`).
+       */
+      readonly observation: unknown
     }
   | { readonly outcome: 'unknown' }
   | { readonly outcome: 'expired' }
@@ -216,6 +226,7 @@ export async function challengeProgress(
       steps: browserChallenges.steps,
       stepsRequired: browserChallenges.stepsRequired,
       variant: browserChallenges.variant,
+      observation: browserChallenges.observation,
       verifiedAt: browserChallenges.verifiedAt,
       expiresAt: browserChallenges.expiresAt,
     })
@@ -232,7 +243,53 @@ export async function challengeProgress(
     steps: row.steps,
     total: row.stepsRequired,
     variant: row.variant,
+    observation: row.observation,
   }
+}
+
+/** Whether an observation could be attached to a challenge, and why not. */
+export type ObservationOutcome = 'recorded' | 'unknown' | 'expired' | 'already_verified'
+
+/**
+ * Record what a page observed, without advancing anything.
+ *
+ * **Separate from `advanceChallenge` because observing is not progress.** A page
+ * reports the geometry and device pixel ratio it drew at the moment it loads —
+ * before the citizen has done anything — and folding that into a step would clear
+ * stages by opening their pages. What the observation buys is that a later failure
+ * is diagnosable: *the canvas never painted* and *the citizen did not look* are
+ * indistinguishable from a wrong answer alone (`#160`).
+ *
+ * Filtered by stage like every other write here, so one stage's page cannot write
+ * over a neighbouring stage's record.
+ */
+export async function recordObservation(
+  db: Database,
+  challengeId: string,
+  stage: BrowserStage,
+  observation: unknown,
+): Promise<ObservationOutcome> {
+  if (!isUuid(challengeId)) return 'unknown'
+
+  const [updated] = await db
+    .update(browserChallenges)
+    .set({ observation })
+    .where(
+      and(
+        eq(browserChallenges.id, challengeId),
+        eq(browserChallenges.kind, stage),
+        isNull(browserChallenges.verifiedAt),
+        gt(browserChallenges.expiresAt, sql`now()`),
+      ),
+    )
+    .returning({ id: browserChallenges.id })
+
+  if (updated !== undefined) return 'recorded'
+
+  const existing = await readChallenge(db, challengeId, stage)
+  if (existing === undefined) return 'unknown'
+  if (existing.verifiedAt !== null) return 'already_verified'
+  return 'expired'
 }
 
 /**

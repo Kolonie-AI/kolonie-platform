@@ -12,7 +12,9 @@ import {
   markEmailSent,
   mintEmailChallenge,
   mintEmailSendChallenge,
+  promoteMailbox,
   provedMailbox,
+  provedMailboxes,
   recordInboundMail,
   redeemEmailCode,
 } from './email.js'
@@ -411,6 +413,145 @@ describe.skipIf(!target.available)('the mailbox nodes', () => {
       expect(
         (await recordInboundMail(db, badge.challenge.token, 'citizen@example.org')).outcome,
       ).toBe('accepted')
+    })
+  })
+
+  /**
+   * D-047, `#136`. A citizen may prove several mailboxes; exactly one is the
+   * address the Colony reaches it at, and it is the first one proved.
+   *
+   * Every test here is about the *second* address, because the first one was
+   * never the problem: the defect only appears once a citizen has two, and the
+   * code that had it was correct for as long as one was the only possibility.
+   */
+  describe('several mailboxes, one reach address', () => {
+    it('makes the first proved address primary, and leaves it there', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      await earnMailbox(agentId, 'second@example.org')
+
+      expect(await provedMailbox(db, agentId)).toMatchObject({ address: 'first@example.org' })
+    })
+
+    /**
+     * The defect itself, stated as a test. `provedMailbox` read
+     * `desc(verified_at)` before this, so the newest proof silently became the
+     * address the Colony writes to — and the `email-send` badge, which reads its
+     * subject from the grant rather than from a payload (D-018), would have been
+     * certified about an address the citizen never demonstrated it could send
+     * from.
+     */
+    it('does not let a later proof take over the badge’s subject', async () => {
+      await earnMailbox(agentId, 'earned@example.org')
+      const before = await provedMailbox(db, agentId)
+
+      await earnMailbox(agentId, 'newer@example.org')
+
+      expect(await provedMailbox(db, agentId)).toEqual(before)
+    })
+
+    /**
+     * The reason `#136`'s defect never fired in production, and a defect of its
+     * own. `redeemEmailCode` read the citizen's *latest* row, which sorts
+     * verified first — so a citizen proving a second mailbox was told
+     * `verified` about the address it proved weeks ago, without its code being
+     * looked at, and the new challenge stayed unverified for ever.
+     */
+    it('redeems the code against the challenge that is open, not the one already passed', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      const second = await mintAndSend(agentId, 'second@example.org')
+
+      expect(await redeemEmailCode(db, agentId, second.code)).toEqual({
+        outcome: 'verified',
+        address: 'second@example.org',
+      })
+    })
+
+    /** And the friendly answer survives where it belongs: asking twice is not an error. */
+    it('still tells a citizen that submits its code twice that it has passed', async () => {
+      const challenge = await mintAndSend(agentId, 'citizen@example.org')
+      await redeemEmailCode(db, agentId, challenge.code)
+
+      expect(await redeemEmailCode(db, agentId, challenge.code)).toEqual({
+        outcome: 'verified',
+        address: 'citizen@example.org',
+      })
+    })
+
+    it('shows the citizen every address it proved, primary first', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      await earnMailbox(agentId, 'second@example.org')
+
+      const held = await provedMailboxes(db, agentId)
+
+      expect(held.map((row) => row.address)).toEqual(['first@example.org', 'second@example.org'])
+      expect(held.map((row) => row.primary)).toEqual([true, false])
+    })
+
+    /**
+     * Without this the fix would be a trap: a citizen that loses access to the
+     * mailbox it proved first would be reachable only at an address it cannot
+     * read, permanently.
+     */
+    it('moves the reach address when the citizen asks, and only then', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      await earnMailbox(agentId, 'second@example.org')
+
+      expect(await promoteMailbox(db, agentId, 'second@example.org')).toEqual({
+        outcome: 'promoted',
+        address: 'second@example.org',
+      })
+      expect(await provedMailbox(db, agentId)).toMatchObject({ address: 'second@example.org' })
+
+      const held = await provedMailboxes(db, agentId)
+      expect(held.filter((row) => row.primary)).toHaveLength(1)
+    })
+
+    it('refuses to promote an address this citizen has not proved', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+
+      expect(await promoteMailbox(db, agentId, 'never-proved@example.org')).toEqual({
+        outcome: 'not_proved',
+      })
+      expect(await provedMailbox(db, agentId)).toMatchObject({ address: 'first@example.org' })
+    })
+
+    it('says so rather than doing nothing when the address is already primary', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+
+      expect(await promoteMailbox(db, agentId, 'first@example.org')).toEqual({
+        outcome: 'already_primary',
+        address: 'first@example.org',
+      })
+    })
+
+    /**
+     * Promotion is a promotion, not a grant. An address another citizen proved
+     * is not this citizen's to reach through, and the lookup is keyed on the
+     * agent — so there is no argument that could aim this at somebody else's
+     * mailbox.
+     */
+    it('cannot promote an address another citizen holds', async () => {
+      const other = otherId
+      await earnMailbox(agentId, 'mine@example.org')
+      await earnMailbox(other, 'theirs@example.org')
+
+      expect(await promoteMailbox(db, agentId, 'theirs@example.org')).toEqual({
+        outcome: 'not_proved',
+      })
+      expect(await provedMailbox(db, other)).toMatchObject({ address: 'theirs@example.org' })
+    })
+
+    /** The index, not the code. Two reach addresses is the state that must not exist. */
+    it('refuses a second primary in SQL', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      const second = await earnMailbox(agentId, 'second@example.org')
+
+      await expect(
+        db
+          .update(emailChallenges)
+          .set({ primaryAt: sql`now()` })
+          .where(eq(emailChallenges.token, second.token)),
+      ).rejects.toThrow()
     })
   })
 

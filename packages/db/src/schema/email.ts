@@ -224,6 +224,24 @@ export const emailChallenges = pgTable(
      * (`inbox`), or when mail from the granted address arrived (`send`).
      */
     verifiedAt: timestamp('verified_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * When this address became the one the Colony reaches this citizen at
+     * (D-047, `#136`). Null on every other row.
+     *
+     * **A citizen may prove several mailboxes and exactly one is primary.**
+     * D-044 settled the other direction — one address, one citizen — and left
+     * this one answered by an `order by verified_at desc limit 1`, so a second
+     * proof moved the Colony's reach address without anybody deciding it should,
+     * and took the `email-send` badge's subject with it.
+     *
+     * **A timestamp rather than a boolean**, because the useful question when a
+     * message went somewhere unexpected is *when did this become the reach
+     * address*, and a boolean answers only *is it*. The first verified address
+     * gets its stamp in the transaction that verifies it; a later one does not
+     * take over, and moving it is a deliberate act.
+     */
+    primaryAt: timestamp('primary_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**
@@ -253,6 +271,37 @@ export const emailChallenges = pgTable(
     uniqueIndex('email_challenges_verified_address_unique')
       .on(mailboxIdentity(table.address))
       .where(sql`${table.verifiedAt} is not null and ${table.purpose} = 'inbox'`),
+
+    /**
+     * **Exactly one address per citizen is the one the Colony reaches it at**
+     * (D-047, `#136`).
+     *
+     * D-044 kept one address from naming two citizens. This keeps one citizen
+     * from having two reachable-of-record addresses — the other direction, and
+     * the one that was answered by an `order by verified_at desc limit 1` until
+     * a second proof made that answer move.
+     *
+     * Partial on the same terms as the address index above it: only a verified
+     * `inbox` row can be a reach address, so an open challenge against a second
+     * mailbox collides with nothing and a `send` row is not a claim on one.
+     */
+    uniqueIndex('email_challenges_primary_mailbox_unique')
+      .on(table.agentId)
+      .where(
+        sql`${table.primaryAt} is not null and ${table.verifiedAt} is not null and ${table.purpose} = 'inbox'`,
+      ),
+
+    /**
+     * A reach address is a proved one. The flag cannot be set on a row that
+     * proves nothing, on a `send` row, or on a challenge nobody completed —
+     * which is the difference between *the Colony writes here* and *somebody
+     * typed this*.
+     */
+    check(
+      'email_challenges_primary_is_a_verified_inbox',
+      sql`${table.primaryAt} is null
+          or (${table.verifiedAt} is not null and ${table.purpose} = 'inbox')`,
+    ),
 
     /** The token is the credential an arriving mail carries. Two rows may not share one. */
     uniqueIndex('email_challenges_token_unique').on(table.token),

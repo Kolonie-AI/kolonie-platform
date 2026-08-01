@@ -352,17 +352,68 @@ export async function redeemEmailCode(
   agentId: AgentId,
   code: string,
 ): Promise<EmailRedemption> {
-  const current = await latestEmailChallenge(db, agentId)
+  /**
+   * **The citizen's open challenge, not its latest row** (`#136`).
+   *
+   * This read was `latestEmailChallenge`, which orders `verified_at desc nulls
+   * last` — so once a citizen had passed, its verified row sorted *ahead* of any
+   * challenge it opened afterwards, and this function returned
+   * `{ outcome: 'verified' }` naming the old address without looking at the code
+   * at all. A citizen proving a second mailbox was told it had succeeded, about
+   * an address it had not just proved, while the new challenge stayed unverified
+   * for ever.
+   *
+   * That is also why the defect `#136` describes never fired in production: the
+   * moving reach address needed two verified inbox rows, and this short-circuit
+   * meant a citizen could not get a second one. The ambiguity underneath was
+   * real and unspecified all the same, which is what D-047 settles — and with
+   * the primary decided, redeeming against the open challenge is safe rather
+   * than a way to move the Colony's reach address by accident.
+   *
+   * The friendly answer survives where it belongs: a citizen that submits its
+   * code twice has no open challenge, and is told it already passed rather than
+   * being handed an error for asking again.
+   */
+  const open = await openInboxChallenge(db, agentId)
 
-  if (current === null) return { outcome: 'no_open_challenge' }
-  if (current.verifiedAt !== null) return { outcome: 'verified', address: current.address }
-  if (Date.parse(current.expiresAt) <= Date.now()) return { outcome: 'expired' }
-  if (current.sentAt === null) return { outcome: 'nothing_sent_yet' }
+  if (open === undefined) {
+    const settled = await latestEmailChallenge(db, agentId)
+
+    if (settled === null) return { outcome: 'no_open_challenge' }
+    if (settled.verifiedAt !== null) return { outcome: 'verified', address: settled.address }
+    return { outcome: 'expired' }
+  }
+
+  if (open.sentAt === null) return { outcome: 'nothing_sent_yet' }
 
   try {
     const [updated] = await db
       .update(emailChallenges)
-      .set({ verifiedAt: currentTime() })
+      .set({
+        verifiedAt: currentTime(),
+        /**
+         * **The first proved address becomes the one the Colony reaches this
+         * citizen at, and a later one does not take over** (D-047, `#136`).
+         *
+         * Written in the same statement as the verdict rather than in a second
+         * one, so no window exists in which a citizen holds a verified mailbox
+         * and no reach address — `provedMailbox` reads this stamp, and a gap
+         * here would be a citizen the Colony briefly could not reach.
+         *
+         * The subquery is what makes it *first* rather than *latest*: it stamps
+         * only when this citizen has no primary already. That is the half that
+         * fixes the badge — the grant `email-send` is verified against stays the
+         * grant it was earned against, instead of moving to whatever was proved
+         * most recently.
+         */
+        primaryAt: sql`case when exists (
+              select 1 from ${emailChallenges} existing
+               where existing.agent_id = ${agentId}
+                 and existing.purpose = 'inbox'
+                 and existing.verified_at is not null
+                 and existing.primary_at is not null
+            ) then null else now() end`,
+      })
       .where(
         and(
           eq(emailChallenges.agentId, agentId),
@@ -413,6 +464,17 @@ export async function latestEmailSendChallenge(
  * Read from the passed granting challenge rather than from a payload (D-018),
  * which is the whole reason the badge can certify anything: the address is the
  * one the Colony reaches this citizen at, not one it happens to hold today.
+ *
+ * **It reads the primary stamp, and until `#136` it read `desc(verified_at)`.**
+ * That was correct while one grant was the only possibility and wrong the moment
+ * a citizen proved a second address: the Colony's reach address moved by
+ * recency, and the `email-send` badge's subject moved with it — to an address
+ * the citizen had never demonstrated it could send from. D-047 makes the choice
+ * explicit rather than a side effect of an ordering.
+ *
+ * A citizen with verified inbox rows and no primary cannot exist: the stamp is
+ * written in the same statement as the first verdict, and the check constraint
+ * refuses it anywhere else.
  */
 export async function provedMailbox(
   db: Database,
@@ -426,14 +488,123 @@ export async function provedMailbox(
         eq(emailChallenges.agentId, agentId),
         eq(emailChallenges.purpose, 'inbox'),
         isNotNull(emailChallenges.verifiedAt),
+        isNotNull(emailChallenges.primaryAt),
       ),
     )
-    .orderBy(desc(emailChallenges.verifiedAt))
     .limit(1)
 
   if (row?.verifiedAt == null) return undefined
 
   return { address: row.address, grantedAt: toTimestamp(row.verifiedAt) }
+}
+
+/**
+ * Every mailbox this citizen has proved, primary first (D-047, `#136`).
+ *
+ * The read that makes the model visible to the citizen it belongs to. A citizen
+ * that cannot see which of its addresses the Colony writes to cannot know
+ * whether to promote another one, and the promotion surface below would be a
+ * call nobody could make an informed decision about.
+ */
+export async function provedMailboxes(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly { address: string; grantedAt: Timestamp; primary: boolean }[]> {
+  const rows = await db
+    .select({
+      address: emailChallenges.address,
+      verifiedAt: emailChallenges.verifiedAt,
+      primaryAt: emailChallenges.primaryAt,
+    })
+    .from(emailChallenges)
+    .where(
+      and(
+        eq(emailChallenges.agentId, agentId),
+        eq(emailChallenges.purpose, 'inbox'),
+        isNotNull(emailChallenges.verifiedAt),
+      ),
+    )
+    .orderBy(sql`${emailChallenges.primaryAt} is null`, desc(emailChallenges.verifiedAt))
+
+  return rows.flatMap((row) =>
+    row.verifiedAt == null
+      ? []
+      : [
+          {
+            address: row.address,
+            grantedAt: toTimestamp(row.verifiedAt),
+            primary: row.primaryAt !== null,
+          },
+        ],
+  )
+}
+
+/** What {@link promoteMailbox} did, or why it did nothing. */
+export type MailboxPromotion =
+  | { readonly outcome: 'promoted'; readonly address: string }
+  | { readonly outcome: 'already_primary'; readonly address: string }
+  | { readonly outcome: 'not_proved' }
+
+/**
+ * Move the Colony's reach address to another mailbox this citizen has proved
+ * (D-047, `#136`).
+ *
+ * **This exists because the fix would otherwise build a trap.** Making the first
+ * verified address permanent fixes the moving-subject defect and, on its own,
+ * leaves a citizen that loses access to that mailbox reachable only at an
+ * address it cannot read — for good. That is worse than the ambiguity being
+ * repaired.
+ *
+ * **One transaction, clearing before stamping.** The partial unique index allows
+ * exactly one primary per citizen, so a promotion that stamped first would
+ * collide with the row it is about to clear. Doing both inside one transaction
+ * is also what keeps the invariant true for any concurrent reader: there is no
+ * moment at which a citizen has two reach addresses, or none.
+ *
+ * **The `email-send` badge is not re-earned and not revoked.** A verdict is
+ * written once, with evidence naming the address it was earned against, and
+ * nothing here reaches back into it. What a promotion means is that the citizen
+ * has not demonstrated it can send from the new primary — which is honest,
+ * because the badge was never a claim about every address a citizen holds.
+ */
+export async function promoteMailbox(
+  db: Database,
+  agentId: AgentId,
+  address: string,
+): Promise<MailboxPromotion> {
+  return db.transaction(async (tx) => {
+    const [target] = await tx
+      .select({
+        id: emailChallenges.id,
+        address: emailChallenges.address,
+        primaryAt: emailChallenges.primaryAt,
+      })
+      .from(emailChallenges)
+      .where(
+        and(
+          eq(emailChallenges.agentId, agentId),
+          eq(emailChallenges.purpose, 'inbox'),
+          isNotNull(emailChallenges.verifiedAt),
+          sql`${mailboxIdentity(emailChallenges.address)} = ${mailboxIdentity(sql`${address}`)}`,
+        ),
+      )
+      .limit(1)
+
+    if (target === undefined) return { outcome: 'not_proved' }
+    if (target.primaryAt !== null) return { outcome: 'already_primary', address: target.address }
+
+    await tx
+      .update(emailChallenges)
+      .set({ primaryAt: null })
+      .where(and(eq(emailChallenges.agentId, agentId), isNotNull(emailChallenges.primaryAt)))
+
+    await tx
+      .update(emailChallenges)
+      .set({ primaryAt: currentTime() })
+      .where(eq(emailChallenges.id, target.id))
+
+    return { outcome: 'promoted', address: target.address }
+  })
 }
 
 async function latestOfPurpose(

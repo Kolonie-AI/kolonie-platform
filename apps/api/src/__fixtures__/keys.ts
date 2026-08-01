@@ -2,6 +2,7 @@ import { generateKeyPairSync, randomBytes, sign as signWith } from 'node:crypto'
 import { now as currentTime, verifySignature, type AgentId } from '@kolonie-ai/core'
 import type { KeyChallengeState, KeySignatureOutcome, MintedKeyChallenge } from '@kolonie-ai/db'
 import type { KeyChallenges, KeyDependencies } from '../keys.js'
+import { noObstruction } from './obstruction.js'
 
 /**
  * A real keypair, generated per call.
@@ -136,5 +137,5 @@ export function fakeKeyChallenges(): FakeKeyChallenges {
 
 /** The keypair rung, wired to the in-memory store. There is nothing else to configure. */
 export function fakeKeys(challenges: KeyChallenges = fakeKeyChallenges()): KeyDependencies {
-  return { challenges }
+  return { challenges, obstruction: noObstruction }
 }

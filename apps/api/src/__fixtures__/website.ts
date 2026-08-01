@@ -1,5 +1,6 @@
 import type { WebsiteChallenges, WebsiteDependencies } from '../website.js'
 import type { AgentId, Timestamp } from '@kolonie-ai/core'
+import { noObstruction } from './obstruction.js'
 
 export function fakeWebsiteChallenges(): WebsiteChallenges {
   return {
@@ -12,5 +13,5 @@ export function fakeWebsiteChallenges(): WebsiteChallenges {
 }
 
 export function fakeWebsite(): WebsiteDependencies {
-  return { challenges: fakeWebsiteChallenges() }
+  return { challenges: fakeWebsiteChallenges(), obstruction: noObstruction }
 }

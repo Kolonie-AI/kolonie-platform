@@ -79,6 +79,7 @@ import {
   fakeEmailChallenges,
   fakeMailer,
 } from './__fixtures__/email.js'
+import { noObstruction } from './__fixtures__/obstruction.js'
 
 /**
  * Drive the MCP server the way a foreign agent does — through a real client
@@ -3131,7 +3132,10 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
     const { colony, apiKey } = await registeredCitizen()
     const challenges = fakePowChallenges()
     const { client, close } = await connectedClient(
-      { ...colony, pow: { challenges, difficulty: FAKE_POW_DIFFICULTY } },
+      {
+        ...colony,
+        pow: { challenges, difficulty: FAKE_POW_DIFFICULTY, obstruction: noObstruction },
+      },
       `Bearer ${apiKey}`,
     )
     return { client, challenges, close }

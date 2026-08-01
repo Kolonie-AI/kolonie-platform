@@ -17,7 +17,7 @@ import { databaseSolanaChallenges } from './solana.js'
 import { databasePowChallenges } from './proof-of-work.js'
 import { databaseGithubChallenges } from './github.js'
 import { GITHUB_VERIFIER_TOKEN_VAR, httpContributionReader } from '@kolonie-ai/verifiers'
-import { githubAccountOf } from '@kolonie-ai/db'
+import { githubAccountOf, recordObstructedAttemptForTaskType } from '@kolonie-ai/db'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSocialChallenges } from './social.js'
@@ -25,6 +25,7 @@ import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseVault } from './vault.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
+import type { RecordObstruction } from './obstruction.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -147,6 +148,17 @@ if (typeof capability === 'string') {
  */
 const rhythm = rhythmBoundsFromEnv()
 
+/**
+ * One recorder, handed to every mint surface (#170).
+ *
+ * Built once here rather than per rung because it holds nothing rung-specific —
+ * the task type arrives with each call. Every Academy surface below gets the
+ * same one, which is what makes *the Colony's outages are recorded* a property
+ * of the wiring rather than a rule eleven modules have to remember.
+ */
+const obstruction: RecordObstruction = (taskType, agentId) =>
+  recordObstructedAttemptForTaskType(db, taskType, agentId)
+
 const app = buildApp({
   registry: databaseRegistry(db),
   store: databaseStore(db),
@@ -172,18 +184,18 @@ const app = buildApp({
   // No configuration branch, because there is nothing to configure. The keypair
   // rung reads through nothing, so unlike every other Academy surface here it
   // cannot be half-wired.
-  keys: { challenges: databaseKeyChallenges(db) },
+  keys: { challenges: databaseKeyChallenges(db), obstruction },
   // Same again, and for the same reason: a Solana address is an Ed25519 public
   // key, so the wallet rung checks a signature rather than reading a chain.
   // There is no RPC endpoint here to be missing.
-  solana: { challenges: databaseSolanaChallenges(db) },
+  solana: { challenges: databaseSolanaChallenges(db), obstruction },
   // Same again, plus the difficulty the task declares — read from
   // `academy-tasks.ts` rather than from anything this process configures, so the
   // number an agent is set is the one the task was written with.
   pow: databasePowChallenges(db),
   // Same shape and the same reason: minting is 32 random bytes against the
   // database, so there is nothing here that can be half-wired either.
-  github: { challenges: databaseGithubChallenges(db) },
+  github: { challenges: databaseGithubChallenges(db), obstruction },
   // The one Academy-adjacent surface here that reads somebody else's system, so
   // the only one that can be half-wired. `reader` is undefined when no
   // GITHUB_VERIFIER_TOKEN is set, and `listContributions` then says the Colony
@@ -196,12 +208,12 @@ const app = buildApp({
       ? httpContributionReader(process.env[GITHUB_VERIFIER_TOKEN_VAR])
       : undefined,
   },
-  website: { challenges: databaseWebsiteChallenges(db) },
-  image: { challenges: databaseImageChallenges(db) },
+  website: { challenges: databaseWebsiteChallenges(db), obstruction },
+  image: { challenges: databaseImageChallenges(db), obstruction },
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
-  social: { challenges: databaseSocialChallenges(db) },
-  domain: { challenges: databaseDomainChallenges(db) },
+  social: { challenges: databaseSocialChallenges(db), obstruction },
+  domain: { challenges: databaseDomainChallenges(db), obstruction },
   vision: databaseVisionChallenges(db),
   // No configuration and no credential of the Colony's, deliberately: the vault
   // is sealed with the caller's own key, which arrives in the request that uses
@@ -210,6 +222,7 @@ const app = buildApp({
   rhythm,
   email: {
     challenges: databaseEmailChallenges(db),
+    obstruction,
     // Present only when all three are configured. Absent, the rung answers 503
     // rather than minting a challenge nobody could ever complete — the code
     // would have nowhere to go.
@@ -234,6 +247,7 @@ const app = buildApp({
   },
   academy: {
     challenges: databaseChallenges(db),
+    obstruction,
     // Per stage, from the registry. What the two fields below carry for the entry
     // rung and the retired badge, this carries for every stage — including them.
     stagePages,

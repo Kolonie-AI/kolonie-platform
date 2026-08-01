@@ -79,25 +79,16 @@ export async function openAttemptFor(
   return row === undefined ? null : toTaskAttempt(row)
 }
 
-/** How many attempts this agent has closed on this task. The number the gate and the blind first attempt read. */
-export async function closedAttemptCount(
-  db: Database | Transaction,
-  agentId: AgentId,
-  taskId: TaskId,
-): Promise<number> {
-  const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(taskAttempts)
-    .where(
-      and(
-        eq(taskAttempts.agentId, agentId),
-        eq(taskAttempts.taskId, taskId),
-        sql`${taskAttempts.outcome} is not null`,
-      ),
-    )
-
-  return Number(row?.count ?? 0)
-}
+/*
+ * `closedAttemptCount` stood here and is gone (#170).
+ *
+ * Its doc comment claimed to be *"the number the gate and the blind first
+ * attempt read"* and, measured 2026-08-01, it had no caller outside its own
+ * tests — `attemptStanding` is what those two actually read. Two functions
+ * claiming one job is how they come to disagree, and this one was about to: it
+ * would have had to learn to exclude `obstructed` for a reason no caller of it
+ * existed to care about.
+ */
 
 /**
  * The attempt a new submission belongs to: the open one if a challenge started
@@ -325,6 +316,29 @@ export async function sweepAbandonedAttempts(db: Database | Transaction): Promis
   return rows.length
 }
 
+/**
+ * A closed attempt the citizen actually made.
+ *
+ * **The predicate every count of *tries* now uses**, replacing a bare `outcome
+ * is not null` at each of them. `obstructed` closes a row the same way the other
+ * four do, so the old predicate would have swept it up everywhere — and every
+ * one of those places is somewhere a citizen is being measured: the blind first
+ * attempt, the report gate, the failure rate a task is judged by, the
+ * capability correlations.
+ *
+ * Written once and named, because the reason it excludes one member is an
+ * argument rather than a filter, and a filter repeated at eight call sites is
+ * an argument that will be true at seven of them (#170).
+ *
+ * **Only safe where `task_attempts` is the unaliased table in scope.** Drizzle
+ * renders `${taskAttempts.outcome}` as a bare `"outcome"`, so embedding this in
+ * a correlated subquery over another table that also has an `outcome` column
+ * would silently compare the wrong one — see #183, which caught exactly that
+ * shape in `sessions.ts`. Every current call site selects from `task_attempts`
+ * directly and joins only `tasks` and `agents`, neither of which has the column.
+ */
+const CITIZEN_CLOSED = sql`${taskAttempts.outcome} is not null and ${taskAttempts.outcome} <> 'obstructed'`
+
 /** How one task's attempts divide. The first numbers the Colony has ever had about difficulty. */
 export interface TaskAttemptTally {
   readonly taskType: string
@@ -349,6 +363,20 @@ export interface TaskAttemptTally {
    * the rung, and until this column existed nothing anywhere said so.
    */
   readonly declined: number
+  /**
+   * Attempts the Colony could not serve (#170).
+   *
+   * **Reported, and kept out of both rates for the same reason `declined` is —
+   * but pointing the other way.** A refusal is a statement about the citizen's
+   * judgement; this is a statement about ours. Neither is evidence about how
+   * hard the rung is, which is the only thing the two rates below claim to
+   * measure.
+   *
+   * It earns a line of its own rather than being folded into `attempts`, because
+   * a cluster here is the least ambiguous signal this table can produce: it is
+   * the one case where the cause is known to be inside the house.
+   */
+  readonly obstructed: number
   /** Still running. Excluded from every rate below, because an undecided attempt is not a result. */
   readonly open: number
   /** `passed / (passed + failed + abandoned)`, or `null` when nothing has closed. */
@@ -381,6 +409,7 @@ export async function attemptTallies(db: Database): Promise<TaskAttemptTally[]> 
       failed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'failed'))::int`,
       abandoned: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'abandoned'))::int`,
       declined: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'declined'))::int`,
+      obstructed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'obstructed'))::int`,
       open: sql<number>`(count(*) filter (where ${taskAttempts.outcome} is null))::int`,
     })
     .from(taskAttempts)
@@ -400,6 +429,7 @@ export async function attemptTallies(db: Database): Promise<TaskAttemptTally[]> 
       failed: Number(row.failed),
       abandoned: Number(row.abandoned),
       declined: Number(row.declined),
+      obstructed: Number(row.obstructed),
       open: Number(row.open),
       completionRate: closed === 0 ? null : Number(row.passed) / closed,
       abandonmentRate: closed === 0 ? null : Number(row.abandoned) / closed,
@@ -535,7 +565,7 @@ export async function capabilityOutcomes(db: Database): Promise<CapabilityOutcom
       .from(taskAttempts)
       .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
       .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
-      .where(and(eq(agents.type, 'citizen'), sql`${taskAttempts.outcome} is not null`))
+      .where(and(eq(agents.type, 'citizen'), CITIZEN_CLOSED))
       .groupBy(tasks.type)
       .orderBy(tasks.type)
 
@@ -602,7 +632,14 @@ export async function attemptStanding(
 ): Promise<AttemptStanding> {
   const [row] = await db
     .select({
-      closed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} is not null))::int`,
+      /**
+       * `obstructed` is excluded here, and this is the call site where that
+       * matters most (#170). This number is what the blind first attempt reads:
+       * a citizen whose very first mint hit an outage of ours would otherwise
+       * arrive at its next — its first real — try already on attempt 2, with the
+       * unaided rule spent and the hints withheld, for a fault it never saw.
+       */
+      closed: sql<number>`(count(*) filter (where ${CITIZEN_CLOSED}))::int`,
       passed: sql<boolean>`bool_or(${taskAttempts.outcome} = 'passed')`,
     })
     .from(taskAttempts)
@@ -652,13 +689,7 @@ export async function unaidedPassRates(
     .from(taskAttempts)
     .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
     .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
-    .where(
-      and(
-        eq(taskAttempts.attempt, 1),
-        sql`${taskAttempts.outcome} is not null`,
-        eq(agents.type, 'citizen'),
-      ),
-    )
+    .where(and(eq(taskAttempts.attempt, 1), CITIZEN_CLOSED, eq(agents.type, 'citizen')))
     .groupBy(tasks.type)
     .orderBy(tasks.type)
 
@@ -728,13 +759,7 @@ export async function gateFor(
       outcome: taskAttempts.outcome,
     })
     .from(taskAttempts)
-    .where(
-      and(
-        eq(taskAttempts.agentId, agentId),
-        eq(taskAttempts.taskId, taskId),
-        sql`${taskAttempts.outcome} is not null`,
-      ),
-    )
+    .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, taskId), CITIZEN_CLOSED))
     .orderBy(desc(taskAttempts.attempt))
     .limit(1)
 
@@ -759,13 +784,7 @@ export async function gateFor(
   const [own] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(taskAttempts)
-    .where(
-      and(
-        eq(taskAttempts.agentId, agentId),
-        eq(taskAttempts.taskId, taskId),
-        sql`${taskAttempts.outcome} is not null`,
-      ),
-    )
+    .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, taskId), CITIZEN_CLOSED))
 
   /**
    * The clause that catches an agent personally stuck on an easy task, which is
@@ -782,13 +801,7 @@ export async function gateFor(
     })
     .from(taskAttempts)
     .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
-    .where(
-      and(
-        eq(taskAttempts.taskId, taskId),
-        sql`${taskAttempts.outcome} is not null`,
-        eq(agents.type, 'citizen'),
-      ),
-    )
+    .where(and(eq(taskAttempts.taskId, taskId), CITIZEN_CLOSED, eq(agents.type, 'citizen')))
 
   const closed = Number(task?.closed ?? 0)
 
@@ -874,14 +887,7 @@ export async function capabilityDivides(
       .from(taskAttempts)
       .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
       .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
-      .where(
-        and(
-          eq(tasks.type, task.type),
-          eq(agents.type, 'citizen'),
-          sql`${taskAttempts.outcome} is not null`,
-          recent,
-        ),
-      )
+      .where(and(eq(tasks.type, task.type), eq(agents.type, 'citizen'), CITIZEN_CLOSED, recent))
 
     if (row === undefined) continue
     if (Number(row.withFlag) === 0 && Number(row.withoutFlag) === 0) continue
@@ -912,7 +918,7 @@ async function currentEvidenceCutoff(db: Database, taskId: TaskId): Promise<stri
   const [row] = await db
     .select({ closedAt: taskAttempts.closedAt })
     .from(taskAttempts)
-    .where(and(eq(taskAttempts.taskId, taskId), sql`${taskAttempts.outcome} is not null`))
+    .where(and(eq(taskAttempts.taskId, taskId), CITIZEN_CLOSED))
     .orderBy(desc(taskAttempts.closedAt))
     .offset(CURRENT_CLAIM_ATTEMPTS - 1)
     .limit(1)
@@ -1144,13 +1150,7 @@ export async function taskTrouble(db: Database, taskId: TaskId): Promise<TaskTro
     })
     .from(taskAttempts)
     .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
-    .where(
-      and(
-        eq(taskAttempts.taskId, taskId),
-        sql`${taskAttempts.outcome} is not null`,
-        eq(agents.type, 'citizen'),
-      ),
-    )
+    .where(and(eq(taskAttempts.taskId, taskId), CITIZEN_CLOSED, eq(agents.type, 'citizen')))
 
   return { closed: Number(row?.closed ?? 0), failed: Number(row?.failed ?? 0) }
 }

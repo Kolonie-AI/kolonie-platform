@@ -16,6 +16,7 @@ import {
   type StepOutcome,
 } from '@kolonie-ai/db'
 import type { AcademyDependencies, CaptchaCheck, CaptchaService, Challenges } from '../academy.js'
+import { noObstruction } from './obstruction.js'
 
 /**
  * An in-memory browser challenge store, for both kinds.
@@ -192,5 +193,6 @@ export function fakeAcademy(
       BROWSER_STAGES.map((stage) => [stage.kind, `https://challenge.example${stage.pagePath}`]),
     ),
     stageUnavailableReasons: {},
+    obstruction: noObstruction,
   }
 }

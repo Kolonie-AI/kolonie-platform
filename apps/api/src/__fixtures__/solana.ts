@@ -11,6 +11,7 @@ import type {
   SolanaWalletOutcome,
 } from '@kolonie-ai/db'
 import type { SolanaChallenges, SolanaDependencies } from '../solana.js'
+import { noObstruction } from './obstruction.js'
 
 /**
  * A real wallet, generated per call.
@@ -137,5 +138,5 @@ export function fakeSolanaChallenges(): FakeSolanaChallenges {
 export function fakeSolana(
   challenges: SolanaChallenges = fakeSolanaChallenges(),
 ): SolanaDependencies {
-  return { challenges }
+  return { challenges, obstruction: noObstruction }
 }

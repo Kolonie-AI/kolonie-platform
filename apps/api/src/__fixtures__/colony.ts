@@ -57,6 +57,7 @@ import { fakeErasureDesk, type FakeErasureDesk } from './erasure.js'
 import { erasure as erasureSurface, type Erasure } from '../erasure.js'
 import type { Retesting } from '../retest.js'
 import type { ResetResult } from '@kolonie-ai/db'
+import { noObstruction } from './obstruction.js'
 
 /**
  * One in-memory Colony behind both seams.
@@ -274,7 +275,7 @@ export function fakeColony(): FakeColony {
     academy: fakeAcademy(),
     email: fakeEmail(),
     keys: fakeKeys(),
-    solana: { challenges: solanaChallenges },
+    solana: { challenges: solanaChallenges, obstruction: noObstruction },
     pow: fakePow(),
     github: fakeGithub(),
     contributions: fakeContributions(),

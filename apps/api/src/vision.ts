@@ -8,8 +8,18 @@ import type {
   VisionAnswerOutcome,
   VisionChallengeState,
 } from '@kolonie-ai/db'
-import { answerVisionChallenge, latestVisionChallenge, mintVisionChallenge } from '@kolonie-ai/db'
+import {
+  answerVisionChallenge,
+  CHALLENGE_TASK_TYPES,
+  latestVisionChallenge,
+  mintVisionChallenge,
+  recordObstructedAttemptForTaskType,
+} from '@kolonie-ai/db'
 import { fieldErrors } from './validation.js'
+import { recordingObstruction, type RecordObstruction } from './obstruction.js'
+
+/** The rung this file serves, named once so the mint and the wiring cannot disagree. */
+const VISION_TASK_TYPE = CHALLENGE_TASK_TYPES.vision
 
 export interface VisionChallenges {
   mint(
@@ -26,6 +36,15 @@ export interface VisionDependencies {
   readonly challenges: VisionChallenges
   readonly getMetadata: () => Promise<Record<string, { question: string; answer: string }>>
   readonly getImageBuffer: (imageName: string) => Promise<Buffer>
+  /**
+   * Where an outage on this rung is recorded (#170).
+   *
+   * This is the surface the outage happened on: `#156` reported a vision
+   * challenge that could not be minted because `getMetadata` threw on a missing
+   * asset file, before any row was written. The Colony's record showed nothing,
+   * and the rung looked untouched on a day it was unusable for everybody.
+   */
+  readonly obstruction: RecordObstruction
 }
 
 export function databaseVisionChallenges(db: Database): VisionDependencies {
@@ -41,6 +60,7 @@ export function databaseVisionChallenges(db: Database): VisionDependencies {
     // away it is — a distance this file got wrong twice (#126).
     getMetadata: () => readVisionMetadata(),
     getImageBuffer: (imageName: string) => readVisionImage(imageName),
+    obstruction: (taskType, agentId) => recordObstructedAttemptForTaskType(db, taskType, agentId),
   }
 }
 
@@ -66,25 +86,27 @@ export async function openVisionChallenge(
   agentId: AgentId,
   deps: VisionDependencies,
 ): Promise<MintVisionOutcome> {
-  const metadata = await deps.getMetadata()
-  const keys = Object.keys(metadata)
-  const randomKey = keys[Math.floor(Math.random() * keys.length)]!
-  const entry = metadata[randomKey]!
+  return recordingObstruction(deps.obstruction, VISION_TASK_TYPE, agentId, async () => {
+    const metadata = await deps.getMetadata()
+    const keys = Object.keys(metadata)
+    const randomKey = keys[Math.floor(Math.random() * keys.length)]!
+    const entry = metadata[randomKey]!
 
-  let imgBuffer = await deps.getImageBuffer(randomKey)
-  // Add noise to the end of the JPEG to prevent file hash cheating
-  imgBuffer = Buffer.concat([imgBuffer, randomBytes(32)])
+    let imgBuffer = await deps.getImageBuffer(randomKey)
+    // Add noise to the end of the JPEG to prevent file hash cheating
+    imgBuffer = Buffer.concat([imgBuffer, randomBytes(32)])
 
-  const challenge = await deps.challenges.mint(agentId, randomKey, entry.question, entry.answer)
+    const challenge = await deps.challenges.mint(agentId, randomKey, entry.question, entry.answer)
 
-  return {
-    response: {
-      challengeId: challenge.id,
-      imageBase64: imgBuffer.toString('base64'),
-      question: challenge.question,
-      expiresAt: challenge.expiresAt,
-    },
-  }
+    return {
+      response: {
+        challengeId: challenge.id,
+        imageBase64: imgBuffer.toString('base64'),
+        question: challenge.question,
+        expiresAt: challenge.expiresAt,
+      },
+    }
+  })
 }
 
 export async function submitVisionAnswer(

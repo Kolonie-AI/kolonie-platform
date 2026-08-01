@@ -1,6 +1,7 @@
 import type { AgentId, ImageConstraints, Timestamp } from '@kolonie-ai/core'
 import { imagePromptFor } from '@kolonie-ai/core'
 import type { ImageChallenges, ImageDependencies } from '../image.js'
+import { noObstruction } from './obstruction.js'
 
 /**
  * A fixed specification, so a test asserting on the response is not asserting on
@@ -26,5 +27,5 @@ export function fakeImageChallenges(): ImageChallenges {
 }
 
 export function fakeImage(): ImageDependencies {
-  return { challenges: fakeImageChallenges() }
+  return { challenges: fakeImageChallenges(), obstruction: noObstruction }
 }

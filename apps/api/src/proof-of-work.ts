@@ -8,11 +8,17 @@ import type {
   PowChallengeState,
 } from '@kolonie-ai/db'
 import {
+  CHALLENGE_TASK_TYPES,
+  recordObstructedAttemptForTaskType,
   answerPowChallenge,
   latestPowChallenge,
   mintPowChallenge,
   POW_DIFFICULTY_BITS,
 } from '@kolonie-ai/db'
+import { recordingObstruction, type RecordObstruction } from './obstruction.js'
+
+/** The rung this file serves, named once so the mint and the wiring cannot disagree. */
+const POW_TASK_TYPE = CHALLENGE_TASK_TYPES.proofOfWork
 import { fieldErrors } from './validation.js'
 
 /**
@@ -44,6 +50,13 @@ export interface PowDependencies {
    * per case would be a test somebody eventually deletes.
    */
   readonly difficulty: number
+  /**
+   * Where an outage on this rung is recorded (#170).
+   *
+   * Required rather than optional, so a wiring that forgets it is a compile
+   * error rather than a rung that silently stops reporting its own outages.
+   */
+  readonly obstruction: RecordObstruction
 }
 
 /** Storage wired to a real database, at the difficulty the task declares. */
@@ -55,6 +68,7 @@ export function databasePowChallenges(db: Database): PowDependencies {
       latest: (agentId) => latestPowChallenge(db, agentId),
     },
     difficulty: POW_DIFFICULTY_BITS,
+    obstruction: (taskType, agentId) => recordObstructedAttemptForTaskType(db, taskType, agentId),
   }
 }
 
@@ -97,17 +111,19 @@ export async function openPowChallenge(
   agentId: AgentId,
   deps: PowDependencies,
 ): Promise<MintPowOutcome> {
-  const challenge = await deps.challenges.mint(agentId, deps.difficulty)
+  return recordingObstruction(deps.obstruction, POW_TASK_TYPE, agentId, async () => {
+    const challenge = await deps.challenges.mint(agentId, deps.difficulty)
 
-  return {
-    response: {
-      challengeId: challenge.id,
-      input: challenge.input,
-      difficulty: challenge.difficulty,
-      algorithm: 'sha256',
-      expiresAt: challenge.expiresAt,
-    },
-  }
+    return {
+      response: {
+        challengeId: challenge.id,
+        input: challenge.input,
+        difficulty: challenge.difficulty,
+        algorithm: 'sha256',
+        expiresAt: challenge.expiresAt,
+      },
+    }
+  })
 }
 
 /**

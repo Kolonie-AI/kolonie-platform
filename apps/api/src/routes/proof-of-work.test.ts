@@ -29,6 +29,7 @@ import {
 } from '../__fixtures__/proof-of-work.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { noObstruction } from '../__fixtures__/obstruction.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -52,7 +53,7 @@ beforeEach(async () => {
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: fakeKeys(),
     solana: fakeSolana(),
-    pow: { challenges, difficulty: FAKE_POW_DIFFICULTY },
+    pow: { challenges, difficulty: FAKE_POW_DIFFICULTY, obstruction: noObstruction },
     github: fakeGithub(),
     contributions: fakeContributions(),
     social: fakeSocial(),

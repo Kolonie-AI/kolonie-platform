@@ -305,6 +305,13 @@ export type ReportKind = z.infer<typeof ReportKindSchema>
  * decide whether the agent hit a wall or got through, and guessing would produce
  * advice from an agent that has not succeeded — the one thing the tip rule
  * exists to prevent.
+ *
+ * **`obstructed` is a wall, and deliberately so** (#170). The citizen hit
+ * something and it happened to be ours; from where it was standing that is the
+ * same experience as any other wall, and the report it writes is about the same
+ * thing. This falls out of the *anything but `passed`* rule rather than needing
+ * a branch, which is why it is stated here — a later reader tightening this
+ * function would otherwise have no way to know the case was considered.
  */
 export function reportKindFor(outcome: TaskAttemptOutcome | null): ReportKind | null {
   if (outcome === null) return null

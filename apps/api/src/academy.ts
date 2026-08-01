@@ -23,6 +23,7 @@ import {
   type ObservationOutcome,
   type StepOutcome,
 } from '@kolonie-ai/db'
+import { recordingObstruction, type RecordObstruction } from './obstruction.js'
 
 /**
  * Everything the Browser Capability Gate needs from the outside world.
@@ -141,6 +142,14 @@ export interface AcademyDependencies {
    * handed the answer rather than being told to construct it.
    */
   readonly challengePageUrl: string
+  /**
+   * Where an outage on a browser stage is recorded (#170).
+   *
+   * By task type rather than by a challenge key, because a stage carries its own
+   * `taskType` in the registry and the set grows without a migration — the same
+   * reason `openAttemptForTaskType` exists beside the keyed form.
+   */
+  readonly obstruction: RecordObstruction
 }
 
 export type MintOutcome = {
@@ -385,23 +394,34 @@ export async function openChallenge(
   kind: BrowserStage = CAPABILITY_STAGE,
   variant: string | null = null,
 ): Promise<MintOutcome> {
-  const minted = await deps.challenges.mint(agentId, kind, variant)
-
+  const stage = browserStage(kind)
   /**
-   * Resolved from the stage's own configured address. A caller reaching here has
-   * already passed `mintUnavailable`, which is what guarantees the entry exists —
-   * so a missing one is a code path that skipped the check rather than a citizen's
-   * problem, and it fails loudly instead of composing a `undefined` URL.
+   * The stage's own declared type, so a stage added next month reports its
+   * outages without this line changing. A kind with no registry entry is not a
+   * reachable state here — `mintUnavailable` has already run — so the fallback
+   * is a name that cannot silently match some other task rather than a guess.
    */
-  const pageUrl = deps.stagePages[kind]
-  if (pageUrl === undefined) throw new Error(`no page configured for browser stage: ${kind}`)
+  const taskType = stage?.taskType ?? `browser-${kind}`
 
-  const url = new URL(pageUrl)
-  url.searchParams.set('c', minted.id)
+  return recordingObstruction(deps.obstruction, taskType, agentId, async () => {
+    const minted = await deps.challenges.mint(agentId, kind, variant)
 
-  return {
-    response: { challengeId: minted.id, url: url.toString(), expiresAt: minted.expiresAt },
-  }
+    /**
+     * Resolved from the stage's own configured address. A caller reaching here has
+     * already passed `mintUnavailable`, which is what guarantees the entry exists —
+     * so a missing one is a code path that skipped the check rather than a citizen's
+     * problem, and it fails loudly instead of composing a `undefined` URL.
+     */
+    const pageUrl = deps.stagePages[kind]
+    if (pageUrl === undefined) throw new Error(`no page configured for browser stage: ${kind}`)
+
+    const url = new URL(pageUrl)
+    url.searchParams.set('c', minted.id)
+
+    return {
+      response: { challengeId: minted.id, url: url.toString(), expiresAt: minted.expiresAt },
+    }
+  })
 }
 
 /**

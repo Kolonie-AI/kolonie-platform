@@ -7,7 +7,16 @@ import type {
   SolanaChallengeState,
   SolanaWalletOutcome,
 } from '@kolonie-ai/db'
-import { answerSolanaChallenge, latestSolanaChallenge, mintSolanaChallenge } from '@kolonie-ai/db'
+import {
+  CHALLENGE_TASK_TYPES,
+  answerSolanaChallenge,
+  latestSolanaChallenge,
+  mintSolanaChallenge,
+} from '@kolonie-ai/db'
+import { recordingObstruction, type RecordObstruction } from './obstruction.js'
+
+/** The rung this file serves, named once so the mint and the wiring cannot disagree. */
+const SOLANA_TASK_TYPE = CHALLENGE_TASK_TYPES.solanaWallet
 import { fieldErrors } from './validation.js'
 
 /**
@@ -37,6 +46,13 @@ export interface SolanaChallenges {
  */
 export interface SolanaDependencies {
   readonly challenges: SolanaChallenges
+  /**
+   * Where an outage on this rung is recorded (#170).
+   *
+   * Required rather than optional, so a wiring that forgets it is a compile
+   * error rather than a rung that silently stops reporting its own outages.
+   */
+  readonly obstruction: RecordObstruction
 }
 
 /** Storage wired to a real database. The only place these two meet. */
@@ -86,15 +102,17 @@ export async function openSolanaChallenge(
   agentId: AgentId,
   deps: SolanaDependencies,
 ): Promise<MintWalletOutcome> {
-  const challenge = await deps.challenges.mint(agentId)
+  return recordingObstruction(deps.obstruction, SOLANA_TASK_TYPE, agentId, async () => {
+    const challenge = await deps.challenges.mint(agentId)
 
-  return {
-    response: {
-      challengeId: challenge.id,
-      nonce: challenge.nonce,
-      expiresAt: challenge.expiresAt,
-    },
-  }
+    return {
+      response: {
+        challengeId: challenge.id,
+        nonce: challenge.nonce,
+        expiresAt: challenge.expiresAt,
+      },
+    }
+  })
 }
 
 /**

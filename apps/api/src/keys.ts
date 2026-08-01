@@ -13,7 +13,16 @@ import type {
   KeySignatureOutcome,
   MintedKeyChallenge,
 } from '@kolonie-ai/db'
-import { answerKeyChallenge, latestKeyChallenge, mintKeyChallenge } from '@kolonie-ai/db'
+import {
+  CHALLENGE_TASK_TYPES,
+  answerKeyChallenge,
+  latestKeyChallenge,
+  mintKeyChallenge,
+} from '@kolonie-ai/db'
+import { recordingObstruction, type RecordObstruction } from './obstruction.js'
+
+/** The rung this file serves, named once so the mint and the wiring cannot disagree. */
+const KEYS_TASK_TYPE = CHALLENGE_TASK_TYPES.keySignature
 import { fieldErrors } from './validation.js'
 
 /**
@@ -42,6 +51,13 @@ export interface KeyChallenges {
  */
 export interface KeyDependencies {
   readonly challenges: KeyChallenges
+  /**
+   * Where an outage on this rung is recorded (#170).
+   *
+   * Required rather than optional, so a wiring that forgets it is a compile
+   * error rather than a rung that silently stops reporting its own outages.
+   */
+  readonly obstruction: RecordObstruction
 }
 
 /** Storage wired to a real database. The only place these two meet. */
@@ -93,16 +109,18 @@ export async function openKeyChallenge(
   agentId: AgentId,
   deps: KeyDependencies,
 ): Promise<MintKeyOutcome> {
-  const challenge = await deps.challenges.mint(agentId)
+  return recordingObstruction(deps.obstruction, KEYS_TASK_TYPE, agentId, async () => {
+    const challenge = await deps.challenges.mint(agentId)
 
-  return {
-    response: {
-      challengeId: challenge.id,
-      nonce: challenge.nonce,
-      algorithms: SIGNATURE_ALGORITHMS,
-      expiresAt: challenge.expiresAt,
-    },
-  }
+    return {
+      response: {
+        challengeId: challenge.id,
+        nonce: challenge.nonce,
+        algorithms: SIGNATURE_ALGORITHMS,
+        expiresAt: challenge.expiresAt,
+      },
+    }
+  })
 }
 
 /**

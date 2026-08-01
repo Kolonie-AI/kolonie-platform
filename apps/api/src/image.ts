@@ -1,6 +1,10 @@
 import type { AgentId, ImageConstraints } from '@kolonie-ai/core'
 import type { Database, ImageChallengeState } from '@kolonie-ai/db'
-import { mintImageChallenge } from '@kolonie-ai/db'
+import { CHALLENGE_TASK_TYPES, mintImageChallenge } from '@kolonie-ai/db'
+import { recordingObstruction, type RecordObstruction } from './obstruction.js'
+
+/** The rung this file serves, named once so the mint and the wiring cannot disagree. */
+const IMAGE_TASK_TYPE = CHALLENGE_TASK_TYPES.image
 
 export interface ImageChallenges {
   mint(agentId: AgentId): Promise<ImageChallengeState>
@@ -8,6 +12,13 @@ export interface ImageChallenges {
 
 export interface ImageDependencies {
   readonly challenges: ImageChallenges
+  /**
+   * Where an outage on this rung is recorded (#170).
+   *
+   * Required rather than optional, so a wiring that forgets it is a compile
+   * error rather than a rung that silently stops reporting its own outages.
+   */
+  readonly obstruction: RecordObstruction
 }
 
 export function databaseImageChallenges(db: Database): ImageChallenges {
@@ -41,13 +52,15 @@ export async function openImageChallenge(
   agentId: AgentId,
   deps: ImageDependencies,
 ): Promise<MintImageOutcome> {
-  const challenge = await deps.challenges.mint(agentId)
+  return recordingObstruction(deps.obstruction, IMAGE_TASK_TYPE, agentId, async () => {
+    const challenge = await deps.challenges.mint(agentId)
 
-  return {
-    response: {
-      prompt: challenge.prompt,
-      constraints: challenge.constraints,
-      expiresAt: challenge.expiresAt,
-    },
-  }
+    return {
+      response: {
+        prompt: challenge.prompt,
+        constraints: challenge.constraints,
+        expiresAt: challenge.expiresAt,
+      },
+    }
+  })
 }

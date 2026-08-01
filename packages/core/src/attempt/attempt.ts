@@ -38,8 +38,34 @@ import { TimestampSchema } from '../common/time.js'
  * refusal as an abandonment discards exactly the part worth having — and the
  * refusals so far have been the most useful thing the Colony heard all day, on
  * the days they happened.
+ *
+ * **`obstructed` names the Colony's own failure and is never a judgement about
+ * the citizen** (#170). It means *the Colony could not serve this attempt*: a
+ * mint surface threw before any challenge row was written, so the agent asked
+ * for a rung and the Colony did not manage to give it one.
+ *
+ * Say that plainly, because the two cheap alternatives both lie. `abandoned`
+ * would say the agent stopped and nobody was present, when the agent was present
+ * and it was the Colony that stopped; `failed` would put the fault in the task's
+ * statistics and read as agents not managing the rung. Before this member the
+ * record showed nothing at all, and a rung unusable for everybody looked
+ * untouched — which is the third lie and the one that was live.
+ *
+ * It is not `blocked`: #147 uses that word for a citizen blocked by its
+ * operator's permission, which is a different fact about a different party.
+ *
+ * Because it is the Colony's failure, it is excluded everywhere a citizen is
+ * measured — it does not spend the blind first attempt, it is neither numerator
+ * nor denominator in any failure rate, and {@link isUnsuccessful} does not count
+ * it. A citizen whose first call hit our outage is still on attempt 1.
  */
-export const TaskAttemptOutcomeSchema = z.enum(['passed', 'failed', 'abandoned', 'declined'])
+export const TaskAttemptOutcomeSchema = z.enum([
+  'passed',
+  'failed',
+  'abandoned',
+  'declined',
+  'obstructed',
+])
 export type TaskAttemptOutcome = z.infer<typeof TaskAttemptOutcomeSchema>
 
 /**
@@ -322,6 +348,12 @@ export function isOpen(attempt: Pick<TaskAttempt, 'outcome'>): boolean {
  * trying again, so a refusal would quietly buy the citizen an obligation — which
  * is a price, and the point of the outcome is that refusing carries none. A
  * refused task stays as open to that citizen as it was before.
+ *
+ * **`obstructed` is not one of them either, and for a stronger reason** (#170).
+ * A refusal at least happened to the citizen; an obstruction happened to the
+ * Colony. Reading *did not get through* over it would ask a citizen to write a
+ * report about our outage before it may try again — charging the agent for a
+ * fault it neither caused nor saw.
  */
 export function isUnsuccessful(outcome: TaskAttemptOutcome | null): boolean {
   return outcome === 'failed' || outcome === 'abandoned'

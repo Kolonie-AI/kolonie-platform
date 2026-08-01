@@ -6,6 +6,7 @@ import type {
   VisionChallengeState,
 } from '@kolonie-ai/db'
 import type { VisionChallenges, VisionDependencies } from '../vision.js'
+import { noObstruction } from './obstruction.js'
 
 export interface FakeVisionChallenges extends VisionChallenges {
   readonly expire: (agentId: AgentId) => void
@@ -108,5 +109,6 @@ export function fakeVision(
       'vision_01.jpg': { question: 'What is this?', answer: 'fake' },
     }),
     getImageBuffer: async () => Buffer.from('fake'),
+    obstruction: noObstruction,
   }
 }

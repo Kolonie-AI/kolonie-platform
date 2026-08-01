@@ -2,7 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { type AgentId, type TaskId, type Timestamp } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { tasks } from '../schema/index.js'
-import { openAttempt } from './attempts.js'
+import { closeAttempt, openAttempt, openAttemptFor } from './attempts.js'
 
 /**
  * Which task type each kind of challenge is issued for.
@@ -95,4 +95,92 @@ export async function openAttemptForTaskType(
   const taskId = task.id as TaskId
   await openAttempt(db, { agentId, taskId, opener: 'challenge', expiresAt })
   return taskId
+}
+
+/**
+ * Record that the Colony could not serve this attempt (#170).
+ *
+ * **The case it exists for.** Every challenge module opens its attempt *after*
+ * the challenge row is inserted, and eleven API-layer mint surfaces can throw
+ * before reaching storage. When one does, the Colony's record shows nothing at
+ * all: the rung looks untouched on a day it was unusable for everybody. `#156`
+ * was exactly that — a vision challenge that could not be minted, so no attempt
+ * existed and the citizen's report had nothing to attach to.
+ *
+ * **Opened and closed in one call, rather than opened early and left.** Leaving
+ * it open would have the sweep close it as `abandoned`, which reads *the agent
+ * stopped and nobody was present* — a statement about the citizen, and a false
+ * one. `failed` is worse in the same direction. The row is written already
+ * closed, so no sweep ever gets the chance to describe it.
+ *
+ * **It never throws and never changes what the caller sees.** The same contract
+ * `openAttemptForChallenge` states above: instrumentation that can refuse a
+ * citizen its rung is worse than no instrumentation, and a failure to record
+ * must not turn one 500 into a different 500. The caller records and rethrows
+ * its original error.
+ *
+ * Returns whether a row was written, so a caller may log a fact it checked
+ * rather than one it assumed.
+ */
+export async function recordObstructedAttempt(
+  db: Database | Transaction,
+  challenge: ChallengeName,
+  agentId: AgentId,
+): Promise<boolean> {
+  return recordObstructedAttemptForTaskType(db, CHALLENGE_TASK_TYPES[challenge], agentId)
+}
+
+/**
+ * The same thing, for a caller that holds the task type rather than one of the
+ * keys above — the pairing `openAttemptForTaskType` already has, for the same
+ * two reasons.
+ *
+ * The browser stages carry their own `taskType` in a registry that grows without
+ * a migration, and `email-send` is a badge with no entry in
+ * {@link CHALLENGE_TASK_TYPES} at all. Both would otherwise need a key invented
+ * for them here purely to be able to report an outage.
+ */
+export async function recordObstructedAttemptForTaskType(
+  db: Database | Transaction,
+  taskType: string,
+  agentId: AgentId,
+): Promise<boolean> {
+  try {
+    const [task] = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.type, taskType), sql`${tasks.status} <> 'draft'`))
+      .limit(1)
+
+    if (task === undefined) return false
+
+    const taskId = task.id as TaskId
+
+    /**
+     * **A citizen already inside a try has nothing recorded here, and that is a
+     * decision rather than an omission.**
+     *
+     * The gap this fixes is *no attempt existed* — the mint threw before any row
+     * was written, so the rung looked untouched. When the citizen already holds
+     * an open attempt, no such gap exists: its try is live and will close on its
+     * own terms.
+     *
+     * Both ways of writing anyway are worse than writing nothing. Closing the
+     * open attempt as `obstructed` would end a try the citizen has not finished,
+     * on its behalf. Forcing a second one would first close the open one as
+     * `abandoned` — *the agent stopped, nobody present* — about a citizen that
+     * was demonstrably present and mid-attempt.
+     */
+    if ((await openAttemptFor(db, agentId, taskId)) !== null) return false
+
+    const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+    await closeAttempt(db, attempt.id, 'obstructed')
+    return true
+  } catch {
+    // Swallowed on purpose, and this is the whole of the "never throws" rule.
+    // The caller is in a catch block already, holding the error that actually
+    // matters to the citizen; losing that one to a bookkeeping failure would
+    // replace a diagnosable fault with a mysterious one.
+    return false
+  }
 }

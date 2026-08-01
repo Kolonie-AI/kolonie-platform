@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { AgentId } from '@kolonie-ai/core'
 import type { MintedDomainChallenge } from '@kolonie-ai/db'
 import type { DomainChallenges, DomainDependencies } from '../domain.js'
+import { noObstruction } from './obstruction.js'
 
 export interface FakeDomainChallenges extends DomainChallenges {
   /** Every nonce minted for an agent, oldest first. */
@@ -35,5 +36,5 @@ export function fakeDomainChallenges(): FakeDomainChallenges {
 
 /** The domain rung wired for a test that does not care about it. */
 export function fakeDomain(): DomainDependencies {
-  return { challenges: fakeDomainChallenges() }
+  return { challenges: fakeDomainChallenges(), obstruction: noObstruction }
 }

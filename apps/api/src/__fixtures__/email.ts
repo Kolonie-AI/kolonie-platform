@@ -8,6 +8,7 @@ import type {
 } from '@kolonie-ai/db'
 import { EMAIL_CHALLENGE_LIFETIME_CAP } from '@kolonie-ai/db'
 import type { EmailChallenges, EmailDependencies, Mailer } from '../email.js'
+import { noObstruction } from './obstruction.js'
 
 /** The domain challenge addresses are minted under in tests. Reserved by RFC 2606. */
 export const FAKE_CHALLENGE_DOMAIN = 'challenge.example'
@@ -314,5 +315,6 @@ export function fakeEmail(
     mailer,
     challengeDomain: FAKE_CHALLENGE_DOMAIN,
     inboundSecret: FAKE_INBOUND_SECRET,
+    obstruction: noObstruction,
   }
 }

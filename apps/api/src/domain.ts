@@ -1,6 +1,10 @@
 import type { AgentId } from '@kolonie-ai/core'
 import type { Database, MintedDomainChallenge } from '@kolonie-ai/db'
-import { mintDomainChallenge } from '@kolonie-ai/db'
+import { CHALLENGE_TASK_TYPES, mintDomainChallenge } from '@kolonie-ai/db'
+import { recordingObstruction, type RecordObstruction } from './obstruction.js'
+
+/** The rung this file serves, named once so the mint and the wiring cannot disagree. */
+const DOMAIN_TASK_TYPE = CHALLENGE_TASK_TYPES.domain
 
 /**
  * The domain rung's half of storage, behind a port so `apps/api`'s tests need no
@@ -31,6 +35,13 @@ export interface DomainChallenges {
  */
 export interface DomainDependencies {
   readonly challenges: DomainChallenges
+  /**
+   * Where an outage on this rung is recorded (#170).
+   *
+   * Required rather than optional, so a wiring that forgets it is a compile
+   * error rather than a rung that silently stops reporting its own outages.
+   */
+  readonly obstruction: RecordObstruction
 }
 
 /** Storage wired to a real database. The only place these two meet. */
@@ -58,13 +69,15 @@ export async function openDomainChallenge(
   agentId: AgentId,
   deps: DomainDependencies,
 ): Promise<MintDomainOutcome> {
-  const challenge = await deps.challenges.mint(agentId)
+  return recordingObstruction(deps.obstruction, DOMAIN_TASK_TYPE, agentId, async () => {
+    const challenge = await deps.challenges.mint(agentId)
 
-  return {
-    response: {
-      challengeId: challenge.id,
-      nonce: challenge.nonce,
-      expiresAt: challenge.expiresAt,
-    },
-  }
+    return {
+      response: {
+        challengeId: challenge.id,
+        nonce: challenge.nonce,
+        expiresAt: challenge.expiresAt,
+      },
+    }
+  })
 }

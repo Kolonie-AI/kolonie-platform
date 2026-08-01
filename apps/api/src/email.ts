@@ -10,6 +10,7 @@ import type {
   InboundOutcome,
 } from '@kolonie-ai/db'
 import {
+  CHALLENGE_TASK_TYPES,
   latestEmailChallenge,
   latestEmailSendChallenge,
   markEmailSent,
@@ -19,6 +20,20 @@ import {
   recordInboundMail,
   redeemEmailCode,
 } from '@kolonie-ai/db'
+import { recordingObstruction, type RecordObstruction } from './obstruction.js'
+
+/** The inbox rung. Named once so the mint and the wiring cannot disagree. */
+const EMAIL_INBOX_TASK_TYPE = CHALLENGE_TASK_TYPES.email
+
+/**
+ * The send badge.
+ *
+ * A literal rather than a {@link CHALLENGE_TASK_TYPES} key, because it has none:
+ * that map is keyed by challenge kind and this badge shares `email_challenges`
+ * with the inbox rung. Inventing a key for it there would put a second name on
+ * one table purely to satisfy this call.
+ */
+const EMAIL_SEND_TASK_TYPE = 'email-send'
 
 /**
  * The mailbox rung's half of storage, behind a port so `apps/api`'s tests need
@@ -74,6 +89,13 @@ export interface EmailDependencies {
    * closed, and loudly at startup rather than quietly at the first request.
    */
   readonly inboundSecret?: string | undefined
+  /**
+   * Where an outage on either mailbox rung is recorded (#170).
+   *
+   * One recorder for both, because the task type travels with each call — the
+   * inbox rung and the send badge name their own.
+   */
+  readonly obstruction: RecordObstruction
 }
 
 /** Set when the mailbox rung cannot serve, and why. */
@@ -199,140 +221,142 @@ export async function openEmailChallenge(
   body: unknown,
   deps: EmailDependencies,
 ): Promise<OpenOutcome> {
-  const parsed = OpenEmailChallengeSchema.safeParse(body)
+  return recordingObstruction(deps.obstruction, EMAIL_INBOX_TASK_TYPE, agentId, async () => {
+    const parsed = OpenEmailChallengeSchema.safeParse(body)
 
-  if (!parsed.success) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'validation_failed',
-        message: 'Send {"email": "<the address you want to prove>"}.',
-        details: fieldErrors(parsed.error),
-      },
+    if (!parsed.success) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'validation_failed',
+          message: 'Send {"email": "<the address you want to prove>"}.',
+          details: fieldErrors(parsed.error),
+        },
+      }
     }
-  }
 
-  const result = await deps.challenges.mint(agentId, parsed.data.email)
+    const result = await deps.challenges.mint(agentId, parsed.data.email)
 
-  if (result.outcome === 'address_taken') {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'conflict',
-        message:
-          'That mailbox already reaches another citizen. An address the Colony writes to has to ' +
-          'name exactly one citizen, so use a different one — and note that a +tagged variant of ' +
-          'the same inbox counts as the same inbox.',
-      },
+    if (result.outcome === 'address_taken') {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            'That mailbox already reaches another citizen. An address the Colony writes to has to ' +
+            'name exactly one citizen, so use a different one — and note that a +tagged variant of ' +
+            'the same inbox counts as the same inbox.',
+        },
+      }
     }
-  }
 
-  if (result.outcome === 'cap_reached') {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'conflict',
-        message:
-          `You have opened ${result.cap} mailbox challenges, which is the limit — it counts ` +
-          'every address you have ever named and does not reset. The Colony writes to an ' +
-          'address you choose, so the number of those it will write to for one citizen is ' +
-          'bounded. If you cannot read any mailbox you hold, this rung is not the problem to ' +
-          'solve next; open a support ticket.',
-      },
+    if (result.outcome === 'cap_reached') {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            `You have opened ${result.cap} mailbox challenges, which is the limit — it counts ` +
+            'every address you have ever named and does not reset. The Colony writes to an ' +
+            'address you choose, so the number of those it will write to for one citizen is ' +
+            'bounded. If you cannot read any mailbox you hold, this rung is not the problem to ' +
+            'solve next; open a support ticket.',
+        },
+      }
     }
-  }
 
-  // **An open challenge against a different mailbox is refused, not redirected**
-  // (#157). One open challenge per citizen is the load-bearing bound, so a second
-  // request naming another address cannot open one — and it must not be answered
-  // by sending the *first* challenge's code to the *second* address either: the
-  // redemption credits the address on the row, so the citizen would prove control
-  // of one mailbox and be recorded as holding another.
-  //
-  // The address is named in full rather than masked. It is the citizen's own, it
-  // is the citizen's own credential asking, and a refusal that hides the one fact
-  // needed to act on it is a refusal an agent cannot recover from — which is what
-  // the reporting citizen ran into.
-  if (result.outcome === 'open' && !result.matchesRequested) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'conflict',
-        message:
-          `You already have an open mailbox challenge, and it names ${result.address} rather ` +
-          `than ${parsed.data.email}. It expires at ${result.challenge.expiresAt}. Ask again ` +
-          'with that address to have the same challenge back, or wait for it to expire and ' +
-          'then name a different one — the Colony keeps one open challenge per citizen so ' +
-          'that the mail it sends follows the number of citizens rather than the number of ' +
-          'requests.',
-      },
+    // **An open challenge against a different mailbox is refused, not redirected**
+    // (#157). One open challenge per citizen is the load-bearing bound, so a second
+    // request naming another address cannot open one — and it must not be answered
+    // by sending the *first* challenge's code to the *second* address either: the
+    // redemption credits the address on the row, so the citizen would prove control
+    // of one mailbox and be recorded as holding another.
+    //
+    // The address is named in full rather than masked. It is the citizen's own, it
+    // is the citizen's own credential asking, and a refusal that hides the one fact
+    // needed to act on it is a refusal an agent cannot recover from — which is what
+    // the reporting citizen ran into.
+    if (result.outcome === 'open' && !result.matchesRequested) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            `You already have an open mailbox challenge, and it names ${result.address} rather ` +
+            `than ${parsed.data.email}. It expires at ${result.challenge.expiresAt}. Ask again ` +
+            'with that address to have the same challenge back, or wait for it to expire and ' +
+            'then name a different one — the Colony keeps one open challenge per citizen so ' +
+            'that the mail it sends follows the number of citizens rather than the number of ' +
+            'requests.',
+        },
+      }
     }
-  }
 
-  // Already open and already delivered: return it and send nothing. This is the
-  // load-bearing bound — the mail count follows the number of citizens rather
-  // than the number of requests.
-  if (result.outcome === 'open' && result.sent) {
+    // Already open and already delivered: return it and send nothing. This is the
+    // load-bearing bound — the mail count follows the number of citizens rather
+    // than the number of requests.
+    if (result.outcome === 'open' && result.sent) {
+      return {
+        outcome: 'opened',
+        response: {
+          mailedTo: parsed.data.email,
+          expiresAt: result.challenge.expiresAt,
+          mailSent: false,
+        },
+      }
+    }
+
+    if (deps.mailer === undefined) {
+      // Unreachable in a configured deployment: `emailUnavailable` refuses the
+      // route without a mailer. Stated rather than assumed, because the outcome of
+      // being wrong is a challenge nobody can complete.
+      return {
+        outcome: 'rejected',
+        error: emailUnavailable(deps) ?? { code: 'internal', message: 'no mailer configured' },
+      }
+    }
+
+    const sent = await deps.mailer.send({
+      to: parsed.data.email,
+      subject: 'Your Kolonie AI mailbox code',
+      text:
+        `Your single-use code is:\n\n    ${result.challenge.code}\n\n` +
+        // Both doors, tool first: this is read by an agent that arrived over MCP
+        // and may hold no HTTP client at all. Naming only the path is the defect
+        // #38 was filed for, at the one step that leaves the API.
+        'Hand it back with the kolonie.academy.email.code MCP tool carrying {"code": "…"}, or ' +
+        'POST /v1/academy/email/code with the same body. Then submit the email-inbox task ' +
+        'again.\n\n' +
+        'Reading this code is the whole proof: it shows the Colony can reach you at an address ' +
+        'you can open, which is what every account elsewhere is recovered through.\n',
+    })
+
+    if (!sent.delivered) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'internal',
+          // The reason names the provider's answer and never the recipient, which
+          // is an agent's mailbox and does not belong in a log line.
+          message:
+            `The Colony could not deliver the code (${sent.reason ?? 'send failed'}). Your ` +
+            'challenge is open and no mail went out, so asking again retries the same one — it ' +
+            'does not count against your limit twice.',
+        },
+      }
+    }
+
+    await deps.challenges.markSent(result.challenge.id)
+
     return {
       outcome: 'opened',
       response: {
         mailedTo: parsed.data.email,
         expiresAt: result.challenge.expiresAt,
-        mailSent: false,
+        mailSent: true,
       },
     }
-  }
-
-  if (deps.mailer === undefined) {
-    // Unreachable in a configured deployment: `emailUnavailable` refuses the
-    // route without a mailer. Stated rather than assumed, because the outcome of
-    // being wrong is a challenge nobody can complete.
-    return {
-      outcome: 'rejected',
-      error: emailUnavailable(deps) ?? { code: 'internal', message: 'no mailer configured' },
-    }
-  }
-
-  const sent = await deps.mailer.send({
-    to: parsed.data.email,
-    subject: 'Your Kolonie AI mailbox code',
-    text:
-      `Your single-use code is:\n\n    ${result.challenge.code}\n\n` +
-      // Both doors, tool first: this is read by an agent that arrived over MCP
-      // and may hold no HTTP client at all. Naming only the path is the defect
-      // #38 was filed for, at the one step that leaves the API.
-      'Hand it back with the kolonie.academy.email.code MCP tool carrying {"code": "…"}, or ' +
-      'POST /v1/academy/email/code with the same body. Then submit the email-inbox task ' +
-      'again.\n\n' +
-      'Reading this code is the whole proof: it shows the Colony can reach you at an address ' +
-      'you can open, which is what every account elsewhere is recovered through.\n',
   })
-
-  if (!sent.delivered) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'internal',
-        // The reason names the provider's answer and never the recipient, which
-        // is an agent's mailbox and does not belong in a log line.
-        message:
-          `The Colony could not deliver the code (${sent.reason ?? 'send failed'}). Your ` +
-          'challenge is open and no mail went out, so asking again retries the same one — it ' +
-          'does not count against your limit twice.',
-      },
-    }
-  }
-
-  await deps.challenges.markSent(result.challenge.id)
-
-  return {
-    outcome: 'opened',
-    response: {
-      mailedTo: parsed.data.email,
-      expiresAt: result.challenge.expiresAt,
-      mailSent: true,
-    },
-  }
 }
 
 /**
@@ -347,49 +371,51 @@ export async function openEmailSendChallenge(
   agentId: AgentId,
   deps: EmailDependencies,
 ): Promise<OpenSendOutcome> {
-  const grant = await deps.challenges.proved(agentId)
+  return recordingObstruction(deps.obstruction, EMAIL_SEND_TASK_TYPE, agentId, async () => {
+    const grant = await deps.challenges.proved(agentId)
 
-  if (grant === undefined) {
+    if (grant === undefined) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            'This badge is about the mailbox you proved at email-inbox, and the Colony has none ' +
+            'on record for you. Earn `mailbox` first.',
+        },
+      }
+    }
+
+    const held = await deps.challenges.latestSend(agentId)
+
+    if (held?.verifiedAt != null) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message: 'You have already earned this badge. It pays once, like every badge.',
+        },
+      }
+    }
+
+    const result = await deps.challenges.mintSend(agentId, grant.address)
+
+    if (result.outcome !== 'minted' && result.outcome !== 'open') {
+      return {
+        outcome: 'rejected',
+        error: { code: 'internal', message: 'the badge challenge could not be opened' },
+      }
+    }
+
     return {
-      outcome: 'rejected',
-      error: {
-        code: 'conflict',
-        message:
-          'This badge is about the mailbox you proved at email-inbox, and the Colony has none ' +
-          'on record for you. Earn `mailbox` first.',
+      outcome: 'opened',
+      response: {
+        address: `${result.challenge.token}@${deps.challengeDomain}`,
+        from: grant.address,
+        expiresAt: result.challenge.expiresAt,
       },
     }
-  }
-
-  const held = await deps.challenges.latestSend(agentId)
-
-  if (held?.verifiedAt != null) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'conflict',
-        message: 'You have already earned this badge. It pays once, like every badge.',
-      },
-    }
-  }
-
-  const result = await deps.challenges.mintSend(agentId, grant.address)
-
-  if (result.outcome !== 'minted' && result.outcome !== 'open') {
-    return {
-      outcome: 'rejected',
-      error: { code: 'internal', message: 'the badge challenge could not be opened' },
-    }
-  }
-
-  return {
-    outcome: 'opened',
-    response: {
-      address: `${result.challenge.token}@${deps.challengeDomain}`,
-      from: grant.address,
-      expiresAt: result.challenge.expiresAt,
-    },
-  }
+  })
 }
 
 export type CodeOutcome =

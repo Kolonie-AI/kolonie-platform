@@ -22,6 +22,7 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { noObstruction } from '../__fixtures__/obstruction.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -50,7 +51,7 @@ beforeEach(async () => {
     academy: fakeAcademy(),
     github: fakeGithub(),
     contributions: fakeContributions(),
-    social: { challenges },
+    social: { challenges, obstruction: noObstruction },
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),

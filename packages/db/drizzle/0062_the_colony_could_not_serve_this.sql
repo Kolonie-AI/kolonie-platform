@@ -1,0 +1,1 @@
+ALTER TYPE "public"."task_attempt_outcome" ADD VALUE 'obstructed';

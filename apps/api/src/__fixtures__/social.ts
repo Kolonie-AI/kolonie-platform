@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { AgentId } from '@kolonie-ai/core'
 import type { MintedSocialChallenge } from '@kolonie-ai/db'
 import type { SocialChallenges, SocialDependencies } from '../social.js'
+import { noObstruction } from './obstruction.js'
 
 export interface FakeSocialChallenges extends SocialChallenges {
   /** Every nonce minted for an agent, oldest first. */
@@ -35,5 +36,5 @@ export function fakeSocialChallenges(): FakeSocialChallenges {
 
 /** The social rung wired for a test that does not care about it. */
 export function fakeSocial(): SocialDependencies {
-  return { challenges: fakeSocialChallenges() }
+  return { challenges: fakeSocialChallenges(), obstruction: noObstruction }
 }

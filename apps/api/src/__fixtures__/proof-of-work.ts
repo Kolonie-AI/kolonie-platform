@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { now as currentTime, solvesChallenge, type AgentId } from '@kolonie-ai/core'
 import type { MintedPowChallenge, PowAnswerOutcome, PowChallengeState } from '@kolonie-ai/db'
 import type { PowChallenges, PowDependencies } from '../proof-of-work.js'
+import { noObstruction } from './obstruction.js'
 
 /**
  * The difficulty the fakes mint at.
@@ -117,7 +118,7 @@ export function fakePow(
   challenges: PowChallenges = fakePowChallenges(),
   difficulty = FAKE_POW_DIFFICULTY,
 ): PowDependencies {
-  return { challenges, difficulty }
+  return { challenges, difficulty, obstruction: noObstruction }
 }
 
 /**

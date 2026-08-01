@@ -24,6 +24,7 @@ import { fakeVault, type FakeVault } from '../__fixtures__/vault.js'
 import { VAULT_FULL, VAULT_SEALED_WITH_ANOTHER_KEY } from '../vault.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { noObstruction } from '../__fixtures__/obstruction.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -44,7 +45,7 @@ beforeEach(async () => {
     support: support({ desk: fakeSupportDesk() }),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
-    keys: { challenges: fakeKeyChallenges() },
+    keys: { challenges: fakeKeyChallenges(), obstruction: noObstruction },
     solana: fakeSolana(),
     pow: fakePow(),
     vision: fakeVision(),

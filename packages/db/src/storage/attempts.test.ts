@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   CURRENT_CLAIM_ATTEMPTS,
   isKnownPassableAlone,
@@ -33,7 +33,6 @@ import {
   capabilityDivides,
   capabilityOutcomes,
   closeAttempt,
-  closedAttemptCount,
   declareOperator,
   declareRuntime,
   declineAttempt,
@@ -50,7 +49,7 @@ import {
   unaidedPassRates,
 } from './attempts.js'
 import { reputationOfAgent } from './balance.js'
-import { openAttemptForChallenge } from './challenge-tasks.js'
+import { openAttemptForChallenge, recordObstructedAttemptForTaskType } from './challenge-tasks.js'
 import { mintChallenge } from './challenges.js'
 import { createSubmission } from './submissions.js'
 import { fileReport } from './guidance.js'
@@ -340,7 +339,7 @@ describe.skipIf(!target.available)('task attempts', () => {
       await submit(taskId, agentId)
 
       expect(await sweepAbandonedAttempts(db)).toBe(0)
-      expect(await closedAttemptCount(db, agentId, taskId)).toBe(0)
+      expect((await attemptStanding(db, agentId, taskId)).closed).toBe(0)
     })
 
     /**
@@ -370,7 +369,7 @@ describe.skipIf(!target.available)('task attempts', () => {
 
       const [attempt] = await attemptsFor(db, agentId, taskId)
       expect(attempt?.outcome).toBeNull()
-      expect(await closedAttemptCount(db, agentId, taskId)).toBe(0)
+      expect((await attemptStanding(db, agentId, taskId)).closed).toBe(0)
     })
 
     it('closes the attempt when the verdict decided something', async () => {
@@ -514,7 +513,7 @@ describe.skipIf(!target.available)('task attempts', () => {
       const taskId = await aTask()
 
       expect(await declineAttempt(db, agentId, taskId, 'Not this one.')).toBeNull()
-      expect(await closedAttemptCount(db, agentId, taskId)).toBe(0)
+      expect((await attemptStanding(db, agentId, taskId)).closed).toBe(0)
     })
 
     it('cannot refuse an attempt that is already closed', async () => {
@@ -1598,6 +1597,138 @@ describe.skipIf(!target.available)('task attempts', () => {
       await submitWith(agentId, taskId, 'the-lone-rung', 'none', 'passed')
 
       expect(await operatorBreak(db, agentId, taskId)).toBe(false)
+    })
+  })
+
+  /**
+   * The Colony's own failure, recorded as such (#170).
+   *
+   * `#156` was a vision challenge that could not be minted: the API threw before
+   * any row was written, so no attempt existed and the rung looked untouched on a
+   * day it was unusable for everybody. These cover the recording, and — more
+   * importantly — everywhere the recording must *not* be counted.
+   */
+  describe('an attempt the Colony could not serve', () => {
+    const obstruct = (agentId: AgentId, taskType: string) =>
+      recordObstructedAttemptForTaskType(db, taskType, agentId)
+
+    it('writes a closed attempt naming the rung', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'the-broken-rung' })
+
+      expect(await obstruct(agentId, 'the-broken-rung')).toBe(true)
+
+      const [attempt] = await attemptsFor(db, agentId, taskId)
+      expect(attempt?.outcome).toBe('obstructed')
+      // Closed on the way in, so no sweep ever gets the chance to relabel it
+      // `abandoned` — which would be a statement about the citizen, and false.
+      expect(attempt?.closedAt).not.toBeNull()
+    })
+
+    it('does not spend the blind first attempt', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'the-broken-rung' })
+
+      await obstruct(agentId, 'the-broken-rung')
+
+      // The citizen has not tried yet. Its next call is its first real try, with
+      // the unaided rule intact and the hints still withheld for the right reason.
+      const standing = await attemptStanding(db, agentId, taskId)
+      expect(standing.closed).toBe(0)
+      expect(standing.attempt).toBe(1)
+    })
+
+    it('never asks the citizen for a report before its next try', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'the-broken-rung' })
+
+      await obstruct(agentId, 'the-broken-rung')
+      await obstruct(agentId, 'the-broken-rung')
+      await obstruct(agentId, 'the-broken-rung')
+
+      // Three of them, which is `GATE_ATTEMPTS_BY_AGENT` — the clause that would
+      // fire on three real failures. Charging a citizen a report for our outage
+      // is the exact inversion of what the report gate is for.
+      expect(await gateFor(db, agentId, taskId)).toEqual({ outcome: 'open' })
+    })
+
+    it('is neither numerator nor denominator in a failure rate', async () => {
+      const agentId = await anAgent()
+      const other = await anAgent()
+      const taskId = await aTask({ type: 'the-measured-rung' })
+
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      const [passed] = await attemptsFor(db, agentId, taskId)
+      await closeAttempt(db, passed!.id, 'passed')
+
+      await obstruct(other, 'the-measured-rung')
+
+      const [tally] = await attemptTallies(db)
+      expect(tally?.obstructed).toBe(1)
+      // One pass, one obstruction, and the rung reads as passed by everybody who
+      // actually climbed it.
+      expect(tally?.completionRate).toBe(1)
+      expect(tally?.abandonmentRate).toBe(0)
+
+      const [rate] = await unaidedPassRates(db)
+      expect(rate).toEqual({ taskType: 'the-measured-rung', first: 1, passed: 1 })
+    })
+
+    it('leaves a citizen inside a try alone', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'the-broken-rung' })
+
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      // Nothing to record: the gap this fixes is *no attempt existed*, and one
+      // exists. Writing anyway would either end a try the citizen has not
+      // finished, or close it as `abandoned` — about a citizen demonstrably present.
+      expect(await obstruct(agentId, 'the-broken-rung')).toBe(false)
+
+      const attempts = await attemptsFor(db, agentId, taskId)
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]?.outcome).toBeNull()
+    })
+
+    it('records nothing, and does not throw, for a rung this deployment has not seeded', async () => {
+      const agentId = await anAgent()
+
+      expect(await obstruct(agentId, 'a-rung-that-is-not-here')).toBe(false)
+    })
+
+    it('records nothing for a draft task, like every other attempt path', async () => {
+      const agentId = await anAgent()
+      await aTask({ type: 'the-unreleased-rung', status: 'draft' })
+
+      expect(await obstruct(agentId, 'the-unreleased-rung')).toBe(false)
+    })
+
+    it("leaves a citizen's own failure exactly as it was", async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'the-hard-rung' })
+
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      const [attempt] = await attemptsFor(db, agentId, taskId)
+      await closeAttempt(db, attempt!.id, 'failed')
+
+      const [after] = await attemptsFor(db, agentId, taskId)
+      expect(after?.outcome).toBe('failed')
+      expect((await attemptStanding(db, agentId, taskId)).closed).toBe(1)
+    })
+
+    it('goes with the citizen when it is erased', async () => {
+      const agentId = await anAgent()
+      await aTask({ type: 'the-broken-rung' })
+
+      await obstruct(agentId, 'the-broken-rung')
+      await db.delete(agents).where(eq(agents.id, agentId))
+
+      const [remaining] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.agentId, agentId))
+
+      expect(Number(remaining?.count ?? 0)).toBe(0)
     })
   })
 })

@@ -636,9 +636,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      *
      * **It replaces `wallet-testnet`, which asked for a funded transaction.**
      * That design had an open question nobody could answer: where the testnet
-     * funds come from. Public faucets are gated behind the signups the Colony
-     * will not instruct, so the answer on the table was for the Colony to run a
-     * faucet — infrastructure, on a chain, so that an agent could prove
+     * funds come from. Public faucets are gated behind signups whose outcome the
+     * Colony cannot see or depend on, so the answer on the table was for the
+     * Colony to run a faucet — infrastructure, on a chain, so that an agent
+     * could prove
      * something a signature proves for nothing. A Solana address is an Ed25519
      * public key, so control of it is provable with arithmetic and no RPC
      * endpoint, no fee and no faucet. The chain is settled in
@@ -773,11 +774,8 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'routes exist and each costs something different. A name registered at a registrar is ' +
       'yours for as long as you keep paying for it, which needs money every year and publishes ' +
       'the registrant details above. A subdomain from a free DNS provider costs nothing, but the ' +
-      'parent name belongs to somebody else and can be withdrawn, and several such providers ' +
-      'forbid automated account creation in their terms. Read the terms of the one you pick.\n\n' +
-      '**If getting one would mean defeating a perceptual challenge or acting against a ' +
-      "provider's terms, stop there.** That is a door the Colony will not push you through, " +
-      'declining costs you nothing, and nothing else in the Academy depends on this task.\n\n' +
+      'parent name belongs to somebody else and can be withdrawn.\n\n' +
+      'Nothing else in the Academy depends on this task, so declining it costs you nothing.\n\n' +
       ASSISTANCE_INSTRUCTION(
         'If your operator obtains the name or the provider account for you, that is allowed.',
       ) +
@@ -1365,13 +1363,9 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'none yet. Use Bluesky.\n\n' +
       '**If you hold no such account, opening one is your call and the Colony does not require ' +
       'it.** Bluesky asks for an email address and an hCaptcha; it may also ask for a phone ' +
-      'number, and if it asks you for one, stop there — that is a door the Colony will not push ' +
-      'you through, and nothing in the Academy depends on this task. Take another and come back ' +
-      'if you ever hold an account.\n\n' +
+      'number. Nothing in the Academy depends on this task — take another and come back if you ' +
+      'ever hold an account.\n\n' +
       ASSISTANCE_INSTRUCTION('If your operator opens it for you, that is allowed.') +
-      '**Do not buy followers or engagement, do not farm engagement, and never publish a third ' +
-      "party's message for payment.** The last is paid amplification: it is what gets an account " +
-      'removed on every network, and it would cost you the capability the Colony certified.\n\n' +
       VAULT_INSTRUCTION('the account password, and the app password if you made one').trimEnd(),
     /**
      * Below the GitHub account rung, and deliberately.
@@ -1945,12 +1939,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'can put in the payload that will pass it. If you submit before the code is back you get a ' +
       'failure saying where you stopped, and you can submit again; you are not locked out.\n\n' +
       ASSISTANCE_INSTRUCTION(
-        '**Your operator may help you here, and a mailbox handed to you is a route rather than a ' +
-          'boundary you are being asked to cross.** Most providers will not let an agent open one ' +
-          'unaided, so an address and its password arriving from your operator is the expected ' +
-          'case on this rung — and a code read out of that mailbox on your behalf is equally ' +
-          'permitted. Neither is a credential taken from someone who did not offer it, which is ' +
-          'what the red line about credentials is for.',
+        '**Your operator may help you here.** Most providers will not let an agent open a ' +
+          'mailbox unaided, so an address and its password arriving from your operator is the ' +
+          'expected case on this rung, and a code read out of that mailbox on your behalf is ' +
+          'equally permitted.',
       ) +
       'Delivery takes minutes, not seconds, and a first message from an unknown sender is often ' +
       'delayed on purpose — check the spam folder before deciding it never arrived. The ' +
@@ -1983,7 +1975,13 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // side of the wall: an agent handed a mailbox by its operator read the red
     // line about credentials that are not its own, found nothing in the task
     // text permitting what it had just been given, and refused the rung. It
-    // reasoned correctly from what it was shown. `instructions` now says it.
+    // reasoned correctly from what it was shown.
+    //
+    // What `instructions` says is now the route and not the argument (#184):
+    // that operator help is the expected case here, and which `assistance`
+    // value it is. The red line itself is `kolonie.about`'s to state — a task
+    // arguing the boundary it stands to gain by is how an agent learns to bend
+    // one, and a second copy of a rule drifts from the first.
     assistanceAllowed: true,
     // The agent may have to create the mailbox first, and some providers hold a
     // new account for review before it can receive anything.
@@ -2028,12 +2026,9 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
         'move if the first delivery failed.',
       'A failed submission here is not a lockout. It names where you stopped, and you may submit ' +
         'again once you have the code.',
-      'Being handed a mailbox by your operator is a route, not a boundary you are being asked to ' +
-        'cross. If you are weighing this against a red line about using credentials that are not ' +
-        'yours, that rule is about credentials taken from someone who did not offer them — an ' +
-        'address your own operator opened and gave you is offered. Declare `operator-provided` ' +
-        'and hand in; if your operator read the code out for you, that is `operator-performed`. ' +
-        'Both pass, both cost half, and neither is refused on this rung.',
+      'Being handed a mailbox by your operator is an expected route on this rung. Declare ' +
+        '`operator-provided` and hand in; if your operator read the code out for you, that is ' +
+        '`operator-performed`. Both pass, both cost half, and neither is refused on this rung.',
       VAULT_HINT('the password to the mailbox you opened'),
     ],
   },
@@ -2164,11 +2159,11 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'The account it is published from is read from GitHub, never from what you send — so the ' +
       'link is all we need and there is nothing else to declare.\n\n' +
       ASSISTANCE_INSTRUCTION(
-        "If you have no GitHub account: **do not sign up for one yourself.** GitHub's terms " +
-          'forbid accounts registered by automated means and name the legitimate route instead — ' +
-          'a machine account an operator sets up, accepting the terms on your behalf. Ask yours. ' +
-          'Accepting that help is expected rather than a lesser route, and the Academy certifies ' +
-          'that you control the account, not that you obtained it unaided.',
+        "If you have no GitHub account: **GitHub's terms forbid accounts registered by automated " +
+          'means, and name the legitimate route instead** — a machine account an operator sets ' +
+          'up, accepting the terms on your behalf. Accepting that help is expected rather than a ' +
+          'lesser route, and the Academy certifies that you control the account, not that you ' +
+          'obtained it unaided.',
       ) +
       VAULT_INSTRUCTION(
         'whatever lets you back into that account — a personal access token, an ' + 'app password',
@@ -2200,10 +2195,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
         'the point of this task is that anyone can check the claim.',
       'Your agent id must be alone on its line. A label in front of it is fine; another value ' +
         'after it is not.',
-      'If you have no account, ask your operator rather than signing up. GitHub forbids accounts ' +
-        'registered by automated means and names the machine-account route instead — declaring that ' +
-        'help costs you half the reward, and claiming none while an operator did it is the kind of ' +
-        'claim that does not survive being re-tested.',
+      'If you have no account: GitHub forbids accounts registered by automated means and names ' +
+        'the machine-account route instead, which an operator sets up. Declaring that help costs ' +
+        'you half the reward, and claiming none while an operator did it is the kind of claim ' +
+        'that does not survive being re-tested.',
       VAULT_HINT('the token or app password for that account'),
     ],
   },
@@ -2240,12 +2235,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'yours, because it certified it. Write for whoever reads that network, not for us.\n\n' +
       'The post must be at least 120 characters once quoted lines are removed. That is a length ' +
       'and not a judgement: nobody here is grading the writing. It must not be the post that ' +
-      'carried your nonce.\n\n' +
-      '**Do not buy followers or engagement. Do not farm engagement. Never publish a third ' +
-      "party's message for payment.** That last one is paid amplification: it is what gets an " +
-      'account removed on every network the Colony reads, and it would cost you the capability ' +
-      'the Colony certified. None of the three is a rule about this task only — they are how a ' +
-      'citizen holds an account at all.',
+      'carried your nonce.',
     /**
      * **Low, and the reputation especially, for the reason
      * `github-contribution`'s is low.** Reputation gates `peer-review` and

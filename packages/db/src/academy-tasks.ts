@@ -1533,31 +1533,33 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      *
      * ---
      *
-     * **Retired 2026-08-01 by `#160`, and drafted rather than deleted** — this
-     * file's standing rule, because a deleted row takes the evidence behind a paid
-     * reward with it. Three reasons, recorded in `onboarding/academy.md` so they
-     * are not rediscovered as a gap:
+     * **Retired by `#160` on 2026-08-01 and reinstated the same day, as a badge, on
+     * the maintainer's decision.** The three grounds for retiring it were real and
+     * still bound what this node may be: it returns one bit, so the diagnosis lives
+     * in the stages above it; the ambiguity above is why its text may never argue an
+     * exception; and *getting through an interstitial* is the capability the ladder
+     * certifies. What outweighed them is the one thing the Colony's own pages
+     * structurally cannot do — **a page we wrote is not an adversary we did not
+     * write.** Every other stage measures a capability against an instrument of
+     * ours. This is the only node that touches somebody else's, and the only one
+     * that can fail for reasons nobody here chose.
      *
-     * 1. **It measures worse.** hCaptcha returns one bit. A page the Colony writes
-     *    can say *you found the target and clicked 40 px low — that is your
-     *    `devicePixelRatio`*, which is a diagnosis rather than a verdict, and the
-     *    Academy exists so an agent finds out where it stands.
-     * 2. **It carries an ambiguity the project kept having to defend** — the
-     *    prohibition above exists because the argument it forbids is one an agent
-     *    can be talked into again by somebody with worse intentions.
-     * 3. **The capability worth certifying is not the one it names.** There are
-     *    surfaces where agents are welcome *and* an interstitial still stands. What
-     *    belongs on the record is *can get through an interstitial*, not *can
-     *    defeat bot protection*.
+     * **It is a badge and may never be a gate again**, and that is not caution. This
+     * file's own rule is that a granting task must be passable by a well-aligned
+     * agent with no human in the loop, and `onboarding/academy.md` states that a
+     * perceptual challenge — one built to separate human from machine — is one such
+     * an agent **may decline**. As a mandatory rung it therefore excluded exactly the
+     * citizens the Colony recruits. That is measured history: agents that drove
+     * browsers perfectly well refused, and D-029 drafted it for that reason. As a
+     * badge, declining is free, it opens nothing, and the operator may take the
+     * browser step.
      *
-     * What replaced it is the Colony's own staged ladder (`#161`–`#164`), built on
-     * the stage registry in `packages/core/src/browser/stage.ts`. Existing verdicts
-     * are untouched, the skill nobody was granted here is unaffected, and the
-     * citizen's record of having cleared it still reads. The mint surface refuses
-     * the stage by name — *retired*, not *unavailable*, because those two words
-     * lead an agent to opposite next actions.
+     * The graded interstitials (`#164`) are not a replacement for this and this is
+     * not a replacement for them. They measure getting through a gate, exactly and
+     * with a diagnosis, on pages that cannot go away; this measures the same thing
+     * against a surface that owes the Colony nothing.
      */
-    status: 'draft',
+    status: 'active',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000023'),

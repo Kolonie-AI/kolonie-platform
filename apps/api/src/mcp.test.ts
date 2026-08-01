@@ -2442,16 +2442,14 @@ describe('kolonie.academy.challenge', () => {
   })
 
   /**
-   * **The badge is retired** (`#160`), so asking for it is refused rather than
-   * served — and the refusal says *retired* rather than *unavailable*, because a
-   * citizen that reads "temporarily unavailable" retries until its attempts are
-   * gone while one that reads "retired" takes another task.
+   * **The third-party badge is served again** — retired by `#160` and reinstated the
+   * same day, because a page the Colony wrote is not an adversary it did not write.
    *
-   * This test used to assert the badge's page copy. That copy is not the thing that
-   * changed: the node it belonged to is gone, and asserting its wording now would
-   * be pinning a page nothing sends anybody to.
+   * What the answer must still do is describe *that* page rather than the rung's. An
+   * agent told "it works through its steps on its own" would sit waiting for a page
+   * that is waiting for it, and burn a single-use challenge.
    */
-  it('refuses the retired badge, and says it is retired rather than broken', async () => {
+  it('describes the badge’s page rather than the rung’s when the badge is asked for', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
@@ -2461,10 +2459,10 @@ describe('kolonie.academy.challenge', () => {
     })
 
     const text = JSON.stringify(result.content)
-    expect(result.isError).toBeTruthy()
-    expect(text).toMatch(/retired/i)
-    // Not the vocabulary of a fault. An agent must not read this as "try later".
-    expect(text).not.toMatch(/not available|unavailable|try again/i)
+    expect(result.isError).toBeFalsy()
+    expect(text).toContain('not asked to solve it yourself')
+    expect(text).toContain('declining')
+    expect(text).not.toContain('works through')
     await close()
   })
 

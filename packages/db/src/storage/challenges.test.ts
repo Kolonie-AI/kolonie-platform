@@ -96,8 +96,17 @@ describe.skipIf(!target.available)('browser challenges', () => {
     return row
   }
 
-  it('refuses to mint the retired stage, and says which stages remain', async () => {
-    await expect(mintChallenge(db, agentId, RETIRED_CHALLENGE_STAGE)).rejects.toThrow(/retired/)
+  /**
+   * **The third-party stage is mintable again**, as a badge, since it was reinstated on
+   * 2026-08-01. This asserted the opposite for the few hours it was retired, and the
+   * assertion worth keeping is the one underneath: `mintChallenge` refuses a stage that is
+   * marked retired, whichever stage that happens to be.
+   */
+  it('mints the third-party stage, which is a badge rather than a gate', async () => {
+    const minted = await mintChallenge(db, agentId, RETIRED_CHALLENGE_STAGE)
+
+    expect(minted.id).toMatch(/^[0-9a-f-]{36}$/i)
+    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeNull()
   })
 
   it('mints a challenge that is unsolved and in the future', async () => {

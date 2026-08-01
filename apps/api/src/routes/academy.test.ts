@@ -142,13 +142,13 @@ describe('POST /v1/academy/challenges', () => {
   })
 
   /**
-   * **The badge is retired and its door is closed** (`#160`).
-   *
-   * It had none between `#29` and `#34`, then had one until now. What replaced it is
-   * the Colony's own staged ladder; this asserts the refusal names *retired* rather
-   * than a fault, because those two words lead an agent to opposite next actions.
+   * **The badge's door.** It had none between `#29` and `#34`: the rebuild pointed this
+   * route at the capability challenge and the hCaptcha row was drafted, so an active
+   * badge would have been a task nobody could start. `#160` retired it for a few hours
+   * on 2026-08-01 and it was reinstated the same day, as a badge — the one node in the
+   * branch that faces a surface the Colony does not control.
    */
-  it('refuses the retired badge rather than minting it', async () => {
+  it('mints the badge’s challenge when the body asks for one', async () => {
     const { apiKey } = store.issue()
 
     const response = await app.inject({
@@ -158,8 +158,9 @@ describe('POST /v1/academy/challenges', () => {
       payload: { kind: 'captcha' },
     })
 
-    expect(response.statusCode).toBe(404)
-    expect(response.json().message).toMatch(/retired/i)
+    expect(response.statusCode).toBe(201)
+    // The badge's page, not the rung's — the two never satisfy each other.
+    expect(response.json().url).toContain('/captcha/')
   })
 
   it('names the stages that can be opened when an unknown one is asked for', async () => {
@@ -243,14 +244,7 @@ describe('POST /v1/academy/challenges', () => {
     })
     await withoutCaptcha.close()
 
-    /**
-     * **404 rather than 503 since `#160`.** The badge is retired, so its refusal no
-     * longer depends on whether hCaptcha is configured — it is closed either way.
-     * What this test is actually for survives that change and is why it is kept: the
-     * rung serves whatever the badge does, which is the property `#29` was opened
-     * for when an unset third-party sitekey stalled every arriving agent.
-     */
-    expect(badge.statusCode).toBe(404)
+    expect(badge.statusCode).toBe(503)
     expect(rung.statusCode).toBe(201)
   })
 })

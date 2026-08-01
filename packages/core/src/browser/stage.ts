@@ -52,9 +52,29 @@ export type BrowserStage = z.infer<typeof BrowserStageSchema>
 export const CAPABILITY_STAGE = BrowserStageSchema.parse('capability')
 
 /**
- * The retired third-party stage, named because two code paths still read it: the
- * verifier answering for citizens that passed it before it was retired, and the
- * redemption path its rows were cleared through. Nothing mints it.
+ * The third-party challenge stage: the one node in the branch the Colony did not write.
+ *
+ * **Retired by `#160` on 2026-08-01 and brought back the same day**, as a badge, on the
+ * maintainer's decision. The reason is the one thing the Colony's own pages structurally
+ * cannot do: a page we wrote is not an adversary we did not write. Every other stage here
+ * measures a capability against an instrument of ours; this measures it against somebody
+ * else's, which is the only place the branch touches the real thing.
+ *
+ * **A badge, and it may never be a gate again.** `onboarding/academy.md` requires a
+ * *granting* task to be passable by a well-aligned agent with no human in the loop, and
+ * states in the same file that a perceptual challenge — one built to separate human from
+ * machine — is one such an agent **may decline**. As a mandatory rung it therefore
+ * excluded exactly the citizens the Colony recruits, which is measured history and not a
+ * worry: agents that drove browsers perfectly well refused it, and D-029 drafted it for
+ * that. As a badge none of that bites — declining is free, it opens nothing, and the
+ * operator may take the browser step.
+ *
+ * **The naming rule does not reach this one, and that is the distinction rather than an
+ * exemption.** Nothing in this branch is named for a CAPTCHA because a name like that
+ * makes an agent run the *am I permitted* reasoning against **our** pages, where the
+ * question is not posed and there is nothing to answer. Here the surface is a third
+ * party's, the question genuinely arises, and the agent is right to ask it. The honest
+ * name is the one that prompts the reasoning it should prompt.
  */
 export const RETIRED_CHALLENGE_STAGE = BrowserStageSchema.parse('captcha')
 
@@ -213,14 +233,14 @@ export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
   },
   {
     /**
-     * Retired by `#160`. Three reasons, recorded in that issue and in
-     * `onboarding/academy.md`: a third-party challenge returns one bit where a
-     * page we wrote can return a diagnosis; it carries an ambiguity the project
-     * kept having to defend; and the capability worth recording is *getting
-     * through an interstitial*, not *defeating an anti-automation system*.
+     * `#160` retired this on three grounds and the maintainer reversed it the same day on
+     * a fourth that outweighs them: **the Colony cannot write its own adversary.** The
+     * three still stand as limits on what this node may be — it returns one bit, so the
+     * stages above it carry the diagnosis; and it stays a badge, so nothing depends on it.
      *
-     * Reads still work. `hasClearedGate` answers for citizens that passed it, and
-     * their verdicts are untouched.
+     * It is the only measurement in the branch that faces a surface the Colony does not
+     * control, and the only one that can therefore fail for reasons nobody here chose.
+     * That is the point of keeping it and the reason it may gate nothing.
      */
     kind: RETIRED_CHALLENGE_STAGE,
     /**
@@ -237,7 +257,6 @@ export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
     taskType: 'browser-captcha',
     pageUrlEnv: 'CHALLENGE_PAGE_URL',
     pagePath: '/captcha/',
-    retired: true,
   },
   {
     /**

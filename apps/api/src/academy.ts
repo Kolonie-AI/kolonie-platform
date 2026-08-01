@@ -6,6 +6,7 @@ import {
   interstitialKind,
   mintableBrowserStages,
   mintableInterstitialKinds,
+  RETIRED_CHALLENGE_STAGE,
   type AgentId,
   type ApiError,
   type BrowserStage,
@@ -413,6 +414,25 @@ export function mintUnavailable(
    * when one reason covers several rungs: an unset third-party sitekey disabled the
    * Colony's own promoting rung and stalled every arriving agent.
    */
+  /**
+   * **One stage has a dependency outside the Colony, and it is the only one.**
+   *
+   * The third-party challenge needs an hCaptcha sitekey and secret, which are somebody
+   * else's values. Every other stage needs only a page this process serves, which is why
+   * `stageUnavailable` is enough for them — and why this is a named exception rather than
+   * a general mechanism: a second stage reaching outside would be a decision, not a
+   * configuration detail.
+   *
+   * Without this the badge would mint with no sitekey and hand the citizen a page that
+   * cannot render its widget. `#29` is the same failure in the other direction — one
+   * shared condition let that missing sitekey disable the *promoting* rung — so the two
+   * conditions stay separate and each covers exactly its own node.
+   */
+  if (kind === RETIRED_CHALLENGE_STAGE) {
+    const gateDown = gateUnavailable(deps)
+    if (gateDown !== undefined) return gateDown
+  }
+
   return stageUnavailable(kind, deps)
 }
 

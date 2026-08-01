@@ -895,13 +895,24 @@ export function buildApp({
         }
 
         /**
-         * **The refusal's own status, not a blanket 503.** A retired stage answers
-         * `not_found` and an unconfigured one `internal`, and flattening both into
-         * 503 tells an agent to retry something that will never work. That was the
-         * shape of this line until `#160` gave the refusals distinct causes.
+         * **The refusal's own status, except that `internal` means 503 here.**
+         *
+         * `#160` gave these refusals distinct causes, and flattening them all into 503
+         * would tell an agent to retry something that will never work: a retired stage
+         * answers `not_found`, an unknown one `validation_failed`, and those must keep
+         * their own statuses.
+         *
+         * `internal` is the one that does not follow the table. From this function it
+         * does not mean *we crashed* — it means *this stage exists and cannot serve right
+         * now*, which is exactly what 503 says and what an agent needs in order to retry
+         * rather than conclude the Colony has no such rung. Mapping it to 500 here was a
+         * regression introduced with the per-cause statuses and caught by the test that
+         * pins the badge going down without the rung.
          */
         const down = mintUnavailable(requested.data.kind, academy)
-        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+        if (down !== undefined) {
+          return reply.status(down.code === 'internal' ? 503 : ERROR_STATUS[down.code]).send(down)
+        }
 
         // A stage with kinds needs one named; a stage without must not be sent one.
         const badVariant = variantUnusable(requested.data.kind, requested.data.variant)

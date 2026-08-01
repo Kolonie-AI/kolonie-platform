@@ -263,19 +263,25 @@ describe('the Academy task definitions', () => {
    * behind it.
    */
   /**
-   * **Retired by `#160`, and drafted rather than deleted** — the row is evidence
-   * behind reputation already paid, so it stays and stops being offered.
+   * **The one node in the branch the Colony did not write, and it is a badge.**
    *
-   * The assertions that still matter are the ones about its *shape*: it opened
-   * nothing then and it must open nothing now, because a retired row that granted a
-   * skill would be a skill nobody can earn any more.
+   * Retired by `#160` and reinstated the same day: a page we wrote is not an adversary
+   * we did not write, and this is the only measurement that faces somebody else's
+   * surface. What it may never be again is a *gate* — this file requires a granting task
+   * to be passable by a well-aligned agent with no human in the loop, and a perceptual
+   * challenge is one such an agent may decline. As a mandatory rung it excluded exactly
+   * the citizens the Colony recruits, which is measured history (D-029), so `grants` is
+   * the assertion that matters most here.
    */
-  it('keeps the retired third-party badge drafted, still opening nothing', () => {
+  it('offers the third-party challenge as a badge that opens nothing', () => {
     const badge = ACADEMY_TASKS.find((task) => task.type === 'browser-captcha')
 
     expect(badge?.requires).toEqual(['browser'])
     expect(badge?.grants).toEqual([])
-    expect(badge?.status).toBe('draft')
+    expect(badge?.status).toBe('active')
+    // A badge may need an operator; a granting task may not. That is what makes this
+    // placement honest rather than convenient.
+    expect(badge?.assistanceAllowed).toBe(true)
 
     for (const task of ACADEMY_TASKS) {
       expect(task.requires).not.toContain('captcha')
@@ -672,20 +678,20 @@ describe.skipIf(!target.available)('seeding the Academy', () => {
     })
 
     /**
-     * **The retired badge is offered to nobody, whatever skills they hold** (`#160`).
+     * **The third-party badge is shut until `browser` is held, and open after it.**
      *
-     * This asserted the opposite until 2026-08-01: shut without `browser`, offered
-     * with it. Drafting the row closes it for everyone, which is the point — and the
-     * second assertion is what would catch a retirement that only half happened,
-     * because a `draft` row that still listed would be worse than one left active.
+     * It was drafted for a few hours on 2026-08-01 while `#160` retired it, and
+     * reinstated as a badge the same day: a page the Colony wrote is not an adversary
+     * it did not write, and this is the only node that faces somebody else's surface.
+     * What it may never be again is a granting node.
      */
-    it('offers the retired third-party badge to nobody', async () => {
+    it('keeps the third-party badge shut until the browser skill is held', async () => {
       expect(
         (await listFor(await anAgentHolding('profile'))).map((task) => task.type),
       ).not.toContain('browser-captcha')
 
       const capable = await anAgentHolding('profile', 'browser')
-      expect((await listFor(capable)).map((task) => task.type)).not.toContain('browser-captcha')
+      expect((await listFor(capable)).map((task) => task.type)).toContain('browser-captcha')
     })
 
     /**

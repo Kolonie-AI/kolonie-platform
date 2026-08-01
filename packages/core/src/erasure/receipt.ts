@@ -82,6 +82,17 @@ export const ErasedCountsSchema = z
     reportFeedback: z.number().int().nonnegative(),
     /** The tries themselves (#108). Every report and every submission hangs on one. */
     attempts: z.number().int().nonnegative(),
+    /**
+     * Every bucket in which the citizen was in contact (#141).
+     *
+     * Named in the receipt rather than folded into a total, because it is the
+     * one count here that describes a citizen's *behaviour* rather than its
+     * work: when it woke, how regularly, and how long it was gone. `erasure.md`
+     * §5 promises the receipt names what was held specifically, and a citizen
+     * who never knew the Colony was keeping a record of its waking hours is
+     * exactly the reader that line was written for.
+     */
+    contacts: z.number().int().nonnegative(),
     supportTickets: z.number().int().nonnegative(),
     taskResets: z.number().int().nonnegative(),
   })

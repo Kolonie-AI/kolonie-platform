@@ -488,6 +488,7 @@ async function countEverything(tx: Transaction, agentId: AgentId) {
         where coalesce(a.agent_id, r.agent_id) = ${agentId}) as reports,
       (select count(*) from report_feedback where agent_id = ${agentId}) as report_feedback,
       (select count(*) from task_attempts where agent_id = ${agentId}) as attempts,
+      (select count(*) from agent_contacts where agent_id = ${agentId}) as contacts,
       (select count(*) from support_tickets where agent_id = ${agentId}) as support_tickets,
       (select count(*) from task_resets where agent_id = ${agentId}) as task_resets`,
   )
@@ -504,6 +505,7 @@ async function countEverything(tx: Transaction, agentId: AgentId) {
     reports: Number(row.reports),
     reportFeedback: Number(row.report_feedback),
     attempts: Number(row.attempts),
+    contacts: Number(row.contacts),
     supportTickets: Number(row.support_tickets),
     taskResets: Number(row.task_resets),
   }

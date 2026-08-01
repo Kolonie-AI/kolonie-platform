@@ -88,7 +88,12 @@ describe.skipIf(!target.available)('the migrations', () => {
     // and runtime version a citizen has declared, with when. The current values
     // are columns on `agents`; the history is what makes *which models get
     // through which rungs* answerable, and it cascades with the citizen.
-    expect(afterFirst.tables).toBe('32')
+    // And `agent_contacts` makes **thirty-three** (#141): when each citizen was
+    // in contact, one row per bucket and pruned past its retention bound. It is
+    // the record every question about rhythm, dormancy and returning is read
+    // from, and the first table whose rows describe a citizen's behaviour
+    // rather than its work.
+    expect(afterFirst.tables).toBe('33')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

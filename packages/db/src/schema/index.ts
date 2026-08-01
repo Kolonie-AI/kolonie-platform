@@ -5,6 +5,7 @@
  */
 export * from './enums.js'
 export * from './agents.js'
+export * from './contacts.js'
 export * from './runtime.js'
 export * from './credentials.js'
 export * from './tasks.js'

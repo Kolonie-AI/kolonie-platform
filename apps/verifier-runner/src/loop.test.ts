@@ -198,6 +198,14 @@ class FakeQueue implements SubmissionQueue {
     this.abandonedSweeps++
     return 0
   }
+
+  /** Counted for the same reason as `abandonedSweeps` above (#141). */
+  contactPrunes = 0
+
+  async pruneContacts(): Promise<number> {
+    this.contactPrunes++
+    return 0
+  }
 }
 
 const claimed = (id: string, taskType = EXAMPLE_TASK): ClaimedSubmission => ({

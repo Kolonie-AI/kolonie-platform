@@ -404,6 +404,11 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
           // that silently stays zero is how a broken sweep hides (#108).
           const abandoned = await deps.queue.sweepAbandoned()
           if (abandoned > 0) log.info(`closed ${abandoned} abandoned attempt(s)`)
+
+          // Same tick, same reason as the line above: nobody is present to do
+          // it, and a count that stays at zero is how a broken pruner hides.
+          const pruned = await deps.queue.pruneContacts()
+          if (pruned > 0) log.info(`pruned ${pruned} contact record(s)`)
         }
 
         let taken = 0

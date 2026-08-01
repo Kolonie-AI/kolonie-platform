@@ -2,6 +2,7 @@ import type { SubmissionId, TaskType } from '@kolonie-ai/core'
 import {
   claimNextSubmission,
   expireOverdueSubmissions,
+  pruneContactHistory,
   sweepAbandonedAttempts,
   recordVerdict,
   releaseSubmission,
@@ -94,6 +95,19 @@ export interface SubmissionQueue {
    * than a fact it assumed.
    */
   sweepAbandoned(): Promise<number>
+  /**
+   * Delete contact history past its retention bound (#141).
+   *
+   * On this sweep because it is the same kind of housekeeping as the two above
+   * — work nobody is present to do — and because the runner is the one process
+   * in the Colony that is guaranteed to be running and is not on a request
+   * path. Doing it from the API would put a delete across every citizen's rows
+   * behind somebody's `kolonie.me`.
+   *
+   * Returns how many rows went, so a pruner that has silently stopped shows up
+   * as a number rather than as a table that is quietly larger every month.
+   */
+  pruneContacts(): Promise<number>
 }
 
 /** Wire the loop to a real database. */
@@ -106,6 +120,7 @@ export function databaseQueue(db: Database): SubmissionQueue {
     release: (submissionId) => releaseSubmission(db, submissionId),
     expireOverdue: () => expireOverdueSubmissions(db),
     sweepAbandoned: () => sweepAbandonedAttempts(db),
+    pruneContacts: () => pruneContactHistory(db),
   }
 }
 

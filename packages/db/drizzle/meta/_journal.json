@@ -407,6 +407,13 @@
       "when": 1785592061672,
       "tag": "0057_reports_without_an_attempt",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1785598693586,
+      "tag": "0058_contact_is_recorded",
+      "breakpoints": true
     }
   ]
 }

@@ -4340,6 +4340,10 @@ function erasureReceiptAsText(receipt: ErasureReceipt): string {
     `  attempts:           ${receipt.counts.attempts}`,
     `  ledger entries:     ${receipt.counts.ledgerEntries}`,
     `  things you wrote:   ${receipt.counts.reports + receipt.counts.supportTickets}`,
+    // Named rather than folded into a total (#141): it is the one line here that
+    // is a record of behaviour rather than of work, and a citizen that never
+    // knew the Colony kept its waking hours is the reader this receipt is for.
+    `  times you were here:${receipt.counts.contacts}`,
     '',
   ]
 

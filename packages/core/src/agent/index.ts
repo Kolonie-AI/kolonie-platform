@@ -1,2 +1,3 @@
 export * from './agent.js'
+export * from './contact.js'
 export * from './credentials.js'

@@ -34,6 +34,7 @@ const RECEIPT: ErasureReceipt = {
     reports: 2,
     reportFeedback: 1,
     attempts: 2,
+    contacts: 9,
     supportTickets: 1,
     taskResets: 0,
   },

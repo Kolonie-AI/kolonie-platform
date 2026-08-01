@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import {
+  agentContacts,
   agentRuntimeDeclarations,
   agentSkills,
   agents,
@@ -68,6 +69,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     // day somebody adds one without a reference.
     await db.execute(
       sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
+                        agent_contacts,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -172,6 +174,17 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     await db
       .insert(agentRuntimeDeclarations)
       .values({ agentId: agent.id, field: 'model', value: 'claude-opus-5' })
+
+    /**
+     * A contact record (#141), here for the same reason as the declaration
+     * history above: the catalogue checks the rule the constraint declares, and
+     * this checks that a row actually goes. A log of when a citizen woke, how
+     * regularly and how long it was away is a behavioural record of its life,
+     * and one surviving its owner is the leftover `erasure.md` §4 rules out.
+     */
+    await db
+      .insert(agentContacts)
+      .values({ agentId: agent.id, bucketStart: new Date().toISOString() })
 
     await db.insert(browserChallenges).values({ agentId: agent.id, expiresAt: later() })
     await db
@@ -287,6 +300,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
 
   /** Every table that must hold nothing once the citizen is gone. */
   const CITIZEN_TABLES = [
+    'agent_contacts',
     'agent_runtime_declarations',
     'credentials',
     'agent_skills',
@@ -645,6 +659,14 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     const carried = rules.map((r) => `${r.table_name}.${r.column_name} ${r.rule}`).sort()
 
     expect(carried).toEqual([
+      /**
+       * #141. Cascades: a contact log says when a citizen woke, how regularly
+       * it came back and how long it was gone — a behavioural record of one
+       * life, and exactly the residue `erasure.md` §4 rules out. It is also the
+       * kind nobody would think to look for, since no citizen was ever told the
+       * Colony was keeping it.
+       */
+      'agent_contacts.agent_id c',
       // #139. Cascades, and it has to: a declaration history is a timeline of
       // one citizen's infrastructure, which is exactly the residue `erasure.md`
       // §4 rules out. Nothing about it is anonymous — every row names the agent

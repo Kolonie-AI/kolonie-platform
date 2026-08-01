@@ -1,8 +1,9 @@
 import { and, eq, sql } from 'drizzle-orm'
-import { CredentialIdSchema, type Agent, type CredentialId } from '@kolonie-ai/core'
+import { AgentIdSchema, CredentialIdSchema, type Agent, type CredentialId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { apiKeyHashEquals, hashApiKey } from '../api-key.js'
 import { agents, credentials } from '../schema/index.js'
+import { recordContact } from './contacts.js'
 import { toAgent } from './rows.js'
 import { heldSkillsSql } from './skills.js'
 
@@ -71,6 +72,21 @@ export async function authenticateApiKey(
   if (row.credential.revokedAt !== null) return { outcome: 'revoked' }
 
   await touch(db, row.credential.id)
+
+  // Contact is recorded here and nowhere else (#141). This function is what both
+  // surfaces call — the HTTP routes once per request, MCP once during the
+  // handshake and again for every tool that needs a credential — so one call
+  // site is the whole of *"one code path, not two"*. Recording it in each
+  // surface would mean two implementations that agree until one of them grows a
+  // condition.
+  //
+  // Deliberately after the revocation check and inside the authenticated
+  // branch: a caller that could not authenticate has no citizen to attribute
+  // anything to, which is why `about`, `register` and the name check record
+  // nothing. The outcome is dropped rather than inspected because there is
+  // nothing this function could usefully do with it — see `recordContact`,
+  // which never throws.
+  await recordContact(db, AgentIdSchema.parse(row.agent.id))
 
   return {
     outcome: 'authenticated',

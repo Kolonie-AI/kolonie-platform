@@ -120,6 +120,16 @@ describe.skipIf(!target.available)('schema', () => {
              order by table_name`,
       )
       expect(rows.map((r) => r.table_name)).toEqual([
+        /**
+         * `agent_contacts` (#141): which buckets a citizen was in contact in,
+         * bounded to `CONTACT_RETENTION_DAYS`. It is what makes a declared
+         * rhythm measurable at all — one timestamp answers *is it still there*
+         * and only the gaps answer *did it come back the way it said it
+         * would*. It gates nothing and it cascades with the citizen, because a
+         * log of somebody's waking hours is exactly the residue `erasure.md`
+         * §4 rules out.
+         */
+        'agent_contacts',
         // `agent_skills` joined the list with D-030: what an agent may attempt
         // stopped being a number on the agent row and became a set of rows with
         // provenance.

@@ -1,0 +1,312 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { readFile, readdir } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { eq, sql } from 'drizzle-orm'
+import { RegisterAgentRequestSchema, type AgentId, type TaskId } from '@kolonie-ai/core'
+import type { Database } from '../client.js'
+import { agentSessions, taskAttempts, tasks } from '../schema/index.js'
+import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { registerAgent } from './agents.js'
+import { authenticateApiKey } from './authentication.js'
+import { openAttempt } from './attempts.js'
+import { attributeCall, nameSession, recentSessions } from './sessions.js'
+
+const target = databaseTestTarget()
+
+if (!target.available) {
+  console.warn(`\n${target.reason}\n`)
+}
+
+/**
+ * Sessions (#158): what a citizen says about the run it is in, recorded, and
+ * depended on by nothing.
+ */
+describe.skipIf(!target.available)('sessions', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgentWithAKey = async (name = 'canary') => {
+    const result = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name, platform: 'openclaw' }),
+    )
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result
+  }
+
+  const aTask = async (type = 'profile-complete') => {
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type,
+        title: 'A task',
+        description: 'A task to attempt',
+        instructions: 'Do it',
+        rewardCoins: 0,
+        rewardReputation: 1,
+        timeoutHours: 24,
+      })
+      .returning()
+    return row!.id as TaskId
+  }
+
+  const sessionRows = async (agentId: AgentId) =>
+    db.select().from(agentSessions).where(eq(agentSessions.agentId, agentId))
+
+  describe('naming a run', () => {
+    it('opens a session the Colony had not heard of', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      expect(await nameSession(db, agent.id, { sessionId: 'run-1' })).toBe('opened')
+      expect(await sessionRows(agent.id)).toHaveLength(1)
+    })
+
+    it('resumes rather than duplicating when the same id comes back', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      await nameSession(db, agent.id, { sessionId: 'run-1' })
+      const second = await nameSession(db, agent.id, { sessionId: 'run-1' })
+
+      // A citizen reusing one id forever produces one long session rather than
+      // an error — the whole feature has to survive that citizen.
+      expect(second).toBe('resumed')
+      expect(await sessionRows(agent.id)).toHaveLength(1)
+    })
+
+    it('keeps one citizen’s session out of another’s, even under the same id', async () => {
+      const first = await anAgentWithAKey('canary-one')
+      const second = await anAgentWithAKey('canary-two')
+
+      await nameSession(db, first.agent.id, { sessionId: 'run-1' })
+      await nameSession(db, second.agent.id, { sessionId: 'run-1' })
+
+      expect(await sessionRows(first.agent.id)).toHaveLength(1)
+      expect(await sessionRows(second.agent.id)).toHaveLength(1)
+    })
+
+    // The rejection cases. Both come back as outcomes rather than throws,
+    // because this rides on the call every wake-up begins with.
+    it('reports a failure instead of raising one', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      const overLength = 'x'.repeat(200)
+      await expect(nameSession(db, agent.id, { sessionId: overLength })).resolves.toBe('failed')
+      expect(await sessionRows(agent.id)).toHaveLength(0)
+    })
+  })
+
+  describe('the token count', () => {
+    it('takes the most recent value and never invents one', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      await nameSession(db, agent.id, { sessionId: 'run-1' })
+      expect((await sessionRows(agent.id))[0]?.tokens).toBeNull()
+
+      await nameSession(db, agent.id, { sessionId: 'run-1', tokens: 40_000 })
+      expect((await sessionRows(agent.id))[0]?.tokens).toBe(40_000)
+
+      // Absent is not zero: an agent that reported 40k and then said nothing
+      // has not consumed nothing.
+      await nameSession(db, agent.id, { sessionId: 'run-1' })
+      expect((await sessionRows(agent.id))[0]?.tokens).toBe(40_000)
+    })
+
+    it('applies a count sent without an id to the run the citizen is already in', async () => {
+      const { agent } = await anAgentWithAKey()
+      await nameSession(db, agent.id, { sessionId: 'run-1' })
+
+      await nameSession(db, agent.id, { tokens: 1234 })
+
+      expect((await sessionRows(agent.id))[0]?.tokens).toBe(1234)
+    })
+
+    it('invents no session for a count from a citizen that named none', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      await nameSession(db, agent.id, { tokens: 1234 })
+
+      // A session the citizen never named is one the Colony would be making up.
+      expect(await sessionRows(agent.id)).toHaveLength(0)
+    })
+  })
+
+  describe('attribution', () => {
+    it('counts an authenticated call against the most recently named run', async () => {
+      const registered = await anAgentWithAKey()
+      await nameSession(db, registered.agent.id, { sessionId: 'run-1' })
+
+      await authenticateApiKey(db, registered.credentials.apiKey)
+      await authenticateApiKey(db, registered.credentials.apiKey)
+
+      const [row] = await sessionRows(registered.agent.id)
+      expect(row?.calls).toBe(2)
+    })
+
+    it('moves to a new run when the citizen names one', async () => {
+      const registered = await anAgentWithAKey()
+      await nameSession(db, registered.agent.id, { sessionId: 'run-1' })
+      await authenticateApiKey(db, registered.credentials.apiKey)
+
+      await nameSession(db, registered.agent.id, { sessionId: 'run-2' })
+      await authenticateApiKey(db, registered.credentials.apiKey)
+      await authenticateApiKey(db, registered.credentials.apiKey)
+
+      const rows = await sessionRows(registered.agent.id)
+      const byId = new Map(rows.map((row) => [row.externalId, row.calls]))
+      expect(byId.get('run-1')).toBe(1)
+      expect(byId.get('run-2')).toBe(2)
+    })
+
+    it('does nothing at all for a citizen that has named no run', async () => {
+      const registered = await anAgentWithAKey()
+
+      await authenticateApiKey(db, registered.credentials.apiKey)
+      await attributeCall(db, registered.agent.id)
+
+      expect(await sessionRows(registered.agent.id)).toHaveLength(0)
+    })
+
+    /**
+     * The read the whole table exists for: *did these two things happen in the
+     * same run*. Without it these rows are a log file.
+     */
+    it('makes two attempts in one run distinguishable from two in different runs', async () => {
+      const { agent } = await anAgentWithAKey()
+      const first = await aTask('profile-complete')
+      const second = await aTask('email-inbox')
+      const third = await aTask('website-verify')
+
+      await nameSession(db, agent.id, { sessionId: 'run-1' })
+      await openAttempt(db, { agentId: agent.id, taskId: first, opener: 'challenge' })
+      await openAttempt(db, { agentId: agent.id, taskId: second, opener: 'challenge' })
+
+      await nameSession(db, agent.id, { sessionId: 'run-2' })
+      await openAttempt(db, { agentId: agent.id, taskId: third, opener: 'challenge' })
+
+      const rows = await db
+        .select({ sessionId: taskAttempts.sessionId })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.agentId, agent.id))
+      const distinct = new Set(rows.map((row) => row.sessionId))
+      expect(rows).toHaveLength(3)
+      expect(distinct.size).toBe(2)
+    })
+
+    it('leaves an attempt unattributed when the citizen named no run', async () => {
+      const { agent } = await anAgentWithAKey()
+      const task = await aTask()
+
+      await openAttempt(db, { agentId: agent.id, taskId: task, opener: 'challenge' })
+
+      const [row] = await db
+        .select({ sessionId: taskAttempts.sessionId })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.agentId, agent.id))
+      // A complete answer rather than a gap: most citizens will never name one,
+      // and the Academy has to work identically for them.
+      expect(row?.sessionId).toBeNull()
+    })
+  })
+
+  describe('what the citizen reads back', () => {
+    it('answers with its runs, newest first, and what happened in each', async () => {
+      const registered = await anAgentWithAKey()
+      const task = await aTask()
+
+      await nameSession(db, registered.agent.id, { sessionId: 'run-1', tokens: 900 })
+      await authenticateApiKey(db, registered.credentials.apiKey)
+      await openAttempt(db, { agentId: registered.agent.id, taskId: task, opener: 'challenge' })
+      await nameSession(db, registered.agent.id, { sessionId: 'run-2' })
+
+      const sessions = await recentSessions(db, registered.agent.id)
+
+      expect(sessions.map((session) => session.sessionId)).toEqual(['run-2', 'run-1'])
+      const [, older] = sessions
+      expect(older?.tokens).toBe(900)
+      expect(older?.calls).toBe(1)
+      expect(older?.attempts).toBe(1)
+      expect(older?.submissions).toBe(0)
+    })
+
+    it('answers with nothing for a citizen that never named a run', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      expect(await recentSessions(db, agent.id)).toEqual([])
+    })
+
+    it('never returns another citizen’s runs', async () => {
+      const first = await anAgentWithAKey('canary-one')
+      const second = await anAgentWithAKey('canary-two')
+      await nameSession(db, first.agent.id, { sessionId: 'secret-run' })
+
+      expect(await recentSessions(db, second.agent.id)).toEqual([])
+    })
+  })
+
+  it('goes with the citizen', async () => {
+    const { agent } = await anAgentWithAKey()
+    const task = await aTask()
+    await nameSession(db, agent.id, { sessionId: 'run-1' })
+    await openAttempt(db, { agentId: agent.id, taskId: task, opener: 'challenge' })
+
+    await db.execute(sql`delete from agents where id = ${agent.id}`)
+
+    expect(await db.select().from(agentSessions)).toEqual([])
+  })
+})
+
+/**
+ * **Nothing gates, orders or rewards on a session**, asserted mechanically
+ * rather than by reading the diff.
+ *
+ * The criterion is a rule about the whole storage layer, and a rule of that
+ * shape cannot be checked by exercising one code path — the way it breaks is
+ * that somebody adds a perfectly reasonable-looking `where sessionId = …` to a
+ * listing two years from now. So this reads the source: the session columns may
+ * be touched only by the files that record them and the one that hands a citizen
+ * its own runs back.
+ *
+ * Same technique as `required-env.test.ts`, which reads the Dockerfiles for the
+ * same reason: the failure is invisible from any single file.
+ */
+describe('nothing decides on a session', () => {
+  const ALLOWED = new Set([
+    // Where sessions are written and read back to their owner.
+    'sessions.ts',
+    'sessions.test.ts',
+    // The two inserts that stamp the attribution, and nothing else in either.
+    'attempts.ts',
+    'submissions.ts',
+    // The citizen's own history, which serves them and computes nothing.
+    'history.ts',
+  ])
+
+  it('is referenced by no storage module that decides anything', async () => {
+    const storage = fileURLToPath(new URL('.', import.meta.url))
+    const files = await readdir(storage)
+
+    const offenders: string[] = []
+    for (const file of files) {
+      if (!file.endsWith('.ts') || ALLOWED.has(file)) continue
+
+      const source = await readFile(`${storage}${file}`, 'utf8')
+      if (/agentSessions|sessionId|session_id/.test(source)) offenders.push(file)
+    }
+
+    // A file arriving in this list is not necessarily wrong — but it has to be
+    // argued for and added above, which is the point.
+    expect(offenders).toEqual([])
+  })
+})

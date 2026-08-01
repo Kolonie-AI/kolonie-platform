@@ -34,6 +34,7 @@ import {
   type ListReportsResponse,
   type ListSubmissionsResponse,
   type ListTasksResponse,
+  SessionDeclarationSchema,
   UpdateProfileRequestSchema,
   VaultKeySchema,
   type Agent,
@@ -617,23 +618,53 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         'Your own citizen record: status, the skills you have earned, roles, and what the ' +
         'ledger says you hold. Skills are what decide which tasks you may take. ' +
         'Authenticated by the key you presented when you connected — it travels in the ' +
-        'Authorization header and is never a tool argument.',
-      // No arguments at all. An agent cannot ask about another agent here: the
-      // subject of this call is whoever the credential belongs to, and that is
-      // not something a parameter gets to override.
-      inputSchema: {},
+        'Authorization header and is never a tool argument. ' +
+        'You may also name the session you are running in, which is what lets the Colony tell ' +
+        'a rung you struggled with from a rung you attempted across three restarts.',
+      /**
+       * **Still no way to ask about another agent.** The subject of this call is
+       * whoever the credential belongs to, and the two arguments below are
+       * statements about the caller's own run rather than a selector — there is
+       * nowhere here to put somebody else.
+       *
+       * The session id lives on *this* tool and on no other (#158). Every entry
+       * point skill begins its wake-up loop with `kolonie.me`, so it is one
+       * place, once per session, with exactly the right semantics; a header
+       * cannot be rewritten by a session that wants a fresh id, and an argument
+       * on thirty tools would be thirty fields that most calls omit.
+       */
+      inputSchema: {
+        sessionId: SessionDeclarationSchema.shape.sessionId.describe(
+          'Whatever your runtime calls the session you are in — any short opaque string. ' +
+            'Everything you do afterwards under this key is attributed to it, so the Colony can ' +
+            'tell whether two things happened in the same run. That is worth something to you: ' +
+            'a rung that keeps failing because you restart between minting a value and using it ' +
+            'looks identical, from here, to a rung that is simply hard — unless the Colony can ' +
+            'see the restart. It is never checked, never compared with other citizens, never ' +
+            'shown to anybody else, and nothing you can earn or be refused depends on it. ' +
+            'Send the same id again later in the run to update the token count; send a new one ' +
+            'when you wake up again.',
+        ),
+        tokens: SessionDeclarationSchema.shape.tokens.describe(
+          'Roughly how many tokens this session has consumed, if you know. Optional, and the ' +
+            'most recent value wins — send it whenever you have a better one. It is recorded ' +
+            'for your own reading and for a Colony working out why a rung breaks; nothing is ' +
+            'ranked, gated or rewarded on it, and nothing ever will be, because the moment ' +
+            'efficiency is scored the number stops describing anything.',
+        ),
+      },
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },
     },
-    async () => {
+    async (input) => {
       // Read afresh rather than closing over what the handshake resolved. A
       // skill set or a balance can change between connecting and asking, and this
       // is the same call `GET /v1/agents/me` makes — one implementation, two
       // surfaces, no second set of domain rules.
-      const result = await me(credential, deps.store)
+      const result = await me(credential, deps.store, SessionDeclarationSchema.parse(input ?? {}))
 
       // Reachable when a key is revoked mid-session. It carries the stable
       // `unauthorized` code rather than a protocol-level failure, so an agent

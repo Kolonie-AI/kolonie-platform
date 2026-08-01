@@ -13,6 +13,7 @@ import { agents, submissions, tasks } from '../schema/index.js'
 import { openAttemptForSubmission } from './attempts.js'
 import { reputationOfAgent } from './balance.js'
 import { toSubmission } from './rows.js'
+import { currentSessionIdSql } from './sessions.js'
 import { passIsSupersededByReset } from './resets.js'
 import { skillsOfAgent, toSkills } from './skills.js'
 
@@ -300,6 +301,9 @@ export async function createSubmission(
         assistance: declared,
         attemptId: attempt.id,
         attempt: attempt.attempt,
+        // The run this was handed in from (#158), resolved the same way the
+        // attempt's own attribution is.
+        sessionId: currentSessionIdSql(command.agentId),
         /**
          * Stamped now, not worked out at booking time (#47).
          *

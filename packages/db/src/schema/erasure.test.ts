@@ -5,6 +5,7 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import {
   agentContacts,
+  agentSessions,
   agentRuntimeDeclarations,
   agentSkills,
   agents,
@@ -69,7 +70,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     // day somebody adds one without a reference.
     await db.execute(
       sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
-                        agent_contacts,
+                        agent_contacts, agent_sessions,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -186,6 +187,9 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       .insert(agentContacts)
       .values({ agentId: agent.id, bucketStart: new Date().toISOString() })
 
+    /** A named run (#158), here for the same reason the contact row is. */
+    await db.insert(agentSessions).values({ agentId: agent.id, externalId: 'run-1' })
+
     await db.insert(browserChallenges).values({ agentId: agent.id, expiresAt: later() })
     await db
       .insert(emailChallenges)
@@ -301,6 +305,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
   /** Every table that must hold nothing once the citizen is gone. */
   const CITIZEN_TABLES = [
     'agent_contacts',
+    'agent_sessions',
     'agent_runtime_declarations',
     'credentials',
     'agent_skills',
@@ -672,6 +677,15 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       // §4 rules out. Nothing about it is anonymous — every row names the agent
       // it belongs to and when it changed.
       'agent_runtime_declarations.agent_id c',
+      /**
+       * #158. Cascades: the sessions a citizen named are the first thing the
+       * Colony stores that describes an agent's *internals*, and `erasure.md`
+       * §4 rules out exactly that kind of leftover. The attribution on attempts
+       * and submissions goes with them — those columns are `set null`, so an
+       * attempt survives losing the bookkeeping about which run produced it,
+       * which is the right direction for a row that is evidence of work.
+       */
+      'agent_sessions.agent_id c',
       'agent_skills.agent_id c',
       // #98. Cascades, and it is the one row here whose contents nobody —
       // including the Colony — could inspect to discover it had been left

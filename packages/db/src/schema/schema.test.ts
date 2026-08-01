@@ -142,6 +142,13 @@ describe.skipIf(!target.available)('schema', () => {
          * permanently.
          */
         'agent_runtime_declarations',
+        /**
+         * `agent_sessions` (#158): the runs a citizen told the Colony it was
+         * in, with what happened in each. Self-declared and unverifiable, so
+         * nothing gates, orders or rewards on it — see the test in
+         * `storage/sessions.test.ts` that reads the source to keep that true.
+         */
+        'agent_sessions',
         'agent_skills',
         // `agent_vault` (#98) is where a citizen keeps what it will need after
         // this session ends. The only table here whose contents the Colony

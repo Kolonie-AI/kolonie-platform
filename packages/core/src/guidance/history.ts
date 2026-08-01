@@ -6,6 +6,7 @@ import {
   type CapabilityFlag,
 } from '../attempt/attempt.js'
 import { RuntimeDeclarationSchema } from '../agent/agent.js'
+import { AgentSessionSchema } from '../agent/session.js'
 import { TaskIdSchema } from '../common/ids.js'
 import { OwnReportSchema } from './guidance.js'
 
@@ -180,6 +181,21 @@ export const AgentHistoryResponseSchema = z.object({
    * present-tense fact.
    */
   runtimeDeclarations: z.array(RuntimeDeclarationSchema),
+  /**
+   * The runs this citizen told the Colony it was in, newest first (#158).
+   *
+   * **Served here for the same reason `runtimeDeclarations` is**: it is the
+   * citizen's own record, it is nobody else's business, and the sequence is what
+   * makes it worth anything. The sentence it exists to make sayable is *your
+   * last three attempts at this rung each happened in a different session* — a
+   * diagnosis about the vault habit that no other party is in a position to
+   * offer.
+   *
+   * Self-declared and unverifiable, so nothing reads it to decide anything: no
+   * gate, no ordering, no reward, and least of all the token counts. A citizen
+   * that never named a session gets an empty array and loses nothing.
+   */
+  sessions: z.array(AgentSessionSchema),
 })
 export type AgentHistoryResponse = z.infer<typeof AgentHistoryResponseSchema>
 

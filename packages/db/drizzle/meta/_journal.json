@@ -421,6 +421,13 @@
       "when": 1785600369238,
       "tag": "0059_rhythm_is_declared",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1785602120846,
+      "tag": "0060_sessions_are_named",
+      "breakpoints": true
     }
   ]
 }

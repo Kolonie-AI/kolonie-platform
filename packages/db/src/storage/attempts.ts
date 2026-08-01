@@ -23,6 +23,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
+import { currentSessionIdSql } from './sessions.js'
 import { unattendedPasses } from './submissions.js'
 
 type AttemptRow = typeof taskAttempts.$inferSelect
@@ -205,6 +206,15 @@ export async function openAttempt(
       attempt: next,
       opener: command.opener,
       expiresAt: command.expiresAt ?? null,
+      /**
+       * Which run this happened in, if the citizen named one (#158).
+       *
+       * Resolved as a subquery rather than passed in, so no mint surface can
+       * forget it and no signature has to carry it. `null` for a citizen that
+       * has never named a session, which is the ordinary case and stays a
+       * complete answer.
+       */
+      sessionId: currentSessionIdSql(command.agentId),
     })
     .onConflictDoNothing({
       target: [taskAttempts.agentId, taskAttempts.taskId, taskAttempts.attempt],

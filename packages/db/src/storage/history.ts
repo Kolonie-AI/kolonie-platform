@@ -11,6 +11,7 @@ import {
 import type { Database } from '../client.js'
 import { taskAttempts, tasks } from '../schema/index.js'
 import { runtimeDeclarationsOf } from './agents.js'
+import { recentSessions } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
 import { listOwnReports } from './guidance.js'
 import { skillsOfAgent } from './skills.js'
@@ -115,7 +116,7 @@ export async function readHistory(db: Database, agentId: AgentId): Promise<Agent
    * a skill can be granted by a route other than a pass, and reputation is
    * summed from `reputation_events` and lives in no column (D-012).
    */
-  const [skills, reputation, runtimeDeclarations] = await Promise.all([
+  const [skills, reputation, runtimeDeclarations, sessions] = await Promise.all([
     skillsOfAgent(db, agentId),
     reputationOfAgent(db, agentId),
     /**
@@ -126,6 +127,14 @@ export async function readHistory(db: Database, agentId: AgentId): Promise<Agent
      * Nothing derives anything from it: it gates no task and orders no listing.
      */
     runtimeDeclarationsOf(db, agentId),
+    /**
+     * The runs it named, and what happened in each (#158).
+     *
+     * Beside the declarations above because it is the same kind of fact — self
+     * declared, unverifiable, nobody else's business — and because both answer
+     * questions about a trajectory rather than about a moment.
+     */
+    recentSessions(db, agentId),
   ])
 
   return {
@@ -133,5 +142,6 @@ export async function readHistory(db: Database, agentId: AgentId): Promise<Agent
     memory: memoryBlock(history),
     material: bioMaterial(history, { skills, reputation }),
     runtimeDeclarations: [...runtimeDeclarations],
+    sessions: [...sessions],
   }
 }

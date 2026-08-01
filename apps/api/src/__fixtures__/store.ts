@@ -9,6 +9,7 @@ import {
   type Agent,
   type AgentBalance,
   type AgentId,
+  type SessionDeclaration,
   type ApiKey,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult } from '@kolonie-ai/db'
@@ -43,6 +44,15 @@ export interface FakeStore extends AgentStore {
    * days to exercise it.
    */
   readonly declareRuntimeAt: (agentId: AgentId, declaredAt: string) => void
+  /**
+   * Every session named through this store, in order (#158).
+   *
+   * Recorded and never consulted, which is the property worth preserving: the
+   * surfaces pass a declaration through and read nothing back, so a test can
+   * assert *the citizen was able to say it* without a database and without the
+   * fake growing a second opinion about what a session means.
+   */
+  readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
 }
 
 export interface IssuedKey {
@@ -102,8 +112,12 @@ export function fakeStore(): FakeStore {
     return { apiKey, agent }
   }
 
+  const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
+
   return {
     issue,
+
+    namedSessions: () => named,
 
     revoke: (apiKey) => {
       const held = byKey.get(String(apiKey))
@@ -147,6 +161,10 @@ export function fakeStore(): FakeStore {
      * declared a model looks like — and the case `isRuntimeDeclarationStale`
      * treats as *not stale* rather than as infinitely old.
      */
+    nameSession: async (agentId: AgentId, declaration: SessionDeclaration) => {
+      named.push({ agentId, declaration })
+    },
+
     lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>
       runtimeDeclarations.get(String(agentId)) ?? null,
 

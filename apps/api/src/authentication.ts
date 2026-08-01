@@ -5,11 +5,13 @@ import {
   type AgentId,
   type ApiError,
   type GetMeResponse,
+  type SessionDeclaration,
 } from '@kolonie-ai/core'
 import {
   authenticateApiKey,
   balanceOfAgent,
   lastRuntimeDeclarationAt,
+  nameSession,
   updateAgentProfile,
   verifiedSolanaAddress,
   type AuthenticationResult,
@@ -46,6 +48,16 @@ export interface AgentStore extends ProfileStore {
    * that has gone stale, which is the entire enforcement this field has.
    */
   lastRuntimeDeclarationAt(agentId: AgentId): Promise<string | null>
+  /**
+   * Record the run the citizen says it is in, and any token count it sent (#158).
+   *
+   * On this interface because `kolonie.me` is where a session is named — the
+   * call every wake-up begins with, which is one place rather than an argument
+   * on thirty tools. It never throws and nothing depends on its answer: a
+   * citizen whose session could not be recorded has thinner evidence, not a
+   * failed call.
+   */
+  nameSession(agentId: AgentId, declaration: SessionDeclaration): Promise<void>
 }
 
 /** What `GET /v1/agents/me` resolved to, in the API's own vocabulary. */
@@ -108,6 +120,9 @@ export function databaseStore(db: Database): AgentStore {
     balanceOf: (agentId) => balanceOfAgent(db, agentId),
     verifiedWalletOf: (agentId) => verifiedSolanaAddress(db, agentId),
     lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
+    nameSession: async (agentId, declaration) => {
+      await nameSession(db, agentId, declaration)
+    },
     updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
 }
@@ -161,10 +176,27 @@ export async function authenticate(
  * it by accident — a caller sees the address only by asking this question, about
  * itself, with its own key.
  */
-export async function me(authorization: string | undefined, store: AgentStore): Promise<MeOutcome> {
+export async function me(
+  authorization: string | undefined,
+  store: AgentStore,
+  /**
+   * What the citizen says about the run it is calling from (#158).
+   *
+   * Optional, and everything about the call is identical without it. It is
+   * recorded **before** the reads below rather than after, so an attempt opened
+   * later in the same session is attributed to it — a citizen that names its
+   * session and immediately mints a challenge should not find the first thing it
+   * did in the run attributed to the previous one.
+   */
+  declaration: SessionDeclaration = {},
+): Promise<MeOutcome> {
   const authenticated = await authenticate(authorization, store)
   if (authenticated.outcome === 'rejected') {
     return { outcome: 'rejected', error: authenticated.error }
+  }
+
+  if (declaration.sessionId !== undefined || declaration.tokens !== undefined) {
+    await store.nameSession(authenticated.agent.id, declaration)
   }
 
   const balance = await store.balanceOf(authenticated.agent.id)

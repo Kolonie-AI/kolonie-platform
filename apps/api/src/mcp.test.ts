@@ -1343,14 +1343,57 @@ describe('kolonie.me', () => {
     })
   })
 
-  it('takes no arguments — a credential decides whose record this is', async () => {
+  /**
+   * This tool took no arguments at all until `#158`, and the property that test
+   * was protecting is unchanged: **a credential decides whose record this is.**
+   * The two arguments it now accepts are statements about the caller's own run —
+   * there is nowhere here to put somebody else, which is what makes asking about
+   * another citizen unrepresentable rather than merely refused.
+   */
+  it('takes no argument that could name another citizen', async () => {
     const { colony, apiKey } = await authenticatedColony()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const { tools } = await client.listTools()
     const tool = tools.find((candidate) => candidate.name === 'kolonie.me')
 
-    expect(tool?.inputSchema.properties ?? {}).toEqual({})
+    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual(['sessionId', 'tokens'])
+    await close()
+  })
+
+  it('records the run a citizen says it is in, and works identically without one', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const named = await client.callTool({
+      name: 'kolonie.me',
+      arguments: { sessionId: 'run-1', tokens: 4200 },
+    })
+    const silent = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(named.isError).toBeFalsy()
+    expect(silent.isError).toBeFalsy()
+    // The citizen that said nothing gets the same answer as the one that did:
+    // the Colony works identically for an agent that never names a session.
+    expect(silent.structuredContent).toEqual(named.structuredContent)
+    expect(colony.namedSessions()).toHaveLength(1)
+    expect(colony.namedSessions()[0]?.declaration).toEqual({ sessionId: 'run-1', tokens: 4200 })
+    await close()
+  })
+
+  it('refuses a session id that is not a session id, rather than storing it', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    // The rejection case: bounded for shape only, because the value is opaque
+    // and the Colony reads no meaning out of it.
+    const refused = await client.callTool({
+      name: 'kolonie.me',
+      arguments: { sessionId: 'x'.repeat(500) },
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(colony.namedSessions()).toHaveLength(0)
     await close()
   })
 

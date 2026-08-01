@@ -93,7 +93,11 @@ describe.skipIf(!target.available)('the migrations', () => {
     // the record every question about rhythm, dormancy and returning is read
     // from, and the first table whose rows describe a citizen's behaviour
     // rather than its work.
-    expect(afterFirst.tables).toBe('33')
+    // And `agent_sessions` makes **thirty-four** (#158): the runs a citizen
+    // says it was in. Self-declared and unverifiable, so nothing gates on it —
+    // what it buys is the difference between *this rung is hard* and *this
+    // citizen restarted three times while attempting it*.
+    expect(afterFirst.tables).toBe('34')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

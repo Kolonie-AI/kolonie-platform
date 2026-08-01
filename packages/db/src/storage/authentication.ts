@@ -4,6 +4,7 @@ import type { Database } from '../client.js'
 import { apiKeyHashEquals, hashApiKey } from '../api-key.js'
 import { agents, credentials } from '../schema/index.js'
 import { recordContact } from './contacts.js'
+import { attributeCall } from './sessions.js'
 import { toAgent } from './rows.js'
 import { heldSkillsSql } from './skills.js'
 
@@ -86,7 +87,13 @@ export async function authenticateApiKey(
   // nothing. The outcome is dropped rather than inspected because there is
   // nothing this function could usefully do with it — see `recordContact`,
   // which never throws.
-  await recordContact(db, AgentIdSchema.parse(row.agent.id))
+  const agentId = AgentIdSchema.parse(row.agent.id)
+  await recordContact(db, agentId)
+
+  // And attribute it to whatever run the citizen last named (#158). A citizen
+  // that has never named one is a citizen this statement matches nothing for,
+  // which is the ordinary case and costs an indexed lookup.
+  await attributeCall(db, agentId)
 
   return {
     outcome: 'authenticated',

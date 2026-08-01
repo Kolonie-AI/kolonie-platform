@@ -13,6 +13,7 @@ import {
   type CitizenshipStatus,
   type AgentBalance,
   type AgentId,
+  type SessionDeclaration,
   type ApiKey,
   type RegisterAgentRequest,
 } from '@kolonie-ai/core'
@@ -140,6 +141,8 @@ export interface FakeColony {
   readonly vault: VaultDependencies
   /** The range a declared rhythm has to fall inside (#142). */
   readonly rhythm: RhythmBounds
+  /** Every session a citizen named through this colony, in order (#158). */
+  readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -177,6 +180,8 @@ export function fakeColony(): FakeColony {
   const solanaChallenges = fakeSolanaChallenges()
   const takenNames = new Set<string>()
   const runtimeDeclarations = new Map<string, string>()
+  /** Every session a citizen named through this colony, in order (#158). */
+  const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -281,6 +286,7 @@ export function fakeColony(): FakeColony {
      * pins *lowering the minimum is a configuration change* does exactly that.
      */
     rhythm: DEFAULT_RHYTHM_BOUNDS,
+    namedSessions: () => named,
 
     store: {
       authenticate: async (presented: string): Promise<AuthenticationResult> => {
@@ -307,6 +313,15 @@ export function fakeColony(): FakeColony {
       verifiedWalletOf: async (agentId: AgentId): Promise<string | null> => {
         const attempt = await solanaChallenges.latest(agentId)
         return attempt?.verifiedAt == null ? null : attempt.address
+      },
+
+      /**
+       * Sessions, recorded and never consulted (#158). The fixture keeps them
+       * so a test can assert the call was made without a database; nothing in
+       * the surfaces reads the answer, which is the property being preserved.
+       */
+      nameSession: async (agentId: AgentId, declaration: SessionDeclaration) => {
+        named.push({ agentId, declaration })
       },
 
       /** Written by `updateProfile` below, so the round trip is real (#139). */

@@ -18,6 +18,7 @@ import {
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { taskAttempts } from './attempts.js'
+import { agentSessions } from './sessions.js'
 import { reportOutcome, submissionAssistance, submissionStatus } from './enums.js'
 import { tasks } from './tasks.js'
 
@@ -104,6 +105,18 @@ export const submissions = pgTable(
      * in the storage tests is what asserts the copy never drifts.
      */
     attempt: integer('attempt').notNull().default(1),
+
+    /**
+     * Which run this submission was handed in from, if the citizen had named one
+     * (#158).
+     *
+     * Nullable, `set null` on the session going away, and read by nothing that
+     * decides anything — the same terms as `task_attempts.session_id`, and the
+     * reason is the same: it is what makes *did these two things happen in the
+     * same run* answerable, and a self-declared fact must never be able to
+     * change a verdict.
+     */
+    sessionId: uuid('session_id').references(() => agentSessions.id, { onDelete: 'set null' }),
 
     /**
      * What the agent said it learned from this attempt, if it said anything.

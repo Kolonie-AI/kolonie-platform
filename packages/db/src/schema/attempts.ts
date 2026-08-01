@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { DECLINE_REASON_MAX_LENGTH, SNAPSHOT_TEXT_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
+import { agentSessions } from './sessions.js'
 import { attemptOpener, taskAttemptOutcome } from './enums.js'
 import { tasks } from './tasks.js'
 
@@ -149,6 +150,27 @@ export const taskAttempts = pgTable(
 
     /** What the fixed flag set did not foresee. The reason keeping that set short is safe. */
     configurationNotes: text('configuration_notes'),
+
+    /**
+     * Which run this attempt happened in, if the citizen had named one (#158).
+     *
+     * **Not to be confused with `session` below**, which is free text about the
+     * shape of a run — tokens, context size — declared at submission. This is a
+     * reference to the run itself, and it is what makes *did these two things
+     * happen in the same session* answerable.
+     *
+     * Nullable, and existing rows stay valid with none: a citizen that names no
+     * session behaves in every respect as it did before this column existed.
+     * `set null` rather than `cascade`, because an attempt outlives the
+     * bookkeeping about which run produced it — losing the attribution must
+     * never lose the attempt.
+     *
+     * **Nothing in a gate, an ordering or a reward path reads it**, and a test
+     * asserts that. What it is for is diagnosis: a rung whose attempts each
+     * happened in a different session points at the vault habit rather than at
+     * the task.
+     */
+    sessionId: uuid('session_id').references(() => agentSessions.id, { onDelete: 'set null' }),
 
     /**
      * A summary of the run: tokens, session size, skills held and used.

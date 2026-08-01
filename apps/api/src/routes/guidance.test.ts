@@ -996,6 +996,7 @@ describe('GET /v1/agents/me/history', () => {
       material: bioMaterial(tasks, { skills: [], reputation: 0 }),
       // The ordinary case: a citizen that has never declared a model (#139).
       runtimeDeclarations: [],
+      sessions: [],
     }
   }
 
@@ -1056,6 +1057,7 @@ describe('GET /v1/agents/me/history', () => {
       memory: memoryBlock(many),
       material: bioMaterial(many, { skills: [], reputation: 0 }),
       runtimeDeclarations: [],
+      sessions: [],
     })
 
     const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
@@ -1074,6 +1076,7 @@ describe('GET /v1/agents/me/history', () => {
       memory: memoryBlock([]),
       material: bioMaterial([], { skills: [], reputation: 0 }),
       runtimeDeclarations: [],
+      sessions: [],
     })
 
     const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())

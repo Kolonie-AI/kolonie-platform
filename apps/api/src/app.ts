@@ -4,6 +4,7 @@ import {
   API_BASE_PATH,
   DEFAULT_RHYTHM_BOUNDS,
   ERROR_STATUS,
+  SessionDeclarationSchema,
   type ApiError,
   type RhythmBounds,
 } from '@kolonie-ai/core'
@@ -572,7 +573,23 @@ export function buildApp({
        * convenience; this is the thing that has to work.
        */
       v1.get('/agents/me', async (request, reply) => {
-        const result = await me(request.headers.authorization, store)
+        /**
+         * The session a citizen says it is in (#158), as query parameters
+         * because a GET has no body.
+         *
+         * **Ignored rather than refused when it is malformed.** This route's job
+         * is to tell a citizen where it stands, and a mistyped session id is not
+         * a reason to withhold that — the field is optional corroboration and
+         * the Colony works identically without it. The MCP surface is where the
+         * shape is declared and enforced, because there a schema is what an
+         * agent reads to learn the argument exists.
+         */
+        const query = SessionDeclarationSchema.safeParse(sessionDeclarationFromQuery(request.query))
+        const result = await me(
+          request.headers.authorization,
+          store,
+          query.success ? query.data : {},
+        )
 
         if (result.outcome === 'rejected') {
           // RFC 7235 requires a 401 to say how to authenticate. The scheme is
@@ -1914,4 +1931,29 @@ export function buildApp({
   })
 
   return app
+}
+
+/**
+ * The session declaration carried in a query string, if any (#158).
+ *
+ * Query values arrive as strings, so the token count is converted here rather
+ * than by the schema — a schema that coerced would also accept `"12abc"` as
+ * twelve, and this is a field where a silently wrong number is worse than an
+ * absent one. Anything unconvertible is dropped and the parse below sees an
+ * absent field, which is the honest reading of *"the citizen did not tell us"*.
+ */
+function sessionDeclarationFromQuery(query: unknown): Record<string, unknown> {
+  if (typeof query !== 'object' || query === null) return {}
+
+  const record = query as Record<string, unknown>
+  const declaration: Record<string, unknown> = {}
+
+  if (typeof record['sessionId'] === 'string') declaration['sessionId'] = record['sessionId']
+
+  const tokens = record['tokens']
+  if (typeof tokens === 'string' && tokens.trim() !== '' && Number.isInteger(Number(tokens))) {
+    declaration['tokens'] = Number(tokens)
+  }
+
+  return declaration
 }

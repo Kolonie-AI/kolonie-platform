@@ -70,6 +70,16 @@ export const RETIRED_CHALLENGE_STAGE = BrowserStageSchema.parse('captcha')
 export const PERCEPTION_STAGE = BrowserStageSchema.parse('perception')
 
 /**
+ * The interaction stage (`#163`): operate the page rather than read it.
+ *
+ * Named for what it measures. Its most valuable output is not the verdict but the
+ * coordinate-scaling diagnosis, which is the strongest single argument for the Colony
+ * building its own instrument — no third-party surface will ever tell an agent that
+ * its clicks are short by exactly its device pixel ratio.
+ */
+export const INTERACTION_STAGE = BrowserStageSchema.parse('interaction')
+
+/**
  * What the Colony needs to know about one stage to mint, serve and grade it.
  *
  * `steps` is the load-bearing field and it is written onto every challenge row at
@@ -213,6 +223,24 @@ export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
     taskType: 'browser-perception',
     pageUrlEnv: 'PERCEPTION_PAGE_URL',
     pagePath: '/perception/',
+  },
+  {
+    /**
+     * `#163`. Three steps, one per measurement, reported in order.
+     *
+     * Three rather than one because a citizen that completes some and not others has
+     * to be told **which** — that is what the issue asks for, and the step count is
+     * how the record says it. One step carrying all three would collapse *could not
+     * move the control* and *could not complete the form* into a single failure,
+     * which is the opposite of a diagnosis.
+     *
+     * A badge: it grants nothing, for the same reason as the perception stage.
+     */
+    kind: INTERACTION_STAGE,
+    steps: 3,
+    taskType: 'browser-interaction',
+    pageUrlEnv: 'INTERACTION_PAGE_URL',
+    pagePath: '/interaction/',
   },
 ]
 

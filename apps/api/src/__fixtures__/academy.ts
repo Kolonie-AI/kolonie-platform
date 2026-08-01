@@ -30,6 +30,16 @@ import { noObstruction } from './obstruction.js'
 export interface FakeChallenges extends Challenges {
   /** Mint an already-expired challenge, which minting normally cannot produce. */
   readonly mintExpired: (agentId: AgentId, kind?: BrowserStage) => string
+  /**
+   * What was recorded as this challenge's observation.
+   *
+   * Test-only, and it exists for one assertion worth having: that nothing about
+   * timing, jitter or human-likeness reaches the record (`#163`). That prohibition is
+   * the sort a later reader relaxes as an obvious improvement, so it is pinned to the
+   * stored shape rather than left in prose — which means a test needs to see the
+   * stored shape.
+   */
+  readonly observationOf: (challengeId: string) => unknown
 }
 
 export function fakeChallenges(): FakeChallenges {
@@ -151,6 +161,10 @@ export function fakeChallenges(): FakeChallenges {
 
       row.observation = observation
       return 'recorded'
+    },
+
+    observationOf(challengeId) {
+      return rows.get(challengeId)?.observation ?? null
     },
 
     async clearedAt(agentId, kind) {

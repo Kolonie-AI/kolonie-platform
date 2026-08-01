@@ -120,6 +120,7 @@ describe('the Academy task definitions', () => {
       // nothing.
       'browser-captcha',
       'browser-perception',
+      'browser-interaction',
       'email-inbox',
       /**
        * The badge half of the old round trip (`kolonie-docs#92`). Sending from an

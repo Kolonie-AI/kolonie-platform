@@ -5,6 +5,7 @@ import {
   DEFAULT_RHYTHM_BOUNDS,
   ERROR_STATUS,
   BROWSER_STAGES,
+  INTERACTION_STAGE,
   mintableBrowserStages,
   PERCEPTION_STAGE,
   SessionDeclarationSchema,
@@ -39,6 +40,7 @@ import type { Erasure } from './erasure.js'
 import type { Retesting } from './retest.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
 import { recordPerceptionRender, reportPerceptionReading } from './perception.js'
+import { interactionBrief, reportInteractionStep } from './interaction.js'
 import { clientIp } from './client-ip.js'
 import { registrationLimiter, type RateLimiter } from './rate-limit.js'
 import {
@@ -413,6 +415,7 @@ export function buildApp({
   // Evaluated per request rather than once, so a test may hand the routes a
   // differently-configured academy without rebuilding the app.
   const perceptionDown = () => stageUnavailable(PERCEPTION_STAGE, academy)
+  const interactionDown = () => stageUnavailable(INTERACTION_STAGE, academy)
 
   /** The mailbox rung's own answer, separate for the same reason as the one above. */
   const emailDown = emailUnavailable(email)
@@ -1442,6 +1445,46 @@ export function buildApp({
         }
 
         return reply.status(204).send()
+      })
+
+      /**
+       * The interaction stage (`#163`). The page asks what the challenge wants, then
+       * reports each of the three measurements in order as it completes them.
+       *
+       * Unauthenticated for the reason every page-facing route here is: the caller is
+       * a browser holding no API key, and the challenge id — minted under a
+       * credential — is what binds the report to an agent (D-024).
+       *
+       * The brief is never cached. Its url is stable while its answer is not: it
+       * carries which measurement is outstanding *now*, and a cached copy is what made
+       * the entry rung unpassable on its third run until `no-store` was added there.
+       */
+      v1.get('/academy/interaction/:challengeId', async (request, reply) => {
+        const down = interactionDown()
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await interactionBrief(challengeId, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.header('cache-control', 'no-store').send(result.response)
+      })
+
+      v1.post('/academy/interaction/:challengeId/step', async (request, reply) => {
+        const down = interactionDown()
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await reportInteractionStep(challengeId, request.body, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
       })
 
       v1.post('/academy/perception/:challengeId/reading', async (request, reply) => {

@@ -1630,13 +1630,15 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     assistanceAllowed: true,
     timeoutHours: 24,
     /**
-     * **`draft` until the Colony has been shown deciding it**, which is this file's
-     * standing rule: a task goes active when a verifier is deployed *and* a
-     * challenge has been graded on the deployment. `PERCEPTION_PAGE_URL` also has to
-     * be set on the host, and until it is the stage refuses its own mints and says
-     * so in the startup line rather than failing citizens (`#160`).
+     * **`active` since 2026-08-01, on this file's own condition**: a verifier deployed
+     * *and* the Colony shown deciding it. Both were met rather than assumed —
+     * `PERCEPTION_PAGE_URL` is set on the deployment host and the page answers, and a
+     * challenge minted there was cleared end to end: the page drew, the code was read
+     * from a screenshot of the live page, and the reading was accepted. The DOM text and
+     * the accessibility tree carried no code, checked against the deployed page rather
+     * than the source, and no request left the origin.
      */
-    status: 'draft',
+    status: 'active',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000024'),
@@ -1705,11 +1707,14 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     assistanceAllowed: true,
     timeoutHours: 24,
     /**
-     * `draft` until the Colony has been shown deciding it on the deployment, and until
-     * `INTERACTION_PAGE_URL` is set on the host. Until then the stage refuses its own
-     * mints and says so in the startup line rather than failing citizens (`#160`).
+     * **`active` since 2026-08-01.** Shown deciding on the deployment at a device pixel
+     * ratio of 1.5, which is the ratio this stage's whole diagnosis is about: the
+     * deliberate physical-pixel click was answered with *the miss is exactly your device
+     * pixel ratio, multiplied by 1.5* and both fixes named; the correct click and the
+     * control were recorded; a scripted `.value` assignment left the second field absent
+     * while a real fill created it; and the challenge cleared on the third measurement.
      */
-    status: 'draft',
+    status: 'active',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000025'),
@@ -1771,12 +1776,17 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     assistanceAllowed: true,
     timeoutHours: 24,
     /**
-     * `draft` until every kind has been shown deciding on the deployment and
-     * `INTERSTITIAL_PAGE_URL` is set on the host. This file's standing rule is that a
-     * kind which has not been shown deciding ships drafted, and here that applies per
-     * kind as well as to the node.
+     * **`active` since 2026-08-01, and per kind rather than per node** — this file's rule
+     * is that a kind which has not been shown deciding ships drafted, so all three had to
+     * be cleared on the deployment before this row could move, and all three were:
+     * `ordered-panels` (digits 3, 8, 2 drawn, and the accessibility tree offering only
+     * *Panel 0/1/2*), `revealed-value` (settled on 78 after a decoy), and
+     * `marks-above-line` (six of nine above). No request left the origin in any of them.
+     *
+     * A fourth kind added later ships drafted until it too has been shown deciding, which
+     * is what the per-kind reading of that rule means.
      */
-    status: 'draft',
+    status: 'active',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000026'),
@@ -1862,8 +1872,17 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      */
     timeoutHours: 8 * 24,
     /**
-     * `draft` until the Colony has been shown deciding it on the deployment and
-     * `PERSISTENCE_PAGE_URL` is set on the host.
+     * **Still `draft`, and this is the one row in the branch that cannot be flipped in a
+     * single sitting.** `PERSISTENCE_PAGE_URL` is set on the deployment host, the page
+     * answers, and the first visit was recorded there on 2026-08-01 — three markers
+     * written into a real browser profile. What is outstanding is the *return*, which by
+     * the rung's own rule cannot happen for at least six hours, so being shown deciding
+     * takes two sessions. The challenge stays open for eight days precisely so that it
+     * can.
+     *
+     * It was proved end to end locally, against a real browser restart on the same
+     * profile, including the half-configuration case. That is not the deployment, and this
+     * file's rule does not accept a substitute.
      */
     status: 'draft',
   },

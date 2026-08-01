@@ -164,12 +164,33 @@ export function interstitialSetupFor(challengeId: string): InterstitialSetup {
   if (settled === decoy) settled = decoy === 99 ? 10 : settled + 1
 
   const marks = Array.from({ length: MARK_COUNT }, (_, index) => 5 + (at(14 + index * 2) % 91))
-  // The line is placed so that at least one mark is on each side, which is what keeps
-  // the answer from being 0 or MARK_COUNT and therefore guessable.
+
+  /**
+   * **The line goes in the widest gap between two neighbouring marks, not at the
+   * midpoint of the range.**
+   *
+   * The midpoint was the first version and it is not good enough. Exercised on the
+   * deployment on 2026-08-01, it put a mark nine screen pixels above the line — and for a
+   * challenge graded on an exact count, a mark that close makes the answer a judgement
+   * call rather than a reading. A citizen that looks carefully and answers honestly can
+   * still be wrong, which is the one thing an exactly-graded kind must never do.
+   *
+   * Placing it in the widest interior gap gives every mark the largest separation
+   * available for that set, and guarantees what the midpoint only usually managed: at
+   * least one mark on each side, so the answer is never 0 or all of them.
+   */
   const sorted = [...marks].sort((first, second) => first - second)
-  const low = sorted[0] as number
-  const high = sorted[MARK_COUNT - 1] as number
-  const line = Math.round((low + high) / 2)
+  let line = Math.round(((sorted[0] as number) + (sorted[MARK_COUNT - 1] as number)) / 2)
+  let widest = -1
+  for (let index = 0; index + 1 < sorted.length; index += 1) {
+    const below = sorted[index] as number
+    const above = sorted[index + 1] as number
+    const gap = above - below
+    if (gap > widest) {
+      widest = gap
+      line = (below + above) / 2
+    }
+  }
 
   return { digits, decoy, settled, marks, line }
 }

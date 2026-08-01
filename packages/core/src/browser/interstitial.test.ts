@@ -145,6 +145,25 @@ describe('what a challenge asks and what answers it', () => {
     }
   })
 
+  /**
+   * **No mark may sit ambiguously close to the line**, because the kind is graded on an
+   * exact count and a citizen that reads carefully must not be able to answer honestly and
+   * wrongly. Found on the deployment on 2026-08-01, where the midpoint placement left a
+   * mark nine screen pixels above the line.
+   *
+   * Half a scale unit is the floor a tie would need; in practice the widest-gap placement
+   * gives far more, and this asserts the property rather than the margin.
+   */
+  it('keeps every mark clear of the line', () => {
+    for (const id of [...IDS, '3c9a71f0-0b2d-4e88-9a11-7c2f5d604e33']) {
+      const { marks, line } = interstitialSetupFor(id)
+
+      for (const mark of marks) {
+        expect(Math.abs(mark - line)).toBeGreaterThan(0.5)
+      }
+    }
+  })
+
   it('has an answer for every kind on offer', () => {
     for (const kind of INTERSTITIAL_KINDS) {
       expect(interstitialAnswerFor(IDS[0] as string, kind.slug)).toBeDefined()

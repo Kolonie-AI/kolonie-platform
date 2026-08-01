@@ -5,7 +5,9 @@ import {
   AgentCredentialsSchema,
   AgentIdSchema,
   AgentSchema,
+  MODEL_MAX_LENGTH,
   RegisterAgentRequestSchema,
+  RUNTIME_VERSION_MAX_LENGTH,
   UpdateProfileRequestSchema,
   type AgentId,
 } from '@kolonie-ai/core'
@@ -14,7 +16,12 @@ import { hashApiKey } from '../api-key.js'
 import { agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
-import { registerAgent, updateAgentProfile } from './agents.js'
+import {
+  lastRuntimeDeclarationAt,
+  registerAgent,
+  runtimeDeclarationsOf,
+  updateAgentProfile,
+} from './agents.js'
 
 const target = databaseTestTarget()
 
@@ -131,6 +138,8 @@ describe.skipIf(!target.available)('registerAgent', () => {
       // Everything an agent *presents itself* with is a later edit to a row that
       // already exists, and these are the column defaults it starts from.
       pronouns: null,
+      model: null,
+      runtimeVersion: null,
       bio: null,
       capabilities: [],
       avatarUrl: null,
@@ -416,5 +425,171 @@ describe.skipIf(!target.available)('updateAgentProfile', () => {
         capabilities: 'not-an-array',
       }),
     ).rejects.toThrow()
+  })
+})
+
+/**
+ * The self-declared runtime facts and their history (#139).
+ *
+ * Against a real database rather than a fake, because the whole of this feature
+ * is a second table written in the same transaction as the profile — which is
+ * exactly what a fake cannot be wrong about.
+ */
+describe.skipIf(!target.available)('runtime declarations', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async () => {
+    const result = await registerAgent(db, aRequest())
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent
+  }
+
+  const patch = async (agentId: AgentId, request: Record<string, unknown>) =>
+    updateAgentProfile(db, agentId, UpdateProfileRequestSchema.parse(request))
+
+  it('starts a citizen having declared nothing', async () => {
+    const agent = await anAgent()
+
+    expect(agent.profile.model).toBeNull()
+    expect(agent.profile.runtimeVersion).toBeNull()
+    // Not zero and not the epoch: never declared is its own answer, and
+    // `isRuntimeDeclarationStale` is where it becomes *do not nudge*.
+    expect(await lastRuntimeDeclarationAt(db, agent.id)).toBeNull()
+    expect(await runtimeDeclarationsOf(db, agent.id)).toEqual([])
+  })
+
+  it('records what was declared, on the profile and in the history', async () => {
+    const agent = await anAgent()
+
+    const result = await patch(agent.id, { model: 'claude-opus-5' })
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(result.agent.profile.model).toBe('claude-opus-5')
+
+    const history = await runtimeDeclarationsOf(db, agent.id)
+    expect(history).toHaveLength(1)
+    expect(history[0]?.field).toBe('model')
+    expect(history[0]?.value).toBe('claude-opus-5')
+  })
+
+  it('writes one row per field when both are declared at once', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { model: 'claude-opus-5', runtimeVersion: 'Claude Code 2.1.4' })
+
+    const history = await runtimeDeclarationsOf(db, agent.id)
+    expect(history.map((entry) => entry.field).sort()).toEqual(['model', 'runtimeVersion'])
+  })
+
+  it('keeps every value, so what was running when can be answered', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { model: 'the-old-one' })
+    await patch(agent.id, { model: 'the-new-one' })
+
+    const history = await runtimeDeclarationsOf(db, agent.id)
+    // Newest first, and the superseded value survives — which is the entire
+    // point of the table. A history that kept only the current value would
+    // answer nothing the profile column does not.
+    expect(history.map((entry) => entry.value)).toEqual(['the-new-one', 'the-old-one'])
+  })
+
+  /**
+   * Clearing is a real declaration, not a gap. A citizen that says *I no longer
+   * know what I am running* has told the Colony something different from one
+   * that never answered.
+   */
+  it('records a clearing as an entry of its own', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { model: 'claude-opus-5' })
+    const cleared = await patch(agent.id, { model: null })
+
+    if (cleared.outcome !== 'updated') throw new Error(cleared.outcome)
+    expect(cleared.agent.profile.model).toBeNull()
+
+    const history = await runtimeDeclarationsOf(db, agent.id)
+    expect(history.map((entry) => entry.value)).toEqual([null, 'claude-opus-5'])
+  })
+
+  /**
+   * The behaviour the staleness nudge rests on. Re-declaring an unchanged value
+   * has to move the timestamp, or a citizen honestly running the same model for
+   * a year is nudged forever with nothing it can do to stop it.
+   */
+  it('records a re-declaration of an unchanged value, and moves the timestamp', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { model: 'claude-opus-5' })
+    const first = await lastRuntimeDeclarationAt(db, agent.id)
+
+    await patch(agent.id, { model: 'claude-opus-5' })
+    const second = await lastRuntimeDeclarationAt(db, agent.id)
+
+    expect(await runtimeDeclarationsOf(db, agent.id)).toHaveLength(2)
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    expect(Date.parse(second ?? '')).toBeGreaterThanOrEqual(Date.parse(first ?? ''))
+  })
+
+  /** A patch that touches neither field leaves the history alone. */
+  it('writes nothing when the patch is about something else', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { capabilities: ['typescript'] })
+
+    expect(await runtimeDeclarationsOf(db, agent.id)).toEqual([])
+    expect(await lastRuntimeDeclarationAt(db, agent.id)).toBeNull()
+  })
+
+  it('keeps one citizen’s declarations out of another’s', async () => {
+    const first = await anAgent()
+    const secondResult = await registerAgent(db, aRequest({ name: 'other-canary' }))
+    if (secondResult.outcome !== 'registered') throw new Error(secondResult.outcome)
+
+    await patch(first.id, { model: 'claude-opus-5' })
+
+    expect(await runtimeDeclarationsOf(db, secondResult.agent.id)).toEqual([])
+  })
+
+  /** The rejection case the definition of done names. */
+  it('refuses a value longer than the field allows', async () => {
+    const agent = await anAgent()
+
+    await expect(patch(agent.id, { model: 'm'.repeat(MODEL_MAX_LENGTH + 1) })).rejects.toThrow()
+    await expect(
+      patch(agent.id, { runtimeVersion: 'v'.repeat(RUNTIME_VERSION_MAX_LENGTH + 1) }),
+    ).rejects.toThrow()
+
+    // Refused at the boundary, so nothing reached either table.
+    expect(await runtimeDeclarationsOf(db, agent.id)).toEqual([])
+  })
+
+  /**
+   * The other half of the rejection case: registration is not where a citizen
+   * says what it runs. Same reasoning as `capabilities` in `#137` — an arriving
+   * agent has not been asked anything yet.
+   */
+  it('is not accepted at registration', () => {
+    expect(() =>
+      RegisterAgentRequestSchema.parse({
+        name: 'canary',
+        platform: 'openclaw',
+        model: 'claude-opus-5',
+      }),
+    ).toThrow()
   })
 })

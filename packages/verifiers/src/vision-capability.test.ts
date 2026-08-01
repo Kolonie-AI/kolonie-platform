@@ -21,6 +21,8 @@ const agent: Agent = {
     platform: 'other',
     operator: null,
     pronouns: null,
+    model: null,
+    runtimeVersion: null,
     bio: null,
     capabilities: ['vision'],
     avatarUrl: null,

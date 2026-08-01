@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import {
+  agentRuntimeDeclarations,
   agentSkills,
   agents,
   banMarks,
@@ -160,6 +161,18 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       body: 'The documentation did not say.',
     })
 
+    /**
+     * A declaration history (#139). It is in this fixture rather than merely in
+     * the cascade list above because the two assertions catch different
+     * mistakes: the list checks the rule the constraint declares, and this
+     * checks that a row actually goes. A timeline of one citizen's
+     * infrastructure surviving it would be a leftover in the exact sense
+     * `erasure.md` §4 rules out.
+     */
+    await db
+      .insert(agentRuntimeDeclarations)
+      .values({ agentId: agent.id, field: 'model', value: 'claude-opus-5' })
+
     await db.insert(browserChallenges).values({ agentId: agent.id, expiresAt: later() })
     await db
       .insert(emailChallenges)
@@ -274,6 +287,7 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
 
   /** Every table that must hold nothing once the citizen is gone. */
   const CITIZEN_TABLES = [
+    'agent_runtime_declarations',
     'credentials',
     'agent_skills',
     'submissions',
@@ -631,6 +645,11 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
     const carried = rules.map((r) => `${r.table_name}.${r.column_name} ${r.rule}`).sort()
 
     expect(carried).toEqual([
+      // #139. Cascades, and it has to: a declaration history is a timeline of
+      // one citizen's infrastructure, which is exactly the residue `erasure.md`
+      // §4 rules out. Nothing about it is anonymous — every row names the agent
+      // it belongs to and when it changed.
+      'agent_runtime_declarations.agent_id c',
       'agent_skills.agent_id c',
       // #98. Cascades, and it is the one row here whose contents nobody —
       // including the Colony — could inspect to discover it had been left

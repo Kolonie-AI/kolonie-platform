@@ -6,6 +6,7 @@ import {
   ApiKeySchema,
   API_KEY_PREFIX,
   CredentialIdSchema,
+  MUTABLE_PROFILE_FIELDS,
   type Agent,
   type CitizenshipStatus,
   type AgentBalance,
@@ -171,6 +172,7 @@ export function fakeColony(): FakeColony {
   // surface is visible on the other.
   const solanaChallenges = fakeSolanaChallenges()
   const takenNames = new Set<string>()
+  const runtimeDeclarations = new Map<string, string>()
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -196,6 +198,8 @@ export function fakeColony(): FakeColony {
         // it *presents itself* with is a later edit to a row that already
         // exists. These are the column defaults the real storage reads back.
         pronouns: null,
+        model: null,
+        runtimeVersion: null,
         bio: null,
         capabilities: [],
         avatarUrl: null,
@@ -288,6 +292,10 @@ export function fakeColony(): FakeColony {
         return attempt?.verifiedAt == null ? null : attempt.address
       },
 
+      /** Written by `updateProfile` below, so the round trip is real (#139). */
+      lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>
+        runtimeDeclarations.get(String(agentId)) ?? null,
+
       /**
        * PATCH semantics against the same `byKey` map registration writes into,
        * so a profile edited here is the profile the *next* `kolonie.me` in the
@@ -295,16 +303,61 @@ export function fakeColony(): FakeColony {
        * two surfaces have to be looking at one agent, or a test can prove a
        * round trip that never happened.
        */
+      /**
+       * **Driven off `MUTABLE_PROFILE_FIELDS` with an exhaustive switch**, the
+       * repair `__fixtures__/store.ts` already carries and for the same reason
+       * (`#127`). The list of `if` lines this replaces had drifted exactly as
+       * that comment predicts: `pronouns` had been writable since `#127` and was
+       * silently dropped here, so a test patching one saw a success, a
+       * well-formed response, and no value. The `never` arm below fails to
+       * compile the next time core gains a mutable field and this switch does
+       * not.
+       */
       updateProfile: async (agentId, request) => {
         const held = [...byKey.values()].find((entry) => String(entry.agent.id) === String(agentId))
         if (held === undefined) return { outcome: 'unknown-agent' }
 
         const profile = { ...held.agent.profile }
-        if (Object.hasOwn(request, 'operator')) profile.operator = request.operator ?? null
-        if (Object.hasOwn(request, 'bio')) profile.bio = request.bio ?? null
-        if (Object.hasOwn(request, 'capabilities'))
-          profile.capabilities = request.capabilities ?? []
-        if (Object.hasOwn(request, 'avatarUrl')) profile.avatarUrl = request.avatarUrl ?? null
+        for (const field of MUTABLE_PROFILE_FIELDS) {
+          if (!Object.hasOwn(request, field)) continue
+
+          switch (field) {
+            case 'operator':
+              profile.operator = request.operator ?? null
+              break
+            case 'bio':
+              profile.bio = request.bio ?? null
+              break
+            case 'pronouns':
+              profile.pronouns = request.pronouns ?? null
+              break
+            case 'avatarUrl':
+              profile.avatarUrl = request.avatarUrl ?? null
+              break
+            case 'capabilities':
+              profile.capabilities = request.capabilities ?? []
+              break
+            case 'model':
+              profile.model = request.model ?? null
+              break
+            case 'runtimeVersion':
+              profile.runtimeVersion = request.runtimeVersion ?? null
+              break
+            default:
+              throw new Error(`the fake colony does not honour ${field satisfies never}`)
+          }
+        }
+
+        /**
+         * The declaration history, as the real storage writes it (#139): a row
+         * whenever the field is in the patch, whether or not the value changed.
+         * Kept here so a test can declare a model over MCP and see the staleness
+         * clause stop appearing on the next `kolonie.me` — the round trip this
+         * fixture exists for.
+         */
+        if (Object.hasOwn(request, 'model') || Object.hasOwn(request, 'runtimeVersion')) {
+          runtimeDeclarations.set(String(agentId), new Date().toISOString())
+        }
 
         held.agent = { ...held.agent, profile, updatedAt: new Date().toISOString() }
         return { outcome: 'updated', agent: held.agent }

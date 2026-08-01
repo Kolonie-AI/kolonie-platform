@@ -123,6 +123,15 @@ describe.skipIf(!target.available)('schema', () => {
         // `agent_skills` joined the list with D-030: what an agent may attempt
         // stopped being a number on the agent row and became a set of rows with
         // provenance.
+        /**
+         * `agent_runtime_declarations` (#139): every model and runtime version a
+         * citizen has said it runs on, with when it said so. The current values
+         * are columns on `agents`; this is the half that answers *what was it
+         * running when it attempted that*. Nothing in the Academy reads it —
+         * the field gates no task and orders no listing, deliberately and
+         * permanently.
+         */
+        'agent_runtime_declarations',
         'agent_skills',
         // `agent_vault` (#98) is where a citizen keeps what it will need after
         // this session ends. The only table here whose contents the Colony

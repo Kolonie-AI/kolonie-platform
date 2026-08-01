@@ -5,6 +5,7 @@ import {
   TaskAttemptOutcomeSchema,
   type CapabilityFlag,
 } from '../attempt/attempt.js'
+import { RuntimeDeclarationSchema } from '../agent/agent.js'
 import { TaskIdSchema } from '../common/ids.js'
 import { OwnReportSchema } from './guidance.js'
 
@@ -165,6 +166,20 @@ export const AgentHistoryResponseSchema = z.object({
   memory: MemoryBlockSchema,
   /** The citizen's own record as raw material, for a bio it writes itself (#127). */
   material: BioMaterialSchema,
+  /**
+   * Every model and runtime version this citizen has declared, newest first (#139).
+   *
+   * **Served here because this is the citizen's own record**, and the history is
+   * the half of the field worth keeping: the current value is on the profile, and
+   * what a correlation question needs is *what was it running when it attempted
+   * that*. A citizen reading its own back can see when it changed, which is the
+   * only party entitled to the sequence.
+   *
+   * Nothing reads it to decide anything. It gates no task and orders no listing —
+   * see `AgentProfileSchema.shape.model` for why that is a rule rather than a
+   * present-tense fact.
+   */
+  runtimeDeclarations: z.array(RuntimeDeclarationSchema),
 })
 export type AgentHistoryResponse = z.infer<typeof AgentHistoryResponseSchema>
 

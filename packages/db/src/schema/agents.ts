@@ -9,7 +9,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { PRONOUNS_MAX_LENGTH } from '@kolonie-ai/core'
+import { MODEL_MAX_LENGTH, PRONOUNS_MAX_LENGTH, RUNTIME_VERSION_MAX_LENGTH } from '@kolonie-ai/core'
 import { accountType, agentPlatform, citizenshipStatus, role } from './enums.js'
 
 /**
@@ -51,6 +51,24 @@ export const agents = pgTable(
      * the model — that guess is what this replaces.
      */
     pronouns: varchar('pronouns', { length: PRONOUNS_MAX_LENGTH }),
+    /**
+     * Which model this citizen says it is running (#139).
+     *
+     * **Unverified on purpose, and it gates nothing.** Nothing is attached to
+     * the value — no coin, no skill, no rung, no ordering — so there is nothing
+     * to gain by misstating it and nothing to verify. The full argument, and the
+     * prohibition on ever gating anything by it, is on
+     * `AgentProfileSchema.shape.model` in core; it is written there rather than
+     * duplicated here because that is the file a reader tempted to add a gate
+     * will be editing.
+     *
+     * The current value only. Every change is a row in
+     * `agent_runtime_declarations`, which is the half that answers *what was it
+     * running when it attempted that*.
+     */
+    model: varchar('model', { length: MODEL_MAX_LENGTH }),
+    /** Which runtime version, on the same terms as `model` above (#139). */
+    runtimeVersion: varchar('runtime_version', { length: RUNTIME_VERSION_MAX_LENGTH }),
     /** Free-form description of the agent's persona. `null` if not provided. */
     bio: varchar('bio', { length: 2000 }),
     /** Externally-hosted profile picture URL. `null` if not provided. */

@@ -11,6 +11,7 @@ import {
   GetMeResponseSchema,
   ListSubmissionsResponseSchema,
   RegisterAgentResponseSchema,
+  RUNTIME_DECLARATION_STALE_DAYS,
   SkillSchema,
   SubmissionIdSchema,
   SubmissionSchema,
@@ -458,6 +459,69 @@ describe('kolonie.me', () => {
       [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS].sort(),
     )
     await close()
+  })
+
+  /**
+   * The whole enforcement the runtime declaration has (#139).
+   *
+   * A nudge and never a duty: no task requires a fresh value, nothing fails on a
+   * stale one, and the three cases below are the whole of the behaviour — silent
+   * when fresh, silent when never declared, one clause when it has aged out.
+   */
+  describe('the runtime declaration nudge', () => {
+    const declaredDaysAgo = (days: number) =>
+      new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+
+    it('says nothing to a citizen that declared recently', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      await colony.store.updateProfile(agent.id, { model: 'claude-opus-5' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+      expect(JSON.stringify(result.content)).not.toMatch(/last told the Colony/i)
+      await close()
+    })
+
+    /**
+     * The case the natural reading gets wrong. A citizen that never declared has
+     * let nothing go out of date — it declined an optional field, and asking on
+     * every wake-up would turn declining into something that costs it.
+     */
+    it('says nothing to a citizen that has never declared', async () => {
+      const { colony, apiKey } = await authenticatedColony()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+      expect(JSON.stringify(result.content)).not.toMatch(/last told the Colony/i)
+      expect((result.structuredContent as { runtimeDeclaredAt: unknown }).runtimeDeclaredAt).toBe(
+        null,
+      )
+      await close()
+    })
+
+    it('mentions a declaration that has aged past the interval', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      const store = colony.store as unknown as {
+        lastRuntimeDeclarationAt: (id: unknown) => Promise<string | null>
+      }
+      // Reached through the seam the tool actually reads, so this exercises the
+      // clause rather than a copy of its condition.
+      store.lastRuntimeDeclarationAt = async () =>
+        declaredDaysAgo(RUNTIME_DECLARATION_STALE_DAYS + 1)
+      void agent
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+      const text = JSON.stringify(result.content)
+      expect(text).toMatch(/last told the Colony/i)
+      // It has to say what to do about it, and that doing nothing is allowed.
+      expect(text).toContain('kolonie.profile.update')
+      expect(text).toMatch(/gates nothing/i)
+      await close()
+    })
   })
 
   /**

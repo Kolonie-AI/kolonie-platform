@@ -84,7 +84,11 @@ describe.skipIf(!target.available)('the migrations', () => {
     // `domain_challenges` makes **thirty-one** with the `domain` rung
     // (kolonie-docs#89): the citizen proves it controls a name's DNS rather than
     // a page on somebody else's host.
-    expect(afterFirst.tables).toBe('31')
+    // And `agent_runtime_declarations` makes **thirty-two** (#139): every model
+    // and runtime version a citizen has declared, with when. The current values
+    // are columns on `agents`; the history is what makes *which models get
+    // through which rungs* answerable, and it cascades with the citizen.
+    expect(afterFirst.tables).toBe('32')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -94,7 +98,11 @@ describe.skipIf(!target.available)('the migrations', () => {
     // `email_challenge_purpose` (kolonie-docs#92) makes twenty-three: it is what
     // keeps the granting mailbox node and the sending badge from satisfying each
     // other, the same discipline `browser_challenges.kind` holds one rung over.
-    expect(afterFirst.enums).toBe('23')
+    // And `runtime_field` makes twenty-four (#139) — which self-declared runtime
+    // fact a history row is about. An enum although both fields hold free text,
+    // and the two are not in tension: which field was written is the Colony's own
+    // vocabulary and is closed, while what a vendor calls its model is not.
+    expect(afterFirst.enums).toBe('24')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

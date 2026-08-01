@@ -1,18 +1,35 @@
-import { eq, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   CredentialIdSchema,
+  RuntimeDeclarationSchema,
+  RuntimeFieldSchema,
   type Agent,
   type AgentCredentials,
   type AgentId,
   type RegisterAgentRequest,
+  type RuntimeDeclaration,
   type UpdateProfileRequest,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
-import { agents, credentials } from '../schema/index.js'
-import { toAgent } from './rows.js'
+import { agentRuntimeDeclarations, agents, credentials } from '../schema/index.js'
+import { toAgent, toTimestamp } from './rows.js'
 import { heldSkillsSql, skillsOfAgent } from './skills.js'
+
+/** The self-declared runtime facts that carry a history. Derived from core, never retyped. */
+const RUNTIME_FIELDS = RuntimeFieldSchema.options
+
+/**
+ * How many declarations a citizen's own history carries.
+ *
+ * Bounded because `kolonie.me.history` is part of a loop, and a citizen that
+ * re-declares on every wake-up would otherwise grow its own response without
+ * limit. Fifty is far more than any honest sequence of model changes and small
+ * enough that the read stays cheap; the newest entries are the ones that answer
+ * anything anyway.
+ */
+export const RUNTIME_DECLARATION_HISTORY_LIMIT = 50
 
 /**
  * What registration did.
@@ -184,6 +201,23 @@ export async function updateAgentProfile(
   if (Object.hasOwn(request, 'pronouns')) changes.pronouns = request.pronouns
   if (Object.hasOwn(request, 'capabilities')) changes.capabilities = request.capabilities
   if (Object.hasOwn(request, 'avatarUrl')) changes.avatarUrl = request.avatarUrl
+  if (Object.hasOwn(request, 'model')) changes.model = request.model
+  if (Object.hasOwn(request, 'runtimeVersion')) changes.runtimeVersion = request.runtimeVersion
+
+  /**
+   * What to append to the declaration history (#139).
+   *
+   * **Written whenever the field is in the patch, not only when the value
+   * differs**, and the difference matters for the one thing that reads the
+   * timestamp. `kolonie.me` mentions a declaration that has gone stale, and what
+   * *stale* has to mean there is "you have not told us in a while" rather than
+   * "you have not changed it in a while" — otherwise a citizen that has honestly
+   * run the same model for a year is nudged forever with nothing to do about it.
+   * A re-declaration is real information: the citizen looked and confirmed.
+   */
+  const declarations = RUNTIME_FIELDS.filter((field) => Object.hasOwn(request, field)).map(
+    (field) => ({ agentId, field, value: request[field] ?? null }),
+  )
 
   // An empty patch is legal and must still answer with the agent. Reading rather
   // than writing also keeps `updated_at` honest: nothing changed, so nothing
@@ -204,14 +238,32 @@ export async function updateAgentProfile(
   // could collide with another citizen's, and it is gone (`#102`) — so a failure
   // from this statement is the Colony being broken rather than somebody having
   // got there first, and it belongs at the top rather than as an outcome.
-  const [row] = await db
-    .update(agents)
-    // The column defaults `updated_at` at insert only, so an update has to say
-    // so. An agent whose `updatedAt` never moves is indistinguishable from one
-    // that was never touched, and that is the field a client polls on.
-    .set({ ...changes, updatedAt: sql`now()` })
-    .where(eq(agents.id, agentId))
-    .returning()
+  //
+  // In a transaction because of the history: the profile and the declaration
+  // have to move together, or a crash between them leaves the Colony holding a
+  // model it has no record of being told about — or a record of a change that
+  // did not happen.
+  const row = await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(agents)
+      // The column defaults `updated_at` at insert only, so an update has to say
+      // so. An agent whose `updatedAt` never moves is indistinguishable from one
+      // that was never touched, and that is the field a client polls on.
+      .set({ ...changes, updatedAt: sql`now()` })
+      .where(eq(agents.id, agentId))
+      .returning()
+
+    // Nothing was updated, so nothing is appended: an unknown agent must not
+    // leave a declaration behind pointing at a row that does not exist. The
+    // foreign key would refuse it anyway; returning first says so on purpose.
+    if (updated === undefined) return undefined
+
+    if (declarations.length > 0) {
+      await tx.insert(agentRuntimeDeclarations).values(declarations)
+    }
+
+    return updated
+  })
 
   if (row === undefined) return { outcome: 'unknown-agent' }
 
@@ -262,4 +314,66 @@ export async function markAsTestAccount(db: Database, agentId: AgentId): Promise
   if (row === undefined) {
     throw new Error(`no agent row for the agent ${agentId}`)
   }
+}
+
+/**
+ * When this citizen last declared a model or a runtime version, or `null` (#139).
+ *
+ * One row, ordered by the index the table carries. It is separate from
+ * {@link runtimeDeclarationsOf} because the two have different callers and very
+ * different costs: this one runs on every `kolonie.me` — the first call of every
+ * wake-up — and wants a single timestamp, while the history is asked for
+ * deliberately and rarely.
+ *
+ * **The absent case is a real answer and is not a zero.** A citizen that has
+ * never declared has let nothing go out of date, and `isRuntimeDeclarationStale`
+ * in core is where that turns into *do not nudge*.
+ */
+export async function lastRuntimeDeclarationAt(
+  db: Database,
+  agentId: AgentId,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ declaredAt: agentRuntimeDeclarations.declaredAt })
+    .from(agentRuntimeDeclarations)
+    .where(eq(agentRuntimeDeclarations.agentId, agentId))
+    .orderBy(desc(agentRuntimeDeclarations.declaredAt))
+    .limit(1)
+
+  return row === undefined ? null : toTimestamp(row.declaredAt)
+}
+
+/**
+ * Every model and runtime version this citizen has declared, newest first (#139).
+ *
+ * Served only to the citizen it belongs to. The sequence of one agent's
+ * infrastructure changes is its own record, and there is no read path here that
+ * takes anybody else's id — the argument is the caller's own, resolved from its
+ * credential one layer up.
+ *
+ * Bounded, because a citizen that re-declares on every wake-up would otherwise
+ * grow an unbounded response on a call that is part of a loop. The newest
+ * entries are the ones that answer anything.
+ */
+export async function runtimeDeclarationsOf(
+  db: Database,
+  agentId: AgentId,
+  limit = RUNTIME_DECLARATION_HISTORY_LIMIT,
+): Promise<readonly RuntimeDeclaration[]> {
+  const rows = await db
+    .select({
+      field: agentRuntimeDeclarations.field,
+      value: agentRuntimeDeclarations.value,
+      declaredAt: agentRuntimeDeclarations.declaredAt,
+    })
+    .from(agentRuntimeDeclarations)
+    .where(eq(agentRuntimeDeclarations.agentId, agentId))
+    .orderBy(desc(agentRuntimeDeclarations.declaredAt))
+    .limit(limit)
+
+  // `toTimestamp` for the reason every other read path uses it: the column is
+  // read back in Postgres's own format, and core's `TimestampSchema` wants ISO.
+  return rows.map((row) =>
+    RuntimeDeclarationSchema.parse({ ...row, declaredAt: toTimestamp(row.declaredAt) }),
+  )
 }

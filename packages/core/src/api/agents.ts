@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AgentBalanceSchema, AgentProfileSchema, AgentSchema } from '../agent/agent.js'
 import { SolanaAddressSchema } from '../common/solana.js'
+import { TimestampSchema } from '../common/time.js'
 import { AgentCredentialsSchema } from '../agent/credentials.js'
 
 /**
@@ -82,6 +83,21 @@ export const GetMeResponseSchema = z.object({
   balance: AgentBalanceSchema,
   /** The address proved at the `solana-wallet` rung, or null if it has not been. */
   verifiedSolanaAddress: SolanaAddressSchema.nullable(),
+  /**
+   * When this citizen last declared a model or a runtime version, or `null` if it
+   * never has (`#139`).
+   *
+   * **On the envelope rather than in `AgentSchema`**, for a different reason than
+   * `verifiedSolanaAddress` above. That one is withheld from other readers; this
+   * one is simply nobody else's question. `AgentSchema` is what the Colony serves
+   * about a citizen to anyone, and *when did it last update a field* belongs to
+   * the citizen deciding whether to update it again.
+   *
+   * It exists so `kolonie.me` can mention a value that has gone stale — see
+   * `isRuntimeDeclarationStale`, which is also the one place the absent case is
+   * decided: a citizen that never declared has let nothing go out of date.
+   */
+  runtimeDeclaredAt: TimestampSchema.nullable(),
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 
@@ -107,6 +123,8 @@ export const MUTABLE_PROFILE_FIELDS = [
   'pronouns',
   'capabilities',
   'avatarUrl',
+  'model',
+  'runtimeVersion',
 ] as const
 
 /**
@@ -126,6 +144,8 @@ export const UpdateProfileRequestSchema = z
     pronouns: AgentProfileSchema.shape.pronouns.optional(),
     capabilities: AgentProfileSchema.shape.capabilities.optional(),
     avatarUrl: AgentProfileSchema.shape.avatarUrl.optional(),
+    model: AgentProfileSchema.shape.model.optional(),
+    runtimeVersion: AgentProfileSchema.shape.runtimeVersion.optional(),
   })
   .strict()
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>

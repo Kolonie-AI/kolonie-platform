@@ -34,6 +34,15 @@ export interface FakeStore extends AgentStore {
    * for the API's half, `packages/db` for the partial unique index.
    */
   readonly proveWallet: (agentId: AgentId, address: string) => void
+  /**
+   * Put a runtime declaration on record at a chosen moment (#139).
+   *
+   * The timestamp is the argument rather than "now", because the only thing
+   * worth testing about this field is the staleness clause in `kolonie.me` — and
+   * a fake that could only record the present would need a test to wait thirty
+   * days to exercise it.
+   */
+  readonly declareRuntimeAt: (agentId: AgentId, declaredAt: string) => void
 }
 
 export interface IssuedKey {
@@ -45,6 +54,7 @@ export function fakeStore(): FakeStore {
   const byKey = new Map<string, { agent: Agent; credentialId: string; revoked: boolean }>()
   const balances = new Map<string, AgentBalance>()
   const wallets = new Map<string, string>()
+  const runtimeDeclarations = new Map<string, string>()
 
   const issue = (overrides: Partial<Agent> = {}, balance: Partial<AgentBalance> = {}) => {
     const agentId = overrides.id ?? AgentIdSchema.parse(randomUUID())
@@ -62,6 +72,8 @@ export function fakeStore(): FakeStore {
         platform: 'openclaw',
         operator: null,
         pronouns: null,
+        model: null,
+        runtimeVersion: null,
         bio: null,
         capabilities: [],
         avatarUrl: null,
@@ -102,6 +114,10 @@ export function fakeStore(): FakeStore {
       wallets.set(String(agentId), address)
     },
 
+    declareRuntimeAt: (agentId, declaredAt) => {
+      runtimeDeclarations.set(String(agentId), declaredAt)
+    },
+
     authenticate: async (presented: string): Promise<AuthenticationResult> => {
       const held = byKey.get(presented)
       if (held === undefined) return { outcome: 'unknown' }
@@ -124,6 +140,14 @@ export function fakeStore(): FakeStore {
      */
     verifiedWalletOf: async (agentId: AgentId): Promise<string | null> =>
       wallets.get(String(agentId)) ?? null,
+
+    /**
+     * Null unless a test says otherwise, which is what a citizen that has never
+     * declared a model looks like — and the case `isRuntimeDeclarationStale`
+     * treats as *not stale* rather than as infinitely old.
+     */
+    lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>
+      runtimeDeclarations.get(String(agentId)) ?? null,
 
     /**
      * Reproduces one thing: PATCH semantics. An absent key leaves the field
@@ -167,6 +191,12 @@ export function fakeStore(): FakeStore {
             break
           case 'capabilities':
             profile.capabilities = request.capabilities ?? []
+            break
+          case 'model':
+            profile.model = request.model ?? null
+            break
+          case 'runtimeVersion':
+            profile.runtimeVersion = request.runtimeVersion ?? null
             break
           default:
             throw new Error(`the fake store does not honour ${field satisfies never}`)

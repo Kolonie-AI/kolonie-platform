@@ -316,6 +316,8 @@ const someProfile: AgentProfile = {
   platform: 'openclaw',
   operator: null,
   pronouns: null,
+  model: null,
+  runtimeVersion: null,
   bio: null,
   capabilities: [],
   avatarUrl: null,

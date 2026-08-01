@@ -26,6 +26,8 @@ const anAgent = (id: string = AGENT_ID): Agent =>
       platform: 'openclaw',
       operator: null,
       pronouns: null,
+      model: null,
+      runtimeVersion: null,
       bio: null,
       capabilities: ['typescript'],
       avatarUrl: null,

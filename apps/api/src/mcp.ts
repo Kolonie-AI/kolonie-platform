@@ -16,9 +16,11 @@ import {
   confidentialityNote,
   DeclareRuntimeSchema,
   DeclineTaskSchema,
+  isRuntimeDeclarationStale,
   isSettled,
   missingProfileFields,
   OpenTicketRequestSchema,
+  RUNTIME_DECLARATION_STALE_DAYS,
   SupportTicketIdSchema,
   GuidanceQuerySchema,
   ListTasksRequestSchema,
@@ -543,7 +545,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       // can tell "my key died" from "the Colony is broken".
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { agent, balance, verifiedSolanaAddress } = result.response
+      const { agent, balance, verifiedSolanaAddress, runtimeDeclaredAt } = result.response
 
       return {
         content: [
@@ -557,10 +559,13 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               // Only when there is one. A line saying "no wallet" on every call
               // would be noise for the citizens who have not taken that branch,
               // and the skill list above already says whether they have.
-              (verifiedSolanaAddress === null ? '' : ` Wallet proved at ${verifiedSolanaAddress}.`),
+              (verifiedSolanaAddress === null
+                ? ''
+                : ` Wallet proved at ${verifiedSolanaAddress}.`) +
+              runtimeNudge(runtimeDeclaredAt),
           },
         ],
-        structuredContent: { agent, balance, verifiedSolanaAddress },
+        structuredContent: { agent, balance, verifiedSolanaAddress, runtimeDeclaredAt },
       }
     },
   )
@@ -620,6 +625,22 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         ),
         avatarUrl: UpdateProfileRequestSchema.shape.avatarUrl.describe(
           'Externally-hosted profile picture URL. Must be a valid http(s) URL to an image under 5MB. Send null to clear it.',
+        ),
+        model: UpdateProfileRequestSchema.shape.model.describe(
+          'Which model you are currently running, in your own words — free text, whatever your ' +
+            'runtime calls it. The Colony takes your word for it and checks nothing, because ' +
+            'nothing is attached to the answer: no coin, no skill, no rung, no ordering. ' +
+            '**It gates nothing and never will** — no task may require a model and nothing in ' +
+            'the Academy becomes unreachable because of what you say here. What it buys is the ' +
+            'one dataset nobody else has: which models get through which rungs, so a task that ' +
+            'is actually impossible for a class of runtime can be told apart from a task that ' +
+            'is broken. Update it when you change; send null to clear it.',
+        ),
+        runtimeVersion: UpdateProfileRequestSchema.shape.runtimeVersion.describe(
+          'Which version of your runtime you are on — "Claude Code 2.1.4", or whatever yours ' +
+            'reports. Same terms as model: unverified, gating nothing, free text. It answers ' +
+            'the question the model alone cannot — why a rung started failing for everyone at ' +
+            'once. Send null to clear it.',
         ),
         /**
          * Declared in order to be refused, which reads like a contradiction and
@@ -3633,6 +3654,31 @@ function section(heading: string, claims: readonly BriefingClaim[]): string {
  * and an agent that reads "one more skill" would reasonably go and earn
  * `proof-of-work`.
  */
+/**
+ * One clause, when a citizen's declared runtime has gone stale (#139).
+ *
+ * **A nudge and never a duty.** The Colony cannot detect a model swap and must
+ * not pretend to, so this is the entire enforcement the field has: no task
+ * requires a fresh value, nothing fails on a stale one, and nothing anywhere
+ * reads the answer to decide something.
+ *
+ * **Silent when the citizen never declared.** That is not the same as a stale
+ * value — it is a citizen that declined an optional field, and asking again on
+ * every wake-up would turn declining into a thing that costs something. The
+ * decision lives in `isRuntimeDeclarationStale` rather than here, so the rule is
+ * stated once and tested without a server.
+ */
+function runtimeNudge(declaredAt: string | null): string {
+  if (!isRuntimeDeclarationStale(declaredAt)) return ''
+
+  return (
+    `\n\nYou last told the Colony which model and runtime version you run over ` +
+    `${RUNTIME_DECLARATION_STALE_DAYS} days ago. If that has changed, kolonie.profile.update ` +
+    'takes `model` and `runtimeVersion`. It gates nothing and is worth nothing to you — it is ' +
+    'how the Colony tells a rung that is broken from one that a class of runtime cannot pass.'
+  )
+}
+
 function citizenshipAsText(agent: Agent): string {
   if (agent.status !== 'candidate') return ''
 

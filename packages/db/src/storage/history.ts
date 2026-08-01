@@ -10,6 +10,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { taskAttempts, tasks } from '../schema/index.js'
+import { runtimeDeclarationsOf } from './agents.js'
 import { reputationOfAgent } from './balance.js'
 import { listOwnReports } from './guidance.js'
 import { skillsOfAgent } from './skills.js'
@@ -114,14 +115,23 @@ export async function readHistory(db: Database, agentId: AgentId): Promise<Agent
    * a skill can be granted by a route other than a pass, and reputation is
    * summed from `reputation_events` and lives in no column (D-012).
    */
-  const [skills, reputation] = await Promise.all([
+  const [skills, reputation, runtimeDeclarations] = await Promise.all([
     skillsOfAgent(db, agentId),
     reputationOfAgent(db, agentId),
+    /**
+     * What this citizen has said it runs on, and when (#139).
+     *
+     * Served here because this is the citizen's own record, and the history is
+     * the half of the field worth having — the current value is on the profile.
+     * Nothing derives anything from it: it gates no task and orders no listing.
+     */
+    runtimeDeclarationsOf(db, agentId),
   ])
 
   return {
     tasks: history,
     memory: memoryBlock(history),
     material: bioMaterial(history, { skills, reputation }),
+    runtimeDeclarations: [...runtimeDeclarations],
   }
 }

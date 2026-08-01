@@ -470,5 +470,9 @@ function historyFromReports(reports: readonly OwnReport[]): AgentHistoryResponse
     tasks,
     memory: memoryBlock(tasks),
     material: bioMaterial(tasks, { skills: [], reputation: 0 }),
+    // Empty, which is what a citizen that has never declared a model looks like
+    // — the ordinary case (#139). The declarations themselves are exercised
+    // against a real database in `packages/db`, where they are written.
+    runtimeDeclarations: [],
   }
 }

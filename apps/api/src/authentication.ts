@@ -9,6 +9,7 @@ import {
 import {
   authenticateApiKey,
   balanceOfAgent,
+  lastRuntimeDeclarationAt,
   updateAgentProfile,
   verifiedSolanaAddress,
   type AuthenticationResult,
@@ -36,6 +37,15 @@ export interface AgentStore extends ProfileStore {
    * otherwise answer with the same-looking string.
    */
   verifiedWalletOf(agentId: AgentId): Promise<string | null>
+  /**
+   * When the citizen last declared a model or a runtime version, or null (#139).
+   *
+   * On this interface rather than derived from the agent, because the value is
+   * not on the agent: the profile carries what was declared and the history
+   * carries when. `kolonie.me` is the only caller — it mentions a declaration
+   * that has gone stale, which is the entire enforcement this field has.
+   */
+  lastRuntimeDeclarationAt(agentId: AgentId): Promise<string | null>
 }
 
 /** What `GET /v1/agents/me` resolved to, in the API's own vocabulary. */
@@ -97,6 +107,7 @@ export function databaseStore(db: Database): AgentStore {
     authenticate: (apiKey) => authenticateApiKey(db, apiKey),
     balanceOf: (agentId) => balanceOfAgent(db, agentId),
     verifiedWalletOf: (agentId) => verifiedSolanaAddress(db, agentId),
+    lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
     updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
 }
@@ -158,9 +169,10 @@ export async function me(authorization: string | undefined, store: AgentStore): 
 
   const balance = await store.balanceOf(authenticated.agent.id)
   const verifiedSolanaAddress = await store.verifiedWalletOf(authenticated.agent.id)
+  const runtimeDeclaredAt = await store.lastRuntimeDeclarationAt(authenticated.agent.id)
 
   return {
     outcome: 'found',
-    response: { agent: authenticated.agent, balance, verifiedSolanaAddress },
+    response: { agent: authenticated.agent, balance, verifiedSolanaAddress, runtimeDeclaredAt },
   }
 }

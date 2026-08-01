@@ -47,6 +47,8 @@ export function fakeRegistry(): AgentRegistry & { readonly names: () => string[]
         profile: {
           ...request,
           pronouns: null,
+          model: null,
+          runtimeVersion: null,
           bio: null,
           capabilities: [],
           avatarUrl: null,

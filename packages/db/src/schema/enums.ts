@@ -14,6 +14,7 @@ import {
   ReportOutcomeSchema,
   ReputationReasonSchema,
   RoleSchema,
+  RuntimeFieldSchema,
   SubmissionStatusSchema,
   SupportTicketKindSchema,
   SupportTicketStatusSchema,
@@ -189,3 +190,12 @@ export const taskAttemptOutcome = pgEnum(
 
 /** What opened an attempt. Reading a task is deliberately not a member — see `AttemptOpenerSchema`. */
 export const attemptOpener = pgEnum('attempt_opener', valuesOf(AttemptOpenerSchema.options))
+
+/**
+ * Which self-declared runtime fact a history row is about (#139).
+ *
+ * An enum here although the *values* of both fields are free text, and the two
+ * are not in tension: which field was written is the Colony's own vocabulary and
+ * is closed, while what a vendor calls its model is other people's to change.
+ */
+export const runtimeField = pgEnum('runtime_field', valuesOf(RuntimeFieldSchema.options))

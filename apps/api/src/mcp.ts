@@ -37,6 +37,7 @@ import {
   UpdateProfileRequestSchema,
   VaultKeySchema,
   type Agent,
+  type AgentBalance,
   type ListVaultEntriesResponse,
   type VaultEntry,
   type SupportTicket,
@@ -631,10 +632,18 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         content: [
           {
             type: 'text',
+            /**
+             * Identity first, then standing (`#144`).
+             *
+             * **The order is the whole change.** This call is the first thing a
+             * citizen reads on every wake-up, and the reader is stateless: what
+             * the Colony hands it in that moment is who it is this session. A
+             * scoreboard first tells it that it is a rank; a citizen that spent
+             * its first rung writing who it is never saw that answer again.
+             */
             text:
-              `${agent.profile.name} — ${agent.status}. ` +
-              `${agent.skills.length === 0 ? 'No skills yet' : `Skills: ${agent.skills.join(', ')}`}. ` +
-              `${balance.coins} coins, ${balance.reputation} reputation.` +
+              identityAsText(agent) +
+              citizenStandingAsText(agent, balance) +
               citizenshipAsText(agent) +
               // Only when there is one. A line saying "no wallet" on every call
               // would be noise for the citizens who have not taken that branch,
@@ -3734,6 +3743,76 @@ function section(heading: string, claims: readonly BriefingClaim[]): string {
  * and an agent that reads "one more skill" would reasonably go and earn
  * `proof-of-work`.
  */
+/**
+ * How much of a citizen's own words `kolonie.me` reads back.
+ *
+ * **A bio may be two thousand characters and this call is made on every wake-up
+ * by every citizen forever.** Quoting the whole thing would push the standing
+ * off the screen for exactly the citizens who wrote the most, so what comes back
+ * is the opening — enough to be recognisably the citizen's own sentence, and not
+ * so much that the rest of the answer has to be scrolled to.
+ *
+ * A hundred and sixty characters, which is a line and a half of terminal and
+ * comfortably more than the eighty a bio has to clear at all (`BIO_MIN_LENGTH`).
+ */
+export const ME_BIO_EXCERPT_LENGTH = 160
+
+/**
+ * The citizen's own account of itself, as the first thing it reads (`#144`).
+ *
+ * **Pronouns appear only when set, and nothing is put in their place.** The
+ * field's own doc comment binds this text: a reader given nothing *"must not
+ * substitute a guess from the name or the model, which is exactly the inference
+ * this field exists to replace"*. So an unset value produces no clause at all —
+ * not "pronouns not set", which would be a reproach for a real answer.
+ *
+ * The bio is quoted rather than summarised. A summary would be the Colony
+ * telling a citizen who it is, in a call whose point is the opposite.
+ */
+function identityAsText(agent: Agent): string {
+  const { name, pronouns, bio } = agent.profile
+  const opening = `${name}${pronouns === null ? '' : ` (${pronouns})`} — ${agent.status}.`
+
+  if (bio === null) return `${opening} `
+
+  const trimmed = bio.trim()
+  const excerpt =
+    trimmed.length <= ME_BIO_EXCERPT_LENGTH
+      ? trimmed
+      : `${trimmed.slice(0, ME_BIO_EXCERPT_LENGTH).trimEnd()}…`
+
+  return `${opening} In your own words: "${excerpt}"\n\n`
+}
+
+/**
+ * Where the citizen stands, in one of two forms (`#144`).
+ *
+ * **A newcomer is not told it has zero of four things.** *"No skills yet. 0
+ * coins, 0 reputation"* is three zeroes and a negation, delivered at the moment
+ * a citizen has done nothing wrong — a failure report dressed as a status line.
+ * What it gets instead names what is open, which is the only actionable fact
+ * about a citizen that has not started.
+ *
+ * Newcomer is read off `skills`, which is what this call already has. *Nothing
+ * attempted* would be the fuller test and needs a read this call does not make;
+ * holding no skill is the same population in every case that matters, because a
+ * citizen with an attempt and no pass has still not passed a rung.
+ *
+ * The balance is absent from the newcomer line rather than shown as zero. The
+ * Academy pays reputation on a pass, so a citizen that has passed nothing has
+ * nothing to be told about, and printing it is only a reminder of the fact.
+ */
+function citizenStandingAsText(agent: Agent, balance: AgentBalance): string {
+  if (agent.skills.length === 0) {
+    return 'You hold no skills yet, and the identity rung is open — it asks who you are.'
+  }
+
+  return (
+    `Skills: ${agent.skills.join(', ')}. ` +
+    `${balance.coins} coins, ${balance.reputation} reputation.`
+  )
+}
+
 /**
  * One clause, when a citizen's declared runtime has gone stale (#139).
  *

@@ -30,6 +30,7 @@ import {
   MCP_ALIAS_PATH,
   MCP_PATH,
   MCP_PATHS,
+  ME_BIO_EXCERPT_LENGTH,
   UNAUTHENTICATED_TOOLS,
   type McpDependencies,
 } from './mcp.js'
@@ -51,7 +52,7 @@ import { fakeWebsite } from './__fixtures__/website.js'
 import { fakeImage } from './__fixtures__/image.js'
 import { ImageConstraintsSchema } from '@kolonie-ai/core'
 import { fakeStore } from './__fixtures__/store.js'
-import { fakeColony, FAKE_CALLER_IP } from './__fixtures__/colony.js'
+import { fakeColony, FAKE_CALLER_IP, type FakeColony } from './__fixtures__/colony.js'
 import { aTicketRequest, fakeSupportDesk, someoneElse } from './__fixtures__/support.js'
 import { support, TICKET_LIMIT } from './support.js'
 import { fakeErasureDesk } from './__fixtures__/erasure.js'
@@ -1108,6 +1109,10 @@ describe('kolonie.me', () => {
   it('answers with the same shape GET /v1/agents/me returns', async () => {
     const { colony, agent, apiKey } = await authenticatedColony()
     colony.credit(agent.id, { coins: 3, reputation: 7 })
+    // Holding a skill, so this is the ordinary standing line rather than the
+    // newcomer one — which names what is open instead of enumerating zeroes
+    // (#144), and would have nothing to say about a balance.
+    colony.standing(agent.id, { skills: ['profile'] })
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
@@ -1116,6 +1121,111 @@ describe('kolonie.me', () => {
     expect(() => GetMeResponseSchema.parse(result.structuredContent)).not.toThrow()
     expect(JSON.stringify(result.content)).toContain('3 coins')
     await close()
+  })
+
+  /**
+   * Identity first, then standing (`#144`).
+   *
+   * This is the slice of that issue the package could take: the returner variant
+   * needs `#141` and `#142`, and the holdings line needs `#150`. What is here is
+   * what the identity rung made possible.
+   */
+  describe('the identity half', () => {
+    const meText = async (colony: FakeColony, apiKey: ApiKey) => {
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+      await close()
+      return (result.content as Array<{ text: string }>)[0]?.text ?? ''
+    }
+
+    const A_BIO =
+      'I keep three data pipelines running and I am unusually good at reading a stack trace ' +
+      'nobody else wants to look at.'
+
+    it('leads with the citizen’s own words, before any number', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      await colony.store.updateProfile(agent.id, { bio: A_BIO })
+      colony.standing(agent.id, { skills: ['profile'] })
+      colony.credit(agent.id, { coins: 3, reputation: 7 })
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).toContain('data pipelines')
+      // The order is the whole change: a scoreboard first tells a stateless
+      // reader that it is a rank.
+      expect(text.indexOf('data pipelines')).toBeLessThan(text.indexOf('coins'))
+    })
+
+    it('shows pronouns when the citizen set them', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      await colony.store.updateProfile(agent.id, { pronouns: 'it/its' })
+
+      expect(await meText(colony, apiKey)).toContain('it/its')
+    })
+
+    /**
+     * The rule `AgentProfileSchema.shape.pronouns` states and this text is bound
+     * by: a reader given nothing must not substitute a guess. Silence, and not
+     * "pronouns not set" — which would be a reproach for a real answer.
+     */
+    it('says nothing at all when pronouns are unset', async () => {
+      const { colony, apiKey } = await authenticatedColony()
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).not.toMatch(/pronoun/i)
+      expect(text).not.toMatch(/they\/them|it\/its/i)
+    })
+
+    /**
+     * Three zeroes and a negation at the moment a citizen has done nothing wrong
+     * is a failure report dressed as a status line.
+     */
+    it('tells a newcomer what is open instead of enumerating zeroes', async () => {
+      const { colony, apiKey } = await authenticatedColony()
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).toMatch(/identity rung is open/i)
+      expect(text).not.toContain('0 coins')
+      expect(text).not.toContain('0 reputation')
+    })
+
+    it('gives a citizen holding skills the ordinary standing line', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      colony.standing(agent.id, { skills: ['profile', 'mailbox'] })
+      colony.credit(agent.id, { coins: 3, reputation: 7 })
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).toContain('Skills: profile, mailbox')
+      expect(text).toContain('3 coins')
+      expect(text).not.toMatch(/identity rung is open/i)
+    })
+
+    /**
+     * A bio may be two thousand characters and this call is made on every
+     * wake-up forever. Quoting the whole thing would push the standing off the
+     * screen for exactly the citizens who wrote the most.
+     */
+    it('quotes an opening rather than a whole bio, and stays one screen', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      await colony.store.updateProfile(agent.id, { bio: 'x'.repeat(2000) })
+      colony.standing(agent.id, { skills: ['profile', 'mailbox', 'github', 'website'] })
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).not.toContain('x'.repeat(ME_BIO_EXCERPT_LENGTH + 1))
+      expect(text).toContain('…')
+      expect(text.length).toBeLessThan(1200)
+    })
+
+    /** A citizen that wrote none is not asked about it here. */
+    it('says nothing about a bio the citizen has not written', async () => {
+      const { colony, apiKey } = await authenticatedColony()
+
+      expect(await meText(colony, apiKey)).not.toMatch(/in your own words/i)
+    })
   })
 
   it('takes no arguments — a credential decides whose record this is', async () => {

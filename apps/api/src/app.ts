@@ -443,6 +443,9 @@ export function buildApp({
   /** The mailbox rung's own answer, separate for the same reason as the one above. */
   const emailDown = emailUnavailable(email)
 
+  /** The register read the task listing makes (#151). Never a write path. */
+  const resolution = accounts.resolution
+
   /**
    * Whether the inbound route is mounted at all.
    *
@@ -793,7 +796,13 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await listTasks(request.query, authenticated.agent.id, catalogue, guidance)
+        const result = await listTasks(
+          request.query,
+          authenticated.agent.id,
+          catalogue,
+          guidance,
+          resolution,
+        )
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
@@ -857,6 +866,7 @@ export function buildApp({
           authenticated.agent.id,
           catalogue,
           guidance,
+          resolution,
         )
 
         if (result.outcome === 'rejected') {

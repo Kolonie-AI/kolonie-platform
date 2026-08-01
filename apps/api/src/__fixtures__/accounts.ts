@@ -6,7 +6,12 @@ import {
   type AccountKind,
   type AgentId,
 } from '@kolonie-ai/core'
-import type { AccountRegister, AccountDependencies } from '../accounts.js'
+import type {
+  AccountRegister,
+  AccountDependencies,
+  AccountResolution,
+  HeldAccount,
+} from '../accounts.js'
 
 export interface FakeAccountRegister extends AccountRegister {
   /**
@@ -165,5 +170,43 @@ export function fakeAccountRegister(): FakeAccountRegister {
 export function fakeAccounts(
   register: AccountRegister = fakeAccountRegister(),
 ): AccountDependencies {
-  return { register }
+  return { register, resolution: resolutionOver(register) }
+}
+
+/**
+ * The task listing's narrow read, over whichever register the test is using
+ * (`#151`).
+ *
+ * Built from the register rather than kept separately, so a test that proves an
+ * account through the fixture sees it in the listing without saying so twice —
+ * which is what the real wiring does too.
+ *
+ * **Mail's preference is the register's flag here**, where production reads the
+ * reach address from the mail model. That is the one thing this fake cannot
+ * mirror without owning a mailbox model, and the property it would be asserting
+ * is D-047's, which is tested against a real database in `packages/db`.
+ */
+export function resolutionOver(register: AccountRegister): AccountResolution {
+  return {
+    async heldByKind(agentId, kinds) {
+      const resolved = new Map<string, readonly HeldAccount[]>()
+
+      for (const kind of kinds) {
+        const held = await register.list(agentId, kind as AccountKind)
+        resolved.set(
+          kind,
+          held
+            .filter((account) => account.status === 'in-use')
+            .map((account) => ({
+              identifier: account.identifier,
+              proved: account.proved,
+              preferred: account.preferred,
+            }))
+            .sort((left, right) => Number(right.preferred) - Number(left.preferred)),
+        )
+      }
+
+      return resolved
+    },
+  }
 }

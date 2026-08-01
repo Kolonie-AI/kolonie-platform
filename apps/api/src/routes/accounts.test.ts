@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import type { InjectOptions, Response as InjectResponse } from 'light-my-request'
-import { AccountKindSchema, type AgentId } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  SkillSchema,
+  TaskTypeSchema,
+  type AgentId,
+  type Task,
+} from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
@@ -14,7 +20,7 @@ import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
-import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
@@ -24,24 +30,30 @@ import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeEmail } from '../__fixtures__/email.js'
-import { fakeAccountRegister, type FakeAccountRegister } from '../__fixtures__/accounts.js'
+import {
+  fakeAccountRegister,
+  resolutionOver,
+  type FakeAccountRegister,
+} from '../__fixtures__/accounts.js'
 
 let app: FastifyInstance
 let store: FakeStore
 let register: FakeAccountRegister
+let catalogue: FakeCatalogue
 let apiKey: string
 let agentId: AgentId
 
 beforeEach(async () => {
   store = fakeStore()
   register = fakeAccountRegister()
+  catalogue = fakeCatalogue()
   app = buildApp({
     vault: { vault: fakeVault() },
-    accounts: { register },
+    accounts: { register, resolution: resolutionOver(register) },
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,
-    catalogue: fakeCatalogue(),
+    catalogue,
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
@@ -273,5 +285,129 @@ describe('the four writes on one account', () => {
     })
 
     expect(response.statusCode).toBe(404)
+  })
+})
+
+/**
+ * A task may name the account kinds it needs, and the listing answers from the
+ * citizen's register (`#151`).
+ *
+ * The property under all of these is that **it shows and never gates**. The task
+ * is offered or withheld by the skill edge alone, and what this adds is the
+ * answer to *which of my accounts should I use here* — a question a citizen
+ * currently answers by failing.
+ */
+describe('a task that names an account kind', () => {
+  const listing = () => authed({ method: 'GET', url: '/v1/tasks' })
+
+  /** What the catalogue will answer this listing with. */
+  const offering = (...items: Task[]) =>
+    catalogue.answers({ outcome: 'listed', page: { items, nextCursor: null } })
+
+  it('resolves the kind against what the citizen holds, preference first', async () => {
+    offering(
+      aTask({
+        requiresAccounts: [AccountKindSchema.parse('social')],
+        type: TaskTypeSchema.parse('social-post'),
+      }),
+    )
+    register.proveDirectly(agentId, {
+      kind: AccountKindSchema.parse('social'),
+      identifier: '@second',
+    })
+    register.proveDirectly(agentId, {
+      kind: AccountKindSchema.parse('social'),
+      identifier: '@first',
+      preferred: true,
+    })
+
+    const response = await listing()
+
+    expect(response.json().accounts[0]).toMatchObject({
+      kind: 'social',
+      held: [
+        { identifier: '@first', preferred: true, proved: true },
+        { identifier: '@second', preferred: false, proved: true },
+      ],
+    })
+  })
+
+  it('marks an unproved account as unproved rather than hiding it', async () => {
+    offering(aTask({ requiresAccounts: [AccountKindSchema.parse('social')] }))
+    await authed({
+      method: 'POST',
+      url: '/v1/accounts',
+      payload: { kind: 'social', identifier: '@declared' },
+    })
+
+    const response = await listing()
+
+    expect(response.json().accounts[0].held).toEqual([
+      { identifier: '@declared', proved: false, preferred: false },
+    ])
+  })
+
+  it('omits a retired account', async () => {
+    offering(aTask({ requiresAccounts: [AccountKindSchema.parse('social')] }))
+    const retired = register.proveDirectly(agentId, {
+      kind: AccountKindSchema.parse('social'),
+      identifier: '@old',
+    })
+    await authed({
+      method: 'PUT',
+      url: `/v1/accounts/${retired.id}/status`,
+      payload: { status: 'retired' },
+    })
+
+    expect((await listing()).json().accounts[0].held).toEqual([])
+  })
+
+  /**
+   * Holding none is a pointer rather than a bare absence — otherwise an agent is
+   * left to work out for itself where a mailbox comes from, which is the
+   * discovery-by-failing this exists to end.
+   */
+  it('names the rung that produces one when the citizen holds none', async () => {
+    offering(
+      aTask({ requiresAccounts: [AccountKindSchema.parse('mailbox')] }),
+      aTask({ type: TaskTypeSchema.parse('email-inbox'), grants: [SkillSchema.parse('mailbox')] }),
+    )
+
+    const response = await listing()
+
+    expect(response.json().accounts[0]).toMatchObject({
+      held: [],
+      producedBy: 'email-inbox',
+    })
+  })
+
+  /**
+   * **The assertion this whole issue turns on.** A citizen holding no account of
+   * a named kind is still offered the task, because the gate is the skill list
+   * and adding a second axis would re-express a correct condition somewhere it
+   * can disagree.
+   */
+  it('offers the task to a citizen holding no account of the kind', async () => {
+    offering(
+      aTask({
+        requiresAccounts: [AccountKindSchema.parse('mailbox')],
+        type: TaskTypeSchema.parse('github-account'),
+      }),
+    )
+
+    const response = await listing()
+
+    expect(response.json().items.map((task: { type: string }) => task.type)).toContain(
+      'github-account',
+    )
+  })
+
+  it('answers with an empty resolution when a citizen has declared nothing', async () => {
+    offering(aTask({ requiresAccounts: [AccountKindSchema.parse('domain')] }))
+
+    const response = await listing()
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().accounts[0]).toMatchObject({ kind: 'domain', held: [] })
   })
 })

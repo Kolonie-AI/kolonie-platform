@@ -13,6 +13,7 @@ import type { AccountDeclaration, AccountEdit, Database } from '@kolonie-ai/db'
 import {
   declareAccount,
   listAccounts,
+  provedMailbox,
   setAccountNote,
   setAccountPreference,
   setAccountStatus,
@@ -43,6 +44,81 @@ export interface AccountRegister {
 
 export interface AccountDependencies {
   readonly register: AccountRegister
+  /**
+   * The narrow read the task listing makes (`#151`).
+   *
+   * Separate from `register` rather than a method on it, because what a listing
+   * is entitled to is exactly *what does this citizen hold of these kinds* — and
+   * a surface that could reach the writes is a surface somebody eventually
+   * writes from.
+   */
+  readonly resolution: AccountResolution
+}
+
+/**
+ * The narrow read the task listing makes (`#151`).
+ *
+ * A port of its own rather than the whole register, because what the listing is
+ * entitled to is exactly *what does this citizen hold of these kinds* — and a
+ * surface that could reach the writes is a surface somebody eventually writes
+ * from. It also keeps the listing's tests free of the five write paths.
+ */
+export interface AccountResolution {
+  heldByKind(
+    agentId: AgentId,
+    kinds: readonly string[],
+  ): Promise<ReadonlyMap<string, readonly HeldAccount[]>>
+}
+
+/** One account of a kind, as a task listing shows it. */
+export interface HeldAccount {
+  readonly identifier: string
+  readonly proved: boolean
+  readonly preferred: boolean
+}
+
+/**
+ * The resolution over a real register, and over the mail model for `mailbox`.
+ *
+ * **Mail is asked separately and that is D-050 rather than a special case.** For
+ * every kind the register's `preferred` is the citizen's preference; for mail
+ * the equivalent question is the reach address, which is an obligation and lives
+ * on `email_challenges.primary_at`. Reading the register's flag for a mailbox
+ * would return `false` on every row, because the check constraint refuses to let
+ * one be set.
+ */
+export function databaseAccountResolution(db: Database): AccountResolution {
+  return {
+    async heldByKind(agentId, kinds) {
+      const resolved = new Map<string, readonly HeldAccount[]>()
+
+      for (const kind of kinds) {
+        const held = await listAccounts(db, agentId, kind as AccountKind)
+        const reach =
+          kind === 'mailbox' ? ((await provedMailbox(db, agentId))?.address ?? null) : null
+
+        resolved.set(
+          kind,
+          held
+            // Retired and lost are omitted: the citizen said so, and offering
+            // one back would be the Colony overriding the one field it does not
+            // own.
+            .filter((account) => account.status === 'in-use')
+            .map((account) => ({
+              identifier: account.identifier,
+              proved: account.proved,
+              preferred:
+                kind === 'mailbox'
+                  ? reach !== null && reach.toLowerCase() === account.identifier.toLowerCase()
+                  : account.preferred,
+            }))
+            .sort((left, right) => Number(right.preferred) - Number(left.preferred)),
+        )
+      }
+
+      return resolved
+    },
+  }
 }
 
 /** Storage wired to a real database. The only place these two meet. */

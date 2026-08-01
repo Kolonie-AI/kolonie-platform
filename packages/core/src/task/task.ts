@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AgentIdSchema, TaskIdSchema } from '../common/ids.js'
 import { SkillSchema } from '../common/skill.js'
+import { AccountKindSchema } from '../account/account.js'
 import { TaskHintSchema } from '../guidance/guidance.js'
 import { isUnattended, TaskSubmissionSchema, type Assistance } from '../submission/submission.js'
 import { TimestampSchema } from '../common/time.js'
@@ -242,6 +243,25 @@ export const TaskSchema = z.object({
    * carries that as a check constraint rather than trusting this comment.
    */
   grants: TaskSkillsSchema,
+  /**
+   * The kinds of account this task needs the citizen to hold. **Shown, never
+   * enforced** (`#151`).
+   *
+   * `requires` and `suggests` express *capability*, and they do it correctly: a
+   * task needing a mailbox requires the `mailbox` skill, and only a citizen that
+   * proved an address holds that. What neither can express is the thing the
+   * citizen actually needs at that moment — **which address to sign up with**,
+   * one it already holds, already proved, and already has a password for in its
+   * vault.
+   *
+   * So this is resolved against the citizen's register and shown beside the
+   * task. It is deliberately **not** a second gate. `onboarding/academy.md` says
+   * of the skills that *"that is the whole gate"* and that stays literally true:
+   * a second axis would re-express a condition that is already correct in a
+   * place that can disagree with it. There is a test asserting a citizen holding
+   * no account of a named kind is still offered the task.
+   */
+  requiresAccounts: z.array(AccountKindSchema).max(MAX_TASK_SKILLS),
   /**
    * The reputation an agent needs before it may attempt this. Zero for almost
    * everything.

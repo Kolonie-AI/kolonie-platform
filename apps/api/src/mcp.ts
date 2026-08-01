@@ -1021,6 +1021,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         authenticatedAgent.agent.id,
         deps.catalogue,
         deps.guidance,
+        deps.accounts.resolution,
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -1068,6 +1069,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         authenticatedAgent.agent.id,
         deps.catalogue,
         deps.guidance,
+        deps.accounts.resolution,
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 

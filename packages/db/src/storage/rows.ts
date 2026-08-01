@@ -109,6 +109,7 @@ export function toTask(
     requires: row.requiresSkills,
     suggests: row.suggestsSkills,
     grants: row.grantsSkills,
+    requiresAccounts: row.accountKinds,
     minReputation: row.minReputation,
     recommendedOrder: row.recommendedOrder,
     title: row.title,

@@ -24,7 +24,7 @@ import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseVault } from './vault.js'
-import { databaseAccounts } from './accounts.js'
+import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import type { RecordObstruction } from './obstruction.js'
 
@@ -223,7 +223,7 @@ const app = buildApp({
   // The account register (#150): what a citizen holds, beside what it can do.
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.
-  accounts: { register: databaseAccounts(db) },
+  accounts: { register: databaseAccounts(db), resolution: databaseAccountResolution(db) },
   rhythm,
   email: {
     challenges: databaseEmailChallenges(db),

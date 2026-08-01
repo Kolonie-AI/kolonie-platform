@@ -130,7 +130,15 @@ describe('GET /v1/tasks', () => {
     expect(response.statusCode).toBe(200)
     // `notices` is empty rather than absent: an agent with nothing open has
     // nothing blocked either, and the two are different answers (#117).
-    expect(response.json()).toEqual({ items: [], nextCursor: null, notices: [], sovereignty: [] })
+    // `accounts` is empty for the same reason `notices` is, and for one more:
+    // no listed task named a kind, so there was nothing to resolve (#151).
+    expect(response.json()).toEqual({
+      items: [],
+      nextCursor: null,
+      notices: [],
+      accounts: [],
+      sovereignty: [],
+    })
   })
 
   it('passes the cursor on and returns the next one', async () => {

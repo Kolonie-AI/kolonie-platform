@@ -8,7 +8,8 @@ import {
   SubmissionSchema,
 } from '../submission/submission.js'
 import { SubmissionIdSchema, TaskIdSchema } from '../common/ids.js'
-import { TaskSchema } from '../task/task.js'
+import { TaskSchema, TaskTypeSchema } from '../task/task.js'
+import { AccountKindSchema } from '../account/account.js'
 import { CAPABILITY_FLAGS, SovereigntySchema } from '../attempt/attempt.js'
 import { ReportAskSchema } from '../guidance/personalisation.js'
 
@@ -124,6 +125,45 @@ export const TaskNoticeSchema = z.object({
 })
 export type TaskNotice = z.infer<typeof TaskNoticeSchema>
 
+/**
+ * One kind a task named, resolved against the reader's register (`#151`).
+ *
+ * **It never decides anything.** The task is offered or not offered by the skill
+ * gate alone; this is the Colony answering *which of your accounts should you
+ * use here*, which a citizen currently rediscovers by failing.
+ */
+export const TaskAccountsSchema = z.object({
+  taskId: TaskIdSchema,
+  kind: AccountKindSchema,
+  /**
+   * The accounts the citizen holds of this kind, its preference first.
+   *
+   * Retired and lost ones are omitted — the citizen said so, and offering one
+   * back would be the Colony overriding the one field it does not own. Unproved
+   * ones are included and marked, because an account the citizen wrote down ten
+   * minutes ago is exactly what it wants to be reminded of, and marking it is
+   * what keeps the reminder from reading as evidence.
+   */
+  held: z.array(
+    z.object({
+      identifier: z.string(),
+      proved: z.boolean(),
+      /** The citizen's preference, or — for mail — the address the Colony writes to. */
+      preferred: z.boolean(),
+    }),
+  ),
+  /**
+   * The rung that produces an account of this kind, when the citizen holds none.
+   *
+   * A bare absence would leave an agent to work out for itself where a mailbox
+   * comes from, which is the discovery-by-failing this issue exists to end.
+   * Null when the citizen holds one, and when the Colony has no rung for the
+   * kind.
+   */
+  producedBy: TaskTypeSchema.nullable(),
+})
+export type TaskAccounts = z.infer<typeof TaskAccountsSchema>
+
 export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
   /**
    * The tasks on this page the agent's declared configuration has not passed
@@ -140,6 +180,19 @@ export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
    * `kolonie.tasks.runtime` has been called.
    */
   notices: z.array(TaskNoticeSchema),
+  /**
+   * What the reader holds of each kind the listed tasks named (`#151`).
+   *
+   * **Beside the items rather than on them**, for the reason `notices` gives:
+   * this is a fact about the reader and the task together, and folding it into
+   * `TaskSchema` would make a per-reader value a property of the catalogue.
+   *
+   * Empty when no listed task named a kind, and — importantly — also when the
+   * citizen holds nothing: `held` is then empty and `producedBy` names the rung
+   * that produces one, because *you hold none and here is where they come from*
+   * is a more useful answer than an absence.
+   */
+  accounts: z.array(TaskAccountsSchema),
   /**
    * How each listed task's passes divide between citizens that were alone and
    * citizens that were not (#116).
@@ -169,6 +222,8 @@ export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
  */
 export const GetTaskResponseSchema = z.object({
   task: TaskSchema,
+  /** The same resolution the listing carries, for one task (`#151`). */
+  accounts: z.array(TaskAccountsSchema),
   /**
    * How many published reports this task has.
    *

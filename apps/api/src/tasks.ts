@@ -10,10 +10,13 @@ import {
   type GetTaskResponse,
   type ListTasksResponse,
   type Task,
+  type TaskAccounts,
   type TaskId,
+  type TaskType,
   type TaskNotice,
   type TaskReference,
 } from '@kolonie-ai/core'
+import type { AccountResolution } from './accounts.js'
 import {
   frontier as frontierInDatabase,
   listTasks as listTasksInDatabase,
@@ -174,11 +177,77 @@ export async function academyGraph(catalogue: TaskCatalogue): Promise<AcademyGra
  * nothing is open with the skills held right now. {@link frontier} is where an
  * agent finds out what would open something.
  */
+
+/**
+ * Which rung produces an account of each kind.
+ *
+ * **Derived from what the seed says a task grants**, rather than written down
+ * twice: `mailbox` comes from whichever task grants the `mailbox` skill, and if
+ * that ever becomes a different rung this follows it. A kind the Colony has no
+ * rung for answers null, which is the honest answer and not an error — a citizen
+ * may hold an account of a kind the Academy cannot yet certify.
+ */
+const SKILL_FOR_ACCOUNT_KIND: Readonly<Record<string, string>> = {
+  mailbox: 'mailbox',
+  github: 'github',
+  social: 'social',
+  domain: 'domain',
+  website: 'website',
+  wallet: 'wallet',
+}
+
+/**
+ * Resolve every account kind these tasks named against the reader's register
+ * (`#151`).
+ *
+ * **Absent rather than fatal.** A citizen that has declared nothing gets an
+ * empty `held` and a pointer, and no listing may fail because a register is
+ * empty — the whole surface is an offer, and an offer that can break the page it
+ * is attached to is worse than no offer.
+ *
+ * Retired and lost accounts are omitted, unproved ones are marked, and the
+ * citizen's preference comes first. For mail the preference is the reach
+ * address, which lives on the mail model rather than in the register — see
+ * D-050 — so `preferred` is asked of the accounts port and never computed here.
+ */
+async function accountsFor(
+  tasks: readonly Task[],
+  agentId: AgentId,
+  register: AccountResolution,
+): Promise<TaskAccounts[]> {
+  const kinds = [...new Set(tasks.flatMap((task) => task.requiresAccounts))]
+  if (kinds.length === 0) return []
+
+  const held = await register.heldByKind(agentId, kinds)
+
+  return tasks.flatMap((task) =>
+    task.requiresAccounts.map((kind) => {
+      const accounts = held.get(kind) ?? []
+
+      return {
+        taskId: task.id,
+        kind,
+        held: [...accounts],
+        producedBy: accounts.length > 0 ? null : (producerOf(kind, tasks) ?? null),
+      }
+    }),
+  )
+}
+
+/** The task type that grants the skill this kind of account earns, if one is in hand. */
+function producerOf(kind: string, tasks: readonly Task[]): TaskType | undefined {
+  const skill = SKILL_FOR_ACCOUNT_KIND[kind]
+  if (skill === undefined) return undefined
+
+  return tasks.find((task) => task.grants.some((granted) => String(granted) === skill))?.type
+}
+
 export async function listTasks(
   query: unknown,
   agentId: AgentId,
   catalogue: TaskCatalogue,
   guidance: TaskGuidance,
+  register: AccountResolution,
 ): Promise<ListTasksOutcome> {
   const parsed = ListTasksRequestSchema.safeParse(fromQueryString(query))
   if (!parsed.success) {
@@ -201,9 +270,10 @@ export async function listTasks(
     }
   }
 
-  const [notices, byType] = await Promise.all([
+  const [notices, byType, accounts] = await Promise.all([
     noticesFor(result.page.items, agentId, catalogue, guidance),
     guidance.sovereigntyByType(),
+    accountsFor(result.page.items, agentId, register),
   ])
 
   return {
@@ -211,6 +281,7 @@ export async function listTasks(
     response: {
       ...result.page,
       notices,
+      accounts,
       /**
        * One entry per listed task, always — including the zeroes.
        *
@@ -352,6 +423,7 @@ export async function getTask(
   agentId: AgentId,
   catalogue: TaskCatalogue,
   guidance: TaskGuidance,
+  register: AccountResolution,
 ): Promise<GetTaskOutcome> {
   const parsed = TaskIdSchema.safeParse(taskId)
   if (!parsed.success) return { outcome: 'rejected', error: noSuchTask }
@@ -409,6 +481,8 @@ export async function getTask(
     outcome: 'found',
     response: {
       task,
+      // One task's worth of the same resolution the listing carries (#151).
+      accounts: await accountsFor([task], agentId, register),
       reportCount,
       attempt: standing.attempt,
       blocking,

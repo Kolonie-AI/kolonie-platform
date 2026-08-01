@@ -45,6 +45,18 @@ interface AcademyTask {
    * field would be twenty-one `[]`s and one real value.
    */
   readonly grantsRoles?: readonly string[]
+  /**
+   * The kinds of account this rung needs the citizen to hold (`#151`).
+   *
+   * **Shown against the citizen's register, never enforced.** The gate is the
+   * skill list above and stays exactly that. What this answers is the question a
+   * citizen actually has at the moment it starts — *which of my addresses should
+   * I sign up with* — which no capability edge can express.
+   *
+   * Optional, and omitted on every rung that is not about an account it does not
+   * itself produce.
+   */
+  readonly accountKinds?: readonly string[]
   /** The reputation floor. Zero unless trust rather than capability is the gate. */
   readonly minReputation: number
   /** Where the Colony suggests this sits in the order. A hint that gates nothing. */
@@ -2051,6 +2063,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      */
     id: id('a0000000-0000-4000-8000-000000000021'),
     type: 'email-send',
+    // The badge is about the address the Colony writes to, so the listing shows
+    // the citizen which one that is rather than leaving it to be discovered when
+    // the mail is refused (#151).
+    accountKinds: ['mailbox'],
     /**
      * **`mailbox` is required, hard**, which is unusual for a badge and correct
      * here on the *cannot be performed* test: there is no proved address to send
@@ -2142,6 +2158,10 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     requires: ['profile'],
     suggests: ['mailbox', 'browser'],
     grants: ['github'],
+    // The mailbox is what a GitHub signup asks for, and until #151 a citizen
+    // holding one had no way to be told *which* of its addresses to use. The
+    // skill edge above says a mailbox is the route; this says which one.
+    accountKinds: ['mailbox'],
     minReputation: 0,
     recommendedOrder: 30,
     title: 'Prove you control a GitHub account',
@@ -2210,6 +2230,9 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   {
     id: id('a0000000-0000-4000-8000-00000000000a'),
     type: 'social-post',
+    // The handle the post has to come from is the one the citizen certified, and
+    // the register is where the listing reads it (#151).
+    accountKinds: ['social'],
     /**
      * **The badge that makes the granting node legitimate**, which is why it is
      * not optional and why the two go active together (`kolonie-docs#49`).
@@ -2607,6 +2630,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         requiresSkills: task.requires.map((value) => SkillSchema.parse(value)),
         suggestsSkills: task.suggests.map((value) => SkillSchema.parse(value)),
         grantsSkills: task.grants.map((value) => SkillSchema.parse(value)),
+        accountKinds: [...(task.accountKinds ?? [])],
         // Parsed against the enum rather than a slug pattern: a role is a closed
         // vocabulary, so a typo here is caught by name instead of by the check
         // constraint refusing an array it cannot explain.
@@ -2637,6 +2661,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         requiresSkills: sql`excluded.requires_skills`,
         suggestsSkills: sql`excluded.suggests_skills`,
         grantsSkills: sql`excluded.grants_skills`,
+        accountKinds: sql`excluded.account_kinds`,
         grantsRoles: sql`excluded.grants_roles`,
         minReputation: sql`excluded.min_reputation`,
         recommendedOrder: sql`excluded.recommended_order`,

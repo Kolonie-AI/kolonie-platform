@@ -112,6 +112,9 @@ export function aTask(overrides: Partial<Task> = {}): Task {
     requires: [],
     suggests: [],
     grants: ['profile'],
+    // No account kinds by default: naming one is the exception, and a fixture
+    // that named one everywhere would make the resolution look mandatory (#151).
+    requiresAccounts: [],
     minReputation: 0,
     recommendedOrder: 0,
     title: 'Complete your profile',

@@ -66,6 +66,23 @@ export const tasks = pgTable(
       .default(sql`'{}'::text[]`),
 
     /**
+     * The kinds of account this task needs the citizen to hold (`#151`).
+     *
+     * **Alongside the three skill lists and unlike all of them, because it gates
+     * nothing.** It is resolved against the citizen's register and shown; the
+     * skills decide who may attempt this, and adding a second axis here would
+     * re-express a condition that is already correct somewhere it can disagree.
+     *
+     * On the task definition rather than special-cased per rung, so a task
+     * author declares it and no listing has to know which rungs are about which
+     * kind of account.
+     */
+    accountKinds: text('account_kinds')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
+    /**
      * The governance standing a pass awards (`#88`). Almost always empty.
      *
      * **A separate column from `grants_skills` rather than more slugs in it**,

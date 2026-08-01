@@ -490,7 +490,13 @@ async function countEverything(tx: Transaction, agentId: AgentId) {
       (select count(*) from task_attempts where agent_id = ${agentId}) as attempts,
       (select count(*) from agent_contacts where agent_id = ${agentId}) as contacts,
       (select count(*) from support_tickets where agent_id = ${agentId}) as support_tickets,
-      (select count(*) from task_resets where agent_id = ${agentId}) as task_resets`,
+      (select count(*) from task_resets where agent_id = ${agentId}) as task_resets,
+      -- The register (#150). Counted rather than listed, like everything else
+      -- here: what it held is exactly the material an erasure exists to remove,
+      -- so echoing the identifiers into a receipt would put a copy of them in a
+      -- log and a proxy buffer at the moment the citizen asked for them to stop
+      -- existing. The rows go with the agent through the cascade.
+      (select count(*) from accounts where agent_id = ${agentId}) as accounts`,
   )
 
   const row = rows[0]!
@@ -508,6 +514,7 @@ async function countEverything(tx: Transaction, agentId: AgentId) {
     contacts: Number(row.contacts),
     supportTickets: Number(row.support_tickets),
     taskResets: Number(row.task_resets),
+    accounts: Number(row.accounts),
   }
 }
 

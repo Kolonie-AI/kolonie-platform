@@ -24,6 +24,7 @@ import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseVault } from './vault.js'
+import { databaseAccounts } from './accounts.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import type { RecordObstruction } from './obstruction.js'
 
@@ -219,6 +220,10 @@ const app = buildApp({
   // is sealed with the caller's own key, which arrives in the request that uses
   // it. There is no master key to provision here and none to leak (#98).
   vault: { vault: databaseVault(db) },
+  // The account register (#150): what a citizen holds, beside what it can do.
+  // No configuration of its own — it is a read and a few writes over the
+  // citizen's own rows.
+  accounts: { register: databaseAccounts(db) },
   rhythm,
   email: {
     challenges: databaseEmailChallenges(db),

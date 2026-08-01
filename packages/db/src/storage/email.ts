@@ -653,6 +653,23 @@ export async function provedMailbox(
   db: Database,
   agentId: AgentId,
 ): Promise<{ address: string; grantedAt: Timestamp } | undefined> {
+  /**
+   * **This one is not reimplemented over the account register, and that is the
+   * register's own decision rather than an exception to it** (`#150`).
+   *
+   * The register resolves *which account of a kind to use*, and for every other
+   * kind that is a preference the citizen expresses. Mail is the one kind where
+   * the question has an obligation behind it — the Colony has exactly one
+   * address it writes to — and D-047 put that on `primary_at`, enforced by a
+   * partial unique index, with `promoteMailbox` as the only thing that moves it.
+   * A second answer in `accounts.preferred` would be a second answer, so the
+   * check constraint there refuses one.
+   *
+   * So the register carries the mailbox and this carries the reach address, and
+   * asking the register instead would return *an* address the citizen proved
+   * rather than *the* one the Colony writes to. `domainGrantOf` one file over is
+   * the port that did move, because on that kind there was nothing to preserve.
+   */
   const [row] = await db
     .select({ address: emailChallenges.address, verifiedAt: emailChallenges.verifiedAt })
     .from(emailChallenges)

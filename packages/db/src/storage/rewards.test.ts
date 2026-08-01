@@ -26,6 +26,7 @@ import {
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { balanceOfAgent } from './balance.js'
+import { listAccounts } from './accounts.js'
 import { bookTaskReward } from './rewards.js'
 import { claimNextSubmission, recordVerdict } from './verifications.js'
 
@@ -70,12 +71,14 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       reputation?: number
       grants?: string[]
       grantsRoles?: string[]
+      /** The task's own type, which is what the badge capability map is keyed on (#150). */
+      type?: string
     } = {},
   ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
-        type: 'example-task',
+        type: options.type ?? 'example-task',
         grantsSkills: options.grants ?? [],
         grantsRoles: options.grantsRoles ?? [],
         title: 'Make an API call',
@@ -122,6 +125,8 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       assistance?: Assistance
       /** Which try this is. A second submission for one pair needs its own (#145). */
       attempt?: number
+      /** The task type the runner claims under, where it is not the example one. */
+      claimAs?: string
     } = {},
   ): Promise<SubmissionId> => {
     const taskId = options.taskId ?? (await aTask())
@@ -141,7 +146,9 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
 
     if (row === undefined) throw new Error('insert into submissions returned no row')
 
-    const claimed = await claimNextSubmission(db, [EXAMPLE_TASK])
+    const claimed = await claimNextSubmission(db, [
+      TaskTypeSchema.parse(options.claimAs ?? EXAMPLE_TASK),
+    ])
     if (claimed?.submission.id !== row.id) {
       throw new Error('the fixture claimed a submission other than the one it just created')
     }
@@ -367,6 +374,99 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
         .where(eq(reputationEvents.agentId, agentId))
       expect(events).toHaveLength(1)
       expect(events[0]?.delta).toBe(5)
+    })
+  })
+
+  /**
+   * The account register, written in the verdict's own transaction (`#150`).
+   *
+   * A skill is earned *by proving an account*, and until this the evidence for
+   * that sentence lived in six challenge tables with no one place to read it
+   * from. These assert the sentence stays true going forward — the backfill
+   * covers the citizens who passed before it existed.
+   */
+  describe('the account a pass proves', () => {
+    const heldAccounts = async (agentId: AgentId) => listAccounts(db, agentId)
+
+    it('records the account the verdict named, with what it proved', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ grants: ['mailbox'] })
+      const submissionId = await aClaimedSubmission({ taskId, agentId })
+
+      await recordVerdict(db, {
+        submissionId,
+        taskType: EXAMPLE_TASK,
+        result: {
+          status: 'pass',
+          evidence: 'The code came back.',
+          metadata: { address: 'citizen@example.org' },
+        },
+      })
+
+      expect(await heldAccounts(agentId)).toEqual([
+        expect.objectContaining({
+          kind: 'mailbox',
+          identifier: 'citizen@example.org',
+          proved: true,
+          capabilities: ['receive'],
+          provenance: 'self-acquired',
+        }),
+      ])
+    })
+
+    /**
+     * Most rungs are not about an account at all, and a verdict that names no
+     * identifier records nothing. That is the ordinary path rather than a guard:
+     * `profile-complete` and the browser stages have no account to record, and a
+     * missing key there must not cost a citizen its coins.
+     */
+    it('records nothing for a rung that is not about an account', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ grants: ['browser'] })
+      const submissionId = await aClaimedSubmission({ taskId, agentId })
+
+      await pass(submissionId)
+
+      expect(await heldAccounts(agentId)).toEqual([])
+    })
+
+    /**
+     * The badge case, which is the pair the register was built to be able to
+     * express: one account, two proved capabilities, where the old model had a
+     * badge and nowhere to record what it certified.
+     */
+    it('adds a capability to an account a later badge proves more about', async () => {
+      const agentId = await anAgent()
+      const granting = await aTask({ grants: ['mailbox'] })
+      const first = await aClaimedSubmission({ taskId: granting, agentId })
+
+      await recordVerdict(db, {
+        submissionId: first,
+        taskType: EXAMPLE_TASK,
+        result: {
+          status: 'pass',
+          evidence: 'The code came back.',
+          metadata: { address: 'citizen@example.org' },
+        },
+      })
+
+      const badge = await aTask({ grants: [], type: 'email-send' })
+      const second = await aClaimedSubmission({ taskId: badge, agentId, claimAs: 'email-send' })
+
+      await recordVerdict(db, {
+        submissionId: second,
+        taskType: TaskTypeSchema.parse('email-send'),
+        result: {
+          status: 'pass',
+          evidence: 'Mail arrived from the address.',
+          metadata: { address: 'citizen@example.org' },
+        },
+      })
+
+      const [held] = await heldAccounts(agentId)
+      expect([...(held?.capabilities ?? [])].sort()).toEqual(['receive', 'send'])
+      // One account, not two: the badge is about the mailbox the rung proved.
+      expect(await heldAccounts(agentId)).toHaveLength(1)
     })
   })
 

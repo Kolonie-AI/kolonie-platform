@@ -82,6 +82,15 @@ import { openSocialChallenge, type SocialDependencies } from './social.js'
 import { openDomainChallenge, type DomainDependencies } from './domain.js'
 import { openVisionChallenge, submitVisionAnswer, type VisionDependencies } from './vision.js'
 import {
+  declareOwnAccount,
+  preferOwnAccount,
+  readAccounts,
+  setOwnAccountNote,
+  setOwnAccountStatus,
+  setOwnAccountVaultKey,
+  type AccountDependencies,
+} from './accounts.js'
+import {
   forgetVaultEntry,
   listVault,
   readVaultEntry,
@@ -185,6 +194,8 @@ export interface AppDependencies {
    * and it arrives in the request that uses it.
    */
   readonly vault: VaultDependencies
+  /** The account register (#150). */
+  readonly accounts: AccountDependencies
   /**
    * The range a citizen may declare its wake-up rhythm inside (#142).
    *
@@ -229,6 +240,7 @@ export function buildApp({
   domain,
   vision,
   vault,
+  accounts,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
@@ -389,6 +401,7 @@ export function buildApp({
           // front door that silently stopped counting.
           vision,
           vault,
+          accounts,
           rhythm,
           caller: { ip: clientIp(request.headers, request.ip) },
         },
@@ -466,6 +479,7 @@ export function buildApp({
           '/v1/tasks/:taskId/submissions',
           '/v1/academy/graph',
           '/v1/academy/challenges',
+          '/v1/accounts',
           '/v1/mailboxes',
           '/v1/mailboxes/promote',
           '/v1/vault',
@@ -1025,6 +1039,162 @@ export function buildApp({
         }
 
         return reply.status(200).send({ verified: true, ...result.response })
+      })
+
+      /**
+       * The account register: what a citizen holds, beside what it can do (#150).
+       *
+       * **`/accounts` and not `/agents/me/accounts`**, matching `/vault` one
+       * block down: both are the caller's own and neither has a subject in its
+       * path. There is nowhere in these five routes to put somebody else's agent
+       * id, which is the property rather than a coincidence.
+       *
+       * Reading, declaring, and four small writes. None of them can set `proved`
+       * or a capability — those are written only inside a verdict's transaction,
+       * and a test asserts no route reaches that function.
+       */
+      v1.get('/accounts', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { kind } = request.query as { kind?: string }
+        const result = await readAccounts(authenticated.agent.id, kind, accounts)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send(result.response)
+      })
+
+      v1.post('/accounts', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const result = await declareOwnAccount(authenticated.agent.id, request.body, accounts)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(201).send(result.response)
+      })
+
+      /**
+       * The three fields a citizen may set on one of its own accounts, and the
+       * preference.
+       *
+       * Separate routes rather than one `PATCH` taking a partial object, for the
+       * reason the vault gives about `PUT /vault/:key`: each of these is a
+       * different intention, and a shape that carries three optional fields
+       * cannot tell *clear the note* from *do not touch the note* without a
+       * convention every caller has to know.
+       */
+      v1.put('/accounts/:accountId/status', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { accountId } = request.params as { accountId: string }
+        const result = await setOwnAccountStatus(
+          authenticated.agent.id,
+          accountId,
+          request.body,
+          accounts,
+        )
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send(result.response)
+      })
+
+      v1.put('/accounts/:accountId/note', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { accountId } = request.params as { accountId: string }
+        const result = await setOwnAccountNote(
+          authenticated.agent.id,
+          accountId,
+          request.body,
+          accounts,
+        )
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send(result.response)
+      })
+
+      v1.put('/accounts/:accountId/vault-key', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { accountId } = request.params as { accountId: string }
+        const result = await setOwnAccountVaultKey(
+          authenticated.agent.id,
+          accountId,
+          request.body,
+          accounts,
+        )
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send(result.response)
+      })
+
+      v1.post('/accounts/:accountId/prefer', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { accountId } = request.params as { accountId: string }
+        const result = await preferOwnAccount(authenticated.agent.id, accountId, accounts)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.status(200).send(result.response)
       })
 
       /**

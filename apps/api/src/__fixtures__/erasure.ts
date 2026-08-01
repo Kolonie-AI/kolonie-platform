@@ -37,6 +37,7 @@ const RECEIPT: ErasureReceipt = {
     contacts: 9,
     supportTickets: 1,
     taskResets: 0,
+    accounts: 0,
   },
   banMarksWritten: 0,
   beyondReach: [

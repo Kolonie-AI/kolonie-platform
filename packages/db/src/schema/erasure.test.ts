@@ -665,6 +665,14 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
 
     expect(carried).toEqual([
       /**
+       * #150. Cascades. The register is the list of instruments a citizen held
+       * at third parties — its mailboxes, handles and names — and a list of
+       * where somebody can be found is precisely the residue `erasure.md` §4
+       * rules out. The accounts themselves are untouched and are meant to be:
+       * they are the citizen's, at somebody else's service.
+       */
+      'accounts.agent_id c',
+      /**
        * #141. Cascades: a contact log says when a citizen woke, how regularly
        * it came back and how long it was gone — a behavioural record of one
        * life, and exactly the residue `erasure.md` §4 rules out. It is also the

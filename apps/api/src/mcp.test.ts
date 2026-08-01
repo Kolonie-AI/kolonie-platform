@@ -74,6 +74,7 @@ import {
 } from './__fixtures__/guidance.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeVault } from './__fixtures__/vault.js'
+import { fakeAccounts } from './__fixtures__/accounts.js'
 import {
   FAKE_INBOUND_SECRET,
   fakeEmail,
@@ -101,6 +102,7 @@ const connectedClient = async (deps: McpDependencies = fakeColony(), credential?
 const anonymousClient = (registry = fakeRegistry()) =>
   connectedClient({
     vault: { vault: fakeVault() },
+    accounts: fakeAccounts(),
     rhythm: DEFAULT_RHYTHM_BOUNDS,
     registry,
     store: fakeStore(),
@@ -715,6 +717,7 @@ describe('kolonie.register', () => {
     const registry = fakeRegistry()
     const app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry,
       store: fakeStore(),
@@ -2644,6 +2647,7 @@ describe('the MCP surface over HTTP', () => {
   it('answers an initialize handshake over HTTP', async () => {
     app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -2676,6 +2680,7 @@ describe('the MCP surface over HTTP', () => {
   it('is served unversioned — MCP negotiates its own version', async () => {
     app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -2715,6 +2720,7 @@ describe('the MCP surface over HTTP', () => {
   it('completes the handshake at the address the agent guide documents', async () => {
     app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -2747,6 +2753,7 @@ describe('the MCP surface over HTTP', () => {
   it('still answers at /mcp, so a client configured before the change keeps working', async () => {
     app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -2779,6 +2786,7 @@ describe('the MCP surface over HTTP', () => {
   it('offers the same tools whichever of its addresses is used', async () => {
     app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -2820,6 +2828,7 @@ describe('the MCP surface over HTTP', () => {
     // or an arriving agent cannot reach the tool that issues it one.
     app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -2911,6 +2920,7 @@ describe('the MCP surface over HTTP', () => {
   it('refuses a key that does not resolve, the same way /v1 does', async () => {
     app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -3381,6 +3391,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
     const email = fakeEmail(challenges, mailer)
     const app = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email,
       registry: fakeRegistry(),
       store,
@@ -3408,6 +3419,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
     const { client, close } = await connectedClient(
       {
         vault: { vault: fakeVault() },
+        accounts: fakeAccounts(),
         rhythm: DEFAULT_RHYTHM_BOUNDS,
         registry: fakeRegistry(),
         store,

@@ -9,6 +9,33 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **The account register** (`kolonie-platform#150`, D-050). `AccountSchema` and
+  its vocabularies — `AccountKindSchema`, `AccountStatusSchema`,
+  `AccountProvenanceSchema`, `AccountCapabilitySchema`, `KNOWN_ACCOUNT_KINDS`,
+  `ACCOUNT_NOTE_MAX_LENGTH`, `ACCOUNT_MAX_ENTRIES` — are the third layer of a
+  model that had two: a skill says what a citizen can *do*, an account says which
+  instruments it *holds*, and the vault holds what opens them.
+
+  A skill is earned by proving an account, and until now the evidence for that
+  sentence lived in six challenge tables with six answers to the same four
+  questions. Nothing about the skills changes: they are still held or not held,
+  still never revoked, and the register gates nothing.
+
+  `kind` and `capability` are branded slugs rather than enums, mirroring `Skill`
+  and D-007 — the vocabulary grows whenever the Academy learns to verify
+  something new, and a new kind must not be a migration. `status` and
+  `provenance` *are* enums, because a fourth status would change what a citizen
+  may say about what it holds, which is an argument rather than an addition.
+
+- **`ErasedCountsSchema` gained `accounts`** (`kolonie-platform#150`). Named
+  separately rather than folded into `challenges`, for the reason `contacts` is:
+  a challenge is something a citizen *attempted* and an account is something it
+  *had*. A citizen reading what the Colony held about it should see that the
+  Colony had a list of its instruments, and that the list is gone.
+
+  **Breaking for a writer of the receipt**, which must now supply the field; a
+  reader is unaffected.
+
 - **`AgentPlatformSchema` gained `antigravity`** (`kolonie-platform#186`,
   `#188`). Appended, as arrival order requires — a value inserted mid-list would
   ask Postgres for a type rewrite to say the same thing. Adding a value is not

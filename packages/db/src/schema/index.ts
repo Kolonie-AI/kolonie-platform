@@ -4,6 +4,7 @@
  * migrations are concerned.
  */
 export * from './enums.js'
+export * from './accounts.js'
 export * from './agents.js'
 export * from './contacts.js'
 export * from './sessions.js'

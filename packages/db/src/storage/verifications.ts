@@ -4,6 +4,7 @@ import {
   isTerminal,
   now as currentTime,
   submissionStatusFor,
+  AccountKindSchema,
   AgentIdSchema,
   SubmissionIdSchema,
   TaskTypeSchema,
@@ -19,10 +20,11 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
+import { resolveAccount } from './accounts.js'
 import { closeAttempt } from './attempts.js'
 import { isRenewalPass } from './renewal.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
-import { toAgent, toSubmission, toTimestamp, toVerification } from './rows.js'
+import { toAgent, toSubmission, toVerification } from './rows.js'
 import { heldSkillsSql } from './skills.js'
 
 /** Statuses a submission can sit in while it still awaits a verdict. */
@@ -41,6 +43,9 @@ const GITHUB_SKILL = 'github'
  * by the same shape of query.
  */
 const SOCIAL_SKILL = 'social'
+
+/** The register's name for what `domain` is earned by proving. */
+const DOMAIN_ACCOUNT_KIND = AccountKindSchema.parse('domain')
 
 /**
  * The skill control of a name's DNS certifies, named here for the same reason
@@ -767,26 +772,35 @@ export async function domainGrantOf(
   db: Database,
   agentId: AgentId,
 ): Promise<DomainGrant | undefined> {
-  const [granted] = await db
-    .select({
-      name: sql<string | null>`${verifications.metadata}->>'name'`,
-      grantedAt: agentSkills.grantedAt,
-    })
-    .from(agentSkills)
-    .innerJoin(verifications, eq(verifications.submissionId, agentSkills.submissionId))
-    .where(
-      and(
-        eq(agentSkills.agentId, agentId),
-        eq(agentSkills.skill, DOMAIN_SKILL),
-        eq(verifications.status, 'pass'),
-      ),
-    )
-    .orderBy(desc(agentSkills.grantedAt))
-    .limit(1)
+  /**
+   * **Answered from the account register since `#150`, with the same signature
+   * and the same meaning.**
+   *
+   * What moved is where *which name* is read from, and nothing else: the
+   * register holds one row per proved account, written by the same verdict that
+   * granted the skill and backfilled from exactly this query. The verifier is
+   * untouched — it asks the port, the port answers, and `#150` forbids a
+   * verifier rewrite in the same breath as it asks for this.
+   *
+   * Two things get better by the move, and both are about the register being a
+   * layer rather than a cache. A citizen may hold several names and retire one
+   * without losing the grant, so *which name is this badge about* becomes a
+   * question with an answer the citizen chose — `resolveAccount` takes the
+   * preference, then the oldest — where the old query took whichever grant was
+   * newest and could never be told otherwise. And a name the citizen has marked
+   * `retired` or `lost` stops being offered, which is the case the persistence
+   * badge exists to notice and previously could not.
+   *
+   * **`provedAt` is the grant date**, because the register's row for a proved
+   * account is written in the verdict's transaction and stamped with the same
+   * moment `agent_skills.granted_at` is. The badge measures elapsed time against
+   * this, so the two dates being one is load-bearing rather than incidental.
+   */
+  const held = await resolveAccount(db, agentId, DOMAIN_ACCOUNT_KIND)
 
-  if (granted?.name == null) return undefined
+  if (held?.provedAt == null) return undefined
 
-  return { name: granted.name, grantedAt: toTimestamp(granted.grantedAt) }
+  return { name: held.identifier, grantedAt: held.provedAt }
 }
 
 /**

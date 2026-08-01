@@ -95,6 +95,21 @@ export const ErasedCountsSchema = z
     contacts: z.number().int().nonnegative(),
     supportTickets: z.number().int().nonnegative(),
     taskResets: z.number().int().nonnegative(),
+    /**
+     * The register of what the citizen held at third parties (`#150`).
+     *
+     * Named separately rather than folded into `challenges`, for the same reason
+     * `contacts` is: it is a different kind of fact about the citizen. A
+     * challenge is a thing it *attempted*; an account is a thing it *had* — the
+     * mailbox, the handle, the name — and a citizen reading what the Colony held
+     * about it should see that the Colony had a list of its instruments, and
+     * that the list is gone.
+     *
+     * The accounts themselves are untouched by an erasure and are meant to be:
+     * they are the citizen's, at somebody else's service, and this deletes the
+     * Colony's record of them and nothing more.
+     */
+    accounts: z.number().int().nonnegative(),
   })
   .strict()
 export type ErasedCounts = z.infer<typeof ErasedCountsSchema>

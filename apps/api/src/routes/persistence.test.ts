@@ -21,6 +21,7 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeVault } from '../__fixtures__/vault.js'
+import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import type { AcademyDependencies } from '../academy.js'
@@ -48,6 +49,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
   academy = { ...fakeAcademy('passed', challenges), ...overrides }
   return buildApp({
     vault: { vault: fakeVault() },
+    accounts: fakeAccounts(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,

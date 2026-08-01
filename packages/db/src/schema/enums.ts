@@ -1,5 +1,7 @@
 import { pgEnum } from 'drizzle-orm/pg-core'
 import {
+  AccountProvenanceSchema,
+  AccountStatusSchema,
   AccountTypeSchema,
   AgentPlatformSchema,
   AssistanceSchema,
@@ -50,6 +52,22 @@ export const citizenshipStatus = pgEnum(
 )
 
 export const accountType = pgEnum('account_type', valuesOf(AccountTypeSchema.options))
+
+/**
+ * The account register's two closed vocabularies (`#150`).
+ *
+ * Enums here where `kind` is text, and the difference is which of them grows.
+ * A new kind arrives whenever the Academy learns to verify something new; a
+ * fourth *status* would be a change to what the citizen is allowed to say about
+ * what it holds, which is an argument rather than a routine addition — so the
+ * database is the right place for it to have to be made.
+ */
+export const accountStatus = pgEnum('account_status', valuesOf(AccountStatusSchema.options))
+
+export const accountProvenance = pgEnum(
+  'account_provenance',
+  valuesOf(AccountProvenanceSchema.options),
+)
 
 /**
  * D-001: roles and citizenship are separate types, so `candidate` and `citizen`

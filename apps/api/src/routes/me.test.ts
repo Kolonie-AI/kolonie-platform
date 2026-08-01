@@ -27,6 +27,7 @@ import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeVault } from '../__fixtures__/vault.js'
+import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 
@@ -37,6 +38,7 @@ const withStore = async () => {
   store = fakeStore()
   app = buildApp({
     vault: { vault: fakeVault() },
+    accounts: fakeAccounts(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,
@@ -249,6 +251,7 @@ describe('GET /v1/agents/me', () => {
       }
       app = buildApp({
         vault: { vault: fakeVault() },
+        accounts: fakeAccounts(),
         email: fakeEmail(),
         registry: fakeRegistry(),
         store: counting,

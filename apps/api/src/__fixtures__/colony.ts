@@ -35,6 +35,7 @@ import type { SocialDependencies } from '../social.js'
 import type { DomainDependencies } from '../domain.js'
 import type { VisionDependencies } from '../vision.js'
 import type { VaultDependencies } from '../vault.js'
+import type { AccountDependencies } from '../accounts.js'
 import { fakeAcademy } from './academy.js'
 import { fakeEmail } from './email.js'
 import { fakeKeys } from './keys.js'
@@ -47,6 +48,7 @@ import { fakeWebsite } from './website.js'
 import { fakeImage } from './image.js'
 import { fakeVision } from './vision.js'
 import { fakeVault } from './vault.js'
+import { fakeAccounts } from './accounts.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
@@ -140,6 +142,8 @@ export interface FakeColony {
   readonly vision: VisionDependencies
   /** The vault, behind both surfaces. Overridable the same way (#98). */
   readonly vault: VaultDependencies
+  /** The account register, behind both surfaces. Overridable the same way (#150). */
+  readonly accounts: AccountDependencies
   /** The range a declared rhythm has to fall inside (#142). */
   readonly rhythm: RhythmBounds
   /** Every session a citizen named through this colony, in order (#158). */
@@ -285,6 +289,7 @@ export function fakeColony(): FakeColony {
     image: fakeImage(),
     vision: fakeVision(),
     vault: { vault: fakeVault() },
+    accounts: fakeAccounts(),
     /**
      * The default range (#142). A test that cares about the bounds passes its
      * own, which is the point of them being configuration — and the one that

@@ -97,7 +97,12 @@ describe.skipIf(!target.available)('the migrations', () => {
     // says it was in. Self-declared and unverifiable, so nothing gates on it —
     // what it buys is the difference between *this rung is hard* and *this
     // citizen restarted three times while attempting it*.
-    expect(afterFirst.tables).toBe('34')
+    // And `accounts` makes **thirty-five** (#150): what a citizen holds, beside
+    // what it can do. The layer under the skills, which existed six times over
+    // as one proof-event log per kind — each of them growing its own answer to
+    // *which one is current, what can it do, is it still alive, and what opens
+    // it*. It records outcomes and replaces none of the proof machinery.
+    expect(afterFirst.tables).toBe('35')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -111,7 +116,14 @@ describe.skipIf(!target.available)('the migrations', () => {
     // fact a history row is about. An enum although both fields hold free text,
     // and the two are not in tension: which field was written is the Colony's own
     // vocabulary and is closed, while what a vendor calls its model is not.
-    expect(afterFirst.enums).toBe('24')
+    // And `account_status` and `account_provenance` make twenty-six (#150) —
+    // whether a citizen still holds an instrument, and whether it got it itself
+    // or through a task. Enums where the register's `kind` is text, and the
+    // difference is which of them grows: a kind arrives whenever the Academy
+    // learns to verify something new, while a fourth status would change what a
+    // citizen may say about what it holds, which is an argument rather than an
+    // addition.
+    expect(afterFirst.enums).toBe('26')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

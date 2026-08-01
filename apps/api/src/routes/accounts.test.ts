@@ -1,0 +1,277 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { FastifyInstance } from 'fastify'
+import type { InjectOptions, Response as InjectResponse } from 'light-my-request'
+import { AccountKindSchema, type AgentId } from '@kolonie-ai/core'
+import { buildApp } from '../app.js'
+import { fakeRegistry } from '../__fixtures__/registry.js'
+import { fakeSolana } from '../__fixtures__/solana.js'
+import { fakeKeys } from '../__fixtures__/keys.js'
+import { fakeVision } from '../__fixtures__/vision.js'
+import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeContributions, fakeGithub } from '../__fixtures__/github.js'
+import { fakeSocial } from '../__fixtures__/social.js'
+import { fakeDomain } from '../__fixtures__/domain.js'
+import { fakeWebsite } from '../__fixtures__/website.js'
+import { fakeImage } from '../__fixtures__/image.js'
+import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
+import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { fakeSubmissions } from '../__fixtures__/submissions.js'
+import { fakeGuidance } from '../__fixtures__/guidance.js'
+import { fakeSupportDesk } from '../__fixtures__/support.js'
+import { fakeErasureDesk } from '../__fixtures__/erasure.js'
+import { erasure } from '../erasure.js'
+import { support } from '../support.js'
+import { fakeAcademy } from '../__fixtures__/academy.js'
+import { fakeVault } from '../__fixtures__/vault.js'
+import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeAccountRegister, type FakeAccountRegister } from '../__fixtures__/accounts.js'
+
+let app: FastifyInstance
+let store: FakeStore
+let register: FakeAccountRegister
+let apiKey: string
+let agentId: AgentId
+
+beforeEach(async () => {
+  store = fakeStore()
+  register = fakeAccountRegister()
+  app = buildApp({
+    vault: { vault: fakeVault() },
+    accounts: { register },
+    email: fakeEmail(),
+    registry: fakeRegistry(),
+    store,
+    catalogue: fakeCatalogue(),
+    submissions: fakeSubmissions(),
+    guidance: fakeGuidance(),
+    support: support({ desk: fakeSupportDesk() }),
+    erasure: erasure({ desk: fakeErasureDesk() }),
+    retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
+    academy: fakeAcademy(),
+    keys: fakeKeys(),
+    solana: fakeSolana(),
+    pow: fakePow(),
+    vision: fakeVision(),
+    github: fakeGithub(),
+    contributions: fakeContributions(),
+    social: fakeSocial(),
+    domain: fakeDomain(),
+    website: fakeWebsite(),
+    image: fakeImage(),
+  })
+  await app.ready()
+
+  const issued = store.issue()
+  apiKey = String(issued.apiKey)
+  agentId = issued.agent.id
+})
+
+afterEach(async () => {
+  await app.close()
+})
+
+const authed = (options: InjectOptions): Promise<InjectResponse> =>
+  app.inject({ ...options, headers: { authorization: `Bearer ${apiKey}` } })
+
+const list = () => authed({ method: 'GET', url: '/v1/accounts' })
+
+describe('GET /v1/accounts', () => {
+  it('names what the citizen holds, proved and declared alike', async () => {
+    register.proveDirectly(agentId, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: 'citizen@example.org',
+      capabilities: ['receive'] as never,
+    })
+    await authed({
+      method: 'POST',
+      url: '/v1/accounts',
+      payload: { kind: 'social', identifier: '@newcomer' },
+    })
+
+    const response = await list()
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().accounts).toEqual([
+      expect.objectContaining({ identifier: 'citizen@example.org', proved: true }),
+      expect.objectContaining({ identifier: '@newcomer', proved: false }),
+    ])
+    // So an agent need not guess a slug for the kinds the Colony proves.
+    expect(response.json().knownKinds).toContain('mailbox')
+  })
+
+  it('filters by kind', async () => {
+    register.proveDirectly(agentId, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: 'citizen@example.org',
+    })
+    register.proveDirectly(agentId, {
+      kind: AccountKindSchema.parse('github'),
+      identifier: 'octocat',
+    })
+
+    const response = await authed({ method: 'GET', url: '/v1/accounts?kind=github' })
+
+    expect(response.json().accounts).toHaveLength(1)
+  })
+
+  it('refuses an anonymous caller', async () => {
+    expect((await app.inject({ method: 'GET', url: '/v1/accounts' })).statusCode).toBe(401)
+  })
+})
+
+describe('POST /v1/accounts', () => {
+  it('records a declaration and marks it unproved', async () => {
+    const response = await authed({
+      method: 'POST',
+      url: '/v1/accounts',
+      payload: { kind: 'social', identifier: '@newcomer', note: 'cannot post for 48 hours' },
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().account).toMatchObject({
+      proved: false,
+      capabilities: [],
+      note: 'cannot post for 48 hours',
+    })
+  })
+
+  /**
+   * The rejection case that matters most: a declaration is a note, not a claim,
+   * and no route may turn it into evidence.
+   */
+  it('gives a caller no way to declare an account as proved', async () => {
+    const response = await authed({
+      method: 'POST',
+      url: '/v1/accounts',
+      payload: {
+        kind: 'social',
+        identifier: '@liar',
+        proved: true,
+        capabilities: ['publish'],
+      },
+    })
+
+    expect(response.json().account).toMatchObject({ proved: false, capabilities: [] })
+  })
+
+  it('refuses an identifier another citizen has proved', async () => {
+    register.claimForAnother('github', 'octocat')
+
+    const response = await authed({
+      method: 'POST',
+      url: '/v1/accounts',
+      payload: { kind: AccountKindSchema.parse('github'), identifier: 'octocat' },
+    })
+
+    expect(response.statusCode).toBe(409)
+  })
+
+  it('refuses a malformed kind', async () => {
+    const response = await authed({
+      method: 'POST',
+      url: '/v1/accounts',
+      payload: { kind: 'Not A Kind', identifier: 'x' },
+    })
+
+    expect(response.statusCode).toBe(422)
+  })
+})
+
+describe('the four writes on one account', () => {
+  const anAccount = () =>
+    register.proveDirectly(agentId, {
+      kind: AccountKindSchema.parse('social'),
+      identifier: '@current',
+    })
+
+  it('retires an account without removing it', async () => {
+    const account = anAccount()
+
+    const response = await authed({
+      method: 'PUT',
+      url: `/v1/accounts/${account.id}/status`,
+      payload: { status: 'retired' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().account.status).toBe('retired')
+    expect((await list()).json().accounts).toHaveLength(1)
+  })
+
+  it('clears a note with null rather than with an absent field', async () => {
+    const account = anAccount()
+    await authed({
+      method: 'PUT',
+      url: `/v1/accounts/${account.id}/note`,
+      payload: { note: 'something' },
+    })
+
+    const cleared = await authed({
+      method: 'PUT',
+      url: `/v1/accounts/${account.id}/note`,
+      payload: { note: null },
+    })
+
+    expect(cleared.json().account.note).toBeNull()
+    // An absent field is a mistake rather than an instruction.
+    const missing = await authed({
+      method: 'PUT',
+      url: `/v1/accounts/${account.id}/note`,
+      payload: {},
+    })
+    expect(missing.statusCode).toBe(422)
+  })
+
+  it('links a vault entry that does not exist', async () => {
+    const account = anAccount()
+
+    const response = await authed({
+      method: 'PUT',
+      url: `/v1/accounts/${account.id}/vault-key`,
+      payload: { vaultKey: 'social-2' },
+    })
+
+    expect(response.json().account.vaultKey).toBe('social-2')
+  })
+
+  it('sets a preference', async () => {
+    const account = anAccount()
+
+    const response = await authed({ method: 'POST', url: `/v1/accounts/${account.id}/prefer` })
+
+    expect(response.json().account.preferred).toBe(true)
+  })
+
+  /**
+   * Mail is the one kind where the same question has an obligation behind it,
+   * and the refusal points at the surface that owns it rather than being a bare
+   * error.
+   */
+  it('refuses a preference on a mailbox and names the promotion tool', async () => {
+    const mailbox = register.proveDirectly(agentId, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: 'citizen@example.org',
+    })
+
+    const response = await authed({ method: 'POST', url: `/v1/accounts/${mailbox.id}/prefer` })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().message).toContain('kolonie.mailboxes.promote')
+  })
+
+  it('never writes against another citizen’s account', async () => {
+    const other = store.issue()
+    const theirs = register.proveDirectly(other.agent.id, {
+      kind: AccountKindSchema.parse('social'),
+      identifier: '@theirs',
+    })
+
+    const response = await authed({
+      method: 'PUT',
+      url: `/v1/accounts/${theirs.id}/status`,
+      payload: { status: 'lost' },
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+})

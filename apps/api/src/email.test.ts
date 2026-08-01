@@ -23,6 +23,7 @@ import { erasure } from './erasure.js'
 import { support } from './support.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeVault } from './__fixtures__/vault.js'
+import { fakeAccounts } from './__fixtures__/accounts.js'
 import {
   fakeEmail,
   fakeEmailChallenges,
@@ -54,6 +55,7 @@ const build = (inboundSecret: string | undefined) => {
   mailer = fakeMailer()
   return buildApp({
     vault: { vault: fakeVault() },
+    accounts: fakeAccounts(),
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),
@@ -586,6 +588,7 @@ describe('GET /v1/mailboxes', () => {
   it('answers even when the Colony cannot send mail', async () => {
     const withoutMailer = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       registry: fakeRegistry(),
       store,
       catalogue: fakeCatalogue(),

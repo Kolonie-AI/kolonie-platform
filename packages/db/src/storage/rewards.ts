@@ -17,6 +17,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Transaction } from '../client.js'
 import { agents, ledgerEntries, reputationEvents, submissions, tasks } from '../schema/index.js'
+import { recordAccountsFromVerdict } from './accounts.js'
 import { promoteIfEarned } from './citizenship.js'
 import { grantRoles } from './roles.js'
 import { grantSkills } from './skills.js'
@@ -299,6 +300,35 @@ export async function bookTaskReward(
     agentId,
     roles: row.taskGrantsRoles,
     grantedAt: command.bookedAt,
+  })
+
+  /**
+   * What this pass proved about an account the citizen holds (`#150`).
+   *
+   * **After the grant and in the same transaction**, because it describes the
+   * same event and must not be able to exist without it. The register is the
+   * layer under the skills: a skill is earned *by proving an account*, and until
+   * this line the evidence for that sentence lived in six challenge tables with
+   * no one place a citizen — or a quest — could read it from.
+   *
+   * **It writes nothing on most verdicts**, and that is the ordinary case rather
+   * than a guard: `profile-complete` and the browser stages are not about an
+   * account, so the map finds no source and the call returns before touching
+   * anything.
+   *
+   * **It never decides a payment.** Everything above this line is already
+   * settled; a register that recorded nothing must not be able to cost a citizen
+   * the coins for work it did. What it cannot do is fail *silently* in the other
+   * direction either — the write is inside the transaction, so a register write
+   * that throws takes the whole verdict back rather than leaving a pass whose
+   * account nothing records.
+   */
+  await recordAccountsFromVerdict(tx, {
+    agentId,
+    submissionId: command.submissionId,
+    taskType: row.taskType,
+    skills: row.taskGrants,
+    provedAt: command.bookedAt,
   })
 
   return {

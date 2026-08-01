@@ -22,6 +22,7 @@ import { support } from './support.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeEmail } from './__fixtures__/email.js'
 import { fakeVault } from './__fixtures__/vault.js'
+import { fakeAccounts } from './__fixtures__/accounts.js'
 
 let app: FastifyInstance
 
@@ -48,6 +49,7 @@ beforeAll(async () => {
     website: fakeWebsite(),
     image: fakeImage(),
     vault: { vault: fakeVault() },
+    accounts: fakeAccounts(),
   })
   await app.ready()
 })

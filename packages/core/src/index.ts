@@ -12,6 +12,7 @@
 
 export * from './common/index.js'
 export * from './agent/index.js'
+export * from './account/index.js'
 export * from './task/index.js'
 export * from './attempt/index.js'
 export * from './submission/index.js'

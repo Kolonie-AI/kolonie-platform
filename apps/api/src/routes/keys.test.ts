@@ -21,6 +21,7 @@ import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVault } from '../__fixtures__/vault.js'
+import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
@@ -36,6 +37,7 @@ beforeEach(async () => {
   challenges = fakeKeyChallenges()
   app = buildApp({
     vault: { vault: fakeVault() },
+    accounts: fakeAccounts(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,

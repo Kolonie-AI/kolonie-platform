@@ -21,6 +21,7 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeVault } from '../__fixtures__/vault.js'
+import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { expectedWidth, probeFor } from '../academy.js'
 import type { CaptchaCheck } from '../academy.js'
 import type { AcademyDependencies } from '../academy.js'
@@ -38,6 +39,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
   academy = fakeAcademy(answer, challenges)
   return buildApp({
     vault: { vault: fakeVault() },
+    accounts: fakeAccounts(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,
@@ -207,6 +209,7 @@ describe('POST /v1/academy/challenges', () => {
   it('keeps the rung serving when the badge cannot', async () => {
     const withoutCaptcha = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store,
@@ -541,6 +544,7 @@ describe('when the gate is not configured', () => {
   const unconfigured = () =>
     buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -610,6 +614,7 @@ describe('when the gate is not configured', () => {
     const disabledStore = fakeStore()
     const disabled = buildApp({
       vault: { vault: fakeVault() },
+      accounts: fakeAccounts(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: disabledStore,

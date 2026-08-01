@@ -129,6 +129,12 @@ describe.skipIf(!target.available)('schema', () => {
          * log of somebody's waking hours is exactly the residue `erasure.md`
          * §4 rules out.
          */
+        /**
+         * #150. What a citizen holds, beside what it can do — the layer under
+         * the skills, which existed six times over as one proof-event log per
+         * kind.
+         */
+        'accounts',
         'agent_contacts',
         // `agent_skills` joined the list with D-030: what an agent may attempt
         // stopped being a number on the agent row and became a set of rows with

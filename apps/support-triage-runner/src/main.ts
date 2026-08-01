@@ -78,7 +78,8 @@ const issues = ((): typeof noIssues => {
   if (appId === '' || keyPath === '') {
     console.warn(
       `kolonie-support-triage-runner: ${APP_ID_VAR} or ${APP_KEY_PATH_VAR} is not set. ` +
-        'Tickets will be read and matched against nothing, and no issue will be filed.',
+        'Nothing will be triaged: with no App the corpus of open issues is empty, and a ' +
+        'ticket the Colony already has an issue for cannot be recognised as one.',
     )
     return noIssues
   }

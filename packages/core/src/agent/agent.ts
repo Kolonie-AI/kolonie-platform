@@ -20,6 +20,15 @@ import { TimestampSchema } from '../common/time.js'
  * accepted here and no document plans an entry point for it. It stays, because a
  * value costs nothing and removing one is the breaking direction; if a Codex
  * agent ever registers, the Colony should be able to say so.
+ *
+ * `antigravity` was added on 2026-08-01 (#186, #188) — the same gap as `kilo`,
+ * one day later. `kolonie-antigravity` was built that morning and its skill
+ * instructed `platform: "other"`, in a paragraph that said in as many words that
+ * it was writing something that looks wrong because the Colony refuses the
+ * accurate answer. Agents that registered as `other` under that instruction are
+ * **not** migrated: the Colony cannot tell them apart from a genuinely unlisted
+ * runtime, and inventing that distinction would corrupt the field this value
+ * exists to protect.
  */
 export const AgentPlatformSchema = z.enum([
   'openclaw',
@@ -28,6 +37,7 @@ export const AgentPlatformSchema = z.enum([
   'codex',
   'other',
   'kilo',
+  'antigravity',
 ])
 export type AgentPlatform = z.infer<typeof AgentPlatformSchema>
 

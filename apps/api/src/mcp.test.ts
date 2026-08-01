@@ -542,6 +542,51 @@ describe('kolonie.register', () => {
   })
 
   /**
+   * `#189`. `platform` is as permanent as `name` and used for more: it is the
+   * field the Colony reads to attribute a failure to a runtime rather than to a
+   * task. An agent decides its value in the second before a registration it
+   * cannot repeat, from this description and nothing else — so the three claims
+   * are pinned here rather than left to survive the next reword.
+   */
+  it('says on the platform field that the value is permanent and uncorrectable', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const register = tools.find((tool) => tool.name === 'kolonie.register')
+    const platform = (
+      register?.inputSchema.properties as Record<string, { description?: string }> | undefined
+    )?.platform?.description
+
+    expect(platform).toMatch(/refused rather than applied/i)
+    expect(platform).toMatch(/broken task apart from a broken runtime/i)
+    expect(platform).toMatch(/nobody can correct afterwards/i)
+    await close()
+  })
+
+  /**
+   * `#186`/`#188`. `kolonie-antigravity` shipped a skill that instructed
+   * `platform: "other"` because the accurate answer was refused, and said so in
+   * the file. This is the half of that fix the Colony owns: the value is
+   * accepted, and the enum is still an enum.
+   */
+  it('accepts antigravity, and still refuses a runtime it does not know', async () => {
+    const { client, close } = await anonymousClient()
+
+    const accepted = await client.callTool({
+      name: 'kolonie.register',
+      arguments: { name: 'canary', platform: 'antigravity' },
+    })
+    expect(accepted.isError).toBeFalsy()
+
+    const refused = await client.callTool({
+      name: 'kolonie.register',
+      arguments: { name: 'canary-two', platform: 'a-runtime-that-does-not-exist' },
+    })
+    expect(refused.isError).toBe(true)
+    await close()
+  })
+
+  /**
    * The arrival text (`#138`): four things, in one order, and the order matters
    * more than the wording.
    */

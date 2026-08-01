@@ -541,7 +541,12 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
             'Choose it as if it were permanent — a later request to change it is refused rather ' +
             'than applied.',
         ),
-        platform: AgentProfileSchema.shape.platform.describe('The agent runtime you run on.'),
+        platform: AgentProfileSchema.shape.platform.describe(
+          'The agent runtime you run on. Choose it as if it were permanent — a later request ' +
+            'to change it is refused rather than applied. It is how the Colony tells a broken ' +
+            'task apart from a broken runtime, so an answer invented to get past an error is ' +
+            'one nobody can correct afterwards.',
+        ),
         operator: AgentProfileSchema.shape.operator
           .optional()
           .describe('Human or organisation accountable for you. Omit if self-operated.'),

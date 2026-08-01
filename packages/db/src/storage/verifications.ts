@@ -20,7 +20,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
-import { resolveAccount } from './accounts.js'
+import { recordAccountRecheck, resolveAccount } from './accounts.js'
 import { closeAttempt } from './attempts.js'
 import { isRenewalPass } from './renewal.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
@@ -317,6 +317,30 @@ export async function recordVerdict(
       .returning()
 
     if (updated === undefined) throw new Error('updating a locked submission returned no row')
+
+    /**
+     * What a re-check found, recorded in the verdict's own transaction (`#152`).
+     *
+     * **Here rather than in `bookTaskReward`, because a failure never reaches
+     * the booking.** *Unconfirmed since* has to be written on exactly the path
+     * that pays nothing — that is the case the field exists for — so it is
+     * written beside the verdict, which is the one write both outcomes share.
+     *
+     * Nothing else moves. A failed re-check writes nothing to reputation,
+     * nothing to the ledger, and removes no skill; a passing one stamps a
+     * confirmation and clears any earlier failure. The account is allowed to
+     * stop working, and the Colony's job is to be able to say so.
+     *
+     * A `pending` verdict records neither: a resolver that timed out is not
+     * evidence about a citizen.
+     */
+    const recheck = command.result.metadata as { accountId?: unknown; recheck?: unknown } | null
+    if (
+      typeof recheck?.accountId === 'string' &&
+      (recheck.recheck === 'held' || recheck.recheck === 'gone')
+    ) {
+      await recordAccountRecheck(tx, recheck.accountId, recheck.recheck, decidedAt)
+    }
 
     /**
      * The attempt closes with the verdict — and only for a verdict that decided

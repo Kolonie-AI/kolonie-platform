@@ -28,6 +28,11 @@ import { WebsiteVerifyVerifier, type WebsiteChallenges } from './website-verify.
 import { SocialPostVerifier, type SocialGrants } from './social-post.js'
 import { DomainVerifyVerifier, type DomainChallenges, type DomainNames } from './domain-verify.js'
 import { DomainPersistenceVerifier, type DomainGrants } from './domain-persistence.js'
+import {
+  AccountPersistenceVerifier,
+  domainRecheck,
+  type RecheckableAccounts,
+} from './account-persistence.js'
 export { HeartbeatVerifier, type ContactHistory, type HeartbeatDependencies } from './heartbeat.js'
 import { HeartbeatVerifier, type ContactHistory } from './heartbeat.js'
 import type { GitHubReader } from './github.js'
@@ -133,6 +138,14 @@ export {
   type DomainGrants,
   type DomainPersistenceDependencies,
 } from './domain-persistence.js'
+export {
+  AccountPersistenceVerifier,
+  domainRecheck,
+  type AccountPersistenceDependencies,
+  type AccountRecheck,
+  type RecheckableAccounts,
+  type RecheckOutcome,
+} from './account-persistence.js'
 export {
   CHALLENGE_LABEL,
   DNS_TIMEOUT_MS,
@@ -474,6 +487,13 @@ export interface VerifierDependencies {
    */
   readonly domainGrants?: DomainGrants
   /**
+   * The account register, for the one badge that re-checks what a citizen holds
+   * (`#152`). Absent leaves `account-persistence` unregistered, which is a
+   * pending submission rather than a failure — see the note at the top of this
+   * file.
+   */
+  readonly recheckableAccounts?: RecheckableAccounts
+  /**
    * When this citizen was in contact, as gaps (#141).
    *
    * The heartbeat rung's whole evidence, and the only verifier dependency in
@@ -664,6 +684,29 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         dns: deps.dns,
         challenges: deps.domainChallenges,
         grants: deps.domainGrants,
+      }),
+    )
+  }
+
+  /**
+   * One re-verification badge over the register (`#152`), with `domain` as its
+   * first and so far only strategy.
+   *
+   * **It is registered beside `domain-persistence` rather than instead of it.**
+   * That badge's row is retired in the seed and its verdicts are untouched — a
+   * verifier deployed for a retired task decides nothing, because no submission
+   * can be made against it, while removing the verifier would fail any
+   * submission still in flight when the seed changed.
+   */
+  if (
+    deps.recheckableAccounts !== undefined &&
+    deps.dns !== undefined &&
+    deps.domainChallenges !== undefined
+  ) {
+    verifiers.push(
+      new AccountPersistenceVerifier({
+        accounts: deps.recheckableAccounts,
+        checks: [domainRecheck({ dns: deps.dns, challenges: deps.domainChallenges })],
       }),
     )
   }

@@ -9,6 +9,20 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **A task may name the account kinds it needs** (`kolonie-platform#151`).
+  `TaskSchema.requiresAccounts`, plus `TaskAccountsSchema` on the listing and the
+  single-task read. **Shown, never enforced**: the gate is the skill list and
+  stays exactly that, because a task needing a mailbox already requires the
+  `mailbox` skill and a second axis would re-express a correct condition
+  somewhere it can disagree.
+
+  **Breaking for anything constructing a `Task`**, which now needs the field.
+
+- **An account can be unconfirmed** (`kolonie-platform#152`).
+  `AccountSchema.unconfirmedSince` records that a re-check did not find an
+  account. A fact rather than a penalty: nothing is revoked by it, and a later
+  successful check clears it.
+
 - **A vault entry can describe itself** (`kolonie-platform#154`).
   `VaultEntrySchema` gained `description`, `SetVaultEntryRequestSchema` an
   optional one, and `SetVaultDescriptionRequestSchema` is the write that changes

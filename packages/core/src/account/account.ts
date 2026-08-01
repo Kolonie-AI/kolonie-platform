@@ -197,6 +197,11 @@ export const AccountSchema = z.object({
   provedAt: TimestampSchema.nullable(),
   /** When it was last confirmed to still be held (`#152`). */
   confirmedAt: TimestampSchema.nullable(),
+  /**
+   * When a re-check last failed to find it (`#152`). A fact rather than a
+   * penalty: nothing is revoked, and a later successful check clears it.
+   */
+  unconfirmedSince: TimestampSchema.nullable(),
   createdAt: TimestampSchema,
 })
 export type Account = z.infer<typeof AccountSchema>

@@ -15,7 +15,8 @@ import {
   accountsObtainedThrough,
   declareAccount,
   listAccounts,
-  recordAccountConfirmation,
+  recheckableAccounts,
+  recordAccountRecheck,
   recordProvedAccount,
   resolveAccount,
   setAccountNote,
@@ -338,15 +339,79 @@ describe.skipIf(!target.available)('the account register', () => {
     })
   })
 
-  describe('staleness', () => {
+  /**
+   * What a re-check leaves behind (`#152`).
+   *
+   * The rule under all of these is that **nothing is ever revoked**: a failed
+   * re-check writes nothing to reputation, nothing to the ledger and removes no
+   * skill. What changes is one field, and it is a fact rather than a penalty.
+   */
+  describe('re-verification', () => {
     it('records when an account was last confirmed', async () => {
       const account = await prove(agentId, 'domain', 'example.test', 'control')
-      const at = new Date().toISOString()
 
-      await recordAccountConfirmation(db, account.id, at)
+      await recordAccountRecheck(db, account.id, 'held', new Date().toISOString())
 
       const [held] = await listAccounts(db, agentId, kind('domain'))
       expect(held?.confirmedAt).not.toBeNull()
+      expect(held?.unconfirmedSince).toBeNull()
+    })
+
+    it('marks an account unconfirmed, with the date, and takes nothing away', async () => {
+      const account = await prove(agentId, 'domain', 'example.test', 'control')
+
+      await recordAccountRecheck(db, account.id, 'gone', new Date().toISOString())
+
+      const [held] = await listAccounts(db, agentId, kind('domain'))
+      expect(held?.unconfirmedSince).not.toBeNull()
+      // The proof, the capability and the account itself are all untouched.
+      expect(held).toMatchObject({ proved: true, capabilities: ['control'], status: 'in-use' })
+    })
+
+    it('clears an earlier failure when a later check finds it again', async () => {
+      const account = await prove(agentId, 'domain', 'example.test', 'control')
+      await recordAccountRecheck(db, account.id, 'gone', new Date().toISOString())
+
+      await recordAccountRecheck(db, account.id, 'held', new Date().toISOString())
+
+      const [held] = await listAccounts(db, agentId, kind('domain'))
+      expect(held?.unconfirmedSince).toBeNull()
+    })
+
+    /** Retired and lost are never asked about: the citizen said so. */
+    it('offers no retired or lost account for re-checking', async () => {
+      const retired = await prove(agentId, 'domain', 'retired.test', 'control')
+      const lost = await prove(agentId, 'domain', 'lost.test', 'control')
+      await prove(agentId, 'domain', 'live.test', 'control')
+      await setAccountStatus(db, agentId, retired.id, 'retired')
+      await setAccountStatus(db, agentId, lost.id, 'lost')
+
+      const recheckable = await recheckableAccounts(db, agentId, ['domain'])
+
+      expect(recheckable.map((account) => account.identifier)).toEqual(['live.test'])
+    })
+
+    it('never offers an unproved account for re-checking', async () => {
+      await declareAccount(db, agentId, { kind: kind('domain'), identifier: 'declared.test' })
+
+      expect(await recheckableAccounts(db, agentId, ['domain'])).toEqual([])
+    })
+
+    /** The Colony asks about the account it knows least about. */
+    it('offers the account with the oldest evidence first', async () => {
+      const older = await prove(agentId, 'domain', 'older.test', 'control')
+      await prove(agentId, 'domain', 'newer.test', 'control')
+      await recordAccountRecheck(db, older.id, 'held', new Date(Date.now() - 1000).toISOString())
+
+      const recheckable = await recheckableAccounts(db, agentId, ['domain'])
+
+      expect(recheckable[0]?.identifier).toBe('older.test')
+    })
+
+    it('offers nothing for a kind nothing can check', async () => {
+      await prove(agentId, 'social', '@handle', 'publish')
+
+      expect(await recheckableAccounts(db, agentId, ['domain'])).toEqual([])
     })
   })
 })

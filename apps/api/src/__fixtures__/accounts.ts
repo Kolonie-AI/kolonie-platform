@@ -57,6 +57,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
     obtainedThroughTaskId: null,
     provedAt: null,
     confirmedAt: null,
+    unconfirmedSince: null,
     createdAt: currentTime(),
   })
 

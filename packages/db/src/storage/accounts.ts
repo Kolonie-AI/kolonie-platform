@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import {
   ACCOUNT_MAX_ENTRIES,
   type Account,
@@ -480,16 +480,68 @@ export async function accountsObtainedThrough(
   return rows.map(toAccount)
 }
 
-/** Mark an account as confirmed to still be held, at this moment (`#152`). */
-export async function recordAccountConfirmation(
-  db: Database,
+/**
+ * Record what a re-check found (`#152`).
+ *
+ * **Nothing is revoked either way.** A confirmation stamps the date and clears
+ * any earlier failure; a failure stamps the date it happened and leaves the
+ * proof, the skill and the reward exactly where they are. That asymmetry is the
+ * whole model: an account is allowed to stop working, and the Colony's job is to
+ * be able to say so rather than to take something away.
+ */
+export async function recordAccountRecheck(
+  db: Handle,
   accountId: string,
-  confirmedAt: string,
+  found: 'held' | 'gone',
+  at: string,
 ): Promise<void> {
   await db
     .update(accounts)
-    .set({ confirmedAt, updatedAt: sql`now()` })
+    .set(
+      found === 'held'
+        ? { confirmedAt: at, unconfirmedSince: null, updatedAt: sql`now()` }
+        : { unconfirmedSince: at, updatedAt: sql`now()` },
+    )
     .where(and(eq(accounts.id, accountId), eq(accounts.proved, true)))
+}
+
+/**
+ * The accounts a re-check could be run against, oldest evidence first (`#152`).
+ *
+ * **Proved, in use, and of a kind something can actually check.** Retired and
+ * lost are excluded because the citizen said so, and asking anyway would be the
+ * Colony overriding the one field it does not own. Unproved ones are excluded
+ * because there is nothing to re-confirm.
+ *
+ * Ordered by how stale the evidence is — last confirmation, or the original
+ * proof where there has been none — so the badge always asks about the account
+ * the Colony knows least about. **Staleness is derived here, at read time**, and
+ * no job anywhere walks citizens to keep a column current: a sweep over every
+ * account of every citizen would touch third-party services on a schedule the
+ * Colony has no reason to take on, and would fail for dormant citizens by
+ * construction.
+ */
+export async function recheckableAccounts(
+  db: Database,
+  agentId: AgentId,
+  kinds: readonly string[],
+): Promise<readonly Account[]> {
+  if (kinds.length === 0) return []
+
+  const rows = await db
+    .select()
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.agentId, agentId),
+        eq(accounts.proved, true),
+        eq(accounts.status, 'in-use'),
+        inArray(accounts.kind, [...kinds]),
+      ),
+    )
+    .orderBy(sql`coalesce(${accounts.confirmedAt}, ${accounts.provedAt}) asc`)
+
+  return rows.map(toAccount)
 }
 
 /**
@@ -587,6 +639,7 @@ function toAccount(row: typeof accounts.$inferSelect): Account {
     obtainedThroughTaskId: row.obtainedThroughTaskId,
     provedAt: row.provedAt === null ? null : toTimestamp(row.provedAt),
     confirmedAt: row.confirmedAt === null ? null : toTimestamp(row.confirmedAt),
+    unconfirmedSince: row.unconfirmedSince === null ? null : toTimestamp(row.unconfirmedSince),
     createdAt: toTimestamp(row.createdAt),
   }
 }

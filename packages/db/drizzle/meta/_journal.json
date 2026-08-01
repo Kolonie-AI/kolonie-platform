@@ -484,6 +484,13 @@
       "when": 1785626493995,
       "tag": "0068_a_task_may_name_account_kinds",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1785628153384,
+      "tag": "0069_an_account_can_be_unconfirmed",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,7 @@ import {
   citizenForDomainName,
   contactGaps,
   domainGrantOf,
+  recheckableAccounts,
   openWebsiteTokens,
   verifiedSolanaAddress,
 } from '@kolonie-ai/db'
@@ -255,6 +256,16 @@ const verifiers = createVerifiers({
   // own port rather than a method on the one above, so the two directions cannot
   // be crossed.
   domainGrants: { grantOf: (agentId) => domainGrantOf(db, agentId) },
+  /**
+   * The register, for the one badge that re-checks what a citizen holds (`#152`).
+   *
+   * A read and nothing else: the verifier asks which account has the oldest
+   * evidence and returns a verdict, and what marks the register is the
+   * transaction that records that verdict.
+   */
+  recheckableAccounts: {
+    recheckable: (agentId, kinds) => recheckableAccounts(db, agentId, kinds),
+  },
   // The heartbeat rung reads the Colony's own record and nothing else (#143).
   contacts: { gapsOf: (agentId, count) => contactGaps(db, agentId, count) },
 })

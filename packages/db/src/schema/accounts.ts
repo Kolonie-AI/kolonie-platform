@@ -171,6 +171,21 @@ export const accounts = pgTable(
      */
     confirmedAt: timestamp('confirmed_at', { withTimezone: true, mode: 'string' }),
 
+    /**
+     * When a re-check last failed to find this account still held (`#152`).
+     *
+     * **A fact, not a penalty.** Nothing is revoked by it: the skill stays held,
+     * the reward stays paid, and reputation and the ledger are untouched. What
+     * it records is that the Colony asked and did not get an answer — which is
+     * the thing a register that never asks cannot tell a citizen, and the thing
+     * that matters most when the account in question is the address the Colony
+     * writes to.
+     *
+     * Cleared by a later successful re-check, because a name that came back is
+     * not unconfirmed.
+     */
+    unconfirmedSince: timestamp('unconfirmed_since', { withTimezone: true, mode: 'string' }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -240,10 +255,11 @@ export const accounts = pgTable(
       sql`${table.proved} = true or cardinality(${table.capabilities}) = 0`,
     ),
 
-    /** Nothing was confirmed that was never proved. */
+    /** Nothing was confirmed, or found missing, that was never proved. */
     check(
       'accounts_confirmed_implies_proved',
-      sql`${table.confirmedAt} is null or ${table.proved} = true`,
+      sql`(${table.confirmedAt} is null and ${table.unconfirmedSince} is null)
+          or ${table.proved} = true`,
     ),
 
     /**

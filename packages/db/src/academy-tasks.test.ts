@@ -151,6 +151,13 @@ describe('the Academy task definitions', () => {
        * opens nothing, so the Colony measures something allowed to fail without
        * taking anything away.
        */
+      /**
+       * One re-verification badge over the register (`#152`), which is what
+       * `domain-persistence` below it became — retired rather than deleted,
+       * because a verdict referencing a task is permanent and a citizen's
+       * history has to keep resolving.
+       */
+      'account-persistence',
       'domain-persistence',
       'github-contribution',
       /**

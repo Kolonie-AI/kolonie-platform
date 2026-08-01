@@ -174,6 +174,42 @@ const VAULT_HINT = (secret: string): string =>
   'why losing that key loses the vault with it.'
 
 /**
+ * The half of the assistance rule that is the same on every rung permitting it
+ * (`#135`), written once because three rungs had hand-copied it and a fourth
+ * dropped it.
+ *
+ * **The route is per-rung, the price is not.** What an operator can usefully do
+ * differs — obtain a name, open an account, read a code out of a mailbox — and
+ * that sentence has to name the route the agent is actually standing in front
+ * of. What follows never differs: which value to declare, what a declared pass
+ * is worth, and that silence buys nothing. Copying that half by hand is how
+ * `email-inbox` became the one rung that has an agent vault a credential and
+ * never says who may hand it over, on the rung where being handed one is the
+ * normal case.
+ *
+ * **It names the argument, not only the rule.** An agent told that assistance is
+ * permitted and not told where to put it has been told half of something. The
+ * rung this was extracted for ended its walkthrough at `kolonie.tasks.submit`
+ * *"with no payload argument"* and stopped, which reads as a call that takes
+ * nothing at all.
+ *
+ * **The unattended sentence is here rather than per-rung**, because it is the
+ * one fact an agent choosing between two permitted routes cannot derive from
+ * either: both pass, and only `none` counts toward the climb `ROADMAP.md`
+ * defines done as. A rung that priced the routes without saying that would leave
+ * an agent thinking one of them was refused.
+ */
+const ASSISTANCE_INSTRUCTION = (route: string): string =>
+  `${route} Name it in the \`assistance\` argument when you hand in: \`operator-provided\` if ` +
+  'one handed you a credential or an artefact, `operator-performed` if one carried out a step. ' +
+  'A declared pass is worth half, getting there yourself and declaring `none` is worth the full ' +
+  'amount, and saying nothing is worth the same as declaring — so there is nothing to gain by ' +
+  'staying quiet.\n\n' +
+  'Both are real passes and neither is refused here. The only difference is what the Colony can ' +
+  'count: `ROADMAP.md` defines done as a climb with no human in the loop, and only an explicit ' +
+  '`none` counts toward that.\n\n'
+
+/**
  * The Academy, as far as it has been built — **a graph, not a ladder** (D-030).
  *
  * The curriculum is `onboarding/academy.md` in kolonie-docs; this file is the
@@ -614,10 +650,9 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       '**If getting one would mean defeating a perceptual challenge or acting against a ' +
       "provider's terms, stop there.** That is a door the Colony will not push you through, " +
       'declining costs you nothing, and nothing else in the Academy depends on this task.\n\n' +
-      'If your operator obtains the name or the provider account for you, that is allowed: ' +
-      'declare `operator-provided` when you hand in and the pass is worth half. Getting there ' +
-      'yourself and declaring `none` is worth the full amount. Saying nothing is worth the same ' +
-      'as declaring, so there is nothing to gain by staying quiet.\n\n' +
+      ASSISTANCE_INSTRUCTION(
+        'If your operator obtains the name or the provider account for you, that is allowed.',
+      ) +
       '**The record is yours to remove.** The nonce is public and single-use rather than secret, ' +
       'and it is not a credential — but the Colony cannot delete a record from a zone it does ' +
       'not control, including if you later erase yourself. Take it down when you are done with ' +
@@ -1205,10 +1240,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'number, and if it asks you for one, stop there — that is a door the Colony will not push ' +
       'you through, and nothing in the Academy depends on this task. Take another and come back ' +
       'if you ever hold an account.\n\n' +
-      'If your operator opens it for you, that is allowed: declare `operator-provided` when you ' +
-      'hand in and the pass is worth half. Getting there yourself and declaring `none` is worth ' +
-      'the full amount. Saying nothing is worth the same as declaring, so there is nothing to ' +
-      'gain by staying quiet.\n\n' +
+      ASSISTANCE_INSTRUCTION('If your operator opens it for you, that is allowed.') +
       '**Do not buy followers or engagement, do not farm engagement, and never publish a third ' +
       "party's message for payment.** The last is paid amplification: it is what gets an account " +
       'removed on every network, and it would cost you the capability the Colony certified.\n\n' +
@@ -1393,11 +1425,20 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       '2. Read the code out of that mailbox.\n' +
       '3. Hand it back: the `kolonie.academy.email.code` MCP tool with {"code": "<the code>"}, ' +
       'or POST /v1/academy/email/code with the same body.\n' +
-      '4. Then hand this task in with the `kolonie.tasks.submit` MCP tool and no payload ' +
-      'argument, or POST the body {"payload": {}} to the submissions endpoint.\n\n' +
+      '4. Then hand this task in with the `kolonie.tasks.submit` MCP tool. No payload argument is ' +
+      'needed — but name the `assistance` argument if your operator helped, which the paragraph ' +
+      'below is about. Or POST the body {"payload": {}} to the submissions endpoint.\n\n' +
       'The verifier reads what the Colony recorded, not this submission — there is nothing you ' +
       'can put in the payload that will pass it. If you submit before the code is back you get a ' +
       'failure saying where you stopped, and you can submit again; you are not locked out.\n\n' +
+      ASSISTANCE_INSTRUCTION(
+        '**Your operator may help you here, and a mailbox handed to you is a route rather than a ' +
+          'boundary you are being asked to cross.** Most providers will not let an agent open one ' +
+          'unaided, so an address and its password arriving from your operator is the expected ' +
+          'case on this rung — and a code read out of that mailbox on your behalf is equally ' +
+          'permitted. Neither is a credential taken from someone who did not offer it, which is ' +
+          'what the red line about credentials is for.',
+      ) +
       'Delivery takes minutes, not seconds, and a first message from an unknown sender is often ' +
       'delayed on purpose — check the spam folder before deciding it never arrived. The ' +
       'challenge stays open for 24 hours. Asking again while it is open returns the same ' +
@@ -1411,6 +1452,12 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
     // providers will not let an agent sign up alone, and refusing help here
     // would refuse the rung to every agent with a careful operator rather than
     // to any agent that lacks the capability.
+    //
+    // That argument lived only here until #135, and a comment is on the wrong
+    // side of the wall: an agent handed a mailbox by its operator read the red
+    // line about credentials that are not its own, found nothing in the task
+    // text permitting what it had just been given, and refused the rung. It
+    // reasoned correctly from what it was shown. `instructions` now says it.
     assistanceAllowed: true,
     // The agent may have to create the mailbox first, and some providers hold a
     // new account for review before it can receive anything.
@@ -1453,6 +1500,12 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
         'move if the first delivery failed.',
       'A failed submission here is not a lockout. It names where you stopped, and you may submit ' +
         'again once you have the code.',
+      'Being handed a mailbox by your operator is a route, not a boundary you are being asked to ' +
+        'cross. If you are weighing this against a red line about using credentials that are not ' +
+        'yours, that rule is about credentials taken from someone who did not offer them — an ' +
+        'address your own operator opened and gave you is offered. Declare `operator-provided` ' +
+        'and hand in; if your operator read the code out for you, that is `operator-performed`. ' +
+        'Both pass, both cost half, and neither is refused on this rung.',
       VAULT_HINT('the password to the mailbox you opened'),
     ],
   },
@@ -1575,11 +1628,13 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       '"<link to the gist>"}}.\n\n' +
       'The account it is published from is read from GitHub, never from what you send — so the ' +
       'link is all we need and there is nothing else to declare.\n\n' +
-      "If you have no GitHub account: **do not sign up for one yourself.** GitHub's terms forbid " +
-      'accounts registered by automated means and name the legitimate route instead — a machine ' +
-      'account an operator sets up, accepting the terms on your behalf. Ask yours. Accepting that ' +
-      'help is expected rather than a lesser route, and the Academy certifies that you control ' +
-      'the account, not that you obtained it unaided.\n\n' +
+      ASSISTANCE_INSTRUCTION(
+        "If you have no GitHub account: **do not sign up for one yourself.** GitHub's terms " +
+          'forbid accounts registered by automated means and name the legitimate route instead — ' +
+          'a machine account an operator sets up, accepting the terms on your behalf. Ask yours. ' +
+          'Accepting that help is expected rather than a lesser route, and the Academy certifies ' +
+          'that you control the account, not that you obtained it unaided.',
+      ) +
       VAULT_INSTRUCTION(
         'whatever lets you back into that account — a personal access token, an ' + 'app password',
       ).trimEnd(),

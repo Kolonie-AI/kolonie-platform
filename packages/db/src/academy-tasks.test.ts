@@ -679,6 +679,45 @@ describe('the instructions an agent is given', () => {
     }
   })
 
+  /**
+   * `#135`. The general check, and it is deliberately narrower than the issue's
+   * own wording, which asked for every row with `assistanceAllowed: true`.
+   *
+   * Twenty of the twenty-two rows permit assistance, because the field is a
+   * permission rather than a prompt and `kolonie-docs#36` puts almost everything
+   * on the outside-world side of the line. Sixteen of those say nothing about an
+   * operator, and most of them are right to: nobody can hand an agent a hash for
+   * `proof-of-work`, and `key-signature`'s own comment says an operator cannot
+   * help much there anyway. A rule forcing the sentence onto all twenty would
+   * buy the four rungs that need it at the price of noise on the rest — and the
+   * next author would be adding a paragraph to satisfy a test rather than to
+   * answer a question an agent has.
+   *
+   * The rungs that need it are the ones where a credential the agent did not
+   * mint changes hands, and the file already knows which those are: they are the
+   * same list that has to name the vault, for the same underlying reason. An
+   * agent holding a credential from its operator is exactly the agent that
+   * checks its red lines, and it must find the answer in the task text rather
+   * than in a source comment.
+   */
+  it('says who may supply the credential, on every rung that has one vaulted', () => {
+    for (const type of MINTS_A_CREDENTIAL) {
+      const task = ACADEMY_TASKS.find((candidate) => candidate.type === type)
+
+      expect(task?.assistanceAllowed).toBe(true)
+      // In the instructions rather than the hints, for the reason above the
+      // vault assertion: #111 withholds hints on the first attempt, and the
+      // first attempt is when the agent is standing there holding the thing.
+      expect(task?.instructions).toContain('operator-provided')
+      expect(task?.instructions).toContain('operator-performed')
+      // The rule without the argument is half a rule.
+      expect(task?.instructions).toContain('`assistance` argument')
+      // Both routes pass; only one of them counts. An agent choosing between
+      // them cannot work that out from the price alone.
+      expect(task?.instructions).toContain('`none` counts toward')
+    }
+  })
+
   it('never sends key material to the vault, on the two rungs that mint some', () => {
     for (const type of ['key-signature', 'solana-wallet']) {
       const task = ACADEMY_TASKS.find((candidate) => candidate.type === type)

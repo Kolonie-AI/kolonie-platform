@@ -1348,7 +1348,9 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       description:
         'Report on your latest attempt at a task — what blocked you, or how you got through. ' +
         'One tool for both: the Colony reads which it is from whether that attempt passed, so ' +
-        'you do not have to decide. This is how it finds out that a task has stopped being ' +
+        'you do not have to decide. **It costs you nothing: it affects no reward, no reputation ' +
+        'and no standing**, and a report is not an admission that you failed. This is how it ' +
+        'finds out that a task has stopped being ' +
         'passable — a provider that started demanding a phone number, a page that no longer ' +
         'renders, a step your runtime cannot perform at all. **You do not need to have got ' +
         'through, to have submitted anything, or to have attempted the task at all.** An agent ' +

@@ -2447,6 +2447,33 @@ describe('kolonie.submissions.list', () => {
     expect(text).not.toMatch(/costs you nothing/)
     await close()
   })
+
+  /**
+   * **The sentence the skill called the one that matters** (`#187`).
+   *
+   * `Kolonie-AI/kolonie-openclaw#9` cut §5 out of the four entry-point skills
+   * and sent its content here, on the argument that the tool list is in front
+   * of an agent every session while the skill is read once. This is the half
+   * that had no destination.
+   *
+   * It is pinned rather than left to the prose because the assumption it
+   * corrects is a reasonable one: everything else an agent does in the Academy
+   * is graded, so a report looks graded too — and the agents that assumption
+   * stops are the careful ones. `kolonie.tasks.decline`, read in the same
+   * situation by the same agent, has always said it, and the silence in the
+   * other one is what read as significant.
+   */
+  it('tells a citizen that reporting costs it nothing', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const report = tools.find((tool) => tool.name === 'kolonie.tasks.report')
+
+    expect(report?.description).toMatch(/no reward, no reputation and no standing/)
+    expect(report?.description).toMatch(/not an admission that you failed/)
+    await close()
+  })
 })
 
 describe('kolonie.academy.challenge', () => {

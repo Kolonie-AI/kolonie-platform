@@ -82,6 +82,7 @@ jobs:
       api: ${{ steps.detect.outputs.api }}
       verifier-runner: ${{ steps.detect.outputs.verifier-runner }}
       moderation-runner: ${{ steps.detect.outputs.moderation-runner }}
+      support-triage-runner: ${{ steps.detect.outputs.support-triage-runner }}
       services: ${{ steps.detect.outputs.services }}
       built-at: ${{ steps.built-at.outputs.iso }}
 
@@ -148,7 +149,8 @@ jobs:
           for entry in \
             "api:^apps/api/" \
             "verifier-runner:^(apps/verifier-runner/|packages/verifiers/)" \
-            "moderation-runner:^apps/moderation-runner/"
+            "moderation-runner:^apps/moderation-runner/" \
+            "support-triage-runner:^apps/support-triage-runner/"
           do
             name="${entry%%:*}"
             pattern="${entry#*:}"
@@ -253,6 +255,36 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  build-support-triage-runner:
+    name: build and push ghcr.io/kolonie-ai/kolonie-support-triage-runner
+    needs: changes
+    if: needs.changes.outputs.support-triage-runner == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/support-triage-runner/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/kolonie-ai/kolonie-support-triage-runner:latest
+            ghcr.io/kolonie-ai/kolonie-support-triage-runner:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ needs.changes.outputs.built-at }}
+            org.opencontainers.image.version=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # The one deploy. It names every image this commit rebuilt, and
   # `kolonie-infra` deploys them in dependency order inside a single run.
   #
@@ -263,7 +295,14 @@ jobs:
   # because another agent was pushing at the time (kolonie-infra#31).
   deploy:
     name: deploy to the VPS
-    needs: [changes, build-api, build-verifier-runner, build-moderation-runner]
+    needs:
+      [
+        changes,
+        build-api,
+        build-verifier-runner,
+        build-moderation-runner,
+        build-support-triage-runner,
+      ]
     # `always()` because a skipped build is the normal case — most commits touch
     # one image — and a `needs` on a skipped job would otherwise skip this too.
     # What must *not* be tolerated is a build that failed or was cancelled:

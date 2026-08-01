@@ -9,6 +9,7 @@
     { "path": "packages/verifiers/tsconfig.build.json" },
     { "path": "apps/api/tsconfig.build.json" },
     { "path": "apps/verifier-runner/tsconfig.build.json" },
-    { "path": "apps/moderation-runner/tsconfig.build.json" }
+    { "path": "apps/moderation-runner/tsconfig.build.json" },
+    { "path": "apps/support-triage-runner/tsconfig.build.json" }
   ]
 }

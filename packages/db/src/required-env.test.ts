@@ -7,7 +7,7 @@ import { databaseUrlFromEnv } from './client.js'
 import { REQUIRED_ENV, REQUIRED_ENV_LABEL, requiredEnvLabelValue } from './required-env.js'
 
 /**
- * The three images that import this package. Each one repeats REQUIRED_ENV as a
+ * The four images that import this package. Each one repeats REQUIRED_ENV as a
  * Dockerfile label, because a label is a build-time literal and cannot import
  * TypeScript — so this test is the only thing standing between the copies and
  * the drift that produced the 2026-07-31 outage in the first place.
@@ -16,6 +16,7 @@ const DOCKERFILES = [
   'apps/api/Dockerfile',
   'apps/verifier-runner/Dockerfile',
   'apps/moderation-runner/Dockerfile',
+  'apps/support-triage-runner/Dockerfile',
 ]
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))

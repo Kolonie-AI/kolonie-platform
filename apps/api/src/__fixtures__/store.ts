@@ -176,6 +176,8 @@ export function fakeStore(): FakeStore {
      * How long this citizen was away (#144). Set by `returnAfter` below, so a
      * test can produce a returner without a clock and without a database.
      */
+    // Empty by default: a fake citizen has attempted no browser stage.
+    browserStagesOf: async () => [],
     absenceOf: async (agentId: AgentId) => absences.get(String(agentId)) ?? null,
 
     nameSession: async (agentId: AgentId, declaration: SessionDeclaration) => {

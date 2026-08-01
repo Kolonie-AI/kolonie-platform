@@ -6,6 +6,7 @@ import {
   ERROR_STATUS,
   BROWSER_STAGES,
   INTERACTION_STAGE,
+  INTERSTITIAL_STAGE,
   mintableBrowserStages,
   PERCEPTION_STAGE,
   SessionDeclarationSchema,
@@ -41,11 +42,13 @@ import type { Retesting } from './retest.js'
 import { rateLimited, type AgentRegistry } from './registration.js'
 import { recordPerceptionRender, reportPerceptionReading } from './perception.js'
 import { interactionBrief, reportInteractionStep } from './interaction.js'
+import { interstitialBrief, reportInterstitialAnswer } from './interstitial.js'
 import { clientIp } from './client-ip.js'
 import { registrationLimiter, type RateLimiter } from './rate-limit.js'
 import {
   capabilityUnavailable,
   stageUnavailable,
+  variantUnusable,
   currentProbe,
   gateUnavailable,
   MintChallengeRequestSchema,
@@ -416,6 +419,7 @@ export function buildApp({
   // differently-configured academy without rebuilding the app.
   const perceptionDown = () => stageUnavailable(PERCEPTION_STAGE, academy)
   const interactionDown = () => stageUnavailable(INTERACTION_STAGE, academy)
+  const interstitialDown = () => stageUnavailable(INTERSTITIAL_STAGE, academy)
 
   /** The mailbox rung's own answer, separate for the same reason as the one above. */
   const emailDown = emailUnavailable(email)
@@ -892,6 +896,12 @@ export function buildApp({
         const down = mintUnavailable(requested.data.kind, academy)
         if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
 
+        // A stage with kinds needs one named; a stage without must not be sent one.
+        const badVariant = variantUnusable(requested.data.kind, requested.data.variant)
+        if (badVariant !== undefined) {
+          return reply.status(ERROR_STATUS[badVariant.code]).send(badVariant)
+        }
+
         const authenticated = await authenticate(request.headers.authorization, store)
 
         if (authenticated.outcome === 'rejected') {
@@ -901,7 +911,12 @@ export function buildApp({
             .send(authenticated.error)
         }
 
-        const result = await openChallenge(authenticated.agent.id, academy, requested.data.kind)
+        const result = await openChallenge(
+          authenticated.agent.id,
+          academy,
+          requested.data.kind,
+          requested.data.variant ?? null,
+        )
         return reply.status(201).send(result.response)
       })
 
@@ -1479,6 +1494,42 @@ export function buildApp({
 
         const { challengeId } = request.params as { challengeId: string }
         const result = await reportInteractionStep(challengeId, request.body, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * The graded interstitials (`#164`). One brief and one answer for every kind: the
+       * kind comes from the challenge's own `variant`, never from the request, so a
+       * caller cannot look at all three and pick the easiest after the fact.
+       *
+       * The brief is never cached, for the reason the interaction brief is not: its url
+       * is stable and its content is per-challenge.
+       */
+      v1.get('/academy/interstitial/:challengeId', async (request, reply) => {
+        const down = interstitialDown()
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await interstitialBrief(challengeId, academy)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.header('cache-control', 'no-store').send(result.response)
+      })
+
+      v1.post('/academy/interstitial/:challengeId/answer', async (request, reply) => {
+        const down = interstitialDown()
+        if (down !== undefined) return reply.status(ERROR_STATUS[down.code]).send(down)
+
+        const { challengeId } = request.params as { challengeId: string }
+        const result = await reportInterstitialAnswer(challengeId, request.body, academy)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

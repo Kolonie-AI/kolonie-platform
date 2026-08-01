@@ -80,6 +80,15 @@ export const PERCEPTION_STAGE = BrowserStageSchema.parse('perception')
 export const INTERACTION_STAGE = BrowserStageSchema.parse('interaction')
 
 /**
+ * The graded interstitials (`#164`), the top of the branch.
+ *
+ * One stage with a **kind** dimension rather than one stage per kind — `#152` makes the
+ * same argument one branch over. The kinds live in `interstitial.ts`; a citizen's record
+ * names the ones it has cleared, and that record gates nothing.
+ */
+export const INTERSTITIAL_STAGE = BrowserStageSchema.parse('interstitial')
+
+/**
  * What the Colony needs to know about one stage to mint, serve and grade it.
  *
  * `steps` is the load-bearing field and it is written onto every challenge row at
@@ -241,6 +250,24 @@ export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
     taskType: 'browser-interaction',
     pageUrlEnv: 'INTERACTION_PAGE_URL',
     pagePath: '/interaction/',
+  },
+  {
+    /**
+     * `#164`. One step: a kind is cleared in one report, and the challenge carries which
+     * kind in `variant`.
+     *
+     * **One page path for every kind**, and the kind is chosen at mint. A path per kind
+     * would have made the registry's point moot — adding a kind would mean adding a
+     * static registration and an environment variable, which is the migration-shaped
+     * cost `#160` exists to avoid. The shell page reads the challenge's kind and loads
+     * that kind's module from the same origin.
+     */
+    kind: INTERSTITIAL_STAGE,
+    steps: 1,
+    taskType: 'browser-interstitial',
+    pageUrlEnv: 'INTERSTITIAL_PAGE_URL',
+    pagePath: '/interstitial/',
+    hasVariants: true,
   },
 ]
 

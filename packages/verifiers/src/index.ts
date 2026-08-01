@@ -6,6 +6,7 @@ import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
 import { BrowserPerceptionVerifier } from './browser-perception.js'
 import { BrowserInteractionVerifier } from './browser-interaction.js'
+import { BrowserInterstitialVerifier } from './browser-interstitial.js'
 import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
@@ -50,6 +51,10 @@ export {
   BrowserInteractionVerifier,
   type BrowserInteractionDependencies,
 } from './browser-interaction.js'
+export {
+  BrowserInterstitialVerifier,
+  type BrowserInterstitialDependencies,
+} from './browser-interstitial.js'
 export {
   KeySignatureVerifier,
   type KeyAttempt,
@@ -503,6 +508,7 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
     // it" read, so a new stage needs no new dependency.
     verifiers.push(new BrowserPerceptionVerifier({ gates: deps.gates }))
     verifiers.push(new BrowserInteractionVerifier({ gates: deps.gates }))
+    verifiers.push(new BrowserInterstitialVerifier({ gates: deps.gates }))
   }
 
   if (deps.keys !== undefined) {

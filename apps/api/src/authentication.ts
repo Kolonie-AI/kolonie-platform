@@ -17,6 +17,7 @@ import {
   verifiedSolanaAddress,
   type AuthenticationResult,
   type Database,
+  browserDiagnostics,
 } from '@kolonie-ai/db'
 import type { ProfileStore } from './profile.js'
 
@@ -71,6 +72,25 @@ export interface AgentStore extends ProfileStore {
    * time has not been away, and saying so would be inventing an absence.
    */
   absenceOf(agentId: AgentId): Promise<number | null>
+  /**
+   * This citizen's own browser record: which stages it has cleared, which kinds within
+   * them, and what the page last observed (`#160`, `#164`).
+   *
+   * **A port like every other read here**, so `apps/api`'s tests need no database — and
+   * derived rather than stored on the other side of it, because `browser_challenges`
+   * already knows all of this and a second table would be a second source of truth for
+   * one fact.
+   *
+   * It gates nothing. Skills gate; this is a record of what happened.
+   */
+  browserStagesOf(agentId: AgentId): Promise<
+    {
+      stage: string
+      clearedAt: string | null
+      variants: string[]
+      lastObservation: unknown
+    }[]
+  >
 }
 
 /** What `GET /v1/agents/me` resolved to, in the API's own vocabulary. */
@@ -136,6 +156,15 @@ export function databaseStore(db: Database): AgentStore {
     nameSession: async (agentId, declaration) => {
       await nameSession(db, agentId, declaration)
     },
+    // Copied into a mutable shape because the response schema owns the wire type and
+    // the storage read owns its own; neither should have to bend to the other.
+    browserStagesOf: async (agentId) =>
+      (await browserDiagnostics(db, agentId)).map((record) => ({
+        stage: record.stage,
+        clearedAt: record.clearedAt,
+        variants: [...record.variants],
+        lastObservation: record.lastObservation,
+      })),
     absenceOf: async (agentId) => {
       // Two contacts, one gap: the distance between the previous one and the
       // call being served. Nothing further back bears on the sentence.
@@ -222,6 +251,7 @@ export async function me(
   const verifiedSolanaAddress = await store.verifiedWalletOf(authenticated.agent.id)
   const runtimeDeclaredAt = await store.lastRuntimeDeclarationAt(authenticated.agent.id)
   const absentHours = await store.absenceOf(authenticated.agent.id)
+  const browserStages = await store.browserStagesOf(authenticated.agent.id)
 
   return {
     outcome: 'found',
@@ -231,6 +261,7 @@ export async function me(
       verifiedSolanaAddress,
       runtimeDeclaredAt,
       absentHours,
+      browserStages,
     },
   }
 }

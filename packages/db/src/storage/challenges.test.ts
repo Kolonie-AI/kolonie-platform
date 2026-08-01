@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import {
   CAPABILITY_STAGE,
+  INTERSTITIAL_STAGE,
   RegisterAgentRequestSchema,
   RETIRED_CHALLENGE_STAGE,
   type AgentId,
@@ -12,9 +13,11 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
   advanceChallenge,
+  browserDiagnostics,
   challengeProgress,
   hasClearedGate,
   mintChallenge,
+  recordObservation,
   redeemChallenge,
 } from './challenges.js'
 
@@ -313,5 +316,89 @@ describe.skipIf(!target.available)('browser challenges', () => {
         .set({ verifiedAt: sql`now()` })
         .where(eq(browserChallenges.id, minted.id)),
     ).rejects.toThrow()
+  })
+
+  /**
+   * **The citizen's own browser record, derived rather than stored** (`#160`).
+   *
+   * A second table recording what `browser_challenges` already knows would be a second
+   * source of truth for one fact. These assert the shape the citizen reads: what it
+   * cleared, which kinds inside a stage, and the last thing a page observed.
+   */
+  describe('the browser diagnostics record', () => {
+    it('is empty for a citizen that has attempted nothing', async () => {
+      expect(await browserDiagnostics(db, agentId)).toEqual([])
+    })
+
+    it('omits a stage the citizen has never attempted, rather than listing it empty', async () => {
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
+
+      const record = await browserDiagnostics(db, agentId)
+
+      expect(record.map((entry) => entry.stage)).toEqual([CAPABILITY_STAGE])
+    })
+
+    it('reports a stage as uncleared while it is', async () => {
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
+
+      const [entry] = await browserDiagnostics(db, agentId)
+
+      expect(entry?.clearedAt).toBeNull()
+      expect(entry?.variants).toEqual([])
+    })
+
+    it('carries the observation a page reported, cleared or not', async () => {
+      const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
+      await recordObservation(db, minted.id, CAPABILITY_STAGE, { devicePixelRatio: 2 })
+
+      const [entry] = await browserDiagnostics(db, agentId)
+
+      expect(entry?.lastObservation).toEqual({ devicePixelRatio: 2 })
+    })
+
+    /**
+     * **The `#164` case: one stage, several kinds, and no second reward.**
+     *
+     * Two cleared kinds are two rows and one stage record listing both. Nothing about
+     * clearing the second touches a ledger or a reputation — the badge is paid when the
+     * Academy task passes, which happens once, and this record is what makes paying once
+     * affordable: the value is knowing *which* kinds, and keeping that costs nothing.
+     */
+    it('lists every kind cleared within one stage, as one record', async () => {
+      const first = await mintChallenge(db, agentId, INTERSTITIAL_STAGE, 'ordered-panels')
+      await advanceChallenge(db, first.id, 0, INTERSTITIAL_STAGE, { kind: 'ordered-panels' })
+
+      const second = await mintChallenge(db, agentId, INTERSTITIAL_STAGE, 'marks-above-line')
+      await advanceChallenge(db, second.id, 0, INTERSTITIAL_STAGE, { kind: 'marks-above-line' })
+
+      const record = await browserDiagnostics(db, agentId)
+      const interstitial = record.find((entry) => entry.stage === INTERSTITIAL_STAGE)
+
+      expect(record).toHaveLength(1)
+      expect(interstitial?.clearedAt).toBeTruthy()
+      expect([...(interstitial?.variants ?? [])].sort()).toEqual([
+        'marks-above-line',
+        'ordered-panels',
+      ])
+    })
+
+    it('records no kind for a stage that has none', async () => {
+      const minted = await mintChallenge(db, agentId, CAPABILITY_STAGE)
+      for (let step = 0; step < 3; step += 1) {
+        await advanceChallenge(db, minted.id, step, CAPABILITY_STAGE)
+      }
+
+      const [entry] = await browserDiagnostics(db, agentId)
+
+      expect(entry?.clearedAt).toBeTruthy()
+      expect(entry?.variants).toEqual([])
+    })
+
+    it('belongs to one citizen and never to another', async () => {
+      const minted = await mintChallenge(db, agentId, INTERSTITIAL_STAGE, 'ordered-panels')
+      await advanceChallenge(db, minted.id, 0, INTERSTITIAL_STAGE, { kind: 'ordered-panels' })
+
+      expect(await browserDiagnostics(db, otherId)).toEqual([])
+    })
   })
 })

@@ -3,7 +3,9 @@ import {
   browserStage,
   CAPABILITY_STAGE,
   CAPABILITY_STEPS,
+  interstitialKind,
   mintableBrowserStages,
+  mintableInterstitialKinds,
   type AgentId,
   type ApiError,
   type BrowserStage,
@@ -340,6 +342,17 @@ export const MintChallengeRequestSchema = z.object({
         .join(', ')}.`,
     })
     .transform((value) => value as BrowserStage),
+  /**
+   * Which kind, for a stage that has kinds (`#164`).
+   *
+   * **Named by the citizen rather than chosen for it.** The record says which kinds a
+   * citizen has demonstrated, so which one to attempt is its own decision — and a
+   * Colony that picked would be deciding what a citizen's record says about it. Omitting
+   * it on a stage that has kinds is refused with the list, which is actionable; sending
+   * it on a stage that has none is refused too, because silently ignoring it would let a
+   * citizen believe it had asked for something it had not.
+   */
+  variant: z.string().max(64).optional(),
 })
 
 /**
@@ -386,6 +399,52 @@ export function mintUnavailable(
    * Colony's own promoting rung and stalled every arriving agent.
    */
   return stageUnavailable(kind, deps)
+}
+
+/**
+ * Whether the kind named alongside a stage is one that stage has, or `undefined` if it
+ * is.
+ *
+ * Separate from `mintUnavailable` because it answers a different question — *what you
+ * asked for does not exist* rather than *this cannot serve right now* — and the two
+ * deserve different words and different statuses.
+ */
+export function variantUnusable(
+  kind: BrowserStage,
+  variant: string | undefined,
+): ApiError | undefined {
+  const stage = browserStage(kind)
+  if (stage === undefined) return undefined
+
+  const kinds = mintableInterstitialKinds()
+
+  if (stage.hasVariants !== true) {
+    if (variant === undefined) return undefined
+    return {
+      code: 'validation_failed',
+      message: `The ${kind} stage has no kinds, so there is nothing to name in "variant".`,
+    }
+  }
+
+  if (variant === undefined) {
+    return {
+      code: 'validation_failed',
+      message:
+        `The ${kind} stage has kinds, so name one in "variant". Available: ` +
+        `${kinds.map((entry) => entry.slug).join(', ')}.`,
+    }
+  }
+
+  if (interstitialKind(variant) === undefined || kinds.every((entry) => entry.slug !== variant)) {
+    return {
+      code: 'validation_failed',
+      message:
+        `No such kind, or it is not being offered. Available: ` +
+        `${kinds.map((entry) => entry.slug).join(', ')}.`,
+    }
+  }
+
+  return undefined
 }
 
 export async function openChallenge(

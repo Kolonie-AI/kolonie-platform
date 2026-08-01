@@ -26,4 +26,29 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },
+  {
+    /**
+     * The challenge pages' own scripts, which run in a browser and not in Node.
+     *
+     * **Linted rather than ignored, deliberately.** These files are the measuring
+     * instrument the browser branch is built on (`#160`) — a typo in one of them fails
+     * honest citizens on a rung the Colony cannot see failing. Excluding them would be
+     * excluding the code with the least test coverage in the repository.
+     *
+     * The globals are declared rather than pulled from a `globals` package so this
+     * config gains no dependency for six names. If a page needs a seventh, add it here.
+     */
+    files: ['apps/api/public/**/*.js'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+        location: 'readonly',
+        fetch: 'readonly',
+        getComputedStyle: 'readonly',
+        setTimeout: 'readonly',
+        URLSearchParams: 'readonly',
+      },
+    },
+  },
 )

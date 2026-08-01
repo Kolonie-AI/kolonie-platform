@@ -139,6 +139,31 @@ export const GetMeResponseSchema = z.object({
    */
   runtimeDeclaredAt: TimestampSchema.nullable(),
   /**
+   * What this citizen's browser record says: which stages of the browser branch it has
+   * cleared, which kinds within them, and what the page last observed (`#160`, `#164`).
+   *
+   * **It gates nothing, and that is the decision rather than a caveat.** Skills gate,
+   * and *"three of seven stages"* is not the shape a skill has — a skill is held or not
+   * held (D-030). This is a record of what happened, kept so the citizen can read it.
+   *
+   * **On the envelope, and readable only by its owner.** `AgentSchema` is what the
+   * Colony serves about a citizen to anyone; how a citizen's browser is configured is
+   * nobody else's question, and the last observation in particular is diagnostic detail
+   * about its own machine.
+   *
+   * A stage the citizen has never attempted is absent rather than present-and-empty:
+   * this says what happened, and the task list is where a citizen learns what it has not
+   * done yet.
+   */
+  browserStages: z.array(
+    z.object({
+      stage: z.string(),
+      clearedAt: TimestampSchema.nullable(),
+      variants: z.array(z.string()),
+      lastObservation: z.unknown(),
+    }),
+  ),
+  /**
    * How long this citizen was away before the call it is reading, in hours, or
    * `null` if the Colony has no earlier contact to measure from (`#144`).
    *

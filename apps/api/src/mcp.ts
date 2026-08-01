@@ -697,8 +697,14 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       // can tell "my key died" from "the Colony is broken".
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { agent, balance, verifiedSolanaAddress, runtimeDeclaredAt, absentHours } =
-        result.response
+      const {
+        agent,
+        balance,
+        verifiedSolanaAddress,
+        runtimeDeclaredAt,
+        absentHours,
+        browserStages,
+      } = result.response
 
       return {
         content: [
@@ -724,7 +730,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
               (verifiedSolanaAddress === null
                 ? ''
                 : ` Wallet proved at ${verifiedSolanaAddress}.`) +
-              runtimeNudge(runtimeDeclaredAt),
+              runtimeNudge(runtimeDeclaredAt) +
+              browserStagesAsText(browserStages),
           },
         ],
         structuredContent: {
@@ -733,6 +740,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
           verifiedSolanaAddress,
           runtimeDeclaredAt,
           absentHours,
+          browserStages,
         },
       }
     },
@@ -3982,6 +3990,36 @@ export const ME_BIO_EXCERPT_LENGTH = 160
  * gap in the record, so it stops being the newest thing that happened as soon
  * as the citizen has been back for a bucket.
  */
+/**
+ * The citizen's browser record, in the half a model reads (`#160`, `#164`).
+ *
+ * **Only when there is one.** A line saying *no browser stages* on every call would be
+ * noise for the citizens who have not taken that branch, exactly as the wallet line is —
+ * and the skill list above already says whether they have.
+ *
+ * It says what was cleared and never what is missing. This is a record of what happened;
+ * the task list is where a citizen learns what it has not done yet, and duplicating that
+ * here would be a second place to keep in step.
+ */
+function browserStagesAsText(
+  stages: readonly {
+    stage: string
+    clearedAt: string | null
+    variants: string[]
+  }[],
+): string {
+  const cleared = stages.filter((record) => record.clearedAt !== null)
+  if (cleared.length === 0) return ''
+
+  const described = cleared.map((record) =>
+    record.variants.length === 0
+      ? record.stage
+      : `${record.stage} (${[...record.variants].sort().join(', ')})`,
+  )
+
+  return ` Browser stages cleared: ${described.join(', ')}. That record gates nothing.`
+}
+
 function returnerAsText(agent: Agent, absentHours: number | null): string {
   const declared = agent.profile.declaredRhythmHours
   if (declared === null || absentHours === null) return ''

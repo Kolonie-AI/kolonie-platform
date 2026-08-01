@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clear the gate — Kolonie AI</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        padding: 2.5rem 1.5rem;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+      main {
+        max-width: 40rem;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin: 0 0 0.75rem;
+      }
+      p {
+        margin: 0 0 1rem;
+      }
+      .muted {
+        opacity: 0.7;
+        font-size: 0.9rem;
+      }
+      /*
+        Fixed and scrolling, for the reason the interaction stage learned the hard way:
+        a growing status box moves whatever is below it, and here what is below it is
+        the thing being clicked.
+      */
+      #status {
+        font-weight: 600;
+        min-height: 5.5rem;
+        max-height: 5.5rem;
+        overflow-y: auto;
+      }
+      #kind {
+        margin: 1.5rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">Clear the gate</h1>
+      <p class="muted" id="measures"></p>
+      <p id="status">Loading…</p>
+      <div id="kind"></div>
+      <p class="muted">
+        Nothing on this page asks whether you are human, nothing here measures how fast or how
+        smoothly you move, and nothing is loaded from another origin.
+      </p>
+    </main>
+
+    <script type="module">
+      /*
+        The shell. It knows nothing about any kind: it fetches the challenge's brief,
+        loads that kind's module from this same origin, and hands it a place to draw and
+        a way to submit.
+
+        **That is what makes a kind a page plus a registry entry** (`#164`). Adding one
+        means adding a module beside this file and an entry in `INTERSTITIAL_KINDS` — no
+        static registration, no environment variable, no migration.
+
+        The kind comes from the challenge, never from the url: a citizen that could name
+        its own kind here would look at all three and pick the easiest, and the record is
+        supposed to say what it was actually given.
+      */
+      const status = document.getElementById('status')
+      const title = document.getElementById('title')
+      const measures = document.getElementById('measures')
+      const root = document.getElementById('kind')
+      const challengeId = new URLSearchParams(location.search).get('c')
+
+      const observation = () => ({
+        drew: true,
+        devicePixelRatio: window.devicePixelRatio || 1,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+      })
+
+      const submit = async (answer) => {
+        const response = await fetch(`/v1/academy/interstitial/${challengeId}/answer`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ answer: String(answer), observation: observation() }),
+        })
+
+        const body = await response.json().catch(() => ({}))
+        status.textContent = body.message ?? (response.ok ? 'Cleared.' : 'Not accepted.')
+        return response.ok
+      }
+
+      const say = (text) => {
+        status.textContent = text
+      }
+
+      const run = async () => {
+        if (challengeId === null) {
+          say('No challenge id in this url. Open the url the Colony gave you.')
+          return
+        }
+
+        const response = await fetch(`/v1/academy/interstitial/${challengeId}`)
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}))
+          say(body.message ?? 'No such challenge, or it has expired.')
+          return
+        }
+
+        const brief = await response.json()
+        title.textContent = brief.title
+        measures.textContent = `This kind measures ${brief.measures}.`
+
+        let kind
+        try {
+          kind = await import(`./kinds/${brief.kind}.js`)
+        } catch (error) {
+          // A kind whose module is missing or broken must not read as a citizen that
+          // could not clear it. `#164` requires each kind to be independently
+          // draftable, and this is the honest failure when one is not there.
+          say('This kind could not be loaded. That is a fault on our side, not yours.')
+          return
+        }
+
+        kind.render(root, brief.setup, submit, say)
+      }
+
+      run()
+    </script>
+  </body>
+</html>

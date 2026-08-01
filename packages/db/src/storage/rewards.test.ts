@@ -21,6 +21,7 @@ import {
   reputationEvents,
   submissions,
   tasks,
+  verifications,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
@@ -115,7 +116,13 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
    * have made those two questions impossible to tell apart.
    */
   const aClaimedSubmission = async (
-    options: { taskId?: TaskId; agentId?: AgentId; assistance?: Assistance } = {},
+    options: {
+      taskId?: TaskId
+      agentId?: AgentId
+      assistance?: Assistance
+      /** Which try this is. A second submission for one pair needs its own (#145). */
+      attempt?: number
+    } = {},
   ): Promise<SubmissionId> => {
     const taskId = options.taskId ?? (await aTask())
     const agentId = options.agentId ?? (await anAgent())
@@ -128,6 +135,7 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
         payload: { echo: 'hello' },
         status: 'pending',
         assistance: options.assistance ?? 'none',
+        ...(options.attempt === undefined ? {} : { attempt: options.attempt }),
       })
       .returning({ id: submissions.id })
 
@@ -286,6 +294,82 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
    * followed — derived from the task, never supplied by a caller — and a stronger reason
    * for it, because a skill decides what the agent may attempt next.
    */
+  /**
+   * A renewal (#145): the citizen passes a rung it had already passed, because
+   * the skill it granted fell due. Nothing is revoked, and nothing is paid
+   * twice.
+   */
+  describe('a renewal', () => {
+    const passTwice = async (options: { grants?: string[]; reputation?: number } = {}) => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ coins: 0, reputation: options.reputation ?? 5, ...options })
+
+      const first = await aClaimedSubmission({ taskId, agentId })
+      await pass(first)
+      const second = await aClaimedSubmission({ taskId, agentId, attempt: 2 })
+      const result = await pass(second)
+
+      return { agentId, taskId, first, second, result }
+    }
+
+    it('books no reputation the second time', async () => {
+      const { agentId, second } = await passTwice()
+
+      const events = await db
+        .select()
+        .from(reputationEvents)
+        .where(eq(reputationEvents.agentId, agentId))
+
+      // Paid once, for the pass that earned it. Paying again for the passage of
+      // time is farming with a calendar in front of it.
+      expect(events).toHaveLength(1)
+      expect(await entriesFor(second)).toEqual([])
+    })
+
+    it('books nothing to the ledger the second time', async () => {
+      const { second } = await passTwice()
+
+      expect(await entriesFor(second)).toEqual([])
+      expect(await ledgerTotal()).toBe(0)
+    })
+
+    it('records in the verdict that it was a renewal', async () => {
+      const { second, result } = await passTwice()
+
+      expect(result.outcome).toBe('recorded')
+      const [record] = await db
+        .select({ metadata: verifications.metadata })
+        .from(verifications)
+        .where(eq(verifications.submissionId, second))
+      expect((record?.metadata as { renewal?: boolean } | null)?.renewal).toBe(true)
+    })
+
+    it('takes no skill away, and re-grants one that was somehow lost', async () => {
+      const { agentId } = await passTwice({ grants: ['rhythm'] })
+
+      const held = await db.select().from(agentSkills).where(eq(agentSkills.agentId, agentId))
+
+      // The whole rule this mechanism must not break: a skill is held or not
+      // held, and no code path revokes one.
+      expect(held.map((row) => row.skill)).toEqual(['rhythm'])
+    })
+
+    it('leaves a first pass paying exactly what it always did', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ coins: 0, reputation: 5 })
+      const only = await aClaimedSubmission({ taskId, agentId })
+
+      await pass(only)
+
+      const events = await db
+        .select()
+        .from(reputationEvents)
+        .where(eq(reputationEvents.agentId, agentId))
+      expect(events).toHaveLength(1)
+      expect(events[0]?.delta).toBe(5)
+    })
+  })
+
   describe('the skills a pass grants', () => {
     const heldBy = async (agentId: AgentId) =>
       (

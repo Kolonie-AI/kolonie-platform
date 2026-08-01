@@ -15,6 +15,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agentSkills, reputationEvents, submissions, taskHints, tasks } from '../schema/index.js'
+import { dueForRenewal } from './renewal.js'
 import { toTask, toTaskSubmission } from './rows.js'
 
 /** What `GET /v1/tasks` asks the catalogue for. */
@@ -153,7 +154,17 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
   // than on a new one. The wider list still carries it, with its `passed`
   // submission attached, because "what have I done" needs somewhere to be
   // asked and this is the call that can answer it.
-  if (query.availableOnly) conditions.push(sql`not ${passedBy(query.agentId)}`)
+  /**
+   * A task the agent has passed is not startable — **unless the skill it
+   * granted has fallen due for renewal** (#145), in which case it is startable
+   * again and the whole point is that the citizen finds it here.
+   *
+   * Nothing was taken away to make that true: the skill is still held, the
+   * reward is still booked, and what changed is a timestamp getting older.
+   */
+  if (query.availableOnly) {
+    conditions.push(sql`(not ${passedBy(query.agentId)} or ${dueForRenewal(query.agentId)})`)
+  }
 
   if (after !== undefined) {
     // Row-wise comparison, which is the whole reason the sort key is a tuple:
@@ -170,22 +181,35 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
   // what came back, rather than a second `count(*)` over a table that may have
   // changed between the two queries.
   const rows = await db
-    .select()
+    .select({
+      task: tasks,
+      // Selected as well as filtered on, so a task that came back *because* it
+      // fell due can say so. Reporting it from the same expression the filter
+      // uses is what stops the two from disagreeing.
+      dueForRenewal: dueForRenewal(query.agentId).mapWith(Boolean),
+    })
     .from(tasks)
     .where(and(...conditions))
     .orderBy(asc(tasks.recommendedOrder), asc(tasks.createdAt), asc(tasks.id))
     .limit(query.limit + 1)
 
   const page = rows.slice(0, query.limit)
-  const last = page.at(-1)
-  const pageIds = page.map((row) => row.id)
+  const last = page.at(-1)?.task
+  const pageIds = page.map((row) => row.task.id)
   const hints = query.hints === true ? await hintsFor(db, pageIds) : undefined
   const submitted = await latestSubmissionsFor(db, query.agentId, pageIds)
 
   return {
     outcome: 'listed',
     page: {
-      items: page.map((row) => toTask(row, hintsOn(hints, row.id), submitted.get(row.id) ?? null)),
+      items: page.map((row) =>
+        toTask(
+          row.task,
+          hintsOn(hints, row.task.id),
+          submitted.get(row.task.id) ?? null,
+          row.dueForRenewal,
+        ),
+      ),
       nextCursor: rows.length > query.limit && last !== undefined ? encodeCursor(last) : null,
     },
   }

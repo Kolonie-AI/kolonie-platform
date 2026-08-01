@@ -86,7 +86,18 @@ export interface BookedReward {
  */
 export async function bookTaskReward(
   tx: Transaction,
-  command: { readonly submissionId: SubmissionId; readonly bookedAt: Timestamp },
+  command: {
+    readonly submissionId: SubmissionId
+    readonly bookedAt: Timestamp
+    /**
+     * Whether this is a citizen passing a task it had already passed (#145).
+     *
+     * Passed in rather than derived here, so the one query that answers it also
+     * feeds the verdict's own record — two derivations of *is this a renewal*
+     * could disagree, and the one that decided the payment would be invisible.
+     */
+    readonly renewal?: boolean
+  },
 ): Promise<BookedReward> {
   const [row] = await tx
     .select({
@@ -150,9 +161,24 @@ export async function bookTaskReward(
    * balance. It buys nothing and adds a filter that every future query has to
    * remember — the same duplication D-002 refuses.
    */
-  const paid = row.testRerun
-    ? { coins: 0, reputation: 0 }
-    : rewardFor({ coins: row.rewardCoins, reputation: row.rewardReputation }, row.assistance)
+  /**
+   * **A renewal books nothing either** (#145), on exactly the argument
+   * `domain-persistence` settled: *"paying repeatedly for the passage of time is
+   * farming with a calendar in front of it."* A renewal restores the claim; it
+   * does not restore the reward.
+   *
+   * Zeroed here rather than by returning early, for the same reason the test
+   * re-run is: everything below still has to happen. The verdict is real, and
+   * `grantSkills` is idempotent — a citizen that still holds the skill grants
+   * nothing new, and one whose grant was somehow lost gets it back. A renewal
+   * must never be able to *take away* standing.
+   */
+  const renewal = command.renewal ?? false
+
+  const paid =
+    row.testRerun || renewal
+      ? { coins: 0, reputation: 0 }
+      : rewardFor({ coins: row.rewardCoins, reputation: row.rewardReputation }, row.assistance)
 
   /**
    * The rate is in the memo, on every entry, because the ledger is where an
@@ -168,7 +194,9 @@ export async function bookTaskReward(
    * they stay that way: the ledger is append-only, and a memo records what was
    * said at the time rather than what is true now.
    */
-  const memo = `Academy — ${row.taskType} (${isUnattended(row.assistance) ? 'unattended' : `declared ${row.assistance}, ${UNDECLARED_REWARD_PERCENT}%`})`
+  const memo = renewal
+    ? `Academy — ${row.taskType} (renewal, paid once)`
+    : `Academy — ${row.taskType} (${isUnattended(row.assistance) ? 'unattended' : `declared ${row.assistance}, ${UNDECLARED_REWARD_PERCENT}%`})`
 
   // Generated here rather than by the database: both entries of one booking must
   // carry the *same* id, and a column default would give each of them its own.

@@ -346,6 +346,20 @@ export const TaskSchema = z.object({
    */
   submission: TaskSubmissionSchema.nullable().optional(),
   /**
+   * Why a task the reading citizen has already passed is startable again (#145).
+   *
+   * `true` means the skill this task granted has fallen due for renewal: the
+   * skill is still held, the reward was paid and stays paid, and what changed is
+   * that the claim it makes has aged. Present only on a read made on somebody's
+   * behalf, like `submission` above, and absent rather than `false` when there
+   * is no agent the answer is about.
+   *
+   * **It says why, which is the point of the field.** A task reappearing in a
+   * citizen's list with no explanation reads as a bug, or worse as a skill
+   * having been taken away — and skills are never taken away.
+   */
+  dueForRenewal: z.boolean().optional(),
+  /**
    * Who authored the task. `null` means the Colony itself; an agent id means a
    * citizen holding `task-author` created it for other agents and funded the
    * reward.

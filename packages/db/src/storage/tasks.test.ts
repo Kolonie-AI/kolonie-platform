@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { TaskSchema, type AgentId, type Task, type TaskId, type TaskStatus } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import {
@@ -594,6 +594,71 @@ describe.skipIf(!target.available)('listTasks', () => {
         await handIn(taskId, 'passed')
 
         expect(titles((await list()).items)).toEqual(['Still open'])
+      })
+
+      /**
+       * The renewal case (#145). A skill that has fallen due puts its granting
+       * task back in front of the citizen — **without anything having been
+       * taken away**: the skill is still held, the reward is still booked, and
+       * what changed is that a timestamp got older.
+       */
+      it('is startable again once the skill it granted has fallen due', async () => {
+        const taskId = await aTask('Comes back round', 1)
+        const submissionId = await handIn(taskId, 'passed')
+        await db
+          .update(tasks)
+          .set({ grantsSkills: ['rhythm'] })
+          .where(eq(tasks.id, taskId))
+        await db.insert(agentSkills).values({
+          agentId,
+          skill: 'rhythm',
+          submissionId,
+          grantedAt: new Date(Date.now() - 400 * 24 * 3_600_000).toISOString(),
+        })
+
+        const { items } = await list()
+
+        expect(titles(items)).toEqual(['Comes back round'])
+        // And it says why, because a rung reappearing with no explanation reads
+        // as a bug or as a skill having been taken away.
+        expect(items[0]?.dueForRenewal).toBe(true)
+        // Nothing was taken away.
+        const held = await db.select().from(agentSkills).where(eq(agentSkills.agentId, agentId))
+        expect(held).toHaveLength(1)
+      })
+
+      it('stays closed while the skill it granted is still fresh', async () => {
+        const taskId = await aTask('Recently done', 1)
+        const submissionId = await handIn(taskId, 'passed')
+        await db
+          .update(tasks)
+          .set({ grantsSkills: ['rhythm'] })
+          .where(eq(tasks.id, taskId))
+        await db.insert(agentSkills).values({ agentId, skill: 'rhythm', submissionId })
+
+        expect(titles((await list()).items)).toEqual([])
+      })
+
+      /**
+       * The property every other skill depends on: a skill with no renewal
+       * interval behaves exactly as it did before this mechanism existed, no
+       * matter how old the grant is.
+       */
+      it('stays closed forever for a skill that cannot fall due', async () => {
+        const taskId = await aTask('Permanent once earned', 1)
+        const submissionId = await handIn(taskId, 'passed')
+        await db
+          .update(tasks)
+          .set({ grantsSkills: ['keypair'] })
+          .where(eq(tasks.id, taskId))
+        await db.insert(agentSkills).values({
+          agentId,
+          skill: 'keypair',
+          submissionId,
+          grantedAt: new Date(Date.now() - 4000 * 24 * 3_600_000).toISOString(),
+        })
+
+        expect(titles((await list()).items)).toEqual([])
       })
 
       it('is still listed when the caller asked for more than what is startable', async () => {

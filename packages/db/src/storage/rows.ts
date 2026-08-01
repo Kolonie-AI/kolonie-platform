@@ -95,6 +95,12 @@ export function toTask(
    * entitled to make that claim about anyone.
    */
   submission?: TaskSubmission | null | undefined,
+  /**
+   * Whether this task is open again because the skill it granted fell due
+   * (#145). Absent on a read with no agent behind it, for the reason
+   * `submission` is.
+   */
+  dueForRenewal?: boolean | undefined,
 ): Task {
   return TaskSchema.parse({
     id: row.id,
@@ -115,6 +121,7 @@ export function toTask(
     status: row.status,
     ...(hints === undefined ? {} : { hints }),
     ...(submission === undefined ? {} : { submission }),
+    ...(dueForRenewal === undefined ? {} : { dueForRenewal }),
     createdBy: row.createdBy,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),

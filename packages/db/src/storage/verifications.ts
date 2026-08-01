@@ -20,6 +20,7 @@ import {
 import type { Database } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { closeAttempt } from './attempts.js'
+import { isRenewalPass } from './renewal.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
 import { toAgent, toSubmission, toTimestamp, toVerification } from './rows.js'
 import { heldSkillsSql } from './skills.js'
@@ -268,6 +269,17 @@ export async function recordVerdict(
       throw new Error(`illegal transition from '${current.status}' to '${next}'`)
     }
 
+    /**
+     * Whether the citizen has passed this task before (#145).
+     *
+     * Computed once, before the row it is about is marked passed, and used
+     * twice: the verdict records it, and the booking pays nothing for it. One
+     * derivation, because two could disagree and the disagreement would be
+     * invisible — the payment would be silently wrong and the record would say
+     * the opposite.
+     */
+    const renewal = next === 'passed' && (await isRenewalPass(tx, command.submissionId))
+
     const [record] = await tx
       .insert(verifications)
       .values({
@@ -275,7 +287,12 @@ export async function recordVerdict(
         taskType: command.taskType,
         status: command.result.status,
         evidence: command.result.evidence,
-        metadata: command.result.metadata ?? null,
+        // The verifier's own metadata, plus what the Colony knows about the
+        // shape of this pass. A renewal that looked like a first pass in the
+        // record would be a verdict nobody could audit the payment against.
+        metadata: renewal
+          ? { ...(command.result.metadata ?? {}), renewal: true }
+          : (command.result.metadata ?? null),
         createdAt: decidedAt,
       })
       .returning()
@@ -324,7 +341,11 @@ export async function recordVerdict(
     // the same statement as having no branch for them.
     const booking =
       next === 'passed'
-        ? await bookTaskReward(tx, { submissionId: command.submissionId, bookedAt: decidedAt })
+        ? await bookTaskReward(tx, {
+            submissionId: command.submissionId,
+            bookedAt: decidedAt,
+            renewal,
+          })
         : undefined
 
     return {

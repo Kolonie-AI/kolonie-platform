@@ -3311,6 +3311,25 @@ function standingAsText(task: Task): string {
  * retired task and nothing else would submit against it and be refused for a
  * reason it had no way to see coming.
  */
+/**
+ * Why a task this citizen has already passed is in front of it again (#145).
+ *
+ * Said in words rather than left to a boolean, because a rung reappearing with
+ * no explanation reads as a bug — or, worse, as a skill having been taken away.
+ * Nothing was taken away, and the sentence has to say so before it says
+ * anything else.
+ */
+function renewalAsText(task: Task): string {
+  if (task.dueForRenewal !== true) return ''
+
+  return (
+    'This is open to you again. The skill it granted you is still yours — nothing here is ever ' +
+    'taken back — but what it certifies is a claim about now, and it has not been re-established ' +
+    'in a while. Passing it again restores the claim. It pays nothing the second time, because ' +
+    'paying repeatedly for the passage of time is farming with a calendar in front of it.'
+  )
+}
+
 function taskAsText(
   task: Task,
   struggleCount: number,
@@ -3329,6 +3348,7 @@ function taskAsText(
     `${task.title} — ${describeReward(task)}${describeEdges(task)}`,
     `id: ${task.id}`,
     standing,
+    renewalAsText(task),
     attemptAsText(attempt, helpWithheld),
     sovereigntyAsText(sovereignty),
     operatorBreakAsText(operatorBroke),

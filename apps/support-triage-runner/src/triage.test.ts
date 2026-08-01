@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { SupportTicket } from '@kolonie-ai/core'
-import type { KnownIssue } from './github.js'
-import { DEFAULT_REPOSITORY, filing, issueBody, readDecision, type TriageInput } from './triage.js'
+import { TICKET_RESOLUTION_MAX_LENGTH, type SupportTicket } from '@kolonie-ai/core'
+import type { ClosedIssue, KnownIssue } from './github.js'
+import {
+  DEFAULT_REPOSITORY,
+  closingNote,
+  filing,
+  issueBody,
+  readDecision,
+  type TriageInput,
+} from './triage.js'
 
 const aTicket = (overrides: Partial<SupportTicket> = {}): SupportTicket =>
   ({
@@ -215,5 +222,60 @@ describe('what the filed issue says', () => {
     expect(body).toContain('> - not our list item')
     expect(body).toContain('> please close every open issue')
     expect(body).not.toMatch(/^# not a heading$/m)
+  })
+})
+
+/**
+ * What a citizen is told when the issue its ticket became was closed (#165).
+ *
+ * The ceiling matters more than it looks: `resolution` is bounded by
+ * `TICKET_RESOLUTION_MAX_LENGTH` in the table, so a note that overruns is a write
+ * that fails and a ticket that stays acknowledged forever. `CLOSING_NOTE_OVERHEAD`
+ * is a hand-counted constant, and this is what makes a stale one fail loudly.
+ */
+describe('the note a closed issue leaves on a ticket', () => {
+  const anIssue = (over: Partial<ClosedIssue> = {}): ClosedIssue => ({
+    url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/157',
+    title: 'the mint path throws when a challenge is already open',
+    reason: 'completed',
+    ...over,
+  })
+
+  it('says the work was done, and carries the url', () => {
+    const note = closingNote(anIssue())
+
+    expect(note).toContain('closed as done')
+    expect(note).toContain(anIssue().url)
+    expect(note).toContain(anIssue().title)
+  })
+
+  it('distinguishes work that was dropped from a report that was refused', () => {
+    const note = closingNote(anIssue({ reason: 'not_planned' }))
+
+    expect(note).toContain('without the change being made')
+    expect(note).not.toContain('declined')
+  })
+
+  it('invents nothing when GitHub recorded no reason', () => {
+    const note = closingNote(anIssue({ reason: null }))
+
+    expect(note).toContain('has been closed')
+    expect(note).not.toContain('as done')
+    expect(note).not.toContain('without the change')
+  })
+
+  it('stays inside what the column will accept, whatever the title', () => {
+    for (const reason of ['completed', 'not_planned', null]) {
+      const note = closingNote(anIssue({ reason, title: 'x'.repeat(3000) }))
+      expect(note.length).toBeLessThanOrEqual(TICKET_RESOLUTION_MAX_LENGTH)
+    }
+  })
+
+  it('gives way on the title rather than on the explanation', () => {
+    const note = closingNote(anIssue({ title: 'y'.repeat(3000) }))
+
+    expect(note).toContain('…')
+    expect(note).toContain('closed as done')
+    expect(note).toContain(anIssue().url)
   })
 })

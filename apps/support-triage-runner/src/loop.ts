@@ -1,6 +1,7 @@
 import type { SupportTicket, SupportTicketId } from '@kolonie-ai/core'
 import type { Issues, KnownIssue } from './github.js'
 import {
+  closingNote,
   filing,
   issueBody,
   readDecision,
@@ -27,6 +28,13 @@ export interface TriageStore {
     readonly status: 'acknowledged' | 'resolved' | 'declined'
     readonly resolution?: string | null
     readonly issueUrl?: string | null
+  }): Promise<SupportTicket | undefined>
+  /** Acknowledged tickets carrying an issue URL. Mirrors `ticketsAwaitingTheirIssue`. */
+  awaiting(limit: number): Promise<readonly SupportTicket[]>
+  /** Settle one because its issue closed. Mirrors `resolveFromClosedIssue`. */
+  resolve(outcome: {
+    readonly ticketId: SupportTicketId
+    readonly resolution: string
   }): Promise<SupportTicket | undefined>
   depth(): Promise<{ readonly open: number; readonly oldestOpenAt: string | null }>
 }
@@ -170,6 +178,87 @@ export async function triageOne(
   }
 }
 
+/**
+ * How many waiting tickets one pass looks at.
+ *
+ * Larger than the triage batch, and for the opposite reason. A ticket in the
+ * queue costs a model call, so twenty is a tick. A ticket waiting on its issue
+ * costs a lookup in a map that has already been fetched, so the only thing this
+ * number bounds is one query and some memory — and it needs to be comfortably
+ * above the number of tickets that can sit acknowledged at once, because a
+ * ticket beyond the limit waits another half hour for no reason a citizen could
+ * understand.
+ *
+ * Measured 2026-08-01 against the production database: 4 tickets exist in total,
+ * all four acknowledged. Two hundred is therefore two orders of magnitude of room
+ * and still a number rather than *all of them*.
+ */
+export const AWAITING_BATCH = 200
+
+export interface ReconcileOutcome {
+  /** Acknowledged tickets carrying an issue, looked at this pass. */
+  readonly waiting: number
+  /** Of those, the ones whose issue had been closed and are now resolved. */
+  readonly resolved: number
+}
+
+/**
+ * Carry the ending of an issue back to the ticket that caused it (#165).
+ *
+ * **This is the half of the flow that was missing.** `support.ts` in core states
+ * the rule this does not break: *"Work flows in exactly one direction — ticket →
+ * triage → possibly an issue."* Nothing here creates anything. What travels back
+ * is the outcome, and it has to, because every issue this runner files ends with
+ * the sentence *"closing it is how they learn the ending"* — and
+ * `kolonie.support.read` returns the ticket, not the issue.
+ *
+ * **Matched by URL, in memory, against one listing per repository.** The
+ * alternative is asking GitHub about each waiting ticket, which is a call count
+ * that grows with how much the Colony has ever been told rather than with how
+ * much has changed. Two tickets pointing at one issue are both settled by one
+ * pass, which is the ordinary case after triage has recognised a duplicate.
+ *
+ * **A write that finds no row is not an error.** `resolveFromClosedIssue` matches
+ * only `acknowledged`, so a ticket a concurrent tick has already settled answers
+ * `undefined` — the same at-least-once shape `recordTriage` documents, and the
+ * correct behaviour is to count it as not-ours and carry on.
+ */
+export async function reconcile(deps: LoopDependencies): Promise<ReconcileOutcome> {
+  const log = deps.log ?? silentLog
+
+  // Same rule as the queue pass: a seam that reads nothing is not evidence that
+  // nothing is closed, and acting on it would settle no ticket anyway.
+  if (!deps.issues.available) return { waiting: 0, resolved: 0 }
+
+  const waiting = await deps.store.awaiting(AWAITING_BATCH)
+  if (waiting.length === 0) return { waiting: 0, resolved: 0 }
+
+  const closed = new Map((await deps.issues.closed()).map((issue) => [issue.url, issue]))
+  if (closed.size === 0) return { waiting: waiting.length, resolved: 0 }
+
+  let resolved = 0
+  for (const ticket of waiting) {
+    const issue = ticket.issueUrl === null ? undefined : closed.get(ticket.issueUrl)
+    if (issue === undefined) continue
+
+    try {
+      const settled = await deps.store.resolve({
+        ticketId: ticket.id,
+        resolution: closingNote(issue),
+      })
+      if (settled === undefined) continue
+      resolved++
+      log.info(`ticket ${ticket.id}: resolved, ${issue.url} is closed`)
+    } catch (error) {
+      // One ticket that cannot be written must not cost the others theirs. The
+      // row stays `acknowledged`, which is still true, and the next pass retries.
+      log.error(`ticket ${ticket.id} could not be settled from ${issue.url}`, error)
+    }
+  }
+
+  return { waiting: waiting.length, resolved }
+}
+
 export interface TickOutcome {
   readonly seen: number
   readonly known: number
@@ -177,10 +266,12 @@ export interface TickOutcome {
   readonly filed: number
   readonly held: number
   readonly failed: number
+  /** Tickets settled this pass because their issue had been closed (#165). */
+  readonly resolved: number
 }
 
 /**
- * One pass over the queue.
+ * One pass over the queue, and one over what the queue produced earlier.
  *
  * **The corpus is read once per tick, not once per ticket.** Two citizens
  * reporting the same new thing in one tick would otherwise both be told nothing
@@ -191,12 +282,28 @@ export interface TickOutcome {
  * A ticket that throws does not stop the batch. The failure is almost always the
  * model or GitHub, both of which affect the next ticket equally — but the row is
  * left `open`, so nothing is lost by carrying on and finding out.
+ *
+ * **Reconciliation runs first and runs whether or not the queue has anything in
+ * it.** An empty queue is the normal state of this service, and it is exactly
+ * when there is nothing new to triage that there is most likely something old to
+ * finish — so it sits above the early return rather than below it. It is also
+ * why it does not share the queue's failure: `reconcile` throwing must not stop
+ * a citizen's new report being read, and a triage failure must not strand an
+ * answer that is already available.
  */
 export async function tick(deps: LoopDependencies, batchSize: number): Promise<TickOutcome> {
   const log = deps.log ?? silentLog
+
+  let resolved = 0
+  try {
+    resolved = (await reconcile(deps)).resolved
+  } catch (error) {
+    log.error('could not reconcile acknowledged tickets against closed issues', error)
+  }
+
   const queue = await deps.store.queue(batchSize)
 
-  const counts = { seen: 0, known: 0, answered: 0, filed: 0, held: 0, failed: 0 }
+  const counts = { seen: 0, known: 0, answered: 0, filed: 0, held: 0, failed: 0, resolved }
   if (queue.length === 0) return counts
 
   // **No App means no triage, not triage against nothing.** See `Issues.available`:

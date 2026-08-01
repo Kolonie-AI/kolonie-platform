@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupportTicket } from '@kolonie-ai/core'
 import type { Issues, KnownIssue, NewIssue } from './github.js'
 import type { TriageModel } from './triage.js'
-import { tick, triageOne, type LoopDependencies, type TriageStore } from './loop.js'
+import { reconcile, tick, triageOne, type LoopDependencies, type TriageStore } from './loop.js'
 
 let ticketSeq = 0
 
@@ -22,8 +22,13 @@ const aTicket = (overrides: Partial<SupportTicket> = {}): SupportTicket =>
   }) as SupportTicket
 
 /** A store that records what it was told rather than talking to a database. */
-function fakeStore(queue: readonly SupportTicket[], answered: readonly SupportTicket[] = []) {
+function fakeStore(
+  queue: readonly SupportTicket[],
+  answered: readonly SupportTicket[] = [],
+  awaiting: readonly SupportTicket[] = [],
+) {
   const written: Array<Record<string, unknown>> = []
+  const settled: Array<{ ticketId: string; resolution: string }> = []
   const store: TriageStore = {
     queue: async () => queue,
     answered: async () => answered,
@@ -31,9 +36,18 @@ function fakeStore(queue: readonly SupportTicket[], answered: readonly SupportTi
       written.push({ ...outcome })
       return { ...aTicket(), ...outcome } as unknown as SupportTicket
     },
+    awaiting: async () => awaiting,
+    // Mirrors `resolveFromClosedIssue`: only an `acknowledged` row matches, so a
+    // ticket in any other status answers `undefined` without being written.
+    resolve: async (outcome) => {
+      const target = awaiting.find((ticket) => ticket.id === outcome.ticketId)
+      if (target === undefined || target.status !== 'acknowledged') return undefined
+      settled.push({ ticketId: outcome.ticketId, resolution: outcome.resolution })
+      return { ...target, status: 'resolved', resolution: outcome.resolution } as SupportTicket
+    },
     depth: async () => ({ open: queue.length, oldestOpenAt: null }),
   }
-  return { store, written }
+  return { store, written, settled }
 }
 
 function fakeIssues(overrides: Partial<Issues> = {}) {
@@ -42,6 +56,7 @@ function fakeIssues(overrides: Partial<Issues> = {}) {
   const issues: Issues = {
     available: true,
     open: async () => [],
+    closed: async () => [],
     create: async (issue) => {
       created.push(issue)
       return `https://github.com/${issue.repository}/issues/${900 + created.length}`
@@ -333,5 +348,170 @@ describe('a runner with no GitHub App', () => {
     expect(classify).not.toHaveBeenCalled()
     // The rows are untouched: exactly where they were before this service existed.
     expect(written).toEqual([])
+  })
+})
+
+/**
+ * The half of the flow that #165 added: an issue's ending reaching the ticket
+ * that caused it. Every issue this runner files promises the citizen that
+ * *"closing it is how they learn the ending"*, and `kolonie.support.read`
+ * returns the ticket rather than the issue — so without this pass the promise is
+ * a sentence and nothing else.
+ */
+describe('carrying a closed issue back to its ticket', () => {
+  const ISSUE = 'https://github.com/Kolonie-AI/kolonie-platform/issues/157'
+
+  const waiting = (overrides: Partial<SupportTicket> = {}): SupportTicket =>
+    aTicket({ status: 'acknowledged', issueUrl: ISSUE, resolution: 'looking at it', ...overrides })
+
+  const closing = (reason: string | null, url = ISSUE) => ({
+    issues: fakeIssues({
+      closed: async () => [{ url, title: 'the mint path throws on an open challenge', reason }],
+    }).issues,
+  })
+
+  it('resolves the ticket and says the work was done', async () => {
+    const ticket = waiting()
+    const { store, settled } = fakeStore([], [], [ticket])
+
+    const outcome = await reconcile(deps({ store, ...closing('completed') }))
+
+    expect(outcome).toEqual({ waiting: 1, resolved: 1 })
+    expect(settled).toHaveLength(1)
+    expect(settled[0]?.ticketId).toBe(ticket.id)
+    expect(settled[0]?.resolution).toContain('closed as done')
+    // The URL travels with it: the only thing the citizen can open to read more.
+    expect(settled[0]?.resolution).toContain(ISSUE)
+  })
+
+  it('says the work was dropped without calling the report declined', async () => {
+    const { store, settled } = fakeStore([], [], [waiting()])
+
+    await reconcile(deps({ store, ...closing('not_planned') }))
+
+    const said = settled[0]?.resolution ?? ''
+    expect(said).toContain('without the change being made')
+    // `declined` is a judgement about the citizen's request and stays a
+    // maintainer's word. Closing an issue is not that judgement.
+    expect(said).not.toContain('declined')
+    expect(said).toContain('objection')
+  })
+
+  it('says only that it was closed when GitHub recorded no reason', async () => {
+    const { store, settled } = fakeStore([], [], [waiting()])
+
+    await reconcile(deps({ store, ...closing(null) }))
+
+    expect(settled[0]?.resolution).toContain('has been closed')
+  })
+
+  it('settles every ticket pointing at one issue in a single pass', async () => {
+    const { store, settled } = fakeStore([], [], [waiting(), waiting()])
+
+    const outcome = await reconcile(deps({ store, ...closing('completed') }))
+
+    expect(outcome.resolved).toBe(2)
+    expect(settled).toHaveLength(2)
+  })
+
+  it('leaves a ticket whose issue is still open exactly where it was', async () => {
+    const { store, settled } = fakeStore([], [], [waiting()])
+
+    const outcome = await reconcile(
+      deps({
+        store,
+        ...closing('completed', 'https://github.com/Kolonie-AI/kolonie-docs/issues/1'),
+      }),
+    )
+
+    expect(outcome).toEqual({ waiting: 1, resolved: 0 })
+    expect(settled).toEqual([])
+  })
+
+  /**
+   * A closed issue that is opened again is the Colony changing its mind about
+   * its own work. It is not a reason to tell a citizen that its answered
+   * question has become unanswered, and nothing here writes backwards: a
+   * re-opened issue simply leaves the closed listing.
+   */
+  it('does not move a resolved ticket back when its issue re-opens', async () => {
+    const already = waiting({ status: 'resolved', resolution: 'told you already' })
+    const { store, settled } = fakeStore([], [], [already])
+
+    const outcome = await reconcile(deps({ store, ...closing('completed') }))
+
+    expect(outcome.resolved).toBe(0)
+    expect(settled).toEqual([])
+  })
+
+  it('reads one listing rather than one call per ticket', async () => {
+    let listings = 0
+    const { store } = fakeStore([], [], [waiting(), waiting(), waiting()])
+    const issues = fakeIssues({
+      closed: async () => {
+        listings++
+        return [{ url: ISSUE, title: 'a title', reason: 'completed' }]
+      },
+    }).issues
+
+    await reconcile(deps({ store, issues }))
+
+    expect(listings).toBe(1)
+  })
+
+  it('reads nothing and writes nothing without a GitHub App', async () => {
+    let listings = 0
+    const { store, settled } = fakeStore([], [], [waiting()])
+    const issues: Issues = {
+      ...fakeIssues().issues,
+      available: false,
+      closed: async () => {
+        listings++
+        return []
+      },
+    }
+
+    const outcome = await reconcile(deps({ store, issues }))
+
+    expect(outcome).toEqual({ waiting: 0, resolved: 0 })
+    expect(listings).toBe(0)
+    expect(settled).toEqual([])
+  })
+
+  it('runs on a tick with an empty queue, which is when it matters most', async () => {
+    const { store, settled } = fakeStore([], [], [waiting()])
+
+    const outcome = await tick(deps({ store, ...closing('completed') }), 10)
+
+    expect(outcome.seen).toBe(0)
+    expect(outcome.resolved).toBe(1)
+    expect(settled).toHaveLength(1)
+  })
+
+  it('does not stop new tickets being triaged when it fails', async () => {
+    const { store, written } = fakeStore([aTicket()], [], [waiting()])
+    const issues = fakeIssues({
+      closed: async () => {
+        throw new Error('GitHub is having an afternoon')
+      },
+    }).issues
+
+    const outcome = await tick(
+      deps({
+        store,
+        issues,
+        model: modelAnswering({
+          kind: 'new',
+          repository: 'Kolonie-AI/kolonie-platform',
+          title: 'the mailbox rung never delivers a code',
+          summary: 'A citizen minted a challenge, waited an hour, and no mail arrived.',
+        }),
+      }),
+      10,
+    )
+
+    expect(outcome.resolved).toBe(0)
+    expect(outcome.filed).toBe(1)
+    expect(written).toHaveLength(1)
   })
 })

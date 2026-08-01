@@ -5,6 +5,8 @@ import {
   openTickets,
   queueDepth,
   recordTriage,
+  resolveFromClosedIssue,
+  ticketsAwaitingTheirIssue,
   triagedTickets,
 } from '@kolonie-ai/db'
 import { startRunner, type Log, type TriageStore } from './loop.js'
@@ -100,6 +102,8 @@ const store: TriageStore = {
   queue: (limit) => openTickets(db, limit),
   answered: (limit) => triagedTickets(db, limit),
   record: (outcome) => recordTriage(db, outcome),
+  awaiting: (limit) => ticketsAwaitingTheirIssue(db, limit),
+  resolve: (outcome) => resolveFromClosedIssue(db, outcome),
   depth: () => queueDepth(db),
 }
 

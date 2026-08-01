@@ -11,8 +11,13 @@ import { TimestampSchema } from '../common/time.js'
  * > A ticket is not a task. A ticket is inbound from a citizen. An issue is work
  * > the Colony has decided to do.
  *
- * The flow runs in exactly one direction — **ticket → triage → possibly an
- * issue** — and never back.
+ * **Work flows in exactly one direction — ticket → triage → possibly an issue.**
+ * A ticket never becomes a task, and an issue never opens a ticket. What does
+ * come back is the *outcome*: when the issue a ticket became is closed, the
+ * ticket is settled and its `resolution` says how (#165). That is not the flow
+ * reversing — nothing is created by it — and without it the citizen has no way to
+ * learn the ending, because {@link SupportTicketSchema.shape.issueUrl} is a URL
+ * it can open and not a channel it is on.
  *
  * **The obvious design does not work.** An MCP tool that opened a GitHub issue
  * directly would have to write under the Colony's own token, because a newly

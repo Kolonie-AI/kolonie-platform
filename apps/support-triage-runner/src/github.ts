@@ -43,6 +43,28 @@ export interface KnownIssue {
   readonly url: string
 }
 
+/**
+ * An issue that has been closed, as much of it as a citizen is owed.
+ *
+ * **`reason` is GitHub's own, and it is carried rather than interpreted.** An
+ * issue closed as `completed` and one closed as `not_planned` are two different
+ * endings for the citizen that reported it — the first says the thing it hit is
+ * gone, the second says the Colony decided not to act. Collapsing them into one
+ * sentence would be the Colony inventing an ending it was not given.
+ *
+ * There is no closing *comment* here, and that is a limitation worth naming
+ * rather than working around: the list endpoint does not carry one, and fetching
+ * each issue's comments would be a call per ticket — the cost this whole pass is
+ * shaped to avoid. `reason` and the title are what can be had for free, and they
+ * are enough to say something true.
+ */
+export interface ClosedIssue {
+  readonly url: string
+  readonly title: string
+  /** `completed`, `not_planned`, or `null` where GitHub recorded nothing. */
+  readonly reason: string | null
+}
+
 export interface NewIssue {
   readonly repository: string
   readonly title: string
@@ -75,6 +97,20 @@ export interface Issues {
   readonly available: boolean
   /** Every open issue across the repositories triage covers. */
   open(): Promise<readonly KnownIssue[]>
+  /**
+   * Recently closed issues, most recently touched first (#165).
+   *
+   * **Sorted by update time, not by number, and that is what bounds it.** The
+   * default order is newest-created-first, under which an old issue closed today
+   * sits behind every issue opened since — so the one event this read exists to
+   * notice is the one that falls off the page. Sorting by `updated` puts a
+   * just-closed issue at the front whatever its age.
+   *
+   * One page per repository. At the half-hour tick in `loop.ts` that is a
+   * hundred issues touched between two passes before anything could be missed,
+   * and a Colony moving that fast has a louder problem than a late ticket.
+   */
+  closed(): Promise<readonly ClosedIssue[]>
   /** File one. Answers the URL, or `null` when GitHub refused. */
   create(issue: NewIssue): Promise<string | null>
   /** Say on an existing issue that another citizen reported the same thing. */
@@ -85,6 +121,10 @@ export interface Issues {
 export const noIssues: Issues = {
   available: false,
   open: async () => [],
+  // Empty for the same reason `open` is, and it matters in the same way: a seam
+  // that reads nothing must not be read as *nothing is closed*. The caller
+  // checks `available` before it acts on either.
+  closed: async () => [],
   create: async () => null,
   comment: async () => false,
 }
@@ -260,6 +300,49 @@ export function githubIssues(options: GitHubOptions): Issues {
             title: issue.title,
             body: (issue.body ?? '').slice(0, ISSUE_BODY_SAMPLE),
             url: issue.html_url,
+          })
+        }
+      }
+      return found
+    },
+
+    closed: async () => {
+      const headers = await authed()
+      if (headers === undefined) return []
+
+      const found: ClosedIssue[] = []
+      for (const repository of TRIAGE_REPOSITORIES) {
+        const response = await doFetch(
+          `https://api.github.com/repos/${repository}/issues` +
+            `?state=closed&sort=updated&direction=desc&per_page=100`,
+          { headers },
+        )
+        if (!response.ok) {
+          // One unreadable repository costs the tickets pointing into it another
+          // half hour, and nothing else: the next tick asks again, and a ticket
+          // that stays `acknowledged` is telling the citizen the truth in the
+          // meantime. Warn rather than throw, so the other two are still read.
+          log.warn(`could not read closed issues in ${repository}: ${response.status}`)
+          continue
+        }
+
+        const issues = (await response.json()) as ReadonlyArray<{
+          title?: string
+          html_url?: string
+          state_reason?: string | null
+          pull_request?: unknown
+        }>
+
+        for (const issue of issues) {
+          // A merged pull request is not a citizen's ticket ending, for the same
+          // reason `open` skips them: no ticket was ever matched to one.
+          if (issue.pull_request !== undefined) continue
+          if (issue.title === undefined || issue.html_url === undefined) continue
+
+          found.push({
+            url: issue.html_url,
+            title: issue.title,
+            reason: issue.state_reason ?? null,
           })
         }
       }

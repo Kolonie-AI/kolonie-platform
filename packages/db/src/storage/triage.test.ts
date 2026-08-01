@@ -1,10 +1,18 @@
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { SupportTicketIdSchema, type AgentId, type OpenTicketRequest } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents } from '../schema/index.js'
+import { agents, supportTickets } from '../schema/index.js'
 import { AgentIdSchema } from '@kolonie-ai/core'
 import { openTicket } from './support.js'
-import { openTickets, queueDepth, recordTriage, triagedTickets } from './triage.js'
+import {
+  openTickets,
+  queueDepth,
+  recordTriage,
+  resolveFromClosedIssue,
+  ticketsAwaitingTheirIssue,
+  triagedTickets,
+} from './triage.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 
 const target = databaseTestTarget()
@@ -218,5 +226,106 @@ describe.skipIf(!target.available)('triage reads and writes', () => {
     })
 
     expect((await queueDepth(db)).open).toBe(1)
+  })
+
+  /**
+   * The reads and the write #165 added: an issue's ending reaching the ticket
+   * that caused it. Every issue the runner files ends with *"closing it is how
+   * they learn the ending"*, and until this existed nothing ever looked at a
+   * ticket again after acknowledging it.
+   */
+  describe('settling a ticket from the issue it became', () => {
+    const url = 'https://github.com/Kolonie-AI/kolonie-platform/issues/157'
+    const ending = 'The issue your report became has been closed as done.'
+
+    const acknowledged = async (issueUrl: string | null = url) => {
+      const ticket = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+      await recordTriage(db, {
+        ticketId: ticket.id,
+        status: 'acknowledged',
+        resolution: 'Filed as an issue the Colony has decided to look at.',
+        issueUrl,
+      })
+      return ticket
+    }
+
+    it('serves acknowledged tickets that carry an issue, oldest first', async () => {
+      const first = await acknowledged()
+      const second = await acknowledged()
+
+      const waiting = await ticketsAwaitingTheirIssue(db, 10)
+
+      expect(waiting.map((t) => t.id)).toEqual([first.id, second.id])
+    })
+
+    /**
+     * An acknowledged ticket with no issue is one a maintainer was asked to
+     * read. There is nothing whose closing could settle it, so serving it here
+     * would be handing the pass a row it can never act on.
+     */
+    it('does not serve an acknowledged ticket that never became an issue', async () => {
+      await acknowledged(null)
+
+      expect(await ticketsAwaitingTheirIssue(db, 10)).toEqual([])
+    })
+
+    it('does not serve a ticket nobody has triaged yet', async () => {
+      await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+
+      expect(await ticketsAwaitingTheirIssue(db, 10)).toEqual([])
+    })
+
+    it('resolves an acknowledged ticket and records how', async () => {
+      const ticket = await acknowledged()
+
+      const settled = await resolveFromClosedIssue(db, {
+        ticketId: ticket.id,
+        resolution: ending,
+      })
+
+      expect(settled?.status).toBe('resolved')
+      expect(settled?.resolution).toBe(ending)
+      // The issue it came from is not overwritten: it is still what the citizen
+      // opens to read more.
+      expect(settled?.issueUrl).toBe(url)
+      expect(await ticketsAwaitingTheirIssue(db, 10)).toEqual([])
+    })
+
+    /**
+     * A closed issue that is opened again is the Colony changing its mind about
+     * its own work, not a reason to unanswer a citizen. The `where` clause is
+     * what makes that unexpressible: only `acknowledged` matches, so a second
+     * pass over the same issue writes nothing.
+     */
+    it('writes nothing to a ticket that is already resolved', async () => {
+      const ticket = await acknowledged()
+      await resolveFromClosedIssue(db, { ticketId: ticket.id, resolution: ending })
+
+      const again = await resolveFromClosedIssue(db, {
+        ticketId: ticket.id,
+        resolution: 'a different ending nobody should see',
+      })
+
+      expect(again).toBeUndefined()
+      const [row] = await db.select().from(supportTickets).where(eq(supportTickets.id, ticket.id))
+      expect(row?.resolution).toBe(ending)
+    })
+
+    it('writes nothing to a ticket nobody has triaged', async () => {
+      const ticket = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+
+      expect(
+        await resolveFromClosedIssue(db, { ticketId: ticket.id, resolution: ending }),
+      ).toBeUndefined()
+    })
+
+    it('refuses to settle a ticket without saying why', async () => {
+      const ticket = await acknowledged()
+
+      await expectRejection(
+        () => resolveFromClosedIssue(db, { ticketId: ticket.id, resolution: '' }),
+        /has to say why/,
+      )
+    })
   })
 })

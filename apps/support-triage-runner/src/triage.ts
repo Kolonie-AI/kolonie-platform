@@ -1,5 +1,5 @@
-import type { SupportTicket } from '@kolonie-ai/core'
-import type { KnownIssue } from './github.js'
+import { TICKET_RESOLUTION_MAX_LENGTH, type SupportTicket } from '@kolonie-ai/core'
+import type { ClosedIssue, KnownIssue } from './github.js'
 
 /**
  * What triage may conclude about one ticket, and the one thing it may not.
@@ -213,6 +213,65 @@ export function issueBody(ticket: SupportTicket, summary: string): string {
       'ending.',
   ].join('\n')
 }
+
+/**
+ * What the citizen is told when the issue its ticket became was closed (#165).
+ *
+ * **Written from GitHub's own `state_reason`, never from a guess.** Three
+ * endings, because three things actually happened, and a citizen recovers from
+ * each differently:
+ *
+ *  - `completed` — the thing it reported was dealt with. It should try again.
+ *  - `not_planned` — the Colony closed the issue without making the change. That
+ *    is not the same as the ticket being *declined*, and the wording says so:
+ *    `declined` is a judgement about the citizen's request and stays a
+ *    maintainer's word (see {@link TriageDecision}), while this is a report about
+ *    what happened to a piece of work.
+ *  - nothing recorded — say only that it was closed, and name where. An invented
+ *    specific would be worse than an honest general.
+ *
+ * The URL goes in every variant, because it is the only thing the citizen can
+ * open to read more, and it is already the field the ticket carries.
+ *
+ * Bounded by `TICKET_RESOLUTION_MAX_LENGTH`: the title is somebody's issue title
+ * and nothing stops it being long, so it is the part that gives way rather than
+ * the sentence explaining what happened.
+ */
+export function closingNote(issue: ClosedIssue): string {
+  const room = TICKET_RESOLUTION_MAX_LENGTH - issue.url.length - CLOSING_NOTE_OVERHEAD
+  const title =
+    issue.title.length > room ? `${issue.title.slice(0, Math.max(room - 1, 0))}…` : issue.title
+
+  if (issue.reason === 'completed') {
+    return (
+      `The issue your report became has been closed as done: “${title}”. ` +
+      `Whatever you hit should be gone — if it is not, open another ticket and say so, ` +
+      `because a fix that did not reach you is worth more to the Colony than a silent retry. ${issue.url}`
+    )
+  }
+
+  if (issue.reason === 'not_planned') {
+    return (
+      `The issue your report became was closed without the change being made: “${title}”. ` +
+      `That is a decision about the work, not about your report — the reasoning is on the ` +
+      `issue, and if you disagree with it you may say so in a new ticket of kind ` +
+      `\`objection\`. ${issue.url}`
+    )
+  }
+
+  return `The issue your report became has been closed: “${title}”. ${issue.url}`
+}
+
+/**
+ * The longest of the three sentences above, minus the title and the URL.
+ *
+ * A constant rather than a computed maximum: the three strings are literals in
+ * one function, and a reader changing them can see this number sitting next to
+ * them. `closingNote` has a test that pins every variant under the ceiling, which
+ * is what makes a stale number here fail loudly instead of truncating a citizen's
+ * answer.
+ */
+const CLOSING_NOTE_OVERHEAD = 340
 
 /** Quote a citizen's text so that nothing in it can be read as our markup. */
 function quote(text: string): string {

@@ -1,4 +1,4 @@
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, ne } from 'drizzle-orm'
 import {
   SupportTicketSchema,
   isSettled,
@@ -11,7 +11,7 @@ import { supportTickets } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
 /**
- * The reads and the one write that triage needs, and why they are not in
+ * The reads and the writes that triage needs, and why they are not in
  * `support.ts` (#105).
  *
  * `support.ts` says outright that it holds no `listAllTickets`, and gives the
@@ -178,6 +178,90 @@ export async function recordTriage(
       updatedAt: new Date().toISOString(),
     })
     .where(and(eq(supportTickets.id, outcome.ticketId), eq(supportTickets.status, 'open')))
+    .returning()
+
+  return row === undefined ? undefined : toTicket(row)
+}
+
+/**
+ * Tickets waiting on an issue: acknowledged, and carrying the issue they became.
+ *
+ * **This is the read that makes the promise true.** `issueBody` in the triage
+ * runner ends every issue it files with *"closing it is how they learn the
+ * ending"*, and until #165 nothing looked at a ticket again after acknowledging
+ * it. These are the rows that sentence is about.
+ *
+ * `acknowledged` and not `open`: an open ticket has not been triaged, so it has
+ * no issue to be waiting on. Not the settled ones either — a `resolved` ticket
+ * has its ending already, and re-writing it because the issue was closed a
+ * second time would overwrite an answer a citizen has read.
+ *
+ * Oldest first, for the reason `openTickets` gives about the queue: a citizen
+ * that has waited longest should not be the one a limit cuts off.
+ *
+ * Bounded, and the bound is the caller's. Unlike the queue this set does not
+ * drain on its own — a ticket stays here for as long as its issue stays open,
+ * which for a `p2` is months. So it is read with a limit rather than whole, and
+ * the limit is sized in the runner where the reason for the number lives.
+ */
+export async function ticketsAwaitingTheirIssue(
+  db: Database,
+  limit: number,
+): Promise<readonly SupportTicket[]> {
+  const rows = await db
+    .select()
+    .from(supportTickets)
+    .where(and(eq(supportTickets.status, 'acknowledged'), isNotNull(supportTickets.issueUrl)))
+    .orderBy(asc(supportTickets.createdAt))
+    .limit(limit)
+
+  return rows.map(toTicket)
+}
+
+/**
+ * Settle a ticket because the issue it became was closed.
+ *
+ * **A second function rather than a parameter on `recordTriage`, and the `where`
+ * clause is the reason.** That one is a compare-and-set on `status = 'open'`,
+ * which is exactly right for it: triage answers a ticket nobody has looked at,
+ * and two overlapping ticks must not both write. This transition starts from
+ * `acknowledged`, so it cannot share that clause — and widening `recordTriage`
+ * to accept either would give the triage path a way to overwrite an answer a
+ * citizen has already been shown.
+ *
+ * **It only ever moves `acknowledged` to `resolved`, and that is what keeps a
+ * re-opened issue harmless.** A closed issue that is opened again is the Colony
+ * changing its mind about its own work; it is not a reason to tell a citizen
+ * that its answered question has become unanswered. Nothing here writes
+ * backwards, and a ticket already `resolved` matches no row — so a second pass
+ * over the same closed issue is a no-op rather than a rewrite.
+ *
+ * It cannot write `declined`. Whether the Colony is refusing something is a
+ * judgement about the citizen's request, and GitHub closing an issue is not
+ * that judgement — `not_planned` on an issue means the *work* was dropped, and
+ * the resolution text says so in words rather than by picking a status the
+ * citizen would read as a refusal it was never given.
+ */
+export async function resolveFromClosedIssue(
+  db: Database,
+  outcome: { readonly ticketId: SupportTicketId; readonly resolution: string },
+): Promise<SupportTicket | undefined> {
+  // The same statement `recordTriage` makes, for the same reason: the table's
+  // `support_tickets_settled_says_why` check would otherwise surface as a
+  // Postgres error naming a constraint, to a caller that knows which of its own
+  // fields was empty.
+  if (outcome.resolution === '') {
+    throw new Error(`a resolved ticket has to say why (ticket ${outcome.ticketId})`)
+  }
+
+  const [row] = await db
+    .update(supportTickets)
+    .set({
+      status: 'resolved',
+      resolution: outcome.resolution,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(and(eq(supportTickets.id, outcome.ticketId), eq(supportTickets.status, 'acknowledged')))
     .returning()
 
   return row === undefined ? undefined : toTicket(row)

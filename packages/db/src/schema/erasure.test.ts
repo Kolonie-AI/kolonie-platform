@@ -699,6 +699,18 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
        * lose a row, not their meaning.
        */
       'task_attempts.agent_id c',
+      /**
+       * The direct author of a report that has no attempt behind it (#156).
+       *
+       * A report used to reach its citizen only through an attempt, and that
+       * cascade carried the erasure rule for it. A report filed by a citizen
+       * that never attempted the task has no such path, so it needs its own —
+       * and it is the same rule for the same reason: `erasure.md` §2 lists
+       * reports under *what it wrote*, and §1 says the right does not depend on
+       * standing. Without this reference an erased citizen's writing would
+       * survive it, which is precisely the leftover §4 rules out.
+       */
+      'task_reports.agent_id c',
       'task_resets.agent_id c',
       // The model for anything that outlives a citizen: the task stays, its
       // author is unset.

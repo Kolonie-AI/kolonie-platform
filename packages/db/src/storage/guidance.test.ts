@@ -277,25 +277,85 @@ describe.skipIf(!target.available)('what citizens write about a task', () => {
     })
 
     /**
-     * The rejection case: no attempt, nothing to report on. `profile` is no
-     * longer the floor — it never filtered usefully, and an agent with an
-     * attempt is registered anyway.
+     * **This used to be the rejection case, and it is now the feature** (#156).
+     *
+     * The refusal it asserted turned away the agent its own message described:
+     * the one that read a task and concluded it could not comply. That agent has
+     * no attempt by construction, and it is the only party able to say an
+     * exclusion exists.
      */
-    it('refuses one from an agent that has never attempted the task', async () => {
+    it('records one from an agent that has never attempted the task', async () => {
       const agentId = await anAgent('bystander')
 
-      expect(
-        (await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })).outcome,
-      ).toBe('no-attempt')
+      const filed = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
+
+      expect(filed.outcome).toBe('recorded')
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+      expect(filed.entry.taskId).toBe(taskId)
+      // No attempt means no outcome, and no outcome is a wall. An agent that did
+      // not do the task cannot have advice about doing it.
+      expect(filed.entry.kind).toBe('wall')
     })
 
-    it('refuses one from an agent whose only attempt was on a different task', async () => {
+    it('records one from an agent whose only attempt was on a different task', async () => {
       const agentId = await anAgent('attempted-elsewhere')
       await attempt(agentId, 'failed', otherTaskId)
 
       expect(
         (await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })).outcome,
-      ).toBe('no-attempt')
+      ).toBe('recorded')
+    })
+
+    /**
+     * **The bound that replaced the gate** (#156).
+     *
+     * Dropping the attempt requirement dropped a limit nobody chose: a citizen
+     * could only report as often as it could open attempts. The replacement is
+     * `task_reports_one_unattempted_per_agent_task`, so a second attempt-less
+     * write on the same task revises the row rather than adding one — which caps
+     * a citizen at one such row per task, ever.
+     */
+    it('revises rather than adding a second attempt-less report on one task', async () => {
+      const agentId = await anAgent('persistent')
+      const first = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
+      expect(first.outcome).toBe('recorded')
+
+      const second = await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: aNarrative('A second thing it wanted to say about the very same task.'),
+      })
+
+      expect(second.outcome).toBe('revised')
+      if (second.outcome !== 'revised') throw new Error(second.outcome)
+      if (first.outcome !== 'recorded') throw new Error(first.outcome)
+      expect(second.entry.id).toBe(first.entry.id)
+    })
+
+    /** One per citizen per task, not one across the Colony. */
+    it('lets a second citizen file its own attempt-less report on the same task', async () => {
+      const one = await anAgent('first-bystander')
+      const other = await anAgent('second-bystander')
+
+      expect(
+        (await fileReport(db, { taskId, agentId: one, narrative: aNarrative(CONTENT) })).outcome,
+      ).toBe('recorded')
+      expect(
+        (await fileReport(db, { taskId, agentId: other, narrative: aNarrative(CONTENT) })).outcome,
+      ).toBe('recorded')
+    })
+
+    /** And one per task, not one across the Academy. */
+    it('lets one citizen file an attempt-less report on each of two tasks', async () => {
+      const agentId = await anAgent('wide-reader')
+
+      expect(
+        (await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })).outcome,
+      ).toBe('recorded')
+      expect(
+        (await fileReport(db, { taskId: otherTaskId, agentId, narrative: aNarrative(CONTENT) }))
+          .outcome,
+      ).toBe('recorded')
     })
 
     /**

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
   GUIDANCE_CONTENT_MAX_LENGTH,
   SubmissionIdSchema,
@@ -357,13 +357,25 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
     expect(await reports()).toHaveLength(1)
   })
 
-  it('refuses an endpoint write from an agent that never attempted the task', async () => {
+  /**
+   * Was a refusal until #156. A citizen that has not attempted the task is the
+   * agent the refusal's own text described, and it is now recorded — bounded to
+   * one such row per citizen per task by the index rather than by a gate.
+   */
+  it('records an endpoint write from an agent that never attempted the task', async () => {
     const stranger = await anAgent()
 
     const filed = await fileReport(db, { taskId, agentId: stranger, narrative: aNarrative(REPORT) })
 
-    expect(filed.outcome).toBe('no-attempt')
-    expect(await reports()).toHaveLength(0)
+    expect(filed.outcome).toBe('recorded')
+    // Counted through the report's own task, not through `reports()`: that
+    // helper joins attempts, which is the right shape for every other test here
+    // and by construction cannot see this row.
+    const unattempted = await db
+      .select({ id: taskReports.id })
+      .from(taskReports)
+      .where(and(eq(taskReports.taskId, taskId), eq(taskReports.agentId, stranger)))
+    expect(unattempted).toHaveLength(1)
   })
 
   /**

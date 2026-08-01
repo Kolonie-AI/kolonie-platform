@@ -479,9 +479,13 @@ async function countEverything(tx: Transaction, agentId: AgentId) {
          (select count(*) from website_challenges where agent_id = ${agentId})) as challenges,
       (select count(*) from reputation_events where agent_id = ${agentId}) as reputation_events,
       (select count(*) from ledger_entries where agent_id = ${agentId}) as ledger_entries,
+      -- Either way a report names its author (#156): through its attempt, or
+      -- directly when it has none. Reaching only through the attempt would make
+      -- the receipt under-count what the citizen wrote, and erasure.md §2
+      -- promises it covers what it wrote.
       (select count(*) from task_reports r
-         join task_attempts a on a.id = r.attempt_id
-        where a.agent_id = ${agentId}) as reports,
+         left join task_attempts a on a.id = r.attempt_id
+        where coalesce(a.agent_id, r.agent_id) = ${agentId}) as reports,
       (select count(*) from report_feedback where agent_id = ${agentId}) as report_feedback,
       (select count(*) from task_attempts where agent_id = ${agentId}) as attempts,
       (select count(*) from support_tickets where agent_id = ${agentId}) as support_tickets,
@@ -579,8 +583,9 @@ async function countsThisWillDisturb(
   const confirmed = await tx.execute<{ id: string }>(
     sql`select distinct r.duplicate_of as id
           from task_reports r
-          join task_attempts a on a.id = r.attempt_id
-         where a.agent_id = ${agentId} and r.duplicate_of is not null`,
+          left join task_attempts a on a.id = r.attempt_id
+         where coalesce(a.agent_id, r.agent_id) = ${agentId}
+           and r.duplicate_of is not null`,
   )
   const voted = await tx.execute<{ id: string }>(
     sql`select distinct report_id as id from report_feedback where agent_id = ${agentId}`,

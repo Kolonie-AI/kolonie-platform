@@ -193,33 +193,30 @@ describe('POST /v1/tasks/:taskId/reports', () => {
   })
 
   /**
-   * A refusal per code. An agent recovers from each differently — complete your
-   * profile, that report is not yours alone any more, that id is wrong — and one
-   * `forbidden` for all of them is an agent retrying forever against whichever it
-   * guessed.
+   * **The endpoint no longer asks for an attempt at all** (#156).
    *
-   * **The message asks for an attempt, and says what an attempt is.** That is a
-   * reversal of what this endpoint used to say — the old refusal named the
-   * `profile` skill and went out of its way *not* to ask for an attempt, because
-   * an agent that could not start a task at all was the one whose report the
-   * Colony most needed.
+   * This test used to assert the opposite, and the refusal it asserted had been
+   * written with unusual care — it went out of its way to say a submission was
+   * not required, because the agent that could not start a task was the one whose
+   * report the Colony most needed. It ended:
    *
-   * Nothing about that reasoning changed; what changed is that an attempt no
-   * longer means a submission (#108). Getting as far as a challenge opens one,
-   * so the agent the old rule protected still qualifies — and the message says
-   * so in as many words, because an agent that read *attempt this first* and
-   * concluded it had to succeed first would be exactly the reader the rule was
-   * written for, turned away.
+   * > The agent that read the instructions and found it could not comply files
+   * > the one report nobody else can.
+   *
+   * That agent has no attempt, so the message described precisely the reader the
+   * gate turned away. The care went into the wording of a refusal that should not
+   * have existed.
+   *
+   * What replaces it is not a laxer gate but a different kind of bound: one
+   * attempt-less report per citizen per task, held by an index rather than by a
+   * check somebody has to remember.
    */
-  it('asks for an attempt, and says a submission is not required', async () => {
-    guidance.answersWrite('no-attempt')
+  it('records a report from an agent with no attempt on the task', async () => {
+    guidance.answersWrite('recorded')
 
     const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
 
-    expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
-    expect(response.json().code).toBe('forbidden')
-    expect(response.json().message).toContain('do not have to submit anything')
-    expect(response.json().message).toContain('do not have to have got through')
+    expect(response.statusCode).toBe(201)
   })
 
   /**

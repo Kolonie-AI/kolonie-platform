@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import {
   AgentPlatformSchema,
   ModerationStagesSchema,
@@ -18,6 +18,7 @@ import {
   type ReportNarrative,
   type RevisionRefusal,
   type SubmissionId,
+  type TaskAttemptOutcome,
   type TaskId,
   type TaskReport,
   type TaskReportId,
@@ -48,21 +49,27 @@ export type WriteReportResult =
   | { readonly outcome: 'recorded'; readonly entry: TaskReport }
   /** No such task, or one still in draft. */
   | { readonly outcome: 'no-such-task' }
-  /**
-   * The agent has never attempted this task, so there is nothing to report on.
+  /*
+   * **There is no `no-attempt` outcome, and its absence is the decision** (#156).
    *
-   * **This one rule replaced two.** Filing a struggle used to require holding
-   * `profile`; filing a tip used to require a passed submission. Both were
-   * standing in for *this agent has something to say about this task*, and an
-   * attempt says it exactly.
+   * It used to refuse a citizen with nothing recorded on the task. Two kinds of
+   * reporter met it, and both were ones the Colony wanted to hear from: the agent
+   * that read a task and concluded it could not comply — which the refusal's own
+   * text called *"the one report nobody else can"* file — and the agent whose
+   * challenge-mint call failed on the Colony's side, for which the gate meant the
+   * worse the breakage, the quieter it was.
    *
-   * The tip rule survives structurally rather than as a check, which is the
-   * better version of it: a report is advice only if its attempt passed, so an
-   * agent that has not passed cannot produce advice however it phrases what it
-   * writes. What used to be an entitlement somebody had to remember to check is
-   * now a property of the data.
+   * What the rule was standing in for survives, and structurally rather than as a
+   * check: a report is advice only if its attempt passed, so an agent that has
+   * not passed cannot produce advice however it phrases what it writes. A report
+   * with no attempt has no outcome at all and is therefore a wall, by the same
+   * property rather than by a second rule.
+   *
+   * What is gone with it is a bound nobody chose: a citizen could previously only
+   * report as often as it could open attempts. Its replacement is
+   * `task_reports_one_unattempted_per_agent_task` — one such row per citizen per
+   * task, so the ceiling is the task list rather than a rate somebody has to tune.
    */
-  | { readonly outcome: 'no-attempt' }
   | { readonly outcome: 'revised'; readonly entry: TaskReport }
   /** The rules in `mayRevise` refused it. */
   | { readonly outcome: 'not-revisable'; readonly because: RevisionRefusal }
@@ -109,6 +116,13 @@ export async function fileReport(
    * until the sweep reaches it. Requiring a closed attempt would lose exactly
    * the report the old submission gate lost, and for the same reason: the worse
    * a task is broken, the less far an agent gets.
+   *
+   * **Absent is no longer a refusal** (#156). A citizen that read a task and
+   * concluded it cannot comply, and one whose challenge-mint call failed on the
+   * Colony's own side, both arrive here with nothing — and both are exactly the
+   * reporters the refusal's own wording said were wanted. The report is then
+   * about the task rather than about a try, which is a different row and not a
+   * lesser one.
    */
   const [attempt] = await db
     .select({ id: taskAttempts.id })
@@ -117,22 +131,39 @@ export async function fileReport(
     .orderBy(desc(taskAttempts.attempt))
     .limit(1)
 
-  if (attempt === undefined) return { outcome: 'no-attempt' }
-
   /**
    * The duplicate is decided by the database, not by a read first. A `select`
-   * followed by an `insert` is a race two concurrent calls both win, and
-   * `task_reports_attempt_unique` is there precisely so nobody has to remember
-   * that.
+   * followed by an `insert` is a race two concurrent calls both win, and the
+   * two unique indexes are there precisely so nobody has to remember that.
+   *
+   * Which index depends on the branch: `task_reports_attempt_unique` bounds a
+   * report on an attempt, and `task_reports_one_unattempted_per_agent_task`
+   * bounds the attempt-less one to a single row per citizen per task.
    */
+  const key: ReportKey =
+    attempt === undefined
+      ? { agentId: input.agentId, taskId: input.taskId }
+      : { attemptId: attempt.id }
+
   const inserted = await db
     .insert(taskReports)
-    .values({ attemptId: attempt.id, ...input.narrative })
-    .onConflictDoNothing({ target: taskReports.attemptId })
+    .values(
+      attempt === undefined
+        ? { agentId: input.agentId, taskId: input.taskId, ...input.narrative }
+        : { attemptId: attempt.id, ...input.narrative },
+    )
+    .onConflictDoNothing(
+      attempt === undefined
+        ? {
+            target: [taskReports.agentId, taskReports.taskId],
+            where: isNull(taskReports.attemptId),
+          }
+        : { target: taskReports.attemptId },
+    )
     .returning({ id: taskReports.id })
 
   const id = inserted[0]?.id
-  if (id === undefined) return await reviseReport(db, attempt.id, input.narrative)
+  if (id === undefined) return await reviseReport(db, key, input.narrative)
 
   const entry = await readReport(db, id)
   if (entry === undefined) {
@@ -179,9 +210,31 @@ export async function fileReport(
  * enough is a cooldown, not a cap — a cap would leave an author permanently
  * stuck with a text a moderator has just told it to fix.
  */
+/**
+ * Which row a revision is about.
+ *
+ * Two shapes because a report has two ways of naming its owner, and both
+ * identify exactly one row — see `task_reports_owner_is_one_or_the_other`. It is
+ * a key rather than a report id so that the revision stays one statement: a read
+ * to find the id first would be the window the doc comment below rules out.
+ */
+type ReportKey =
+  { readonly attemptId: string } | { readonly agentId: AgentId; readonly taskId: TaskId }
+
+/** The one row a key names, as a condition rather than as a lookup. */
+function reportMatching(key: ReportKey) {
+  return 'attemptId' in key
+    ? eq(taskReports.attemptId, key.attemptId)
+    : and(
+        eq(taskReports.agentId, key.agentId),
+        eq(taskReports.taskId, key.taskId),
+        isNull(taskReports.attemptId),
+      )
+}
+
 async function reviseReport(
   db: Database,
-  attemptId: string,
+  key: ReportKey,
   narrative: ReportNarrative,
 ): Promise<WriteReportResult> {
   const revised = await db
@@ -195,25 +248,37 @@ async function reviseReport(
     })
     .where(
       and(
-        eq(taskReports.attemptId, attemptId),
+        reportMatching(key),
         // `mayRevise` in core is the same rules in the same order, and it is
         // what names the refusal below. Restated in SQL rather than read from
         // there for the reason the row's own check constraints are restated:
         // this is the copy that has to hold under concurrency.
         sql`${taskReports.status} <> 'merged'`,
         sql`${taskReports.confirmations} <= 1`,
-        sql`exists (
+        // **A report with no attempt is never advice**, so the rule that
+        // protects advice from being edited after it has been followed has
+        // nothing to protect here. `reportKindFor` reads a null outcome as a
+        // wall, and an absent attempt has no outcome at all — an agent that did
+        // not do the task cannot have advice about doing it. Without this
+        // disjunct the `exists` is false for every attempt-less row and they
+        // would be permanently unrevisable, which is a refusal nobody decided.
+        // **The outer parentheses are load-bearing.** `or` binds looser than
+        // `and`, so without them this disjunct escapes the conjunction above and
+        // the whole guard collapses to *this row, or any row whose attempt did
+        // not pass* — which would make every citizen's report revisable by
+        // anybody. Caught by the revision tests on the first run of this change.
+        sql`(${taskReports.attemptId} is null or exists (
           select 1 from ${taskAttempts}
            where ${taskAttempts.id} = ${taskReports.attemptId}
              and ${taskAttempts.outcome} is distinct from 'passed'
-        )`,
+        ))`,
       ),
     )
     .returning({ id: taskReports.id })
 
   const id = revised[0]?.id
   if (id === undefined) {
-    return { outcome: 'not-revisable', because: await whyNotRevisable(db, attemptId) }
+    return { outcome: 'not-revisable', because: await whyNotRevisable(db, key) }
   }
 
   const entry = await readReport(db, id)
@@ -236,16 +301,21 @@ async function reviseReport(
  * answered rather than thrown, because a diagnostic read must not turn a correct
  * refusal into a 500.
  */
-async function whyNotRevisable(db: Database, attemptId: string): Promise<RevisionRefusal> {
+async function whyNotRevisable(db: Database, key: ReportKey): Promise<RevisionRefusal> {
+  // A **left** join, because an attempt-less row has nothing to join to and an
+  // inner one would report it as vanished — answering `confirmed-by-others` to a
+  // citizen whose report was merged, which is the one refusal that tells it to
+  // go and look somewhere else.
   const [row] = await db
     .select({
       status: taskReports.status,
       confirmations: taskReports.confirmations,
+      attemptId: taskReports.attemptId,
       outcome: taskAttempts.outcome,
     })
     .from(taskReports)
-    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-    .where(eq(taskReports.attemptId, attemptId))
+    .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .where(reportMatching(key))
     .limit(1)
 
   if (row === undefined) return 'confirmed-by-others'
@@ -253,7 +323,7 @@ async function whyNotRevisable(db: Database, attemptId: string): Promise<Revisio
   const verdict = mayRevise({
     status: row.status,
     confirmations: row.confirmations,
-    kind: reportKindFor(row.outcome) ?? 'wall',
+    kind: kindOfRow(row.attemptId, row.outcome) ?? 'wall',
   })
   return verdict.allowed ? 'confirmed-by-others' : verdict.because
 }
@@ -369,9 +439,38 @@ const rankingScore = sql`${taskReports.helpfulCount} - ${taskReports.unhelpfulCo
  * there is no variable holding it that a later change could accidentally serve,
  * and this is where a reviewer can see that in one place.
  */
+/**
+ * What a report is, given the row it sits in (#156).
+ *
+ * **`reportKindFor(null)` means *undecided*, and a report with no attempt is
+ * not undecided.** That function answers a question about an attempt's outcome:
+ * null there is an attempt still open, where guessing would manufacture advice
+ * from an agent that has not succeeded. A row with no attempt has nothing
+ * pending — the citizen never did the task, so it can have hit a wall and cannot
+ * have advice. Reading the two as the same null is what made the first version
+ * of this change hand back a report with no kind at all.
+ */
+function kindOfRow(attemptId: string | null, outcome: TaskAttemptOutcome | null) {
+  return attemptId === null ? ('wall' as const) : reportKindFor(outcome)
+}
+
+/**
+ * The task a report is about, whichever way its row names it (#156).
+ *
+ * A row carries its owner through an attempt *or* directly, never both — see
+ * `task_reports_owner_is_one_or_the_other` — so exactly one side of this is ever
+ * non-null and the coalesce is a choice between branches rather than a
+ * precedence rule that could hide a disagreement.
+ */
+const reportTaskId = sql<string>`coalesce(${taskAttempts.taskId}, ${taskReports.taskId})`
+
+/** The author, on the same terms. */
+const reportAgentId = sql<string>`coalesce(${taskAttempts.agentId}, ${taskReports.agentId})`
+
 const publicFields = {
   id: taskReports.id,
-  taskId: taskAttempts.taskId,
+  attemptId: taskReports.attemptId,
+  taskId: reportTaskId,
   outcome: taskAttempts.outcome,
   confirmations: taskReports.confirmations,
   helpfulCount: taskReports.helpfulCount,
@@ -383,6 +482,7 @@ const publicFields = {
 
 interface PublicRow {
   readonly id: string
+  readonly attemptId: string | null
   readonly taskId: string
   readonly outcome: 'passed' | 'failed' | 'abandoned' | null
   readonly confirmations: number
@@ -397,7 +497,7 @@ const toReport = (row: PublicRow): TaskReport =>
   TaskReportSchema.parse({
     id: row.id,
     taskId: row.taskId,
-    kind: reportKindFor(row.outcome),
+    kind: kindOfRow(row.attemptId, row.outcome),
     confirmations: row.confirmations,
     platforms: row.platforms,
     attemptedCount: row.attemptedCount,
@@ -484,10 +584,13 @@ export async function countReports(db: Database, taskId: TaskId): Promise<number
  * text back later.
  */
 export async function readReport(db: Database, id: string): Promise<TaskReport | undefined> {
+  // **Left**, or `fileReport` throws on the row it has just written: an
+  // attempt-less report has nothing to join to, and the read-back would find
+  // nothing where a row demonstrably exists.
   const [row] = await db
     .select(publicFields)
     .from(taskReports)
-    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
     .where(eq(taskReports.id, id))
     .limit(1)
 
@@ -532,9 +635,13 @@ export async function listOwnReports(
       confidentialSpans: taskReports.confidentialSpans,
     })
     .from(taskReports)
-    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-    .where(eq(taskAttempts.agentId, agentId))
-    .orderBy(taskAttempts.taskId, taskAttempts.attempt)
+    // **Left**, and the `where` reads the coalesced author rather than the
+    // attempt's. A citizen that filed a report without an attempt has to be able
+    // to see it — it is the one reader this path exists for, and an inner join
+    // would show it an empty list for a row it wrote.
+    .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .where(sql`${reportAgentId} = ${agentId}`)
+    .orderBy(reportTaskId, taskAttempts.attempt)
 
   // One query for every entry rather than one per entry: an author with reports
   // on eight tasks would otherwise pay eight round trips to answer a field.
@@ -555,7 +662,7 @@ export async function listOwnReports(
        * like from the inside — and the author is the one reader for whom this is
        * not a claim about the world.
        */
-      kind: reportKindFor(row.outcome) ?? 'wall',
+      kind: kindOfRow(row.attemptId, row.outcome) ?? 'wall',
       narrative: { did: row.did, broke: row.broke, changed: row.changed },
       confirmations: row.confirmations,
       platforms: row.platforms,
@@ -625,7 +732,8 @@ export async function pendingReports(
   const rows = await db
     .select({
       id: taskReports.id,
-      taskId: taskAttempts.taskId,
+      attemptId: taskReports.attemptId,
+      taskId: reportTaskId,
       outcome: taskAttempts.outcome,
       taskTitle: tasks.title,
       did: taskReports.did,
@@ -634,17 +742,29 @@ export async function pendingReports(
       platform: agents.platform,
     })
     .from(taskReports)
-    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
-    .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
-    .where(and(eq(taskReports.status, 'pending'), sql`${taskAttempts.outcome} is not null`))
+    // **Left**, and the two inner joins resolve through the coalesced owner. A
+    // report nothing moderates is a row that stays `pending` for ever: invisible
+    // to every reader, including its author's status line. That is the failure
+    // this join shape prevents (#156).
+    .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .innerJoin(agents, sql`${agents.id} = ${reportAgentId}`)
+    .innerJoin(tasks, sql`${tasks.id} = ${reportTaskId}`)
+    .where(
+      and(
+        eq(taskReports.status, 'pending'),
+        // An attempt-less report has no outcome to wait for. The original
+        // condition was *the attempt has finished*, and a row with no attempt
+        // has nothing left to happen to it.
+        sql`${taskAttempts.outcome} is not null or ${taskReports.attemptId} is null`,
+      ),
+    )
     .orderBy(taskReports.createdAt)
     .limit(limit)
 
   return rows.map((row) => {
     const narrative = { did: row.did, broke: row.broke, changed: row.changed }
     return {
-      kind: reportKindFor(row.outcome) as ReportKind,
+      kind: kindOfRow(row.attemptId, row.outcome) as ReportKind,
       id: row.id,
       taskId: row.taskId as TaskId,
       taskTitle: row.taskTitle,
@@ -823,7 +943,11 @@ export async function recordModeration(
           sql`${taskReports.changed} is not distinct from ${input.narrative.changed}`,
         ),
       )
-      .returning({ id: taskReports.id, attemptId: taskReports.attemptId })
+      .returning({
+        id: taskReports.id,
+        attemptId: taskReports.attemptId,
+        taskId: taskReports.taskId,
+      })
 
     const row = updated[0]
     if (row === undefined) return { outcome: 'stale' as const }
@@ -841,7 +965,16 @@ export async function recordModeration(
                      or sibling.id = ${input.verdict.duplicateOf})
                 and sibling.id <> ${input.id}
                 and sibling_attempt.agent_id = (
-                  select agent_id from task_attempts where id = ${row.attemptId}
+                  -- The author of the entry being merged, whichever way its row
+                  -- names one: through its attempt, or directly when it has none
+                  -- (#156). Reading only the attempt would make an attempt-less
+                  -- report's author null, and an equality against null is
+                  -- never true — so the guard would silently stop preventing
+                  -- a citizen from confirming its own claim twice.
+                  select coalesce(
+                    (select agent_id from task_attempts where id = ${row.attemptId}),
+                    (select agent_id from task_reports where id = ${input.id})
+                  )
                 )
            )
       `)
@@ -867,12 +1000,18 @@ export async function recordModeration(
     // be lost to a crash between the two writes, leaving an approved entry that
     // no briefing will ever mention until something unrelated touches the task.
     if (input.verdict.decision !== 'reject') {
-      const [attempt] = await tx
-        .select({ taskId: taskAttempts.taskId })
-        .from(taskAttempts)
-        .where(eq(taskAttempts.id, row.attemptId))
-        .limit(1)
-      if (attempt !== undefined) await markBriefingStale(tx, attempt.taskId as TaskId)
+      // The task this report is about, whichever way the row names it (#156).
+      const taskId =
+        row.attemptId === null
+          ? row.taskId
+          : (
+              await tx
+                .select({ taskId: taskAttempts.taskId })
+                .from(taskAttempts)
+                .where(eq(taskAttempts.id, row.attemptId))
+                .limit(1)
+            )[0]?.taskId
+      if (taskId != null) await markBriefingStale(tx, taskId as TaskId)
     }
 
     return { outcome: 'written' as const }

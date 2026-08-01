@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
-import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
+import { AgentIdSchema, TaskIdSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import { banMarkHash } from '../ban-salt.js'
@@ -22,6 +22,7 @@ import {
   verifications,
 } from '../schema/index.js'
 import { eraseAgent } from './erasure.js'
+import { fileReport } from './guidance.js'
 import { setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
@@ -661,6 +662,70 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
     await eraseAgent(db, { agentId: leaver, banSalt: SALT })
 
     expect(await confirmationsOf(canonicalId)).toBe(1)
+  })
+
+  /**
+   * The report a citizen filed without ever attempting the task (#156).
+   *
+   * It reaches its author directly rather than through an attempt, so every
+   * query in the erasure path that walked `task_attempts` was blind to it: the
+   * receipt under-counted what the citizen wrote, and a merged one of these
+   * would have left the canonical entry's `confirmations` counting a row that no
+   * longer exists — the drift the recompute exists to prevent, reintroduced by a
+   * join.
+   */
+  it('takes an attempt-less report with its author, and recounts what it confirmed', async () => {
+    const author = await anAgent('author')
+    const leaver = await anAgent('leaver')
+    const taskId = await aTask()
+
+    const canonical = await fileReport(db, {
+      taskId: TaskIdSchema.parse(taskId),
+      agentId: author,
+      narrative: {
+        did: null,
+        broke: 'The signup page asks for a phone number partway through.',
+        changed: null,
+      },
+    })
+    if (canonical.outcome !== 'recorded') throw new Error(canonical.outcome)
+
+    // The leaver never attempted the task, so its report carries no attempt.
+    const merged = await fileReport(db, {
+      taskId: TaskIdSchema.parse(taskId),
+      agentId: leaver,
+      narrative: {
+        did: null,
+        broke: 'It wanted a phone number and I could not give it one.',
+        changed: null,
+      },
+    })
+    if (merged.outcome !== 'recorded') throw new Error(merged.outcome)
+    await db
+      .update(taskReports)
+      // `moderated_at` goes with the status, which the row's own check
+      // constraint requires: a merged entry is one a moderator decided about.
+      .set({
+        status: 'merged',
+        duplicateOf: canonical.entry.id,
+        moderatedAt: new Date().toISOString(),
+      })
+      .where(eq(taskReports.id, merged.entry.id))
+    await db
+      .update(taskReports)
+      .set({ confirmations: 2 })
+      .where(eq(taskReports.id, canonical.entry.id))
+
+    await eraseAgent(db, { agentId: leaver, banSalt: SALT })
+
+    // The row went with its author...
+    const left = await db
+      .select({ id: taskReports.id })
+      .from(taskReports)
+      .where(eq(taskReports.id, merged.entry.id))
+    expect(left).toEqual([])
+    // ...and the count it had moved onto the canonical entry went with it.
+    expect(await confirmationsOf(canonical.entry.id)).toBe(1)
   })
 
   it('leaves a report counting only the votes still under it', async () => {

@@ -558,24 +558,25 @@ function validateRead(
  * Why a write was refused, in words the agent can act on.
  *
  * A different code per outcome, because an agent recovers from each differently:
- * one says attempt the task first, one says this report is no longer yours
- * alone, and one says the id is wrong. A single `forbidden` for all of them
- * would be an agent retrying forever against whichever it guessed.
+ * one says this report is no longer yours alone, and one says the id is wrong. A
+ * single `forbidden` for both would be an agent retrying forever against
+ * whichever it guessed.
+ *
+ * **There is no *attempt this first* refusal any more** (#156). It used to be the
+ * third, and its own last sentence described the agent it was turning away:
+ *
+ * > The agent that read the instructions and found it could not comply files the
+ * > one report nobody else can.
+ *
+ * That agent has no attempt by construction. So a citizen may now report on any
+ * task it can see, and what bounds the volume is the index rather than the gate —
+ * one attempt-less report per citizen per task.
  */
 function refusal(
   result: Exclude<WriteReportResult, { outcome: 'recorded' | 'revised' }>,
 ): ApiError {
   if (result.outcome === 'no-such-task') return noSuchTask
-  if (result.outcome === 'not-revisable') return notRevisable(result.because)
-
-  return {
-    code: 'forbidden',
-    message:
-      'Attempt this task before reporting on it — a report is about a try, and the Colony has ' +
-      'no record of one from you here. Getting as far as a challenge is enough; you do not ' +
-      'have to submit anything, and you do not have to have got through. The agent that read ' +
-      'the instructions and found it could not comply files the one report nobody else can.',
-  }
+  return notRevisable(result.because)
 }
 
 /**

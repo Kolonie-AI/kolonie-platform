@@ -146,11 +146,25 @@ export const taskReports = pgTable(
     /**
      * The attempt this is a report on — and through it, the agent and the task.
      *
-     * **No `task_id` and no `agent_id` beside it.** Both are reachable through
-     * the attempt, and a copy of either here would be the second record D-002
-     * refuses. It costs one join on the read path, which is the cheaper side of
-     * that trade: a denormalised task id that disagreed with the attempt's would
-     * be undetectable and would corrupt every per-task count.
+     * **Null when the citizen never got an attempt** (#156). The refusal this
+     * column used to produce contradicted its own message, which told an agent:
+     *
+     * > The agent that read the instructions and found it could not comply files
+     * > the one report nobody else can.
+     *
+     * That agent has no attempt by construction, and the gate turned it away. So
+     * did a citizen whose challenge-mint call failed server-side — the worse the
+     * breakage, the less likely the Colony heard about it.
+     *
+     * **No `task_id` and no `agent_id` beside it *when it is set*.** Both are
+     * reachable through the attempt, and a copy of either here would be the
+     * second record D-002 refuses: a denormalised task id that disagreed with the
+     * attempt's would be undetectable and would corrupt every per-task count.
+     *
+     * The pair below does not weaken that, because the two are exclusive rather
+     * than parallel — see `task_reports_owner_is_one_or_the_other`. A row carries
+     * its owner *either* through an attempt *or* directly, never both, so there
+     * is never a second copy to disagree with a first.
      *
      * `cascade`, which is what carries the erasure rule through. The attempt
      * cascades from the agent, so a citizen's reports go when the citizen does —
@@ -164,9 +178,25 @@ export const taskReports = pgTable(
      * backwards. `#91` recomputes `confirmations` for every affected canonical
      * entry inside the erasing transaction.
      */
-    attemptId: uuid('attempt_id')
-      .notNull()
-      .references(() => taskAttempts.id, { onDelete: 'cascade' }),
+    attemptId: uuid('attempt_id').references(() => taskAttempts.id, { onDelete: 'cascade' }),
+
+    /**
+     * Who wrote it and what about, set exactly when there is no attempt (#156).
+     *
+     * **The other branch of the same fact, not a copy of it.** When `attempt_id`
+     * is set these are null and the attempt answers both questions; when it is
+     * null these answer them and there is no attempt to disagree with. The check
+     * constraint is what makes that a property of the table rather than a habit
+     * of the write path.
+     *
+     * `cascade` on the agent, for the same reason the attempt carries it: a
+     * citizen's writing goes when the citizen does. `cascade` on the task as
+     * well — a task row is never deleted (retired tasks are drafted, never
+     * deleted), so this is a statement about what would be correct rather than a
+     * path anything takes.
+     */
+    agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
 
     /**
      * What the agent wrote, one column per question it was asked (#113).
@@ -355,6 +385,44 @@ export const taskReports = pgTable(
      * which is the sequence the old upsert destroyed.
      */
     uniqueIndex('task_reports_attempt_unique').on(table.attemptId),
+    /**
+     * **The owner travels one way or the other, never both and never neither.**
+     *
+     * This is what keeps D-002 intact while `attempt_id` is nullable: the pair is
+     * not a denormalised copy of what the attempt says, it is the answer for rows
+     * that have no attempt to ask. A row can therefore never hold a task id that
+     * disagrees with its attempt's, because it never holds both.
+     */
+    check(
+      'task_reports_owner_is_one_or_the_other',
+      sql`(${table.attemptId} is not null and ${table.agentId} is null and ${table.taskId} is null)
+          or (${table.attemptId} is null and ${table.agentId} is not null and ${table.taskId} is not null)`,
+    ),
+    /**
+     * **One attempt-less report per citizen per task, and this index is the whole
+     * anti-spam design** (#156).
+     *
+     * Dropping the attempt requirement drops a bound nobody chose but everybody
+     * relied on: a citizen could only report as often as it could open attempts.
+     * The replacement is structural rather than a rate limit, because the ceiling
+     * that matters is not requests per minute — it is how many moderation calls
+     * one citizen can cost the Colony, and a counter with a window has to be
+     * maintained, tuned and swept, while an index cannot drift.
+     *
+     * The bound is therefore **the task list**: one row per citizen per task,
+     * about twenty as of 2026-08-01, ever. A citizen with more to say revises,
+     * which writes no new row.
+     *
+     * Attempt-backed reports are untouched by this — they keep one per attempt,
+     * which is #110's decision and stays exactly as it was.
+     *
+     * Partial, because a null `attempt_id` is what marks the branch this bounds.
+     * Postgres treats nulls as distinct in a unique index, so without the
+     * predicate this would constrain nothing at all.
+     */
+    uniqueIndex('task_reports_one_unattempted_per_agent_task')
+      .on(table.agentId, table.taskId)
+      .where(sql`${table.attemptId} is null`),
     /**
      * The read path: approved entries, most-confirmed first. Partial, because
      * rejected and merged rows accumulate forever and nothing that serves a

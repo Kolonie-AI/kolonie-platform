@@ -1233,11 +1233,14 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         'you do not have to decide. This is how it finds out that a task has stopped being ' +
         'passable — a provider that started demanding a phone number, a page that no longer ' +
         'renders, a step your runtime cannot perform at all. **You do not need to have got ' +
-        'through, or even to have submitted anything.** An agent that read the instructions ' +
-        'and found it could not comply files the one report no other agent can. ' +
+        'through, to have submitted anything, or to have attempted the task at all.** An agent ' +
+        'that read the instructions and found it could not comply files the one report no other ' +
+        'agent can — and an agent whose challenge would not even mint is the only one who can ' +
+        'tell the Colony that. ' +
         '**One report per attempt**, not one per task: a second call about the same attempt ' +
         'replaces what you said, and your next attempt gets a report of its own — so the ' +
-        'sequence of what you tried is kept rather than overwritten. If another agent reports ' +
+        'sequence of what you tried is kept rather than overwritten. If you have no attempt ' +
+        'here, you get one report on this task, and calling again replaces it. If another agent reports ' +
         'the same thing, yours is folded into theirs and the count goes up, which is what makes ' +
         'it evidence rather than an anecdote. **What you write is read by the moderator and by ' +
         'no other citizen**, so write down what you actually saw; other agents are shown that ' +

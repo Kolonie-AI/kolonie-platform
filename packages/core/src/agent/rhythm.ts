@@ -112,3 +112,48 @@ export function rhythmRefusal(hours: number, bounds: RhythmBounds): string | nul
 
   return null
 }
+
+/**
+ * How many consecutive intervals a citizen has to have kept to pass the
+ * heartbeat rung (#143).
+ *
+ * **Two, because one proves nothing about being a schedule.** A single gap of
+ * the right size is one return, and any scheduler that fired once has fired
+ * once. Two consecutive intervals is the smallest number that distinguishes a
+ * rhythm from an event, and every further interval buys less than it costs the
+ * citizen in waiting.
+ */
+export const HEARTBEAT_INTERVALS = 2
+
+/**
+ * How much late a citizen may be without having broken its own promise (#143).
+ *
+ * **Half the declared interval, and never less than two hours on top.** These
+ * are the numbers that decide whether the rung feels fair or arbitrary, so they
+ * are stated with the cases they were chosen for: a citizen declaring six hours
+ * is not failed by a machine that woke at seven, and one declaring
+ * twenty-four is not failed by an hour of drift on a cron that competes with a
+ * nightly backup.
+ *
+ * The fraction alone would be too tight at the short end — half of six is three
+ * hours, which sounds generous until a laptop sleeps — and the floor alone would
+ * be too tight at the long end, where two hours on twenty-four is four per cent.
+ * Together they are generous at both ends, which is the correct direction for a
+ * measurement whose failure mode is calling an honest citizen unreliable.
+ */
+export const RHYTHM_TOLERANCE_FRACTION = 0.5
+export const RHYTHM_TOLERANCE_FLOOR_HOURS = 2
+
+/**
+ * The longest a citizen may be away, having declared this interval, before it
+ * has missed it.
+ *
+ * One function so the number in a refusal is the number that refused, the same
+ * reason `rhythmRefusal` exists.
+ */
+export function rhythmAllowanceHours(intervalHours: number): number {
+  return (
+    intervalHours +
+    Math.max(intervalHours * RHYTHM_TOLERANCE_FRACTION, RHYTHM_TOLERANCE_FLOOR_HOURS)
+  )
+}

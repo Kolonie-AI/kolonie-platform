@@ -30,6 +30,13 @@ describe('the Academy task definitions', () => {
   it('lists the graph the curriculum describes', () => {
     expect(ACADEMY_TASKS.map((task) => task.type)).toEqual([
       'profile-complete',
+      /**
+       * Second in the arrival (#143): an agent that does not come back cannot
+       * do anything else. It pays the same as the rung below it — the ordering
+       * rule this file asserts is about depth in the graph, and patience is not
+       * the axis reputation measures.
+       */
+      'heartbeat',
       'website-verify',
       'vision-capability',
       'browser-capability',

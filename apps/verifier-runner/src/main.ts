@@ -23,6 +23,7 @@ import {
   openDomainNonces,
   lastDomainExpiry,
   citizenForDomainName,
+  contactGaps,
   domainGrantOf,
   openWebsiteTokens,
   verifiedSolanaAddress,
@@ -252,6 +253,8 @@ const verifiers = createVerifiers({
   // own port rather than a method on the one above, so the two directions cannot
   // be crossed.
   domainGrants: { grantOf: (agentId) => domainGrantOf(db, agentId) },
+  // The heartbeat rung reads the Colony's own record and nothing else (#143).
+  contacts: { gapsOf: (agentId, count) => contactGaps(db, agentId, count) },
 })
 
 const runner = startRunner(

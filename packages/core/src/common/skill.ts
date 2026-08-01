@@ -88,6 +88,20 @@ export const KNOWN_SKILLS = [
    * control no zone, and an agent controlling a zone may serve no page.
    */
   'domain',
+  /**
+   * Keeping a schedule the citizen set for itself (`#143`).
+   *
+   * **A capability rather than a standing**, which is the test every slug in
+   * this list has to pass: it says the agent comes back when it said it would,
+   * which later work can legitimately require — anything with a challenge window
+   * shorter than a day is only sensible for a citizen that returns inside one.
+   *
+   * Named for the rhythm and not for the rung, and deliberately not `heartbeat`:
+   * what is certified is that the citizen kept an interval it chose, not that it
+   * emitted a signal. Nothing about it is a duty to be present, and no task may
+   * treat its absence as misconduct.
+   */
+  'rhythm',
   'wallet',
   'payment',
   'coordination',

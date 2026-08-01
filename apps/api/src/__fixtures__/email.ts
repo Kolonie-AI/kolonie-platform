@@ -81,6 +81,12 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
       if (open !== undefined) {
         return {
           outcome: 'open',
+          address: open.address,
+          // `identity` is this fixture's stand-in for `mailboxIdentity`, which is
+          // where the real comparison happens. Mirrored rather than reduced to
+          // `===`, or the fixture would let a `+tag` pass a test the database
+          // would refuse.
+          matchesRequested: identity(open.address) === identity(address),
           challenge: {
             id: open.token,
             token: open.token,
@@ -143,6 +149,11 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
       if (open !== undefined) {
         return {
           outcome: 'open',
+          address: open.address,
+          // The badge reads its address from the grant, so there is nothing the
+          // caller could have named differently. Same value the real storage
+          // returns here, and for the same reason.
+          matchesRequested: true,
           challenge: {
             id: open.token,
             token: open.token,

@@ -1460,8 +1460,16 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       ) +
       'Delivery takes minutes, not seconds, and a first message from an unknown sender is often ' +
       'delayed on purpose — check the spam folder before deciding it never arrived. The ' +
-      'challenge stays open for 24 hours. Asking again while it is open returns the same ' +
-      'challenge and sends no second mail, so waiting costs you nothing.\n\n' +
+      'challenge stays open for 24 hours. Asking again for the same address while it is open ' +
+      'returns the same challenge and sends no second mail, so waiting costs you nothing.\n\n' +
+      // The sentence above used to end at "asking again", and a citizen that came
+      // back in a fresh session with no memory of the address it had used read
+      // that as a promise it could name any mailbox (#157). One open challenge
+      // per citizen means it cannot: the code belongs to the first address.
+      'Asking for a *different* address while one is open is refused, and the refusal tells you ' +
+      'which address the open challenge names — so if you have forgotten, that is how you find ' +
+      'out. Name that one to get your challenge back, or wait for it to expire and then choose ' +
+      'another.\n\n' +
       'You may open at most five challenges, ever, counted across every address you name. The ' +
       'Colony writes to an address you chose, so the number it will write to for one citizen is ' +
       'bounded — and the limit protects the sending domain that every future citizen has to be ' +

@@ -68,6 +68,24 @@ export type EmailMintOutcome =
   | {
       readonly outcome: 'open'
       readonly challenge: MintedEmailChallenge
+      /** The address the open challenge was opened against. */
+      readonly address: string
+      /**
+       * Whether that address is the mailbox the caller just named (#157).
+       *
+       * **Decided here rather than by the caller, because the rule is
+       * `mailboxIdentity` and it exists once, in SQL.** A `===` in the API would
+       * be a second implementation of *what counts as the same inbox* — the one
+       * the unique index, the sender check and `addressBelongsToAnother` all
+       * share — and the two would disagree the first time somebody asked again
+       * with a `+tag` or a capital letter.
+       *
+       * It matters because one open challenge per citizen means a second request
+       * naming a *different* mailbox cannot be honoured: the code belongs to the
+       * first address, and sending it to the second would prove control of one
+       * mailbox and credit another.
+       */
+      readonly matchesRequested: boolean
       /** True when the mail already went out, and therefore must not go again. */
       readonly sent: boolean
     }
@@ -153,18 +171,22 @@ export async function mintEmailChallenge(
   agentId: AgentId,
   address: string,
 ): Promise<EmailMintOutcome> {
-  const open = await openInboxChallenge(db, agentId)
+  const open = await openInboxChallenge(db, agentId, address)
 
   if (open !== undefined) {
     return {
       outcome: 'open',
+      address: open.address,
+      matchesRequested: open.matchesRequested,
       challenge: {
         id: open.id,
         token: open.token,
         expiresAt: toTimestamp(open.expiresAt),
-        // Non-null for every `inbox` row by `email_challenges_code_belongs_to_inbox`.
-        // Reaching this with no code means the constraint is gone, and mailing an
-        // empty one would be worse than failing loudly.
+        // Non-null because `openInboxChallenge` selects on it. The constraint does
+        // *not* give this — it permits a code-less row while nothing was sent, and
+        // reading one as an open challenge is exactly what #157 was. Kept as an
+        // assertion rather than a cast: mailing an empty code would be worse than
+        // failing loudly, and this is the line that says so.
         code: open.code ?? raise('an open inbox challenge carries no code'),
       },
       sent: open.sentAt !== null,
@@ -175,10 +197,28 @@ export async function mintEmailChallenge(
     return { outcome: 'address_taken' }
   }
 
+  // **Code-less rows do not count, for the same reason they do not block.** The
+  // cap bounds how many addresses the Colony agreed to write to; it never agreed
+  // to write to a round-trip challenge, because that flow asked it to answer mail
+  // rather than to send any. Counting them charges a citizen for requests the
+  // Colony never spent anything on.
+  //
+  // It is not a loosening of the cap and leaves #153 exactly where it is: the
+  // number, the window and the lifetime reckoning are untouched, and what changes
+  // is only which rows are a mailing. Measured on the production database on
+  // 2026-08-01 at 10:50 UTC, one citizen (`8af89ae8`) held 5 inbox rows, all 5
+  // code-less and none verified — at the cap of 5, permanently, on the strength of
+  // a mechanism that has been deleted.
   const [tally] = await db
     .select({ opened: count() })
     .from(emailChallenges)
-    .where(and(eq(emailChallenges.agentId, agentId), eq(emailChallenges.purpose, 'inbox')))
+    .where(
+      and(
+        eq(emailChallenges.agentId, agentId),
+        eq(emailChallenges.purpose, 'inbox'),
+        isNotNull(emailChallenges.code),
+      ),
+    )
 
   if ((tally?.opened ?? 0) >= EMAIL_CHALLENGE_LIFETIME_CAP) {
     return { outcome: 'cap_reached', cap: EMAIL_CHALLENGE_LIFETIME_CAP }
@@ -250,6 +290,15 @@ export async function mintEmailSendChallenge(
   if (open !== undefined) {
     return {
       outcome: 'open',
+      // Always the granted reach address on this node — the caller cannot name
+      // another one, so unlike the inbox path there is nothing here to compare
+      // it against. Carried rather than blanked, so the field means the same
+      // thing in both variants.
+      address: open.address,
+      // True because there is no other answer available: this node reads the
+      // address from the grant, so what was asked for and what is open cannot
+      // differ. See `mintEmailSendChallenge`'s own comment on D-018.
+      matchesRequested: true,
       challenge: {
         id: open.id,
         token: open.token,
@@ -647,15 +696,46 @@ async function latestOfPurpose(
   }
 }
 
-/** The citizen's live granting challenge, if it has one. The one-open-challenge rule. */
-async function openInboxChallenge(db: Database, agentId: AgentId) {
+/**
+ * The citizen's live granting challenge, if it has one. The one-open-challenge rule.
+ *
+ * **A row with no code is not one of these, and that is what `#157` was.** Before
+ * kolonie-docs#92 the rung was a round trip: the agent wrote first and the code
+ * was minted when its mail arrived, so a challenge sat open carrying none. Those
+ * rows are legal — `email_challenges_code_belongs_to_inbox` asks only that a
+ * *delivered* mail had a code, and it is `sent_at is null or code is not null` —
+ * and the flow that would have given them one no longer exists. The Colony never
+ * wrote to them and now never will.
+ *
+ * Treating such a row as an open challenge is what produced the defect: the mint
+ * path read it, asked it for a code, and threw *"an open inbox challenge carries
+ * no code"* at a citizen that had done nothing wrong. Measured on the production
+ * database on 2026-08-01 at 10:50 UTC: 7 open inbox challenges across 4 citizens,
+ * all 7 carrying no code, so every one of those citizens met that error and none
+ * of them could reach the rung at all.
+ *
+ * So the filter is here rather than at the call site. A challenge the Colony
+ * cannot complete must not block the one it can, and stating it in the query
+ * makes the invariant the readers below rely on true by construction rather than
+ * by a check each of them remembers.
+ */
+async function openInboxChallenge(db: Database, agentId: AgentId, requested?: string) {
   const [row] = await db
     .select({
       id: emailChallenges.id,
       token: emailChallenges.token,
+      address: emailChallenges.address,
       code: emailChallenges.code,
       sentAt: emailChallenges.sentAt,
       expiresAt: emailChallenges.expiresAt,
+      // Computed in the same statement rather than in a second round trip, and
+      // in SQL rather than in TypeScript so that `mailboxIdentity` stays the one
+      // definition of *the same inbox*. `undefined` when no address was asked
+      // about — the redemption path reads this row too and has none.
+      matchesRequested:
+        requested === undefined
+          ? sql<boolean>`true`
+          : sql<boolean>`${mailboxIdentity(emailChallenges.address)} = ${mailboxIdentity(sql`${requested}`)}`,
     })
     .from(emailChallenges)
     .where(
@@ -663,6 +743,7 @@ async function openInboxChallenge(db: Database, agentId: AgentId) {
         eq(emailChallenges.agentId, agentId),
         eq(emailChallenges.purpose, 'inbox'),
         isNull(emailChallenges.verifiedAt),
+        isNotNull(emailChallenges.code),
         gt(emailChallenges.expiresAt, sql`now()`),
       ),
     )
@@ -678,6 +759,7 @@ async function openSendChallenge(db: Database, agentId: AgentId) {
     .select({
       id: emailChallenges.id,
       token: emailChallenges.token,
+      address: emailChallenges.address,
       expiresAt: emailChallenges.expiresAt,
     })
     .from(emailChallenges)

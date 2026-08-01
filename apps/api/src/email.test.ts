@@ -215,6 +215,47 @@ describe('POST /v1/academy/email/challenges', () => {
     expect(response.statusCode).toBe(409)
     expect(response.json().code).toBe('conflict')
   })
+
+  /**
+   * **A second request naming a different mailbox is refused, not redirected**
+   * (`#157`).
+   *
+   * One open challenge per citizen is the bound and it is unchanged. What this
+   * pins is that the request is not answered by mailing the *open* challenge's
+   * code to the *newly named* address: redemption credits the address on the
+   * row, so a citizen would prove control of one mailbox and be recorded as
+   * holding another.
+   */
+  it('refuses a second address while a challenge is open, and names the first', async () => {
+    await open('citizen@example.org')
+
+    const response = await open('elsewhere@example.org')
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().code).toBe('conflict')
+    // Both addresses, so the agent can act on the refusal rather than guess.
+    expect(String(response.json().message)).toContain('citizen@example.org')
+    expect(String(response.json().message)).toContain('elsewhere@example.org')
+    // The point of the refusal: nothing went to the address that was not proved.
+    expect(mailer.sent).toHaveLength(1)
+    expect(mailer.sent[0]?.to).toBe('citizen@example.org')
+  })
+
+  /**
+   * The same comparison the uniqueness index makes. A citizen asking again with
+   * the address it already gave — differently cased, or `+tagged` by whatever
+   * composed the request — is asking about the same mailbox and gets its own
+   * challenge back.
+   */
+  it('treats a +tagged repeat of the open address as the same mailbox', async () => {
+    await open('citizen@example.org')
+
+    const again = await open('Citizen+kolonie@example.org')
+
+    expect(again.statusCode).toBe(201)
+    expect(again.json()).toMatchObject({ mailSent: false })
+    expect(mailer.sent).toHaveLength(1)
+  })
 })
 
 describe('the inbound handler', () => {

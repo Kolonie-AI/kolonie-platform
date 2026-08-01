@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
 import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
@@ -290,6 +291,110 @@ describe.skipIf(!target.available)('the mailbox nodes', () => {
       }
 
       expect((await mintEmailChallenge(db, otherId, 'fresh@example.org')).outcome).toBe('minted')
+    })
+
+    /**
+     * A repeat naming a different mailbox is refused rather than redirected
+     * (`#157`).
+     *
+     * The rule above — one open challenge per *citizen* — is unchanged, and this
+     * is what the caller needs on top of it: the open challenge's code belongs to
+     * the first address, so answering the second request by mailing that code to
+     * the second address would prove control of one mailbox and credit another.
+     */
+    it('says an open challenge names a different mailbox than the one asked for', async () => {
+      await mintAndSend(agentId, 'citizen@example.org')
+
+      const second = await mintEmailChallenge(db, agentId, 'elsewhere@example.org')
+
+      expect(second).toMatchObject({
+        outcome: 'open',
+        address: 'citizen@example.org',
+        matchesRequested: false,
+      })
+    })
+
+    it('says it is the same mailbox when the repeat names it again', async () => {
+      await mintAndSend(agentId, 'citizen@example.org')
+
+      expect(await mintEmailChallenge(db, agentId, 'citizen@example.org')).toMatchObject({
+        outcome: 'open',
+        matchesRequested: true,
+      })
+    })
+
+    /**
+     * The comparison is `mailboxIdentity` and not `===`, which is the reason it
+     * is computed in SQL. A citizen asking again with the address it already gave
+     * — in a different case, or with the `+tag` some clients add — must not be
+     * told it named a different mailbox.
+     */
+    it('treats a +tagged, differently cased repeat as the same mailbox', async () => {
+      await mintAndSend(agentId, 'citizen@example.org')
+
+      expect(await mintEmailChallenge(db, agentId, 'Citizen+kolonie@example.org')).toMatchObject({
+        outcome: 'open',
+        matchesRequested: true,
+      })
+    })
+  })
+
+  /**
+   * Challenges left behind by the round trip the rung used to be (`#157`).
+   *
+   * Before kolonie-docs#92 the agent wrote first and the code was minted when its
+   * mail arrived, so a challenge sat open carrying none. The rows are legal —
+   * `email_challenges_code_belongs_to_inbox` is `sent_at is null or code is not
+   * null` — and nothing can ever complete them, because the flow that would have
+   * given them a code is gone.
+   *
+   * Measured on the production database on 2026-08-01 at 10:50 UTC: 7 such rows
+   * across 4 citizens, every open inbox challenge there was. One citizen held 5,
+   * which is the whole lifetime cap.
+   */
+  describe('a challenge left over from the round trip', () => {
+    /** An open inbox challenge with no code, as the old flow wrote them. */
+    const legacyOpen = async (agent: AgentId, address: string): Promise<void> => {
+      await db.insert(emailChallenges).values({
+        agentId: agent,
+        address,
+        token: randomBytes(9).toString('hex'),
+        purpose: 'inbox',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      })
+    }
+
+    it('does not block a citizen from opening one it can complete', async () => {
+      await legacyOpen(agentId, 'from-the-old-flow@example.org')
+
+      const result = await mintEmailChallenge(db, agentId, 'a-mailbox-i-can-read@example.org')
+
+      expect(result.outcome).toBe('minted')
+    })
+
+    /**
+     * The half that decides whether a citizen is stranded rather than merely
+     * inconvenienced. The cap bounds how many addresses the Colony agreed to
+     * write to, and it never agreed to write to these: the old flow asked it to
+     * answer mail, not to send any.
+     */
+    it('does not spend the lifetime cap', async () => {
+      for (let index = 0; index < EMAIL_CHALLENGE_LIFETIME_CAP; index += 1) {
+        await legacyOpen(agentId, `round-trip-${index}@example.org`)
+      }
+
+      expect((await mintEmailChallenge(db, agentId, 'fresh@example.org')).outcome).toBe('minted')
+    })
+
+    /** A code-carrying challenge is untouched by any of the above. */
+    it('leaves an ordinary open challenge blocking, as it should', async () => {
+      await legacyOpen(agentId, 'from-the-old-flow@example.org')
+      await mintAndSend(agentId, 'citizen@example.org')
+
+      expect(await mintEmailChallenge(db, agentId, 'citizen@example.org')).toMatchObject({
+        outcome: 'open',
+        matchesRequested: true,
+      })
     })
   })
 

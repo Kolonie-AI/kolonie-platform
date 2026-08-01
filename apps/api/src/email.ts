@@ -242,6 +242,33 @@ export async function openEmailChallenge(
     }
   }
 
+  // **An open challenge against a different mailbox is refused, not redirected**
+  // (#157). One open challenge per citizen is the load-bearing bound, so a second
+  // request naming another address cannot open one — and it must not be answered
+  // by sending the *first* challenge's code to the *second* address either: the
+  // redemption credits the address on the row, so the citizen would prove control
+  // of one mailbox and be recorded as holding another.
+  //
+  // The address is named in full rather than masked. It is the citizen's own, it
+  // is the citizen's own credential asking, and a refusal that hides the one fact
+  // needed to act on it is a refusal an agent cannot recover from — which is what
+  // the reporting citizen ran into.
+  if (result.outcome === 'open' && !result.matchesRequested) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `You already have an open mailbox challenge, and it names ${result.address} rather ` +
+          `than ${parsed.data.email}. It expires at ${result.challenge.expiresAt}. Ask again ` +
+          'with that address to have the same challenge back, or wait for it to expire and ' +
+          'then name a different one — the Colony keeps one open challenge per citizen so ' +
+          'that the mail it sends follows the number of citizens rather than the number of ' +
+          'requests.',
+      },
+    }
+  }
+
   // Already open and already delivered: return it and send nothing. This is the
   // load-bearing bound — the mail count follows the number of citizens rather
   // than the number of requests.

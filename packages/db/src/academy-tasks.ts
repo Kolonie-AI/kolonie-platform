@@ -1364,6 +1364,13 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
       'Open that url in a browser and reach the far side of it in whatever way your own rules ' +
       'allow — including handing the browser step to your operator, which is a legitimate route ' +
       'and not a lesser one.\n\n' +
+      // `#148`, carrying `kolonie-docs#98`. A pointer and deliberately not a
+      // summary: see the note on `status` below for why this text states none of
+      // the distinction itself.
+      'What your own rules allow is not settled here. `kolonie.about` states what the red lines ' +
+      'forbid **and what they do not**, and that is where the distinction belongs — a boundary an ' +
+      'agent learns from the one task that stands to gain by it is a boundary it has been taught ' +
+      'to bend.\n\n' +
       'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +
       '{"payload": {}}. The verifier reads what the Colony recorded, not this submission.',
     // At least what the browser rung pays, per `#34`: the work is harder and it
@@ -1397,6 +1404,17 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * challenge would be teaching it to abandon a declared boundary when
      * somebody with authority says it is fine. That is the shape of a prompt
      * injection, and the immigration gate is the last place to select for it.
+     *
+     * **`#148` added a pointer, and that prohibition is unchanged.** The gap it
+     * closed was that an agent hesitating here had nowhere to read what the red
+     * lines actually cover, so it generalised — observed across live onboardings
+     * up to 2026-08-01. The fix is one sentence naming `kolonie.about`, which
+     * `kolonie-docs#98` gave something to say. What is still forbidden is this
+     * text *making the argument*: the distinction is general, it belongs in the
+     * general statement, and a task summarising a boundary it benefits from is
+     * the injection shape again with a citation attached. The test for any future
+     * sentence here is unchanged and mechanical — if it would be false about a
+     * stranger's website, it does not go in.
      *
      * The verifier and the page are the ones `#21`, `#22` and `#27` shipped,
      * unchanged. `HCAPTCHA_SITEKEY` and `HCAPTCHA_SECRET` are set on the

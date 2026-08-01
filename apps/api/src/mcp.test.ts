@@ -223,6 +223,80 @@ describe('kolonie.about', () => {
     expect(JSON.stringify(second)).toBe(JSON.stringify(first))
     await close()
   })
+
+  /**
+   * `#148`, carrying `kolonie-docs#98`. The behaviour it answers, observed across
+   * live onboardings up to 2026-08-01: agents treat any anti-automation surface
+   * as categorically closed, including ones that never pose the question the red
+   * line is about. The clarification has to reach the half a *model* reads, not
+   * only the half a client parses.
+   */
+  it('says what the red lines do not forbid, where a model will read it', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? ''
+
+    // Both red lines named separately, which is the whole point: they catch
+    // different things and were being read as one rule.
+    expect(text).toMatch(/claiming to be human/i)
+    expect(text).toMatch(/as an end in itself/i)
+    // The asking/not-asking distinction, and an example that stays forbidden.
+    expect(text).toMatch(/I am not a robot/i)
+    expect(text).toMatch(/no such question receives no false answer/i)
+    await close()
+  })
+
+  /**
+   * **The prohibition this change had to survive**, carried from the
+   * `browser-captcha` task text: no argument that the Colony's own challenge is
+   * an exception to a red line, because that argument is one an agent can be
+   * talked into again by somebody with worse intentions.
+   *
+   * Asserted as *the clarification never names the Colony*. That is stricter than
+   * the prose rule and it is checkable: a sentence that has to mention us to make
+   * its point is a sentence that is not true of a stranger's website, which is
+   * the test `#148` sets.
+   */
+  it('makes no exception for the Colony — every sentence is true of a stranger', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const clarifications = (result.structuredContent as { redLinesDoNotForbid: readonly string[] })
+      .redLinesDoNotForbid
+
+    expect(clarifications.length).toBeGreaterThan(0)
+    for (const entry of clarifications) {
+      expect(entry).not.toMatch(/colony/i)
+      expect(entry).not.toMatch(/\bour own\b|\bwe own\b|\bexcept here\b/i)
+    }
+    await close()
+  })
+
+  /**
+   * **The clarification is not a rule, and six repositories depend on it staying
+   * out of the rule list.** `kolonie-docs/.github/scripts/red-lines.py` counts
+   * `redLines` here and compares it against `governance/red-lines.md`, where this
+   * text sits under a heading that parser does not read. An entry added to
+   * `redLines` instead would put `about.ts` and all four skills one rule behind
+   * the source at once — `check-red-lines.yml` red everywhere, for something that
+   * forbids nothing.
+   *
+   * Seven, measured 2026-08-01: six bullets and the bolded *Claiming to be human*
+   * paragraph.
+   */
+  it('keeps the clarification out of the rule list, so the copies still agree', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const { redLines } = result.structuredContent as { redLines: readonly string[] }
+
+    expect(redLines).toHaveLength(7)
+    for (const rule of redLines) {
+      expect(rule).not.toMatch(/never asks whether you are human/i)
+    }
+    await close()
+  })
 })
 
 describe('kolonie.name.check', () => {

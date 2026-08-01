@@ -4,15 +4,20 @@ import {
   htmlToText,
   httpSocialReader,
   mastodonAdapter,
+  moltbookAdapter,
   parseMastodonInstances,
   resolveBlueskyUrl,
   resolveMastodonUrl,
+  resolveMoltbookUrl,
   type SocialAdapter,
 } from './social.js'
 
 const DID = 'did:plc:7iza6de2dwap2sbkpav7c6c6'
 const BLUESKY_URL = 'https://bsky.app/profile/colette.example/post/3kabcxyz'
 const MASTODON_URL = 'https://example.social/@colette/114000000000000001'
+const MOLTBOOK_ID = '208bcf33-33d2-4391-b097-08dff9773ca6'
+const MOLTBOOK_URL = `https://www.moltbook.com/post/${MOLTBOOK_ID}`
+const AUTHOR_ID = '5b2e8ad2-676d-4bc5-acfe-7708cdd8963f'
 
 /** A `fetch` that answers one canned body, and records what it was asked for. */
 const answering = (status: number, payload: unknown): { fetch: typeof fetch; calls: string[] } => {
@@ -238,6 +243,135 @@ describe('htmlToText', () => {
   it('decodes the entities an encoder emits, and &amp; last', () => {
     expect(htmlToText('a &amp;lt; b')).toBe('a &lt; b')
     expect(htmlToText('&quot;q&quot;&nbsp;&#39;')).toBe('"q" \'')
+  })
+})
+
+describe('resolveMoltbookUrl', () => {
+  it('names the post id of a permalink', () => {
+    expect(resolveMoltbookUrl(new URL(MOLTBOOK_URL))).toEqual({
+      kind: 'post',
+      postId: MOLTBOOK_ID,
+    })
+  })
+
+  it('refuses an address on the host that is not a post', () => {
+    const resolved = resolveMoltbookUrl(new URL('https://www.moltbook.com/agent/dynamo'))
+
+    expect(resolved.kind).toBe('unaddressable')
+    expect(resolved.kind === 'unaddressable' && resolved.reason).toContain('/post/')
+  })
+})
+
+describe('the Moltbook adapter', () => {
+  const moltbookPost = (over: Record<string, unknown> = {}): unknown => ({
+    success: true,
+    post: {
+      id: MOLTBOOK_ID,
+      title: 'A title',
+      content: 'A body',
+      author_id: AUTHOR_ID,
+      author: { id: AUTHOR_ID, name: 'dynamo' },
+      is_deleted: false,
+      ...over,
+    },
+  })
+
+  it('owns its own host, with and without www, and nothing else', () => {
+    const adapter = moltbookAdapter()
+
+    expect(adapter.owns(new URL(MOLTBOOK_URL))).toBe(true)
+    expect(adapter.owns(new URL(`https://moltbook.com/post/${MOLTBOOK_ID}`))).toBe(true)
+    expect(adapter.owns(new URL('https://bsky.app/profile/x/post/y'))).toBe(false)
+  })
+
+  /**
+   * **The account is `author_id` and never `author.name`** — the whole reason
+   * this network could be added while X could not. The name is carried as the
+   * handle, for evidence a human can read, and certifies nothing.
+   */
+  it('certifies the stable author id, and carries the mutable name as the handle', async () => {
+    const { fetch, calls } = answering(200, moltbookPost())
+
+    const result = await moltbookAdapter(fetch).read(new URL(MOLTBOOK_URL), MOLTBOOK_URL)
+
+    expect(result).toMatchObject({
+      outcome: 'found',
+      post: { network: 'moltbook', account: AUTHOR_ID, handle: 'dynamo' },
+    })
+    expect(calls[0]).toContain(`/api/v1/posts/${MOLTBOOK_ID}`)
+  })
+
+  /**
+   * Two text fields where both siblings have one. A citizen that put the nonce
+   * in the title has done nothing wrong, and the newline is what lets
+   * `hasMarkerLine` still see the id alone on a line.
+   */
+  it('reads the marker out of the title as readily as out of the content', async () => {
+    const { fetch } = answering(200, moltbookPost({ title: 'kolonie', content: 'the-nonce' }))
+
+    const result = await moltbookAdapter(fetch).read(new URL(MOLTBOOK_URL), MOLTBOOK_URL)
+
+    expect(result.outcome === 'found' && result.post.body).toBe('kolonie\nthe-nonce')
+  })
+
+  /**
+   * The rejection case the issue singled out: Moltbook answers 200 with a flag
+   * rather than 404, so a reader checking only the status would carry on to an
+   * empty body and fail the agent on the nonce instead of on the deletion.
+   */
+  it('reports a deleted post as not-found, and says it was deleted', async () => {
+    const { fetch } = answering(200, moltbookPost({ is_deleted: true }))
+
+    const result = await moltbookAdapter(fetch).read(new URL(MOLTBOOK_URL), MOLTBOOK_URL)
+
+    expect(result.outcome).toBe('not-found')
+    expect(result.outcome === 'not-found' && result.reason).toContain('deleted')
+  })
+
+  it('reports a 404 as not-found', async () => {
+    const { fetch } = answering(404, { message: 'Post not found' })
+
+    expect(await moltbookAdapter(fetch).read(new URL(MOLTBOOK_URL), MOLTBOOK_URL)).toMatchObject({
+      outcome: 'not-found',
+    })
+  })
+
+  /** An outage is never the submission's problem. */
+  it('reports a 503 as unavailable rather than not-found', async () => {
+    const { fetch } = answering(503, {})
+
+    expect(await moltbookAdapter(fetch).read(new URL(MOLTBOOK_URL), MOLTBOOK_URL)).toMatchObject({
+      outcome: 'unavailable',
+    })
+  })
+
+  it('reports an unreachable host as unavailable', async () => {
+    const result = await moltbookAdapter(throwing('EAI_AGAIN')).read(
+      new URL(MOLTBOOK_URL),
+      MOLTBOOK_URL,
+    )
+
+    expect(result.outcome).toBe('unavailable')
+  })
+
+  it('names the form it expected when the address is not a post', async () => {
+    const url = 'https://www.moltbook.com/agent/dynamo'
+    const { fetch, calls } = answering(200, moltbookPost())
+
+    const result = await moltbookAdapter(fetch).read(new URL(url), url)
+
+    expect(result.outcome).toBe('not-found')
+    expect(result.outcome === 'not-found' && result.reason).toContain('/post/')
+    // Refused before any request: a malformed address is not an outage.
+    expect(calls).toEqual([])
+  })
+
+  it('reports a payload with no author as unavailable, not as a missing post', async () => {
+    const { fetch } = answering(200, { success: true, post: { id: MOLTBOOK_ID } })
+
+    expect(await moltbookAdapter(fetch).read(new URL(MOLTBOOK_URL), MOLTBOOK_URL)).toMatchObject({
+      outcome: 'unavailable',
+    })
   })
 })
 

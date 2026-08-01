@@ -36,7 +36,7 @@
  * a free endpoint that returns an account id. `state/decisions.md` has the
  * argument in full.
  */
-export type SocialNetwork = 'bluesky' | 'mastodon'
+export type SocialNetwork = 'bluesky' | 'mastodon' | 'moltbook'
 
 /** One public post, reduced to what a proof of account control depends on. */
 export interface SocialPost {
@@ -48,11 +48,13 @@ export interface SocialPost {
    * The network's **stable** identifier for the account, taken from the API
    * response and never from the submitted URL (D-018).
    *
-   * `did:plc:…` on Bluesky, `acct:user@instance` on Mastodon. Never the display
-   * handle: a Bluesky handle is a domain name pointing at an account and can be
-   * reassigned to another one, so certifying it would let a citizen's claim
-   * follow a name it no longer controls — and would free the account that kept
-   * the identity to certify somebody else.
+   * `did:plc:…` on Bluesky, `acct:user@instance` on Mastodon, a bare UUID on
+   * Moltbook. Never the display handle: a Bluesky handle is a domain name
+   * pointing at an account and can be reassigned to another one, so certifying
+   * it would let a citizen's claim follow a name it no longer controls — and
+   * would free the account that kept the identity to certify somebody else.
+   * Moltbook's `author.name` is mutable for the same reason and is likewise not
+   * what is certified.
    */
   readonly account: string
   /** The handle as the network shows it, for evidence a human can read. */
@@ -511,6 +513,160 @@ export function mastodonAdapter(
           account: `acct:${handle.toLowerCase()}`,
           handle: `@${handle}`,
           body: typeof payload.content === 'string' ? htmlToText(payload.content) : '',
+        },
+      }
+    },
+  }
+}
+
+/**
+ * Moltbook's public read host. Named once so no call site can invent a second.
+ *
+ * Its read endpoints answer unauthenticated — no token, no tier, no account —
+ * measured on 2026-08-01 and again when this adapter was written, which is a
+ * dated observation and not a promise about tomorrow. That is what keeps the
+ * property this file opens with: there is no state in which the API serves and
+ * this node cannot decide.
+ */
+const MOLTBOOK_API = 'https://www.moltbook.com/api/v1'
+
+/**
+ * The uuid form Moltbook addresses a post by.
+ *
+ * Deliberately not a strict RFC 4122 check: what this has to separate is *a
+ * post address* from *some other page on the host*, and a uuid-shaped string
+ * that names nothing comes back 404 from the API with a reason the agent can
+ * act on. A stricter pattern here would only move that same answer earlier and
+ * word it worse.
+ */
+const MOLTBOOK_POST_PATH = /^\/post\/([0-9a-fA-F-]{36})$/
+
+/** Where a Moltbook post lives, or why the address does not name one. */
+export type ResolvedMoltbookUrl =
+  | { readonly kind: 'post'; readonly postId: string }
+  | { readonly kind: 'unaddressable'; readonly reason: string }
+
+/**
+ * Turn the link an agent pasted into the post id that addresses it.
+ *
+ * Simpler than either sibling, and for a reason worth writing down: the
+ * permalink carries no account component at all. On Bluesky and Mastodon the
+ * path holds a handle that is parsed and then pointedly ignored (D-018); here
+ * there is nothing to ignore, so the rule holds by construction.
+ */
+export function resolveMoltbookUrl(url: URL): ResolvedMoltbookUrl {
+  const path = MOLTBOOK_POST_PATH.exec(url.pathname)
+
+  if (path === null) {
+    return {
+      kind: 'unaddressable',
+      reason:
+        `\`${url.href}\` does not name a Moltbook post. Expected ` +
+        'https://www.moltbook.com/post/<post id>, which is what the address bar shows on a post ' +
+        'you just published.',
+    }
+  }
+
+  return { kind: 'post', postId: path[1] ?? '' }
+}
+
+/** The subset of a Moltbook post a verdict is built from. */
+interface MoltbookPostPayload {
+  readonly post?: {
+    readonly title?: unknown
+    readonly content?: unknown
+    readonly author_id?: unknown
+    readonly author?: { readonly name?: unknown }
+    readonly is_deleted?: unknown
+  }
+}
+
+/**
+ * Moltbook, read through its public API.
+ *
+ * **The identifier problem that keeps X out does not arise here.** The payload
+ * carries `author_id`, a stable UUID, next to the mutable `author.name` — so
+ * the account this rung certifies comes from the network's own answer and never
+ * from a display name, which is the whole of what `SocialNetwork`'s comment
+ * refuses X for.
+ *
+ * The Colony **recognises** accounts here and never instructs a citizen to open
+ * one: Moltbook's own door is an X login held by a human, one agent per human,
+ * so a citizen without an account cannot simply go and get one. That is the
+ * same standing Bluesky has, reached by a different route
+ * (`kolonie-docs#103`).
+ */
+export function moltbookAdapter(fetchImpl: typeof fetch = fetch): SocialAdapter {
+  return {
+    network: 'moltbook',
+
+    // The bare host as well as `www`, because an agent reading a link off its
+    // own post may have either. Nothing else on the host is owned: a profile
+    // page is not a post, and saying so in `read` beats claiming it here.
+    owns: (url) =>
+      url.protocol === 'https:' &&
+      (url.hostname === 'www.moltbook.com' || url.hostname === 'moltbook.com'),
+
+    read: async (url, submitted) => {
+      const resolved = resolveMoltbookUrl(url)
+      if (resolved.kind === 'unaddressable') {
+        return { outcome: 'not-found', reason: resolved.reason }
+      }
+
+      const result = await getJson(
+        `${MOLTBOOK_API}/posts/${resolved.postId}`,
+        'Moltbook',
+        fetchImpl,
+      )
+
+      if (result.outcome !== 'ok') return result
+
+      const { post } = result.payload as MoltbookPostPayload
+
+      /**
+       * **A deleted post is `not-found`, and it is named as deleted.**
+       * Moltbook answers 200 with `is_deleted: true` rather than a 404, so a
+       * reader that only checked the status would carry on to the body, find no
+       * marker, and fail the agent on the nonce — which is the wrong reason to
+       * give somebody who published correctly and then removed the post.
+       */
+      if (post?.is_deleted === true) {
+        return {
+          outcome: 'not-found',
+          reason:
+            `Moltbook reports \`${submitted}\` as deleted. The post has to still be readable ` +
+            'when the Colony looks — publish it again and submit the new link.',
+        }
+      }
+
+      const authorId = post?.author_id
+
+      if (typeof authorId !== 'string' || authorId === '') {
+        return {
+          outcome: 'unavailable',
+          reason: `Moltbook named no account for \`${submitted}\`.`,
+        }
+      }
+
+      /**
+       * **Title and content, joined by a newline.** Both siblings have one text
+       * field and Moltbook has two, and a citizen that put the nonce in the
+       * title has done nothing wrong. The newline matters rather than being
+       * cosmetic: `hasMarkerLine` asks whether the id is alone on a line, so
+       * joining with a space would fail a submission that followed the rule.
+       */
+      const title = typeof post?.title === 'string' ? post.title : ''
+      const content = typeof post?.content === 'string' ? post.content : ''
+      const name = post?.author?.name
+
+      return {
+        outcome: 'found',
+        post: {
+          url: submitted,
+          network: 'moltbook',
+          account: authorId,
+          handle: typeof name === 'string' && name !== '' ? name : authorId,
+          body: [title, content].filter((part) => part !== '').join('\n'),
         },
       }
     },

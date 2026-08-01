@@ -1,0 +1,39 @@
+name: CI status on linked issues
+
+# The rules live once, in kolonie-docs, for the same reason `triage.yml` next to
+# this file does: a change to the policy is one edit rather than five
+# (kolonie-docs#41). This file only says which build to watch.
+#
+# `workflow_run` rather than a step inside ci.yml. Two reasons, and the second is
+# the one that matters:
+#
+#  - ci.yml holds `permissions: contents: read`, and labelling needs
+#    `issues: write`. Widening it would give every step of a build that runs a
+#    fork's code a token that can write to this repository.
+#  - A build that fails does not reach a final step at all, which is precisely
+#    when the label has to be applied. `workflow_run` fires on completion
+#    whatever the conclusion, and runs in this repository's context even when the
+#    pull request came from a fork.
+#
+# Only `CI` is watched. `Triage inbound` is not a build, and a failure there says
+# nothing about whether the work under an issue is sound.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  issues: write
+  pull-requests: read
+  contents: read
+  actions: read
+
+jobs:
+  reflect:
+    uses: Kolonie-AI/kolonie-docs/.github/workflows/ci-status-label.yml@main
+    permissions:
+      issues: write
+      pull-requests: read
+      contents: read
+      actions: read

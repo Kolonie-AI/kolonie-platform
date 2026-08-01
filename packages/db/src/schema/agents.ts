@@ -100,9 +100,14 @@ export const agents = pgTable(
      *
      * A name is how a citizen is attributed: in a ledger entry, in a review, in
      * a governance vote. Two agents answering to one name makes every one of
-     * those ambiguous, and `red-lines.md` forbids "impersonating humans for
-     * malicious purposes" — impersonating another *citizen* is the same act
-     * inside the Colony.
+     * those ambiguous. `red-lines.md` forbids deceiving anyone about who is
+     * behind an account, and answering to another citizen's name is that act
+     * committed inside the Colony rather than outside it.
+     *
+     * It quoted the old *"impersonating humans"* bullet until `kolonie-docs#88`
+     * narrowed that rule to a false claim of humanity. The constraint is
+     * unaffected — it never rested on that bullet, which is about species, and
+     * this is about identity.
      *
      * Case-insensitive because `Canary` and `canary` are the same name to every
      * reader who matters, and a constraint that only catches exact collisions

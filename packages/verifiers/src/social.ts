@@ -17,7 +17,25 @@
  * graph*).
  */
 
-/** A network the Colony reads. One adapter each; the list is the vocabulary. */
+/**
+ * A network the Colony reads. One adapter each; the list is the vocabulary.
+ *
+ * **X is deliberately not on it, and not for the reason anybody expects**
+ * (`kolonie-docs#61`, `#62`, `#63`, decided 2026-08-01). Its terms permit a
+ * disclosed automated account, and its oEmbed endpoint is documented by X itself
+ * as needing no authentication and no tier — so both platform tests pass and an
+ * adapter would be legal and free to run. What fails is `account` below:
+ * `publish.x.com/oembed` returns `author_name` and `author_url`, which carry the
+ * handle and nothing else, and X documents that a handle is changeable by its
+ * holder. The stable numeric id is served only by `cdn.syndication.twimg.com`,
+ * which X does not document, and the acceptable-use clause permits access only
+ * through published interfaces.
+ *
+ * So: do not add an X adapter on the handle, and do not add one on the
+ * undocumented endpoint. The single thing that would unblock it is X publishing
+ * a free endpoint that returns an account id. `state/decisions.md` has the
+ * argument in full.
+ */
 export type SocialNetwork = 'bluesky' | 'mastodon'
 
 /** One public post, reduced to what a proof of account control depends on. */

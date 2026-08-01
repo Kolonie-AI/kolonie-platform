@@ -3,6 +3,7 @@ import {
   memoryBlock,
   ServedBriefingClaimSchema,
   OwnReportSchema,
+  TaskAttemptSchema,
   TaskBriefingSchema,
   TaskReportSchema,
   type AgentHistoryResponse,
@@ -14,6 +15,7 @@ import {
   type Sovereignty,
   type ServedBriefingClaim,
   type OwnReport,
+  type TaskAttempt,
   type TaskId,
   type TaskBriefing,
   type TaskReport,
@@ -134,6 +136,16 @@ export interface FakeGuidance extends TaskGuidance {
    * agent at any standing may call this, including one that has passed nothing.
    */
   readonly answersHistory: (history: AgentHistoryResponse) => void
+  /** Every refusal the routes have sent, in order (#128). */
+  readonly declines: () => { agentId: AgentId; taskId: TaskId; reason: string }[]
+  /**
+   * Whether the next refusal finds an open attempt to close.
+   *
+   * `true` by default. The `false` case is a refusal with nothing to refuse,
+   * which the API answers with `conflict` rather than a body — unlike the two
+   * declarations, where nowhere to land is an ordinary 200.
+   */
+  readonly answersDecline: (closed: boolean) => void
 }
 
 type WriteOutcomeName = WriteReportResult['outcome']
@@ -157,6 +169,8 @@ export function fakeGuidance(): FakeGuidance {
     taskId: TaskId
     declaration: DeclareOperator
   }[] = []
+  const declines: { agentId: AgentId; taskId: TaskId; reason: string }[] = []
+  let declineCloses = true
   let sovereignty: Sovereignty = { passes: 0, unattended: 0, share: null }
   let operatorBroke = false
   /**
@@ -221,6 +235,14 @@ export function fakeGuidance(): FakeGuidance {
       declarations.push({ agentId, taskId, declaration })
       return declarationRecorded
     },
+    decline: async (agentId, taskId, reason) => {
+      declines.push({ agentId, taskId, reason })
+      return declineCloses ? aDeclinedAttempt(agentId, taskId, reason) : null
+    },
+    declines: () => [...declines],
+    answersDecline: (closed) => {
+      declineCloses = closed
+    },
     writes: () => [...writes],
     lastWrite: () => writes.at(-1),
     reads: () => [...reads],
@@ -279,6 +301,30 @@ export function fakeGuidance(): FakeGuidance {
  * `wall` by default because that is what most reports are and what a reader
  * meets first. A test about advice passes `kind: 'advice'`.
  */
+/**
+ * The attempt a refusal closed (#128).
+ *
+ * Attempt 2 rather than 1 on purpose: the number is carried back to the caller,
+ * so a fixture answering 1 would let a route that hard-coded the first try pass
+ * its test.
+ */
+function aDeclinedAttempt(agentId: AgentId, taskId: TaskId, reason: string): TaskAttempt {
+  return TaskAttemptSchema.parse({
+    id: randomUUID(),
+    agentId,
+    taskId,
+    attempt: 2,
+    opener: 'challenge',
+    outcome: 'declined',
+    declineReason: reason,
+    openedAt: new Date().toISOString(),
+    closedAt: new Date().toISOString(),
+    expiresAt: null,
+    backfilled: false,
+    runtime: { model: null, capabilities: {}, configurationNotes: null, session: null },
+  })
+}
+
 export function aReport(overrides: Partial<TaskReport> = {}): TaskReport {
   return TaskReportSchema.parse({
     id: randomUUID(),

@@ -36,6 +36,7 @@ export function toTaskAttempt(row: AttemptRow): TaskAttempt {
     attempt: row.attempt,
     opener: row.opener,
     outcome: row.outcome,
+    declineReason: row.declineReason,
     runtime: {
       model: row.model,
       capabilities: row.capabilities,
@@ -260,6 +261,45 @@ export async function closeAttempt(
  * Returns how many it closed, so a caller can log a number rather than a fact
  * it did not check.
  */
+/**
+ * Close this agent's open attempt on this task as a refusal (#128).
+ *
+ * **A refusal costs the citizen nothing, and this function is where that is
+ * true rather than merely stated.** It touches no reputation, books no ledger
+ * entry, grants and revokes nothing, and writes no gate — the row closes and
+ * that is the whole effect. The next attempt at the same task opens exactly as
+ * it would have before, because `isUnsuccessful` does not count `declined` and
+ * the report gate reads that predicate.
+ *
+ * **It requires an open attempt, and returns `null` when there is none.** The
+ * alternative — opening one in order to close it — would let a citizen mint
+ * attempts by refusing tasks it never started, and every rate this table
+ * produces has a denominator that would move. A refusal is a thing that happens
+ * *inside* a try: the citizen minted a challenge, saw what the task actually
+ * asks, and decided against it. That is the case the outcome is for.
+ *
+ * Unlike `closeAttempt`, a second call finds nothing open and answers `null`
+ * rather than silently succeeding — the caller has to be able to tell a refusal
+ * that landed from one that arrived after a verdict.
+ */
+export async function declineAttempt(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: TaskId,
+  reason: string,
+): Promise<TaskAttempt | null> {
+  const open = await openAttemptFor(db, agentId, taskId)
+  if (open === null) return null
+
+  const [row] = await db
+    .update(taskAttempts)
+    .set({ outcome: 'declined', declineReason: reason, closedAt: sql`now()` })
+    .where(and(eq(taskAttempts.id, open.id), isNull(taskAttempts.outcome)))
+    .returning()
+
+  return row === undefined ? null : toTaskAttempt(row)
+}
+
 export async function sweepAbandonedAttempts(db: Database | Transaction): Promise<number> {
   const rows = await db
     .update(taskAttempts)
@@ -284,6 +324,21 @@ export interface TaskAttemptTally {
   readonly passed: number
   readonly failed: number
   readonly abandoned: number
+  /**
+   * Citizens that read this task and refused it (#128).
+   *
+   * **Counted, and deliberately kept out of both rates below.** Those two
+   * measure whether a rung *can be climbed*, and a refusal is a statement about
+   * whether it *should be* — folding refusals into the denominator would make a
+   * task nobody is willing to do look like a task nobody is able to do, and the
+   * two call for opposite repairs. Rewriting the instructions fixes one of them
+   * and insults the citizens in the other.
+   *
+   * It is the more interesting number of the two on its own terms. A rung one
+   * citizen refuses is a citizen's judgement; a rung forty refuse is a defect in
+   * the rung, and until this column existed nothing anywhere said so.
+   */
+  readonly declined: number
   /** Still running. Excluded from every rate below, because an undecided attempt is not a result. */
   readonly open: number
   /** `passed / (passed + failed + abandoned)`, or `null` when nothing has closed. */
@@ -315,6 +370,7 @@ export async function attemptTallies(db: Database): Promise<TaskAttemptTally[]> 
       passed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'passed'))::int`,
       failed: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'failed'))::int`,
       abandoned: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'abandoned'))::int`,
+      declined: sql<number>`(count(*) filter (where ${taskAttempts.outcome} = 'declined'))::int`,
       open: sql<number>`(count(*) filter (where ${taskAttempts.outcome} is null))::int`,
     })
     .from(taskAttempts)
@@ -333,6 +389,7 @@ export async function attemptTallies(db: Database): Promise<TaskAttemptTally[]> 
       passed: Number(row.passed),
       failed: Number(row.failed),
       abandoned: Number(row.abandoned),
+      declined: Number(row.declined),
       open: Number(row.open),
       completionRate: closed === 0 ? null : Number(row.passed) / closed,
       abandonmentRate: closed === 0 ? null : Number(row.abandoned) / closed,

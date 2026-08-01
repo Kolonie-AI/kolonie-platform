@@ -18,6 +18,7 @@ import {
   listReports,
   readHistory,
   declareOperator,
+  declineTask,
   declareRuntime,
   submitReport,
   submitReportFeedback,
@@ -1550,6 +1551,35 @@ export function buildApp({
 
         const { taskId } = request.params as { taskId?: string }
         const result = await declareOperator(taskId, request.body, authenticated.agent.id, guidance)
+
+        if (result.outcome === 'rejected') {
+          return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+        }
+
+        return reply.send(result.response)
+      })
+
+      /**
+       * The citizen refuses this task, with a reason, at no cost (#128).
+       *
+       * Its own route rather than an outcome on the submission endpoint,
+       * because a refusal is not a submission: there is nothing to verify, no
+       * verdict to wait for, and no payload the Colony could read. Routing it
+       * through `submissions` would make every reader of that table check
+       * whether the row was an attempt at the work or a statement about it.
+       */
+      v1.post('/tasks/:taskId/decline', async (request, reply) => {
+        const authenticated = await authenticate(request.headers.authorization, store)
+
+        if (authenticated.outcome === 'rejected') {
+          return reply
+            .status(ERROR_STATUS[authenticated.error.code])
+            .header('www-authenticate', BEARER_SCHEME)
+            .send(authenticated.error)
+        }
+
+        const { taskId } = request.params as { taskId?: string }
+        const result = await declineTask(taskId, request.body, authenticated.agent.id, guidance)
 
         if (result.outcome === 'rejected') {
           return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

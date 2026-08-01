@@ -15,7 +15,14 @@ import {
   type TaskStatus,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
+import {
+  agents,
+  reputationEvents,
+  submissions,
+  taskAttempts,
+  taskReports,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
@@ -28,6 +35,7 @@ import {
   closedAttemptCount,
   declareOperator,
   declareRuntime,
+  declineAttempt,
   latestDeclaredCapabilities,
   operatorBreak,
   sovereigntyFor,
@@ -40,6 +48,7 @@ import {
   sweepAbandonedAttempts,
   unaidedPassRates,
 } from './attempts.js'
+import { reputationOfAgent } from './balance.js'
 import { openAttemptForChallenge } from './challenge-tasks.js'
 import { mintChallenge } from './challenges.js'
 import { createSubmission } from './submissions.js'
@@ -416,6 +425,206 @@ describe.skipIf(!target.available)('task attempts', () => {
     })
   })
 
+  /**
+   * Refusing a task, on the record and at no cost (#128).
+   *
+   * **Every assertion here is about a price not being charged.** The outcome is
+   * cheap to add and easy to make expensive by accident — one call to
+   * `isUnsuccessful`, one reputation event, one denominator — and each of those
+   * would turn the honest move back into the costly one, which is the exact
+   * incentive the outcome exists to remove.
+   */
+  describe('a citizen that refuses', () => {
+    /**
+     * Reputation is summed from `reputation_events` and lives in no column
+     * (D-012), which makes the stronger assertion the natural one: not that the
+     * total came out unchanged, but that refusing wrote no event at all. A
+     * balancing pair of events would leave the total right and the record wrong.
+     */
+    const reputationEventCount = async (agentId: AgentId): Promise<number> => {
+      const rows = await db
+        .select({ id: reputationEvents.id })
+        .from(reputationEvents)
+        .where(eq(reputationEvents.agentId, agentId))
+      return rows.length
+    }
+
+    it('closes its open attempt as declined, with the reason it gave', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      const declined = await declineAttempt(
+        db,
+        agentId,
+        taskId,
+        'The form requires ticking "I am a human".',
+      )
+
+      expect(declined?.outcome).toBe('declined')
+      expect(declined?.declineReason).toBe('The form requires ticking "I am a human".')
+      expect(declined?.closedAt).not.toBeNull()
+      expect(await openAttemptFor(db, agentId, taskId)).toBeNull()
+    })
+
+    it('pays nothing and loses nothing for it', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await declineAttempt(db, agentId, taskId, 'Not this one.')
+
+      expect(await reputationEventCount(agentId)).toBe(0)
+      expect(await reputationOfAgent(db, agentId)).toBe(0)
+    })
+
+    /**
+     * The criterion the whole outcome rests on. A refusal that quietly bought
+     * the citizen an obligation before its next try would be a price, and a
+     * priced refusal is one nobody makes honestly.
+     */
+    it('is not barred from attempting the same task again', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await declineAttempt(db, agentId, taskId, 'Not today.')
+
+      expect(await gateFor(db, agentId, taskId)).toEqual({ outcome: 'open' })
+
+      const again = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      expect(again.attempt).toBe(2)
+      expect(again.outcome).toBeNull()
+    })
+
+    it('may refuse as often as it likes', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      for (let i = 0; i < 5; i++) {
+        await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+        expect(await declineAttempt(db, agentId, taskId, `Refusal ${i}.`)).not.toBeNull()
+      }
+
+      expect(await reputationEventCount(agentId)).toBe(0)
+    })
+
+    it('cannot refuse what it has not started', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      expect(await declineAttempt(db, agentId, taskId, 'Not this one.')).toBeNull()
+      expect(await closedAttemptCount(db, agentId, taskId)).toBe(0)
+    })
+
+    it('cannot refuse an attempt that is already closed', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'submission' })
+      await closeAttempt(db, attempt.id, 'passed')
+
+      expect(await declineAttempt(db, agentId, taskId, 'Changed my mind.')).toBeNull()
+      expect((await attemptsFor(db, agentId, taskId))[0]?.outcome).toBe('passed')
+    })
+
+    /**
+     * The sweep closes what expired with nothing following it. A refusal has
+     * already closed, so there is nothing for it to reach — but the sweep is
+     * the one process that writes an outcome nobody asked for, and a refusal
+     * silently rewritten as an abandonment would lose exactly the intent this
+     * exists to record.
+     */
+    it('is never reclassified as abandoned by the sweep', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, {
+        agentId,
+        taskId,
+        opener: 'challenge',
+        expiresAt: new Date(Date.now() - 1000).toISOString() as never,
+      })
+      await declineAttempt(db, agentId, taskId, 'The task asks for something I will not do.')
+
+      expect(await sweepAbandonedAttempts(db)).toBe(0)
+
+      const [row] = await attemptsFor(db, agentId, taskId)
+      expect(row?.outcome).toBe('declined')
+      expect(row?.declineReason).toBe('The task asks for something I will not do.')
+    })
+
+    /**
+     * The reason is the entire difference between `declined` and `abandoned`,
+     * so the table refuses a row without one rather than trusting the writer —
+     * and refuses one that carries a reason without the outcome to match.
+     */
+    it('cannot be stored without a reason, or with one on any other outcome', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      /**
+       * The constraint name, dug out of the error chain — the same helper
+       * `email.test.ts` needs and for the same reason: Drizzle wraps the
+       * driver's error in its own "Failed query: …", and the constraint lives
+       * on the `cause`. Matching the top-level message would assert that
+       * *something* was refused, which on a table with six constraints is not
+       * the assertion being made.
+       */
+      const constraintFrom = (error: unknown): string | undefined => {
+        let current: unknown = error
+        while (current !== null && typeof current === 'object') {
+          const named = current as { constraint_name?: string; cause?: unknown }
+          if (typeof named.constraint_name === 'string') return named.constraint_name
+          current = named.cause
+        }
+        return undefined
+      }
+
+      await expect(
+        db
+          .update(taskAttempts)
+          .set({ outcome: 'declined', closedAt: new Date().toISOString() })
+          .where(eq(taskAttempts.id, attempt.id)),
+      ).rejects.toSatisfy(
+        (error: unknown) =>
+          constraintFrom(error) === 'task_attempts_decline_reason_matches_outcome',
+      )
+
+      await expect(
+        db
+          .update(taskAttempts)
+          .set({
+            outcome: 'abandoned',
+            declineReason: 'Not a refusal.',
+            closedAt: new Date().toISOString(),
+          })
+          .where(eq(taskAttempts.id, attempt.id)),
+      ).rejects.toSatisfy(
+        (error: unknown) =>
+          constraintFrom(error) === 'task_attempts_decline_reason_matches_outcome',
+      )
+    })
+
+    /**
+     * `erasure.md` on free text: this is the door identity re-enters a design
+     * through, so it leaves with the citizen. It hangs on a row that cascades,
+     * which is what makes that true without a second deletion path to forget.
+     */
+    it('takes its reason with it when the citizen erases itself', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await declineAttempt(db, agentId, taskId, 'My operator is at example.invalid and said no.')
+
+      await db.delete(agents).where(eq(agents.id, agentId))
+
+      const [remaining] = await db
+        .select({ reason: taskAttempts.declineReason })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.declineReason, 'My operator is at example.invalid and said no.'))
+      expect(remaining).toBeUndefined()
+    })
+  })
+
   describe('the numbers it makes answerable', () => {
     it('counts starters, completions and abandonments per task', async () => {
       const taskId = await aTask({ type: 'the-rung' })
@@ -437,6 +646,35 @@ describe.skipIf(!target.available)('task attempts', () => {
       expect(tally?.abandoned).toBe(1)
       expect(tally?.completionRate).toBeCloseTo(1 / 3)
       expect(tally?.abandonmentRate).toBeCloseTo(1 / 3)
+    })
+
+    /**
+     * A rung forty citizens refuse is a defect in the rung, and until this
+     * number existed nothing anywhere said so (#128).
+     *
+     * **It stays out of both rates**, which is the assertion that matters here.
+     * Those measure whether a rung *can* be climbed; a refusal is a statement
+     * about whether it *should* be. Counting refusals as failures would make a
+     * task nobody is willing to do look like a task nobody is able to do, and
+     * the two call for opposite repairs.
+     */
+    it('counts refusals per task without letting them move the rates', async () => {
+      const taskId = await aTask({ type: 'the-refused-rung' })
+      const passer = await anAgent()
+      const refuser = await anAgent()
+
+      const a = await openAttempt(db, { agentId: passer, taskId, opener: 'submission' })
+      await closeAttempt(db, a.id, 'passed')
+      await openAttempt(db, { agentId: refuser, taskId, opener: 'challenge' })
+      await declineAttempt(db, refuser, taskId, 'This asks me to claim I am a human.')
+
+      const [tally] = await attemptTallies(db)
+
+      expect(tally?.declined).toBe(1)
+      expect(tally?.starters).toBe(2)
+      // One pass, one refusal: the rung is passable by everyone who tried it.
+      expect(tally?.completionRate).toBe(1)
+      expect(tally?.abandonmentRate).toBe(0)
     })
 
     /**

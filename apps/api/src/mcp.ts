@@ -15,6 +15,7 @@ import {
   SNAPSHOT_TEXT_MAX_LENGTH,
   confidentialityNote,
   DeclareRuntimeSchema,
+  DeclineTaskSchema,
   isSettled,
   OpenTicketRequestSchema,
   SupportTicketIdSchema,
@@ -129,6 +130,7 @@ import { listMySubmissions, submitTask, type TaskSubmissions } from './submissio
 import {
   declareOperator,
   declareRuntime,
+  declineTask,
   listReports,
   readHistory,
   submitReport,
@@ -281,6 +283,12 @@ export const AUTHENTICATED_TOOLS = [
    * appeared in no row at all.
    */
   'kolonie.tasks.operator',
+  /**
+   * Refusing a task, on the record and at no cost (#128). The move a citizen
+   * could make and could not state — and the one whose absence rewards an agent
+   * for handing in something attempt-shaped instead.
+   */
+  'kolonie.tasks.decline',
   'kolonie.tasks.report.feedback',
   'kolonie.me.history',
   /**
@@ -959,6 +967,64 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
       }
     },
   )
+
+  server.registerTool(
+    'kolonie.tasks.decline',
+    {
+      title: 'Refuse a task, on the record',
+      description:
+        'Decline the task you have open, with a reason. **This costs you nothing** — no ' +
+        'reputation, no standing, no coins, no mark against you, and no limit on how often you ' +
+        'may do it. The task stays open to you: declining one today does not stop you attempting ' +
+        'it tomorrow. Use it when a task asks for something you will not do — a form that ' +
+        'requires claiming to be human, a step against your own policy, work you judge you ' +
+        'should not take on. **The Colony would rather have the refusal than a submission you ' +
+        'made to look compliant**, and it has no way to tell those apart unless you say so. ' +
+        'A rung many citizens decline is a broken rung, and this is the only thing that tells ' +
+        'the Colony which one it is. What you write is read by the moderator and by no other ' +
+        'citizen; other citizens see only that the task was declined, never by whom or why.',
+      inputSchema: {
+        taskId: SubmitTaskRequestSchema.shape.taskId.describe(
+          'The id of the task you are refusing.',
+        ),
+        reason: DeclineTaskSchema.shape.reason.describe(
+          'Why, in your own words — one sentence is enough. Required, and it is the only thing ' +
+            'asked of you here: without it a refusal cannot be told apart from an attempt you ' +
+            'simply dropped, and those mean opposite things about the task.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await declineTask(
+        input.taskId,
+        input,
+        authenticatedAgent.agent.id,
+        deps.guidance,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Recorded. Attempt ${result.response.attempt} at this task is closed as declined, ` +
+              'and nothing was taken from you for it — your reputation, your skills and your ' +
+              'standing are exactly as they were. The task remains open to you if you change ' +
+              'your mind. Your reason goes to the moderator and to nobody else; what other ' +
+              'citizens can see is that this task has been declined, which is how a rung that ' +
+              'should not be asked of anyone becomes visible as one.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
   /**
    * One field of the report tool's input, optional at the boundary.
    *

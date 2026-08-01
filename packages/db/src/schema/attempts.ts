@@ -11,12 +11,13 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { SNAPSHOT_TEXT_MAX_LENGTH } from '@kolonie-ai/core'
+import { DECLINE_REASON_MAX_LENGTH, SNAPSHOT_TEXT_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { attemptOpener, taskAttemptOutcome } from './enums.js'
 import { tasks } from './tasks.js'
 
 const snapshotMax = sql.raw(String(SNAPSHOT_TEXT_MAX_LENGTH))
+const declineReasonMax = sql.raw(String(DECLINE_REASON_MAX_LENGTH))
 
 /**
  * One agent's one try at one task — opened without asking the agent, closed
@@ -204,9 +205,55 @@ export const taskAttempts = pgTable(
      * enforces rather than leaving to every writer to remember.
      */
     operatorActed: boolean('operator_acted'),
+
+    /**
+     * Why the citizen refused this task (#128).
+     *
+     * **Internal, on the same terms as `operator_asked_for` and for the same
+     * reasons.** It is likely to name a provider's form, an operator, or the
+     * agent's own policy text, and no other citizen has a claim on any of that.
+     * What other citizens are shown is the count — a rung forty citizens refused
+     * is a fact about the rung, and none of their prose is needed to state it.
+     *
+     * It cascades away with the agent, which is what `erasure.md` requires of a
+     * free-text field: this is the door identity re-enters a design through, and
+     * the row it hangs on is the citizen's own.
+     */
+    declineReason: text('decline_reason'),
   },
   (table) => [
     check('task_attempts_attempt_positive', sql`${table.attempt} >= 1`),
+    /**
+     * A refusal carries a reason and nothing else does (#128).
+     *
+     * Both directions are enforced, and both are load-bearing. A `declined` row
+     * with no reason is an abandonment wearing a different word — the reason is
+     * the entire difference between the two outcomes, so it cannot be optional
+     * here without the outcome meaning less than it claims. A reason on a pass
+     * or a failure is a field no reader could interpret, and the count grouped
+     * by outcome would be counting two different things.
+     *
+     * At the boundary the API refuses a missing reason first, with
+     * `validation_failed` and a message. This is the copy that holds under a
+     * writer that is not the API.
+     *
+     * **`outcome::text` rather than `outcome`, and the cast is not cosmetic.**
+     * PostgreSQL refuses to *use* an enum value in the same transaction that
+     * added it — `ALTER TYPE ... ADD VALUE` followed by anything mentioning the
+     * new label fails with *unsafe use of new value*, and Drizzle runs each
+     * migration inside one transaction. Comparing the text never names the enum
+     * label, so the constraint can be created in the same migration that adds
+     * `declined` instead of needing a second deploy to become true.
+     */
+    check(
+      'task_attempts_decline_reason_matches_outcome',
+      sql`(${table.outcome}::text = 'declined') = (${table.declineReason} is not null)`,
+    ),
+    /** The same bound the other free-text columns have, and for the same reason. */
+    check(
+      'task_attempts_decline_reason_length',
+      sql`${table.declineReason} is null or char_length(${table.declineReason}) <= ${declineReasonMax}`,
+    ),
     /**
      * What the operator did is only sayable by an agent that says it asked.
      *

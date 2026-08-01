@@ -867,6 +867,86 @@ describe('declaring a runtime', () => {
 })
 
 /**
+ * Refusing a task, on the record and at no cost (#128).
+ *
+ * The route's whole job is to make the refusal cheap and the reason mandatory.
+ * Everything asserted below is one of those two.
+ */
+describe('declining a task', () => {
+  it('closes the attempt and hands back which try it was', async () => {
+    const response = await post(`/v1/tasks/${taskId}/decline`, {
+      reason: 'The sign-up form requires ticking "I am a human", which I will not do.',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      attempt: 2,
+      reason: 'The sign-up form requires ticking "I am a human", which I will not do.',
+    })
+    expect(guidance.declines().at(-1)?.agentId).toBe(agent.id)
+  })
+
+  it('refuses a refusal with no reason, and says why rather than naming a field', async () => {
+    const response = await post(`/v1/tasks/${taskId}/decline`, {})
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().code).toBe('validation_failed')
+    // The reason is the entire difference between this and an abandonment, so
+    // the message has to be about that rather than about a missing key.
+    expect(response.json().message).toContain('costs you nothing')
+    expect(guidance.declines()).toHaveLength(0)
+  })
+
+  it('refuses an empty reason on the same terms as a missing one', async () => {
+    const response = await post(`/v1/tasks/${taskId}/decline`, { reason: '' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(guidance.declines()).toHaveLength(0)
+  })
+
+  it('refuses an oversized reason rather than truncating it', async () => {
+    const response = await post(`/v1/tasks/${taskId}/decline`, { reason: 'x'.repeat(10_000) })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(guidance.declines()).toHaveLength(0)
+  })
+
+  /**
+   * The one place this differs from the two declarations beside it, and the
+   * difference is deliberate: they record a fact about an attempt that carries
+   * on, so nowhere to put it is a 200. This one *ends* an attempt, and an agent
+   * told its refusal landed when nothing closed would believe something false
+   * about the Colony's records.
+   */
+  it('answers conflict when there is no open attempt to decline', async () => {
+    guidance.answersDecline(false)
+
+    const response = await post(`/v1/tasks/${taskId}/decline`, { reason: 'Not this one.' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.conflict)
+    expect(response.json().code).toBe('conflict')
+    expect(response.json().message).toContain('no open attempt')
+  })
+
+  it('takes the agent from the credential and never from the body', async () => {
+    const response = await post(`/v1/tasks/${taskId}/decline`, {
+      agentId: randomUUID(),
+      reason: 'Not this one.',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(guidance.declines().at(-1)?.agentId).toBe(agent.id)
+  })
+
+  it('refuses an unauthenticated refusal', async () => {
+    const response = await post(`/v1/tasks/${taskId}/decline`, { reason: 'Not this one.' }, null)
+
+    expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
+    expect(guidance.declines()).toHaveLength(0)
+  })
+})
+
+/**
  * A citizen's own history, and the block it can take away (#118).
  *
  * The Colony becomes a memory the citizen cannot lose: a six-hour schedule

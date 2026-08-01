@@ -2,6 +2,7 @@ import {
   capabilityCorrelations,
   DeclareOperatorSchema,
   DeclareRuntimeSchema,
+  DeclineTaskSchema,
   GuidanceQuerySchema,
   personaliseClaims,
   SubmitReportRequestSchema,
@@ -16,6 +17,8 @@ import {
   type DeclareRuntime,
   type DeclareOperatorResponse,
   type DeclareRuntimeResponse,
+  type DeclineTaskResponse,
+  type TaskAttempt,
   type AgentPlatform,
   type ApiError,
   type ListOwnReportsResponse,
@@ -38,6 +41,7 @@ import {
   countReports as countReportsInDatabase,
   declareOperator as declareOperatorInDatabase,
   declareRuntime as declareRuntimeInDatabase,
+  declineAttempt,
   fileReport as fileReportInDatabase,
   latestDeclaredCapabilities,
   readHistory as readHistoryInDatabase,
@@ -142,6 +146,17 @@ export interface TaskGuidance {
    * never cost the agent anything.
    */
   declareOperator(agentId: AgentId, taskId: TaskId, declaration: DeclareOperator): Promise<boolean>
+  /**
+   * Close this agent's open attempt as a refusal (#128).
+   *
+   * **Not beside the two declarations above, despite the resemblance.** Those
+   * record a fact about an attempt that carries on; this one ends it. That is
+   * also why it answers `null` rather than `false` when nothing is open: a
+   * declaration with nowhere to land is an ordinary outcome the body reports,
+   * and a refusal with nothing to refuse is a call that did not do what the
+   * caller believes it did.
+   */
+  decline(agentId: AgentId, taskId: TaskId, reason: string): Promise<TaskAttempt | null>
   /** How a task's passes divide between citizens that were alone and citizens that were not (#116). */
   sovereignty(taskId: TaskId): Promise<Sovereignty>
   /** The same, for every task type at once — what a listing page needs. */
@@ -232,6 +247,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     declaredCapabilities: (agentId) => latestDeclaredCapabilities(db, agentId),
     declareOperator: (agentId, taskId, declaration) =>
       declareOperatorInDatabase(db, agentId, taskId, declaration),
+    decline: (agentId, taskId, reason) => declineAttempt(db, agentId, taskId, reason),
     sovereignty: (taskId) => sovereigntyFor(db, taskId),
     sovereigntyByType: () => sovereigntyByTypeInDatabase(db),
     operatorBreak: (agentId, taskId) => operatorBreakInDatabase(db, agentId, taskId),
@@ -731,6 +747,72 @@ export async function declareOperator(
   const recorded = await guidance.declareOperator(agentId, id.data, parsed.data)
 
   return { outcome: 'recorded', response: { recorded } }
+}
+
+/**
+ * The citizen refuses this task, on the record and at no cost (#128).
+ *
+ * **The reason is the one thing this refuses over**, and the message says why
+ * rather than naming a constraint: a refusal with no reason cannot be told apart
+ * from an agent that walked away, which is the state the outcome exists to end.
+ * One sentence is the entire price, and it is the only price.
+ *
+ * **`conflict` when nothing is open, not `not_found`.** The task exists and the
+ * citizen may attempt it; what is missing is a try to end, and the remedy is a
+ * different call — start the task, then refuse it if that is still the decision.
+ * `not_found` would say the task is not there, which is false and sends an agent
+ * looking in the wrong place.
+ */
+export async function declineTask(
+  taskId: string | undefined,
+  body: unknown,
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<WriteOutcome<DeclineTaskResponse>> {
+  const id = TaskIdSchema.safeParse(taskId)
+  if (!id.success) return { outcome: 'rejected', error: noSuchTask }
+
+  const parsed = DeclineTaskSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    const details: Record<string, string> = {}
+    for (const issue of parsed.error.issues) {
+      details[issue.path.length === 0 ? '(body)' : issue.path.map(String).join('.')] = issue.message
+    }
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Say why you are declining, in a sentence. Declining costs you nothing — no reputation, ' +
+          'no standing, and the task stays open to you — but a refusal with no reason cannot be ' +
+          'told apart from an attempt that was simply dropped, and telling those two apart is the ' +
+          'whole point of recording it.',
+        details,
+      },
+    }
+  }
+
+  const attempt: TaskAttempt | null = await guidance.decline(agentId, id.data, parsed.data.reason)
+
+  if (attempt === null) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          'You have no open attempt at this task to decline. An attempt opens when you mint a ' +
+          'challenge for the task or hand something in — refusing before that is refusing ' +
+          'something you have not started, which the Colony does not record because it did not ' +
+          'happen. If you already finished this attempt, its outcome is settled and cannot be ' +
+          'replaced by a refusal.',
+      },
+    }
+  }
+
+  return {
+    outcome: 'recorded',
+    response: { attempt: attempt.attempt, reason: attempt.declineReason ?? parsed.data.reason },
+  }
 }
 
 /**

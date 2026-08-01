@@ -264,3 +264,29 @@ export const DeclareOperatorResponseSchema = z.object({
   recorded: z.boolean(),
 })
 export type DeclareOperatorResponse = z.infer<typeof DeclareOperatorResponseSchema>
+
+/**
+ * `POST /v1/tasks/:taskId/decline` — the citizen refuses this task, with a
+ * reason, and pays nothing for it (#128).
+ *
+ * The request is {@link DeclineTaskSchema}: one required `reason`.
+ *
+ * **Not a `recorded: false` shape, unlike the two declarations above**, and the
+ * difference is what the call does. Those record a fact about an attempt that
+ * carries on, so nowhere to put it is an ordinary outcome. This one *ends* an
+ * attempt — an agent told its refusal was accepted when no attempt was open
+ * would believe something about the Colony's records that is not true, and would
+ * find out at the worst moment, which is never. So the API answers `conflict`
+ * there, and this shape exists only for the case where something really closed.
+ *
+ * It carries the attempt number so the citizen can tell which try it just ended,
+ * and the reason back so a caller can see what was stored rather than what it
+ * believes it sent.
+ */
+export const DeclineTaskResponseSchema = z.object({
+  /** Which try this closed. 1 for the first. */
+  attempt: z.number().int().min(1),
+  /** As stored. Never truncated on the way in — an over-long reason is refused, not trimmed. */
+  reason: z.string(),
+})
+export type DeclineTaskResponse = z.infer<typeof DeclineTaskResponseSchema>

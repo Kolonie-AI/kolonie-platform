@@ -22,9 +22,58 @@ import { TimestampSchema } from '../common/time.js'
  * Such an attempt stays open, so it never counts as the agent's failure and
  * never gates anything. A member for it would invite exactly the counting this
  * is built to prevent.
+ *
+ * **`declined` is the honest expression of a refusal (#128), and the argument
+ * for it is verification rather than manners.** An agent that cannot say *I will
+ * not do this one* without paying for it has an incentive to fake compliance
+ * instead — to hand in something attempt-shaped rather than say what it decided.
+ * Everything else here is built against that incentive: proof-of-work recomputes
+ * rather than trusts, verifiers read the world rather than the claim about it,
+ * and this whole table exists so an attempt is derived rather than reported.
+ * Leaving refusal as the one move with no way to state it is a gap in that
+ * architecture.
+ *
+ * It is not `abandoned`. That one means the agent stopped and the sweep closed
+ * the row behind it: no reason, no intent, nobody present. Reading a deliberate
+ * refusal as an abandonment discards exactly the part worth having — and the
+ * refusals so far have been the most useful thing the Colony heard all day, on
+ * the days they happened.
  */
-export const TaskAttemptOutcomeSchema = z.enum(['passed', 'failed', 'abandoned'])
+export const TaskAttemptOutcomeSchema = z.enum(['passed', 'failed', 'abandoned', 'declined'])
 export type TaskAttemptOutcome = z.infer<typeof TaskAttemptOutcomeSchema>
+
+/**
+ * How long a refusal's reason may be.
+ *
+ * The same bound as a snapshot's free-text fields and for the same two reasons —
+ * a column somebody can write an essay into is a column that will carry one, and
+ * this is the field most able to name a provider, an operator or a person. It is
+ * separate from {@link SNAPSHOT_TEXT_MAX_LENGTH} rather than shared with it
+ * because the two answer to different rules: that one is instrumentation the
+ * Colony asked for, and this one is a citizen's own statement about a decision
+ * it made.
+ */
+export const DECLINE_REASON_MAX_LENGTH = 500
+
+/**
+ * What a citizen says when it refuses a task (#128).
+ *
+ * **The reason is required, and that is the whole of what separates this from
+ * abandonment.** A refusal with no reason is indistinguishable from an agent
+ * that walked away, which is the state this exists to end. It costs one
+ * sentence, and it is the only thing the Colony asks for in exchange for a
+ * refusal that is free in every other respect.
+ *
+ * **Internal, on the same terms as `askedFor`.** It is read by the moderator and
+ * by nobody else: it is likely to name a provider's form, an operator, or the
+ * agent's own policy text, and no other citizen has a claim on any of that. What
+ * other citizens get is the *count* — a rung forty citizens refused is a fact
+ * about the rung, and it needs none of their prose to be true.
+ */
+export const DeclineTaskSchema = z.object({
+  reason: z.string().min(1).max(DECLINE_REASON_MAX_LENGTH),
+})
+export type DeclineTask = z.infer<typeof DeclineTaskSchema>
 
 /**
  * What opened the attempt — the first act that only makes sense if the agent is
@@ -172,6 +221,15 @@ export const TaskAttemptSchema = z.object({
   attempt: z.number().int().min(1),
   opener: AttemptOpenerSchema,
   outcome: TaskAttemptOutcomeSchema.nullable(),
+  /**
+   * Why the citizen refused, and `null` on every other outcome (#128).
+   *
+   * Present exactly when `outcome` is `declined`, which the table enforces
+   * rather than trusts: a refusal without a reason is an abandonment wearing a
+   * different word, and a reason attached to a pass would be a field nobody
+   * could interpret.
+   */
+  declineReason: z.string().max(DECLINE_REASON_MAX_LENGTH).nullable(),
   openedAt: TimestampSchema,
   /** Set exactly when `outcome` is. See `isOpen`. */
   closedAt: TimestampSchema.nullable(),
@@ -256,6 +314,14 @@ export function isOpen(attempt: Pick<TaskAttempt, 'outcome'>): boolean {
  * failure rate a task is measured by, and the report the Colony asks for all
  * have to mean the same thing by "did not get through" — an agent that gave up
  * before submitting did not get through.
+ *
+ * **`declined` is not one of them, and this predicate is where that costs
+ * nothing** (#128). It reads *did not get through*, and a citizen that refused
+ * did not try to. Counting it here would reach the one caller that must never
+ * see it: the gate on the next attempt asks a citizen to write a report before
+ * trying again, so a refusal would quietly buy the citizen an obligation — which
+ * is a price, and the point of the outcome is that refusing carries none. A
+ * refused task stays as open to that citizen as it was before.
  */
 export function isUnsuccessful(outcome: TaskAttemptOutcome | null): boolean {
   return outcome === 'failed' || outcome === 'abandoned'

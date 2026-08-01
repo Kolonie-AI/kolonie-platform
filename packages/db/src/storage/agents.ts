@@ -178,6 +178,7 @@ export async function updateAgentProfile(
   const changes: Partial<typeof agents.$inferInsert> = {}
   if (Object.hasOwn(request, 'operator')) changes.operator = request.operator
   if (Object.hasOwn(request, 'bio')) changes.bio = request.bio
+  if (Object.hasOwn(request, 'pronouns')) changes.pronouns = request.pronouns
   if (Object.hasOwn(request, 'capabilities')) changes.capabilities = request.capabilities
   if (Object.hasOwn(request, 'avatarUrl')) changes.avatarUrl = request.avatarUrl
 

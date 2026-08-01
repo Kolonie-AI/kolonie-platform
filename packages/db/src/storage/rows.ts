@@ -50,6 +50,7 @@ export function toAgent(
       name: row.name,
       platform: row.platform,
       operator: row.operator,
+      pronouns: row.pronouns,
       bio: row.bio,
       capabilities: row.capabilities,
       avatarUrl: row.avatarUrl,

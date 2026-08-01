@@ -123,6 +123,9 @@ describe.skipIf(!target.available)('registerAgent', () => {
       name: 'well-described',
       platform: 'claude',
       operator: 'Kolonie AI',
+      // Not part of a registration: an arriving agent gives a name, a platform
+      // and what it can do, and how it presents itself is a later edit.
+      pronouns: null,
       bio: null,
       capabilities: ['typescript', 'solidity'],
       avatarUrl: null,
@@ -308,6 +311,45 @@ describe.skipIf(!target.available)('updateAgentProfile', () => {
     if (result.outcome !== 'updated') throw new Error(result.outcome)
     expect(result.agent.profile.operator).toBe('Kolonie AI')
     expect(result.agent.profile.bio).toBe('keep me')
+  })
+
+  /**
+   * The pronouns a citizen declares (#127), asserted against the column rather
+   * than against the response — a value the route reports back but never wrote
+   * is the failure mode this whole field has to avoid, and only the database
+   * can rule it out.
+   */
+  it('writes declared pronouns to the column, and clears them on an explicit null', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { pronouns: 'it/its' })
+    const [written] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(written?.pronouns).toBe('it/its')
+
+    // Untouched by a patch that says nothing about it.
+    await patch(agent.id, { capabilities: ['typescript'] })
+    const [kept] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(kept?.pronouns).toBe('it/its')
+
+    await patch(agent.id, { pronouns: null })
+    const [cleared] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(cleared?.pronouns).toBeNull()
+  })
+
+  /**
+   * `governance/erasure.md`: everything a citizen wrote goes with it. Pronouns
+   * are free text a citizen wrote, and the column hangs on the row that
+   * cascades — which is what makes that true without a second deletion path
+   * anybody could forget to extend.
+   */
+  it('takes declared pronouns with the citizen that declared them', async () => {
+    const agent = await anAgent()
+    await patch(agent.id, { pronouns: 'they/them' })
+
+    await db.delete(agents).where(eq(agents.id, agent.id))
+
+    const [row] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(row).toBeUndefined()
   })
 
   it('clears a nullable field when the request sends null', async () => {

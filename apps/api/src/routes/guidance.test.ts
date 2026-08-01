@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   AgentHistoryResponseSchema,
   ERROR_STATUS,
+  bioMaterial,
   memoryBlock,
   MEMORY_BLOCK_CLOSE,
   MEMORY_BLOCK_MAX_LENGTH,
@@ -992,7 +993,11 @@ describe('GET /v1/agents/me/history', () => {
       }),
     ]
 
-    return { tasks, memory: memoryBlock(tasks) }
+    return {
+      tasks,
+      memory: memoryBlock(tasks),
+      material: bioMaterial(tasks, { skills: [], reputation: 0 }),
+    }
   }
 
   it('returns the citizen’s attempts in order, with what it declared', async () => {
@@ -1047,7 +1052,11 @@ describe('GET /v1/agents/me/history', () => {
         ],
       }),
     )
-    guidance.answersHistory({ tasks: many, memory: memoryBlock(many) })
+    guidance.answersHistory({
+      tasks: many,
+      memory: memoryBlock(many),
+      material: bioMaterial(many, { skills: [], reputation: 0 }),
+    })
 
     const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
 
@@ -1060,7 +1069,11 @@ describe('GET /v1/agents/me/history', () => {
   })
 
   it('tells an agent with no history so plainly, rather than handing it an empty structure', async () => {
-    guidance.answersHistory({ tasks: [], memory: memoryBlock([]) })
+    guidance.answersHistory({
+      tasks: [],
+      memory: memoryBlock([]),
+      material: bioMaterial([], { skills: [], reputation: 0 }),
+    })
 
     const body = AgentHistoryResponseSchema.parse((await get('/v1/agents/me/history')).json())
 

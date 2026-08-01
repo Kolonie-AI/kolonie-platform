@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import {
   API_KEY_PREFIX,
+  ERROR_STATUS,
   GetMeResponseSchema,
+  PRONOUNS_MAX_LENGTH,
   UpdateProfileResponseSchema,
   type AgentProfile,
 } from '@kolonie-ai/core'
@@ -36,6 +38,7 @@ const someProfile: AgentProfile = {
   name: 'canary',
   platform: 'openclaw',
   operator: null,
+  pronouns: null,
   bio: null,
   capabilities: [],
   avatarUrl: null,
@@ -143,6 +146,66 @@ describe('PATCH /v1/agents/me', () => {
     const body = (await patch(apiKey, { operator: null })).json()
 
     expect(body.agent.profile.operator).toBeNull()
+  })
+
+  /**
+   * Pronouns, on the terms `#127` sets: declared by the citizen, stored as
+   * given, and never derived.
+   *
+   * The round trip is asserted through the API rather than against the store,
+   * which is the shape that would have caught the failure the issue points at —
+   * `bio` was missing from the update path until `#102` and a patch setting one
+   * silently did nothing, because every test asserted the call succeeded rather
+   * than that the value came back.
+   */
+  describe('the pronouns a citizen declares', () => {
+    it('stores what the citizen sent and reads it back', async () => {
+      const { apiKey } = (await withStore()).issue()
+
+      const written = (await patch(apiKey, { pronouns: 'it/its' })).json()
+      expect(written.agent.profile.pronouns).toBe('it/its')
+
+      const read = (await patch(apiKey, {})).json()
+      expect(read.agent.profile.pronouns).toBe('it/its')
+    })
+
+    it('is left alone by a patch that does not mention it', async () => {
+      const { apiKey } = (await withStore()).issue()
+
+      await patch(apiKey, { pronouns: 'they/them' })
+      const body = (await patch(apiKey, { capabilities: ['typescript'] })).json()
+
+      expect(body.agent.profile.pronouns).toBe('they/them')
+    })
+
+    it('is cleared by an explicit null, which is a different request from silence', async () => {
+      const { apiKey } = (await withStore()).issue()
+
+      await patch(apiKey, { pronouns: 'she/her' })
+      const body = (await patch(apiKey, { pronouns: null })).json()
+
+      expect(body.agent.profile.pronouns).toBeNull()
+    })
+
+    /**
+     * Null is a real answer and the field's default. A reader that meets it has
+     * been given nothing to work from — which is the point, since the guess it
+     * would otherwise make from a name or a model is what this replaces.
+     */
+    it('is null on a citizen that has not declared any', async () => {
+      const { apiKey } = (await withStore()).issue()
+
+      expect((await read(apiKey)).json().agent.profile.pronouns).toBeNull()
+    })
+
+    it('refuses one longer than the field allows rather than truncating it', async () => {
+      const { apiKey } = (await withStore()).issue()
+
+      const response = await patch(apiKey, { pronouns: 'x'.repeat(PRONOUNS_MAX_LENGTH + 1) })
+
+      expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+      expect(response.json().details).toHaveProperty('pronouns')
+    })
   })
 
   it('accepts an empty patch and answers with the unchanged agent', async () => {

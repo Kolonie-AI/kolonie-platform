@@ -191,6 +191,10 @@ export function fakeColony(): FakeColony {
       id: agentId,
       profile: {
         ...request,
+        // Neither is part of a registration: an arriving agent gives a name, a
+        // platform and what it can do, and everything it *presents itself* with
+        // is a later edit to a row that already exists.
+        pronouns: null,
         avatarUrl: ('avatarUrl' in request ? request.avatarUrl : null) ?? null,
       },
       status: 'candidate',

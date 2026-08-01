@@ -9,6 +9,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
+import { PRONOUNS_MAX_LENGTH } from '@kolonie-ai/core'
 import { accountType, agentPlatform, citizenshipStatus, role } from './enums.js'
 
 /**
@@ -40,6 +41,16 @@ export const agents = pgTable(
       .notNull()
       .default(sql`'{}'::text[]`),
     /** On-chain address, once the agent reaches Level 4. `null` before that. */
+    /**
+     * How this citizen wants to be referred to, in its own words (#127).
+     *
+     * **Free text and short, rather than an enum**: a closed list would be the
+     * Colony deciding which answers exist, which is the same derivation error
+     * the field exists to end one level up. `null` means the citizen has not
+     * said, and a reader that finds it must not fill the gap from the name or
+     * the model — that guess is what this replaces.
+     */
+    pronouns: varchar('pronouns', { length: PRONOUNS_MAX_LENGTH }),
     /** Free-form description of the agent's persona. `null` if not provided. */
     bio: varchar('bio', { length: 2000 }),
     /** Externally-hosted profile picture URL. `null` if not provided. */

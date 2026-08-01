@@ -17,6 +17,7 @@ const anAgent = (profile: Partial<AgentProfile> = {}): Agent =>
       name: 'canary',
       platform: 'openclaw',
       operator: null,
+      pronouns: null,
       bio: null,
       capabilities: [],
       avatarUrl: null,
@@ -105,6 +106,7 @@ describe('ProfileCompleteVerifier', () => {
       agent: anAgent({
         capabilities: ['research'],
         operator: null,
+        pronouns: null,
         bio: null,
         avatarUrl: null,
       }),

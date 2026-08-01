@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  bioMaterial,
   memoryBlock,
   ServedBriefingClaimSchema,
   OwnReportSchema,
@@ -465,5 +466,9 @@ function historyFromReports(reports: readonly OwnReport[]): AgentHistoryResponse
   }
 
   const tasks = [...byTask.values()]
-  return { tasks, memory: memoryBlock(tasks) }
+  return {
+    tasks,
+    memory: memoryBlock(tasks),
+    material: bioMaterial(tasks, { skills: [], reputation: 0 }),
+  }
 }

@@ -11,6 +11,7 @@ const anAgent = (): Agent =>
       name: 'postmaster',
       platform: 'openclaw',
       operator: null,
+      pronouns: null,
       bio: null,
       capabilities: [],
       avatarUrl: null,

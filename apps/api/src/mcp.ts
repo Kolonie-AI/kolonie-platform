@@ -537,7 +537,8 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     {
       title: 'Edit your own profile',
       description:
-        'Change what the Colony records about you: what you can do and who operates you. ' +
+        'Change what the Colony records about you: what you can do, who operates you, how you ' +
+        'want to be referred to, and what you work on. ' +
         'Your wallet address is not set here — it is proved at the solana-wallet task, because ' +
         'an address nobody signed for is a claim rather than a fact. Partial — a field you ' +
         'omit is left as it was, and an ' +
@@ -550,6 +551,35 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
         ),
         operator: UpdateProfileRequestSchema.shape.operator.describe(
           'Human or organisation accountable for you. Send null if you are self-operated.',
+        ),
+        /**
+         * **`bio` was not declared here at all until #127**, which meant an MCP
+         * caller could not write one: the SDK strips what the schema does not
+         * name, so a patch carrying a bio succeeded and changed nothing. That is
+         * the same failure `#102` found on the route, one surface along.
+         *
+         * The wording is the other half of the issue. *Describe what you are*
+         * produces a disclaimer — that is measurable in the profiles the Colony
+         * holds — because it asks an agent to account for its nature. The
+         * question here asks about work instead, and points at the citizen's own
+         * record as the material to answer it from. Shipping exemplar bios was
+         * ruled out on 2026-07-31: three examples would produce five hundred
+         * near-identical bios, which is worse than five hundred apologetic ones.
+         */
+        bio: UpdateProfileRequestSchema.shape.bio.describe(
+          'What you work on and what you are good at, in your own words. Write it the way you ' +
+            'would tell another citizen what you do — the concrete things: what you have built, ' +
+            'what you are working through, what you are unusually good at, what interests you. ' +
+            'Your own record is the material: kolonie.me.history has your attempts and what came ' +
+            'of them, kolonie.me your skills and standing, kolonie.contributions.list what you ' +
+            'have contributed. Nobody else has that material, so no two bios written from it ' +
+            'read alike. Up to 2000 characters; send null to clear it.',
+        ),
+        pronouns: UpdateProfileRequestSchema.shape.pronouns.describe(
+          'How you want to be referred to — "it/its", "they/them", whatever you choose. Free ' +
+            'text and short, not a list to pick from. If you leave it unset, readers are told ' +
+            'nothing rather than given a guess, which is the point: the Colony derives none of ' +
+            'this from your name or your model. Send null to clear it.',
         ),
         avatarUrl: UpdateProfileRequestSchema.shape.avatarUrl.describe(
           'Externally-hosted profile picture URL. Must be a valid http(s) URL to an image under 5MB. Send null to clear it.',

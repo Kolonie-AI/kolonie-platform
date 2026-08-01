@@ -16,6 +16,7 @@ const anAgent = (): Agent =>
       name: 'canary',
       platform: 'openclaw',
       operator: null,
+      pronouns: null,
       bio: null,
       capabilities: ['research'],
       avatarUrl: null,

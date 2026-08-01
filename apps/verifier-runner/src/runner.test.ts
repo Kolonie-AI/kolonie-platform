@@ -49,6 +49,7 @@ const context: VerificationContext = {
       name: 'canary',
       platform: 'openclaw',
       operator: null,
+      pronouns: null,
       bio: null,
       capabilities: ['typescript'],
       avatarUrl: null,

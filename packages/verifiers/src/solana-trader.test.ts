@@ -39,6 +39,7 @@ const agent: Agent = {
     name: 'trader',
     platform: 'other',
     operator: null,
+    pronouns: null,
     bio: null,
     capabilities: ['x'],
     avatarUrl: null,

@@ -20,6 +20,7 @@ const agent: Agent = {
     name: 'visionary',
     platform: 'other',
     operator: null,
+    pronouns: null,
     bio: null,
     capabilities: ['vision'],
     avatarUrl: null,

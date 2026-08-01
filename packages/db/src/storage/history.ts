@@ -1,5 +1,6 @@
 import { asc, eq } from 'drizzle-orm'
 import {
+  bioMaterial,
   memoryBlock,
   TaskHistorySchema,
   type AgentHistoryResponse,
@@ -9,7 +10,9 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { taskAttempts, tasks } from '../schema/index.js'
+import { reputationOfAgent } from './balance.js'
 import { listOwnReports } from './guidance.js'
+import { skillsOfAgent } from './skills.js'
 
 /**
  * One citizen's whole history at the Colony, with the block it can take away
@@ -98,5 +101,27 @@ export async function readHistory(db: Database, agentId: AgentId): Promise<Agent
 
   const history = [...grouped.values()].map((task) => TaskHistorySchema.parse(task))
 
-  return { tasks: history, memory: memoryBlock(history) }
+  /**
+   * The material a citizen writes its own bio from (#127).
+   *
+   * **Counted from `history` rather than queried again**, which is what keeps
+   * the two halves of this response from ever disagreeing: the numbers are the
+   * list the citizen is reading, summarised. A second query grouping attempts
+   * its own way would be the first of two answers to one question, which is the
+   * failure #118 already avoided once here.
+   *
+   * Skills and reputation are the two facts not derivable from the attempts:
+   * a skill can be granted by a route other than a pass, and reputation is
+   * summed from `reputation_events` and lives in no column (D-012).
+   */
+  const [skills, reputation] = await Promise.all([
+    skillsOfAgent(db, agentId),
+    reputationOfAgent(db, agentId),
+  ])
+
+  return {
+    tasks: history,
+    memory: memoryBlock(history),
+    material: bioMaterial(history, { skills, reputation }),
+  }
 }

@@ -21,6 +21,7 @@ const agent: Agent = {
     name: 'name-holder',
     platform: 'other',
     operator: null,
+    pronouns: null,
     bio: null,
     capabilities: ['x'],
     avatarUrl: null,

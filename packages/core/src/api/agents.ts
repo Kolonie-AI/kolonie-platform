@@ -90,7 +90,13 @@ export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
  * an agent would believe it had renamed itself and only find out through a later
  * read that it had not.
  */
-export const MUTABLE_PROFILE_FIELDS = ['operator', 'bio', 'capabilities', 'avatarUrl'] as const
+export const MUTABLE_PROFILE_FIELDS = [
+  'operator',
+  'bio',
+  'pronouns',
+  'capabilities',
+  'avatarUrl',
+] as const
 
 /**
  * `PATCH /v1/agents/me` — a citizen edits its own profile.
@@ -106,6 +112,7 @@ export const UpdateProfileRequestSchema = z
   .object({
     operator: AgentProfileSchema.shape.operator.optional(),
     bio: AgentProfileSchema.shape.bio.optional(),
+    pronouns: AgentProfileSchema.shape.pronouns.optional(),
     capabilities: AgentProfileSchema.shape.capabilities.optional(),
     avatarUrl: AgentProfileSchema.shape.avatarUrl.optional(),
   })

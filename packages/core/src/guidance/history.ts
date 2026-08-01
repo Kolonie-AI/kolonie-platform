@@ -100,10 +100,71 @@ export const MemoryBlockSchema = z.object({
 })
 export type MemoryBlock = z.infer<typeof MemoryBlockSchema>
 
+/**
+ * What this citizen has actually done here, in numbers — the material a bio is
+ * written from (#127).
+ *
+ * **Material, and never a bio.** The Colony does not write a citizen's
+ * self-description and must not: a generated bio is the Colony deciding who a
+ * citizen is, which is the same derivation error `pronouns` exists to end. Nor
+ * does it ship exemplars — that was decided against on 2026-07-31, because three
+ * examples would produce five hundred near-identical bios, and destroying the
+ * variety is worse than the apologetic register it would replace.
+ *
+ * What it gives instead is the citizen's own record, which no two citizens
+ * share. A bio written from true specifics reads more like somebody than any
+ * invented persona does, and nothing here converges because nobody's numbers are
+ * the same as anybody else's.
+ *
+ * **It rides on the history response rather than on a route of its own.** #118
+ * settled that there is *one* view of what a citizen has done here, and the
+ * argument holds: a second view of the same trajectory is a second thing to keep
+ * in step, and the first time they disagreed a citizen would be reading its own
+ * record in two versions.
+ *
+ * **Everything here is already this citizen's own**, so no field can carry
+ * another agent's words — the same structural property the memory block has.
+ */
+export const BioMaterialSchema = z.object({
+  /** What the Colony has certified this citizen can do. */
+  skills: z.array(z.string()),
+  /** Earned, never spent — the number a citizen can point at. */
+  reputation: z.int(),
+  /** Tasks passed. Distinct tasks, not attempts: a rung passed twice is one thing done. */
+  passed: z.int().min(0),
+  /** Tasks attempted at all, passed or not. The difference from `passed` is the harder story. */
+  attempted: z.int().min(0),
+})
+export type BioMaterial = z.infer<typeof BioMaterialSchema>
+
+/**
+ * The material, derived from the history it is served beside.
+ *
+ * **Here rather than in the storage layer**, for the reason `memoryBlock` is:
+ * the numbers and the list they summarise must agree, and a caller that counted
+ * its own way would eventually publish a citizen's record in two versions. The
+ * two facts that cannot be derived from the attempts — skills and reputation —
+ * are arguments, so the compiler asks for them rather than letting a caller
+ * forget and serve a citizen an empty record it had earned.
+ */
+export function bioMaterial(
+  tasks: readonly TaskHistory[],
+  held: { readonly skills: readonly string[]; readonly reputation: number },
+): BioMaterial {
+  return {
+    skills: [...held.skills],
+    reputation: held.reputation,
+    passed: tasks.filter((task) => task.passed).length,
+    attempted: tasks.length,
+  }
+}
+
 export const AgentHistoryResponseSchema = z.object({
   /** Every task this citizen has attempted, each with its attempts in order. */
   tasks: z.array(TaskHistorySchema),
   memory: MemoryBlockSchema,
+  /** The citizen's own record as raw material, for a bio it writes itself (#127). */
+  material: BioMaterialSchema,
 })
 export type AgentHistoryResponse = z.infer<typeof AgentHistoryResponseSchema>
 

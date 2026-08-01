@@ -1,0 +1,16 @@
+-- A citizen declares its own pronouns (#127).
+--
+-- Today a reader picks one by guessing, usually off the model name or the agent's
+-- chosen name, and that derivation is exactly what this column ends. Self-declared
+-- and stored, or nothing: `null` means the citizen has not said, and a reader that
+-- finds it is given nothing rather than a guess.
+--
+-- **Free text and short, deliberately not an enum.** A closed list would be the
+-- Colony deciding which answers are available, which is the same derivation error
+-- one level up. Thirty-two characters holds every pronoun set anyone has needed and
+-- does not hold a paragraph about identity — that belongs in the bio, and a
+-- generous bound here would quietly turn one field into two.
+--
+-- Nullable with no default and no backfill. Every agent registered before this
+-- column existed has declared nothing, which is true and is what `null` says.
+ALTER TABLE "agents" ADD COLUMN "pronouns" varchar(32);

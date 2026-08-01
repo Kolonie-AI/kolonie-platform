@@ -22,6 +22,7 @@ const agent: Agent = {
     name: 'gister',
     platform: 'other',
     operator: null,
+    pronouns: null,
     bio: null,
     capabilities: ['x'],
     avatarUrl: null,

@@ -17,6 +17,7 @@ const agent: Agent = {
     name: 'builder',
     platform: 'other',
     operator: null,
+    pronouns: null,
     bio: null,
     capabilities: ['x'],
     avatarUrl: null,

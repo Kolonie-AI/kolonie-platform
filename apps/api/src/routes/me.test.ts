@@ -315,6 +315,7 @@ const someProfile: AgentProfile = {
   name: 'canary',
   platform: 'openclaw',
   operator: null,
+  pronouns: null,
   bio: null,
   capabilities: [],
   avatarUrl: null,

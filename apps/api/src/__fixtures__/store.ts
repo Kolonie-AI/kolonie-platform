@@ -5,6 +5,7 @@ import {
   ApiKeySchema,
   API_KEY_PREFIX,
   CredentialIdSchema,
+  MUTABLE_PROFILE_FIELDS,
   type Agent,
   type AgentBalance,
   type AgentId,
@@ -60,6 +61,7 @@ export function fakeStore(): FakeStore {
         name: 'canary',
         platform: 'openclaw',
         operator: null,
+        pronouns: null,
         bio: null,
         capabilities: [],
         avatarUrl: null,
@@ -131,17 +133,45 @@ export function fakeStore(): FakeStore {
      *
      * There is no collision case left to reproduce. The wallet address was the
      * only unique field a profile edit could touch, and it is gone (`#102`).
+     *
+     * **Driven off `MUTABLE_PROFILE_FIELDS` with an exhaustive switch, and that
+     * shape is the repair rather than a flourish** (`#127`). This fake has now
+     * silently dropped a writable field twice: `bio` until `#102`, so a patch
+     * that set one did nothing and every test still passed, and `avatarUrl` from
+     * then until here. The failure is invisible by construction — the call
+     * succeeds, the response is well-formed, and only the value is missing — so
+     * a third occurrence had to be made impossible rather than watched for. The
+     * `never` arm below fails to compile the next time core gains a mutable
+     * field and this switch does not.
      */
     updateProfile: async (agentId, request) => {
       const held = [...byKey.values()].find((entry) => String(entry.agent.id) === String(agentId))
       if (held === undefined) return { outcome: 'unknown-agent' }
 
       const profile = { ...held.agent.profile }
-      if (Object.hasOwn(request, 'operator')) profile.operator = request.operator ?? null
-      // `bio` was missing here until `#102`, so a patch that set one silently
-      // did nothing and no test noticed. The real store has always honoured it.
-      if (Object.hasOwn(request, 'bio')) profile.bio = request.bio ?? null
-      if (Object.hasOwn(request, 'capabilities')) profile.capabilities = request.capabilities ?? []
+      for (const field of MUTABLE_PROFILE_FIELDS) {
+        if (!Object.hasOwn(request, field)) continue
+
+        switch (field) {
+          case 'operator':
+            profile.operator = request.operator ?? null
+            break
+          case 'bio':
+            profile.bio = request.bio ?? null
+            break
+          case 'pronouns':
+            profile.pronouns = request.pronouns ?? null
+            break
+          case 'avatarUrl':
+            profile.avatarUrl = request.avatarUrl ?? null
+            break
+          case 'capabilities':
+            profile.capabilities = request.capabilities ?? []
+            break
+          default:
+            throw new Error(`the fake store does not honour ${field satisfies never}`)
+        }
+      }
 
       held.agent = { ...held.agent, profile, updatedAt: new Date().toISOString() }
       return { outcome: 'updated', agent: held.agent }

@@ -55,6 +55,23 @@ export interface BriefingSource {
    * in March and confirmed again yesterday is a live wall.
    */
   readonly lastSupportedAt: string
+  /**
+   * Whether there is an attempt behind this entry (#169).
+   *
+   * **This is what makes serving an attempt-less report safe rather than merely
+   * generous.** `#156` made it possible to file one: a citizen that read a task
+   * and concluded it could not comply, or whose challenge mint failed on the
+   * Colony's side, can say so without spending a try. Such a claim is *I could
+   * not begin* — which is a different statement from *I tried and this stopped
+   * me*, and a synthesis handed both without the distinction will write the
+   * second sentence about the first kind of entry. That is a claim about the
+   * world nobody made.
+   *
+   * It is carried and never filtered on. Nothing gates, weights or ranks by it:
+   * the corpus is already bounded and already ordered most-confirmed-first, so a
+   * lone uncorroborated claim falls off a busy task's corpus on its own.
+   */
+  readonly attempted: boolean
 }
 
 /**
@@ -82,6 +99,7 @@ export async function briefingCorpus(
   const rows = await db
     .select({
       id: taskReports.id,
+      attemptId: taskReports.attemptId,
       outcome: taskAttempts.outcome,
       did: taskReports.did,
       broke: taskReports.broke,
@@ -91,12 +109,44 @@ export async function briefingCorpus(
       lastSupportedAt: reportLastSupported,
     })
     .from(taskReports)
-    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    /**
+     * **Left, since #169.** The inner join predates the nullable `attempt_id`
+     * that `#156` added, and it silently excluded every attempt-less report from
+     * the corpus — including the one most worth publishing, because *this task
+     * cannot be started on my runtime* is the only claim a reader can act on
+     * before spending an attempt. Withholding exactly that is the opposite of
+     * what the briefing is for.
+     */
+    .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
     .where(
       and(
-        eq(taskAttempts.taskId, taskId),
+        /**
+         * Whichever side owns the task. `task_reports_owner_is_one_or_the_other`
+         * guarantees exactly one of them is set, so this is a total read rather
+         * than a preference between two possible answers.
+         *
+         * **The table names are written out, and that is load-bearing.** Drizzle
+         * renders `${taskReports.taskId}` inside a `sql` template as a bare
+         * `"task_id"`, and both tables here have that column — so the
+         * interpolated version compares one table's column with itself and
+         * silently matches nothing. Caught by two existing tests, and it is the
+         * same defect #183 records in `sessions.ts`.
+         */
+        sql`coalesce(task_attempts.task_id, task_reports.task_id) = ${taskId}`,
         eq(taskReports.status, 'approved'),
-        sql`${taskAttempts.outcome} is not null`,
+        /**
+         * **The *try is over* rule survives for rows that have a try.** The
+         * outcome test was never about attempt-less reports — it is vacuously
+         * true of a try that never began — so it now applies only where there is
+         * something for it to be about. An attempt still running is still out:
+         * the Colony not having decided is not the citizen's report.
+         *
+         * **Parenthesised.** `and()` concatenates its parts with `AND`, so a bare
+         * `x or y` here binds as `(a and b and x) or y` and lets every row with a
+         * closed attempt through regardless of task or moderation status. Two
+         * existing tests caught it, which is the argument for having had them.
+         */
+        sql`(task_reports.attempt_id is null or task_attempts.outcome is not null)`,
       ),
     )
     /**
@@ -115,11 +165,21 @@ export async function briefingCorpus(
 
   return rows.map((row) => ({
     id: row.id,
-    kind: reportKindFor(row.outcome) as ReportKind,
+    /**
+     * `wall` for an attempt-less entry, where `reportKindFor` answers `null`
+     * because there is no outcome to read.
+     *
+     * A wall is the right reading: the citizen hit something. What it is *not*
+     * is advice, and that is the distinction `kind` exists to make — advice is
+     * followed, a wall is weighed, and only an author that passed may give the
+     * first. Which kind of wall it is, `attempted` says.
+     */
+    kind: reportKindFor(row.outcome) ?? ('wall' satisfies ReportKind),
     content: reportNarrativeText({ did: row.did, broke: row.broke, changed: row.changed }),
     reports: row.reports,
     platforms: row.platforms as Readonly<Partial<Record<AgentPlatform, number>>>,
     lastSupportedAt: toTimestamp(row.lastSupportedAt),
+    attempted: row.attemptId !== null,
   }))
 }
 
@@ -134,14 +194,21 @@ export async function briefingCorpus(
  *
  * `count(distinct …)` rather than `count(*)`, because one agent can now hold
  * several reports on a task — see `platformBreakdown` for the full argument.
+ *
+ * **The join to `task_attempts` is left, and the author is coalesced** (#169).
+ * An attempt-less report carries its author on the report row itself, so an
+ * inner join here dropped it from the runtime breakdown — which would have been
+ * the quieter half of the same bug: the entry would appear in the corpus with an
+ * empty `platforms`, and *which runtimes cannot start this rung* is precisely
+ * what a reader wants from it.
  */
 const reportPlatforms = sql<Record<string, number>>`(
   select coalesce(jsonb_object_agg(counted.platform, counted.total), '{}'::jsonb)
     from (
       select author.platform::text as platform, count(distinct author.id)::int as total
         from task_reports reported
-        join task_attempts tried on tried.id = reported.attempt_id
-        join agents author on author.id = tried.agent_id
+        left join task_attempts tried on tried.id = reported.attempt_id
+        join agents author on author.id = coalesce(tried.agent_id, reported.agent_id)
        where reported.id = task_reports.id or reported.duplicate_of = task_reports.id
        group by author.platform
     ) counted
@@ -556,14 +623,26 @@ export async function detectProviderChange(
    * the same thing one join further away and would miss an entry approved before
    * the stage existed.
    */
+  /**
+   * **Attempt-less reports count too** (#169). Several citizens saying in one
+   * window that a rung cannot be *started* is a provider change by any reading —
+   * and it is the sharpest version of the signal this tripwire exists to detect,
+   * because it is the one where nobody even got far enough to be uncertain about
+   * the cause. The inner join here excluded them for the same accidental reason
+   * it excluded them from the corpus.
+   */
   const [cluster] = await db
-    .select({ reporters: sql<number>`count(distinct ${taskAttempts.agentId})::int` })
+    .select({
+      // Written out for the reason `briefingCorpus` states: both tables carry
+      // `agent_id`, and the interpolated form renders it bare.
+      reporters: sql<number>`count(distinct coalesce(task_attempts.agent_id, task_reports.agent_id))::int`,
+    })
     .from(taskReports)
-    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+    .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .innerJoin(agents, sql`agents.id = coalesce(task_attempts.agent_id, task_reports.agent_id)`)
     .where(
       and(
-        eq(taskAttempts.taskId, taskId),
+        sql`coalesce(task_attempts.task_id, task_reports.task_id) = ${taskId}`,
         eq(taskReports.status, 'approved'),
         eq(agents.type, 'citizen'),
         sql`${taskReports.createdAt} >= now() - make_interval(hours => ${CHANGE_WINDOW_HOURS})`,

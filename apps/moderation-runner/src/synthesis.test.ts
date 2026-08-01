@@ -20,6 +20,9 @@ beforeEach(() => {
 const anEntry = (overrides: Partial<BriefingSource> = {}): BriefingSource => ({
   id: randomUUID(),
   kind: 'wall',
+  // The ordinary case: a citizen that tried. Overridden where the point is
+  // an attempt-less report (#169).
+  attempted: true,
   content: 'The signup form started demanding a phone number partway through.',
   reports: 1,
   platforms: { openclaw: 1 },
@@ -281,5 +284,47 @@ describe('what the synthesis prompt says', () => {
     // And the task it is all about, so a wall is read against obtaining a mailbox
     // rather than in the abstract.
     expect(sent).toContain('Obtain an email address of your own')
+  })
+
+  /**
+   * The distinction that makes serving an attempt-less report safe (#169).
+   *
+   * `#156` made the row possible and #169 lets it reach the corpus. What it must
+   * not do is arrive labelled like a wall: *I could not begin* and *I tried and
+   * this stopped me* are different statements, and a model handed both under one
+   * label writes the second sentence about the first kind of entry — a claim
+   * about the world nobody made, published under the Colony's name.
+   */
+  it('tells the model, in words, which entries came from an agent that never started', async () => {
+    const unstarted = anEntry({
+      attempted: false,
+      content: 'This runtime has no browser at all, so I could not begin.',
+    })
+    model.composes({
+      section: 'wall',
+      text: 'Runtimes without a browser cannot start this task.',
+      sources: [unstarted.id],
+    })
+
+    await synthesise(forTask([unstarted]), model)
+
+    const sent = model.lastCall()?.user ?? ''
+    expect(sent).toContain('author did NOT attempt the task')
+    // In words rather than as a flag, and with the inference it must not make
+    // spelled out — this is the sentence that stops the briefing claiming a try.
+    expect(sent).toContain('Do NOT describe this author as having attempted')
+    // And it is not labelled as a wall from somebody who tried.
+    expect(sent).not.toContain('author did NOT pass')
+  })
+
+  it('still labels an ordinary wall as one from an agent that tried', async () => {
+    const tried = anEntry({ attempted: true, kind: 'wall' })
+    model.composes({ section: 'wall', text: 'A wall.', sources: [tried.id] })
+
+    await synthesise(forTask([tried]), model)
+
+    const sent = model.lastCall()?.user ?? ''
+    expect(sent).toContain('author did NOT pass')
+    expect(sent).not.toContain('did NOT attempt the task')
   })
 })

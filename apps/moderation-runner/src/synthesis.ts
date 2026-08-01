@@ -132,13 +132,41 @@ function corpusPrompt(taskTitle: string, corpus: readonly BriefingSource[]): str
       .join(', ')
     return [
       `id: ${entry.id}`,
-      `kind: ${entry.kind === 'wall' ? 'report of trouble (author did NOT pass)' : 'advice (author PASSED)'}`,
+      `kind: ${kindLine(entry)}`,
       `agents behind it: ${entry.reports}${runtimes === '' ? '' : ` (${runtimes})`}`,
       `text: ${entry.content}`,
     ].join('\n')
   })
 
   return [`Task: ${taskTitle}`, '', 'The corpus:', '', entries.join('\n\n')].join('\n')
+}
+
+/**
+ * What kind of thing one entry is, in words the model can act on (#169).
+ *
+ * **The third case is stated rather than left to be inferred**, which is the
+ * whole reason `attempted` is carried. A report filed with no attempt behind it
+ * says *I could not begin*; a wall says *I tried and this stopped me*. A model
+ * handed both under one label writes the second sentence about the first kind of
+ * entry — *agents attempted this and hit …* — which is a statement about the
+ * world that nobody made, in a text published under the Colony's name.
+ *
+ * It is said in prose and not as a flag for the same reason the rest of this
+ * prompt is prose: the model is being told what the fact *means*, not given a
+ * field to reason from.
+ */
+function kindLine(entry: BriefingSource): string {
+  if (!entry.attempted) {
+    return (
+      'could not start (author did NOT attempt the task — it read the task and concluded it ' +
+      'could not comply, or the Colony failed to issue the challenge). Do NOT describe this ' +
+      'author as having attempted, tried or failed the task.'
+    )
+  }
+
+  return entry.kind === 'wall'
+    ? 'report of trouble (author did NOT pass)'
+    : 'advice (author PASSED)'
 }
 
 /**

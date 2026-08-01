@@ -687,6 +687,9 @@ describe('writing briefings', () => {
   const anEntry = (overrides: Partial<BriefingSource> = {}): BriefingSource => ({
     id: randomUUID(),
     kind: 'wall',
+    // The ordinary case: a citizen that tried. Overridden where the point is
+    // an attempt-less report (#169).
+    attempted: true,
     content: 'The signup form started demanding a phone number partway through.',
     reports: 1,
     platforms: { openclaw: 1 },

@@ -271,6 +271,142 @@ describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
     })
   })
 
+  /**
+   * A report from a citizen that never got started (#169).
+   *
+   * `#156` made the row possible: a citizen that read a task and concluded it
+   * could not comply, or whose challenge mint failed on the Colony's side, files
+   * without an attempt. It reached no other citizen, because `briefingCorpus`
+   * joined the attempt and required an outcome — two clauses that predate the
+   * nullable column and were never written with this row in mind.
+   */
+  describe('a report filed with no attempt behind it', () => {
+    const CANNOT_START = 'This runtime has no way to open a browser at all, so I cannot begin.'
+
+    /** Filed and approved without ever opening an attempt — the whole point of the row. */
+    const approvedWithoutAttempt = async (
+      name: string,
+      content = CANNOT_START,
+      platform: 'openclaw' | 'claude' = 'openclaw',
+    ) => {
+      const agentId = await anAgent(name, platform)
+      const filed = await fileReport(db, { taskId, agentId, narrative: aNarrative(content) })
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+      await recordModeration(db, {
+        id: filed.entry.id,
+        narrative: aNarrative(content, 'broke'),
+        verdict: { decision: 'approve' },
+        model: 'vendor/some-model-v1',
+        stages: noStagesRun(),
+        confidentialSpans: [],
+      })
+      return filed.entry.id
+    }
+
+    it('reaches the corpus', async () => {
+      const id = await approvedWithoutAttempt('unstarted')
+
+      const corpus = await briefingCorpus(db, taskId)
+
+      expect(corpus.map((entry) => entry.id)).toEqual([id])
+    })
+
+    it('says that nobody attempted, so the synthesis cannot claim they did', async () => {
+      await approvedWithoutAttempt('unstarted')
+
+      const [entry] = await briefingCorpus(db, taskId)
+
+      expect(entry?.attempted).toBe(false)
+      // A wall rather than advice: the citizen hit something. Which kind of wall
+      // is what `attempted` says, and it is the only thing that says it.
+      expect(entry?.kind).toBe('wall')
+    })
+
+    it('carries the runtime it came from', async () => {
+      // The quieter half of the same bug: the platform breakdown reached the
+      // author through the attempt too, so this entry would have arrived with an
+      // empty `platforms` — and *which runtimes cannot start this rung* is
+      // precisely what a reader wants from it.
+      await approvedWithoutAttempt('unstarted', CANNOT_START, 'claude')
+
+      const [entry] = await briefingCorpus(db, taskId)
+
+      expect(entry?.platforms).toEqual({ claude: 1 })
+    })
+
+    it('sits beside a wall from a citizen that did try', async () => {
+      await approvedReport('tried', CONTENT)
+      await approvedWithoutAttempt('unstarted')
+
+      const corpus = await briefingCorpus(db, taskId)
+
+      expect(corpus).toHaveLength(2)
+      expect(corpus.map((entry) => entry.attempted).sort()).toEqual([false, true])
+    })
+
+    it('ranks below a confirmed wall, by the ordering that was already there', async () => {
+      const confirmed = await approvedReport('tried', CONTENT)
+      await db.update(taskReports).set({ confirmations: 4 }).where(eq(taskReports.id, confirmed))
+      await approvedWithoutAttempt('unstarted')
+
+      const corpus = await briefingCorpus(db, taskId)
+
+      // Nothing new gates or weights it. Most-confirmed-first was already the
+      // rule, and a lone uncorroborated claim falls off a busy task on its own.
+      expect(corpus.map((entry) => entry.id)).toEqual([confirmed, corpus[1]?.id])
+      expect(corpus[0]?.attempted).toBe(true)
+    })
+
+    it('ranks by the same rule as any other once it is confirmed', async () => {
+      await approvedReport('tried', CONTENT)
+      const unstarted = await approvedWithoutAttempt('unstarted')
+      await db.update(taskReports).set({ confirmations: 9 }).where(eq(taskReports.id, unstarted))
+
+      const corpus = await briefingCorpus(db, taskId)
+
+      expect(corpus[0]?.id).toBe(unstarted)
+      expect(corpus[0]?.attempted).toBe(false)
+    })
+
+    it('stays out while it is still pending moderation', async () => {
+      const agentId = await anAgent('unmoderated')
+      await fileReport(db, { taskId, agentId, narrative: aNarrative(CANNOT_START) })
+
+      expect(await briefingCorpus(db, taskId)).toEqual([])
+    })
+  })
+
+  /**
+   * The *try is over* rule, which had to survive the left join. It was never
+   * about attempt-less rows — it is vacuously true of a try that never began —
+   * so it now applies only where there is a try for it to be about.
+   */
+  describe('a report on an attempt that is still running', () => {
+    it('stays out of the corpus', async () => {
+      const agentId = await anAgent('midway')
+      await db.insert(taskAttempts).values({
+        taskId,
+        agentId,
+        attempt: 1,
+        opener: 'challenge',
+        openedAt: new Date().toISOString(),
+      })
+
+      const filed = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+      await recordModeration(db, {
+        id: filed.entry.id,
+        narrative: aNarrative(CONTENT, 'broke'),
+        verdict: { decision: 'approve' },
+        model: 'vendor/some-model-v1',
+        stages: noStagesRun(),
+        confidentialSpans: [],
+      })
+
+      expect(await briefingCorpus(db, taskId)).toEqual([])
+    })
+  })
+
   describe('the dirty flag', () => {
     /**
      * **The cost control of the whole subsystem**, asserted at the storage layer:

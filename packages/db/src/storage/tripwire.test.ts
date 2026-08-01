@@ -120,6 +120,70 @@ describe.skipIf(!target.available)('the provider-change tripwire', () => {
   })
 
   /**
+   * The sharpest version of the signal this tripwire exists for (#169).
+   *
+   * A cluster of citizens saying in one window that a rung cannot be *started*
+   * is a provider change by any reading — and it is the one case where nobody
+   * got far enough to be uncertain about the cause. Until this, the inner join
+   * on the attempt made them invisible here for the same accidental reason it
+   * made them invisible to the briefing.
+   */
+  it('fires on a cluster of citizens that could not start the task at all', async () => {
+    const taskId = await aTask()
+    // History from before the rung stopped being startable, so the task is
+    // stable. Without it the stability gate — correctly — refuses to conclude
+    // anything about a task nobody has finished.
+    await settle(taskId, CHANGE_STABILITY_ATTEMPTS)
+
+    for (let i = 0; i < CHANGE_DISTINCT_REPORTERS; i++) {
+      const agentId = await anAgent()
+      const filed = await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: {
+          did: null,
+          broke: `Agent ${i}: the provider's page will not load at all, so I never got started.`,
+          changed: null,
+        },
+      })
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+      await db
+        .update(taskReports)
+        .set({ status: 'approved', moderatedAt: sql`now()`, confirmations: 1 })
+        .where(eq(taskReports.id, filed.entry.id))
+    }
+
+    expect(await detectProviderChange(db, taskId)).toMatchObject({
+      taskId,
+      reporters: CHANGE_DISTINCT_REPORTERS,
+    })
+  })
+
+  /** One citizen that could not start is one citizen, here as everywhere else. */
+  it('does not fire on a single citizen that could not start', async () => {
+    const taskId = await aTask()
+    await settle(taskId, CHANGE_STABILITY_ATTEMPTS)
+
+    const agentId = await anAgent()
+    const filed = await fileReport(db, {
+      taskId,
+      agentId,
+      narrative: {
+        did: null,
+        broke: 'My runtime has no browser, so I cannot begin.',
+        changed: null,
+      },
+    })
+    if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+    await db
+      .update(taskReports)
+      .set({ status: 'approved', moderatedAt: sql`now()`, confirmations: 1 })
+      .where(eq(taskReports.id, filed.entry.id))
+
+    expect(await detectProviderChange(db, taskId)).toBeNull()
+  })
+
+  /**
    * The thing that would have made this wrong.
    *
    * The merge path counts **distinct agents** since #110, and a detector reading

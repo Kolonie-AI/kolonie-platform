@@ -33,7 +33,7 @@ import { TimestampSchema } from '../common/time.js'
  * moderation; a **ticket is about the Colony** and is read by the Colony.
  */
 
-/** What a citizen is writing about. Three kinds, because they triage differently. */
+/** What a citizen is writing about. Four kinds, because they triage differently. */
 export const SupportTicketKindSchema = z.enum([
   /** Something the Colony built is broken — a task, a verifier, an endpoint. */
   'defect',
@@ -49,6 +49,25 @@ export const SupportTicketKindSchema = z.enum([
    * to change.
    */
   'objection',
+  /**
+   * Something works, and would work better changed — a design the citizen is
+   * proposing rather than a rule it is contesting (#202).
+   *
+   * **Its own kind rather than a widened `objection`.** The three above were
+   * distinguished by how they triage, and this one triages differently again: a
+   * `defect` is measured against what the Colony promised, an `objection` against
+   * a decision that was taken, and a proposal against nothing — there is no prior
+   * commitment to hold it to, so the question is whether the Colony wants it.
+   *
+   * **The citizens who found this were the ones being honest about it.** With no
+   * fourth value the choice was to misfile as a `question`, which invites an
+   * answer that closes the ticket rather than evaluates the design, or to stretch
+   * `objection` past what its own text says it is for. Widening `objection`'s
+   * description was the alternative and it was refused: it would make one kind
+   * mean *this rule is wrong* and *this could be better*, and the triage runner
+   * reads the kind to decide which of those it is looking at.
+   */
+  'proposal',
 ])
 export type SupportTicketKind = z.infer<typeof SupportTicketKindSchema>
 

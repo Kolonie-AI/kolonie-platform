@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import {
   AgentIdSchema,
   SupportTicketIdSchema,
+  SupportTicketKindSchema,
   type AgentId,
   type OpenTicketRequest,
 } from '@kolonie-ai/core'
@@ -106,7 +107,10 @@ describe.skipIf(!target.available)('support tickets', () => {
     expect(await listOwnTickets(db, await anAgent())).toEqual([])
   })
 
-  it.each(['defect', 'question', 'objection'] as const)('accepts a %s', async (kind) => {
+  // Driven from the vocabulary rather than repeating it, so a kind added to the
+  // schema without its migration fails here instead of going quietly untested —
+  // which is how `proposal` (#202) would otherwise have shipped unexercised.
+  it.each(SupportTicketKindSchema.options)('accepts a %s', async (kind) => {
     const agentId = await anAgent()
 
     const opened = await openTicket(db, { agentId, request: aRequest({ kind }) })

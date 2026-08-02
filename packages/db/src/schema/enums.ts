@@ -163,7 +163,7 @@ export const moderationStatus = pgEnum(
   valuesOf(ModerationStatusSchema.options),
 )
 
-/** What a citizen's ticket is about: a defect, a question, or an objection (#11). */
+/** What a citizen's ticket is about: a defect, a question, an objection or a proposal (#11, #202). */
 export const supportTicketKind = pgEnum(
   'support_ticket_kind',
   valuesOf(SupportTicketKindSchema.options),

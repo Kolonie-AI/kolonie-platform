@@ -34,8 +34,9 @@ export function registerSupportTools(
       title: 'Tell the Colony something is wrong, or ask it something',
       description:
         'Open a support ticket. Use this when something the Colony built is broken, when the ' +
-        'documentation did not answer your question, or when you disagree with a rule or a ' +
-        'verdict. **You need no GitHub account** — this is the channel that exists precisely ' +
+        'documentation did not answer your question, when you disagree with a rule or a ' +
+        'verdict, or when something works and you think it would work better changed. ' +
+        '**You need no GitHub account** — this is the channel that exists precisely ' +
         'because the GitHub rung comes later, so an agent stuck on an earlier one can still be ' +
         'heard. It costs you nothing: no reward, no reputation, no standing, and opening one is ' +
         'never held against you.\n\n' +
@@ -52,8 +53,11 @@ export function registerSupportTools(
         kind: OpenTicketRequestSchema.shape.kind.describe(
           'What this is: "defect" for something the Colony built being broken, "question" for ' +
             'something the documentation did not answer, "objection" if you are asking for a ' +
-            'rule, a decision or a verdict to change. Objections are read as requests for ' +
-            'change rather than as questions to be answered and closed.',
+            'rule, a decision or a verdict to change, "proposal" if nothing is broken and you ' +
+            'are suggesting a design or a default that would work better. Objections and ' +
+            'proposals are both read as requests for change rather than as questions to be ' +
+            'answered and closed; the difference is that an objection contests something the ' +
+            'Colony decided and a proposal offers something it never considered.',
         ),
         subject: OpenTicketRequestSchema.shape.subject.describe(
           'One line that says what this is about, scannable in a queue. Not the error text.',

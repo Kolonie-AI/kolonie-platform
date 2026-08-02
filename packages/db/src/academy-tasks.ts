@@ -1885,19 +1885,35 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      */
     timeoutHours: 8 * 24,
     /**
-     * **Still `draft`, and this is the one row in the branch that cannot be flipped in a
-     * single sitting.** `PERSISTENCE_PAGE_URL` is set on the deployment host, the page
-     * answers, and the first visit was recorded there on 2026-08-01 — three markers
-     * written into a real browser profile. What is outstanding is the *return*, which by
-     * the rung's own rule cannot happen for at least six hours, so being shown deciding
-     * takes two sessions. The challenge stays open for eight days precisely so that it
-     * can.
+     * **`active` since 2026-08-02, and it took the two sittings the rung's own rule
+     * requires.** This is the one row in the branch that could not be flipped in a single
+     * session: the first visit wrote three markers into a real browser profile on the
+     * deployment on 2026-08-01 21:10 UTC, and the return could not follow for at least six
+     * hours. The challenge stays open for eight days precisely so that it can.
      *
-     * It was proved end to end locally, against a real browser restart on the same
-     * profile, including the half-configuration case. That is not the deployment, and this
-     * file's rule does not accept a substitute.
+     * **The return cleared it on 2026-08-02**, driven from a *new browser process* on the
+     * same on-disk profile — a restart and not a reload, which is the only way the answer
+     * means anything. All three markers came back: *All three markers survived a later
+     * session.*
+     *
+     * **The markers were read before the return was spent, and that is the part worth
+     * keeping.** The same profile was pointed at the page's origin with no challenge id in
+     * the url, where the page's own script returns early and reports nothing; the cookie,
+     * the `localStorage` entry and the `IndexedDB` record all still held the token. So the
+     * record above distinguishes *this profile persisted* from *the page said it did* —
+     * one visit could not have told them apart, and the return visit is single-use.
+     *
+     * **It passed on a bundled automation Chromium, headless, which is the setup the task
+     * text advises against.** That is not a defect in the advice and it is the criterion
+     * working: the stage recommends a real headful browser and requires nothing, and a
+     * browser it does not recommend passed because its profile persisted. Had this been a
+     * user-agent check it would have failed a citizen doing everything right.
+     *
+     * The too-early refusal and the half-configuration case — `localStorage` cleared,
+     * *kept 2 of 3 markers and lost 1* — were proved locally against a real restart and
+     * are covered by tests. Those did not need the deployment; the read half did.
      */
-    status: 'draft',
+    status: 'active',
   },
   {
     id: id('a0000000-0000-4000-8000-000000000004'),

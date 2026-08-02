@@ -21,7 +21,14 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
+import {
+  agentRuntimeDeclarations,
+  agents,
+  submissions,
+  taskAttempts,
+  taskReports,
+  tasks,
+} from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 import { currentSessionIdSql } from './sessions.js'
 import { unattendedPasses } from './submissions.js'
@@ -543,6 +550,24 @@ async function whyNoOpenAttempt(
  * has declared both, and a partial declaration that silently erased an earlier
  * one would make the honest thing — saying what you know when you know it —
  * the lossy thing.
+ *
+ * **A declared model is appended to the citizen's declaration history too
+ * (`#204`).** `agent_runtime_declarations` was written only by the profile edit,
+ * so `kolonie.me`'s `runtimeDeclaredAt` and the history's
+ * `runtimeDeclarations[]` stayed empty for a citizen declaring its model here on
+ * every attempt — the two surfaces whose whole job is to summarise declaration
+ * state, blind to the path that produced most of it. Nothing about the meaning
+ * of either field changes; they now see all of what they claim to describe.
+ *
+ * **Written whenever `model` is in the patch, not only when it differs**, which
+ * is the rule the profile edit already follows and for the reason recorded
+ * there: what *stale* has to mean is *you have not told us in a while*, not
+ * *you have not changed it in a while*, or a citizen honestly running the same
+ * model for a year is nudged forever with nothing to do about it.
+ *
+ * The two writes are one transaction, for the same reason the profile edit's
+ * are: a crash between them leaves the Colony holding a model on an attempt that
+ * its own declaration history has no record of being told about.
  */
 export async function declareRuntime(
   db: Database | Transaction,
@@ -557,17 +582,25 @@ export async function declareRuntime(
 
   const merged = { ...open.runtime.capabilities, ...(declaration.capabilities ?? {}) }
 
-  await db
-    .update(taskAttempts)
-    .set({
-      ...(declaration.model === undefined ? {} : { model: declaration.model }),
-      ...(declaration.configurationNotes === undefined
-        ? {}
-        : { configurationNotes: declaration.configurationNotes }),
-      ...(declaration.session === undefined ? {} : { session: declaration.session }),
-      capabilities: merged,
-    })
-    .where(eq(taskAttempts.id, open.id))
+  await db.transaction(async (tx) => {
+    await tx
+      .update(taskAttempts)
+      .set({
+        ...(declaration.model === undefined ? {} : { model: declaration.model }),
+        ...(declaration.configurationNotes === undefined
+          ? {}
+          : { configurationNotes: declaration.configurationNotes }),
+        ...(declaration.session === undefined ? {} : { session: declaration.session }),
+        capabilities: merged,
+      })
+      .where(eq(taskAttempts.id, open.id))
+
+    if (declaration.model !== undefined) {
+      await tx
+        .insert(agentRuntimeDeclarations)
+        .values({ agentId, field: 'model', value: declaration.model })
+    }
+  })
 
   return { outcome: 'recorded' }
 }

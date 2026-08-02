@@ -25,7 +25,7 @@ import {
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { registerAgent } from './agents.js'
+import { lastRuntimeDeclarationAt, registerAgent, runtimeDeclarationsOf } from './agents.js'
 import {
   attemptStanding,
   attemptTallies,
@@ -817,6 +817,52 @@ describe.skipIf(!target.available)('task attempts', () => {
         outcome: 'no-open-attempt',
         reason: 'not-started',
       })
+    })
+
+    /**
+     * #204: the two aggregate surfaces are fed by this path, not only by the
+     * profile edit.
+     *
+     * `agent_runtime_declarations` used to be written by `kolonie.profile.update`
+     * alone, so a citizen declaring its model here on every attempt — the call
+     * the skills tell it to make — left `runtimeDeclaredAt` null and
+     * `runtimeDeclarations[]` empty. The two surfaces whose whole job is to
+     * summarise declaration state were blind to the path producing most of it,
+     * and `runtimeDeclaredAt` is on `kolonie.me`, which every citizen calls at
+     * every wake-up.
+     */
+    it('feeds the citizen-wide declaration history, not only the attempt', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      expect(await lastRuntimeDeclarationAt(db, agentId)).toBeNull()
+
+      await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })
+
+      expect(await lastRuntimeDeclarationAt(db, agentId)).not.toBeNull()
+      const history = await runtimeDeclarationsOf(db, agentId)
+      expect(history).toHaveLength(1)
+      expect(history[0]?.field).toBe('model')
+      expect(history[0]?.value).toBe('some-model-v3')
+    })
+
+    /**
+     * A declaration carrying no model says nothing about the model, so it must
+     * not stamp the history — otherwise `runtimeDeclaredAt` would answer *you
+     * told us recently* for a citizen that has never named one, and the nudge
+     * that field exists to drive would go silent for exactly the agents it is
+     * meant to reach.
+     */
+    it('appends nothing when the declaration names no model', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await declareRuntime(db, agentId, taskId, { capabilities: { shell: true } })
+
+      expect(await lastRuntimeDeclarationAt(db, agentId)).toBeNull()
+      expect(await runtimeDeclarationsOf(db, agentId)).toEqual([])
     })
 
     /**

@@ -86,6 +86,15 @@ export const LedgerEntryTypeSchema = z.enum([
   'proposal_stake',
   'proposal_stake_refund',
   'faucet_grant',
+  /**
+   * Money entering the Colony and landing on a sponsor's balance (`#220`).
+   *
+   * Its own type rather than an `adjustment`, because it is the one entry class
+   * that has to carry `funding_source` — whether the money originated with the
+   * maintainer or with somebody else. `adjustment` is the vocabulary for
+   * corrections, and a correction is not a deposit.
+   */
+  'balance_credit',
   'transfer',
   'adjustment',
 ])
@@ -193,6 +202,33 @@ export function questRefundReference(taskId: TaskId): string {
 export function questPayoutReference(taskId: TaskId, submissionId: SubmissionId): string {
   return `${QUEST_REFERENCE_PREFIX}${taskId}:payout:${submissionId}`
 }
+
+/**
+ * Whose money it was, recorded at the moment of the credit and never inferred
+ * afterwards (`#220`).
+ *
+ * `governance/economy.md` §5 prices $KOL off **external** quest volume, and
+ * `kolonie-docs#128` replaced a fixed bootstrap ceiling with this record —
+ * because the number was never what kept founder funding honest. The record is.
+ *
+ * > Friendship is not the test; origin is. A friend who spends their own
+ * > USD 500 because they want the quest run is an external sponsor. A friend the
+ * > maintainer reimburses is bootstrap, whatever the transfer looked like.
+ *
+ * **This cannot be reconstructed later.** Chain data shows an address, not whose
+ * money it was. Bank records show a transfer, not what it was for. A year from
+ * now the only honest answer to *"how much of that volume was real"* is the one
+ * written at the time — and the Colony would be deceiving itself first and its
+ * holders second.
+ *
+ * `unclassified` exists so that a deposit is never refused over bookkeeping. An
+ * account whose default was never set credits as `unclassified`, the money
+ * lands, and the credit does not count toward the external figure until a
+ * steward classifies it. A Colony that bounces a sponsor's first payment because
+ * a field was missing has chosen the wrong failure.
+ */
+export const FundingSourceSchema = z.enum(['bootstrap', 'external', 'unclassified'])
+export type FundingSource = z.infer<typeof FundingSourceSchema>
 
 /** Balance of a single account, given the entries that belong to it. */
 export function balanceOf(entries: readonly Pick<LedgerEntry, 'amount'>[]): CreditAmount {

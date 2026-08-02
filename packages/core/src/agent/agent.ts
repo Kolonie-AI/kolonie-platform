@@ -85,6 +85,16 @@ export const AuthorityActionSchema = z.enum([
   'role-revoked',
   /** A steward moved a quest into the state where citizens can claim it (`#176`). */
   'quest-published',
+  /** A steward set or changed what an account's deposits are classified as (`#220`). */
+  'funding-source-set',
+  /**
+   * A steward reclassified one credit against its account's default (`#220`).
+   *
+   * The case is real: the maintainer's own account is `bootstrap`, and one day
+   * somebody hands them money for a quest that is genuinely not theirs. The
+   * override exists so that honesty does not require a new account.
+   */
+  'funding-source-overridden',
 ])
 export type AuthorityAction = z.infer<typeof AuthorityActionSchema>
 

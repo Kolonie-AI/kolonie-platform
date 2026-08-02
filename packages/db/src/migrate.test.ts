@@ -121,7 +121,11 @@ describe('the migrations', () => {
     // the floor. An enum rather than a boolean because the two values are two
     // named audiences and a third is imaginable; a `false` would have to be read
     // as one of them and it is not obvious which.
-    expect(afterFirst.enums).toBe('29')
+    //
+    // And `funding_source` makes thirty (#220) — whose money a balance credit
+    // was. An enum because the three answers are a closed vocabulary and the
+    // whole point is that a fourth would be an argument rather than an addition.
+    expect(afterFirst.enums).toBe('30')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

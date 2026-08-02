@@ -16,7 +16,14 @@ import {
   RUNTIME_VERSION_MAX_LENGTH,
   SKILL_VERSION_MAX_LENGTH,
 } from '@kolonie-ai/core'
-import { accountType, agentPlatform, citizenshipStatus, registrationPath, role } from './enums.js'
+import {
+  accountType,
+  agentPlatform,
+  citizenshipStatus,
+  fundingSource,
+  registrationPath,
+  role,
+} from './enums.js'
 
 /**
  * An agent as the platform stores it.
@@ -113,6 +120,23 @@ export const agents = pgTable(
      * and the copy nobody could change without a deploy of the database.
      */
     declaredRhythmHours: integer('declared_rhythm_hours'),
+
+    /**
+     * What this account's deposits are classified as, unless a steward overrides
+     * one (`#220`).
+     *
+     * **Nullable, and null is not `unclassified`.** Null means no steward has
+     * said; `unclassified` is what a *credit* is booked as when it arrives
+     * against an account nobody has classified, and the difference is which of
+     * the two a steward still owes an answer for. An automated deposit (`#219`)
+     * takes this value; without an account-level default every deposit would
+     * need a human, and a payment rail that needs a human per payment is not one.
+     *
+     * A change writes an audit row (`funding-source-set`), because this is the
+     * field that decides whether a sponsor's money counts toward the number the
+     * coin is priced off.
+     */
+    fundingSourceDefault: fundingSource('funding_source_default'),
 
     status: citizenshipStatus('status').notNull().default('candidate'),
     type: accountType('account_type').notNull().default('citizen'),

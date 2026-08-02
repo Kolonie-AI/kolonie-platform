@@ -10,7 +10,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
-import { ledgerAccountKind, ledgerEntryType, systemAccount } from './enums.js'
+import { fundingSource, ledgerAccountKind, ledgerEntryType, systemAccount } from './enums.js'
 
 /**
  * The credit ledger. Double-entry, append-only, and the only source of truth for
@@ -113,6 +113,26 @@ export const ledgerEntries = pgTable(
     /** Free-form link to what caused this, e.g. a submission or proposal id. */
     reference: varchar('reference', { length: 200 }),
 
+    /**
+     * Whose money this was, on the entries that are money entering the Colony
+     * (`#220`).
+     *
+     * **Not nullable where it applies and null everywhere else**, enforced by
+     * `ledger_entries_funding_source_iff_credit` below rather than by a default.
+     * A default is how a field like this ends up wrong at scale: whichever value
+     * is the default becomes the value nobody thought about.
+     *
+     * It annotates the **whole booking**, both rows, because a booking is the
+     * event and either row read alone should say where the money came from.
+     *
+     * **Nothing outside accounting reads it.** It is a fact about money, and a
+     * quest funded from bootstrap is worth exactly as much to the citizen who
+     * completes it. The moment it gates something a citizen can see, the
+     * incentive to misclassify has been created — and there is a test asserting
+     * no code path outside accounting touches it.
+     */
+    fundingSource: fundingSource('funding_source'),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -129,6 +149,25 @@ export const ledgerEntries = pgTable(
      * either a bug or an attempt to pad a transaction.
      */
     check('ledger_entries_amount_non_zero', sql`${table.amount} <> 0`),
+    /**
+     * Every balance credit records whose money it was, and nothing else does
+     * (`#220`).
+     *
+     * Both directions, because both failures are real. A `balance_credit`
+     * without a source is money whose origin nobody can reconstruct — chain data
+     * shows an address and bank records show a transfer, neither of which says
+     * whose money it was. A source on a task payout is an accounting fact
+     * attached to an event it is not about.
+     *
+     * `::text` for the same reason `tasks_rejection_reason_iff_rejected` uses it:
+     * `balance_credit` is added to `ledger_entry_type` by the same migration, and
+     * Postgres refuses to use a new enum value in the transaction that created
+     * it.
+     */
+    check(
+      'ledger_entries_funding_source_iff_credit',
+      sql`(${table.type}::text = 'balance_credit') = (${table.fundingSource} is not null)`,
+    ),
     /** The trigger reads every entry of a transaction; so does any audit. */
     index('ledger_entries_transaction_id_idx').on(table.transactionId),
     /** An agent's credit balance is `sum(amount)` over this index. */

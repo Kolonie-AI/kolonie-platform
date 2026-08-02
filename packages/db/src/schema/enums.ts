@@ -25,6 +25,7 @@ import {
   SystemAccountSchema,
   TaskAttemptOutcomeSchema,
   TaskKindSchema,
+  FundingSourceSchema,
   TaskAudienceSchema,
   TaskStatusSchema,
   VerificationStatusSchema,
@@ -118,6 +119,12 @@ export const taskStatus = pgEnum('task_status', valuesOf(TaskStatusSchema.option
  * of them, and which one is not obvious to anybody reading a row.
  */
 export const taskAudience = pgEnum('task_audience', valuesOf(TaskAudienceSchema.options))
+
+/**
+ * Whose money a balance credit was. `FundingSourceSchema` in core carries the
+ * argument for why it is recorded rather than reconstructed.
+ */
+export const fundingSource = pgEnum('funding_source', valuesOf(FundingSourceSchema.options))
 
 /**
  * Whether a task teaches or produces. `governance/quests.md` draws the boundary;

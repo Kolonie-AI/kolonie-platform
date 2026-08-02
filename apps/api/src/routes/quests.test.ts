@@ -87,6 +87,14 @@ afterEach(async () => {
 })
 
 const aDraft = (overrides: Record<string, unknown> = {}) => ({
+  questions: [
+    {
+      key: 'what-happened',
+      prompt: 'What happened when you registered?',
+      minLength: 20,
+      maxLength: 500,
+    },
+  ],
   title: 'A thousand registrations',
   description: 'We hand out mailbox addresses and want to know whether agents can take one.',
   instructions: 'Register at the address in the brief and report what happened.',

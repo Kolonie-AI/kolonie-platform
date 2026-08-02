@@ -266,6 +266,24 @@ function refusal(result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }
         code: 'not_found',
         message: `No task with that id is available to you. List what is, at ${API_BASE_PATH}/tasks.`,
       }
+    /**
+     * Stage 1 of a quest report (`#177`).
+     *
+     * **Every failing question is named, and the reason with it.** This is the
+     * most-read refusal in the quest programme — every submission passes through
+     * the check — and a `400` that said "invalid" would cost the citizen a
+     * wake-up and teach it nothing. The list goes in the message rather than
+     * only in a field, because the reader is a model and the message is what it
+     * acts on.
+     */
+    case 'answers-invalid':
+      return {
+        code: 'validation_failed',
+        message:
+          'This report does not answer what the quest asked, so nothing was submitted and no ' +
+          'attempt was used. ' +
+          result.problems.map((problem) => problem.message).join(' '),
+      }
     case 'task-retired':
       return {
         code: 'task_expired',

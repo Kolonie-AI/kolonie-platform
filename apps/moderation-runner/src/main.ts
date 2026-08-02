@@ -4,12 +4,15 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   detectProviderChange,
+  failReportOnRedLine,
+  pendingAnswerModerations,
   pendingQuestModerations,
   pendingReports,
   readTaskText,
   recordModeration,
   recordProviderChange,
   recordQuestModeration,
+  writeScrubbedAnswers,
   staleBriefings,
   writeBriefing,
 } from '@kolonie-ai/db'
@@ -23,6 +26,7 @@ import {
   type ModerationStore,
 } from './loop.js'
 import type { QuestModerationStore } from './quests.js'
+import type { AnswerModerationStore } from './answers.js'
 import type { TaskId } from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
@@ -149,8 +153,28 @@ const tripwire = {
   issues: githubIssues(process.env[TRIPWIRE_TOKEN_VAR], log),
 }
 
+/**
+ * The scrub that stands between a citizen's report and the sponsor (`#177`).
+ *
+ * Third pass in the same process, on the same poll, for the reason the second
+ * one is here: a handful of rows a day and one model call each, against a
+ * container, a health check and a deploy step.
+ */
+const answerStore: AnswerModerationStore = {
+  pending: (limit) => pendingAnswerModerations(db, limit),
+  write: (input) => writeScrubbedAnswers(db, input),
+  fail: (input) => failReportOnRedLine(db, input),
+}
+
 const runner = startRunner(
-  { store, model, log, tripwire, quests: { store: questStore, model, log } },
+  {
+    store,
+    model,
+    log,
+    tripwire,
+    quests: { store: questStore, model, log },
+    answers: { store: answerStore, model, log },
+  },
   { pollIntervalMs: POLL_INTERVAL_MS },
 )
 const briefingRunner = startBriefingRunner(

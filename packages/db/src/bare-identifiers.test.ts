@@ -98,6 +98,15 @@ describe('a subquery never interpolates columns of two tables', () => {
    * accident of scope, which is exactly the shape this check recommends: name
    * the outer column instead of letting it be resolved.
    *
+   * **`#177` adds a fourth to `quests.ts`**, the same shape one table over —
+   * *has the scrub reached this report yet*, in the `where` of the moderation
+   * queue. Rendered:
+   *
+   * ```
+   * not exists (select 1 from "quest_answers"
+   *              where "quest_answers"."submission_id" = "submissions"."id")
+   * ```
+   *
    * All counts were measured by rendering the fragment through
    * `PgDialect.sqlToQuery` and reading the SQL — the first four on 2026-08-02,
    * the `quests.ts` three on 2026-08-03.
@@ -107,7 +116,7 @@ describe('a subquery never interpolates columns of two tables', () => {
     'guidance.ts': 1,
     'submissions.ts': 1,
     'escrow.ts': 1,
-    'quests.ts': 3,
+    'quests.ts': 4,
   }
 
   /**

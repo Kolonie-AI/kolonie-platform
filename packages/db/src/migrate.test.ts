@@ -105,7 +105,12 @@ describe('the migrations', () => {
     // than a second subject on `moderations`, because that one's comment argues
     // at length for having exactly one — and a report and a quest are judged on
     // different stages, by different people, with different lifetimes.
-    expect(afterFirst.tables).toBe('39')
+    // And `quest_answers` makes **forty** (#177): one citizen's answer to one
+    // question, after the scrub. A row per answer rather than a document per
+    // report, because the sponsor's product is the aggregate — counts per
+    // option, a column per question, a thousand rows exported — and none of
+    // those is a reasonable thing to do to a blob.
+    expect(afterFirst.tables).toBe('40')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

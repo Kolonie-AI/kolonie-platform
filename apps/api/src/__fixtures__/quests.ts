@@ -74,6 +74,8 @@ export function fakeQuests(): FakeQuestDesk {
     prerequisiteTaskIds: [],
     timeoutHours: input.draft.timeoutHours,
     status: input.status,
+    questions: input.draft.questions,
+    proofVerifier: input.draft.proofVerifier,
     createdBy: input.authorId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

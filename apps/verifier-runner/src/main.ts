@@ -30,8 +30,10 @@ import {
   recheckableAccounts,
   openWebsiteTokens,
   verifiedSolanaAddress,
+  questDefinition,
+  scrubbedAnswers,
 } from '@kolonie-ai/db'
-import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
+import { AgentIdSchema, SubmissionIdSchema, TaskIdSchema, type AgentId } from '@kolonie-ai/core'
 import {
   blueskyAdapter,
   createVerifiers,
@@ -44,6 +46,8 @@ import {
   openRouterVision,
   openRouterSceneVision,
   openRouterBioJudge,
+  openRouterQuestJudge,
+  QUEST_JUDGE_MODEL_VAR,
   BIO_MODEL_VAR,
   OPENROUTER_API_KEY_VAR,
   VISION_MODEL_VAR,
@@ -214,6 +218,23 @@ const verifiers = createVerifiers({
    * whole graph and an outage of ours must not close it.
    */
   bioJudge: openRouterBioJudge(process.env[OPENROUTER_API_KEY_VAR], process.env[BIO_MODEL_VAR]),
+  /**
+   * The quest report's two halves (`#177`): the rows that say what a quest asks,
+   * and the model that reads the answers against them.
+   *
+   * Both or neither, which `createVerifiers` enforces — a quest verifier with no
+   * judge would claim every quest submission and answer `pending` to all of
+   * them, which looks exactly like a queue nobody is serving.
+   */
+  questReports: {
+    definition: async (taskId) => (await questDefinition(db, TaskIdSchema.parse(taskId))) ?? null,
+    scrubbed: async (submissionId) =>
+      (await scrubbedAnswers(db, SubmissionIdSchema.parse(submissionId))) ?? null,
+  },
+  questJudge: openRouterQuestJudge(
+    process.env[OPENROUTER_API_KEY_VAR],
+    process.env[QUEST_JUDGE_MODEL_VAR],
+  ),
   // The GitHub rung's Colony-side half: which nonces this agent may currently
   // publish. Credential-free like the three above — the *token* this rung needs
   // is `github` up top, which reads the gist. Splitting the two means a missing

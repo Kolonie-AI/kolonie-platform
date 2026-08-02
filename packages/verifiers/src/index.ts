@@ -1,4 +1,5 @@
-import type { AgentId, TaskType, Verifier } from '@kolonie-ai/core'
+import { TaskTypeSchema, type AgentId, type TaskType, type Verifier } from '@kolonie-ai/core'
+import { QuestReportVerifier, type QuestJudge, type QuestReports } from './quest-report.js'
 import { ProfileCompleteVerifier, type BioJudge } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
 import { GithubAccountVerifier, type GithubChallenges } from './github-account.js'
@@ -110,6 +111,20 @@ export {
   type ProfileCompleteDependencies,
 } from './profile-complete.js'
 export { bioPromptFor, BIO_MODEL_VAR, DEFAULT_BIO_MODEL, openRouterBioJudge } from './bio-judge.js'
+export {
+  DEFAULT_QUEST_JUDGE_MODEL,
+  QUEST_JUDGE_MODEL_VAR,
+  QuestReportVerifier,
+  openRouterQuestJudge,
+  questJudgePrompt,
+  type ProofStageLookup,
+  type QuestDefinition,
+  type QuestJudge,
+  type QuestJudgement,
+  type QuestReportDependencies,
+  type QuestReports,
+  type ScrubbedAnswer,
+} from './quest-report.js'
 export {
   contributionText,
   GithubContributionVerifier,
@@ -330,6 +345,10 @@ export type VerifierRegistry = ReadonlyMap<TaskType, Verifier>
 export interface VerifierDependencies {
   /** Reads issues and comments. See `github.ts` for why a missing token is not a failure. */
   readonly github?: GitHubReader
+  /** The quest's own rows: what it asks, and the scrubbed answers (`#177`). */
+  readonly questReports?: QuestReports
+  /** The model that reads a report against the sponsor's questions (`#177`). */
+  readonly questJudge?: QuestJudge
   /** Answers which citizen a GitHub account has already passed the GitHub rung for. */
   readonly authors?: ContributionAuthors
   /**
@@ -771,6 +790,32 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
    */
   if (deps.contacts !== undefined) {
     verifiers.push(new HeartbeatVerifier({ contacts: deps.contacts }))
+  }
+
+  /**
+   * The quest verifier, last and deliberately so (`#177`).
+   *
+   * **Built after the map's other members exist, because its proof stage is a
+   * lookup into them.** A quest may name one Academy verifier — `email-inbox`
+   * for the mailbox provider's quest, say — and it delegates to the same module
+   * the Academy runs rather than to a copy of it. The lookup is a function
+   * rather than the map itself so that the registry can be closed over before it
+   * is built, which is the whole reason this block sits here.
+   *
+   * A quest whose proof stage this process has not deployed leaves the
+   * submission `pending`, which is the same answer a missing verifier gets
+   * anywhere else: a verifier deployed late must never fail a submission that
+   * was correct.
+   */
+  if (deps.questReports !== undefined && deps.questJudge !== undefined) {
+    const registry = new Map(verifiers.map((verifier) => [verifier.taskType, verifier]))
+    verifiers.push(
+      new QuestReportVerifier({
+        reports: deps.questReports,
+        judge: deps.questJudge,
+        proofStage: (taskType) => registry.get(TaskTypeSchema.parse(taskType)),
+      }),
+    )
   }
 
   return new Map(verifiers.map((verifier) => [verifier.taskType, verifier]))

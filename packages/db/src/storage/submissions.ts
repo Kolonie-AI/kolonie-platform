@@ -8,6 +8,10 @@ import {
   type Submission,
   type SubmissionPayload,
   type TaskId,
+  QuestAnswersSchema,
+  StoredQuestQuestionsSchema,
+  checkQuestAnswers,
+  type QuestAnswerProblem,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, submissions, taskAttempts, tasks } from '../schema/index.js'
@@ -182,6 +186,16 @@ export type CreateSubmissionResult =
    * a citizen-only quest requiring nothing must still refuse a candidate.
    */
   | { readonly outcome: 'audience-refused'; readonly audience: 'citizens' }
+  /**
+   * The report does not answer what the quest asked (`#177`).
+   *
+   * **Not an attempt and not a slot**, which is why it is an outcome of this
+   * function rather than a verdict later: nothing is written, so there is
+   * nothing to undo. It carries one problem per failing question, because a
+   * `400` that says "invalid" costs the citizen a wake-up and teaches it
+   * nothing — and this is the most-read refusal in the quest programme.
+   */
+  | { readonly outcome: 'answers-invalid'; readonly problems: readonly QuestAnswerProblem[] }
 
 /** Statuses that mean this agent's attempt at this task is still undecided. */
 const OPEN_STATUSES: readonly string[] = ['pending', 'verifying']
@@ -233,6 +247,8 @@ export async function createSubmission(
         expiresAt: tasks.expiresAt,
         audience: tasks.audience,
         slots: tasks.slots,
+        kind: tasks.kind,
+        questions: tasks.questions,
       })
       .from(tasks)
       .where(eq(tasks.id, command.taskId))
@@ -258,6 +274,40 @@ export async function createSubmission(
      */
     if (task.expiresAt !== null && Date.parse(task.expiresAt) <= Date.now()) {
       return { outcome: 'task-expired', expiresAt: task.expiresAt }
+    }
+
+    /**
+     * Stage 1 of the quest report: every required question answered, within
+     * bounds, in the shape it asked for (`#177`).
+     *
+     * **Here, and before a single row is written.** A failure is a `400` and
+     * **is not an attempt**: it consumes neither the citizen's one attempt nor a
+     * slot, because a citizen that forgot a field has not answered the question
+     * badly — it has not answered it yet. Returning from inside the transaction
+     * before any insert is what makes that literally true rather than a promise
+     * some later refactor keeps.
+     *
+     * Checked before the audience and the skills for a different reason than
+     * those two are ordered: this one is about the *request* rather than about
+     * the citizen, so an agent with a malformed payload learns that first
+     * instead of being told it does not qualify for a quest it never validly
+     * asked for.
+     */
+    if (task.kind === 'quest') {
+      const answers = (command.payload as { readonly answers?: unknown }).answers
+      const parsed = QuestAnswersSchema.safeParse(answers ?? {})
+      const problems = parsed.success
+        ? checkQuestAnswers(StoredQuestQuestionsSchema.parse(task.questions), parsed.data)
+        : [
+            {
+              key: 'answers',
+              problem: 'missing' as const,
+              message:
+                'A quest report is submitted as `answers`: an object of question key to answer.',
+            },
+          ]
+
+      if (problems.length > 0) return { outcome: 'answers-invalid', problems }
     }
 
     /**

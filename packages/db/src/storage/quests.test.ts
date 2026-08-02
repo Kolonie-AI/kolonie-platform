@@ -5,10 +5,15 @@ import type { Database } from '../client.js'
 import { agents, authorityEvents, ledgerEntries, questModerations, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { escrowHeldFor } from './escrow.js'
+import { createSubmission } from './submissions.js'
 import { listTasks } from './tasks.js'
 import {
   createQuestDraft,
   listOwnQuests,
+  pendingAnswerModerations,
+  questDefinition,
+  scrubbedAnswers,
+  writeScrubbedAnswers,
   ownerlessQuestDrafts,
   pendingQuestModerations,
   publishQuest,
@@ -48,6 +53,13 @@ describe('the quest write path', () => {
 
   const now = (): string => new Date().toISOString()
 
+  const countIn = async (table: 'submissions' | 'task_attempts'): Promise<number> => {
+    const rows = await db.execute<{ count: string }>(
+      sql`select count(*)::text as count from ${sql.identifier(table)}`,
+    )
+    return Number(rows[0]!.count)
+  }
+
   const anAgent = async (name: string, roles: readonly ('steward' | 'builder')[] = []) => {
     const [row] = await db
       .insert(agents)
@@ -80,6 +92,16 @@ describe('the quest write path', () => {
   }
 
   const aDraft = (overrides: Partial<QuestDraft> = {}): QuestDraft => ({
+    questions: [
+      {
+        key: 'what-happened',
+        prompt: 'What happened when you registered?',
+        required: true,
+        minLength: 20,
+        maxLength: 500,
+      },
+    ],
+    proofVerifier: null,
     title: 'A thousand registrations',
     description: 'We hand out mailbox addresses and want to know whether agents can take one.',
     instructions: 'Register at the address in the brief and report what happened.',
@@ -591,6 +613,172 @@ describe('the quest write path', () => {
       expect((await readOwnQuest(db, sponsor, task.id))?.awaitingModeration).toBe(true)
       await moderate(task.id)
       expect((await readOwnQuest(db, sponsor, task.id))?.awaitingModeration).toBe(false)
+    })
+  })
+
+  /**
+   * The report a quest asks for, and the three stages that judge it (`#177`).
+   *
+   * What is asserted here is what the storage layer alone can be wrong about: a
+   * malformed report writing rows, the scrub being readable before it has run,
+   * and a proof stage granting nothing.
+   */
+  describe('the report', () => {
+    const withQuestions = () =>
+      aDraft({
+        questions: [
+          {
+            key: 'what-happened',
+            prompt: 'What happened when you registered?',
+            required: true,
+            minLength: 20,
+            maxLength: 500,
+          },
+          {
+            key: 'address',
+            prompt: 'Which address did you use?',
+            required: true,
+            minLength: 5,
+            maxLength: 200,
+            format: 'email' as const,
+          },
+        ],
+      })
+
+    /** A published quest a citizen can actually submit against. */
+    const aPublishedQuest = async (draft = withQuestions()) => {
+      const sponsor = await anAgent(`sponsor-${crypto.randomUUID().slice(0, 8)}`)
+      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['steward'])
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+      await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })
+      return task.id
+    }
+
+    it('refuses a malformed report without writing a submission or an attempt', async () => {
+      const taskId = await aPublishedQuest()
+      const citizen = await anAgent('citizen-malformed')
+
+      const result = await createSubmission(db, {
+        taskId,
+        agentId: citizen,
+        payload: { answers: { 'what-happened': 'too short', address: 'not-an-address' } },
+      })
+
+      expect(result.outcome).toBe('answers-invalid')
+      if (result.outcome !== 'answers-invalid') return
+      expect(result.problems.map((problem) => problem.key)).toEqual(['what-happened', 'address'])
+
+      // Not an attempt, not a slot: nothing was written at all.
+      expect(await countIn('submissions')).toBe(0)
+      expect(await countIn('task_attempts')).toBe(0)
+    })
+
+    it('accepts one that answers the questions', async () => {
+      const taskId = await aPublishedQuest()
+      const citizen = await anAgent('citizen-accepted')
+
+      const result = await createSubmission(db, {
+        taskId,
+        agentId: citizen,
+        payload: {
+          answers: {
+            'what-happened': 'The signup took two tries; the first form lost my input.',
+            address: 'agent@example.org',
+          },
+        },
+      })
+
+      expect(result.outcome).toBe('accepted')
+    })
+
+    it('answers undefined for a report the scrub has not reached, and the rows once it has', async () => {
+      const taskId = await aPublishedQuest()
+      const citizen = await anAgent('citizen-scrub')
+      const created = await createSubmission(db, {
+        taskId,
+        agentId: citizen,
+        payload: {
+          answers: {
+            'what-happened': 'The signup took two tries; the first form lost my input.',
+            address: 'agent@example.org',
+          },
+        },
+      })
+      if (created.outcome !== 'accepted') throw new Error('fixture failed to submit')
+      const submissionId = created.submission.id
+
+      expect(await scrubbedAnswers(db, submissionId)).toBeUndefined()
+      expect((await pendingAnswerModerations(db, 10)).map((report) => report.submissionId)).toEqual(
+        [submissionId],
+      )
+
+      await writeScrubbedAnswers(db, {
+        submissionId,
+        taskId,
+        answers: [
+          { questionKey: 'address', text: '[removed]' },
+          { questionKey: 'what-happened', text: 'The signup took two tries.' },
+        ],
+      })
+
+      expect(await scrubbedAnswers(db, submissionId)).toEqual([
+        { questionKey: 'address', text: '[removed]' },
+        { questionKey: 'what-happened', text: 'The signup took two tries.' },
+      ])
+      // Written once: a second pass over the same submission writes nothing.
+      expect(
+        (
+          await writeScrubbedAnswers(db, {
+            submissionId,
+            taskId,
+            answers: [{ questionKey: 'address', text: 'something else' }],
+          })
+        ).written,
+      ).toBe(0)
+      expect(await pendingAnswerModerations(db, 10)).toEqual([])
+    })
+
+    it('reads the quest the way the verifier needs it', async () => {
+      const taskId = await aPublishedQuest(
+        aDraft({
+          proofVerifier: 'email-inbox',
+          questions: [
+            {
+              key: 'what-happened',
+              prompt: 'What happened?',
+              criteria: 'Say something specific about the signup.',
+              required: true,
+              minLength: 20,
+              maxLength: 500,
+            },
+          ],
+        }),
+      )
+
+      const definition = await questDefinition(db, taskId)
+
+      expect(definition?.proofVerifier).toBe('email-inbox')
+      expect(definition?.questions[0]?.criteria).toBe('Say something specific about the signup.')
+    })
+
+    it('is not a quest definition when the task is an Academy rung', async () => {
+      const [row] = await db
+        .insert(tasks)
+        .values({
+          type: 'email-inbox',
+          title: 'Prove a mailbox',
+          description: 'A description.',
+          instructions: 'Receive a mail.',
+          rewardCredits: 0,
+          rewardReputation: 5,
+          timeoutHours: 24,
+          status: 'active',
+        })
+        .returning({ id: tasks.id })
+
+      expect(await questDefinition(db, row!.id as TaskId)).toBeUndefined()
     })
   })
 

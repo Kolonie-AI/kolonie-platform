@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   smallint,
   text,
@@ -214,6 +215,35 @@ export const tasks = pgTable(
     audience: taskAudience('audience').notNull().default('candidates'),
 
     /**
+     * The report a quest asks for: an ordered list of questions (`#177`).
+     *
+     * `jsonb` and not a table, which is the one place this schema prefers a
+     * document. Three reasons and the third is the decisive one: the list is
+     * bounded at twenty, it is always read with the task and never on its own,
+     * and **it must not change under a report that has already answered it** —
+     * a `quest_questions` table with its own write path is a set somebody edits
+     * while a thousand citizens are answering it. Frozen with the rest of the
+     * text once the quest is published (`FROZEN_WHEN_ACTIVE`).
+     *
+     * Empty for every Academy task, which is the honest answer rather than a
+     * placeholder: a rung is proven by a verifier reading the world, and there
+     * is no report to write.
+     */
+    questions: jsonb('questions')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+
+    /**
+     * The one existing verifier this quest's report must clear first, or `null`
+     * (`#177`).
+     *
+     * A slug from the catalogue in core, checked at creation and never a name
+     * the sponsor typed. It decides the quest's tier and therefore its ceiling,
+     * and the tier is derived from this column rather than stored beside it.
+     */
+    proofVerifier: varchar('proof_verifier', { length: 64 }),
+
+    /**
      * Why a steward refused this task, for its author to read.
      *
      * A refused task keeps its refusal rather than being edited back into the
@@ -343,6 +373,21 @@ export const tasks = pgTable(
       // text comparison, which is what lets the two live in one migration
       // instead of two.
       sql`(${table.status}::text = 'rejected') = (${table.rejectionReason} is not null)`,
+    ),
+    /**
+     * A questionnaire belongs to a quest, and an Academy rung has none.
+     *
+     * Stated as an implication for the reason `tasks_academy_pays_no_credits`
+     * is: what is enforced is the boundary rather than the value, since a quest
+     * genuinely has questions and a rung genuinely does not.
+     */
+    check(
+      'tasks_questions_belong_to_quests',
+      sql`${table.kind} = 'quest' or ${table.questions} = '[]'::jsonb`,
+    ),
+    check(
+      'tasks_proof_verifier_belongs_to_quests',
+      sql`${table.kind} = 'quest' or ${table.proofVerifier} is null`,
     ),
     check('tasks_prerequisites_max', sql`cardinality(${table.prerequisiteTaskIds}) <= 16`),
     check(

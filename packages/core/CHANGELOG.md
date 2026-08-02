@@ -7,6 +7,40 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ## Unreleased
 
+### Added
+
+- **A quest asks questions, and the submission answers them** (`kolonie-platform#177`).
+  `QuestQuestionSchema`, `QuestQuestionsSchema` and `checkQuestAnswers` are the
+  new report shape: an ordered list of keyed questions, each with a prompt,
+  optional sponsor-written criteria, length bounds and an optional format from a
+  closed list — `email`, `url`, `uuid`, `integer`.
+
+  **The submission payload for a quest is `{ answers: { [key]: string } }`**,
+  and it is checked synchronously in the submit request. A failure is a `400`
+  naming every failing question and why; it creates no submission, consumes no
+  attempt and holds no slot.
+
+  **Several fields rather than one blob**, for the reason `guidance.ts` measured
+  against our own agents — *"Three fields, each with a question attached, get
+  three answers"* — plus one this side of it: a blob cannot be aggregated, and
+  aggregation is most of what the sponsor is buying.
+
+- **`Task` carries `questions` and `proofVerifier`.** Both are on the
+  citizen-facing shape, criteria included: a standard the citizen cannot see is a
+  trap, and a report judged against criteria it was never shown fails for a
+  reason that was the Colony's to disclose. Empty and `null` for every Academy
+  task.
+
+- **`questTier`, `QUEST_TIER_CAPS` and `questRewardRejection`** put figures on
+  `governance/quests.md`'s three tiers. The tier is **derived** — a named proof
+  verifier is `hard`, stated criteria are `colony-judged`, neither is `soft` —
+  because the ceiling belongs to the tier rather than to the quest, and a stored
+  tier is the one field a sponsor would have an interest in getting wrong.
+
+- **`QUEST_PROOF_VERIFIERS`**, the catalogue a quest may name one entry from. Not
+  a slug the sponsor types: a name that does not resolve is a quest nobody can
+  pass, and nothing looks wrong.
+
 ### Changed
 
 - **The image rung certifies drawing, so its skill is `raster`**

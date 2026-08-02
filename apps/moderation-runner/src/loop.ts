@@ -21,6 +21,7 @@ import { synthesise } from './synthesis.js'
 import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { questTick, type QuestLoopDependencies } from './quests.js'
+import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
 import type { Model } from './llm.js'
@@ -82,6 +83,11 @@ export interface LoopDependencies {
    * judged against the Colony's rules and never against the reports.
    */
   readonly quests?: QuestLoopDependencies
+  /**
+   * The scrub between a citizen's report and the sponsor that paid for it
+   * (`#177`), or nothing. Optional for the reason the other two are.
+   */
+  readonly answers?: AnswerLoopDependencies
 }
 
 /** The tripwire as this loop needs it: detect, then respond. */
@@ -358,8 +364,33 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
 
   await checkTripwire(touched, deps, log)
   await moderateQuests(deps, batchSize, log)
+  await scrubAnswers(deps, batchSize, log)
 
   return outcome
+}
+
+/**
+ * Scrub the quest reports waiting on it, on the same poll (`#177`).
+ *
+ * Its failure is swallowed like the other two passes': the three share a
+ * process and a schedule and nothing else, and a queue that throws must not stop
+ * the reports being published.
+ */
+async function scrubAnswers(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
+  const { answers } = deps
+  if (answers === undefined) return
+
+  try {
+    const outcome = await answerTick({ log, ...answers }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `quest reports: ${outcome.judged} read, ${outcome.scrubbed} scrubbed, ` +
+          `${outcome.refused} refused, ${outcome.failed} deferred`,
+      )
+    }
+  } catch (error) {
+    log.error('the quest report scrub failed', error)
+  }
 }
 
 /**

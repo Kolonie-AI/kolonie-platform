@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { QUEST_MAX_QUESTIONS, QuestQuestionSchema } from './questions.js'
 import { AgentIdSchema, TaskIdSchema } from '../common/ids.js'
 import { SkillSchema } from '../common/skill.js'
 import { AccountKindSchema } from '../account/account.js'
@@ -498,6 +499,19 @@ export const TaskSchema = z.object({
    * having been taken away — and skills are never taken away.
    */
   dueForRenewal: z.boolean().optional(),
+  /**
+   * The report a quest asks for, and empty for every Academy task (`#177`).
+   *
+   * **Carried on the citizen-facing shape, criteria and all.** A standard the
+   * citizen cannot see is a trap: a report judged against criteria it was never
+   * shown fails for a reason that was the Colony's to disclose.
+   */
+  questions: z.array(QuestQuestionSchema).max(QUEST_MAX_QUESTIONS).default([]),
+  /**
+   * The verifier this quest's report must clear before it is judged, or `null`
+   * (`#177`). Shown, because it is what a citizen has to do first.
+   */
+  proofVerifier: z.string().nullable().default(null),
   /**
    * Who authored the task. `null` means the Colony itself; an agent id means a
    * citizen holding `task-author` created it for other agents and funded the

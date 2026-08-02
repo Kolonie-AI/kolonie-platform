@@ -582,6 +582,13 @@
       "when": 1785704241328,
       "tag": "0082_a_quest_is_written_from_outside",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1785707813796,
+      "tag": "0083_the_quest_report_verifier",
+      "breakpoints": true
     }
   ]
 }

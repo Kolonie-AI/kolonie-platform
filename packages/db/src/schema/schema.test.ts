@@ -233,6 +233,9 @@ describe('schema', () => {
         // and the only one whose evidence is a value the agent spent CPU to
         // find rather than one it was given.
         'pow_challenges',
+        // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed
+        // once on the way in rather than on every read out.
+        'quest_answers',
         // `quest_moderations` (#176): the same shape one subject over — the
         // verdict on a sponsor's brief, which a steward must not have to read
         // unjudged.

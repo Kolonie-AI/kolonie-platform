@@ -1,6 +1,13 @@
 import { z } from 'zod'
 import { SkillSchema, TimestampSchema } from '../common/index.js'
-import { MAX_TASK_SKILLS, TaskAudienceSchema, TaskRewardSchema, type TaskStatus } from './task.js'
+import { QuestQuestionsSchema, type QuestQuestion } from './questions.js'
+import {
+  MAX_TASK_SKILLS,
+  TaskAudienceSchema,
+  TaskRewardSchema,
+  type TaskReward,
+  type TaskStatus,
+} from './task.js'
 
 /**
  * A quest written by somebody who is not the Colony (`#176`).
@@ -92,6 +99,113 @@ export const QUEST_REFUSAL_MAX_LENGTH = 1000
  *   write path believes. A field here would be a promise the database breaks.
  */
 /**
+ * How well a quest's answers can be checked, which is what decides its ceiling.
+ *
+ * `governance/quests.md` names the three and prices them, and states the rule
+ * this exists to make enforceable: **the ceiling belongs to the tier, not to the
+ * individual quest.** A sponsor cannot raise the payout on a soft quest by
+ * offering more.
+ */
+export const QuestTierSchema = z.enum(['hard', 'colony-judged', 'soft'])
+export type QuestTier = z.infer<typeof QuestTierSchema>
+
+/**
+ * The tier, derived and never settable.
+ *
+ * A stored tier is a second record of a fact the quest already carries — the
+ * same duplication D-002 refuses — and it is the one a sponsor would have an
+ * interest in getting wrong.
+ */
+export function questTier(quest: {
+  readonly proofVerifier?: string | null | undefined
+  readonly questions: readonly Pick<QuestQuestion, 'criteria'>[]
+}): QuestTier {
+  if (quest.proofVerifier !== null && quest.proofVerifier !== undefined) return 'hard'
+  if (quest.questions.some((question) => question.criteria !== undefined)) return 'colony-judged'
+  return 'soft'
+}
+
+/**
+ * What one report may pay, per tier, in credits — which are cents (`#218`).
+ *
+ * **Numbers, because a ceiling that is a sentence is not a ceiling.**
+ * `governance/quests.md` prices the tiers in words: full, reduced, capped low.
+ * These are the words as figures, and they are deliberately conservative — the
+ * pilot pays one cent, so every one of them is far above what anything pays
+ * today, and raising one later is a decision somebody takes rather than a limit
+ * nobody noticed.
+ *
+ * `hard` is capped too. *Full* means the tier imposes no ceiling of its own, and
+ * the escrow already bounds what a sponsor can commit — but an unbounded
+ * per-report figure is a typo away from a quest that empties a balance on its
+ * first accepted report.
+ */
+export const QUEST_TIER_CAPS: Readonly<Record<QuestTier, number>> = {
+  /** Ten dollars a report. A third party said yes; the Colony is not the evidence. */
+  hard: 1000,
+  /** One dollar. A model read it against the sponsor's own stated criteria. */
+  'colony-judged': 100,
+  /** Five cents — *"must never pay more than the reputation it risks."* */
+  soft: 5,
+}
+
+/**
+ * Why this quest may not pay what it says, or `undefined` if it may.
+ *
+ * A sentence rather than a boolean, and it names the tier: a sponsor told only
+ * that its price is too high will lower the price, where the useful answer is
+ * usually to add criteria or a proof stage and keep it.
+ */
+export function questRewardRejection(quest: {
+  readonly proofVerifier?: string | null | undefined
+  readonly questions: readonly Pick<QuestQuestion, 'criteria'>[]
+  readonly reward: Pick<TaskReward, 'credits'>
+}): string | undefined {
+  const tier = questTier(quest)
+  const cap = QUEST_TIER_CAPS[tier]
+  if (quest.reward.credits <= cap) return undefined
+
+  return (
+    `a ${tier} quest may pay at most ${cap} credit(s) per report and this one pays ` +
+    `${quest.reward.credits}. The ceiling belongs to the tier rather than to the quest ` +
+    '(governance/quests.md): name a proof verifier, or state what a good answer has to do.'
+  )
+}
+
+/**
+ * The verifiers a quest may name as its proof stage.
+ *
+ * **A list the Colony maintains, and never a slug the sponsor types.** A name
+ * that does not resolve produces a quest nobody can pass, and nothing looks
+ * wrong — the same failure the skill list avoids. Every entry answers *does this
+ * citizen hold this thing at a third party*, which is what makes a quest `hard`:
+ * somebody outside the Colony said yes.
+ *
+ * **The sponsor chooses from it; it never supplies a parameter, a URL or a
+ * callback.** A verifier a sponsor could aim would be the Colony running an
+ * outsider's check against its own citizens — and the decisive argument is not
+ * that one, it is the incentive one in `governance/quests.md`: a sponsor that
+ * reads before accepting already holds the deliverable, so an endpoint it
+ * controls deciding pass or fail is theft with an API in front of it. `#177`
+ * reviewed this against a concrete case on 2026-08-02 and kept the ban.
+ *
+ * Growing the list costs a deploy. That is the price of the ban, it is paid once
+ * per integration rather than once per quest, and `email-inbox` is the proof
+ * that the path works — it entered the catalogue the same way.
+ */
+export const QUEST_PROOF_VERIFIERS = [
+  'email-inbox',
+  'email-send',
+  'github-account',
+  'domain-verify',
+  'social-account',
+  'website-verify',
+  'solana-wallet',
+] as const
+export const QuestProofVerifierSchema = z.enum(QUEST_PROOF_VERIFIERS)
+export type QuestProofVerifier = z.infer<typeof QuestProofVerifierSchema>
+
+/**
  * Every field of a quest, without a default on any of them.
  *
  * The two schemas below are both built from this, and the split is the whole
@@ -130,6 +244,17 @@ const QUEST_FIELDS = {
   minReputation: z.int().min(0),
   timeoutHours: z.int().min(1).max(720),
   assistanceAllowed: z.boolean(),
+  /** The report this quest asks for. See {@link QuestQuestionsSchema}. */
+  questions: QuestQuestionsSchema,
+  /**
+   * One verifier from the catalogue, or none.
+   *
+   * `null` rather than absent, so *this quest is deliberately soft* and *this
+   * field was forgotten* are the same statement — which they are: a quest with
+   * no proof stage is `soft` and capped, and it is visible to the sponsor at the
+   * moment it chooses.
+   */
+  proofVerifier: QuestProofVerifierSchema.nullable(),
 } as const
 
 /**
@@ -156,6 +281,7 @@ export const QuestDraftSchema = z.object({
   /** A day, which is the Academy's usual allowance and long enough for a report. */
   timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
   assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),
+  proofVerifier: QUEST_FIELDS.proofVerifier.default(null),
 })
 export type QuestDraft = z.infer<typeof QuestDraftSchema>
 

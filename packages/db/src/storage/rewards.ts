@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import {
   AgentIdSchema,
   isUnattended,
@@ -112,6 +112,7 @@ export async function bookTaskReward(
       rewardCredits: tasks.rewardCredits,
       rewardReputation: tasks.rewardReputation,
       taskKind: tasks.kind,
+      proofVerifier: tasks.proofVerifier,
       testRerun: submissions.testRerun,
     })
     .from(submissions)
@@ -292,10 +293,30 @@ export async function bookTaskReward(
    * rather than a special case: `grantSkills` returns immediately on an empty
    * list.
    */
+  /**
+   * **A quest's proof stage grants what it normally grants** (`#177`).
+   *
+   * A citizen-authored task may grant no skill — `tasks_only_colony_grants_skills`
+   * refuses the row — so a quest's own `grants_skills` is always empty, and it
+   * must be: a sponsor that could mint a skill would be minting one for a
+   * collaborator. But a quest that named `email-inbox` as its proof stage had
+   * the citizen clear `email-inbox`, by the same module the Academy runs, and
+   * *a pass is a pass*. A second rule about where the proof happened would be a
+   * distinction with nothing behind it.
+   *
+   * So the skills come from **the Colony's own task of that type** rather than
+   * from the quest, which keeps the mint where it was: the Colony wrote that
+   * row, the sponsor merely pointed at it.
+   */
+  const proofGrants =
+    row.taskKind === 'quest' && row.proofVerifier !== null
+      ? await colonyGrantsFor(tx, row.proofVerifier)
+      : []
+
   const { granted } = await grantSkills(tx, {
     agentId,
     submissionId: command.submissionId,
-    skills: row.taskGrants,
+    skills: [...row.taskGrants, ...proofGrants],
     grantedAt: command.bookedAt,
   })
 
@@ -377,4 +398,24 @@ export async function bookTaskReward(
     grantedRoles,
     promotedToCitizen: promoted,
   }
+}
+
+/**
+ * What the Colony's own task of this type grants, or nothing.
+ *
+ * `created_by is null` is the whole of the check and it is load-bearing: it
+ * reads *the Colony's* row and never a citizen's, so a sponsor cannot write a
+ * second `email-inbox` task of its own and have this hand out its grants. A type
+ * with no Colony task behind it grants nothing rather than failing, because a
+ * quest naming a verifier the Academy no longer teaches is still a valid proof
+ * of the same fact.
+ */
+async function colonyGrantsFor(tx: Transaction, taskType: string): Promise<readonly string[]> {
+  const [row] = await tx
+    .select({ grants: tasks.grantsSkills })
+    .from(tasks)
+    .where(and(eq(tasks.type, taskType), isNull(tasks.createdBy), eq(tasks.kind, 'academy')))
+    .limit(1)
+
+  return row?.grants ?? []
 }

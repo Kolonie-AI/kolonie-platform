@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import {
   QUEST_EDITABLE_STATUSES,
+  QuestAnswersSchema,
+  StoredQuestQuestionsSchema,
   QUEST_PENDING_LIMIT,
   QUEST_TASK_TYPE,
   questCommitment,
@@ -9,12 +11,20 @@ import {
   type ModerationStages,
   type QuestDraft,
   type QuestPatch,
+  type QuestQuestion,
+  type SubmissionId,
   type Task,
   type TaskId,
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { questModerations, tasks } from '../schema/index.js'
+import {
+  questAnswers,
+  questModerations,
+  submissions,
+  tasks,
+  verifications,
+} from '../schema/index.js'
 import { availableBalance, fundQuestEscrow } from './escrow.js'
 import { recordAuthorityEvent } from './roles.js'
 import { toTask } from './rows.js'
@@ -29,6 +39,14 @@ import { toTask } from './rows.js'
  * path nobody has built yet". This is that write path, and those constraints are
  * what it is checked against rather than what it re-implements.
  */
+
+/** The quest as the `quest-report` verifier needs it (`#177`). */
+export interface QuestDefinition {
+  readonly title: string
+  readonly instructions: string
+  readonly questions: readonly QuestQuestion[]
+  readonly proofVerifier: string | null
+}
 
 /** What a sponsor's own quest looks like to it: the task, plus why it was refused. */
 export interface OwnQuest {
@@ -115,6 +133,8 @@ export async function createQuestDraft(
       minReputation: command.draft.minReputation,
       timeoutHours: command.draft.timeoutHours,
       assistanceAllowed: command.draft.assistanceAllowed,
+      questions: command.draft.questions,
+      proofVerifier: command.draft.proofVerifier,
     })
     .returning()
 
@@ -152,10 +172,18 @@ export async function updateQuestDraft(
     }
 
     const { patch } = command
+    /**
+     * **The questions count as text**, and that is the whole reason this is not
+     * a comparison of three fields. A changed question is a changed statement of
+     * what the quest asks for — it re-queues the moderation stage, and `#182`'s
+     * column exists for exactly that reading.
+     */
     const textChanged =
       (patch.title !== undefined && patch.title !== row.title) ||
       (patch.description !== undefined && patch.description !== row.description) ||
-      (patch.instructions !== undefined && patch.instructions !== row.instructions)
+      (patch.instructions !== undefined && patch.instructions !== row.instructions) ||
+      (patch.questions !== undefined &&
+        JSON.stringify(patch.questions) !== JSON.stringify(row.questions))
 
     const [updated] = await tx
       .update(tasks)
@@ -176,6 +204,8 @@ export async function updateQuestDraft(
         ...(patch.assistanceAllowed !== undefined && {
           assistanceAllowed: patch.assistanceAllowed,
         }),
+        ...(patch.questions !== undefined && { questions: patch.questions }),
+        ...(patch.proofVerifier !== undefined && { proofVerifier: patch.proofVerifier }),
         updatedAt: command.at,
         ...(textChanged && { textRevisedAt: command.at }),
       })
@@ -679,4 +709,212 @@ export async function ownerlessQuestDrafts(db: Database): Promise<number> {
     )
 
   return Number(row?.count ?? 0)
+}
+
+/**
+ * The quest as the verifier needs it: what it asks, and what proves it
+ * (`#177`).
+ *
+ * A read of the task row and nothing else. It is separate from {@link readOwnQuest}
+ * because the two answer different questions for different readers — that one is
+ * the sponsor's view of its own quest, this one is what the runner needs in
+ * order to judge a report against it, and neither should grow the other's
+ * fields.
+ */
+export async function questDefinition(
+  db: Database,
+  taskId: TaskId,
+): Promise<QuestDefinition | undefined> {
+  const [row] = await db
+    .select({
+      title: tasks.title,
+      instructions: tasks.instructions,
+      questions: tasks.questions,
+      proofVerifier: tasks.proofVerifier,
+      kind: tasks.kind,
+    })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1)
+
+  if (row === undefined || row.kind !== 'quest') return undefined
+
+  return {
+    title: row.title,
+    instructions: row.instructions,
+    questions: StoredQuestQuestionsSchema.parse(row.questions),
+    proofVerifier: row.proofVerifier,
+  }
+}
+
+/** One answer as the scrub left it. */
+export interface ScrubbedAnswer {
+  readonly questionKey: string
+  readonly text: string
+}
+
+/**
+ * The scrubbed answers to one submission, or `undefined` if the scrub has not
+ * run.
+ *
+ * **`undefined` and `[]` are different answers**, and the verifier branches on
+ * exactly that: not-yet-moderated is `pending`, and moderated-to-nothing cannot
+ * happen because stage 1 already refused an empty report.
+ */
+export async function scrubbedAnswers(
+  db: Database,
+  submissionId: SubmissionId,
+): Promise<readonly ScrubbedAnswer[] | undefined> {
+  const rows = await db
+    .select({ questionKey: questAnswers.questionKey, text: questAnswers.text })
+    .from(questAnswers)
+    .where(eq(questAnswers.submissionId, submissionId))
+    .orderBy(asc(questAnswers.questionKey))
+
+  return rows.length === 0 ? undefined : rows
+}
+
+/** A report the moderator has not scrubbed yet, as the runner reads it. */
+export interface UnmoderatedReport {
+  readonly submissionId: SubmissionId
+  readonly taskId: TaskId
+  readonly questTitle: string
+  readonly answers: readonly ScrubbedAnswer[]
+}
+
+/**
+ * Reports waiting for the scrub: submitted, undecided, and with no answers
+ * written yet.
+ *
+ * The raw answers come out of the submission's payload, which is the Colony's
+ * own record of what was handed in. They go no further than the moderator —
+ * what any other reader gets is what {@link writeScrubbedAnswers} stores.
+ */
+export async function pendingAnswerModerations(
+  db: Database,
+  limit: number,
+): Promise<readonly UnmoderatedReport[]> {
+  const rows = await db
+    .select({
+      submissionId: submissions.id,
+      taskId: submissions.taskId,
+      payload: submissions.payload,
+      questTitle: tasks.title,
+    })
+    .from(submissions)
+    .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+    .where(
+      and(
+        eq(tasks.kind, 'quest'),
+        inArray(submissions.status, ['pending', 'verifying']),
+        sql`not exists (
+          select 1 from ${questAnswers} where ${questAnswers.submissionId} = ${submissions.id}
+        )`,
+      ),
+    )
+    .orderBy(asc(submissions.submittedAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    submissionId: row.submissionId as SubmissionId,
+    taskId: row.taskId as TaskId,
+    questTitle: row.questTitle,
+    answers: Object.entries(QuestAnswersSchema.parse((row.payload as QuestPayload).answers ?? {}))
+      .map(([questionKey, text]) => ({ questionKey, text }))
+      .sort((left, right) => left.questionKey.localeCompare(right.questionKey)),
+  }))
+}
+
+/** The shape of a quest submission's payload, as far as this file reads it. */
+interface QuestPayload {
+  readonly answers?: unknown
+}
+
+/**
+ * Store the scrubbed answers, once.
+ *
+ * **Scrub on write, never on read.** `#178` states the rule and the reason: a
+ * scrub applied at read time is a scrub somebody will forget to apply on the
+ * export. There is exactly one scrubbed text per answer and no path that serves
+ * the unscrubbed one — that stays in the submission payload, which no reader
+ * outside the Colony reaches.
+ *
+ * `onConflictDoNothing` rather than an upsert: the thing that would write twice
+ * is the scrub running again over a submission whose first pass committed while
+ * the runner believed it had failed, and the first scrub is the one the verdict
+ * will have been reached against.
+ */
+export async function writeScrubbedAnswers(
+  db: Database,
+  input: {
+    readonly submissionId: SubmissionId
+    readonly taskId: TaskId
+    readonly answers: readonly ScrubbedAnswer[]
+  },
+): Promise<{ readonly written: number }> {
+  if (input.answers.length === 0) return { written: 0 }
+
+  const rows = await db
+    .insert(questAnswers)
+    .values(
+      input.answers.map((answer) => ({
+        submissionId: input.submissionId,
+        taskId: input.taskId,
+        questionKey: answer.questionKey,
+        text: answer.text,
+      })),
+    )
+    .onConflictDoNothing()
+    .returning({ id: questAnswers.id })
+
+  return { written: rows.length }
+}
+
+/**
+ * Fail a report whose answers crossed a red line, in one transaction with the
+ * verdict that says so.
+ *
+ * **The scrub stage is the one place a citizen's *answer* can be refused before
+ * a judge reads it**, and it is a refusal of the report rather than of the
+ * citizen: the slot returns to the pool exactly as any other failure does.
+ * Nothing is written to `quest_answers`, so the sponsor never sees the text —
+ * which is the point, since what crossed the line is what it would have read.
+ */
+export async function failReportOnRedLine(
+  db: Database,
+  input: {
+    readonly submissionId: SubmissionId
+    readonly reason: string
+    readonly model: string
+  },
+): Promise<{ readonly outcome: 'failed' | 'stale' }> {
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ status: submissions.status, taskType: tasks.type })
+      .from(submissions)
+      .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+      .where(eq(submissions.id, input.submissionId))
+      .for('update', { of: submissions })
+      .limit(1)
+
+    if (row === undefined) return { outcome: 'stale' as const }
+    if (row.status !== 'pending' && row.status !== 'verifying') {
+      return { outcome: 'stale' as const }
+    }
+
+    await tx.insert(verifications).values({
+      submissionId: input.submissionId,
+      taskType: row.taskType,
+      status: 'fail',
+      evidence: input.reason,
+      metadata: { stage: 'moderation', model: input.model },
+    })
+
+    await tx
+      .update(submissions)
+      .set({ status: 'failed', verifiedAt: sql`now()` })
+      .where(eq(submissions.id, input.submissionId))
+
+    return { outcome: 'failed' as const }
+  })
 }

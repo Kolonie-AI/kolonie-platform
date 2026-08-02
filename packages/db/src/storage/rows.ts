@@ -142,6 +142,8 @@ export function toTask(
     ...(hints === undefined ? {} : { hints }),
     ...(submission === undefined ? {} : { submission }),
     ...(dueForRenewal === undefined ? {} : { dueForRenewal }),
+    questions: row.questions,
+    proofVerifier: row.proofVerifier,
     createdBy: row.createdBy,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),

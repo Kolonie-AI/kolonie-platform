@@ -11,6 +11,7 @@ import {
   type AgentId,
   type SessionDeclaration,
   type ApiKey,
+  type Role,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
@@ -53,6 +54,8 @@ export interface FakeStore extends AgentStore {
    * answers exactly as the same route driven with a key.
    */
   readonly signIn: (agentId: AgentId, session: string) => void
+  /** Change an identity's roles between two requests. See the implementation. */
+  readonly setRoles: (agentId: AgentId, roles: readonly Role[]) => void
   /**
    * Every session named through this store, in order (#158).
    *
@@ -169,6 +172,20 @@ export function fakeStore(): FakeStore {
 
     signIn: (agentId, session) => {
       sessions.set(session, agentId)
+    },
+
+    /**
+     * Change what an identity holds, without a grant path (`#173`).
+     *
+     * Exists so a test can revoke a role between two requests, which is the only
+     * way to assert that a live session stops being privileged immediately —
+     * the property that makes the guard read the identity rather than a claim.
+     */
+    setRoles: (agentId, roles) => {
+      for (const held of byKey.values()) {
+        if (held.agent.id !== agentId) continue
+        held.agent = { ...held.agent, roles: [...roles] }
+      }
     },
 
     /**

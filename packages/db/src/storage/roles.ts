@@ -1,7 +1,15 @@
-import { and, eq, sql } from 'drizzle-orm'
-import { RoleSchema, type AgentId, type Role, type Timestamp } from '@kolonie-ai/core'
+import { and, desc, eq, sql } from 'drizzle-orm'
+import {
+  AgentIdSchema,
+  RoleSchema,
+  type AgentId,
+  type AuthorityAction,
+  type Role,
+  type Timestamp,
+} from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents } from '../schema/index.js'
+import { agents, authorityEvents } from '../schema/index.js'
+import { toTimestamp } from './rows.js'
 
 /** What a role grant did, which is usually nothing. */
 export interface RoleGrantResult {
@@ -169,4 +177,139 @@ export async function setRole(
     .returning({ id: agents.id })
 
   return { changed: rows.length > 0 }
+}
+
+/** One row of the record behind a privileged act (`#173`). */
+export interface AuthorityEvent {
+  readonly actorId: AgentId | null
+  readonly action: AuthorityAction
+  readonly subjectAgentId: AgentId | null
+  readonly subjectTaskId: string | null
+  readonly role: Role | null
+  readonly at: Timestamp
+}
+
+/**
+ * Write the record of a privileged act.
+ *
+ * Takes a `Transaction` and not a `Database`, and the signature is the rule —
+ * the same one {@link grantRoles} states. An act that committed while its audit
+ * row did not is an act with no record, and *the record exists* is the entire
+ * point of the table. One commit covering both makes that state unreachable.
+ */
+export async function recordAuthorityEvent(
+  tx: Transaction,
+  event: {
+    readonly actorId: AgentId
+    readonly action: AuthorityAction
+    readonly subjectAgentId?: AgentId | undefined
+    readonly subjectTaskId?: string | undefined
+    readonly role?: Role | undefined
+  },
+): Promise<void> {
+  await tx.insert(authorityEvents).values({
+    actorId: event.actorId,
+    action: event.action,
+    subjectAgentId: event.subjectAgentId ?? null,
+    subjectTaskId: event.subjectTaskId ?? null,
+    role: event.role ?? null,
+  })
+}
+
+/** What a steward's grant or revocation did. */
+export type RoleChangeOutcome =
+  | { readonly outcome: 'changed' }
+  /** The subject already held the role, or already did not. Nothing was written. */
+  | { readonly outcome: 'unchanged' }
+  | { readonly outcome: 'unknown-agent' }
+
+/**
+ * Grant or revoke a role as a steward, with the record of who did it (`#173`).
+ *
+ * **Distinct from {@link setRole}, which is the operator's tool.** That one is
+ * driven from `admin.ts` by somebody with database access and answers to nobody
+ * inside the Colony; this one is an act by an identity the Colony knows, and the
+ * difference between them is exactly the audit row. Collapsing the two would
+ * mean either an operator forging an actor, or a steward acting unrecorded.
+ *
+ * **The change and its record commit together.** See
+ * {@link recordAuthorityEvent}.
+ *
+ * **`unchanged` writes nothing at all**, audit row included. An audit of who
+ * granted what should not fill with rows where nothing was granted — a record
+ * that logs non-events is a record nobody reads.
+ */
+export async function changeRoleAsSteward(
+  db: Database,
+  command: {
+    readonly actorId: AgentId
+    readonly subjectId: AgentId
+    readonly role: Role
+    readonly hold: boolean
+    readonly at: Timestamp
+  },
+): Promise<RoleChangeOutcome> {
+  return await db.transaction(async (tx) => {
+    const [subject] = await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, command.subjectId))
+      .limit(1)
+
+    if (subject === undefined) return { outcome: 'unknown-agent' }
+
+    const held = sql`${command.role}::role = any(${agents.roles})`
+
+    const rows = await tx
+      .update(agents)
+      .set({
+        roles: command.hold
+          ? sql`array_append(${agents.roles}, ${command.role}::role)`
+          : sql`array_remove(${agents.roles}, ${command.role}::role)`,
+        updatedAt: command.at,
+      })
+      .where(and(eq(agents.id, command.subjectId), command.hold ? sql`not ${held}` : held))
+      .returning({ id: agents.id })
+
+    if (rows.length === 0) return { outcome: 'unchanged' }
+
+    await recordAuthorityEvent(tx, {
+      actorId: command.actorId,
+      action: command.hold ? 'role-granted' : 'role-revoked',
+      subjectAgentId: command.subjectId,
+      role: command.role,
+    })
+
+    return { outcome: 'changed' }
+  })
+}
+
+/**
+ * Every privileged act recorded against or by an identity, newest first.
+ *
+ * One read for both directions because an audit is asked in both — *what has
+ * this steward done* and *who granted this identity what* — and a caller that
+ * had to pick a function first would have to know which question it was asking
+ * before it had the answer.
+ */
+export async function authorityEventsFor(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly AuthorityEvent[]> {
+  const rows = await db
+    .select()
+    .from(authorityEvents)
+    .where(
+      sql`${authorityEvents.actorId} = ${agentId} or ${authorityEvents.subjectAgentId} = ${agentId}`,
+    )
+    .orderBy(desc(authorityEvents.at))
+
+  return rows.map((row) => ({
+    actorId: row.actorId === null ? null : AgentIdSchema.parse(row.actorId),
+    action: row.action,
+    subjectAgentId: row.subjectAgentId === null ? null : AgentIdSchema.parse(row.subjectAgentId),
+    subjectTaskId: row.subjectTaskId,
+    role: row.role,
+    at: toTimestamp(row.at),
+  }))
 }

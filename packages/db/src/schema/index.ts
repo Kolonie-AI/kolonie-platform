@@ -6,6 +6,7 @@
 export * from './enums.js'
 export * from './accounts.js'
 export * from './agents.js'
+export * from './authority.js'
 export * from './contacts.js'
 export * from './sessions.js'
 export * from './runtime.js'

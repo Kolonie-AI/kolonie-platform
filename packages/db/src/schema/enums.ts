@@ -6,6 +6,7 @@ import {
   AgentPlatformSchema,
   AssistanceSchema,
   AttemptOpenerSchema,
+  AuthorityActionSchema,
   BanMarkKindSchema,
   CitizenshipStatusSchema,
   CredentialKindSchema,
@@ -86,6 +87,14 @@ export const credentialKind = pgEnum('credential_kind', valuesOf(CredentialKindS
  * sign-in is already anticipated in D-050 — and `is_web` would have to be
  * rewritten on the day it arrives, in a column every count reads.
  */
+/**
+ * What a privileged act was (`#173`).
+ *
+ * An enum rather than free text because this is the column an audit is filtered
+ * on, and a table nobody can query by action reliably is a table nobody audits.
+ */
+export const authorityAction = pgEnum('authority_action', valuesOf(AuthorityActionSchema.options))
+
 export const registrationPath = pgEnum(
   'registration_path',
   valuesOf(RegistrationPathSchema.options),

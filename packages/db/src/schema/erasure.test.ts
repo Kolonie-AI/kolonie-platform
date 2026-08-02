@@ -29,6 +29,7 @@ import {
   taskAttempts,
   taskReports,
   tasks,
+  authorityEvents,
   reportFeedback,
   verifications,
   visionChallenges,
@@ -407,6 +408,36 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
         .where(sql`${tasks.id} = ${task.id}`)
       expect(row?.createdBy).toBeNull()
     })
+
+    /**
+     * `#173`. The record of a privileged act outlives the identity that
+     * performed it, naming nobody. *Who let this money move* has to keep having
+     * an answer, and after an erasure the honest answer is *somebody who is no
+     * longer here* rather than no row at all.
+     */
+    it('keeps a steward’s authority events, without the steward', async () => {
+      const actor = await anAgent({ name: 'the-steward' })
+      const subject = await anAgent({ name: 'the-subject' })
+
+      await db.insert(authorityEvents).values({
+        actorId: actor.id,
+        action: 'role-granted',
+        subjectAgentId: subject.id,
+        role: 'steward',
+      })
+
+      await db.delete(agents).where(sql`${agents.id} = ${actor.id}`)
+
+      const [row] = await db
+        .select()
+        .from(authorityEvents)
+        .where(sql`${authorityEvents.subjectAgentId} = ${subject.id}`)
+
+      expect(row).toBeDefined()
+      expect(row?.actorId).toBeNull()
+      expect(row?.action).toBe('role-granted')
+      expect(row?.role).toBe('steward')
+    })
   })
 
   describe('the ledger refuses an erasure that skipped the burn', () => {
@@ -700,6 +731,22 @@ describe.skipIf(!target.available)('the erasure boundary', () => {
       // behind. Ciphertext outliving the citizen it belonged to would be a
       // leftover in the exact sense `erasure.md` §4 rules out.
       'agent_vault.agent_id c',
+      /**
+       * `#173`. **Sets null, both of them, and this is the one table here where
+       * that is the whole point rather than a compromise.**
+       *
+       * An authority event is not the citizen's writing — it is the Colony's
+       * record of a decision that moved somebody else's money, and *who let this
+       * money move* has to keep having an answer after the actor leaves. The
+       * answer becomes *somebody who is no longer here*, which is honest, and the
+       * act stays visible beside the quest it was about.
+       *
+       * `erasure.md` already draws this line: the author's text is theirs and
+       * goes, and what the Colony built out of it stays because it names nobody.
+       * A row whose two agent columns are both null names nobody.
+       */
+      'authority_events.actor_id n',
+      'authority_events.subject_agent_id n',
       'browser_challenges.agent_id c',
       'credentials.agent_id c',
       // The `domain` rung (kolonie-docs#89). Cascades, matching every other

@@ -80,6 +80,14 @@ export type AccountType = z.infer<typeof AccountTypeSchema>
  * population, and no caller needs to be told which door another identity used.
  * The pattern to follow when adding the next one is that file, not this enum.
  */
+export const AuthorityActionSchema = z.enum([
+  'role-granted',
+  'role-revoked',
+  /** A steward moved a quest into the state where citizens can claim it (`#176`). */
+  'quest-published',
+])
+export type AuthorityAction = z.infer<typeof AuthorityActionSchema>
+
 export const RegistrationPathSchema = z.enum(['mcp', 'web'])
 export type RegistrationPath = z.infer<typeof RegistrationPathSchema>
 
@@ -114,6 +122,26 @@ export const RoleSchema = z.enum([
    * have consumed it. Recorded as open rather than dropped.
    */
   'reviewer',
+  /**
+   * Reviews quests written from outside the Colony and publishes them (`#173`).
+   *
+   * **Granted by another steward, and never by a task, a verdict or a skill.**
+   * The platform already refuses the alternative in SQL —
+   * `tasks_only_colony_grants_roles` names the roles a task may award at all,
+   * and this is not one of them — so the rule is a property of the database
+   * rather than a convention a future write path could forget.
+   *
+   * The reason it cannot be earned is what a steward decides: whether a
+   * stranger's money buys a question asked of the Colony's citizens. That must
+   * not be something an agent can grind for, because the thing it would be
+   * grinding towards is the ability to spend somebody else's coins.
+   *
+   * Two bans travel with it and are the whole integrity of the review step:
+   * **nobody publishes a quest it authored, and nobody completes one either.**
+   * They are guards rather than constraints — the condition spans two tables —
+   * and D-052 says so plainly rather than implying a guarantee that is not there.
+   */
+  'steward',
   'judge',
   'governor',
   /**

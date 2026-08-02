@@ -2,9 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents } from '../schema/index.js'
-import { grantRoles, setRole } from './roles.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { agents, tasks } from '../schema/index.js'
+import { authorityEventsFor, changeRoleAsSteward, grantRoles, setRole } from './roles.js'
+import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 
 const target = databaseTestTarget()
 
@@ -147,5 +147,134 @@ describe.skipIf(!target.available)('granting a role', () => {
 
       expect(await rolesOf(agentId)).toEqual(['builder'])
     })
+  })
+})
+
+describe.skipIf(!target.available)('a steward changing a role', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async (name: string, roles: readonly string[] = []): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name, platform: 'openclaw', roles: roles as never })
+      .returning({ id: agents.id })
+    return AgentIdSchema.parse(row!.id)
+  }
+
+  const now = () => new Date().toISOString() as never
+
+  it('grants the role and records who did it', async () => {
+    const steward = await anAgent('root-steward', ['steward'])
+    const subject = await anAgent('newcomer')
+
+    const outcome = await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: subject,
+      role: 'steward',
+      hold: true,
+      at: now(),
+    })
+
+    expect(outcome).toEqual({ outcome: 'changed' })
+
+    const events = await authorityEventsFor(db, subject)
+    expect(events).toHaveLength(1)
+    expect(events[0]?.actorId).toBe(steward)
+    expect(events[0]?.action).toBe('role-granted')
+    expect(events[0]?.role).toBe('steward')
+  })
+
+  it('revokes it and records that too', async () => {
+    const steward = await anAgent('root-steward', ['steward'])
+    const subject = await anAgent('deposed', ['steward'])
+
+    await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: subject,
+      role: 'steward',
+      hold: false,
+      at: now(),
+    })
+
+    const [row] = await db
+      .select({ roles: agents.roles })
+      .from(agents)
+      .where(eq(agents.id, subject))
+    expect(row?.roles).toEqual([])
+
+    const events = await authorityEventsFor(db, subject)
+    expect(events[0]?.action).toBe('role-revoked')
+  })
+
+  /**
+   * An audit of who granted what should not fill with rows where nothing was
+   * granted. A record that logs non-events is a record nobody reads.
+   */
+  it('writes nothing at all when the subject already held the role', async () => {
+    const steward = await anAgent('root-steward', ['steward'])
+    const subject = await anAgent('already', ['steward'])
+
+    const outcome = await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: subject,
+      role: 'steward',
+      hold: true,
+      at: now(),
+    })
+
+    expect(outcome).toEqual({ outcome: 'unchanged' })
+    expect(await authorityEventsFor(db, subject)).toHaveLength(0)
+  })
+
+  it('answers `unknown-agent` rather than writing a record about nobody', async () => {
+    const steward = await anAgent('root-steward', ['steward'])
+
+    const outcome = await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: AgentIdSchema.parse('00000000-0000-4000-8000-000000000000'),
+      role: 'steward',
+      hold: true,
+      at: now(),
+    })
+
+    expect(outcome).toEqual({ outcome: 'unknown-agent' })
+    expect(await authorityEventsFor(db, steward)).toHaveLength(0)
+  })
+
+  /**
+   * `tasks_only_colony_grants_roles` is exercised rather than trusted (`#173`).
+   * The constraint names the roles a task may award at all, and `steward` is not
+   * one of them — so no verdict, no matter who wrote the task, can produce one.
+   */
+  it('cannot be produced by a task, not even one the Colony authored', async () => {
+    await expectRejection(
+      () =>
+        db.insert(tasks).values({
+          slug: 'a-task-that-would-mint-a-steward',
+          title: 'no',
+          description: 'no',
+          instructions: 'no',
+          type: 'api-call',
+          rewardCoins: 0,
+          rewardReputation: 0,
+          timeoutHours: 24,
+          recommendedOrder: 1,
+          grantsRoles: ['steward'],
+        } as never),
+      /tasks_only_colony_grants_roles/,
+    )
   })
 })

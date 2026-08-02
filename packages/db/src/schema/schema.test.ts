@@ -163,6 +163,14 @@ describe.skipIf(!target.available)('schema', () => {
         'agent_vault',
         'agents',
         /**
+         * `#173`. The record behind every privileged act — who granted a role,
+         * who took it back, who published a quest. It is here rather than in a
+         * log file because the question it answers is *who let this money move*,
+         * and that has to be queryable beside the rows it describes and to
+         * survive in the same backups the ledger does.
+         */
+        'authority_events',
+        /**
          * `ban_marks` joined with the erasure boundary (#90), and it is the only
          * thing the Colony keeps when a citizen deletes itself — salted hashes
          * of the identifiers a *sanctioned* one proved, so that erasure does not

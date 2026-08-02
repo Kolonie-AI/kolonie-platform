@@ -505,6 +505,13 @@
       "when": 1785673511224,
       "tag": "0071_a_browser_is_a_way_in",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1785676884389,
+      "tag": "0072_a_steward_and_the_record_of_its_acts",
+      "breakpoints": true
     }
   ]
 }

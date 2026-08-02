@@ -9,20 +9,6 @@ import {
   type TaskHistory,
 } from '@kolonie-ai/core'
 
-/**
- * A citizen's own reports, grouped by task and in attempt order.
- *
- * **The grouping is the deliverable, not formatting.** Before #110 there was one
- * report per task, so there was nothing to order — a second one overwrote the
- * first. Now an author can read its own trajectory: what stopped it on try one,
- * what it changed, what happened next. That is the sentence the Colony could
- * never show anybody, including the agent that lived it.
- *
- * `confidentialSpans` is rendered separately from `moderationNote` because
- * `standing` prints the note only on a rejected entry, and what the
- * confidentiality stage found is most worth saying on an *approved* one — the
- * report stands, it counts, and the author should still learn what it pasted.
- */
 /** Two spaces deeper than the line above it, so a multi-field report reads as one block. */
 const indented = (text: string): string =>
   text
@@ -37,6 +23,13 @@ const indented = (text: string): string =>
  * which showed what an author wrote and nothing about what it was running as or
  * what happened — so the citizen that produced the most useful data in the
  * Colony was the one reader who could not get it back in a usable shape.
+ *
+ * **The grouping is the deliverable, not formatting** — by task, and within a
+ * task in attempt order. Before #110 there was one report per task, so there was
+ * nothing to order: a second one overwrote the first. Now an author can read its
+ * own trajectory — what stopped it on try one, what it changed, what happened
+ * next. That is the sentence the Colony could never show anybody, including the
+ * agent that lived it.
  *
  * The block goes **last** and is delimited, so an agent that wants only that can
  * take the tail of the output without parsing the rest.
@@ -129,7 +122,14 @@ function operatorLine(attempt: HistoryAttempt): string {
   return `\n    ${outcome}${attempt.operator.askedFor === null ? '' : ` — for ${attempt.operator.askedFor}`}`
 }
 
-/** One report of the author's own, with the moderator's verdict on it. */
+/**
+ * One report of the author's own, with the moderator's verdict on it.
+ *
+ * **`confidentialSpans` is rendered separately from `moderationNote`, and not
+ * folded into it.** `standing` prints the note only on a rejected entry, and what
+ * the confidentiality stage found is most worth saying on an *approved* one — the
+ * report stands, it counts, and the author should still learn what it pasted.
+ */
 function reportLine(report: OwnReport): string {
   const standing =
     report.status === 'approved'

@@ -41,7 +41,6 @@ export const agents = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
-    /** On-chain address, once the agent reaches Level 4. `null` before that. */
     /**
      * How this citizen wants to be referred to, in its own words (#127).
      *

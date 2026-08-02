@@ -32,6 +32,22 @@ const X_FORWARDED_FOR = 'x-forwarded-for'
  * 3. **The socket address.** No proxy at all: a direct call, and the address is
  *    already the truth.
  *
+ * **What arrives in `X-Forwarded-For` at this container changed on 2026-08-02,
+ * and the precedence above did not.** Until then Traefik discarded the incoming
+ * header and wrote the peer it had accepted the connection from, so branch 2 saw
+ * a Cloudflare edge address in production and the reasoning for branch 1 was
+ * load-bearing in a way that was easy to miss. `kolonie-infra#56` set
+ * `forwardedHeaders.trustedIPs` to Cloudflare's published ranges, so the header
+ * now arrives as `<client>, <cloudflare-edge>` and branch 2 would resolve the
+ * same address branch 1 does.
+ *
+ * That is a reason to leave the order alone rather than to revisit it: two
+ * sources agreeing is not a reason to prefer the forgeable one. `CF-Connecting-IP`
+ * is still the header Cloudflare *overwrites*, `X-Forwarded-For` is still the one
+ * it appends to, and the trust in the second now depends on a Traefik setting as
+ * well as on the origin firewall — one more thing that can be changed by someone
+ * who is not reading this file.
+ *
  * ## What this does not claim
  *
  * **These headers are forgeable by anyone who can reach the origin directly.**

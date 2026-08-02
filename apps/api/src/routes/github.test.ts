@@ -19,6 +19,7 @@ import {
   fakeGithubChallenges,
   type FakeGithubChallenges,
 } from '../__fixtures__/github.js'
+import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
@@ -53,6 +54,7 @@ beforeEach(async () => {
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     contributions: fakeContributions(),
+    wakeup: fakeWakeup(),
     keys: fakeKeys(),
     solana: fakeSolana(),
     pow: fakePow(),

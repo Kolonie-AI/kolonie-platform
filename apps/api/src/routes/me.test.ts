@@ -14,6 +14,7 @@ import { fakeSolana, fakeWallet } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
+import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
@@ -57,6 +58,7 @@ const withStore = async () => {
     vision: fakeVision(),
     github: fakeGithub(),
     contributions: fakeContributions(),
+    wakeup: fakeWakeup(),
     social: fakeSocial(),
     domain: fakeDomain(),
     website: fakeWebsite(),
@@ -271,6 +273,7 @@ describe('GET /v1/agents/me', () => {
         vision: fakeVision(),
         github: fakeGithub(),
         contributions: fakeContributions(),
+        wakeup: fakeWakeup(),
         social: fakeSocial(),
         domain: fakeDomain(),
         website: fakeWebsite(),

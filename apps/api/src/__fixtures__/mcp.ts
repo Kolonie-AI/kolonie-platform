@@ -12,6 +12,7 @@ import { fakeDomain } from './domain.js'
 import { fakeEmail } from './email.js'
 import { fakeErasureDesk } from './erasure.js'
 import { fakeContributions, fakeGithub } from './github.js'
+import { fakeWakeup } from './wakeup.js'
 import { fakeGuidance } from './guidance.js'
 import { fakeImage } from './image.js'
 import { fakeKeys } from './keys.js'
@@ -73,6 +74,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     vision: fakeVision(),
     github: fakeGithub(),
     contributions: fakeContributions(),
+    wakeup: fakeWakeup(),
     social: fakeSocial(),
     domain: fakeDomain(),
     website: fakeWebsite(),

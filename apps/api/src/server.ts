@@ -29,6 +29,7 @@ import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import type { RecordObstruction } from './obstruction.js'
+import { databaseWakeup } from './wakeup.js'
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -211,6 +212,9 @@ const app = buildApp({
       ? httpContributionReader(process.env[GITHUB_VERIFIER_TOKEN_VAR])
       : undefined,
   },
+  // The digest (#200). Its own seam rather than a reader assembled at the call
+  // site, so what a wake-up is told stays one query set with one owner.
+  wakeup: databaseWakeup(db),
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   image: { challenges: databaseImageChallenges(db), obstruction },
   // Same again. This is the one rung where the *verifier* needs no credential

@@ -11,6 +11,7 @@ import { registerMeTools } from './tools/me.js'
 import { registerProfileTools } from './tools/profile.js'
 import { registerRegistrationTool } from './tools/register.js'
 import { registerSubmissionTools } from './tools/submissions.js'
+import { registerWakeupTool } from './tools/wakeup.js'
 import { registerSupportTools } from './tools/support.js'
 import { registerAttemptTools } from './tools/tasks-attempts.js'
 import { registerReportTools } from './tools/tasks-reports.js'
@@ -93,6 +94,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
   registerReportTools(server, deps, credential)
   registerHistoryTools(server, deps, credential)
   registerSubmissionTools(server, deps, credential)
+  registerWakeupTool(server, deps, credential)
   registerAcademyTools(server, deps, credential)
   registerAccountTools(server, deps, credential)
   registerMailboxTools(server, deps, credential)

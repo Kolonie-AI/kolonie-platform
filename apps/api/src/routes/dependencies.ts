@@ -4,6 +4,7 @@ import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
 import type { ConsoleDependencies } from '../console.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { WakeupSource } from '../wakeup.js'
 import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
 import type { Erasure } from '../erasure.js'
@@ -61,6 +62,8 @@ export interface RouteDependencies {
   readonly pow: PowDependencies
   readonly github: GithubDependencies
   readonly contributions: ContributionDependencies
+  /** What changed while a citizen was not running — see `wakeup.ts` (#200). */
+  readonly wakeup: WakeupSource
   readonly website: WebsiteDependencies
   readonly image: ImageDependencies
   readonly social: SocialDependencies

@@ -30,6 +30,7 @@ import type { SolanaDependencies } from '../solana.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { GithubDependencies } from '../github.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { WakeupSource } from '../wakeup.js'
 import type { WebsiteDependencies } from '../website.js'
 import type { ImageDependencies } from '../image.js'
 import type { SocialDependencies } from '../social.js'
@@ -43,6 +44,7 @@ import { fakeKeys } from './keys.js'
 import { fakeSolanaChallenges } from './solana.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeContributions, fakeGithub } from './github.js'
+import { fakeWakeup } from './wakeup.js'
 import { fakeSocial } from './social.js'
 import { fakeDomain } from './domain.js'
 import { fakeWebsite } from './website.js'
@@ -138,6 +140,7 @@ export interface FakeColony {
   /** The GitHub rung, behind both surfaces. Overridable the same way. */
   readonly github: GithubDependencies
   readonly contributions: ContributionDependencies
+  readonly wakeup: WakeupSource
   readonly social: SocialDependencies
   readonly domain: DomainDependencies
   readonly website: WebsiteDependencies
@@ -286,6 +289,7 @@ export function fakeColony(): FakeColony {
     pow: fakePow(),
     github: fakeGithub(),
     contributions: fakeContributions(),
+    wakeup: fakeWakeup(),
     social: fakeSocial(),
     domain: fakeDomain(),
     website: fakeWebsite(),

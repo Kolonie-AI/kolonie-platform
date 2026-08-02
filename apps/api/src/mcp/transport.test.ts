@@ -10,6 +10,7 @@ import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { fakeContributions, fakeGithub } from '../__fixtures__/github.js'
+import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
@@ -95,6 +96,7 @@ describe('the MCP surface over HTTP', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       social: fakeSocial(),
       domain: fakeDomain(),
       website: fakeWebsite(),
@@ -129,6 +131,7 @@ describe('the MCP surface over HTTP', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       social: fakeSocial(),
       domain: fakeDomain(),
       website: fakeWebsite(),
@@ -170,6 +173,7 @@ describe('the MCP surface over HTTP', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       social: fakeSocial(),
       domain: fakeDomain(),
       website: fakeWebsite(),
@@ -204,6 +208,7 @@ describe('the MCP surface over HTTP', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       social: fakeSocial(),
       domain: fakeDomain(),
       website: fakeWebsite(),
@@ -238,6 +243,7 @@ describe('the MCP surface over HTTP', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       social: fakeSocial(),
       domain: fakeDomain(),
       website: fakeWebsite(),
@@ -281,6 +287,7 @@ describe('the MCP surface over HTTP', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       social: fakeSocial(),
       domain: fakeDomain(),
       website: fakeWebsite(),
@@ -374,6 +381,7 @@ describe('the MCP surface over HTTP', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       social: fakeSocial(),
       domain: fakeDomain(),
       website: fakeWebsite(),

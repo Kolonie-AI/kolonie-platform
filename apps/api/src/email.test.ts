@@ -4,6 +4,7 @@ import type { InjectOptions, Response as InjectResponse } from 'light-my-request
 import type { AgentId } from '@kolonie-ai/core'
 import { buildApp } from './app.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
+import { fakeWakeup } from './__fixtures__/wakeup.js'
 import { fakeSolana } from './__fixtures__/solana.js'
 import { fakeKeys } from './__fixtures__/keys.js'
 import { fakeVision } from './__fixtures__/vision.js'
@@ -73,6 +74,7 @@ const build = (inboundSecret: string | undefined) => {
     vision: fakeVision(),
     github: fakeGithub(),
     contributions: fakeContributions(),
+    wakeup: fakeWakeup(),
     social: fakeSocial(),
     domain: fakeDomain(),
     website: fakeWebsite(),
@@ -607,6 +609,7 @@ describe('GET /v1/mailboxes', () => {
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       social: fakeSocial(),
       domain: fakeDomain(),
       website: fakeWebsite(),

@@ -14,6 +14,7 @@ import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
+import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeVision } from '../__fixtures__/vision.js'
@@ -60,6 +61,7 @@ beforeEach(async () => {
     pow: { challenges, difficulty: FAKE_POW_DIFFICULTY, obstruction: noObstruction },
     github: fakeGithub(),
     contributions: fakeContributions(),
+    wakeup: fakeWakeup(),
     social: fakeSocial(),
     domain: fakeDomain(),
     website: fakeWebsite(),

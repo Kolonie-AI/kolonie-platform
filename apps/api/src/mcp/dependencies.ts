@@ -3,6 +3,7 @@ import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { WakeupSource } from '../wakeup.js'
 import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
 import type { Erasure } from '../erasure.js'
@@ -55,6 +56,8 @@ export interface McpDependencies {
   readonly github: GithubDependencies
   /** A citizen's own open pull requests — see `contributions.ts`. */
   readonly contributions: ContributionDependencies
+  /** What changed while the citizen was not running — see `wakeup.ts` (#200). */
+  readonly wakeup: WakeupSource
   readonly website: WebsiteDependencies
   /** The image rung — see `image.ts`. */
   readonly image: ImageDependencies

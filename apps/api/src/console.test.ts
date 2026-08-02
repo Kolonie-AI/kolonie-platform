@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from './app.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
+import { fakeWakeup } from './__fixtures__/wakeup.js'
 import { fakeAccounts } from './__fixtures__/accounts.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeConsole } from './__fixtures__/console.js'
@@ -60,6 +61,7 @@ describe('the console front door', () => {
       pow: fakePow(),
       github: fakeGithub(),
       contributions: fakeContributions(),
+      wakeup: fakeWakeup(),
       website: fakeWebsite(),
       image: fakeImage(),
       social: fakeSocial(),

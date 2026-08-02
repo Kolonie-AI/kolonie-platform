@@ -56,6 +56,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.me.history',
   'kolonie.contributions.list',
   'kolonie.submissions.list',
+  'kolonie.wakeup',
   'kolonie.academy.challenge',
   'kolonie.academy.key.challenge',
   'kolonie.academy.key.sign',

@@ -305,6 +305,25 @@ describe('nothing decides on a session', () => {
      * rewards on a session, and reading one into evidence is not any of those.
      */
     'challenges.ts',
+    /**
+     * **`wakeup.ts`, and only to pick a window** (`#200`).
+     *
+     * `previousSessionStart` reads when the caller's previous session began, so the digest
+     * can default to *since you were last running* instead of asking the citizen to
+     * remember. It gates nothing, orders nothing and rewards nothing: the answer is the
+     * citizen's own record, read back to it.
+     *
+     * **The reason this cannot become an escalation is that `since` is already a
+     * parameter.** A citizen may pass any window it likes, so a citizen that could
+     * influence its own session boundary would gain exactly nothing it did not already
+     * have — it would change which slice of its *own* history it is shown, and it can do
+     * that by asking. That is the test the next exemption should be held to as well.
+     *
+     * If anything in that file ever *branches* on a session — a different answer, a
+     * different entitlement — this entry is where the argument has to be revisited.
+     */
+    'wakeup.ts',
+    'wakeup.test.ts',
   ])
 
   it('is referenced by no storage module that decides anything', async () => {

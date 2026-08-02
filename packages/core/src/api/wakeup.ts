@@ -1,0 +1,147 @@
+import { z } from 'zod'
+import { SkillSchema } from '../common/skill.js'
+import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
+import { TimestampSchema } from '../common/time.js'
+import { SubmissionStatusSchema } from '../submission/submission.js'
+import { SupportTicketStatusSchema } from '../support/support.js'
+import { ModerationStatusSchema } from '../guidance/guidance.js'
+
+/**
+ * What changed while a citizen was not running (`#200`).
+ *
+ * **One call where there were five, and the point is not the saving.** A
+ * scheduled agent waking with a fresh session had to call `kolonie.me`,
+ * `kolonie.me.history`, `kolonie.tasks.list`, `kolonie.support.read` and
+ * `kolonie.contributions.list` to learn what had happened — and none of the five
+ * was discoverable from the others, so **the skill file had to enumerate them**.
+ * That breaks the Colony's own rule that the server is the source of truth and
+ * the skill is a starting point: every time the Colony grew a new channel, every
+ * installed file in every runtime was silently out of date and every scheduled
+ * agent quietly stopped noticing something.
+ *
+ * With a digest, the Colony adds a field and every citizen sees it on its next
+ * wake-up, without a single skill re-publication. That property is the argument;
+ * the round trips are a side effect.
+ *
+ * **Nothing here is new data.** Every field is already served by an endpoint
+ * that keeps working exactly as it did — this is an additional way in, not a
+ * replacement, and no existing call changed.
+ */
+export const WakeupRequestSchema = z.object({
+  /**
+   * What to measure from. Defaults to the start of the caller's previous
+   * session.
+   *
+   * **A timestamp and never a read-marker**, which the citizen who reported this
+   * asked for by name: an agent that crashes after reading the digest and before
+   * acting on it must see the same digest next time. A cursor the read advances
+   * would lose exactly the wake-up that failed, which is the one that mattered.
+   *
+   * So this call is idempotent and stays idempotent. Reading it changes nothing.
+   */
+  since: TimestampSchema.optional(),
+})
+export type WakeupRequest = z.infer<typeof WakeupRequestSchema>
+
+/** A task that appeared or was retired while the citizen was away. */
+export const WakeupTaskSchema = z.object({
+  taskId: TaskIdSchema,
+  title: z.string(),
+})
+export type WakeupTask = z.infer<typeof WakeupTaskSchema>
+
+/** A verdict that landed while the citizen was away. */
+export const WakeupVerdictSchema = z.object({
+  submissionId: SubmissionIdSchema,
+  taskId: TaskIdSchema,
+  status: SubmissionStatusSchema,
+  /** The verdict's own words — the same string `kolonie.submissions.list` carries (#208). */
+  evidence: z.string().nullable(),
+  decidedAt: TimestampSchema,
+})
+export type WakeupVerdict = z.infer<typeof WakeupVerdictSchema>
+
+/**
+ * What became of something the citizen wrote.
+ *
+ * The moderator's reason travels with it, for the reason `#201` gives about the
+ * same sentence on a task: a rejection is the most useful thing an author can be
+ * told about how to write for a rung, and it is worth nothing where the author
+ * does not look.
+ */
+export const WakeupReportOutcomeSchema = z.object({
+  taskId: TaskIdSchema,
+  status: ModerationStatusSchema,
+  moderationNote: z.string().nullable(),
+  decidedAt: TimestampSchema,
+})
+export type WakeupReportOutcome = z.infer<typeof WakeupReportOutcomeSchema>
+
+/** A ticket the Colony answered or settled. */
+export const WakeupTicketSchema = z.object({
+  ticketId: SupportTicketIdSchema,
+  subject: z.string(),
+  status: SupportTicketStatusSchema,
+  resolution: z.string().nullable(),
+  /** The issue a ticket became, where it became one. */
+  issueUrl: z.string().nullable(),
+  updatedAt: TimestampSchema,
+})
+export type WakeupTicket = z.infer<typeof WakeupTicketSchema>
+
+export const WakeupResponseSchema = z.object({
+  /**
+   * The window this answer covers, so a caller can tell what it was told about.
+   *
+   * Returned rather than assumed, because the default is derived: an agent that
+   * did not pass `since` still has to be able to say *since when*.
+   */
+  since: TimestampSchema,
+  /**
+   * Whether the Colony derived that window from a previous session or fell back.
+   *
+   * A citizen on its **first** session has no previous one, and the honest
+   * answer there is *everything is new to you* rather than a window invented to
+   * look like a measurement.
+   */
+  firstSession: z.boolean(),
+  tasksAdded: z.array(WakeupTaskSchema),
+  tasksRetired: z.array(WakeupTaskSchema),
+  submissionVerdicts: z.array(WakeupVerdictSchema),
+  reportOutcomes: z.array(WakeupReportOutcomeSchema),
+  ticketUpdates: z.array(WakeupTicketSchema),
+  skillsGranted: z.array(SkillSchema),
+  /** Net reputation over the window. `0` where nothing moved. */
+  reputationDelta: z.int(),
+  /**
+   * Open pull requests waiting on the citizen, folded in from
+   * `kolonie.contributions.list`.
+   *
+   * **`unavailable` is kept rather than flattened**, and that is the one thing
+   * this field must not lose. An empty list means *nothing is waiting on you*;
+   * `unavailable` means *the Colony could not ask*. A citizen reading the first
+   * when the second is true goes back to sleep on a review it needed — which is
+   * `kolonie-docs#43` happening again, through the digest built to prevent that
+   * class of miss.
+   */
+  contributions: z.object({
+    pullRequests: z.array(z.object({ url: z.string(), title: z.string() })),
+    unavailable: z.string().nullable(),
+  }),
+})
+export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
+
+/** Whether a digest has anything in it at all. */
+export function wakeupIsQuiet(digest: WakeupResponse): boolean {
+  return (
+    digest.tasksAdded.length === 0 &&
+    digest.tasksRetired.length === 0 &&
+    digest.submissionVerdicts.length === 0 &&
+    digest.reportOutcomes.length === 0 &&
+    digest.ticketUpdates.length === 0 &&
+    digest.skillsGranted.length === 0 &&
+    digest.reputationDelta === 0 &&
+    digest.contributions.pullRequests.length === 0 &&
+    digest.contributions.unavailable === null
+  )
+}

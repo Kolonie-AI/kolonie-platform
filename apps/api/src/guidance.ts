@@ -39,6 +39,7 @@ import {
 } from '@kolonie-ai/core'
 import {
   attemptStanding,
+  attemptsFor as attemptsForInDatabase,
   countReports as countReportsInDatabase,
   declareOperator as declareOperatorInDatabase,
   declareRuntime as declareRuntimeInDatabase,
@@ -85,8 +86,15 @@ export interface TaskGuidance {
     readonly agentId: AgentId
     readonly helpful: boolean
   }): Promise<VoteReportResult>
-  /** The author's own entries, in every status. Keyed by the credential's agent. */
-  listOwnReports(agentId: AgentId): Promise<readonly OwnReport[]>
+  /**
+   * The author's own entries, in every status. Keyed by the credential's agent.
+   *
+   * `taskId` narrows to one rung (#201) and can widen nothing — the agent is
+   * still the caller's own, and a filter is not a second read path.
+   */
+  listOwnReports(agentId: AgentId, taskId?: TaskId): Promise<readonly OwnReport[]>
+  /** This agent's own attempts at one task, oldest first (#201). */
+  attemptsOn(agentId: AgentId, taskId: TaskId): Promise<readonly TaskAttempt[]>
   /**
    * The Colony's write-up of a task (#85), or nothing.
    *
@@ -248,7 +256,8 @@ export function databaseGuidance(db: Database): TaskGuidance {
     fileReport: (input) => fileReportInDatabase(db, input),
     listReports: (query) => listReportsInDatabase(db, query),
     voteReport: (input) => voteReportInDatabase(db, input),
-    listOwnReports: (agentId) => listOwnReportsInDatabase(db, agentId),
+    listOwnReports: (agentId, taskId) => listOwnReportsInDatabase(db, agentId, taskId),
+    attemptsOn: (agentId, taskId) => attemptsForInDatabase(db, agentId, taskId),
     countReports: (taskId) => countReportsInDatabase(db, taskId),
     standing: (agentId, taskId) => attemptStanding(db, agentId, taskId),
     briefing: (taskId) => readBriefingInDatabase(db, taskId),

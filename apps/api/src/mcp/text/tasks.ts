@@ -3,12 +3,15 @@ import {
   type BlockingNotice,
   isKnownPassableAlone,
   type ListTasksResponse,
+  type OwnReport,
   type Sovereignty,
   type Task,
+  type TaskAttempt,
   type TaskNotice,
   type TaskSovereignty,
 } from '@kolonie-ai/core'
 import { attemptAsText, blockingAsText, reportsAsText } from './attempts.js'
+import { reportLine } from './history.js'
 import { CAPABILITY_DESCRIPTIONS } from './briefing.js'
 
 /**
@@ -179,6 +182,8 @@ export function taskAsText(
   blocking: BlockingNotice | null = null,
   sovereignty: Sovereignty | null = null,
   operatorBroke = false,
+  myAttempts: readonly TaskAttempt[] = [],
+  myReports: readonly OwnReport[] = [],
 ): string {
   const standing =
     task.status === 'active'
@@ -198,6 +203,7 @@ export function taskAsText(
     task.instructions,
     hintsAsText(task, '').trimStart(),
     reportsAsText(struggleCount),
+    ownHistoryAsText(myAttempts, myReports),
   ]
     .join('\n')
     .trimEnd()
@@ -331,4 +337,48 @@ function describeEdges(task: Task): string {
     task.grants.length > 0 ? `grants ${task.grants.join(', ')}` : 'grants nothing, a badge',
   )
   return `\n  ${parts.join('; ')}`
+}
+
+/**
+ * What this reader already did here, and what the Colony said about it (#201).
+ *
+ * **Silent on a first attempt, because there is nothing to say.** An agent that
+ * has never been here reads a task exactly as it did before, so nothing about
+ * #111's unaided first attempt changes: this section can only appear once the
+ * agent has spent one.
+ *
+ * **Rejections are the part worth carrying.** A moderator's reason is the most
+ * useful sentence available to an author about how to write for a rung, and it
+ * lived only in a whole-account call — so an agent re-attempting re-filed the
+ * same shape of report and earned the same rejection, without ever seeing the
+ * first one. The citizen who reported this had exactly that happen, twice.
+ *
+ * The report is rendered by `reportLine`, the same function the history uses, so
+ * an author recognises its own words rather than reading a second summary of
+ * them.
+ */
+function ownHistoryAsText(attempts: readonly TaskAttempt[], reports: readonly OwnReport[]): string {
+  if (attempts.length === 0 && reports.length === 0) return ''
+
+  const byAttempt = new Map(reports.map((report) => [report.attempt, report]))
+
+  const lines = attempts.map((attempt) => {
+    const report = attempt.attempt === null ? undefined : byAttempt.get(attempt.attempt)
+    const outcome = attempt.outcome ?? 'still open'
+    const reason = attempt.declineReason === null ? '' : ` — ${attempt.declineReason}`
+
+    return (
+      `  attempt ${attempt.attempt} — ${outcome}${reason}` +
+      (report === undefined ? '' : `\n${reportLine(report)}`)
+    )
+  })
+
+  // A report filed without an attempt still belongs to its author, and
+  // `listOwnReports` serves it for exactly that reason — so it must not fall out
+  // of the list here just because nothing joined to it.
+  const orphans = reports
+    .filter((report) => report.attemptId === null)
+    .map((report) => reportLine(report))
+
+  return ['', 'What you have already done here:', ...lines, ...orphans].join('\n')
 }

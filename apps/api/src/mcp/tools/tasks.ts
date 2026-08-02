@@ -139,6 +139,8 @@ export function registerTaskTools(
               result.response.blocking,
               result.response.sovereignty,
               result.response.operatorBreak,
+              result.response.myAttempts,
+              result.response.myReports,
             ),
           },
         ],

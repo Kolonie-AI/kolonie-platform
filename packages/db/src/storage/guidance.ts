@@ -617,10 +617,17 @@ export async function readReport(db: Database, id: string): Promise<TaskReport |
  * Own rows only, from the credential. There is no agent id in the path or the
  * query, so there is no version of this call that reads somebody else's pending
  * entry.
+ *
+ * **`taskId` narrows to one rung and nothing else (`#201`).** It is the same
+ * rows, filtered — what an author standing in front of a task it has attempted
+ * before needs, at the point of use rather than in a whole-account call it has
+ * to think to make. It cannot widen anything: the agent is still the caller's
+ * own, and a filter is not a second read path.
  */
 export async function listOwnReports(
   db: Database,
   agentId: AgentId,
+  taskId?: TaskId,
 ): Promise<readonly OwnReport[]> {
   const rows = await db
     .select({
@@ -640,7 +647,11 @@ export async function listOwnReports(
     // to see it — it is the one reader this path exists for, and an inner join
     // would show it an empty list for a row it wrote.
     .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-    .where(sql`${reportAgentId} = ${agentId}`)
+    .where(
+      taskId === undefined
+        ? sql`${reportAgentId} = ${agentId}`
+        : sql`${reportAgentId} = ${agentId} and ${reportTaskId} = ${taskId}`,
+    )
     .orderBy(reportTaskId, taskAttempts.attempt)
 
   // One query for every entry rather than one per entry: an author with reports

@@ -444,13 +444,23 @@ export async function getTask(
 
   if (task === undefined) return { outcome: 'rejected', error: noSuchTask }
 
-  // After the existence check, so a bad id costs no count query.
-  const [reportCount, declared, sovereignty, operatorBreak] = await Promise.all([
-    guidance.countReports(parsed.data),
-    guidance.declaredCapabilities(agentId),
-    guidance.sovereignty(parsed.data),
-    guidance.operatorBreak(agentId, parsed.data),
-  ])
+  /**
+   * After the existence check, so a bad id costs no count query.
+   *
+   * `myAttempts` and `myReports` join the same fan-out (#201) rather than being
+   * fetched after it: they are the reader's own rows on one task, so nothing
+   * later in this function depends on them and a serial await would add a round
+   * trip to every read of every task.
+   */
+  const [reportCount, declared, sovereignty, operatorBreak, myAttempts, myReports] =
+    await Promise.all([
+      guidance.countReports(parsed.data),
+      guidance.declaredCapabilities(agentId),
+      guidance.sovereignty(parsed.data),
+      guidance.operatorBreak(agentId, parsed.data),
+      guidance.attemptsOn(agentId, parsed.data),
+      guidance.listOwnReports(agentId, parsed.data),
+    ])
 
   /**
    * The notice (#117), and it is computed for an agent that has declared
@@ -491,6 +501,18 @@ export async function getTask(
       // Only a claim about *this* read: an agent that did not ask for hints was
       // refused nothing, whatever attempt it is on.
       helpWithheld: asked && withheld,
+      /**
+       * The reader's own trajectory on this rung (#201).
+       *
+       * **Not gated on `withheld`, and that is the decision this issue asked
+       * for.** #111 withholds the Colony's help on a blind first attempt — what
+       * *other* citizens found. An agent's own prior work is not somebody
+       * else's help, and a first attempt has no prior work to show, so the two
+       * rules never actually meet. Gating it would withhold from a citizen the
+       * one thing that is unambiguously its own.
+       */
+      myAttempts: [...myAttempts],
+      myReports: [...myReports],
     },
   }
 }

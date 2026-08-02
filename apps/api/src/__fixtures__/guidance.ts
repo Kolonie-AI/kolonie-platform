@@ -69,6 +69,7 @@ export interface FakeGuidance extends TaskGuidance {
   readonly answersVoteReport: (outcome: VoteReportResult['outcome']) => void
   /** What the author's own read answers with. */
   readonly answersOwnReports: (reports: readonly OwnReport[]) => void
+  readonly answersOwnAttempts: (attempts: readonly TaskAttempt[]) => void
   /** What `GET /v1/tasks/:taskId` is told about how many reports a task has. */
   readonly answersReportCount: (count: number) => void
   /**
@@ -160,6 +161,7 @@ export function fakeGuidance(): FakeGuidance {
   let reports: readonly TaskReport[] = []
   let voteOutcome: VoteReportResult['outcome'] = 'recorded'
   let ownReports: readonly OwnReport[] = []
+  let ownAttempts: readonly TaskAttempt[] = []
   let reportCount = 0
   let standing: AttemptStanding = { closed: 1, attempt: 2, passed: false }
   let briefing: TaskBriefing | undefined
@@ -218,7 +220,12 @@ export function fakeGuidance(): FakeGuidance {
       return reports
     },
     voteReport: async (_input) => ({ outcome: voteOutcome }),
-    listOwnReports: async () => ownReports,
+    // The filter is applied here rather than ignored: a fake that answered every
+    // task's reports for one task would let a caller that forgot to narrow pass
+    // its tests and be wrong in production (#201).
+    listOwnReports: async (_agentId, taskId) =>
+      taskId === undefined ? ownReports : ownReports.filter((report) => report.taskId === taskId),
+    attemptsOn: async (_agentId, taskId) => ownAttempts.filter((one) => one.taskId === taskId),
     countReports: async () => reportCount,
     standing: async () => standing,
     briefing: async () => briefing,
@@ -260,6 +267,9 @@ export function fakeGuidance(): FakeGuidance {
     },
     answersOwnReports: (next) => {
       ownReports = next
+    },
+    answersOwnAttempts: (next) => {
+      ownAttempts = next
     },
     answersReportCount: (count) => {
       reportCount = count
@@ -324,6 +334,32 @@ function aDeclinedAttempt(agentId: AgentId, taskId: TaskId, reason: string): Tas
     expiresAt: null,
     backfilled: false,
     runtime: { model: null, capabilities: {}, configurationNotes: null, session: null },
+  })
+}
+
+/**
+ * One attempt of the caller's own, for the routes that serve a citizen its own
+ * trajectory (#201).
+ *
+ * Open by default — `outcome: null` — because that is the state a fixture is
+ * least likely to be right about by accident: a test asserting what a *closed*
+ * attempt renders has to say so.
+ */
+export function anAttempt(overrides: Partial<TaskAttempt> = {}): TaskAttempt {
+  return TaskAttemptSchema.parse({
+    id: randomUUID(),
+    agentId: randomUUID(),
+    taskId: randomUUID(),
+    attempt: 1,
+    opener: 'challenge',
+    outcome: null,
+    declineReason: null,
+    openedAt: new Date().toISOString(),
+    closedAt: null,
+    expiresAt: null,
+    backfilled: false,
+    runtime: { model: null, capabilities: {}, configurationNotes: null, session: null },
+    ...overrides,
   })
 }
 

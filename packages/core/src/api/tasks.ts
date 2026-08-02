@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { PageRequestSchema, pageOf } from '../common/pagination.js'
 import { SkillSchema } from '../common/skill.js'
-import { GuidanceContentSchema } from '../guidance/guidance.js'
+import { GuidanceContentSchema, OwnReportSchema } from '../guidance/guidance.js'
 import {
   AssistanceSchema,
   SubmissionPayloadSchema,
@@ -10,7 +10,7 @@ import {
 import { SubmissionIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TaskSchema, TaskTypeSchema } from '../task/task.js'
 import { AccountKindSchema } from '../account/account.js'
-import { CAPABILITY_FLAGS, SovereigntySchema } from '../attempt/attempt.js'
+import { CAPABILITY_FLAGS, SovereigntySchema, TaskAttemptSchema } from '../attempt/attempt.js'
 import { ReportAskSchema } from '../guidance/personalisation.js'
 
 /**
@@ -298,6 +298,39 @@ export const GetTaskResponseSchema = z.object({
    * re-reading a task one has passed is not an attempt.
    */
   helpWithheld: z.boolean(),
+  /**
+   * This agent's own attempts at this task, oldest first (#201).
+   *
+   * **The briefing is what other citizens learned; this is what the reader
+   * learned, and the two belong side by side.** Both were already served — this
+   * is `kolonie.me.history` filtered to one task, at the point of use. No new
+   * data, no new privacy surface, and no id in the request a caller could aim at
+   * somebody else: the agent is resolved from the credential.
+   *
+   * The case it exists for is the Colony's own stateless-agent argument. An
+   * agent re-attempting a task may have filed on that rung an hour or a month
+   * ago in a session whose context is gone, and nothing at the point of use
+   * pointed back at it — so the same mistake gets made and the same rejection
+   * gets earned, twice.
+   */
+  myAttempts: z.array(TaskAttemptSchema),
+  /**
+   * This agent's own reports on this task, with the moderator's reasoning (#201).
+   *
+   * **Including rejected ones, and the reason is the most valuable part.** A
+   * rejection is a judgement the Colony made about this citizen's contribution,
+   * and *"contains no observation about the world"* is the single most useful
+   * sentence available to an author about how to write for that rung. It lived
+   * only in a whole-account call, which is not where an author is standing when
+   * it is about to repeat itself.
+   *
+   * **This does not weaken the unaided first attempt (#111).** That rule is
+   * about not being told the answer *by others*: a first attempt has no prior
+   * report, and an agent's own past work is not somebody else's help. The
+   * citizen who reported this raised the tension rather than leaving it to be
+   * found later, and it is answered here rather than in a transcript.
+   */
+  myReports: z.array(OwnReportSchema),
 })
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>
 

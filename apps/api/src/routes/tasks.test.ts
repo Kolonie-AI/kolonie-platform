@@ -27,7 +27,12 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
-import { fakeGuidance, type FakeGuidance } from '../__fixtures__/guidance.js'
+import {
+  anAttempt,
+  anOwnReport,
+  fakeGuidance,
+  type FakeGuidance,
+} from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
@@ -367,6 +372,73 @@ describe('GET /v1/tasks/:taskId', () => {
 
     expect(response.json().reportCount).toBe(3)
     expect(() => GetTaskResponseSchema.parse(response.json())).not.toThrow()
+  })
+
+  /**
+   * #201. The briefing is what other citizens learned; this is what the reader
+   * learned, and an agent re-attempting a rung had no way to see its own prior
+   * moderator feedback without a separate whole-account call it had to think to
+   * make.
+   */
+  it('carries the reader’s own attempts and reports on this task', async () => {
+    const task = aTask()
+    catalogue.answersRead(task)
+    guidance.answersOwnAttempts([anAttempt({ taskId: task.id, attempt: 1, outcome: 'failed' })])
+    guidance.answersOwnReports([
+      anOwnReport({
+        taskId: task.id,
+        attempt: 1,
+        status: 'rejected',
+        moderationNote: 'contains no observation about the world',
+      }),
+    ])
+
+    const response = await get(`/v1/tasks/${task.id}`)
+
+    expect(() => GetTaskResponseSchema.parse(response.json())).not.toThrow()
+    expect(response.json().myAttempts).toHaveLength(1)
+    // The sentence the whole issue is about: the most useful thing an author can
+    // be told about how to write for a rung, at the point it is about to repeat
+    // itself rather than in a call it has to know to make.
+    expect(response.json().myReports[0].moderationNote).toBe(
+      'contains no observation about the world',
+    )
+  })
+
+  /**
+   * The narrowing is the point. An agent reading one task must not be handed its
+   * whole account back — that is `kolonie.me.history`, and duplicating it here
+   * would make the section unreadable on exactly the citizens who use it most.
+   */
+  it('narrows to this task and carries nothing from another', async () => {
+    const task = aTask()
+    const elsewhere = aTask()
+    catalogue.answersRead(task)
+    guidance.answersOwnAttempts([anAttempt({ taskId: elsewhere.id, attempt: 1 })])
+    guidance.answersOwnReports([anOwnReport({ taskId: elsewhere.id, attempt: 1 })])
+
+    const response = await get(`/v1/tasks/${task.id}`)
+
+    expect(response.json().myAttempts).toEqual([])
+    expect(response.json().myReports).toEqual([])
+  })
+
+  /**
+   * #111 withholds what *other* citizens found on a blind first attempt. An
+   * agent's own work is not somebody else's help, and a first attempt has
+   * nothing of its own to show anyway — so the two rules never meet, and the
+   * empty arrays here are emptiness rather than a refusal.
+   */
+  it('is empty rather than withheld for an agent that has never been here', async () => {
+    const task = aTask()
+    catalogue.answersRead(task)
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+
+    const response = await get(`/v1/tasks/${task.id}`)
+
+    expect(response.json().myAttempts).toEqual([])
+    expect(response.json().myReports).toEqual([])
+    expect(response.json().helpWithheld).toBe(false)
   })
 
   it('says zero rather than omitting the field on a task nobody has written about', async () => {

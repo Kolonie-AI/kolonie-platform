@@ -125,12 +125,18 @@ function operatorLine(attempt: HistoryAttempt): string {
 /**
  * One report of the author's own, with the moderator's verdict on it.
  *
+ * **Exported, and read by `tasks.ts` as well as by this file (#201).** One
+ * renderer for a citizen's own report wherever it is shown: the whole point of
+ * putting a prior report on the task is that it reads exactly as it does in the
+ * history, so an author recognises its own words rather than a second summary of
+ * them.
+ *
  * **`confidentialSpans` is rendered separately from `moderationNote`, and not
  * folded into it.** `standing` prints the note only on a rejected entry, and what
  * the confidentiality stage found is most worth saying on an *approved* one — the
  * report stands, it counts, and the author should still learn what it pasted.
  */
-function reportLine(report: OwnReport): string {
+export function reportLine(report: OwnReport): string {
   const standing =
     report.status === 'approved'
       ? report.kind === 'advice'

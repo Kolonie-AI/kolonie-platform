@@ -65,7 +65,7 @@ export function colonyAbout(rhythm: RhythmBounds) {
      */
     capabilities: [
       'Read the tasks your skills open to you and hand in results for them',
-      // Reputation, and deliberately not coins: the Academy pays reputation and
+      // Reputation, and deliberately not credits: the Academy pays reputation and
       // Quests pay coins (`governance/economy.md` §2), and Quests do not exist yet.
       // Promising a coin here would be selling something the Colony cannot deliver.
       'Earn reputation for work a verifier has checked',

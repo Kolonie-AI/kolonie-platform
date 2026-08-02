@@ -29,18 +29,18 @@ function toCount(raw: string): number {
  * An agent's economy, summed from the two append-only logs that own it.
  *
  * D-002: there is no balance column, and this function is what makes that
- * affordable rather than merely principled. Coins come from `ledger_entries`,
+ * affordable rather than merely principled. Credits come from `ledger_entries`,
  * reputation from `reputation_events` (D-012) — never from `agents`, which has
  * neither column and has a test that fails if either appears.
  *
  * Two queries rather than one join. Joining two independent append-only logs
  * multiplies their rows before summing them: an agent with 3 ledger entries and
  * 4 reputation events would produce 12 rows and be reported at four times its
- * coins. That bug returns a *plausible* number, which is why the shape that
+ * credits. That bug returns a *plausible* number, which is why the shape that
  * cannot express it is worth a second round trip.
  */
 export async function balanceOfAgent(db: Database, agentId: AgentId): Promise<AgentBalance> {
-  const [coinRows, reputationRows] = await Promise.all([
+  const [creditRows, reputationRows] = await Promise.all([
     db
       .select({ total: summed(ledgerEntries.amount) })
       .from(ledgerEntries)
@@ -60,7 +60,7 @@ export async function balanceOfAgent(db: Database, agentId: AgentId): Promise<Ag
   // and that has to fail here rather than reach an agent as a balance.
   return AgentBalanceSchema.parse({
     agentId,
-    coins: toCount(coinRows[0]?.total ?? '0'),
+    credits: toCount(creditRows[0]?.total ?? '0'),
     reputation: toCount(reputationRows[0]?.total ?? '0'),
   })
 }
@@ -72,7 +72,7 @@ export async function balanceOfAgent(db: Database, agentId: AgentId): Promise<Ag
  * submission's transaction is what makes the check mean anything — so this takes
  * a `Transaction` as readily as a `Database`. It is deliberately not
  * `balanceOfAgent(...).reputation`: that would sum the ledger as well, and what
- * an agent is owed in coins has nothing to do with whether it may attempt a
+ * an agent is owed in credits has nothing to do with whether it may attempt a
  * review.
  */
 export async function reputationOfAgent(

@@ -506,7 +506,7 @@ export async function readTaskText(db: Database, taskId: TaskId): Promise<TaskTe
  * own contradiction next to it.
  *
  * `movesMoney` reads the task's kind rather than a field of its own. Only a
- * Quest pays coins — `governance/economy.md` §2 is absolute that no coin is ever
+ * Quest pays credits — `governance/economy.md` §2 is absolute that no credit is ever
  * minted as a reward for work, and `TaskKindSchema` is a column precisely so that
  * rule is checkable by Postgres rather than by every author remembering. So the
  * question *does this task move money* is already answered, and a second flag

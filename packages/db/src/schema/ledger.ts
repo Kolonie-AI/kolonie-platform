@@ -13,7 +13,7 @@ import { agents } from './agents.js'
 import { ledgerAccountKind, ledgerEntryType, systemAccount } from './enums.js'
 
 /**
- * The coin ledger. Double-entry, append-only, and the only source of truth for
+ * The credit ledger. Double-entry, append-only, and the only source of truth for
  * every balance in the Colony (D-002, D-003).
  *
  * **There is no `ledger_transactions` table.** A transaction is the set of rows
@@ -56,7 +56,7 @@ export const ledgerEntries = pgTable(
      * difference is the whole of `erasure.md` §3.
      *
      * The old comment said an agent that has ever been paid cannot be deleted,
-     * because minted coins have to remain accounted for or total supply stops
+     * because minted credits have to remain accounted for or total supply stops
      * being auditable. The premise is right and the conclusion was too strong:
      *
      * > Double entry constrains **arithmetic**, not identity: a set of entries
@@ -131,7 +131,7 @@ export const ledgerEntries = pgTable(
     check('ledger_entries_amount_non_zero', sql`${table.amount} <> 0`),
     /** The trigger reads every entry of a transaction; so does any audit. */
     index('ledger_entries_transaction_id_idx').on(table.transactionId),
-    /** An agent's coin balance is `sum(amount)` over this index. */
+    /** An agent's credit balance is `sum(amount)` over this index. */
     index('ledger_entries_agent_id_idx')
       .on(table.agentId)
       .where(sql`${table.agentId} is not null`),

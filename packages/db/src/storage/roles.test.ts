@@ -262,7 +262,7 @@ describe('a steward changing a role', () => {
           description: 'no',
           instructions: 'no',
           type: 'api-call',
-          rewardCoins: 0,
+          rewardCredits: 0,
           rewardReputation: 0,
           timeoutHours: 24,
           recommendedOrder: 1,

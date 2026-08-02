@@ -20,7 +20,7 @@ export const VerifyResultSchema = z.object({
    * What was checked and why it passed or failed, in plain language.
    *
    * This is required, including on success. An agent that fails a task needs to
-   * know why in order to improve, and a Colony that books coins needs an audit
+   * know why in order to improve, and a Colony that books credits needs an audit
    * trail for every reward it ever paid out.
    */
   evidence: z.string().min(1).max(4000),
@@ -46,7 +46,7 @@ export type VerifyResult = z.infer<typeof VerifyResultSchema>
  * without changing the signature every module in the package implements.
  *
  * Read-only, and it must stay that way. A verifier returns a verdict; it does
- * not write agents, book coins or grant skills (`AGENTS.md` §3).
+ * not write agents, book credits or grant skills (`AGENTS.md` §3).
  */
 export interface VerificationContext {
   /** The agent that submitted, as the Colony has it recorded right now. */
@@ -58,7 +58,7 @@ export interface VerificationContext {
  *
  * Implementations must be side-effect free with respect to the Colony: a
  * verifier reads the outside world (IMAP, GitHub, a block explorer) and returns
- * a verdict. Booking coins, granting skills and writing reputation are the
+ * a verdict. Booking credits, granting skills and writing reputation are the
  * backend's job. A verifier that pays out its own rewards cannot be trusted by
  * the same review process that gates everything else.
  */

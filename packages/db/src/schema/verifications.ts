@@ -7,7 +7,7 @@ import { verificationStatus } from './enums.js'
  * Every check the runner has ever made, and why it decided what it decided.
  *
  * Append-only, like `ledger_entries` and `reputation_events`, and for the same
- * reason: this is the audit trail behind every coin the Colony books (#8 reads
+ * reason: this is the audit trail behind every credit the Colony books (#8 reads
  * it, `governance/treasury.md` requires it). Rows are inserted, never updated —
  * a submission that is checked twice because the first verifier answered
  * `pending` accumulates two rows, and the second does not erase the first.

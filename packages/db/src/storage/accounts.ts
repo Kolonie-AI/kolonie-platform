@@ -260,7 +260,7 @@ export const CAPABILITY_FROM_BADGE: Readonly<
  * an account all write their identifier already, and a test pins each one.
  *
  * It never throws into the booking. A register that failed to record something
- * must not cost a citizen the coins for work it actually did — the register is a
+ * must not cost a citizen the credits for work it actually did — the register is a
  * description of evidence, and the evidence is the verdict, which is committed
  * by the same transaction either way.
  */

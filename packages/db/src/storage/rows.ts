@@ -117,7 +117,7 @@ export function toTask(
     title: row.title,
     description: row.description,
     instructions: row.instructions,
-    reward: { coins: row.rewardCoins, reputation: row.rewardReputation },
+    reward: { credits: row.rewardCredits, reputation: row.rewardReputation },
     assistanceAllowed: row.assistanceAllowed,
     prerequisiteTaskIds: row.prerequisiteTaskIds,
     timeoutHours: row.timeoutHours,
@@ -137,7 +137,7 @@ export function toTask(
  * Same contract as {@link toAgent}, and one thing of its own: `verifiedAt` is
  * `null` until a verdict exists, and `null` must survive as `null` rather than
  * becoming the epoch. A submission that claims to have been decided in 1970 is
- * not a cosmetic bug — it is the audit trail of a coin payout saying the wrong
+ * not a cosmetic bug — it is the audit trail of a credit payout saying the wrong
  * thing about when the payout was earned.
  */
 export function toSubmission(

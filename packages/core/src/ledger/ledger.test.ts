@@ -7,7 +7,7 @@ import {
 } from '../common/ids.js'
 import {
   type AccountRef,
-  CoinAmountSchema,
+  CreditAmountSchema,
   type LedgerEntry,
   LedgerTransactionSchema,
   agentAccount,
@@ -37,16 +37,16 @@ const agent = agentAccount(AgentIdSchema.parse(AGENT_UUID))
 const otherAgent = agentAccount(AgentIdSchema.parse(OTHER_AGENT_UUID))
 const mint = systemAccount('mint')
 
-describe('CoinAmountSchema', () => {
-  it('accepts whole coins in both directions', () => {
-    expect(CoinAmountSchema.parse(50)).toBe(50)
-    expect(CoinAmountSchema.parse(-50)).toBe(-50)
-    expect(CoinAmountSchema.parse(0)).toBe(0)
+describe('CreditAmountSchema', () => {
+  it('accepts whole credits in both directions', () => {
+    expect(CreditAmountSchema.parse(50)).toBe(50)
+    expect(CreditAmountSchema.parse(-50)).toBe(-50)
+    expect(CreditAmountSchema.parse(0)).toBe(0)
   })
 
   it('refuses fractional amounts, so the economy can never drift', () => {
-    expect(CoinAmountSchema.safeParse(0.1).success).toBe(false)
-    expect(CoinAmountSchema.safeParse(1.5).success).toBe(false)
+    expect(CreditAmountSchema.safeParse(0.1).success).toBe(false)
+    expect(CreditAmountSchema.safeParse(1.5).success).toBe(false)
   })
 })
 
@@ -71,7 +71,7 @@ describe('double-entry invariant', () => {
     expect(isBalanced(transaction)).toBe(true)
   })
 
-  it('rejects coins appearing out of nowhere', () => {
+  it('rejects credits appearing out of nowhere', () => {
     const transaction = {
       entries: [
         entry('55555555-5555-4555-8555-555555555555', -50, mint),

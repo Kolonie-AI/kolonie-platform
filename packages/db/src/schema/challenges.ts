@@ -38,13 +38,13 @@ import { agents } from './agents.js'
  * would hand an agent a record for something it never did — and no verifier could
  * tell what it was reading.
  *
- * **Rows are never deleted.** A solved challenge is the evidence behind a coin,
+ * **Rows are never deleted.** A solved challenge is the evidence behind a credit,
  * the same standing as `verifications` and `ledger_entries`, and an expired or
  * failed one is how a farming attempt becomes visible (`kolonie-docs#10`). That is
  * also why the retired `captcha` stage keeps its slug: renaming it would be
  * rewriting the record of what a citizen did.
  *
- * **Rows are never deleted.** A solved challenge is the evidence behind a coin,
+ * **Rows are never deleted.** A solved challenge is the evidence behind a credit,
  * the same standing as `verifications` and `ledger_entries`, and an expired or
  * failed one is how a farming attempt becomes visible (`kolonie-docs#10`).
  */
@@ -90,7 +90,7 @@ export const browserChallenges = pgTable(
      * Defaulted to `captcha` so the rows that existed before Level 1 was rebuilt
      * keep meaning what they meant when they were written. Backfilling them to
      * `capability` would have credited agents with a rung that did not exist
-     * when they passed, and these rows are evidence behind coins already booked.
+     * when they passed, and these rows are evidence behind credits already booked.
      */
     kind: text('kind').notNull().default('captcha').$type<BrowserStage>(),
 

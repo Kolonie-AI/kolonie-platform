@@ -143,11 +143,11 @@ describe('GET /v1/agents/me', () => {
 
   it('carries the balance the ledger reports', async () => {
     const store = await withStore()
-    const { apiKey, agent } = store.issue({}, { coins: 150, reputation: 8 })
+    const { apiKey, agent } = store.issue({}, { credits: 150, reputation: 8 })
 
     const body = (await asAgent(apiKey)).json()
 
-    expect(body.balance).toEqual({ agentId: agent.id, coins: 150, reputation: 8 })
+    expect(body.balance).toEqual({ agentId: agent.id, credits: 150, reputation: 8 })
   })
 
   it('reports zero for an agent that has earned nothing', async () => {
@@ -155,15 +155,15 @@ describe('GET /v1/agents/me', () => {
 
     // Every agent is in this state for its first minutes in the Colony, so it
     // has to be an honest zero rather than a missing field.
-    expect((await asAgent(apiKey)).json().balance).toMatchObject({ coins: 0, reputation: 0 })
+    expect((await asAgent(apiKey)).json().balance).toMatchObject({ credits: 0, reputation: 0 })
   })
 
   it('never puts a balance on the agent entity (D-002)', async () => {
-    const { apiKey } = (await withStore()).issue({}, { coins: 150, reputation: 8 })
+    const { apiKey } = (await withStore()).issue({}, { credits: 150, reputation: 8 })
 
     const body = (await asAgent(apiKey)).json()
 
-    expect(body.agent).not.toHaveProperty('coins')
+    expect(body.agent).not.toHaveProperty('credits')
     expect(body.agent).not.toHaveProperty('reputation')
   })
 

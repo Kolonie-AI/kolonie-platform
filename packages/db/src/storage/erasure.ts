@@ -177,10 +177,10 @@ export async function eraseAgent(
      */
     const disturbed = await countsThisWillDisturb(tx, command.agentId)
 
-    const coinsBurned = await balanceOf(tx, command.agentId)
+    const creditsBurned = await balanceOf(tx, command.agentId)
     const reputationDestroyed = await reputationOf(tx, command.agentId)
 
-    if (coinsBurned !== 0) {
+    if (creditsBurned !== 0) {
       const transactionId = LedgerTransactionIdSchema.parse(crypto.randomUUID())
       // Both legs in one statement, sharing a transaction id, exactly as
       // `bookTaskReward` writes a payout. The deferred trigger checks it at
@@ -190,7 +190,7 @@ export async function eraseAgent(
           transactionId,
           accountKind: 'agent',
           agentId: command.agentId,
-          amount: -coinsBurned,
+          amount: -creditsBurned,
           type: 'adjustment',
           // No agent id, no name. The row is deleted below, but a memo is the
           // sort of thing that gets copied into a log on its way past.
@@ -200,7 +200,7 @@ export async function eraseAgent(
           transactionId,
           accountKind: 'system',
           systemAccount: 'mint',
-          amount: coinsBurned,
+          amount: creditsBurned,
           type: 'adjustment',
           memo: 'Erasure — balance burned to zero',
         },
@@ -213,7 +213,7 @@ export async function eraseAgent(
       // returned because it is a defect in this function and not an answer to
       // the citizen. Throwing rolls the whole transaction back, which is the
       // outcome that keeps the account intact.
-      throw new Error(`erasure would delete ${remaining} coins that were never burned`)
+      throw new Error(`erasure would delete ${remaining} credits that were never burned`)
     }
 
     /**
@@ -263,7 +263,7 @@ export async function eraseAgent(
     const [row] = await tx
       .insert(erasures)
       .values({
-        coinsBurned,
+        creditsBurned,
         reputationDestroyed,
         ...(command.reason === undefined ? {} : { reason: command.reason }),
       })
@@ -273,7 +273,7 @@ export async function eraseAgent(
       outcome: 'erased',
       receipt: {
         erasedAt: row!.createdAt,
-        coinsBurned,
+        creditsBurned,
         reputationDestroyed,
         counts,
         banMarksWritten: marks,
@@ -333,7 +333,7 @@ async function bookingsBeyondTheMint(tx: Transaction, agentId: AgentId): Promise
   )
 }
 
-/** The citizen's coin balance, summed from the ledger. There is no balance column (D-002). */
+/** The citizen's credit balance, summed from the ledger. There is no balance column (D-002). */
 async function balanceOf(tx: Transaction, agentId: AgentId): Promise<number> {
   const rows = await tx.execute<{ total: string }>(
     sql`select coalesce(sum(amount), 0)::text as total

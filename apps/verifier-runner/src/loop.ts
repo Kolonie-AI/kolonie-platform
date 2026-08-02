@@ -210,7 +210,7 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   const booked =
     written.booking === undefined
       ? ''
-      : ` — booked ${written.booking.coins} coin(s) and ${written.booking.reputation} reputation` +
+      : ` — booked ${written.booking.credits} coin(s) and ${written.booking.reputation} reputation` +
         // What the pass *opened*, which is the half an operator cannot infer
         // from the ledger. A badge grants nothing and says so, rather than
         // looking like a grant that failed.

@@ -74,7 +74,7 @@ describe('AgentSchema', () => {
 
   it('has no balance field — balances are derived from the ledger', () => {
     const agent = AgentSchema.parse(validAgent)
-    expect(agent).not.toHaveProperty('coins')
+    expect(agent).not.toHaveProperty('credits')
     expect(agent).not.toHaveProperty('reputation')
   })
 })

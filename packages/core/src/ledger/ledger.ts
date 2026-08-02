@@ -8,22 +8,34 @@ import {
 import { TimestampSchema } from '../common/time.js'
 
 /**
- * Coins are integers. Always.
+ * **One Quest Credit is one US cent.** That is the peg, and it is stated here so
+ * that no later reader has to infer it from an amount.
  *
- * `governance/treasury.md` makes the coin ledger the economic backbone of the
- * Colony, and floating point cannot represent money without drift — 0.1 + 0.2
- * is famously not 0.3. One whole coin is the smallest unit; if the Colony ever
- * needs fractions, it introduces a subunit (like cents) rather than a decimal.
+ * `governance/economy.md` §1 draws three layers and puts exactly one of them on a
+ * chain: reputation and Quest Credits live in this Postgres ledger and are not
+ * transferable, and **$KOL lives on Solana and is**. What this ledger holds is
+ * therefore *not* the coin, and the two must not share a word — a reader seeing
+ * `reward_coins` on a quest would reasonably conclude the ledger holds the
+ * tradeable thing, which is the exact conflation §1 exists to prevent. So from
+ * `kolonie-platform#218` onward **"coin" means $KOL and $KOL is not in this
+ * database.**
+ *
+ * Credits are integers. Always. Floating point cannot represent money without
+ * drift — 0.1 + 0.2 is famously not 0.3 — so the cent is the smallest unit and
+ * there are no decimals below it. This is the subunit the previous comment here
+ * anticipated when it said the Colony would introduce one "rather than a
+ * decimal"; a USD-denominated credit whose smallest unit was one whole dollar
+ * could not express fifty cents.
  *
  * Amounts are signed: a credit is positive, a debit is negative.
  */
-export const CoinAmountSchema = z.int()
-export type CoinAmount = z.infer<typeof CoinAmountSchema>
+export const CreditAmountSchema = z.int()
+export type CreditAmount = z.infer<typeof CreditAmountSchema>
 
 /**
  * Accounts that are not agents.
  *
- * `mint`     — origin of newly created coins (rewards). Always goes negative.
+ * `mint`     — origin of newly created credits (rewards). Always goes negative.
  * `treasury` — the Colony's own holdings, spent via governance.
  * `faucet`   — pre-funded pool for Level 4 wallet tasks.
  */
@@ -74,7 +86,7 @@ export const LedgerEntrySchema = z.object({
   /** Groups the entries that must be applied together. */
   transactionId: LedgerTransactionIdSchema,
   account: AccountRefSchema,
-  amount: CoinAmountSchema,
+  amount: CreditAmountSchema,
   type: LedgerEntryTypeSchema,
   memo: z.string().max(500).nullable(),
   createdAt: TimestampSchema,
@@ -82,14 +94,14 @@ export const LedgerEntrySchema = z.object({
 export type LedgerEntry = z.infer<typeof LedgerEntrySchema>
 
 /**
- * A ledger transaction is double-entry: it moves coins between accounts and the
+ * A ledger transaction is double-entry: it moves credits between accounts and the
  * amounts must sum to exactly zero.
  *
  * Creating a reward is therefore not "add 50 to the agent" but "debit 50 from
  * the mint, credit 50 to the agent". The upside is that the Colony's total
  * supply is auditable at any moment by summing every entry ever written — it
  * must equal the negative of the mint balance. A single-entry ledger cannot
- * answer "how many coins exist?" without trusting a counter.
+ * answer "how many credits exist?" without trusting a counter.
  */
 export const LedgerTransactionSchema = z.object({
   id: LedgerTransactionIdSchema,
@@ -101,7 +113,7 @@ export const LedgerTransactionSchema = z.object({
 export type LedgerTransaction = z.infer<typeof LedgerTransactionSchema>
 
 /** Sum of the amounts of the given entries. */
-export function sumEntries(entries: readonly Pick<LedgerEntry, 'amount'>[]): CoinAmount {
+export function sumEntries(entries: readonly Pick<LedgerEntry, 'amount'>[]): CreditAmount {
   return entries.reduce((total, entry) => total + entry.amount, 0)
 }
 
@@ -132,6 +144,6 @@ export function submissionReference(submissionId: SubmissionId): string {
 }
 
 /** Balance of a single account, given the entries that belong to it. */
-export function balanceOf(entries: readonly Pick<LedgerEntry, 'amount'>[]): CoinAmount {
+export function balanceOf(entries: readonly Pick<LedgerEntry, 'amount'>[]): CreditAmount {
   return sumEntries(entries)
 }

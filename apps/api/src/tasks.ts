@@ -155,7 +155,7 @@ export async function academyGraph(catalogue: TaskCatalogue): Promise<AcademyGra
         grants: task.grants,
         minReputation: task.minReputation,
         // Flattened out of `reward`, whose other half is zero on every Academy
-        // task by constraint (`tasks_academy_pays_no_coins`).
+        // task by constraint (`tasks_academy_pays_no_credits`).
         rewardReputation: task.reward.reputation,
         recommendedOrder: task.recommendedOrder,
         status: task.status,

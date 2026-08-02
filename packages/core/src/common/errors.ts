@@ -27,7 +27,7 @@ export const ErrorCodeSchema = z.enum([
    * place where changing it would cost a caller something.
    */
   'level_locked',
-  'insufficient_coins',
+  'insufficient_credits',
   /**
    * The task refuses assisted submissions, and this one declared assistance.
    *
@@ -87,7 +87,7 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   conflict: 409,
   rate_limited: 429,
   level_locked: 403,
-  insufficient_coins: 402,
+  insufficient_credits: 402,
   // 403: the Colony understood the request and will not take it as offered.
   assistance_refused: 403,
   // 409: the previous attempt is unfinished business, and the state of the

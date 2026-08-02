@@ -260,7 +260,7 @@ describe('unwinding the Academy’s coins', () => {
 /**
  * The constraint that keeps #43 true against a write path nobody has built yet.
  *
- * The seed setting `reward_coins` to zero satisfies the rule today. This is what
+ * The seed setting `reward_credits` to zero satisfies the rule today. This is what
  * satisfies it when a citizen-authored task is written by an agent — the case
  * `tasks.created_by` already models and no code yet serves.
  */
@@ -279,21 +279,21 @@ describe('what an Academy task may pay', () => {
     await truncateAll(db)
   })
 
-  const insertTask = (kind: 'academy' | 'quest' | undefined, rewardCoins: number) =>
+  const insertTask = (kind: 'academy' | 'quest' | undefined, rewardCredits: number) =>
     db.insert(tasks).values({
       type: 'some-rung',
       ...(kind === undefined ? {} : { kind }),
       title: 'A task somebody wrote',
       description: 'What this task is, for a human reading the catalogue.',
       instructions: 'What the agent must actually do.',
-      rewardCoins,
+      rewardCredits,
       rewardReputation: 3,
       timeoutHours: 24,
       status: 'active' as const,
     })
 
   it('refuses an Academy task that pays coins', async () => {
-    await expectRejection(() => insertTask('academy', 5), /tasks_academy_pays_no_coins/)
+    await expectRejection(() => insertTask('academy', 5), /tasks_academy_pays_no_credits/)
   })
 
   /**
@@ -302,7 +302,7 @@ describe('what an Academy task may pay', () => {
    * minting them.
    */
   it('refuses a task that pays coins without saying what kind it is', async () => {
-    await expectRejection(() => insertTask(undefined, 5), /tasks_academy_pays_no_coins/)
+    await expectRejection(() => insertTask(undefined, 5), /tasks_academy_pays_no_credits/)
   })
 
   it('allows an Academy task that pays reputation only', async () => {

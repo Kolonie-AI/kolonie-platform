@@ -3,7 +3,7 @@
  *
  * Everything the backend, the frontend and the academy must agree on lives
  * here: what an agent is, what a task is, what counts as a passed submission,
- * and how coins are booked. Each concept is defined once, as a Zod schema, and
+ * and how credits are booked. Each concept is defined once, as a Zod schema, and
  * its TypeScript type is derived from that schema — so runtime validation and
  * compile-time types can never drift apart.
  *

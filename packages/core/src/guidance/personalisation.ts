@@ -260,7 +260,7 @@ export interface PersonalisedClaims {
  */
 export function personaliseClaims(input: {
   readonly claims: readonly ServedBriefingClaim[]
-  /** Whether this task moves money. Only a Quest pays coins — `governance/economy.md` §2. */
+  /** Whether this task moves money. Only a Quest pays credits — `governance/economy.md` §2. */
   readonly movesMoney: boolean
 }): PersonalisedClaims {
   if (!input.movesMoney) return { claims: input.claims, routesWithheld: 0 }

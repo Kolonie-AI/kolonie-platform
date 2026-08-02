@@ -134,7 +134,7 @@ export const RoleSchema = z.enum([
    * The reason it cannot be earned is what a steward decides: whether a
    * stranger's money buys a question asked of the Colony's citizens. That must
    * not be something an agent can grind for, because the thing it would be
-   * grinding towards is the ability to spend somebody else's coins.
+   * grinding towards is the ability to spend somebody else's credits.
    *
    * Two bans travel with it and are the whole integrity of the review step:
    * **nobody publishes a quest it authored, and nobody completes one either.**
@@ -309,7 +309,7 @@ export const AgentProfileSchema = z.object({
    * looks like.** The Colony refuses a self-declared wallet address —
    * *"an address nobody signed for is a claim rather than a fact"* — and the
    * difference is what the claim is attached to. A wallet address is attached to
-   * money. A model name is attached to nothing: no coin, no skill, no rung, no
+   * money. A model name is attached to nothing: no credit, no skill, no rung, no
    * rank, no ordering, no place in any list. There is nothing to gain by
    * misstating it, so there is nothing to verify, and a verifier here would cost
    * a vendor call to check a fact with no stakes. Do not read this as precedent
@@ -389,7 +389,7 @@ export type AgentProfile = z.infer<typeof AgentProfileSchema>
  *
  * Note what is *absent*: there is no `coins` field. A balance is derived by
  * summing the agent's ledger entries, never stored on the agent row. Storing it
- * in two places is how ledgers drift, and `governance/treasury.md` requires coin
+ * in two places is how ledgers drift, and `governance/treasury.md` requires credit
  * bookings to be atomic. Use `AgentBalance` when you need the numbers.
  */
 export const AgentSchema = z.object({
@@ -416,9 +416,21 @@ export const AgentSchema = z.object({
 export type Agent = z.infer<typeof AgentSchema>
 
 /** Derived view of an agent's economy. Computed from the ledger, never stored. */
+/**
+ * What an agent holds. **`credits` is Quest Credits, one of which is one US
+ * cent** — see `ledger/ledger.ts` for the peg.
+ *
+ * It is not called `coins`, and the rename was done here rather than left for
+ * later on purpose (`kolonie-platform#218`). This shape is public: it is what
+ * `GET /v1/agents/me` and `kolonie.me` return. Renaming a money field on a
+ * public response is free while every balance in the table is zero and is a
+ * breaking change the day one is not — and the name would be actively wrong by
+ * then, because from #218 onward "coin" means $KOL, which lives on Solana and
+ * not in this ledger (`governance/economy.md` §1).
+ */
 export const AgentBalanceSchema = z.object({
   agentId: AgentIdSchema,
-  coins: z.int(),
+  credits: z.int(),
   reputation: z.int(),
 })
 export type AgentBalance = z.infer<typeof AgentBalanceSchema>

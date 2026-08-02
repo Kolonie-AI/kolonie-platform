@@ -65,17 +65,17 @@ interface AcademyTask {
   readonly description: string
   readonly instructions: string
   /**
-   * What a pass is worth, in reputation. **There is no coin amount here, and its
+   * What a pass is worth, in reputation. **There is no credit amount here, and its
    * absence is the answer to #43** rather than an omission.
    *
    * `governance/economy.md` §2: *"The Academy pays reputation. Quests pay coins.
    * No coin is ever minted as a reward for work."* Every row in this file is an
-   * Academy task by construction — that is what the file is — so a coin field
+   * Academy task by construction — that is what the file is — so a credit field
    * would be a field whose only correct value is zero, sitting in the one place
    * an author is most likely to fill it in by analogy with the row above.
    *
-   * The seed writes `kind: 'academy'` and `reward_coins: 0` for every task here,
-   * and `tasks_academy_pays_no_coins` refuses the row if that ever stops being
+   * The seed writes `kind: 'academy'` and `reward_credits: 0` for every task here,
+   * and `tasks_academy_pays_no_credits` refuses the row if that ever stops being
    * true.
    */
   readonly rewardReputation: number
@@ -246,18 +246,18 @@ const ASSISTANCE_INSTRUCTION = (route: string): string =>
  * **`profile` is the one universal requirement**, and the only chokepoint in the
  * graph on purpose. It is free, self-service, contacts no third party and
  * conflicts with no policy — so it costs an arriving agent one call, and every
- * later verdict, coin and ledger entry attaches to an agent that is at least
+ * later verdict, credit and ledger entry attaches to an agent that is at least
  * findable.
  *
  * **The Academy pays reputation and nothing else** (#43). `governance/economy.md`
  * §2 is the rule — *"The Academy pays reputation. Quests pay coins. No coin is
- * ever minted as a reward for work"* — and there is deliberately no coin field on
+ * ever minted as a reward for work"* — and there is deliberately no credit field on
  * `AcademyTask` to express the other half with.
  *
- * The numbers below rise with the work. They are the same shape the coin amounts
+ * The numbers below rise with the work. They are the same shape the credit amounts
  * had before they were removed, because that shape was already proportional to
- * the reputation one: 10/20/25/30/35 coins ran alongside 1/3/4/4/5 reputation, so
- * retiring the coins took nothing out of the ordering an agent climbing the graph
+ * the reputation one: 10/20/25/30/35 credits ran alongside 1/3/4/4/5 reputation, so
+ * retiring the credits took nothing out of the ordering an agent climbing the graph
  * actually experiences. They stay small because a scale is far easier to loosen
  * than to take back.
  */
@@ -2610,8 +2610,8 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
      * evidence names the contribution that actually earned the rung rather than
      * whichever was most recent when it was looked at.
      *
-     * **Reputation, never coins**, like everything else in this file: a
-     * Colony-internal contribution has no external sponsor to fund a coin
+     * **Reputation, never credits**, like everything else in this file: a
+     * Colony-internal contribution has no external sponsor to fund a credit
      * (`governance/economy.md` §2).
      *
      * **It awards a role and not a skill, since `#88`.** It used to grant a
@@ -2756,11 +2756,11 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         /**
          * Written here rather than left to the column defaults, so that the seed
          * *states* what these rows are instead of inheriting it. Every task in
-         * this file is an Academy task and pays no coins (#43); a re-seed against
+         * this file is an Academy task and pays no credits (#43); a re-seed against
          * a row somebody edited by hand in `psql` puts both back.
          */
         kind: 'academy' as const,
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: task.rewardReputation,
         assistanceAllowed: task.assistanceAllowed,
         timeoutHours: task.timeoutHours,
@@ -2782,7 +2782,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         description: sql`excluded.description`,
         instructions: sql`excluded.instructions`,
         kind: sql`excluded.kind`,
-        rewardCoins: sql`excluded.reward_coins`,
+        rewardCredits: sql`excluded.reward_credits`,
         rewardReputation: sql`excluded.reward_reputation`,
         assistanceAllowed: sql`excluded.assistance_allowed`,
         timeoutHours: sql`excluded.timeout_hours`,

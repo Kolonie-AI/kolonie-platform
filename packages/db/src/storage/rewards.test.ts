@@ -62,7 +62,7 @@ describe('booking a passed submission', () => {
 
   const aTask = async (
     options: {
-      coins?: number
+      credits?: number
       reputation?: number
       grants?: string[]
       grantsRoles?: string[]
@@ -80,8 +80,8 @@ describe('booking a passed submission', () => {
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
         /**
-         * **A task that pays coins is a Quest, and after #43 that is enforced.**
-         * `tasks_academy_pays_no_coins` refuses an `academy` row with a coin
+         * **A task that pays credits is a Quest, and after #43 that is enforced.**
+         * `tasks_academy_pays_no_credits` refuses an `academy` row with a credit
          * amount, so the fixture derives the kind from what the test asked for
          * rather than making every caller say it.
          *
@@ -89,11 +89,11 @@ describe('booking a passed submission', () => {
          * assertions: `bookTaskReward` is the one booking path for both kinds, and
          * what these tests pin down — the mint is debited, the agent credited, the
          * pair sums to zero, a reward books once — is the machinery Quests will
-         * use. The Academy now simply arrives here with `coins: 0`, which has its
+         * use. The Academy now simply arrives here with `credits: 0`, which has its
          * own test below.
          */
-        kind: (options.coins ?? 10) > 0 ? ('quest' as const) : ('academy' as const),
-        rewardCoins: options.coins ?? 10,
+        kind: (options.credits ?? 10) > 0 ? ('quest' as const) : ('academy' as const),
+        rewardCredits: options.credits ?? 10,
         rewardReputation: options.reputation ?? 5,
         timeoutHours: 24,
         status: 'active',
@@ -181,14 +181,14 @@ describe('booking a passed submission', () => {
   describe('a pass', () => {
     it('credits the agent and debits the mint, and the two sum to zero', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 10 })
+      const taskId = await aTask({ credits: 10 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       const written = await pass(submissionId)
 
       expect(written.outcome).toBe('recorded')
       if (written.outcome !== 'recorded') return
-      expect(written.booking?.coins).toBe(10)
+      expect(written.booking?.credits).toBe(10)
 
       const entries = await entriesFor(submissionId)
       expect(entries).toHaveLength(2)
@@ -206,7 +206,7 @@ describe('booking a passed submission', () => {
       expect(await ledgerTotal()).toBe(0)
     })
 
-    it('writes reputation alongside the coins', async () => {
+    it('writes reputation alongside the credits', async () => {
       const agentId = await anAgent()
       const taskId = await aTask({ reputation: 5 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
@@ -248,7 +248,7 @@ describe('booking a passed submission', () => {
      */
     it('writes a memo naming the task type, the rate it booked at, and no level', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 10 })
+      const taskId = await aTask({ credits: 10 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       await pass(submissionId)
@@ -261,14 +261,14 @@ describe('booking a passed submission', () => {
 
     it('is visible to the balance read the moment it commits', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 10, reputation: 5 })
+      const taskId = await aTask({ credits: 10, reputation: 5 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       // No wait, no second poll: `GET /v1/agents/me` reads this function, and an
-      // agent that is told its submission passed must be able to see the coin.
+      // agent that is told its submission passed must be able to see the credit.
       await pass(submissionId)
 
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 10, reputation: 5 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 10, reputation: 5 })
     })
 
     /**
@@ -276,9 +276,9 @@ describe('booking a passed submission', () => {
      * an entry of 0, so the honest booking is no entry at all — the alternative
      * would be two rows recording that the Colony paid nothing.
      */
-    it('books no ledger entry for a task that pays no coins', async () => {
+    it('books no ledger entry for a task that pays no credits', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 0, reputation: 3 })
+      const taskId = await aTask({ credits: 0, reputation: 3 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       const written = await pass(submissionId)
@@ -286,13 +286,13 @@ describe('booking a passed submission', () => {
       expect(await entriesFor(submissionId)).toHaveLength(0)
       if (written.outcome === 'recorded') expect(written.booking?.transactionId).toBeNull()
       // The reputation still happens.
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 0, reputation: 3 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 0, reputation: 3 })
     })
   })
 
   /**
    * D-030: a pass grants the task's skills in the same transaction that writes
-   * the verdict and books the coins. Same rule the retired level advance
+   * the verdict and books the credits. Same rule the retired level advance
    * followed — derived from the task, never supplied by a caller — and a stronger reason
    * for it, because a skill decides what the agent may attempt next.
    */
@@ -304,7 +304,7 @@ describe('booking a passed submission', () => {
   describe('a renewal', () => {
     const passTwice = async (options: { grants?: string[]; reputation?: number } = {}) => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 0, reputation: options.reputation ?? 5, ...options })
+      const taskId = await aTask({ credits: 0, reputation: options.reputation ?? 5, ...options })
 
       const first = await aClaimedSubmission({ taskId, agentId })
       await pass(first)
@@ -358,7 +358,7 @@ describe('booking a passed submission', () => {
 
     it('leaves a first pass paying exactly what it always did', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 0, reputation: 5 })
+      const taskId = await aTask({ credits: 0, reputation: 5 })
       const only = await aClaimedSubmission({ taskId, agentId })
 
       await pass(only)
@@ -413,7 +413,7 @@ describe('booking a passed submission', () => {
      * Most rungs are not about an account at all, and a verdict that names no
      * identifier records nothing. That is the ordinary path rather than a guard:
      * `profile-complete` and the browser stages have no account to record, and a
-     * missing key there must not cost a citizen its coins.
+     * missing key there must not cost a citizen its credits.
      */
     it('records nothing for a rung that is not about an account', async () => {
       const agentId = await anAgent()
@@ -510,12 +510,12 @@ describe('booking a passed submission', () => {
      */
     it('grants nothing for a badge, while still paying it', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ grants: [], coins: 25 })
+      const taskId = await aTask({ grants: [], credits: 25 })
 
       const written = await pass(await aClaimedSubmission({ taskId, agentId }))
 
       if (written.outcome !== 'recorded') throw new Error(written.outcome)
-      expect(written.booking?.coins).toBe(25)
+      expect(written.booking?.credits).toBe(25)
       expect(await heldBy(agentId)).toEqual([])
     })
 
@@ -633,7 +633,7 @@ describe('booking a passed submission', () => {
       expect(written.outcome).toBe('recorded')
       if (written.outcome === 'recorded') expect(written.booking).toBeUndefined()
       expect(await entriesFor(submissionId)).toHaveLength(0)
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 0, reputation: 0 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 0, reputation: 0 })
     })
 
     it('books nothing when a verifier answers pending', async () => {
@@ -653,7 +653,7 @@ describe('booking a passed submission', () => {
   describe('booking exactly once', () => {
     it('drops a second verdict rather than paying twice', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 10, reputation: 5 })
+      const taskId = await aTask({ credits: 10, reputation: 5 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       await pass(submissionId)
@@ -663,7 +663,7 @@ describe('booking a passed submission', () => {
       // and never reaches the booking at all.
       expect(second.outcome).toBe('stale')
       expect(await entriesFor(submissionId)).toHaveLength(2)
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 10, reputation: 5 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 10, reputation: 5 })
     })
 
     /**
@@ -674,7 +674,7 @@ describe('booking a passed submission', () => {
      */
     it('books once when two runners decide the same submission at once', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 10, reputation: 5 })
+      const taskId = await aTask({ credits: 10, reputation: 5 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       const other = createDatabase(target.url, {
@@ -702,7 +702,7 @@ describe('booking a passed submission', () => {
       }
 
       expect(await entriesFor(submissionId)).toHaveLength(2)
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 10, reputation: 5 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 10, reputation: 5 })
       expect(await ledgerTotal()).toBe(0)
     })
 
@@ -725,13 +725,13 @@ describe('booking a passed submission', () => {
     })
 
     it('refuses a second reputation event for the same submission', async () => {
-      const taskId = await aTask({ coins: 0, reputation: 5 })
+      const taskId = await aTask({ credits: 0, reputation: 5 })
       const submissionId = await aClaimedSubmission({ taskId })
       const bookedAt = now()
 
       await db.transaction((tx) => bookTaskReward(tx, { submissionId, bookedAt }))
 
-      // Coins are zero here, so the ledger index cannot be what refuses this one.
+      // Credits are zero here, so the ledger index cannot be what refuses this one.
       await expectRejection(
         () => db.transaction((tx) => bookTaskReward(tx, { submissionId, bookedAt })),
         /reputation_events_task_passed_unique/,
@@ -741,14 +741,14 @@ describe('booking a passed submission', () => {
 
   /**
    * The property that makes the whole arrangement auditable: whatever mixture of
-   * passes, failures and timeouts the Colony has been through, every coin that
+   * passes, failures and timeouts the Colony has been through, every credit that
    * exists was debited from somewhere. If this ever fails, no other number in
    * the system can be trusted either.
    */
   it('leaves the ledger summing to zero after a run of mixed bookings', async () => {
-    const paying = await aTask({ coins: 7, reputation: 2 })
-    const generous = await aTask({ coins: 41, reputation: 3 })
-    const unpaid = await aTask({ coins: 0, reputation: 1 })
+    const paying = await aTask({ credits: 7, reputation: 2 })
+    const generous = await aTask({ credits: 41, reputation: 3 })
+    const unpaid = await aTask({ credits: 0, reputation: 1 })
 
     for (const taskId of [paying, generous, unpaid, paying, generous]) {
       await pass(await aClaimedSubmission({ taskId }))
@@ -778,26 +778,26 @@ describe('booking a passed submission', () => {
   describe('what the declaration is worth', () => {
     it('pays the full reward for a pass declared unattended', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 10, reputation: 5 })
+      const taskId = await aTask({ credits: 10, reputation: 5 })
       const submissionId = await aClaimedSubmission({ taskId, agentId, assistance: 'none' })
 
       await pass(submissionId)
 
-      expect(await balanceOfAgent(db, agentId)).toMatchObject({ coins: 10, reputation: 5 })
+      expect(await balanceOfAgent(db, agentId)).toMatchObject({ credits: 10, reputation: 5 })
     })
 
     it.each(['operator-provided', 'operator-performed', 'unknown'] as const)(
       'pays the reduced rate for %s, and says so in the memo',
       async (assistance) => {
         const agentId = await anAgent()
-        const taskId = await aTask({ coins: 10, reputation: 5 })
+        const taskId = await aTask({ credits: 10, reputation: 5 })
         const submissionId = await aClaimedSubmission({ taskId, agentId, assistance })
 
         await pass(submissionId)
 
         // Half of each, floored — the constant is core's, not restated here.
         expect(await balanceOfAgent(db, agentId)).toMatchObject({
-          coins: Math.floor((10 * UNDECLARED_REWARD_PERCENT) / 100),
+          credits: Math.floor((10 * UNDECLARED_REWARD_PERCENT) / 100),
           reputation: Math.floor((5 * UNDECLARED_REWARD_PERCENT) / 100),
         })
 
@@ -819,7 +819,7 @@ describe('booking a passed submission', () => {
     it('charges the same for saying nothing as for admitting an operator', async () => {
       const quiet = await anAgent()
       const honest = await anAgent()
-      const taskId = await aTask({ coins: 10, reputation: 5 })
+      const taskId = await aTask({ credits: 10, reputation: 5 })
 
       await pass(await aClaimedSubmission({ taskId, agentId: quiet, assistance: 'unknown' }))
       await pass(
@@ -827,7 +827,10 @@ describe('booking a passed submission', () => {
       )
 
       expect(await balanceOfAgent(db, quiet)).toMatchObject(
-        await balanceOfAgent(db, honest).then(({ coins, reputation }) => ({ coins, reputation })),
+        await balanceOfAgent(db, honest).then(({ credits, reputation }) => ({
+          credits,
+          reputation,
+        })),
       )
     })
 
@@ -837,9 +840,9 @@ describe('booking a passed submission', () => {
      * available to the agent, which an operator handing over a mailbox does not
      * falsify. Only the premium is withheld.
      */
-    it('grants the skill on an assisted pass, and still books the reduced coins', async () => {
+    it('grants the skill on an assisted pass, and still books the reduced credits', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ coins: 10, reputation: 5, grants: ['mailbox'] })
+      const taskId = await aTask({ credits: 10, reputation: 5, grants: ['mailbox'] })
       const submissionId = await aClaimedSubmission({
         taskId,
         agentId,
@@ -851,12 +854,12 @@ describe('booking a passed submission', () => {
       )
 
       expect(written.grantedSkills).toEqual(['mailbox'])
-      expect(written.coins).toBe(5)
+      expect(written.credits).toBe(5)
     })
 
     /** The books still balance when the two rates are mixed. */
     it('leaves the ledger summing to zero across both rates', async () => {
-      const taskId = await aTask({ coins: 11, reputation: 2 })
+      const taskId = await aTask({ credits: 11, reputation: 2 })
 
       await pass(await aClaimedSubmission({ taskId, assistance: 'none' }))
       await pass(await aClaimedSubmission({ taskId, assistance: 'unknown' }))

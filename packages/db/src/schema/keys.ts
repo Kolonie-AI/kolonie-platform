@@ -32,7 +32,7 @@ export const KEY_NONCE_BYTES = 32
  * the imperative.
  *
  * **Rows are never deleted**, the same standing as `browser_challenges`: a
- * cleared row is the evidence behind a coin, and an expired or failed one is how
+ * cleared row is the evidence behind a credit, and an expired or failed one is how
  * a farming attempt becomes visible (`kolonie-docs#10`).
  */
 export const keyChallenges = pgTable(

@@ -29,7 +29,7 @@ import { agents } from './agents.js'
  * challenge the day that constant changed.
  *
  * **Rows are never deleted**, the same standing as `key_challenges`: a solved
- * row is the evidence behind a coin, and the unsolved ones are how a farming
+ * row is the evidence behind a credit, and the unsolved ones are how a farming
  * attempt becomes visible (`kolonie-docs#10`).
  */
 export const powChallenges = pgTable(

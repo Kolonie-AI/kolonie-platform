@@ -67,7 +67,7 @@ describe('balanceOfAgent', () => {
 
     // The common case, not an edge one: every agent is here for its first
     // minutes in the Colony, and `sum()` over no rows is NULL.
-    expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 0, reputation: 0 })
+    expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 0, reputation: 0 })
   })
 
   it('answers the shape core documents', async () => {
@@ -79,12 +79,12 @@ describe('balanceOfAgent', () => {
     expect(() => AgentBalanceSchema.strict().parse(balance)).not.toThrow()
   })
 
-  it('sums coins across bookings', async () => {
+  it('sums credits across bookings', async () => {
     const agentId = await anAgent()
     await pay(agentId, 50)
     await pay(agentId, 25)
 
-    expect((await balanceOfAgent(db, agentId)).coins).toBe(75)
+    expect((await balanceOfAgent(db, agentId)).credits).toBe(75)
   })
 
   it('sums reputation across events', async () => {
@@ -103,9 +103,9 @@ describe('balanceOfAgent', () => {
     await award(agentId, 1)
     await award(agentId, 1)
 
-    // A join across the two logs would report 300 coins and 6 reputation here —
+    // A join across the two logs would report 300 credits and 6 reputation here —
     // both plausible numbers, which is exactly why this is asserted.
-    expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, coins: 150, reputation: 2 })
+    expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 150, reputation: 2 })
   })
 
   it('subtracts a debit', async () => {
@@ -130,7 +130,7 @@ describe('balanceOfAgent', () => {
       })
     })
 
-    expect((await balanceOfAgent(db, agentId)).coins).toBe(70)
+    expect((await balanceOfAgent(db, agentId)).credits).toBe(70)
   })
 
   it('counts only the agent asked about', async () => {
@@ -139,7 +139,7 @@ describe('balanceOfAgent', () => {
     await pay(theirs, 500)
     await award(theirs, 40)
 
-    expect(await balanceOfAgent(db, mine)).toEqual({ agentId: mine, coins: 0, reputation: 0 })
+    expect(await balanceOfAgent(db, mine)).toEqual({ agentId: mine, credits: 0, reputation: 0 })
   })
 
   it('ignores the system side of the same booking', async () => {
@@ -148,7 +148,7 @@ describe('balanceOfAgent', () => {
 
     // The mint's -50 shares the transaction and must not reach an agent's
     // balance; if it did, every reward would net to nothing.
-    expect((await balanceOfAgent(db, agentId)).coins).toBe(50)
+    expect((await balanceOfAgent(db, agentId)).credits).toBe(50)
   })
 
   it('refuses a reputation event that takes reputation away for a reward reason', async () => {

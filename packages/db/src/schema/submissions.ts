@@ -95,7 +95,7 @@ export const submissions = pgTable(
      * removed, and specifically forbade leaving it as an independently
      * maintained counter: the two would disagree the moment an attempt failed to
      * produce a submission, which is the common case the attempt row exists for.
-     * D-002 rejected the same duplication for the coin ledger.
+     * D-002 rejected the same duplication for the credit ledger.
      *
      * Derived rather than dropped because dropping it changes the shape of
      * `GET /v1/agents/me/submissions` and of every stored verdict an agent has

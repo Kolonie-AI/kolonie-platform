@@ -47,14 +47,14 @@ export type TaskStatus = z.infer<typeof TaskStatusSchema>
  * **It is a column and not a naming convention** because the constraint below has
  * to be checkable by Postgres. `governance/economy.md` §2 is absolute — *"No coin
  * is ever minted as a reward for work"* — and a rule that holds because every
- * author remembered to write `coins: 0` is a rule that survives until the first
+ * author remembered to write `credits: 0` is a rule that survives until the first
  * author who does not. Citizen-authored tasks are coming (`tasks.created_by`
  * already models them), so the write path that has to obey this is one nobody has
  * built yet, and it cannot be relied on to have read this comment.
  *
  * `academy` is the default for the same reason `draft` is the default status: the
  * safe answer is the one you get by saying nothing. A task that forgets to
- * declare itself pays no coins.
+ * declare itself pays nothing.
  */
 export const TaskKindSchema = z.enum(['academy', 'quest'])
 export type TaskKind = z.infer<typeof TaskKindSchema>
@@ -62,33 +62,35 @@ export type TaskKind = z.infer<typeof TaskKindSchema>
 /**
  * What completing a task pays.
  *
- * Both are non-negative integers. Coins are counted in whole units — see
- * `ledger/ledger.ts` for why the economy never uses floats.
+ * Both are non-negative integers. **`credits` is denominated in Quest Credits,
+ * one of which is one US cent** — see `ledger/ledger.ts` for the peg and for why
+ * the economy never uses floats. It is deliberately not called `coins`: the coin
+ * is $KOL, $KOL is on Solana, and nothing in this schema touches a chain.
  */
 export const TaskRewardSchema = z.object({
-  coins: z.int().min(0),
+  credits: z.int().min(0),
   reputation: z.int().min(0),
 })
 export type TaskReward = z.infer<typeof TaskRewardSchema>
 
 /**
- * Whether a task of this kind is allowed to pay coins at all.
+ * Whether a task of this kind is allowed to pay credits at all.
  *
  * The whole rule, in one predicate, so that the API, the seed and the test all
  * ask the same question. Postgres enforces it as well — see
- * `tasks_academy_pays_no_coins` in `schema/tasks.ts` — and that duplication is
+ * `tasks_academy_pays_no_credits` in `schema/tasks.ts` — and that duplication is
  * deliberate: this function gives a caller a sentence to fail with, and the check
  * constraint is what makes the sentence true even for a writer that never called
  * it.
  *
  * **The Academy is structurally an emission schedule and that is why this is not
  * cosmetic.** An Academy designed to be completed by a hundred thousand agents,
- * paying a tradeable coin, mints sellable value funded by nobody — the mechanism
- * that took Axie's SLP down over 99% and STEPN's GST 98%. The internal ledger
- * being untradeable today is what makes this cheap to fix now and expensive to
- * fix after `kolonie-coins` exists.
+ * paying something ultimately convertible, mints sellable value funded by nobody
+ * — the mechanism that took Axie's SLP down over 99% and STEPN's GST 98%. The
+ * ledger holding untradeable credits today is what makes this cheap to fix now
+ * and expensive to fix once $KOL exists.
  */
-export function mayPayCoins(kind: TaskKind): boolean {
+export function mayPayCredits(kind: TaskKind): boolean {
   return kind === 'quest'
 }
 
@@ -100,10 +102,10 @@ export function mayPayCoins(kind: TaskKind): boolean {
  */
 export function rewardRejection(
   kind: TaskKind,
-  reward: Pick<TaskReward, 'coins'>,
+  reward: Pick<TaskReward, 'credits'>,
 ): string | undefined {
-  if (reward.coins > 0 && !mayPayCoins(kind)) {
-    return `a task of kind '${kind}' may not pay coins, and this one pays ${reward.coins} — the Academy pays reputation and Quests pay coins (governance/economy.md §2)`
+  if (reward.credits > 0 && !mayPayCredits(kind)) {
+    return `a task of kind '${kind}' may not pay credits, and this one pays ${reward.credits} — the Academy pays reputation and Quests pay credits (governance/economy.md §2)`
   }
 
   return undefined
@@ -113,13 +115,13 @@ export function rewardRejection(
  * What a pass pays when the agent did not declare that it worked unattended.
  *
  * **The task's reward is the ceiling, not the base.** Paying a bonus on top for
- * `none` would mint coins the Colony never budgeted for, which is what
+ * `none` would mint credits the Colony never budgeted for, which is what
  * `kolonie-docs#10` exists to prevent; reducing from a stated maximum changes no
  * number an agent has already read.
  *
  * Expressed as a percentage of both halves, in whole units — `ledger/ledger.ts`
  * has the argument for why the economy never uses floats, and rounding down
- * means the Colony never pays a coin it did not decide to.
+ * means the Colony never pays a credit it did not decide to.
  */
 export const UNDECLARED_REWARD_PERCENT = 50
 
@@ -179,7 +181,7 @@ export type EmailChallengePurpose = z.infer<typeof EmailChallengePurposeSchema>
  * including `unknown` — earns the reduced one. That is the whole incentive
  * structure and it is worth being explicit about, because the obvious
  * alternative is worse: if silence paid full and only a declared operator cost
- * coins, the cheapest move would be to declare nothing, and the Colony would
+ * credits, the cheapest move would be to declare nothing, and the Colony would
  * have built a field that measures how many agents read the documentation.
  *
  * Here, silence costs exactly what a false `none` risks — and a false `none`
@@ -194,7 +196,7 @@ export function rewardFor(reward: TaskReward, assistance: Assistance): TaskRewar
   if (isUnattended(assistance)) return reward
 
   return {
-    coins: Math.floor((reward.coins * UNDECLARED_REWARD_PERCENT) / 100),
+    credits: Math.floor((reward.credits * UNDECLARED_REWARD_PERCENT) / 100),
     reputation: Math.floor((reward.reputation * UNDECLARED_REWARD_PERCENT) / 100),
   }
 }
@@ -292,8 +294,8 @@ export const TaskSchema = z.object({
    */
   instructions: z.string().min(1).max(8000),
   /**
-   * What a pass pays. **An `academy` task's `coins` is always zero** — see
-   * {@link mayPayCoins}, and `tasks_academy_pays_no_coins` for the constraint
+   * What a pass pays. **An `academy` task's `credits` is always zero** — see
+   * {@link mayPayCredits}, and `tasks_academy_pays_no_credits` for the constraint
    * that makes it so rather than hoping.
    */
   reward: TaskRewardSchema,

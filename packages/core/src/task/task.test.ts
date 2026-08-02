@@ -24,7 +24,7 @@ describe('isClaimable', () => {
 })
 
 describe('rewardFor', () => {
-  const reward = { coins: 30, reputation: 4 }
+  const reward = { credits: 30, reputation: 4 }
 
   it('pays the task in full only when the agent declared it worked alone', () => {
     expect(rewardFor(reward, 'none')).toEqual(reward)
@@ -33,7 +33,7 @@ describe('rewardFor', () => {
   it.each(['unknown', 'operator-provided', 'operator-performed'] as const)(
     'pays the reduced rate for %s',
     (assistance) => {
-      expect(rewardFor(reward, assistance)).toEqual({ coins: 15, reputation: 2 })
+      expect(rewardFor(reward, assistance)).toEqual({ credits: 15, reputation: 2 })
     },
   )
 
@@ -47,18 +47,21 @@ describe('rewardFor', () => {
     expect(rewardFor(reward, 'unknown')).toEqual(rewardFor(reward, 'operator-performed'))
   })
 
-  it('rounds down, so the Colony never pays a coin it did not decide to', () => {
-    expect(rewardFor({ coins: 7, reputation: 1 }, 'unknown')).toEqual({ coins: 3, reputation: 0 })
+  it('rounds down, so the Colony never pays a credit it did not decide to', () => {
+    expect(rewardFor({ credits: 7, reputation: 1 }, 'unknown')).toEqual({
+      credits: 3,
+      reputation: 0,
+    })
   })
 
   it('leaves an unpaid task unpaid at either rate', () => {
-    const badge = { coins: 0, reputation: 0 }
+    const badge = { credits: 0, reputation: 0 }
     expect(rewardFor(badge, 'none')).toEqual(badge)
     expect(rewardFor(badge, 'unknown')).toEqual(badge)
   })
 
   it('reduces by the constant, so the two never drift apart', () => {
-    const { coins } = rewardFor({ coins: 100, reputation: 0 }, 'unknown')
-    expect(coins).toBe(UNDECLARED_REWARD_PERCENT)
+    const { credits } = rewardFor({ credits: 100, reputation: 0 }, 'unknown')
+    expect(credits).toBe(UNDECLARED_REWARD_PERCENT)
   })
 })

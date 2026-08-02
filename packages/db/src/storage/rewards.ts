@@ -27,13 +27,13 @@ export interface BookedReward {
   readonly submissionId: SubmissionId
   readonly agentId: AgentId
   readonly taskId: TaskId
-  /** Coins credited to the agent and debited from the mint. Zero books nothing. */
-  readonly coins: number
+  /** Credits credited to the agent and debited from the mint. Zero books nothing. */
+  readonly credits: number
   /** Reputation awarded. Zero books nothing. */
   readonly reputation: number
   /**
    * The id grouping the two ledger entries, or `null` when the task paid no
-   * coins and there was therefore nothing to group.
+   * credits and there was therefore nothing to group.
    */
   readonly transactionId: LedgerTransactionId | null
   /**
@@ -63,13 +63,13 @@ export interface BookedReward {
 }
 
 /**
- * Pay for a passed submission: coins from the mint, reputation to the agent,
+ * Pay for a passed submission: credits from the mint, reputation to the agent,
  * and whatever skills the task grants.
  *
  * **Called inside the transaction that writes the verdict, never on its own.**
  * That is why it takes a `Transaction` rather than a `Database` — the signature
  * is the rule. A submission that says `passed` while the ledger says nothing was
- * paid is a coin the Colony owes and cannot find, and the only construction that
+ * paid is a credit the Colony owes and cannot find, and the only construction that
  * makes that state unreachable is one commit covering both.
  *
  * **Nothing the verifier returned reaches this function.** It is given a
@@ -108,7 +108,7 @@ export async function bookTaskReward(
       taskType: tasks.type,
       taskGrants: tasks.grantsSkills,
       taskGrantsRoles: tasks.grantsRoles,
-      rewardCoins: tasks.rewardCoins,
+      rewardCredits: tasks.rewardCredits,
       rewardReputation: tasks.rewardReputation,
       testRerun: submissions.testRerun,
     })
@@ -178,14 +178,14 @@ export async function bookTaskReward(
 
   const paid =
     row.testRerun || renewal
-      ? { coins: 0, reputation: 0 }
-      : rewardFor({ coins: row.rewardCoins, reputation: row.rewardReputation }, row.assistance)
+      ? { credits: 0, reputation: 0 }
+      : rewardFor({ credits: row.rewardCredits, reputation: row.rewardReputation }, row.assistance)
 
   /**
    * The rate is in the memo, on every entry, because the ledger is where an
    * audit reads what the Colony paid and why.
    *
-   * An entry that recorded 15 coins where the task says 30 and did not say which
+   * An entry that recorded 15 credits where the task says 30 and did not say which
    * rate it booked at is a discrepancy a reviewer has to go and resolve against
    * a submission row — and D-002's whole argument is that the books must be
    * readable without reconstructing state from somewhere else.
@@ -201,18 +201,19 @@ export async function bookTaskReward(
 
   // Generated here rather than by the database: both entries of one booking must
   // carry the *same* id, and a column default would give each of them its own.
-  const transactionId = paid.coins > 0 ? LedgerTransactionIdSchema.parse(crypto.randomUUID()) : null
+  const transactionId =
+    paid.credits > 0 ? LedgerTransactionIdSchema.parse(crypto.randomUUID()) : null
 
   if (transactionId !== null) {
     // Both sides in one statement. `ledger_entries_amount_non_zero` is why a
-    // zero-coin task books nothing at all: an entry of 0 would sum to zero on its
+    // zero-credit task books nothing at all: an entry of 0 would sum to zero on its
     // own and record that the Colony paid, which it did not.
     await tx.insert(ledgerEntries).values([
       {
         transactionId,
         accountKind: 'system',
         systemAccount: 'mint',
-        amount: -paid.coins,
+        amount: -paid.credits,
         type: 'task_reward',
         memo,
         reference,
@@ -222,7 +223,7 @@ export async function bookTaskReward(
         transactionId,
         accountKind: 'agent',
         agentId,
-        amount: paid.coins,
+        amount: paid.credits,
         type: 'task_reward',
         memo,
         reference,
@@ -244,7 +245,7 @@ export async function bookTaskReward(
 
   /**
    * The skills the task grants, in the same transaction as the verdict and the
-   * coins (D-030).
+   * credits (D-030).
    *
    * **Derived from the task row, never from anything a caller sent** — the same
    * rule the retired level advance followed, and for a stronger reason: a skill decides
@@ -318,7 +319,7 @@ export async function bookTaskReward(
    *
    * **It never decides a payment.** Everything above this line is already
    * settled; a register that recorded nothing must not be able to cost a citizen
-   * the coins for work it did. What it cannot do is fail *silently* in the other
+   * the credits for work it did. What it cannot do is fail *silently* in the other
    * direction either — the write is inside the transaction, so a register write
    * that throws takes the whole verdict back rather than leaving a pass whose
    * account nothing records.
@@ -335,7 +336,7 @@ export async function bookTaskReward(
     submissionId: command.submissionId,
     agentId,
     taskId,
-    coins: paid.coins,
+    credits: paid.credits,
     reputation: paid.reputation,
     transactionId,
     grantedSkills: granted,

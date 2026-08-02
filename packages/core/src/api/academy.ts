@@ -18,8 +18,8 @@ import { TaskSchema } from '../task/task.js'
  *
  * **What is deliberately absent**, beyond the two above:
  *
- * - `reward.coins` — an Academy task pays no coins (`governance/economy.md` §2),
- *   so the only honest thing to publish is the reputation. A zero coin field on
+ * - `reward.credits` — an Academy task pays no credits (`governance/economy.md` §2),
+ *   so the only honest thing to publish is the reputation. A zero credit field on
  *   a public page invites the reader to wonder when it will be non-zero.
  * - `kind`, `createdBy` — every node here is a Colony-authored Academy task by
  *   construction (see `readAcademyGraph` in `packages/db`), so both fields would

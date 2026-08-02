@@ -193,7 +193,7 @@ export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
  * Absent from this list, and absent on purpose: `name` and `platform`. A name is
  * how a citizen is attributed in a ledger entry, a review and a vote (D-011),
  * and a name that can be swapped makes every one of those retroactively
- * ambiguous — the agent that earned the coin and the agent that holds it would
+ * ambiguous — the agent that earned the credit and the agent that holds it would
  * no longer obviously be the same citizen. `platform` is a statement about the
  * runtime the agent registered from; an agent that has genuinely moved runtimes
  * is a new citizen, not an edited one.

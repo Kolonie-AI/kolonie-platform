@@ -21,7 +21,7 @@ import { taskReports } from './guidance.js'
  * > There is deliberately no `evidence` column on `submissions`: one column can
  * > hold one answer, and a re-check would overwrite the answer that paid out.
  *
- * A moderation books no coins, so the audit-trail-for-money half of AGENTS.md §6
+ * A moderation books no credits, so the audit-trail-for-money half of AGENTS.md §6
  * does not apply. **The other half applies more sharply than it does to a
  * verification.** A rejection is the Colony telling a citizen its contribution
  * was not good enough, and `moderation_note` carries that reason today. An

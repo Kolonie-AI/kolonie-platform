@@ -79,7 +79,7 @@ describe('schema', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',
@@ -187,7 +187,7 @@ describe('schema', () => {
          * agent id, no foreign key, no free text. It exists only because the
          * coin is tradeable — an auditor reconciling the mint against the sum of
          * all accounts needs the burn to be visible, and without this row an
-         * erasure would be indistinguishable from coins going missing.
+         * erasure would be indistinguishable from credits going missing.
          */
         /**
          * `erasure_challenges` joined with #92. It is what stands between a
@@ -318,7 +318,7 @@ describe('schema', () => {
              where table_schema = 'public' and table_name = 'agents'`,
       )
       const columns = rows.map((r) => r.column_name)
-      expect(columns).not.toContain('coins')
+      expect(columns).not.toContain('credits')
       expect(columns).not.toContain('reputation')
     })
   })
@@ -372,7 +372,7 @@ describe('schema', () => {
   })
 
   describe('agents', () => {
-    it('stores an agent with no coins and no roles', async () => {
+    it('stores an agent with no credits and no roles', async () => {
       const agent = await anAgent()
       expect(agent.status).toBe('candidate')
       expect(agent.roles).toEqual([])
@@ -546,9 +546,9 @@ describe('schema', () => {
     )
 
     /**
-     * On the reputation half, because the coin half now has a second constraint
-     * on it (`tasks_academy_pays_no_coins`, #43) and Postgres does not promise
-     * which of two violated checks it names. A negative coin amount on a `quest`
+     * On the reputation half, because the credit half now has a second constraint
+     * on it (`tasks_academy_pays_no_credits`, #43) and Postgres does not promise
+     * which of two violated checks it names. A negative credit amount on a `quest`
      * row would isolate this one, but reputation is the simpler subject and the
      * constraint covers both columns.
      */
@@ -805,7 +805,7 @@ describe('schema', () => {
         { accountKind: 'system', systemAccount: 'mint', amount: -30, type: 'task_reward' },
         { accountKind: 'agent', agentId: two.id, amount: 30, type: 'task_reward' },
       ])
-      // A transfer moves coins without creating any.
+      // A transfer moves credits without creating any.
       await book([
         { accountKind: 'agent', agentId: one.id, amount: -20, type: 'transfer' },
         { accountKind: 'agent', agentId: two.id, amount: 20, type: 'transfer' },

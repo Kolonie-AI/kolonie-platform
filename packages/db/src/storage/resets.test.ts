@@ -53,7 +53,7 @@ describe('a tester re-running a task', () => {
         title: 'A task worth re-testing',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: 4,
         timeoutHours: 24,
         status: 'active' as const,
@@ -185,7 +185,7 @@ describe('a tester re-running a task', () => {
     const rerun = await passed(taskId, agentId)
 
     expect(rerun.booked.reputation).toBe(0)
-    expect(rerun.booked.coins).toBe(0)
+    expect(rerun.booked.credits).toBe(0)
     expect(rerun.booked.transactionId).toBeNull()
     // Unchanged: the earlier pass's reputation stands, and the re-run added none.
     expect(await reputationOf(agentId)).toBe(earned)

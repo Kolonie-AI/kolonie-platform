@@ -79,7 +79,7 @@ describe('erasing a citizen', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',
@@ -89,16 +89,16 @@ describe('erasing a citizen', () => {
   }
 
   /** A reward, booked the way `bookTaskReward` books one. */
-  const reward = async (agentId: AgentId, coins: number) => {
+  const reward = async (agentId: AgentId, credits: number) => {
     const transactionId = randomUUID()
     await db.transaction(async (tx) => {
       await tx.insert(ledgerEntries).values([
-        { transactionId, accountKind: 'agent', agentId, amount: coins, type: 'task_reward' },
+        { transactionId, accountKind: 'agent', agentId, amount: credits, type: 'task_reward' },
         {
           transactionId,
           accountKind: 'system',
           systemAccount: 'mint',
-          amount: -coins,
+          amount: -credits,
           type: 'task_reward',
         },
       ])
@@ -129,7 +129,7 @@ describe('erasing a citizen', () => {
 
       expect(result.outcome).toBe('erased')
       if (result.outcome !== 'erased') return
-      expect(result.receipt.coinsBurned).toBe(0)
+      expect(result.receipt.creditsBurned).toBe(0)
       expect(result.receipt.reputationDestroyed).toBe(0)
       expect(result.receipt.banMarksWritten).toBe(0)
       expect(await countIn('agents')).toBe(0)
@@ -151,11 +151,11 @@ describe('erasing a citizen', () => {
 
       expect(result.outcome).toBe('erased')
       if (result.outcome !== 'erased') return
-      expect(result.receipt.coinsBurned).toBe(120)
+      expect(result.receipt.creditsBurned).toBe(120)
       expect(result.receipt.reputationDestroyed).toBe(15)
 
       const [row] = await db.select().from(erasures)
-      expect(row?.coinsBurned).toBe(120)
+      expect(row?.creditsBurned).toBe(120)
       expect(row?.reputationDestroyed).toBe(15)
       expect(row?.reason).toBe('finished')
     })
@@ -163,12 +163,12 @@ describe('erasing a citizen', () => {
     /**
      * **The invariant the whole design claims**, and the one that should fail
      * loudly if the burn is ever skipped: an erasure destroys the citizen's
-     * coins and moves nothing else.
+     * credits and moves nothing else.
      *
      * Both halves are checked, because only checking supply would pass against
      * an erasure that quietly took a neighbour's balance with it.
      */
-    it('destroys the citizen’s coins and moves no other account', async () => {
+    it('destroys the citizen’s credits and moves no other account', async () => {
       const leaver = await anAgent()
       const neighbour = await anAgent({ name: 'neighbour' })
       await reward(leaver.id, 120)
@@ -662,7 +662,7 @@ describe('the counts an erasure disturbs', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',
@@ -939,7 +939,7 @@ describe('handing over a canonical entry', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',

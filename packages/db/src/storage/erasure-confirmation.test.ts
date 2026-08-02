@@ -59,7 +59,7 @@ describe('confirming an erasure', () => {
         title: 'Prove you hold a keypair',
         description: 'Sign a nonce the Colony issued.',
         instructions: 'Sign it.',
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',
@@ -131,7 +131,7 @@ describe('confirming an erasure', () => {
 
       const challenge = await mintErasureChallenge(db, { agentId })
 
-      expect(challenge?.quote.coins).toBe(70)
+      expect(challenge?.quote.credits).toBe(70)
       expect(challenge?.phrase).toBe(ERASURE_CONFIRMATION_PHRASE)
       expect(challenge?.signatureRequired).toBe(false)
     })

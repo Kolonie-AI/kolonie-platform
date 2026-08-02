@@ -134,10 +134,10 @@ export const ErasureReceiptSchema = z
     erasedAt: TimestampSchema,
 
     /**
-     * Coins destroyed. Zero is an ordinary answer — a candidate that registered,
+     * Credits destroyed. Zero is an ordinary answer — a candidate that registered,
      * earned nothing and left — and not a sign that anything was skipped.
      */
-    coinsBurned: z.number().int().nonnegative(),
+    creditsBurned: z.number().int().nonnegative(),
 
     /** Reputation destroyed. Deleted rather than burned: there is no supply to audit. */
     reputationDestroyed: z.number().int().nonnegative(),

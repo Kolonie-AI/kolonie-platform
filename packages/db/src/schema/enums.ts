@@ -110,7 +110,7 @@ export const taskStatus = pgEnum('task_status', valuesOf(TaskStatusSchema.option
 
 /**
  * Whether a task teaches or produces. `governance/quests.md` draws the boundary;
- * `tasks_academy_pays_no_coins` is what makes it binding.
+ * `tasks_academy_pays_no_credits` is what makes it binding.
  */
 export const taskKind = pgEnum('task_kind', valuesOf(TaskKindSchema.options))
 

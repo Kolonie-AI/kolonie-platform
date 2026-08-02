@@ -224,12 +224,12 @@ export interface RecordVerdictCommand {
 
 /**
  * Write a verdict: the evidence, the submission's new status, and — on a pass —
- * the coins and reputation it earned, in one transaction.
+ * the credits and reputation it earned, in one transaction.
  *
  * The order inside the transaction does not matter; the atomicity does, and it
  * is what all three writes are here for. A submission that reaches `passed`
- * without the row explaining why is a coin the Colony cannot account for. A
- * submission that reaches `passed` without the booking is a coin the Colony owes
+ * without the row explaining why is a credit the Colony cannot account for. A
+ * submission that reaches `passed` without the booking is a credit the Colony owes
  * and will never pay, because nothing ever revisits a decided submission. Both
  * states are unreachable only if everything commits together or nothing does.
  *
@@ -395,7 +395,7 @@ export async function recordVerdict(
  * For transient failures — the verifier's upstream was unreachable, the process
  * is shutting down mid-check. Nothing is written to `verifications`, because
  * nothing was verified: a row here would put "the check did not happen" in the
- * table that explains why coins were paid.
+ * table that explains why credits were paid.
  *
  * Returns whether the release actually applied. `false` means the row was no
  * longer `verifying` — the timeout sweep got there first — and the caller has

@@ -22,7 +22,7 @@ import { banMarkKind, erasureReason } from './enums.js'
  * > it wrote is deleted, its balance is burned, and what remains names nobody.**
  *
  * Two tables, and they exist for two different readers. `erasures` is for an
- * auditor counting coins. `ban_marks` is for the door. Neither is for anybody
+ * auditor counting credits. `ban_marks` is for the door. Neither is for anybody
  * asking *who was this*, and both are shaped so that question has no answer.
  *
  * **Neither table references `agents`, and that is not an oversight to be
@@ -42,7 +42,7 @@ import { banMarkKind, erasureReason } from './enums.js'
  * > auditor comparing the mint against the sum of all accounts needs the burn to
  * > be visible.
  *
- * Without it, an erasure would look identical to coins going missing. The burn
+ * Without it, an erasure would look identical to credits going missing. The burn
  * credits the mint, so the mint balance moves, and nothing else would explain
  * why. That is the whole justification, and it is why the columns are the ones
  * an auditor needs and not one more.
@@ -71,13 +71,13 @@ export const erasures = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     /**
-     * Coins destroyed, as a positive number.
+     * Credits destroyed, as a positive number.
      *
      * `bigint` to match `ledger_entries.amount`: this is the same quantity read
      * back, and a narrower column here would be a silent cap on what an auditor
      * can reconcile against a ledger that has none.
      */
-    coinsBurned: bigint('coins_burned', { mode: 'number' }).notNull(),
+    creditsBurned: bigint('credits_burned', { mode: 'number' }).notNull(),
 
     /** Reputation destroyed, as a positive number. `integer`, matching `reputation_events.delta`. */
     reputationDestroyed: integer('reputation_destroyed').notNull(),
@@ -107,7 +107,7 @@ export const erasures = pgTable(
      */
     check(
       'erasures_amounts_non_negative',
-      sql`${table.coinsBurned} >= 0 and ${table.reputationDestroyed} >= 0`,
+      sql`${table.creditsBurned} >= 0 and ${table.reputationDestroyed} >= 0`,
     ),
   ],
 )

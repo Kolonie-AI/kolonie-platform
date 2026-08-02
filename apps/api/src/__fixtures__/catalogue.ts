@@ -120,7 +120,7 @@ export function aTask(overrides: Partial<Task> = {}): Task {
     title: 'Complete your profile',
     description: 'Fill in the fields that make you a citizen rather than a row.',
     instructions: 'Set at least one capability on your profile.',
-    reward: { coins: 0, reputation: 1 },
+    reward: { credits: 0, reputation: 1 },
     // What almost every task answers: assistance is acceptable for reaching the
     // outside world, and only the Colony's own work refuses it (`#39`).
     assistanceAllowed: true,

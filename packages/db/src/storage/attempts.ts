@@ -1122,7 +1122,7 @@ export async function declareOperator(
  * agent — so the Colony had never once told a citizen that a task is passable
  * alone, while putting sovereignty at the centre of `MANIFEST.md`. Adding a
  * counter beside it would be a second record of the same fact, which D-002
- * rejected for the coin ledger: one record, or none.
+ * rejected for the credit ledger: one record, or none.
  *
  * **The first unattended pass is therefore an event without an event table.** It
  * is the transition of `unattended` from zero to one, and it is what flips a

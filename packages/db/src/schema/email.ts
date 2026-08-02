@@ -143,7 +143,7 @@ export const EMAIL_CHALLENGE_LIFETIME_CEILING = 40
  * `send` row is the agent writing to a token address the Colony named.
  *
  * **Rows are never deleted**, the same standing as `browser_challenges` and
- * `verifications`: a solved challenge is the evidence behind a coin, and an
+ * `verifications`: a solved challenge is the evidence behind a credit, and an
  * abandoned one is how a farming attempt becomes visible (`kolonie-docs#10`).
  */
 export const emailChallenges = pgTable(

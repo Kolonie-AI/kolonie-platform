@@ -89,7 +89,7 @@ describe('marking an account as a test account', () => {
         title: 'A rung',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active',

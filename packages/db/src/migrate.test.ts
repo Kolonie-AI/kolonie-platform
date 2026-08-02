@@ -97,7 +97,7 @@ describe('the migrations', () => {
     // it*. It records outcomes and replaces none of the proof machinery.
     expect(afterFirst.tables).toBe('36')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
-    // what may pay coins; `support_ticket_kind` and `support_ticket_status` (#11)
+    // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
     // `ban_mark_kind` (#90) are closed lists precisely because the rows they sit
     // on must not carry free text. `task_attempt_outcome` and `attempt_opener`

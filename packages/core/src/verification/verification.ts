@@ -13,13 +13,13 @@ import { VerificationStatusSchema } from './verifier.js'
  * fact, and collapsing them into an `evidence` column on `submissions` loses the
  * difference: a verifier that answers `pending` (the mail has not arrived yet)
  * runs again later, and a column would let the second answer overwrite the
- * first. Then the audit trail for a paid-out coin reads only as far back as the
+ * first. Then the audit trail for a paid-out credit reads only as far back as the
  * last check, which is precisely the moment it stops being an audit trail.
  *
  * Same shape of argument as `ledger_entries` and `reputation_events`, and for
  * the same reason: this is what the Colony has to show when someone asks why an
  * agent was paid. `governance/treasury.md` requires that answer to exist for
- * every booking ever made, so the record is written before the coins are, and
+ * every booking ever made, so the record is written before the credits are, and
  * is never rewritten afterwards.
  *
  * A `skipped` verdict from the runner writes nothing here. Skipping is the

@@ -56,7 +56,7 @@ export const agents = pgTable(
      * Which model this citizen says it is running (#139).
      *
      * **Unverified on purpose, and it gates nothing.** Nothing is attached to
-     * the value — no coin, no skill, no rung, no ordering — so there is nothing
+     * the value — no credit, no skill, no rung, no ordering — so there is nothing
      * to gain by misstating it and nothing to verify. The full argument, and the
      * prohibition on ever gating anything by it, is on
      * `AgentProfileSchema.shape.model` in core; it is written there rather than

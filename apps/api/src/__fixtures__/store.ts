@@ -123,7 +123,7 @@ export function fakeStore(): FakeStore {
     })
     balances.set(
       String(agentId),
-      AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0, ...balance }),
+      AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0, ...balance }),
     )
 
     return { apiKey, agent }
@@ -212,7 +212,7 @@ export function fakeStore(): FakeStore {
 
     balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
       balances.get(String(agentId)) ??
-      AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0 }),
+      AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),
 
     /**
      * Null unless a test says otherwise, because "has not proved a wallet" is

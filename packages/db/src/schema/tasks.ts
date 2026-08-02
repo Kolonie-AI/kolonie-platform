@@ -122,10 +122,15 @@ export const tasks = pgTable(
 
     /**
      * The reward is flattened from `TaskRewardSchema`. Both are non-negative:
-     * a task that costs the agent coins is not a task, it is a fee, and the
+     * a task that costs the agent credits is not a task, it is a fee, and the
      * ledger is where that would belong.
+     *
+     * **One Quest Credit is one US cent** (`kolonie-platform#218`). The column is
+     * not called `reward_coins`, because the coin is $KOL, $KOL is on Solana, and
+     * `governance/economy.md` §1 puts credits and the credit in different layers
+     * precisely so that a reader of this row cannot confuse the two.
      */
-    rewardCoins: integer('reward_coins').notNull(),
+    rewardCredits: integer('reward_credits').notNull(),
     rewardReputation: integer('reward_reputation').notNull(),
 
     /**
@@ -221,13 +226,13 @@ export const tasks = pgTable(
     check('tasks_instructions_length', sql`char_length(${table.instructions}) between 1 and 8000`),
     check(
       'tasks_reward_non_negative',
-      sql`${table.rewardCoins} >= 0 and ${table.rewardReputation} >= 0`,
+      sql`${table.rewardCredits} >= 0 and ${table.rewardReputation} >= 0`,
     ),
     /**
      * `governance/economy.md` §2, as a constraint: *"The Academy pays reputation.
      * Quests pay coins. No coin is ever minted as a reward for work."*
      *
-     * **This is the whole of #43.** Setting every Academy task's `reward_coins` to
+     * **This is the whole of #43.** Setting every Academy task's `reward_credits` to
      * zero satisfies the sentence today; this constraint is what keeps it
      * satisfied against a write path that does not exist yet. Citizen-authored
      * tasks are already modelled (`created_by`), and the day one of them is
@@ -235,11 +240,14 @@ export const tasks = pgTable(
      * the Colony and an emission schedule is a line of SQL or a comment somebody
      * read.
      *
-     * Stated as an implication rather than as `reward_coins = 0` on every row,
-     * because a Quest genuinely does pay coins — the boundary is what is being
+     * Stated as an implication rather than as `reward_credits = 0` on every row,
+     * because a Quest genuinely does pay — the boundary is what is being
      * enforced, not the number.
      */
-    check('tasks_academy_pays_no_coins', sql`${table.kind} = 'quest' or ${table.rewardCoins} = 0`),
+    check(
+      'tasks_academy_pays_no_credits',
+      sql`${table.kind} = 'quest' or ${table.rewardCredits} = 0`,
+    ),
     check('tasks_timeout_hours_range', sql`${table.timeoutHours} between 1 and 720`),
     check('tasks_prerequisites_max', sql`cardinality(${table.prerequisiteTaskIds}) <= 16`),
     check(
@@ -276,7 +284,7 @@ export const tasks = pgTable(
      * governance standing, so the same bar is too weak — it would let any future
      * Colony-authored row hand out `governor`, and the write path that would
      * forget is the one nobody has built yet (the same argument
-     * `tasks_academy_pays_no_coins` is stated with).
+     * `tasks_academy_pays_no_credits` is stated with).
      *
      * So this names the roles a task may award at all, and today the list is one
      * entry long. `judge` is appointed and `governor` is elected — neither is

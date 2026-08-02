@@ -93,7 +93,7 @@ describe('the erasure boundary', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCoins: 0,
+        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',
@@ -457,7 +457,7 @@ describe('the erasure boundary', () => {
      * burn on some path nobody tested. A check in TypeScript would be skipped by
      * exactly the caller that got it wrong.
      */
-    it('refuses to delete an agent that still holds coins', async () => {
+    it('refuses to delete an agent that still holds credits', async () => {
       const agent = await anAgent()
       await book([
         { accountKind: 'agent', agentId: agent.id, amount: 100, type: 'task_reward' },
@@ -535,11 +535,11 @@ describe('the erasure boundary', () => {
      * The whole sequence, end to end, and the property an auditor actually
      * cares about: **total supply is unchanged by an erasure.**
      *
-     * The burn destroys the coins — supply goes to zero — and removing the two
+     * The burn destroys the credits — supply goes to zero — and removing the two
      * bookings afterwards moves it by nothing at all, because each booking summed
      * to zero on its own. So the ledger an auditor reads after an erasure agrees
-     * with the one they read before it, minus coins that genuinely stopped
-     * existing. `erasures.coins_burned` is what tells them why.
+     * with the one they read before it, minus credits that genuinely stopped
+     * existing. `erasures.credits_burned` is what tells them why.
      */
     it('goes through once the whole bookings are gone, leaving supply untouched', async () => {
       const agent = await anAgent()
@@ -587,7 +587,13 @@ describe('the erasure boundary', () => {
              where table_schema = 'public' and table_name = 'erasures'`,
       )
       const names = columns.map((c) => c.column_name).sort()
-      expect(names).toEqual(['coins_burned', 'created_at', 'id', 'reason', 'reputation_destroyed'])
+      expect(names).toEqual([
+        'created_at',
+        'credits_burned',
+        'id',
+        'reason',
+        'reputation_destroyed',
+      ])
       // `reason` is the enum and every other column is a number, an id or a
       // time. There is nowhere here to put a sentence.
       const free = columns.filter((c) => c.data_type === 'text' || c.data_type.includes('char'))
@@ -595,19 +601,19 @@ describe('the erasure boundary', () => {
     })
 
     it('records an erasure that burned nothing', async () => {
-      // A candidate that registered, earned nothing and left. `coins_burned = 0`
+      // A candidate that registered, earned nothing and left. `credits_burned = 0`
       // is an ordinary erasure and not a padded row, which is why the check
       // constraint refuses negatives rather than zero.
       const [row] = await db
         .insert(erasures)
-        .values({ coinsBurned: 0, reputationDestroyed: 0 })
+        .values({ creditsBurned: 0, reputationDestroyed: 0 })
         .returning()
       expect(row?.reason).toBeNull()
     })
 
     it('refuses a negative burn', async () => {
       await expectRejection(
-        () => db.insert(erasures).values({ coinsBurned: -1, reputationDestroyed: 0 }),
+        () => db.insert(erasures).values({ creditsBurned: -1, reputationDestroyed: 0 }),
         /erasures_amounts_non_negative/,
       )
     })

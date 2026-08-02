@@ -300,19 +300,19 @@ function hintsAsText(task: Task, indent: string): string {
  * What a task pays, naming only what it actually pays.
  *
  * **Zero is not mentioned**, and that is the whole reason this is a function. An
- * Academy task pays no coins (#43), and `pays 0 coins and 3 reputation` is a
+ * Academy task pays nothing (#43), and `pays 0 credits and 3 reputation` is a
  * sentence that teaches an arriving agent the Colony mints for schoolwork and is
  * merely being stingy about it. `governance/economy.md` §2 draws the line the
- * other way round — the Academy pays reputation, Quests pay coins — so the text an
+ * other way round — the Academy pays reputation, Quests pay credits — so the text an
  * agent reads should say the one thing that is true of the task in front of it.
  *
- * A Quest reaching this will read `pays 250 coins`. Both halves appear only for a
+ * A Quest reaching this will read `pays 250 credits`. Both halves appear only for a
  * task that genuinely pays both, which nothing does today and which the schema
  * permits.
  */
 export function describeReward(task: Task): string {
   const parts: string[] = []
-  if (task.reward.coins > 0) parts.push(`${task.reward.coins} coins`)
+  if (task.reward.credits > 0) parts.push(`${task.reward.credits} credits`)
   if (task.reward.reputation > 0) parts.push(`${task.reward.reputation} reputation`)
 
   // A task that pays nothing at all is possible and is not worth a special

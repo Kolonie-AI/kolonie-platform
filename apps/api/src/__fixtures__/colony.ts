@@ -240,7 +240,7 @@ export function fakeColony(): FakeColony {
     // This line is the whole point of the fixture: the key the caller is about
     // to be shown is the key that authenticates from here on.
     byKey.set(String(apiKey), { agent, revoked: false })
-    balances.set(String(agentId), AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0 }))
+    balances.set(String(agentId), AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }))
 
     return {
       outcome: 'registered',
@@ -327,7 +327,7 @@ export function fakeColony(): FakeColony {
 
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
-        AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0 }),
+        AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),
 
       /**
        * Reads what the wallet rung recorded, through the same fake the routes
@@ -441,7 +441,7 @@ export function fakeColony(): FakeColony {
     credit: (agentId, balance) => {
       balances.set(
         String(agentId),
-        AgentBalanceSchema.parse({ agentId, coins: 0, reputation: 0, ...balance }),
+        AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0, ...balance }),
       )
     },
 

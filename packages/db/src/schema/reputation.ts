@@ -14,13 +14,13 @@ import { reputationReason } from './enums.js'
 import { submissions } from './submissions.js'
 
 /**
- * What an agent has *done*. Append-only, like the coin ledger, and the only
+ * What an agent has *done*. Append-only, like the credit ledger, and the only
  * source of truth for the reputation half of `AgentBalance` (D-002, D-012).
  *
  * **Not the ledger.** Reputation could have been a second `ledger_entry_type`,
  * and that would have been wrong in a way that is hard to undo: `ledger_entries`
  * is governed by the double-entry trigger, so every reputation event would need
- * a counter-entry against an account that means nothing. Coins move between
+ * a counter-entry against an account that means nothing. Credits move between
  * holders and must balance; reputation is *awarded* and has no counterparty.
  * Core says so directly — reputation is "not transferable… there is deliberately
  * no transfer or spend event type" — so a table that cannot express a transfer
@@ -42,7 +42,7 @@ export const reputationEvents = pgTable(
      * agree and the reason they agreed only ever applied to one of them.
      *
      * The old comment here said an event whose subject is gone is *a hole in the
-     * audit trail*. That is true of a coin, because coins are audited against a
+     * audit trail*. That is true of a credit, because credits are audited against a
      * mint and a missing entry makes total supply stop reconciling. Reputation
      * is audited against nothing: it is not transferable, there is no supply and
      * no mint (`economy.md` §1), so removing every one of an agent's events
@@ -64,7 +64,7 @@ export const reputationEvents = pgTable(
     /**
      * Signed. `integer` rather than the ledger's `bigint`: reputation is earned
      * in single digits per task and has no mint, so it cannot run away the way a
-     * coin supply can.
+     * credit supply can.
      */
     delta: integer('delta').notNull(),
     reason: reputationReason('reason').notNull(),
@@ -113,7 +113,7 @@ export const reputationEvents = pgTable(
      * same reason as `ledger_entries_task_reward_unique`: the writer that would
      * duplicate it is a second concurrent verdict, and only Postgres sees both.
      *
-     * Reputation without this index is worse than coins without it. Coins are
+     * Reputation without this index is worse than credits without it. Credits are
      * audited by summing the whole ledger against the mint, so a double credit
      * shows up as a supply that does not add up. Reputation has no counterparty
      * and no total to check against — a doubled event is simply a citizen with a

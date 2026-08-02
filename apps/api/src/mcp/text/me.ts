@@ -124,7 +124,7 @@ export function identityAsText(agent: Agent): string {
  * Where the citizen stands, in one of two forms (`#144`).
  *
  * **A newcomer is not told it has zero of four things.** *"No skills yet. 0
- * coins, 0 reputation"* is three zeroes and a negation, delivered at the moment
+ * credits, 0 reputation"* is three zeroes and a negation, delivered at the moment
  * a citizen has done nothing wrong — a failure report dressed as a status line.
  * What it gets instead names what is open, which is the only actionable fact
  * about a citizen that has not started.
@@ -145,7 +145,7 @@ export function citizenStandingAsText(agent: Agent, balance: AgentBalance): stri
 
   return (
     `Skills: ${agent.skills.join(', ')}. ` +
-    `${balance.coins} coins, ${balance.reputation} reputation.`
+    `${balance.credits} credits, ${balance.reputation} reputation.`
   )
 }
 

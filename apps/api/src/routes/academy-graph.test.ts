@@ -100,7 +100,7 @@ describe('GET /v1/academy/graph', () => {
         suggests: [SkillSchema.parse('keypair')],
         grants: [SkillSchema.parse('wallet')],
         minReputation: 3,
-        reward: { coins: 0, reputation: 4 },
+        reward: { credits: 0, reputation: 4 },
       }),
     ])
 

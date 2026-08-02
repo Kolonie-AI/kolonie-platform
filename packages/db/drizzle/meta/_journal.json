@@ -519,6 +519,13 @@
       "when": 1785682076844,
       "tag": "0073_the_first_steward",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1785686160406,
+      "tag": "0074_the_ledger_holds_credits_not_coins",
+      "breakpoints": true
     }
   ]
 }

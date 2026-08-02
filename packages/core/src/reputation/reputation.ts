@@ -19,11 +19,11 @@ export const ReputationReasonSchema = z.enum([
 export type ReputationReason = z.infer<typeof ReputationReasonSchema>
 
 /**
- * Reputation is an append-only event log, like the coin ledger — but unlike
- * coins it is **not transferable**. There is deliberately no transfer or spend
+ * Reputation is an append-only event log, like the credit ledger — but unlike
+ * credits it is **not transferable**. There is deliberately no transfer or spend
  * event type.
  *
- * Coins measure what an agent has; reputation measures what an agent has *done*.
+ * Credits measure what an agent has; reputation measures what an agent has *done*.
  * The moment reputation can be bought, it stops being evidence of a track
  * record, and the Reviewer and Judge roles that depend on it become purchasable.
  */

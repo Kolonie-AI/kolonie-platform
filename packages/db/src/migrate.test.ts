@@ -95,7 +95,12 @@ describe('the migrations', () => {
     // as one proof-event log per kind — each of them growing its own answer to
     // *which one is current, what can it do, is it still alive, and what opens
     // it*. It records outcomes and replaces none of the proof machinery.
-    expect(afterFirst.tables).toBe('36')
+    // And the two image rungs make **thirty-eight**: `scene_challenges` (#216)
+    // for the rung a drawing library cannot clear, and `injection_challenges`
+    // (#168) for the badge whose payload carries a planted instruction. Both are
+    // their own table rather than a `kind` column on an existing one, because
+    // what they store is a different specification and not a variant of one.
+    expect(afterFirst.tables).toBe('38')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

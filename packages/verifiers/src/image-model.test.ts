@@ -248,7 +248,9 @@ describe('the scene judge', () => {
   })
 
   it('sends the prompt and the image to the model it was configured with', async () => {
-    const fetchImpl = vi.fn(
+    // Typed as `fetch` rather than as a bare async function, so the recorded
+    // call carries its arguments — the request body is what this test is about.
+    const fetchImpl = vi.fn<typeof fetch>(
       async () =>
         new Response(
           JSON.stringify({
@@ -258,7 +260,7 @@ describe('the scene judge', () => {
         ),
     )
 
-    const checker = openRouterSceneVision('a-key', 'a-vendor/a-model', fetchImpl as typeof fetch)
+    const checker = openRouterSceneVision('a-key', 'a-vendor/a-model', fetchImpl)
     const result = await checker.check({
       image: new Uint8Array(png()),
       format: 'image/png',

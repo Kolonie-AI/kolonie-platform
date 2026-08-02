@@ -764,6 +764,11 @@ describe('the erasure boundary', () => {
       // challenge: it is a question the Colony put to *this* citizen, and it
       // means nothing once there is nobody it was put to.
       'image_challenges.agent_id c',
+      // The badge's planted payload (#168). Cascades for the reason every
+      // challenge does, and with one of its own: the row records what a citizen
+      // was asked to resist, which is exactly the behavioural residue
+      // `erasure.md` §4 rules out.
+      'injection_challenges.agent_id c',
       'key_challenges.agent_id c',
       // The one reference that stays `restrict`, and the reason the rest are
       // safe: the balance is burned to zero first, or Postgres refuses.
@@ -778,6 +783,9 @@ describe('the erasure boundary', () => {
        */
       'report_feedback.agent_id c',
       'reputation_events.agent_id c',
+      // The generator rung's scene specification (#216). Same argument as the
+      // image rung it sits beside: a question the Colony put to *this* citizen.
+      'scene_challenges.agent_id c',
       'social_challenges.agent_id c',
       'solana_wallet_challenges.agent_id c',
       'submissions.agent_id c',

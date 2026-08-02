@@ -209,6 +209,13 @@ describe('schema', () => {
          * thing a dispute would be about.
          */
         'image_challenges',
+        /**
+         * The badge's planted payload (#168). `payload` is stored exactly as the
+         * agent was shown it, which matters more here than anywhere else: what a
+         * dispute about this node is about is what the citizen was asked to
+         * resist.
+         */
+        'injection_challenges',
         // `key_challenges` joined with the keypair rung (#36): the Academy's
         // first browser-free root, and the only challenge table whose exchange
         // touches nothing outside this process.
@@ -240,6 +247,13 @@ describe('schema', () => {
          * generalisation on purpose: one table and one port per rung is what
          * stops a wiring mistake answering one rung with another's evidence.
          */
+        /**
+         * The generator rung's scene specification (#216). Its own table beside
+         * `image_challenges` rather than columns on it: the two rungs share
+         * nothing but the word image, and one table would be half-null on every
+         * row with a `kind` column deciding which half to read.
+         */
+        'scene_challenges',
         'social_challenges',
         /**
          * `solana_wallet_challenges` joined with the wallet rung

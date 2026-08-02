@@ -142,6 +142,13 @@ export type SceneConstraints = z.infer<typeof SceneConstraintsSchema>
  * **The count is written as a numeral.** "3 otters" is harder to misread than
  * "three otters", for the agent pasting it into a generator and for the model
  * reading it back.
+ *
+ * **It ends by asking for a square, because the verifier refuses anything else**
+ * — and a rung that checks something it never asked for is a rung that fails
+ * honest work. Measured 2026-08-02 against a real generator: asked for this
+ * scene without that sentence, it returned 1408×768, which the aspect check
+ * refuses before any model call. The citizen would have paid for a render and
+ * been told its shape was wrong by a specification that never mentioned shape.
  */
 export function scenePromptFor(constraints: SceneConstraints): string {
   const subject =
@@ -155,7 +162,7 @@ export function scenePromptFor(constraints: SceneConstraints): string {
     `The ${constraints.subject} wears or carries a ${constraints.accessoryColor} ` +
     `${constraints.accessory}, and a ${constraints.companionColor} ${constraints.companion} ` +
     `stands beside it. Those two colours must not be swapped or shared. ` +
-    `There must be ${SCENE_PROHIBITION}.`
+    `There must be ${SCENE_PROHIBITION}. The image must be square.`
   )
 }
 

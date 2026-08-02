@@ -105,6 +105,19 @@ describe('scenePromptFor', () => {
   })
 
   /**
+   * **The verifier refuses a non-square image before it asks a model**, so the
+   * specification has to ask for one. Measured against a real generator on
+   * 2026-08-02: without this sentence it answered 1408×768, and the citizen
+   * would have paid for a render and been refused on a property the
+   * specification never mentioned.
+   */
+  it('asks for the square the verifier checks for', () => {
+    for (let step = 0; step < 100; step += 1) {
+      expect(scenePromptFor(drawSceneConstraints())).toContain('square')
+    }
+  })
+
+  /**
    * The prohibition is on every challenge rather than drawn, so it is on every
    * prompt. An absent prohibition is not a weaker test, it is no test.
    */

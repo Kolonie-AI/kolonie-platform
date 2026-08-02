@@ -667,6 +667,24 @@ describe('seeding the Academy', () => {
          * task: everything else on this list is free to attempt.
          */
         'raster',
+        /**
+         * Joined the roots on 2026-08-02, when `image-model` went `active`
+         * (#216). It requires `profile` and only *suggests* `raster`: nothing
+         * about driving a generator depends on having drawn something first,
+         * and a hard edge there would make the free rung a toll gate on the
+         * paid one.
+         *
+         * It is the second root that costs a citizen money to attempt, and the
+         * first where the money is the citizen's rather than the Colony's.
+         */
+        'image-model',
+        /**
+         * And `prompt-injection` (#168), a badge rather than a granting node.
+         * It requires `profile` and reads nothing outside the Colony at all —
+         * the cheapest root here to serve, and the only one measuring a
+         * boundary rather than a capability.
+         */
+        'prompt-injection',
       ])
     })
 

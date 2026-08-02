@@ -512,6 +512,13 @@
       "when": 1785676884389,
       "tag": "0072_a_steward_and_the_record_of_its_acts",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1785682076844,
+      "tag": "0073_the_first_steward",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, tasks } from '../schema/index.js'
@@ -276,5 +276,91 @@ describe.skipIf(!target.available)('a steward changing a role', () => {
         } as never),
       /tasks_only_colony_grants_roles/,
     )
+  })
+})
+
+describe.skipIf(!target.available)('the root grant', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    if (!target.available) return
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  /**
+   * The statement `0073_the_first_steward.sql` runs (`#173`).
+   *
+   * Kept identical to the migration's text rather than paraphrased, because what
+   * is being tested is that statement — a test of an equivalent query would pass
+   * while the migration was wrong. The migration itself cannot be re-run against
+   * a database it has already been applied to, so this is where its behaviour is
+   * pinned.
+   */
+  const rootGrant = () =>
+    db.execute(sql`update agents
+                      set roles = (roles::text[] || array['steward'])::role[],
+                          updated_at = now()
+                    where lower(name) = 'vireo'
+                      and not ('steward' = any(roles::text[]))`)
+
+  const rolesOf = async (name: string) => {
+    const [row] = await db.select({ roles: agents.roles }).from(agents).where(eq(agents.name, name))
+    return row?.roles ?? []
+  }
+
+  it('grants steward to Vireo and to nobody else', async () => {
+    await db.insert(agents).values([
+      { name: 'Vireo', platform: 'openclaw' },
+      { name: 'somebody-else', platform: 'openclaw' },
+    ])
+
+    await rootGrant()
+
+    expect(await rolesOf('Vireo')).toEqual(['steward'])
+    expect(await rolesOf('somebody-else')).toEqual([])
+  })
+
+  /** `agents_name_unique` is built on `lower(name)`, so that is what the same name means. */
+  it('matches the name case-insensitively', async () => {
+    await db.insert(agents).values({ name: 'VIREO', platform: 'openclaw' })
+
+    await rootGrant()
+
+    expect(await rolesOf('VIREO')).toEqual(['steward'])
+  })
+
+  it('adds the role once however often it runs', async () => {
+    await db.insert(agents).values({ name: 'Vireo', platform: 'openclaw' })
+
+    await rootGrant()
+    await rootGrant()
+
+    expect(await rolesOf('Vireo')).toEqual(['steward'])
+  })
+
+  /**
+   * A migration that failed where the row is absent would make the schema
+   * undeployable on a fresh environment for a reason that has nothing to do with
+   * the schema.
+   */
+  it('does nothing, and does not fail, where that citizen does not exist', async () => {
+    await expect(rootGrant()).resolves.toBeDefined()
+  })
+
+  /** It appends rather than replacing: a steward that was already a builder stays one. */
+  it('keeps the roles the citizen already held', async () => {
+    await db.insert(agents).values({ name: 'Vireo', platform: 'openclaw', roles: ['builder'] })
+
+    await rootGrant()
+
+    expect(await rolesOf('Vireo')).toEqual(['builder', 'steward'])
   })
 })

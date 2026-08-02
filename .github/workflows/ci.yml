@@ -6,10 +6,44 @@ on:
   pull_request:
     branches: [main]
 
-# A newer push to the same branch makes the previous run irrelevant.
+# A newer push makes the previous run irrelevant — on a pull request branch, and
+# not on `main`.
+#
+# On a branch, only the tip matters: nobody deploys an intermediate commit and
+# nobody reads its verdict, so cancelling the superseded run is free.
+#
+# **On `main` every commit is one that was pushed, and `main` is what deploys.**
+# Cancelling there does not discard a stale answer, it discards the *only* answer
+# that commit will ever get: pushes here bypass the required status check (D-053),
+# so this run is not a second opinion — it is the verdict, arriving after the
+# fact. A commit whose run is cancelled is on the branch that ships, unverified,
+# forever.
+#
+# **Measured 2026-08-02, on the day this was noticed.** Of the last sixty runs on
+# `main`, two were cancelled and both commits are still ancestors of `main`:
+# `98a4687` (#212) and `0e70dc2`. The first was superseded minutes later during a
+# session that pushed ten times, and nobody noticed — because a cancelled run is
+# grey, and grey beside green reads as *unimportant* rather than as *unchecked*.
+# `build-and-deploy.yml` records the same misreading one level down, where an
+# evicted deploy made the Actions list say a build had been cancelled when the
+# build had in fact succeeded.
+#
+# This makes the file agree with the rest of the project rather than introducing
+# a new rule: `deploy.yml` and `health-watch.yml` in `kolonie-infra` both set
+# `cancel-in-progress: false` with their reasoning written out, and
+# `build-and-deploy.yml` beside this file has no workflow-level concurrency at
+# all, *"a decision rather than an omission"*. This line was the last one still
+# carrying the default, under a comment written before any of that was learned.
+#
+# **What is still exposed, stated rather than implied.** GitHub allows one
+# pending run per concurrency group, so three pushes to `main` inside one run's
+# duration still evict the middle waiter — the same narrower window
+# `build-and-deploy.yml` names, and the same answer: it needs a burst rather than
+# an ordinary sequence, and the complete fix is a check that the host matches
+# `origin/main`, which is a different mechanism and belongs in `kolonie-infra`.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read

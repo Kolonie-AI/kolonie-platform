@@ -1,11 +1,14 @@
 import {
   OpenTicketRequestSchema,
+  ReadTicketsRequestSchema,
   SupportTicketIdSchema,
   type AgentId,
   type ApiError,
   type ListTicketsResponse,
   type OpenTicketRequest,
   type OpenTicketResponse,
+  type OwnTicket,
+  type ReadTicketsRequest,
   type SupportTicket,
   type SupportTicketId,
 } from '@kolonie-ai/core'
@@ -55,7 +58,7 @@ export interface SupportDesk {
     readonly agentId: AgentId
     readonly request: OpenTicketRequest
   }): Promise<SupportTicket>
-  listOwnTickets(agentId: AgentId): Promise<readonly SupportTicket[]>
+  listOwnTickets(agentId: AgentId, query?: ReadTicketsRequest): Promise<readonly OwnTicket[]>
   readOwnTicket(query: {
     readonly ticketId: SupportTicketId
     readonly agentId: AgentId
@@ -66,7 +69,7 @@ export interface SupportDesk {
 export function databaseSupportDesk(db: Database): SupportDesk {
   return {
     openTicket: (input) => openTicketInDatabase(db, input),
-    listOwnTickets: (agentId) => listOwnTicketsInDatabase(db, agentId),
+    listOwnTickets: (agentId, query) => listOwnTicketsInDatabase(db, agentId, query ?? {}),
     readOwnTicket: (query) => readOwnTicketInDatabase(db, query),
   }
 }
@@ -97,6 +100,11 @@ export interface Support {
   read(input: {
     readonly agentId: AgentId
     readonly ticketId?: string | undefined
+    /**
+     * How much of the list to carry (#210). Ignored when `ticketId` is given —
+     * reading one ticket is the *read the whole thing* call.
+     */
+    readonly query?: unknown
   }): Promise<ReadTicketResult>
 }
 
@@ -147,9 +155,19 @@ export function support(options: {
       return { outcome: 'opened', response: { ticket } }
     },
 
-    async read({ agentId, ticketId }) {
+    async read({ agentId, ticketId, query }) {
       if (ticketId === undefined) {
-        const tickets = await options.desk.listOwnTickets(agentId)
+        /**
+         * A malformed narrowing falls back to the defaults rather than refusing
+         * the read (#210), for the reason `listMySubmissions` does: these are
+         * conveniences on a citizen's own record, and withholding the record
+         * over a mistyped timestamp is the worse failure.
+         */
+        const parsed = ReadTicketsRequestSchema.safeParse(query ?? {})
+        const tickets = await options.desk.listOwnTickets(
+          agentId,
+          parsed.success ? parsed.data : ReadTicketsRequestSchema.parse({}),
+        )
         return { outcome: 'listed', response: { tickets: [...tickets] } }
       }
 

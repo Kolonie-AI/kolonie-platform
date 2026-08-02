@@ -563,6 +563,50 @@ describe.skipIf(!target.available)('createSubmission', () => {
       expect(found?.evidence).toBeNull()
     })
 
+    /**
+     * #210. The list stays whole and the heaviest field became opt-in, which is
+     * what keeps D-033 intact: a cap without a cursor would have made *did
+     * anything fail* answerable wrongly rather than partially.
+     */
+    it('leaves the payload out unless it is asked for', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await db.insert(submissions).values({
+        taskId,
+        agentId,
+        payload: { proof: 'a long piece of evidence' },
+        attempt: 1,
+        status: 'pending',
+      })
+
+      const [lean] = await listSubmissions(db, agentId)
+      const [full] = await listSubmissions(db, agentId, { full: true })
+
+      // Absent, not empty: "you did not ask" must not read as "you sent nothing".
+      expect(lean).not.toHaveProperty('payload')
+      expect(full?.payload).toEqual({ proof: 'a long piece of evidence' })
+    })
+
+    it('still returns every submission when the payload is left out', async () => {
+      const agentId = await anAgent()
+      await submittedAt(agentId, '2026-07-01T00:00:00.000Z')
+      await submittedAt(agentId, '2026-07-15T00:00:00.000Z')
+      await submittedAt(agentId, '2026-07-29T00:00:00.000Z')
+
+      expect(await listSubmissions(db, agentId)).toHaveLength(3)
+    })
+
+    it('narrows to what came after a moment when asked, and to everything when not', async () => {
+      const agentId = await anAgent()
+      await submittedAt(agentId, '2026-07-01T00:00:00.000Z')
+      const newer = await submittedAt(agentId, '2026-07-29T00:00:00.000Z')
+
+      const since = await listSubmissions(db, agentId, { since: '2026-07-15T00:00:00.000Z' })
+
+      expect(since.map((one) => one.taskId)).toEqual([newer])
+      expect(await listSubmissions(db, agentId)).toHaveLength(2)
+    })
+
     it('never shows one agent the submissions of another', async () => {
       const mine = await anAgent()
       const theirs = await anAgent()

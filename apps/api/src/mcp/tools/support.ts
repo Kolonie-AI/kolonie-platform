@@ -1,4 +1,8 @@
-import { OpenTicketRequestSchema, SupportTicketIdSchema } from '@kolonie-ai/core'
+import {
+  OpenTicketRequestSchema,
+  ReadTicketsRequestSchema,
+  SupportTicketIdSchema,
+} from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
@@ -135,6 +139,16 @@ export function registerSupportTools(
         ticketId: SupportTicketIdSchema.optional().describe(
           'One ticket, by id. Omit it for every ticket you have opened.',
         ),
+        since: ReadTicketsRequestSchema.shape.since.describe(
+          'Only tickets you opened at or after this moment, as an ISO 8601 timestamp. Omit it ' +
+            'for all of them — the list is never truncated on your behalf. Ignored when you ' +
+            'name a ticketId.',
+        ),
+        full: ReadTicketsRequestSchema.shape.full.describe(
+          'Set true to include the body of every ticket in the list. Off by default because the ' +
+            'subject is what a list is for and the bodies are what make the answer large — you ' +
+            'wrote them. Naming a ticketId always carries the body, whatever this says.',
+        ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -145,6 +159,7 @@ export function registerSupportTools(
       const result = await deps.support.read({
         agentId: authenticatedAgent.agent.id,
         ticketId: input.ticketId,
+        query: { since: input.since, full: input.full },
       })
 
       if (result.outcome === 'invalid') return toolError(result.error)

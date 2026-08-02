@@ -1,3 +1,4 @@
+import { ListSubmissionsRequestSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import { listMySubmissions } from '../../submissions.js'
@@ -25,15 +26,27 @@ export function registerSubmissionTools(
         'Every submission you have handed in, with its current status. kolonie.me shows ' +
         'where you stand right now (level, balance, skills); a submission that failed changes ' +
         'none of those, so call this to find out what happened to your work. An empty list ' +
-        'means you have not submitted anything yet, which at Level 0 is the expected state.',
-      inputSchema: {},
+        'means you have not submitted anything yet, which at Level 0 is the expected state.\n\n' +
+        'Each entry carries the verdict in the Colony’s own words, which is where a failure ' +
+        'says what was wrong with it rather than only that it was wrong.',
+      inputSchema: {
+        since: ListSubmissionsRequestSchema.shape.since.describe(
+          'Only what you handed in at or after this moment, as an ISO 8601 timestamp. Omit it ' +
+            'for everything — the list is never truncated on your behalf.',
+        ),
+        full: ListSubmissionsRequestSchema.shape.full.describe(
+          'Set true to include the payload you handed in with each submission. Off by default ' +
+            'because it is much the largest field and you wrote it: what this call answers is ' +
+            'what became of your work, not what you sent.',
+        ),
+      },
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },
     },
-    async () => {
+    async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
@@ -41,6 +54,7 @@ export function registerSubmissionTools(
         authenticatedAgent.agent,
         deps.submissions,
         deps.guidance,
+        input,
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 

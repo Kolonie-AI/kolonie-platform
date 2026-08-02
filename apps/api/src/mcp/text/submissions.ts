@@ -1,4 +1,4 @@
-import type { ListSubmissionsResponse, ReportAsk, Submission } from '@kolonie-ai/core'
+import type { ListSubmissionsResponse, OwnSubmission, ReportAsk } from '@kolonie-ai/core'
 
 /**
  * The submissions list as a model reads it.
@@ -14,7 +14,7 @@ export function submissionsAsText({ submissions, asks }: ListSubmissionsResponse
   }
 
   const lines = submissions.map(
-    (s: Submission) =>
+    (s: OwnSubmission) =>
       `• ${s.id} — task ${s.taskId}, attempt ${s.attempt}, status ${s.status}` +
       (s.verifiedAt === null ? '' : `, decided ${s.verifiedAt}`) +
       /**

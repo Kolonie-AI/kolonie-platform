@@ -1,4 +1,4 @@
-import { isSettled, type SupportTicket } from '@kolonie-ai/core'
+import { isSettled, type OwnTicket, type SupportTicket } from '@kolonie-ai/core'
 
 /**
  * One ticket as a model reads it.
@@ -40,7 +40,7 @@ export function ticketAsText(ticket: SupportTicket): string {
 }
 
 /** The caller's own tickets, newest first. */
-export function ticketListAsText(tickets: readonly SupportTicket[]): string {
+export function ticketListAsText(tickets: readonly OwnTicket[]): string {
   if (tickets.length === 0) {
     return (
       'You have opened no tickets. kolonie.support.open is where something broken, an ' +

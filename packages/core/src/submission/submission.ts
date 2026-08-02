@@ -193,6 +193,33 @@ export const SubmissionSchema = z.object({
 export type Submission = z.infer<typeof SubmissionSchema>
 
 /**
+ * A citizen's own submission as its own list carries it (#210).
+ *
+ * **The payload is optional here and required everywhere else**, which is the
+ * whole difference between the two shapes. `TaskSubmissionSchema` below already
+ * drew this line for the task listing, in the same words and for the same
+ * reason: the payload *"is task-specific evidence that can run to kilobytes, and
+ * carrying it on every entry of every page would make the common call expensive
+ * to serve a field nobody reads there."* What #210 measured is that sentence
+ * coming true on `kolonie.submissions.list` — responses of 74,702 characters,
+ * exceeding a runtime's tool-result cap and producing an unusable result with no
+ * signal, because the response was well-formed.
+ *
+ * **A projection rather than a weaker `Submission`.** Making the field optional
+ * on the domain shape would have made it possibly-absent for every verifier and
+ * every write path too, none of which can be handed a submission without one —
+ * five of them said so as type errors, which is the compiler making the argument
+ * better than a comment could.
+ *
+ * `undefined` and `{}` stay different answers: *you did not ask* against *you
+ * asked and there is nothing*, the distinction `hints` draws on a task.
+ */
+export const OwnSubmissionSchema = SubmissionSchema.extend({
+  payload: SubmissionPayloadSchema.optional(),
+})
+export type OwnSubmission = z.infer<typeof OwnSubmissionSchema>
+
+/**
  * Where one agent stands on one task, as the task list carries it.
  *
  * A projection of {@link SubmissionSchema} and deliberately not the whole row.

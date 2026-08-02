@@ -1,10 +1,12 @@
 import {
   AgentSchema,
+  OwnSubmissionSchema,
   SubmissionSchema,
   TaskSchema,
   TaskSubmissionSchema,
   VerificationSchema,
   type Agent,
+  type OwnSubmission,
   type Submission,
   type Task,
   type TaskHint,
@@ -151,12 +153,37 @@ export function toSubmission(
    */
   evidence: string | null,
 ): Submission {
-  return SubmissionSchema.parse({
+  return SubmissionSchema.parse(submissionFields(row, evidence, { payload: true }))
+}
+
+/**
+ * The same row as a citizen's own list carries it (#210).
+ *
+ * Separate from {@link toSubmission} rather than a flag on it, because the two
+ * answer to different schemas: every write path and every verifier needs a
+ * payload and cannot be handed a submission without one, while the list is the
+ * call whose size this issue was filed about. Keeping them apart is what stops
+ * *optional on one read* from becoming *possibly-absent everywhere*.
+ */
+export function toOwnSubmission(
+  row: typeof submissions.$inferSelect,
+  evidence: string | null,
+  options: { readonly payload: boolean },
+): OwnSubmission {
+  return OwnSubmissionSchema.parse(submissionFields(row, evidence, options))
+}
+
+function submissionFields(
+  row: typeof submissions.$inferSelect,
+  evidence: string | null,
+  options: { readonly payload: boolean },
+): Record<string, unknown> {
+  return {
     evidence,
     id: row.id,
     taskId: row.taskId,
     agentId: row.agentId,
-    payload: row.payload,
+    ...(options.payload ? { payload: row.payload } : {}),
     status: row.status,
     assistance: row.assistance,
     attempt: row.attempt,
@@ -164,7 +191,7 @@ export function toSubmission(
     reportOutcome: row.reportOutcome,
     submittedAt: toTimestamp(row.submittedAt),
     verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),
-  })
+  }
 }
 
 /**

@@ -1,9 +1,10 @@
-import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm'
+import { and, desc, eq, getTableColumns, gte, sql } from 'drizzle-orm'
 import {
   missingSkills,
   type AgentId,
   type Assistance,
   type Skill,
+  type OwnSubmission,
   type Submission,
   type SubmissionPayload,
   type TaskId,
@@ -12,7 +13,7 @@ import type { Database } from '../client.js'
 import { agents, submissions, tasks } from '../schema/index.js'
 import { openAttemptForSubmission } from './attempts.js'
 import { reputationOfAgent } from './balance.js'
-import { toSubmission } from './rows.js'
+import { toOwnSubmission, toSubmission } from './rows.js'
 import { currentSessionIdSql } from './sessions.js'
 import { passIsSupersededByReset } from './resets.js'
 import { skillsOfAgent, toSkills } from './skills.js'
@@ -25,13 +26,21 @@ import { skillsOfAgent, toSkills } from './skills.js'
  * reading another agent's submissions: the agent id comes from the credential,
  * never from the request.
  *
- * Not paginated. An agent's submissions are bounded by the tasks it has
- * attempted, and a cursor over a list this short is ceremony that buys nothing.
+ * **Still not paginated, and #210 is why that survived rather than why it
+ * changed.** A citizen reported responses of 74,702 characters exceeding a
+ * runtime's tool-result cap — the case D-033 named as what would reverse it. It
+ * turned out to be the wrong diagnosis of the right symptom: the size came from
+ * the *payload* embedded in every row, not from the number of rows. D-033's
+ * rejection of a cap without a cursor still holds, and sharply — an agent that
+ * stopped at page one would get a **wrong** answer to *did anything fail*,
+ * because the newest submissions are exactly the ones it is asking about. So the
+ * list stays whole and the heaviest field became opt-in.
  */
 export async function listSubmissions(
   db: Database,
   agentId: AgentId,
-): Promise<readonly Submission[]> {
+  query: { readonly since?: string; readonly full?: boolean } = {},
+): Promise<readonly OwnSubmission[]> {
   const rows = await db
     .select({
       ...getTableColumns(submissions),
@@ -56,10 +65,16 @@ export async function listSubmissions(
       >`(select v.evidence from verifications v where v.submission_id = submissions.id order by v.created_at desc limit 1)`,
     })
     .from(submissions)
-    .where(eq(submissions.agentId, agentId))
+    .where(
+      query.since === undefined
+        ? eq(submissions.agentId, agentId)
+        : and(eq(submissions.agentId, agentId), gte(submissions.submittedAt, query.since)),
+    )
     .orderBy(desc(submissions.submittedAt))
 
-  return rows.map(({ latestEvidence, ...row }) => toSubmission(row, latestEvidence))
+  return rows.map(({ latestEvidence, ...row }) =>
+    toOwnSubmission(row, latestEvidence, { payload: query.full === true }),
+  )
 }
 
 /** What an agent handing in a result asks the storage layer to do. */

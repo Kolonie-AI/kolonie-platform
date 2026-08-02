@@ -4,10 +4,12 @@ import { SkillSchema } from '../common/skill.js'
 import { GuidanceContentSchema, OwnReportSchema } from '../guidance/guidance.js'
 import {
   AssistanceSchema,
+  OwnSubmissionSchema,
   SubmissionPayloadSchema,
   SubmissionSchema,
 } from '../submission/submission.js'
 import { SubmissionIdSchema, TaskIdSchema } from '../common/ids.js'
+import { TimestampSchema } from '../common/time.js'
 import { TaskSchema, TaskTypeSchema } from '../task/task.js'
 import { AccountKindSchema } from '../account/account.js'
 import { CAPABILITY_FLAGS, SovereigntySchema, TaskAttemptSchema } from '../attempt/attempt.js'
@@ -485,8 +487,49 @@ export const SubmissionAskSchema = z.object({
 })
 export type SubmissionAsk = z.infer<typeof SubmissionAskSchema>
 
+/**
+ * What a citizen asks for when reading its own submissions (#210).
+ *
+ * **The size problem was the embedded text, not the number of rows**, and that
+ * distinction is what keeps D-033 intact. Both this and `kolonie.support.read`
+ * returned the full body of every entry with no way to say otherwise, so a
+ * response grew with how much a citizen had *contributed* rather than with what
+ * it needed to know: measured responses of 74,702 and 71,194 characters exceeded
+ * a runtime's per-tool-result cap and produced an unusable result — with no
+ * signal at all, because the response itself was well-formed.
+ *
+ * **So there is no limit and no cursor, and the list is still complete.** D-033
+ * rejected a cap that cannot be paged past — *a cursor that lies* — and it was
+ * right: an agent that stopped at page one would get a **wrong** answer to *did
+ * anything fail*, because the newest submissions are exactly the ones it asks
+ * about. Dropping the heaviest field instead leaves every submission in the
+ * answer, with its status and its verdict, and costs the caller nothing it was
+ * reading here.
+ */
+export const ListSubmissionsRequestSchema = z.object({
+  /**
+   * Only what was handed in at or after this moment.
+   *
+   * A convenience for a caller that knows what it wants, never a bound applied
+   * on its behalf — omitting it returns everything, exactly as before.
+   */
+  since: TimestampSchema.optional(),
+  /**
+   * Whether to include the payload each submission was handed in with.
+   *
+   * `false` by default, and it is the one default this issue changes. The
+   * payload is by far the largest field and the one least read here: a citizen
+   * asking *what happened to my work* wants the status and the verdict, not the
+   * bytes it sent — which it wrote and, on the calls that matter, still holds.
+   * Asking for it back is one flag away, and then the size is a choice rather
+   * than a surprise.
+   */
+  full: z.boolean().default(false),
+})
+export type ListSubmissionsRequest = z.infer<typeof ListSubmissionsRequestSchema>
+
 export const ListSubmissionsResponseSchema = z.object({
-  submissions: z.array(SubmissionSchema),
+  submissions: z.array(OwnSubmissionSchema),
   /**
    * The passes the Colony wants to hear about (#58).
    *

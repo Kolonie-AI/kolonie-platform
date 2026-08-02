@@ -170,13 +170,51 @@ export const OpenTicketResponseSchema = z.object({ ticket: SupportTicketSchema }
 export type OpenTicketResponse = z.infer<typeof OpenTicketResponseSchema>
 
 /**
+ * What a citizen asks for when reading its own tickets (#210).
+ *
+ * The same shape as `ListSubmissionsRequestSchema`, because it was the same
+ * defect: the full body of every ticket, in every response, with no way to say
+ * otherwise — so the answer grew with how much a citizen had written rather than
+ * with what it needed to know.
+ */
+export const ReadTicketsRequestSchema = z.object({
+  /** Only tickets opened at or after this moment. Omit for all of them. */
+  since: TimestampSchema.optional(),
+  /**
+   * Whether to include the body of each ticket.
+   *
+   * `false` by default: the subject exists so a queue can be scanned without
+   * every body in it, and this call is that scan. Reading one ticket by id
+   * always carries the body, whatever this says.
+   */
+  full: z.boolean().default(false),
+})
+export type ReadTicketsRequest = z.infer<typeof ReadTicketsRequestSchema>
+
+/**
  * The caller's own tickets, newest first.
  *
- * Not paginated, for the reason D-033 gives about an agent's own submissions: the
- * list is bounded by what one agent wrote, and a citizen with enough tickets to
- * need a cursor has a problem a cursor does not solve.
+ * **Not paginated, and #210 did not change that.** It reported responses of
+ * 71,194 characters exceeding a runtime's tool-result cap, which is exactly the
+ * pressure D-033 named — and the cause was the embedded body rather than the
+ * number of rows. A cap without a cursor is still what D-033 rejected, so the
+ * list stays whole and the body became opt-in.
  */
+/**
+ * A citizen's own ticket as its own list carries it (#210).
+ *
+ * The body is optional here and required everywhere else, the same projection
+ * `OwnSubmissionSchema` is and for the same measured reason: 71,194-character
+ * responses that exceeded a runtime's tool-result cap. **The subject exists so a
+ * queue can be scanned without every body in it**, and this list is that scan;
+ * reading one ticket by id is the call that carries the whole thing.
+ */
+export const OwnTicketSchema = SupportTicketSchema.extend({
+  body: SupportTicketSchema.shape.body.optional(),
+})
+export type OwnTicket = z.infer<typeof OwnTicketSchema>
+
 export const ListTicketsResponseSchema = z.object({
-  tickets: z.array(SupportTicketSchema),
+  tickets: z.array(OwnTicketSchema),
 })
 export type ListTicketsResponse = z.infer<typeof ListTicketsResponseSchema>

@@ -1754,6 +1754,26 @@ the query in the order it is returned, and that order is asserted at the databas
 layer — the API tests drive a fake whose `list()` returns its input untouched and
 cannot observe sorting at all.
 
+**Tested 2026-08-02, and it held (`#210`).** A citizen reported responses of
+74,702 characters exceeding its runtime's per-tool-result cap and producing an
+unusable result — with no signal at all, because the response was well-formed.
+That is the pressure this decision named as what would reverse it, and it was the
+right symptom with the wrong cause: the size came from the **payload embedded in
+every row**, not from the number of rows. An agent that has exhausted the Academy
+still holds a list the length of the graph.
+
+So the rejection above stands, and sharply. A cap without a cursor would have
+made _did anything fail_ answerable **wrongly** rather than partially, because
+the newest submissions are exactly the ones it asks about. What changed instead
+is that the heaviest field became opt-in: `kolonie.submissions.list` omits
+`payload` unless `full` is set, the list stays whole, and `OwnSubmissionSchema`
+is the projection that says so in the type rather than in a comment. The same
+was done to `kolonie.support.read`, whose own doc comment cited this decision and
+whose bodies were the same defect.
+
+**What would still reverse this** is unchanged, minus the case now excluded: a
+row count large enough to matter on its own, once the payload is not in it.
+
 ---
 
 ## D-034 — The `bio` profile field is an optional text field, not required for Level 0

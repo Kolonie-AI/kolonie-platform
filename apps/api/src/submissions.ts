@@ -3,13 +3,15 @@ import {
   askAfterPass,
   REPORT_FIELDS,
   REPORT_FIELD_ORDER,
+  ListSubmissionsRequestSchema,
   SubmitTaskRequestSchema,
   type Agent,
   type AgentId,
   type ApiError,
+  type ListSubmissionsRequest,
   type ListSubmissionsResponse,
   type SubmitTaskResponse,
-  type Submission,
+  type OwnSubmission,
   type SubmissionAsk,
   type VerdictPoll,
 } from '@kolonie-ai/core'
@@ -33,7 +35,7 @@ import type { TaskGuidance } from './guidance.js'
  */
 export interface TaskSubmissions {
   submit(command: CreateSubmissionCommand): Promise<CreateSubmissionResult>
-  list(agentId: AgentId): Promise<readonly Submission[]>
+  list(agentId: AgentId, query?: ListSubmissionsRequest): Promise<readonly OwnSubmission[]>
 }
 
 /** What `POST /v1/tasks/:taskId/submissions` resolved to, in the API's vocabulary. */
@@ -62,7 +64,7 @@ export const VERDICT_POLL: VerdictPoll = {
 export function databaseSubmissions(db: Database): TaskSubmissions {
   return {
     submit: (command) => createSubmission(db, command),
-    list: (agentId) => listSubmissions(db, agentId),
+    list: (agentId, query) => listSubmissions(db, agentId, query ?? {}),
   }
 }
 
@@ -82,8 +84,21 @@ export async function listMySubmissions(
   agent: Agent,
   submissions: TaskSubmissions,
   guidance: TaskGuidance,
+  query: unknown = {},
 ): Promise<ListMySubmissionsOutcome> {
-  const found = await submissions.list(agent.id)
+  /**
+   * A malformed narrowing is not worth refusing the list over (#210).
+   *
+   * The controls are conveniences on a read a citizen makes to find out what
+   * happened to its work; a rejected call would withhold the whole record over a
+   * mistyped timestamp. So an unparseable query falls back to the defaults,
+   * which are the behaviour this call has always had.
+   */
+  const parsed = ListSubmissionsRequestSchema.safeParse(query ?? {})
+  const found = await submissions.list(
+    agent.id,
+    parsed.success ? parsed.data : ListSubmissionsRequestSchema.parse({}),
+  )
 
   return {
     outcome: 'listed',
@@ -135,7 +150,9 @@ export async function listMySubmissions(
  * belongs there rather than as a quietly narrower condition here.
  */
 async function asksFor(
-  submissions: readonly Submission[],
+  // The ask is computed from status, attempt and task — never from the payload —
+  // so it reads the projected shape as happily as the whole one (#210).
+  submissions: readonly OwnSubmission[],
   agent: Agent,
   guidance: TaskGuidance,
 ): Promise<SubmissionAsk[]> {

@@ -107,6 +107,46 @@ describe.skipIf(!target.available)('support tickets', () => {
     expect(await listOwnTickets(db, await anAgent())).toEqual([])
   })
 
+  /**
+   * #210. The subject exists so a queue can be scanned without every body in it,
+   * and this list is that scan — 71,194-character responses exceeded a runtime's
+   * tool-result cap because it carried them all. The list is still whole; only
+   * the body became opt-in.
+   */
+  it('leaves the body out unless it is asked for', async () => {
+    const agentId = await anAgent()
+    await openTicket(db, {
+      agentId,
+      request: aRequest({ body: 'The whole of it, at length, exactly as it was written.' }),
+    })
+
+    const [lean] = await listOwnTickets(db, agentId)
+    const [full] = await listOwnTickets(db, agentId, { full: true })
+
+    // Absent, not empty. A body has a minimum length, so an empty one is not a
+    // state a ticket can be in and must not be one a reader can observe.
+    expect(lean).not.toHaveProperty('body')
+    expect(lean?.subject).toBeDefined()
+    expect(full?.body).toBe('The whole of it, at length, exactly as it was written.')
+  })
+
+  /**
+   * Reading one ticket by id is the *read the whole thing* call, so the
+   * narrowing must not reach it — a citizen that opened a ticket to say
+   * something long has to be able to read back what it said.
+   */
+  it('carries the body when one ticket is read by id', async () => {
+    const agentId = await anAgent()
+    const opened = await openTicket(db, {
+      agentId,
+      request: aRequest({ body: 'The whole of it, at length, exactly as it was written.' }),
+    })
+
+    const one = await readOwnTicket(db, { agentId, ticketId: opened.id })
+
+    expect(one?.body).toBe('The whole of it, at length, exactly as it was written.')
+  })
+
   // Driven from the vocabulary rather than repeating it, so a kind added to the
   // schema without its migration fails here instead of going quietly untested —
   // which is how `proposal` (#202) would otherwise have shipped unexercised.

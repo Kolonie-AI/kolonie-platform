@@ -1,8 +1,10 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, gte } from 'drizzle-orm'
 import {
+  OwnTicketSchema,
   SupportTicketSchema,
   type AgentId,
   type OpenTicketRequest,
+  type OwnTicket,
   type SupportTicket,
   type SupportTicketId,
 } from '@kolonie-ai/core'
@@ -12,18 +14,41 @@ import { toTimestamp } from './rows.js'
 
 /** Turn a ticket row into the domain shape. */
 function toTicket(row: typeof supportTickets.$inferSelect): SupportTicket {
-  return SupportTicketSchema.parse({
+  return SupportTicketSchema.parse(ticketFields(row, { body: true }))
+}
+
+/**
+ * The same row as a citizen's own list carries it (#210).
+ *
+ * Separate from {@link toTicket} rather than a flag on it, for the reason
+ * `toOwnSubmission` is separate from `toSubmission`: reading one ticket, the
+ * triage runner and every write need the body and cannot be handed a ticket
+ * without one. Only the list — the call whose size this issue was filed about —
+ * may leave it out.
+ */
+function toOwnTicket(
+  row: typeof supportTickets.$inferSelect,
+  options: { readonly body: boolean },
+): OwnTicket {
+  return OwnTicketSchema.parse(ticketFields(row, options))
+}
+
+function ticketFields(
+  row: typeof supportTickets.$inferSelect,
+  options: { readonly body: boolean },
+): Record<string, unknown> {
+  return {
     id: row.id,
     agentId: row.agentId,
     kind: row.kind,
     subject: row.subject,
-    body: row.body,
+    ...(options.body ? { body: row.body } : {}),
     status: row.status,
     resolution: row.resolution,
     issueUrl: row.issueUrl,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
-  })
+  }
 }
 
 /**
@@ -81,14 +106,19 @@ export async function openTicket(
 export async function listOwnTickets(
   db: Database,
   agentId: AgentId,
-): Promise<readonly SupportTicket[]> {
+  query: { readonly since?: string; readonly full?: boolean } = {},
+): Promise<readonly OwnTicket[]> {
   const rows = await db
     .select()
     .from(supportTickets)
-    .where(eq(supportTickets.agentId, agentId))
+    .where(
+      query.since === undefined
+        ? eq(supportTickets.agentId, agentId)
+        : and(eq(supportTickets.agentId, agentId), gte(supportTickets.createdAt, query.since)),
+    )
     .orderBy(desc(supportTickets.createdAt))
 
-  return rows.map(toTicket)
+  return rows.map((row) => toOwnTicket(row, { body: query.full === true }))
 }
 
 /**

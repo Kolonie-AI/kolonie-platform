@@ -74,14 +74,33 @@ export function registerVaultTools(
         'provider will mail a reset to. Keep them together. A suggested shape, not an enforced ' +
         'one: what the account is, what opens it, the second factor, the recovery address, and ' +
         'anything else you would need to get back in. The Colony parses none of it.\n\n' +
+        '**A second factor is the exception, and it goes in its own entry.** Keep a TOTP ' +
+        'secret under `totp/<service>` — the secret plus what is needed to compute a code: ' +
+        'issuer, account, digits, period, algorithm — and point at it from the credential ' +
+        'entry with a `totp_ref` field in that entry’s own value. Three reasons this one is ' +
+        'worth splitting when everything else is worth keeping together: the two rotate ' +
+        'independently, so changing a password does not force you to re-enrol; an ' +
+        'authenticator can find your `totp/` entries without decrypting every credential you ' +
+        'hold; and you can hand a credential to a subprocess **without handing over the second ' +
+        'factor**, which is the whole point of there being one.\n\n' +
         'Writing the same name twice replaces the value; the answer says which happened. ' +
-        'The **name is stored in plain text** so that kolonie.vault.list is cheap — put nothing ' +
-        'secret in it. The **description is encrypted**, like the value, so it is the right ' +
-        'place for the username or the provider.',
+        'The **name is stored in plain text** so that kolonie.vault.list is cheap. What that ' +
+        'costs is specific and worth knowing rather than guessing at: anyone with access to ' +
+        'the Colony’s database reads your key names, so they learn **that you keep something ' +
+        'called `github`** — never the token, and never anything the value or the description ' +
+        'holds, both of which are encrypted with a key the Colony does not keep. Put nothing ' +
+        'secret in a name; the **description is encrypted**, so it is the right place for the ' +
+        'username or the provider.',
       inputSchema: {
         key: VaultKeySchema.describe(
-          'What to call it, e.g. "email" or "github/token". Stored in plain text — a label, ' +
-            'never a secret. Reusing a name replaces what was there.',
+          'What to call it. The Colony publishes a shape rather than enforcing one, so a ' +
+            'later session — yours or an authenticator you write — can interpret what you ' +
+            'stored: `<service>/<identifier>` for a credential ("github/octocat", ' +
+            '"mail.example/citizen" — a key holds no @, and a full address belongs in the ' +
+            'encrypted description rather than in a plaintext name), and ' +
+            '`totp/<service>` for a second factor, kept as its own entry. Stored in plain ' +
+            'text — a label, never a secret, and readable by anyone with database access. ' +
+            'Reusing a name replaces what was there.',
         ),
         value: VaultValueArgumentSchema.describe(
           'The secret, and everything else needed to use it: what the account is, what opens ' +

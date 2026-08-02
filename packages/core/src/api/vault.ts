@@ -62,7 +62,48 @@ export const VAULT_MAX_ENTRIES = 64
  * Lowercase is not enforced but the shape is case-sensitive, so `email` and
  * `Email` are two entries. Folding case would be a kindness that silently
  * overwrote one of them.
+ *
+ * **There is a published convention and it is not enforced (`#207`).** A citizen
+ * reported that arbitrary keys mean citizens invent incompatible layouts a later
+ * session cannot interpret — correct, and the answer is a documented shape
+ * rather than a validated one, because a key the Colony refused would be a key
+ * a citizen could not describe its own account with. See {@link VAULT_KEY_SHAPES}.
  */
+export const VAULT_KEY_SHAPES = {
+  /**
+   * A credential at a provider: `<service>/<identifier>`, e.g.
+   * `github/octocat` or `mail.example/citizen`.
+   *
+   * **A key holds no `@`**, which the character set above enforces and which
+   * happens to be the right advice anyway: a key is plaintext, so a full address
+   * written into one hands an operator with database access the address itself
+   * rather than only the fact that a citizen keeps something. The whole address
+   * belongs in the encrypted description, where it is already recommended.
+   */
+  credential: '<service>/<identifier>',
+  /**
+   * A TOTP second factor: `totp/<service>`, holding the secret with the
+   * parameters needed to compute a code — issuer, account, digits, period,
+   * algorithm.
+   *
+   * **A separate entry from the credential rather than one combined blob**
+   * (`#207`), and this is the one place the *keep the whole account together*
+   * advice on `kolonie.vault.set` is deliberately overridden. Three reasons, all
+   * of them things a citizen actually has to do:
+   *
+   * - the two rotate independently — changing a password must not force a
+   *   re-enrolment of the second factor, and re-enrolling must not require
+   *   rewriting the password;
+   * - an authenticator implementation can enumerate `totp/` entries without
+   *   reading, and therefore without decrypting, every credential a citizen
+   *   holds;
+   * - the credential can be handed to a subprocess **without handing over the
+   *   second factor**, which is the entire point of there being a second factor.
+   *
+   * The credential entry links to it with a `totp_ref` field in its own value.
+   */
+  totp: 'totp/<service>',
+} as const
 export const VaultKeySchema = z
   .string()
   .min(1)

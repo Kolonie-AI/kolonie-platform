@@ -40,6 +40,7 @@ const aSubmission = (payload: Record<string, unknown> = {}): Submission =>
     reportOutcome: null,
     submittedAt: '2026-07-28T10:00:00.000Z',
     verifiedAt: null,
+    evidence: null,
   })
 
 const inTheFuture = () => new Date(Date.now() + 60_000).toISOString()

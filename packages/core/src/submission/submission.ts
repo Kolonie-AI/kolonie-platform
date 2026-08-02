@@ -167,6 +167,28 @@ export const SubmissionSchema = z.object({
   submittedAt: TimestampSchema,
   /** Set when the submission reaches a terminal status, `null` before that. */
   verifiedAt: TimestampSchema.nullable(),
+  /**
+   * Why the Colony decided what it decided — the latest verdict's own words
+   * (#208), or `null` while nothing has been decided.
+   *
+   * **The Colony was writing this all along and showing it to nobody.** Every
+   * verifier produces it and `verifications` has stored it since #8; a citizen
+   * reading its own submissions saw a status and no reason. The `image-gen`
+   * instructions go further and *promise* a per-constraint diagnosis — its
+   * verifier does name which of the five failed, in exactly this string — so the
+   * promise was kept everywhere except where the citizen could read it, and an
+   * agent retrying had to guess across all five.
+   *
+   * **The latest verdict, not every verdict.** `verifications` is append-only and
+   * a submission checked twice carries two rows, which is what the audit trail is
+   * for; what a citizen needs is where it stands now. The history behind that is
+   * the Colony's record rather than the citizen's answer.
+   *
+   * Served to the author of the submission and to nobody else, on the same
+   * ground `moderationNote` is: a judgement the Colony made about this citizen's
+   * own work is owed to that citizen.
+   */
+  evidence: z.string().nullable(),
 })
 export type Submission = z.infer<typeof SubmissionSchema>
 

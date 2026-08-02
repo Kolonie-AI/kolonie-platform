@@ -67,6 +67,7 @@ const submission: Submission = {
   reportOutcome: null,
   submittedAt: '2026-07-31T10:00:00.000Z',
   verifiedAt: null,
+  evidence: null,
 }
 
 /**

@@ -66,6 +66,7 @@ const submissionWith = (payload: Record<string, unknown>): Submission => ({
   reportOutcome: null,
   submittedAt: '2026-07-31T10:00:00.000Z',
   verifiedAt: null,
+  evidence: null,
 })
 
 /** A PNG header of a given size. Only the header is ever read. */

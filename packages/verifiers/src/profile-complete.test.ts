@@ -83,6 +83,7 @@ const aSubmission = (payload: Record<string, unknown> = {}): Submission =>
     reportOutcome: null,
     submittedAt: '2026-07-28T10:00:00.000Z',
     verifiedAt: null,
+    evidence: null,
   })
 
 describe('ProfileCompleteVerifier', () => {

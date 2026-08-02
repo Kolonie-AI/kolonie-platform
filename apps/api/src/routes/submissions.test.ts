@@ -404,6 +404,7 @@ describe('GET /v1/agents/me/submissions', () => {
       assistance: 'unknown',
       report: null,
       reportOutcome: null,
+      evidence: null,
       submittedAt: new Date().toISOString(),
       verifiedAt: null,
       ...overrides,

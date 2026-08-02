@@ -57,6 +57,7 @@ describe('SubmitTaskResponseSchema', () => {
     reportOutcome: null,
     submittedAt: new Date().toISOString(),
     verifiedAt: null,
+    evidence: null,
   })
 
   it('carries the accepted submission and where its verdict will appear', () => {

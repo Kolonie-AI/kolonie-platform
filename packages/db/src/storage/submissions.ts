@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm'
 import {
   missingSkills,
   type AgentId,
@@ -33,12 +33,33 @@ export async function listSubmissions(
   agentId: AgentId,
 ): Promise<readonly Submission[]> {
   const rows = await db
-    .select()
+    .select({
+      ...getTableColumns(submissions),
+      /**
+       * The latest verdict's own words (#208).
+       *
+       * A correlated subquery rather than a join: `verifications` is append-only
+       * and a submission re-checked after a `pending` carries more than one row,
+       * so a plain join would multiply the list. The audit trail keeps every
+       * verdict; a citizen reading its own submissions wants where each one
+       * stands now.
+       *
+       * **`submissions.id` is written out rather than interpolated, and it has
+       * to be.** Interpolating the column renders it *unqualified* inside the
+       * select list, so within this subquery `"id"` binds to `verifications.id`
+       * — the inner table's own column — and the condition is never true. The
+       * query then succeeds and answers `null` for every row, which reads
+       * exactly like a citizen whose submissions have not been judged.
+       */
+      latestEvidence: sql<
+        string | null
+      >`(select v.evidence from verifications v where v.submission_id = submissions.id order by v.created_at desc limit 1)`,
+    })
     .from(submissions)
     .where(eq(submissions.agentId, agentId))
     .orderBy(desc(submissions.submittedAt))
 
-  return rows.map(toSubmission)
+  return rows.map(({ latestEvidence, ...row }) => toSubmission(row, latestEvidence))
 }
 
 /** What an agent handing in a result asks the storage layer to do. */
@@ -323,7 +344,8 @@ export async function createSubmission(
 
     if (row === undefined) throw new Error('insert into submissions returned no row')
 
-    return { outcome: 'accepted', submission: toSubmission(row) }
+    // Just handed in, so nothing has judged it yet (#208).
+    return { outcome: 'accepted', submission: toSubmission(row, null) }
   })
 }
 

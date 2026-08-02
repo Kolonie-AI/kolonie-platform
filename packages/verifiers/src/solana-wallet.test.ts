@@ -52,6 +52,7 @@ const submission: Submission = {
   reportOutcome: null,
   submittedAt: '2026-07-29T10:00:00.000Z',
   verifiedAt: null,
+  evidence: null,
 }
 
 /** A wallet as a Solana SDK presents one: base58 address, base58 signatures. */

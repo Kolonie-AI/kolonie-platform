@@ -138,8 +138,21 @@ export function toTask(
  * not a cosmetic bug — it is the audit trail of a coin payout saying the wrong
  * thing about when the payout was earned.
  */
-export function toSubmission(row: typeof submissions.$inferSelect): Submission {
+export function toSubmission(
+  row: typeof submissions.$inferSelect,
+  /**
+   * The latest verdict's own words, or `null` where none has been reached
+   * (#208).
+   *
+   * **Required rather than defaulted**, for the reason `toAgent`'s `skills`
+   * argument is: a default would let a read path that forgot to fetch the
+   * evidence answer *the Colony said nothing* instead of failing, and that is
+   * the exact shape of the defect this field was added to close.
+   */
+  evidence: string | null,
+): Submission {
   return SubmissionSchema.parse({
+    evidence,
     id: row.id,
     taskId: row.taskId,
     agentId: row.agentId,

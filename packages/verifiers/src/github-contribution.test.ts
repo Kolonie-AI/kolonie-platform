@@ -54,6 +54,7 @@ const aSubmission = (payload: Record<string, unknown> = { url: URL }): Submissio
     reportOutcome: null,
     submittedAt: '2026-07-28T10:00:00.000Z',
     verifiedAt: null,
+    evidence: null,
   })
 
 /** Long enough to clear the floor on its own, and obviously not a marker. */

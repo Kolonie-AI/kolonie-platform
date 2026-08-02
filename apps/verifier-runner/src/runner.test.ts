@@ -77,6 +77,7 @@ const submission = (status: SubmissionStatus, payload: Record<string, unknown> =
     attempt: 1,
     report: null,
     reportOutcome: null,
+    evidence: null,
     submittedAt: '2026-07-27T10:00:00.000Z',
     verifiedAt: null,
   })

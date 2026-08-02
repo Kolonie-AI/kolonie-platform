@@ -166,7 +166,9 @@ export async function claimNextSubmission(
     if (claimed === undefined) throw new Error('claiming a locked submission returned no row')
 
     return {
-      submission: toSubmission(claimed),
+      // No verdict has been reached at the moment a submission is claimed for
+      // checking — that is what the runner is about to do (#208).
+      submission: toSubmission(claimed, null),
       taskType: TaskTypeSchema.parse(row.taskType),
       agent: toAgent(row.agent, row.skills),
     }
@@ -379,7 +381,8 @@ export async function recordVerdict(
 
     return {
       outcome: 'recorded',
-      submission: toSubmission(updated),
+      // The verdict just written is the latest one by construction (#208).
+      submission: toSubmission(updated, record.evidence),
       verification: toVerification(record),
       ...(booking === undefined ? {} : { booking }),
     }

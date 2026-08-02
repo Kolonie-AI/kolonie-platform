@@ -79,6 +79,7 @@ export function aSubmission(
     // becomes is decided by a verdict that has not happened yet (#56).
     report: command.report ?? null,
     reportOutcome: null,
+    evidence: null,
     submittedAt: new Date().toISOString(),
     verifiedAt: null,
     ...overrides,

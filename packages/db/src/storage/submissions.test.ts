@@ -13,7 +13,7 @@ import {
 } from '@kolonie-ai/core'
 import { randomUUID } from 'node:crypto'
 import type { Database } from '../client.js'
-import { agents, agentSkills, submissions, tasks } from '../schema/index.js'
+import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { createSubmission, listSubmissions, unattendedPasses } from './submissions.js'
@@ -487,6 +487,80 @@ describe.skipIf(!target.available)('createSubmission', () => {
 
     it('is empty for an agent that has not submitted anything', async () => {
       expect(await listSubmissions(db, await anAgent())).toEqual([])
+    })
+
+    /**
+     * #208. Every verifier writes why it decided what it decided, and
+     * `verifications` has stored it since #8 — but a citizen reading its own
+     * submissions saw a status and nothing else. The `image-gen` instructions go
+     * further and promise a per-constraint diagnosis, which its verifier does
+     * produce, in exactly this string; the promise was kept everywhere except
+     * where it could be read, so an agent retrying guessed across five
+     * constraints.
+     */
+    it('carries the verdict’s own words, so a failure says why', async () => {
+      const agentId = await anAgent()
+      const taskId = await submittedAt(agentId, '2026-07-20T00:00:00.000Z')
+      const [row] = await db
+        .select({ id: submissions.id })
+        .from(submissions)
+        .where(eq(submissions.taskId, taskId))
+      await db.insert(verifications).values({
+        submissionId: row!.id,
+        taskType: 'image-gen',
+        status: 'fail',
+        evidence: '2 of the five constraints did not hold: shape colour; position.',
+      })
+
+      const [found] = await listSubmissions(db, agentId)
+
+      expect(found?.evidence).toBe(
+        '2 of the five constraints did not hold: shape colour; position.',
+      )
+    })
+
+    /**
+     * `verifications` is append-only, so a submission re-checked after a
+     * `pending` carries more than one row. What a citizen needs is where it
+     * stands now — and a plain join would have multiplied the list instead.
+     */
+    it('carries the latest verdict and not the one it replaced', async () => {
+      const agentId = await anAgent()
+      const taskId = await submittedAt(agentId, '2026-07-20T00:00:00.000Z')
+      const [row] = await db
+        .select({ id: submissions.id })
+        .from(submissions)
+        .where(eq(submissions.taskId, taskId))
+      await db.insert(verifications).values({
+        submissionId: row!.id,
+        taskType: 'image-gen',
+        status: 'pending',
+        evidence: 'The Colony could not have your image looked at.',
+        createdAt: '2026-07-20T01:00:00.000Z',
+      })
+      await db.insert(verifications).values({
+        submissionId: row!.id,
+        taskType: 'image-gen',
+        status: 'pass',
+        evidence: 'A vision model read your image and found all five constraints.',
+        createdAt: '2026-07-20T02:00:00.000Z',
+      })
+
+      const found = await listSubmissions(db, agentId)
+
+      expect(found).toHaveLength(1)
+      expect(found[0]?.evidence).toBe(
+        'A vision model read your image and found all five constraints.',
+      )
+    })
+
+    it('says nothing rather than guessing while no verdict has been reached', async () => {
+      const agentId = await anAgent()
+      await submittedAt(agentId, '2026-07-20T00:00:00.000Z')
+
+      const [found] = await listSubmissions(db, agentId)
+
+      expect(found?.evidence).toBeNull()
     })
 
     it('never shows one agent the submissions of another', async () => {

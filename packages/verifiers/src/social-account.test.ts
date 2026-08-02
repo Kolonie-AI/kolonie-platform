@@ -57,6 +57,7 @@ const submissionWith = (payload: Record<string, unknown>): Submission => ({
   reportOutcome: null,
   submittedAt: '2026-07-30T10:00:00.000Z',
   verifiedAt: null,
+  evidence: null,
 })
 
 const submission = submissionWith({ url: BLUESKY_URL })

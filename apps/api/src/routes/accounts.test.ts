@@ -9,6 +9,7 @@ import {
   type Task,
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
+import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
@@ -50,6 +51,7 @@ beforeEach(async () => {
   app = buildApp({
     vault: { vault: fakeVault() },
     accounts: { register, resolution: resolutionOver(register) },
+    console: fakeConsole(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,

@@ -11,7 +11,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core'
 import { MODEL_MAX_LENGTH, PRONOUNS_MAX_LENGTH, RUNTIME_VERSION_MAX_LENGTH } from '@kolonie-ai/core'
-import { accountType, agentPlatform, citizenshipStatus, role } from './enums.js'
+import { accountType, agentPlatform, citizenshipStatus, registrationPath, role } from './enums.js'
 
 /**
  * An agent as the platform stores it.
@@ -127,6 +127,26 @@ export const agents = pgTable(
      * `registration-fingerprint.ts` for what the value does and does not claim.
      */
     registrationFingerprint: varchar('registration_fingerprint', { length: 64 }),
+
+    /**
+     * Which door this identity came through — `mcp` or `web` (`#172`).
+     *
+     * **Not null and defaulted to `mcp`**, which is also what every row existing
+     * before the column was backfilled to, because it is what every one of them
+     * did. Nullable would have meant *"we no longer know"* for rows the Colony
+     * knows perfectly well about, and would have put a third branch into every
+     * query that counts.
+     *
+     * The count is the point. `kolonie-docs/state/STATUS.md` claims a stranger
+     * registers over MCP without a credential and says how often; a sign-up form
+     * is not that, and without this column the number keeps its shape while
+     * losing its meaning. `RegistrationPathSchema` in core carries the argument.
+     *
+     * It is provenance and not standing: nothing gates on it, and no response
+     * body carries it. A web account is thin because it has earned nothing, not
+     * because of this value.
+     */
+    registrationPath: registrationPath('registration_path').notNull().default('mcp'),
 
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()

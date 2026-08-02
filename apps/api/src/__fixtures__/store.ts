@@ -45,6 +45,15 @@ export interface FakeStore extends AgentStore {
    */
   readonly declareRuntimeAt: (agentId: AgentId, declaredAt: string) => void
   /**
+   * Put a console session on record without running the mail exchange (`#172`).
+   *
+   * The exchange is tested where it lives — `console.test.ts` for the API's half
+   * and `packages/db` for single use and expiry. What this exists for is the
+   * assertion that matters everywhere else: a route driven with a session
+   * answers exactly as the same route driven with a key.
+   */
+  readonly signIn: (agentId: AgentId, session: string) => void
+  /**
    * Every session named through this store, in order (#158).
    *
    * Recorded and never consulted, which is the property worth preserving: the
@@ -117,6 +126,9 @@ export function fakeStore(): FakeStore {
     return { apiKey, agent }
   }
 
+  /** Console sessions a test has handed out, by value (`#172`). */
+  const sessions = new Map<string, AgentId>()
+
   const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
   /** How long each agent was away before the call being served (#144). */
   const absences = new Map<string, number>()
@@ -148,6 +160,32 @@ export function fakeStore(): FakeStore {
       const held = byKey.get(presented)
       if (held === undefined) return { outcome: 'unknown' }
       if (held.revoked) return { outcome: 'revoked' }
+      return {
+        outcome: 'authenticated',
+        agent: held.agent,
+        credentialId: CredentialIdSchema.parse(held.credentialId),
+      }
+    },
+
+    signIn: (agentId, session) => {
+      sessions.set(session, agentId)
+    },
+
+    /**
+     * A session resolves to the same `Agent` a key does (`#172`).
+     *
+     * The fake keeps sessions in their own map because that is what the database
+     * does — a different `kind` on the same table — and because a test that could
+     * present a session where a key belongs would be testing a Colony that does
+     * not exist.
+     */
+    authenticateSession: async (presented: string): Promise<AuthenticationResult> => {
+      const agentId = sessions.get(presented)
+      if (agentId === undefined) return { outcome: 'unknown' }
+
+      const held = [...byKey.values()].find((candidate) => candidate.agent.id === agentId)
+      if (held === undefined) return { outcome: 'unknown' }
+
       return {
         outcome: 'authenticated',
         agent: held.agent,

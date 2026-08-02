@@ -1,6 +1,7 @@
 import { ERROR_STATUS, SessionDeclarationSchema } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { BEARER_SCHEME, me } from '../authentication.js'
+import { sessionCookie } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -33,7 +34,15 @@ export function registerMeRoute(v1: FastifyInstance, deps: RouteDependencies): v
      * agent reads to learn the argument exists.
      */
     const query = SessionDeclarationSchema.safeParse(sessionDeclarationFromQuery(request.query))
-    const result = await me(request.headers.authorization, store, query.success ? query.data : {})
+    const result = await me(
+      request.headers.authorization,
+      store,
+      query.success ? query.data : {},
+      // A sponsor reading the console asks the same question an agent does, and
+      // gets it answered by the same route (`#172`). The cookie is read only
+      // when no key was presented — see `authenticate`.
+      sessionCookie(request.headers.cookie),
+    )
 
     if (result.outcome === 'rejected') {
       // RFC 7235 requires a 401 to say how to authenticate. The scheme is

@@ -4,6 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../__fixtures__/colony.js'
 import { anonymousClient, connectedClient } from '../__fixtures__/mcp.js'
+import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { buildApp } from '../app.js'
@@ -88,7 +89,7 @@ describe('a tool that throws something nobody planned for', () => {
     const overMcp = await client.callTool({ name: 'kolonie.vault.list', arguments: {} })
 
     const store = fakeStore()
-    const app = buildApp({ ...deps, store })
+    const app = buildApp({ ...deps, store, console: fakeConsole() })
     await app.ready()
     const issued = store.issue({})
     const overHttp = await app.inject({

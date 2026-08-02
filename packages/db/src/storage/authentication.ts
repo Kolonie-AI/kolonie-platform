@@ -28,6 +28,15 @@ export type AuthenticationResult =
   | { readonly outcome: 'unknown' }
   /** The key was real and has been revoked. Revocation is permanent (D-010). */
   | { readonly outcome: 'revoked' }
+  /**
+   * The credential was real and its own expiry has passed (`#172`).
+   *
+   * Distinct from `revoked` for the reason the three above are distinct from
+   * each other: a test asserting that a session stops working after twelve hours
+   * has to be able to tell *ran out* from *the lookup missed*, and the API
+   * collapses all four into one answer regardless.
+   */
+  | { readonly outcome: 'expired' }
 
 /**
  * Resolve an API key to the agent that holds it.
@@ -47,8 +56,34 @@ export async function authenticateApiKey(
   db: Database,
   presentedKey: string,
 ): Promise<AuthenticationResult> {
-  const presentedHash = hashApiKey(presentedKey)
+  return await authenticateCredential(db, 'api-key', hashApiKey(presentedKey))
+}
 
+/**
+ * Resolve a browser session cookie to the agent that holds it (`#172`).
+ *
+ * **The same function as an API key, one argument different**, and that is the
+ * whole of *"a session authenticates; it does not authorise"*. Both produce an
+ * `AuthenticationResult` carrying an `Agent`, with the same skills read the same
+ * way — so nothing downstream can behave differently depending on how the caller
+ * got in, because nothing downstream is told. What the caller may then do is
+ * decided by skills and roles on that identity (`#173`).
+ *
+ * Two surfaces resolving identity through two functions is how they drift: one
+ * of them grows a condition, and the other is where the bug lives.
+ */
+export async function authenticateSession(
+  db: Database,
+  presentedSession: string,
+): Promise<AuthenticationResult> {
+  return await authenticateCredential(db, 'console-session', hashApiKey(presentedSession))
+}
+
+async function authenticateCredential(
+  db: Database,
+  kind: 'api-key' | 'console-session',
+  presentedHash: string,
+): Promise<AuthenticationResult> {
   const [row] = await db
     // The skills come back with the agent rather than in a second query: this
     // is the read every authenticated request makes, and what the caller may
@@ -58,19 +93,28 @@ export async function authenticateApiKey(
     .select({ credential: credentials, agent: agents, skills: heldSkillsSql })
     .from(credentials)
     .innerJoin(agents, eq(credentials.agentId, agents.id))
-    .where(and(eq(credentials.kind, 'api-key'), eq(credentials.secretHash, presentedHash)))
+    .where(and(eq(credentials.kind, kind), eq(credentials.secretHash, presentedHash)))
     .limit(1)
 
   if (row === undefined) return { outcome: 'unknown' }
 
   const storedHash = row.credential.secretHash
-  // Unreachable while `credentials_api_key_requires_hash` holds — an `api-key`
-  // row without a hash cannot be inserted. Checked anyway rather than asserted,
+  // Unreachable while `credentials_secret_requires_hash` holds — a row of either
+  // kind without a hash cannot be inserted. Checked anyway rather than asserted,
   // because the failure mode of being wrong is authenticating nobody as someone.
   if (storedHash === null) return { outcome: 'unknown' }
   if (!apiKeyHashEquals(storedHash, presentedHash)) return { outcome: 'unknown' }
 
   if (row.credential.revokedAt !== null) return { outcome: 'revoked' }
+
+  // An expiry is read on the authentication path rather than swept (`#172`). A
+  // session that ran out an hour ago must stop working an hour ago, not when
+  // something gets round to deleting it — and `expires_at` is null for every
+  // kind that does not expire, so this costs an API key one comparison.
+  // Parsed rather than compared as text — Postgres' rendering and an ISO string
+  // do not sort against each other. See the same note in `sign-in.ts`.
+  const expiresAt = row.credential.expiresAt
+  if (expiresAt !== null && Date.parse(expiresAt) <= Date.now()) return { outcome: 'expired' }
 
   await touch(db, row.credential.id)
 

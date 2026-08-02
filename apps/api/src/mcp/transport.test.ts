@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
+import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { FAKE_CALLER_IP, fakeColony } from '../__fixtures__/colony.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
@@ -77,6 +78,7 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -110,6 +112,7 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -150,6 +153,7 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -183,6 +187,7 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -216,6 +221,7 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -258,6 +264,7 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -350,6 +357,7 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),

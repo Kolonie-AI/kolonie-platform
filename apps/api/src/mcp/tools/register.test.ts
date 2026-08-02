@@ -2,6 +2,7 @@ import { API_KEY_PREFIX, RegisterAgentResponseSchema } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../__fixtures__/academy.js'
 import { fakeAccounts } from '../../__fixtures__/accounts.js'
+import { fakeConsole } from '../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../__fixtures__/catalogue.js'
 import { fakeDomain } from '../../__fixtures__/domain.js'
 import { fakeEmail } from '../../__fixtures__/email.js'
@@ -281,6 +282,7 @@ describe('kolonie.register', () => {
     const app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry,
       store: fakeStore(),

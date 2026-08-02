@@ -24,6 +24,7 @@ import { support } from './support.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeVault } from './__fixtures__/vault.js'
 import { fakeAccounts } from './__fixtures__/accounts.js'
+import { fakeConsole } from './__fixtures__/console.js'
 import {
   fakeEmail,
   fakeEmailChallenges,
@@ -56,6 +57,7 @@ const build = (inboundSecret: string | undefined) => {
   return buildApp({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    console: fakeConsole(),
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),
@@ -589,6 +591,7 @@ describe('GET /v1/mailboxes', () => {
     const withoutMailer = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       registry: fakeRegistry(),
       store,
       catalogue: fakeCatalogue(),

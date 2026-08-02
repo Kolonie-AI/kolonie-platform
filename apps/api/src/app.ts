@@ -20,6 +20,7 @@ import { registerProfileRoute } from './routes/profile.js'
 import { registerErasureRoutes } from './routes/erasure.js'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { registerAcademyRoutes } from './routes/academy.js'
+import { registerConsoleRoutes } from './routes/console.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerInboundMailRoute } from './routes/email-inbound.js'
 import { registerAccountRoutes } from './routes/accounts.js'
@@ -85,6 +86,7 @@ export function buildApp({
   vision,
   vault,
   accounts,
+  console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
@@ -254,6 +256,7 @@ export function buildApp({
     vision,
     vault,
     accounts,
+    console: consoleDeps,
     rhythm,
     unavailable,
     capabilityDown,
@@ -289,6 +292,7 @@ export function buildApp({
       registerEmailRoutes(v1, routes)
       registerInboundMailRoute(v1, routes)
       registerAccountRoutes(v1, routes)
+      registerConsoleRoutes(v1, routes)
       registerMailboxRoutes(v1, routes)
       registerKeyRoutes(v1, routes)
       registerSolanaRoutes(v1, routes)

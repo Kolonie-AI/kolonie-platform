@@ -21,6 +21,7 @@ import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
+import { fakeConsole } from '../__fixtures__/console.js'
 import {
   FAKE_POW_DIFFICULTY,
   fakePowChallenges,
@@ -44,6 +45,7 @@ beforeEach(async () => {
   app = buildApp({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    console: fakeConsole(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,

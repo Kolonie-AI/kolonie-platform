@@ -9,6 +9,7 @@ import {
 } from '@kolonie-ai/core'
 import {
   authenticateApiKey,
+  authenticateSession,
   balanceOfAgent,
   contactGaps,
   lastRuntimeDeclarationAt,
@@ -32,6 +33,17 @@ import type { ProfileStore } from './profile.js'
  */
 export interface AgentStore extends ProfileStore {
   authenticate(apiKey: string): Promise<AuthenticationResult>
+  /**
+   * Resolve a console session cookie to the same kind of answer (`#172`).
+   *
+   * Its own method rather than a flag on `authenticate`, because the two
+   * presented values are different secrets looked up under different kinds — and
+   * one function that switched on a boolean would be one function where the
+   * wrong branch is one typo away. What they share is the *answer*: both yield an
+   * `AuthenticationResult` carrying an `Agent`, so nothing downstream can tell
+   * how the caller got in.
+   */
+  authenticateSession(session: string): Promise<AuthenticationResult>
   balanceOf(agentId: AgentId): Promise<AgentBalance>
   /**
    * The address the citizen proved at the `solana-wallet` rung, or null.
@@ -150,6 +162,7 @@ export function bearerToken(header: string | undefined): string | undefined {
 export function databaseStore(db: Database): AgentStore {
   return {
     authenticate: (apiKey) => authenticateApiKey(db, apiKey),
+    authenticateSession: (session) => authenticateSession(db, session),
     balanceOf: (agentId) => balanceOfAgent(db, agentId),
     verifiedWalletOf: (agentId) => verifiedSolanaAddress(db, agentId),
     lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
@@ -188,9 +201,32 @@ export function databaseStore(db: Database): AgentStore {
 export async function authenticate(
   authorization: string | undefined,
   store: AgentStore,
+  /**
+   * The console session cookie, when the caller is a browser (`#172`).
+   *
+   * **Read only when there is no `Authorization` header**, so a call that
+   * presents a key is decided by that key and a cookie the browser attached
+   * cannot change the answer. That ordering is the whole of the ambient-authority
+   * question here: a session is used exactly when nothing else was offered.
+   */
+  session?: string | undefined,
 ): Promise<AuthenticationOutcome> {
   const presented = bearerToken(authorization)
-  if (presented === undefined) return { outcome: 'rejected', error: UNAUTHENTICATED }
+
+  if (presented === undefined) {
+    if (session === undefined || session === '') {
+      return { outcome: 'rejected', error: UNAUTHENTICATED }
+    }
+
+    const bySession = await store.authenticateSession(session)
+    if (bySession.outcome !== 'authenticated') {
+      // `unknown`, `revoked` and `expired` collapse here, exactly as the three
+      // key failures do. See UNAUTHENTICATED.
+      return { outcome: 'rejected', error: UNAUTHENTICATED }
+    }
+
+    return { outcome: 'authenticated', agent: bySession.agent }
+  }
 
   // Shape-checked before the lookup. Every key the Colony issues carries this
   // prefix (`ApiKeySchema` in core), so anything without it cannot match a
@@ -237,8 +273,10 @@ export async function me(
    * did in the run attributed to the previous one.
    */
   declaration: SessionDeclaration = {},
+  /** The console session cookie, when the caller is a browser (`#172`). */
+  session?: string | undefined,
 ): Promise<MeOutcome> {
-  const authenticated = await authenticate(authorization, store)
+  const authenticated = await authenticate(authorization, store, session)
   if (authenticated.outcome === 'rejected') {
     return { outcome: 'rejected', error: authenticated.error }
   }

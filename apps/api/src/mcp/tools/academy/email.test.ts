@@ -2,6 +2,7 @@ import { API_BASE_PATH, DEFAULT_RHYTHM_BOUNDS } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../../__fixtures__/academy.js'
 import { fakeAccounts } from '../../../__fixtures__/accounts.js'
+import { fakeConsole } from '../../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../../__fixtures__/catalogue.js'
 import { FAKE_CALLER_IP } from '../../../__fixtures__/colony.js'
 import { fakeDomain } from '../../../__fixtures__/domain.js'
@@ -56,6 +57,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
     const app = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email,
       registry: fakeRegistry(),
       store,

@@ -11,6 +11,8 @@ import { databaseErasureDesk, erasure } from './erasure.js'
 import { databaseRetesting } from './retest.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
+import { databaseConsoleStore } from './console.js'
+import { signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseKeyChallenges } from './keys.js'
 import { databaseSolanaChallenges } from './solana.js'
@@ -224,6 +226,27 @@ const app = buildApp({
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.
   accounts: { register: databaseAccounts(db), resolution: databaseAccountResolution(db) },
+  console: {
+    store: databaseConsoleStore(db),
+    // The same mailer the mailbox rung gets, present on the same three variables.
+    // Absent, sign-in answers rather than minting a link nobody could receive.
+    ...(process.env['CLOUDFLARE_ACCOUNT_ID'] &&
+    process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'] &&
+    process.env['ACADEMY_SENDER_ADDRESS']
+      ? {
+          mailer: cloudflareMailer({
+            accountId: process.env['CLOUDFLARE_ACCOUNT_ID'],
+            token: process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'],
+            sender: process.env['ACADEMY_SENDER_ADDRESS'],
+          }),
+        }
+      : {}),
+    // Configuration, not a constant: AGENTS.md §3 keeps host names out of this
+    // repository, so where a followed link lands arrives in the environment.
+    consoleUrl: process.env['CONSOLE_URL'] ?? '',
+    addressLimiter: signInAddressLimiter(),
+    clientLimiter: signInClientLimiter(),
+  },
   rhythm,
   email: {
     challenges: databaseEmailChallenges(db),

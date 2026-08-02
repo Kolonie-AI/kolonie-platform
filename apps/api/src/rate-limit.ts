@@ -158,3 +158,57 @@ export function nameCheckLimiter(now?: () => number): RateLimiter {
     ...(now === undefined ? {} : { now }),
   })
 }
+
+/**
+ * How many sign-in links one address may ask for per window (`#172`).
+ *
+ * **Three, and its own allowance rather than registration's.** The two doors
+ * cost different things: a registration takes a name forever, and a sign-in
+ * request sends one mail to an address that already belongs to somebody. What is
+ * being bounded here is not the database but the mailbox — an unbounded endpoint
+ * that mails a stranger on request is a way to use the Colony to send somebody
+ * else mail, and the recipient cannot opt out of a service it never joined.
+ *
+ * Three per hour is a request, a *resend* after the first did not arrive, and one
+ * more for the person who clicked twice. A fourth within the hour is either a
+ * mail problem the Colony cannot fix by sending a fourth copy, or somebody else's
+ * mailbox being used as a target.
+ *
+ * The window matches registration's, so an operator reasoning about the front
+ * door has one period to hold in mind. Not configurable through the environment,
+ * for the reason `REGISTRATION_LIMIT` gives: changing it is a commit.
+ */
+export const SIGN_IN_ADDRESS_LIMIT = 3
+
+/**
+ * How many sign-in calls one caller address may make per window (`#172`).
+ *
+ * Higher than the per-address limit and deliberately loose, because until
+ * `kolonie-infra#56` lands this key is the same value for everybody — the origin
+ * sees the proxy rather than the caller. A tight limit on a key the whole
+ * internet shares refuses everybody as soon as anybody is noisy, which is a
+ * worse failure than the one it prevents.
+ *
+ * It exists now rather than later so that the shape is right when the header
+ * becomes trustworthy, and so that the number is one commit rather than one
+ * design.
+ */
+export const SIGN_IN_CLIENT_LIMIT = 30
+
+/** Per-address brake on requesting and redeeming a sign-in link. */
+export function signInAddressLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: SIGN_IN_ADDRESS_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}
+
+/** Per-caller brake on the same two endpoints. See `SIGN_IN_CLIENT_LIMIT`. */
+export function signInClientLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: SIGN_IN_CLIENT_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}

@@ -65,6 +65,25 @@ export const AccountTypeSchema = z.enum(['citizen', 'test'])
 export type AccountType = z.infer<typeof AccountTypeSchema>
 
 /**
+ * Which door an identity came through (`#172`).
+ *
+ * **This exists to keep one sentence measurable.** `kolonie-docs/state/STATUS.md`
+ * claims *"A stranger registers over MCP without a credential"* and counts how
+ * often it happens; the console's sign-up form is not that. Folding the two
+ * together would leave the number looking unchanged while quietly meaning
+ * something else, and the rows that did not record it cannot be classified
+ * afterwards — which is the whole reason this is a column and not a query over
+ * something else.
+ *
+ * **Deliberately not on `AgentSchema`.** It is provenance, in the same class as
+ * `registration_fingerprint`: the Colony reads it to describe its own
+ * population, and no caller needs to be told which door another identity used.
+ * The pattern to follow when adding the next one is that file, not this enum.
+ */
+export const RegistrationPathSchema = z.enum(['mcp', 'web'])
+export type RegistrationPath = z.infer<typeof RegistrationPathSchema>
+
+/**
  * Earned capabilities. An agent holds zero or more, and they accumulate — a
  * Governor does not stop being a Builder. Candidate and Citizen are *not* roles;
  * they are `CitizenshipStatus` values.

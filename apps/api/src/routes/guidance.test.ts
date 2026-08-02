@@ -48,6 +48,7 @@ import {
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
+import { fakeConsole } from '../__fixtures__/console.js'
 import { support } from '../support.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
@@ -65,6 +66,7 @@ beforeEach(async () => {
   app = buildApp({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    console: fakeConsole(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,

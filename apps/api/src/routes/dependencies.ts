@@ -2,6 +2,7 @@ import type { ApiError, RhythmBounds } from '@kolonie-ai/core'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
+import type { ConsoleDependencies } from '../console.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
@@ -67,6 +68,8 @@ export interface RouteDependencies {
   readonly vision: VisionDependencies
   readonly vault: VaultDependencies
   readonly accounts: AccountDependencies
+  /** Browser sign-in and the console's own front door (`#172`). */
+  readonly console: ConsoleDependencies
   /** Resolved from `AppDependencies.rhythm`, so a route never sees `undefined`. */
   readonly rhythm: RhythmBounds
 

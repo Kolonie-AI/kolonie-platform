@@ -22,6 +22,7 @@ import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures_
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
+import { fakeConsole } from '../__fixtures__/console.js'
 import { expectedWidth, probeFor } from '../academy.js'
 import type { CaptchaCheck } from '../academy.js'
 import type { AcademyDependencies } from '../academy.js'
@@ -40,6 +41,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
   return buildApp({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    console: fakeConsole(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,
@@ -210,6 +212,7 @@ describe('POST /v1/academy/challenges', () => {
     const withoutCaptcha = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store,
@@ -545,6 +548,7 @@ describe('when the gate is not configured', () => {
     buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: fakeStore(),
@@ -615,6 +619,7 @@ describe('when the gate is not configured', () => {
     const disabled = buildApp({
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      console: fakeConsole(),
       email: fakeEmail(),
       registry: fakeRegistry(),
       store: disabledStore,

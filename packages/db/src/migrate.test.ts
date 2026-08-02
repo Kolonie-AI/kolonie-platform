@@ -123,7 +123,7 @@ describe.skipIf(!target.available)('the migrations', () => {
     // learns to verify something new, while a fourth status would change what a
     // citizen may say about what it holds, which is an argument rather than an
     // addition.
-    expect(afterFirst.enums).toBe('26')
+    expect(afterFirst.enums).toBe('27')
     // The deferred double-entry constraint trigger, on ledger_entries.
     expect(afterFirst.triggers).toBe('1')
 

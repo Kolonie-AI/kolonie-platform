@@ -444,7 +444,50 @@ describe.skipIf(!target.available)('schema', () => {
       const agent = await anAgent()
       await expectRejection(
         () => db.insert(credentials).values({ agentId: agent.id, kind: 'api-key' }),
-        /credentials_api_key_requires_hash/,
+        /credentials_secret_requires_hash/,
+      )
+    })
+
+    /** Every kind that carries a secret, not only the first one that did (`#172`). */
+    it('rejects a sign-in link and a session with no hash', async () => {
+      const agent = await anAgent()
+      const expiresAt = new Date(Date.now() + 60_000).toISOString()
+
+      await expectRejection(
+        () => db.insert(credentials).values({ agentId: agent.id, kind: 'email-link', expiresAt }),
+        /credentials_secret_requires_hash/,
+      )
+      await expectRejection(
+        () =>
+          db.insert(credentials).values({ agentId: agent.id, kind: 'console-session', expiresAt }),
+        /credentials_secret_requires_hash/,
+      )
+    })
+
+    /**
+     * Both directions of `credentials_expiry_matches_kind` (`#172`). The second
+     * is the one worth pinning: an API key with an expiry would be a field that
+     * looks like it does something and does not.
+     */
+    it('requires an expiry on the kinds that expire and refuses one on the kinds that do not', async () => {
+      const agent = await anAgent()
+
+      await expectRejection(
+        () =>
+          db
+            .insert(credentials)
+            .values({ agentId: agent.id, kind: 'email-link', secretHash: 'a'.repeat(64) }),
+        /credentials_expiry_matches_kind/,
+      )
+      await expectRejection(
+        () =>
+          db.insert(credentials).values({
+            agentId: agent.id,
+            kind: 'api-key',
+            secretHash: 'b'.repeat(64),
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          }),
+        /credentials_expiry_matches_kind/,
       )
     })
 

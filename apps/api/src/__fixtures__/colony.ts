@@ -23,6 +23,7 @@ import type { TaskCatalogue } from '../tasks.js'
 import type { TaskSubmissions } from '../submissions.js'
 
 import type { AcademyDependencies } from '../academy.js'
+import type { ConsoleDependencies } from '../console.js'
 import type { EmailDependencies } from '../email.js'
 import type { KeyDependencies } from '../keys.js'
 import type { SolanaDependencies } from '../solana.js'
@@ -49,6 +50,7 @@ import { fakeImage } from './image.js'
 import { fakeVision } from './vision.js'
 import { fakeVault } from './vault.js'
 import { fakeAccounts } from './accounts.js'
+import { fakeConsole } from './console.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeSubmissions } from './submissions.js'
@@ -125,6 +127,7 @@ export interface FakeColony {
   /** The Browser Capability Gate, behind both surfaces. Overridable the same way. */
   readonly academy: AcademyDependencies
   /** The mailbox rung, behind both surfaces. Overridable the same way. */
+  readonly console: ConsoleDependencies
   readonly email: EmailDependencies
   /** The keypair rung, behind both surfaces. Overridable the same way. */
   readonly keys: KeyDependencies
@@ -290,6 +293,7 @@ export function fakeColony(): FakeColony {
     vision: fakeVision(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    console: fakeConsole(),
     /**
      * The default range (#142). A test that cares about the bounds passes its
      * own, which is the point of them being configuration — and the one that
@@ -313,6 +317,9 @@ export function fakeColony(): FakeColony {
           credentialId: CredentialIdSchema.parse(randomUUID()),
         }
       },
+
+      /** No console session is ever issued in this fixture — see `FakeStore` for the one that does. */
+      authenticateSession: async (): Promise<AuthenticationResult> => ({ outcome: 'unknown' }),
 
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??

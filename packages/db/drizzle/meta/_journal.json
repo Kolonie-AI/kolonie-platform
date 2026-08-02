@@ -498,6 +498,13 @@
       "when": 1785669166351,
       "tag": "0070_a_ticket_can_propose",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1785673511224,
+      "tag": "0071_a_browser_is_a_way_in",
+      "breakpoints": true
     }
   ]
 }

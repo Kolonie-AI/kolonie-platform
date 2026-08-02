@@ -13,6 +13,7 @@ import {
   ErasureReasonSchema,
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
+  RegistrationPathSchema,
   ReportOutcomeSchema,
   ReputationReasonSchema,
   RoleSchema,
@@ -77,6 +78,18 @@ export const accountProvenance = pgEnum(
 export const role = pgEnum('role', valuesOf(RoleSchema.options))
 
 export const credentialKind = pgEnum('credential_kind', valuesOf(CredentialKindSchema.options))
+
+/**
+ * Which door an identity came through (`#172`).
+ *
+ * An enum rather than a boolean because there will be a third door — a federated
+ * sign-in is already anticipated in D-050 — and `is_web` would have to be
+ * rewritten on the day it arrives, in a column every count reads.
+ */
+export const registrationPath = pgEnum(
+  'registration_path',
+  valuesOf(RegistrationPathSchema.options),
+)
 
 /** Which mailbox node a challenge belongs to — the granting one, or the badge. */
 export const emailChallengePurpose = pgEnum(

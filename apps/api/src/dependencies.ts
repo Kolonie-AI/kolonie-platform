@@ -2,6 +2,7 @@ import type { RhythmBounds } from '@kolonie-ai/core'
 import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { AgentStore } from './authentication.js'
+import type { ConsoleDependencies } from './console.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { DomainDependencies } from './domain.js'
 import type { EmailDependencies } from './email.js'
@@ -130,6 +131,8 @@ export interface AppDependencies {
   readonly vault: VaultDependencies
   /** The account register (#150). */
   readonly accounts: AccountDependencies
+  /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
+  readonly console: ConsoleDependencies
   /**
    * The range a citizen may declare its wake-up rhythm inside (#142).
    *

@@ -16,11 +16,7 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('the vault', () => {
+describe('the vault', () => {
   let db: Database
   let agentId: AgentId
   let otherId: AgentId
@@ -28,12 +24,10 @@ describe.skipIf(!target.available)('the vault', () => {
   let otherToken: string
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
   afterAll(async () => {
-    if (!target.available) return
     await db.$client.end()
   })
 

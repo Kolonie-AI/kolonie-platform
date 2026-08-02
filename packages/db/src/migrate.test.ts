@@ -6,18 +6,12 @@ import { databaseTestTarget, MIGRATIONS_FOLDER, resetDatabase } from './testing.
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  // Deliberately console, and deliberately at module scope: this has to be
-  // visible before the reporter prints a tidy "skipped".
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * The two properties a migration has to have before it is allowed near a live
  * database: it works on nothing, and running it twice is the same as running it
  * once. Both are cheap to assert and expensive to discover in production.
  */
-describe.skipIf(!target.available)('the migrations', () => {
+describe('the migrations', () => {
   let db: Database
 
   const objectCounts = async () => {
@@ -36,7 +30,6 @@ describe.skipIf(!target.available)('the migrations', () => {
   }
 
   beforeAll(async () => {
-    if (!target.available) return
     // `drop schema if exists` and drizzle's `create ... if not exists` both emit
     // notices; they are expected here and would only be noise in the report.
     db = createDatabase(target.url, { max: 1, onnotice: () => {} })

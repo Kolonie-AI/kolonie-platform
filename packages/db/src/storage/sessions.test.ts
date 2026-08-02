@@ -13,19 +13,14 @@ import { attributeCall, nameSession, recentSessions } from './sessions.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * Sessions (#158): what a citizen says about the run it is in, recorded, and
  * depended on by nothing.
  */
-describe.skipIf(!target.available)('sessions', () => {
+describe('sessions', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

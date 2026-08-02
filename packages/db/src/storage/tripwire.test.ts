@@ -23,19 +23,14 @@ import { fileReport } from './guidance.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * The tripwire (#115): a cluster of distinct reports on a stable task means the
  * provider changed.
  */
-describe.skipIf(!target.available)('the provider-change tripwire', () => {
+describe('the provider-change tripwire', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

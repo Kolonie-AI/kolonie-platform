@@ -31,10 +31,6 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * A narrative with one field answered.
  *
@@ -47,13 +43,12 @@ const aNarrative = (
   field: 'did' | 'broke' | 'changed' = 'broke',
 ): ReportNarrative => ({ did: null, broke: null, changed: null, [field]: content })
 
-describe.skipIf(!target.available)('what citizens write about a task', () => {
+describe('what citizens write about a task', () => {
   let db: Database
   let taskId: TaskId
   let otherTaskId: TaskId
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

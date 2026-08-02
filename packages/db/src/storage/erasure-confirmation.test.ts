@@ -17,10 +17,6 @@ import { confirmErasure, mintErasureChallenge } from './erasure-confirmation.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * The two-step confirmation (#92).
  *
@@ -28,11 +24,10 @@ if (!target.available) {
  * the happy path is one call followed by another, and the reason this code
  * exists at all is the set of things that must not get through it.
  */
-describe.skipIf(!target.available)('confirming an erasure', () => {
+describe('confirming an erasure', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

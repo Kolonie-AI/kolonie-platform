@@ -7,18 +7,13 @@ import { agents, reportFeedback, taskAttempts, taskHints, taskReports, tasks } f
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('task guidance schema', () => {
+describe('task guidance schema', () => {
   let db: Database
   let taskId: string
   let agentId: string
   let otherAgentId: string
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

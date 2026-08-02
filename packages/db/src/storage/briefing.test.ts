@@ -34,10 +34,6 @@ import { fileReport, listOwnReports, recordModeration } from './guidance.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * A narrative with one field answered.
  *
@@ -50,12 +46,11 @@ const aNarrative = (
   field: 'did' | 'broke' | 'changed' = 'broke',
 ): ReportNarrative => ({ did: null, broke: null, changed: null, [field]: content })
 
-describe.skipIf(!target.available)('the Colony’s write-up of a task', () => {
+describe('the Colony’s write-up of a task', () => {
   let db: Database
   let taskId: TaskId
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

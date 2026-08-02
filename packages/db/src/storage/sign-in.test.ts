@@ -16,15 +16,10 @@ import { registerAgent } from './agents.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('browser sign-in', () => {
+describe('browser sign-in', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

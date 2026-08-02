@@ -8,15 +8,10 @@ import { connectForTests, databaseTestTarget, expectRejection, truncateAll } fro
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('granting a role', () => {
+describe('granting a role', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -150,11 +145,10 @@ describe.skipIf(!target.available)('granting a role', () => {
   })
 })
 
-describe.skipIf(!target.available)('a steward changing a role', () => {
+describe('a steward changing a role', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

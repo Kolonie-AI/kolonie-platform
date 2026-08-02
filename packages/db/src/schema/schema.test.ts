@@ -28,17 +28,10 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  // Deliberately console, and deliberately at module scope: this has to be
-  // visible before the reporter prints a tidy "skipped".
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('schema', () => {
+describe('schema', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

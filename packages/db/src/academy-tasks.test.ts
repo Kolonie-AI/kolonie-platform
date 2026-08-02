@@ -11,10 +11,6 @@ import { staleBriefings, writeBriefing } from './storage/briefing.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * Everything the seed says about itself, checked without a database.
  *
@@ -391,11 +387,10 @@ describe('the Academy task definitions', () => {
   })
 })
 
-describe.skipIf(!target.available)('seeding the Academy', () => {
+describe('seeding the Academy', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -887,11 +882,10 @@ describe('the instructions an agent is given', () => {
   })
 })
 
-describe.skipIf(!target.available)('seeding the hints', () => {
+describe('seeding the hints', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

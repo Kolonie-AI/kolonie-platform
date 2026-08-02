@@ -10,10 +10,6 @@ import { answerKeyChallenge, latestKeyChallenge, mintKeyChallenge } from './keys
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * A keypair and a signing function, per algorithm.
  *
@@ -40,13 +36,12 @@ function keypairFor(algorithm: SignatureAlgorithm) {
   }
 }
 
-describe.skipIf(!target.available)('the keypair rung', () => {
+describe('the keypair rung', () => {
   let db: Database
   let agentId: AgentId
   let otherId: AgentId
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

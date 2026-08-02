@@ -23,17 +23,12 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('browser challenges', () => {
+describe('browser challenges', () => {
   let db: Database
   let agentId: AgentId
   let otherId: AgentId
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

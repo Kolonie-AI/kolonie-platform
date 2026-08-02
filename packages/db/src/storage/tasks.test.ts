@@ -15,16 +15,11 @@ import { frontier, listTasks, readAcademyGraph, readTask, type ListTasksQuery } 
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('listTasks', () => {
+describe('listTasks', () => {
   let db: Database
   let agentId: AgentId
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -677,7 +672,7 @@ describe.skipIf(!target.available)('listTasks', () => {
      * name: listing N tasks must not issue N submission queries.
      */
     it('fetches the whole page’s submissions in one query', async () => {
-      const watched = createDatabase(target.available ? target.url : '', {
+      const watched = createDatabase(target.url, {
         max: 1,
         onnotice: () => {},
         debug: (_connection, query) => statements.push(query),
@@ -717,12 +712,11 @@ describe.skipIf(!target.available)('listTasks', () => {
   })
 })
 
-describe.skipIf(!target.available)('hints', () => {
+describe('hints', () => {
   let db: Database
   let agentId: AgentId
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -820,7 +814,7 @@ describe.skipIf(!target.available)('hints', () => {
      */
     it('fetches every task’s hints in one query', async () => {
       const statements: string[] = []
-      const watched = createDatabase(target.available ? target.url : '', {
+      const watched = createDatabase(target.url, {
         max: 1,
         onnotice: () => {},
         debug: (_connection, query) => statements.push(query),
@@ -868,11 +862,10 @@ describe.skipIf(!target.available)('hints', () => {
   })
 })
 
-describe.skipIf(!target.available)('readAcademyGraph', () => {
+describe('readAcademyGraph', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

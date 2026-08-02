@@ -24,10 +24,6 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 const STORAGE = dirname(fileURLToPath(import.meta.url))
 
 /**
@@ -59,11 +55,10 @@ describe('the statistics that exclude test accounts', () => {
   })
 })
 
-describe.skipIf(!target.available)('marking an account as a test account', () => {
+describe('marking an account as a test account', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

@@ -32,17 +32,12 @@ import { claimNextSubmission, recordVerdict } from './verifications.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 const EXAMPLE_TASK = TaskTypeSchema.parse('example-task')
 
-describe.skipIf(!target.available)('booking a passed submission', () => {
+describe('booking a passed submission', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -682,7 +677,7 @@ describe.skipIf(!target.available)('booking a passed submission', () => {
       const taskId = await aTask({ coins: 10, reputation: 5 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
-      const other = createDatabase(target.available ? target.url : '', {
+      const other = createDatabase(target.url, {
         max: 1,
         onnotice: () => {},
       })

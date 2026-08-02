@@ -9,15 +9,10 @@ import { balanceOfAgent } from './balance.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('balanceOfAgent', () => {
+describe('balanceOfAgent', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

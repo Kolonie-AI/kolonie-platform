@@ -11,19 +11,14 @@ import { contactGaps, lastContactAt, pruneContactHistory, recordContact } from '
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * The contact record (#141): when a citizen was here, bucketed, bounded, and
  * incapable of failing the call that produced it.
  */
-describe.skipIf(!target.available)('the contact record', () => {
+describe('the contact record', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

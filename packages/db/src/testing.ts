@@ -6,15 +6,6 @@ import { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA } from './migrations.js'
 // Re-exported so test files keep importing everything they need from one place.
 export { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA }
 
-/**
- * Whether we are on a CI runner.
- *
- * GitHub Actions, GitLab, CircleCI and Travis all set `CI=true`. The check is on
- * the environment rather than on a flag the caller passes, because a flag can be
- * forgotten and a forgotten flag is exactly the failure this guards against.
- */
-const onCi = (env: NodeJS.ProcessEnv): boolean => env.CI === 'true' || env.CI === '1'
-
 const HOW_TO_PROVIDE_ONE = `Provide a PostgreSQL 16 server and set ${DATABASE_URL_VAR}, e.g.
 
   docker run -d --name kolonie-pg -e POSTGRES_PASSWORD=postgres \\
@@ -25,7 +16,7 @@ Any PostgreSQL 16 will do — the Compose stack in kolonie-infra is one way, not
 the only one. See operations/testing.md in kolonie-docs.`
 
 /**
- * Decide whether the database-backed tests in this package can run.
+ * The database-backed tests in this package refuse to be skipped (`#224`).
  *
  * This function is where D-009's second half lives, and it is the part that is
  * easy to get wrong. Integration tests that quietly pass when their variable is
@@ -34,31 +25,44 @@ the only one. See operations/testing.md in kolonie-docs.`
  * announce it. That is the same class of defect as a deploy pipeline that had
  * never once succeeded while every failure was read as a known problem.
  *
- * So the two environments are treated differently on purpose:
+ * **It used to make that argument and then apply it to CI alone**, skipping
+ * locally on the grounds that the returned reason would teach. It did not. On
+ * 2026-08-02 a full `npm run check` exited **0** with `84 passed | 938 skipped`
+ * — a third of the suite — and the only announcement was one `console.warn`
+ * near the top of a log thousands of lines long. *A skip that does not teach is
+ * a skip that becomes permanent*, said the comment that then wrote one.
  *
- * - **On CI**, a missing `DATABASE_URL` throws. The configuration is broken and
- *   the build must say so rather than silently narrowing what it checked.
- * - **Locally**, it skips — but returns the reason, and the reason is a command
- *   that fixes it. A skip that does not teach is a skip that becomes permanent.
+ * **One rule now, not two, and the local half is the half that matters.** A
+ * push to `main` bypasses the required status check, so CI runs *after* the
+ * decision to push has already been made on a local exit code. The throw on CI
+ * was guarding a checkpoint that is routinely walked past.
+ *
+ * **There is deliberately no way to switch this off.** An environment variable
+ * that silences a safety check ends up in a shell profile, and is then permanent
+ * and invisible — this defect again, with one more step in front of it. A change
+ * that genuinely needs no database has `npm run check:fast`, which says in its
+ * own name that it checked less.
+ *
+ * This is not the *degrade rather than fail fast* rule from
+ * `operations/incidents.md`, and the difference is who is being served. That
+ * rule protects citizens using a running Colony, for whom a degraded answer
+ * still beats no answer. A test suite serves nobody — it tells one maintainer
+ * whether to push, and degrading gracefully there means lying to its only
+ * reader.
  */
-export function databaseTestTarget(
-  env: NodeJS.ProcessEnv = process.env,
-): { available: true; url: string } | { available: false; reason: string } {
+export function databaseTestTarget(env: NodeJS.ProcessEnv = process.env): {
+  available: true
+  url: string
+} {
   const url = env[DATABASE_URL_VAR]
   if (url !== undefined && url.trim() !== '') return { available: true, url }
 
-  if (onCi(env)) {
-    throw new Error(
-      `${DATABASE_URL_VAR} is not set on CI. Database tests must never be skipped there: ` +
-        `a suite that skips silently reports green while covering nothing. ` +
-        `Add a postgres:16 service to the workflow.`,
-    )
-  }
-
-  return {
-    available: false,
-    reason: `${DATABASE_URL_VAR} is not set, so the database tests were skipped.\n\n${HOW_TO_PROVIDE_ONE}`,
-  }
+  throw new Error(
+    `${DATABASE_URL_VAR} is not set, so the database tests cannot run — and a suite that ` +
+      `skips them silently reports green while covering nothing.\n\n${HOW_TO_PROVIDE_ONE}\n\n` +
+      `If this change genuinely needs no database, run \`npm run check:fast\`, which runs ` +
+      `everything except the tests and says so.`,
+  )
 }
 
 /**

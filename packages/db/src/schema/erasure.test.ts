@@ -39,10 +39,6 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * The erasure boundary (#90): what goes with a citizen, what outlives one, and
  * the two tables that name nobody.
@@ -53,11 +49,10 @@ if (!target.available) {
  * cascading table really is empty afterwards, and that the ledger really does
  * refuse an erasure that skipped the burn.
  */
-describe.skipIf(!target.available)('the erasure boundary', () => {
+describe('the erasure boundary', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

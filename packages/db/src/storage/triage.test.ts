@@ -17,10 +17,6 @@ import { connectForTests, databaseTestTarget, expectRejection, truncateAll } fro
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 const aRequest = (overrides: Partial<OpenTicketRequest> = {}): OpenTicketRequest => ({
   kind: 'defect',
   subject: 'email-roundtrip never delivers the code',
@@ -30,12 +26,11 @@ const aRequest = (overrides: Partial<OpenTicketRequest> = {}): OpenTicketRequest
   ...overrides,
 })
 
-describe.skipIf(!target.available)('triage reads and writes', () => {
+describe('triage reads and writes', () => {
   let db: Database
   let seeded = 0
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

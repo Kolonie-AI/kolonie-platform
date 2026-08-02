@@ -14,10 +14,6 @@ import { fileReport, routeSubmissionReport } from './guidance.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * A narrative with one field answered.
  *
@@ -42,7 +38,7 @@ const aNarrative = (
  * split: which submissions file anything at all, what a second one does to the
  * first, and that a runner which dies mid-write files once.
  */
-describe.skipIf(!target.available)('a report carried on a submission', () => {
+describe('a report carried on a submission', () => {
   let db: Database
   let taskId: TaskId
   let agentId: AgentId
@@ -51,7 +47,6 @@ describe.skipIf(!target.available)('a report carried on a submission', () => {
   const LATER = 'Correction: it only asks when the browser has no cookie from a previous visit.'
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

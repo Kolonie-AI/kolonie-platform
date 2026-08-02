@@ -27,10 +27,6 @@ import { setVaultEntry } from './vault.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 const SALT = 'a'.repeat(32)
 
 /**
@@ -42,11 +38,10 @@ const SALT = 'a'.repeat(32)
  * sponsor's money being destroyed. The happy path is one assertion; the rest of
  * this file is the promise.
  */
-describe.skipIf(!target.available)('erasing a citizen', () => {
+describe('erasing a citizen', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -628,11 +623,10 @@ describe.skipIf(!target.available)('erasing a citizen', () => {
  * many found a tip useful — so the Colony repairs them rather than making a
  * citizen stay until they would stay tidy.
  */
-describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
+describe('the counts an erasure disturbs', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -906,11 +900,10 @@ describe.skipIf(!target.available)('the counts an erasure disturbs', () => {
  * than a corruption, and not a good answer to a citizen exercising a right that
  * `GOVERNANCE.md` grants unconditionally.
  */
-describe.skipIf(!target.available)('handing over a canonical entry', () => {
+describe('handing over a canonical entry', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

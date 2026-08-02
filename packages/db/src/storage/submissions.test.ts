@@ -20,15 +20,10 @@ import { createSubmission, listSubmissions, unattendedPasses } from './submissio
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('createSubmission', () => {
+describe('createSubmission', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

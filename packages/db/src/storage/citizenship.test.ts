@@ -15,10 +15,6 @@ import { connectForTests, databaseTestTarget, MIGRATIONS_FOLDER, truncateAll } f
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /** The copy check, and it needs no database. */
 describe('the citizenship backfill statement', () => {
   it('is the one the migration ran', async () => {
@@ -28,11 +24,10 @@ describe('the citizenship backfill statement', () => {
   })
 })
 
-describe.skipIf(!target.available)('promoting a candidate to citizen', () => {
+describe('promoting a candidate to citizen', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

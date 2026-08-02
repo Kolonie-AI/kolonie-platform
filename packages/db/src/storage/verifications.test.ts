@@ -27,17 +27,12 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 const EXAMPLE_TASK = TaskTypeSchema.parse('example-task')
 
-describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
+describe('the verifier-runner storage loop', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -222,7 +217,7 @@ describe.skipIf(!target.available)('the verifier-runner storage loop', () => {
       const held = await aSubmission({ submittedAt: '2026-07-19T10:00:00.000Z' })
       const free = await aSubmission({ submittedAt: '2026-07-20T10:00:00.000Z' })
 
-      const other = createDatabase(target.available ? target.url : '', {
+      const other = createDatabase(target.url, {
         max: 1,
         onnotice: () => {},
       })

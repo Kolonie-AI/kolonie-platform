@@ -27,20 +27,15 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 const kind = (value: string) => AccountKindSchema.parse(value)
 const capabilities = (...values: string[]) => values as unknown as readonly AccountCapability[]
 
-describe.skipIf(!target.available)('the account register', () => {
+describe('the account register', () => {
   let db: Database
   let agentId: AgentId
   let otherId: AgentId
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

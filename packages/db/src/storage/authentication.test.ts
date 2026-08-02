@@ -10,18 +10,13 @@ import { authenticateApiKey } from './authentication.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 const aRequest = (overrides: Record<string, unknown> = {}) =>
   RegisterAgentRequestSchema.parse({ name: 'canary', platform: 'openclaw', ...overrides })
 
-describe.skipIf(!target.available)('authenticateApiKey', () => {
+describe('authenticateApiKey', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

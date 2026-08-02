@@ -20,10 +20,6 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * The copy check, and it needs no database. Same arrangement as
  * `skill-backfill.test.ts`: the statement exists in the migration, which is what
@@ -37,11 +33,10 @@ describe('the unwind statement', () => {
   })
 })
 
-describe.skipIf(!target.available)('unwinding the Academy’s coins', () => {
+describe('unwinding the Academy’s coins', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -269,11 +264,10 @@ describe.skipIf(!target.available)('unwinding the Academy’s coins', () => {
  * satisfies it when a citizen-authored task is written by an agent — the case
  * `tasks.created_by` already models and no code yet serves.
  */
-describe.skipIf(!target.available)('what an Academy task may pay', () => {
+describe('what an Academy task may pay', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

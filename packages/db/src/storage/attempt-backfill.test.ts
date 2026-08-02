@@ -17,10 +17,6 @@ import { attemptsFor } from './attempts.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * The backfill, tested by running the migration's own SQL rather than a
  * reimplementation of it.
@@ -37,12 +33,11 @@ if (!target.available) {
  * it is the same SQL applied to a database whose attempt table is empty, which
  * is the state it was written for.
  */
-describe.skipIf(!target.available)('the attempt backfill', () => {
+describe('the attempt backfill', () => {
   let db: Database
   let statements: string[]
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
     const file = await readFile(join(MIGRATIONS_FOLDER, '0039_backfill_task_attempts.sql'), 'utf8')
     statements = file

@@ -19,16 +19,11 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('a tester re-running a task', () => {
+describe('a tester re-running a task', () => {
   let db: Database
   let seeded = 0
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

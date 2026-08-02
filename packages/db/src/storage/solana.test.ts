@@ -15,10 +15,6 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * A wallet as a Solana SDK would present one: a base58 address and base58
  * signatures over raw message bytes.
@@ -38,13 +34,12 @@ function wallet() {
   }
 }
 
-describe.skipIf(!target.available)('the solana wallet rung', () => {
+describe('the solana wallet rung', () => {
   let db: Database
   let agentId: AgentId
   let otherId: AgentId
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

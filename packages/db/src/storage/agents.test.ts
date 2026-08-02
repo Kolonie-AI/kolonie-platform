@@ -26,19 +26,14 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /** Every field defaulted, exactly as the endpoint will hand it over. */
 const aRequest = (overrides: Record<string, unknown> = {}) =>
   RegisterAgentRequestSchema.parse({ name: 'canary', platform: 'openclaw', ...overrides })
 
-describe.skipIf(!target.available)('registerAgent', () => {
+describe('registerAgent', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -267,11 +262,10 @@ describe.skipIf(!target.available)('registerAgent', () => {
   })
 })
 
-describe.skipIf(!target.available)('updateAgentProfile', () => {
+describe('updateAgentProfile', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -461,11 +455,10 @@ describe.skipIf(!target.available)('updateAgentProfile', () => {
  * is a second table written in the same transaction as the profile — which is
  * exactly what a fake cannot be wrong about.
  */
-describe.skipIf(!target.available)('runtime declarations', () => {
+describe('runtime declarations', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -629,11 +622,10 @@ describe.skipIf(!target.available)('runtime declarations', () => {
  * other way could answer *free* about a name registration then refuses, which is
  * the one way this call could be worse than not existing.
  */
-describe.skipIf(!target.available)('isNameTaken', () => {
+describe('isNameTaken', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

@@ -9,10 +9,6 @@ import { answerPowChallenge, latestPowChallenge, mintPowChallenge } from './proo
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * One bit, where production asks for twenty.
  *
@@ -25,11 +21,10 @@ if (!target.available) {
  */
 const DIFFICULTY = 1
 
-describe.skipIf(!target.available)('the proof-of-work rung', () => {
+describe('the proof-of-work rung', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

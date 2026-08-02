@@ -20,10 +20,6 @@ import {
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * The copy check, and it needs no database.
  *
@@ -41,11 +37,10 @@ describe('the backfill statement', () => {
   })
 })
 
-describe.skipIf(!target.available)('backfilling agent skills', () => {
+describe('backfilling agent skills', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 
@@ -202,11 +197,10 @@ describe.skipIf(!target.available)('backfilling agent skills', () => {
  * written yet, which is exactly the one that would forget. A citizen-authored
  * task may require any skill; it may grant none.
  */
-describe.skipIf(!target.available)('who may mint a skill', () => {
+describe('who may mint a skill', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

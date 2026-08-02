@@ -9,15 +9,10 @@ import { lastImageChallengeExpiry, latestImageChallenge, mintImageChallenge } fr
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
-describe.skipIf(!target.available)('the image rung’s challenges', () => {
+describe('the image rung’s challenges', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

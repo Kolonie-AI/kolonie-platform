@@ -19,10 +19,6 @@ import { readHistory } from './history.js'
 
 const target = databaseTestTarget()
 
-if (!target.available) {
-  console.warn(`\n${target.reason}\n`)
-}
-
 /**
  * A citizen reading its own trajectory back (#118).
  *
@@ -31,11 +27,10 @@ if (!target.available) {
  * everything, that is the difference between a tenth identical attempt and a
  * first informed one.
  */
-describe.skipIf(!target.available)('a citizen’s own history', () => {
+describe('a citizen’s own history', () => {
   let db: Database
 
   beforeAll(async () => {
-    if (!target.available) return
     db = await connectForTests(target.url)
   })
 

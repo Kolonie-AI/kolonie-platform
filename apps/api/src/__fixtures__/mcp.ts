@@ -16,6 +16,7 @@ import { fakeContributions, fakeGithub } from './github.js'
 import { fakeWakeup } from './wakeup.js'
 import { fakeGuidance } from './guidance.js'
 import { fakeImage } from './image.js'
+import { fakeScene } from './scene.js'
 import { fakeKeys } from './keys.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeRegistry } from './registry.js'
@@ -81,6 +82,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
+    scene: fakeScene(),
     caller: { ip: FAKE_CALLER_IP },
   })
 

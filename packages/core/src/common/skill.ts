@@ -98,6 +98,28 @@ export const KNOWN_SKILLS = [
    * ambiguous slug in place beside the honest one.
    */
   'raster',
+  /**
+   * Driving an image generator to a specification (`kolonie-platform#216`).
+   *
+   * **Three capabilities, one per direction, and this is the third.** `vision`
+   * certifies that a citizen can *read* an image, `raster` that it can *draw*
+   * one, and this that it can *generate* one — reach a model that renders and
+   * make it produce what was asked for. They are separable in every direction:
+   * a runtime that sees may not draw, and one that draws may hold no inference
+   * credential at all.
+   *
+   * **What it certifies is competent use, not possession of a key.** The rung's
+   * three load-bearing properties — a photographable subject, an exact count,
+   * and a colour bound to one named object and not the other — are the three a
+   * bad use of a generator gets wrong and a good one fixes by re-prompting or by
+   * choosing a better model. That is the skill.
+   *
+   * It is the first rung that will send most citizens to a paid API, which is
+   * accepted deliberately: a badge certifying a capability the Colony does not
+   * control is worth more than one certifying a library call. `raster` stays
+   * active so the free path up the Academy is not closed.
+   */
+  'image-model',
   'website',
   /**
    * Control of a name's DNS — the zone and its records, not a page served under

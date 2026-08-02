@@ -34,6 +34,7 @@ import type { ContributionDependencies } from '../contributions.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { WebsiteDependencies } from '../website.js'
 import type { ImageDependencies } from '../image.js'
+import type { SceneDependencies } from '../scene.js'
 import type { SocialDependencies } from '../social.js'
 import type { DomainDependencies } from '../domain.js'
 import type { VisionDependencies } from '../vision.js'
@@ -50,6 +51,7 @@ import { fakeSocial } from './social.js'
 import { fakeDomain } from './domain.js'
 import { fakeWebsite } from './website.js'
 import { fakeImage } from './image.js'
+import { fakeScene } from './scene.js'
 import { fakeVision } from './vision.js'
 import { fakeVault } from './vault.js'
 import { fakeAccounts } from './accounts.js'
@@ -147,6 +149,7 @@ export interface FakeColony {
   readonly domain: DomainDependencies
   readonly website: WebsiteDependencies
   readonly image: ImageDependencies
+  readonly scene: SceneDependencies
   readonly vision: VisionDependencies
   /** The vault, behind both surfaces. Overridable the same way (#98). */
   readonly vault: VaultDependencies
@@ -299,6 +302,7 @@ export function fakeColony(): FakeColony {
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
+    scene: fakeScene(),
     vision: fakeVision(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

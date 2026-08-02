@@ -11,7 +11,8 @@ import { TimestampSchema } from '../common/time.js'
  * checked against, so a typo fails a test here rather than becoming a row
  * nothing will ever read.
  *
- * The six are the six the Colony proves today, one per challenge table.
+ * Six of them are the six the Colony proves today, one per challenge table.
+ * `image-model` is the exception and is described where it is listed.
  */
 export const KNOWN_ACCOUNT_KINDS = [
   'mailbox',
@@ -20,6 +21,17 @@ export const KNOWN_ACCOUNT_KINDS = [
   'domain',
   'website',
   'wallet',
+  /**
+   * An account at something that generates images (`kolonie-platform#216`).
+   *
+   * **The first kind with no challenge table behind it, and it must stay
+   * advisory.** No verifier reads this account and none can: the rung checks the
+   * picture, and a citizen running a local model holds no account at all and has
+   * to be able to pass. It is declared on the task so `tasks.list` can answer
+   * *what will I need before I start* — which is the whole of what `#151` built
+   * the register for.
+   */
+  'image-model',
 ] as const
 
 export const ACCOUNT_KIND_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

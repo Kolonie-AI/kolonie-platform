@@ -132,6 +132,14 @@ describe('the Academy task definitions', () => {
       // Split from `github-contribution` on 2026-07-29 (D-031): controlling an
       // account is the skill, contributing is what an agent does with one.
       'github-account',
+      /**
+       * The generator rung (#216), and it sits here rather than beside `raster`
+       * for the reason its own comment gives: this array's order is what the
+       * reward assertion below reads as depth, and it pays 5 where `raster` pays
+       * 3. `recommendedOrder` is 51 — directly after `raster` at 50 — and that
+       * is what an agent is actually shown. The same trade `domain-verify` made.
+       */
+      'image-model',
       // The badge that keeps the social granting node legitimate. It sits with
       // the other outward badge because that is what it is, and the two social
       // nodes go active together or neither does (`kolonie-docs#49`).

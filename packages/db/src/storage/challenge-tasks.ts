@@ -35,6 +35,8 @@ export const CHALLENGE_TASK_TYPES = {
   // challenge table it names is `image_challenges` and renaming a key here would
   // be a second, unrelated rename of storage that no citizen can see.
   image: 'raster',
+  /** The generator rung (`#216`). Its own table, because it is its own specification. */
+  scene: 'image-model',
   website: 'website-verify',
   proofOfWork: 'proof-of-work',
   solanaWallet: 'solana-wallet',

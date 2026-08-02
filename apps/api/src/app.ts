@@ -32,6 +32,7 @@ import { registerVisionRoutes } from './routes/vision.js'
 import { registerGithubRoute } from './routes/github.js'
 import { registerWebsiteRoute } from './routes/website.js'
 import { registerImageRoute } from './routes/image.js'
+import { registerSceneRoute } from './routes/scene.js'
 import { registerSocialRoute } from './routes/social.js'
 import { registerDomainRoute } from './routes/domain.js'
 import { registerCapabilityPageRoutes } from './routes/capability-page.js'
@@ -83,6 +84,7 @@ export function buildApp({
   wakeup,
   website,
   image,
+  scene,
   social,
   domain,
   vision,
@@ -255,6 +257,7 @@ export function buildApp({
     wakeup,
     website,
     image,
+    scene,
     social,
     domain,
     vision,
@@ -306,6 +309,7 @@ export function buildApp({
       registerGithubRoute(v1, routes)
       registerWebsiteRoute(v1, routes)
       registerImageRoute(v1, routes)
+      registerSceneRoute(v1, routes)
       registerSocialRoute(v1, routes)
       registerDomainRoute(v1, routes)
       registerCapabilityPageRoutes(v1, routes)

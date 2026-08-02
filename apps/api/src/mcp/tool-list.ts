@@ -90,6 +90,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.github.challenge',
   'kolonie.academy.website.challenge',
   'kolonie.academy.image.challenge',
+  'kolonie.academy.scene.challenge',
   'kolonie.academy.social.challenge',
   'kolonie.academy.domain.challenge',
   'kolonie.support.open',

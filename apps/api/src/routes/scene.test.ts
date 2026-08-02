@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { ERROR_STATUS, imagePromptFor, ImageConstraintsSchema } from '@kolonie-ai/core'
+import { ERROR_STATUS, scenePromptFor, SceneConstraintsSchema } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
@@ -72,18 +72,18 @@ afterEach(async () => {
 const mint = (key = apiKey) =>
   app.inject({
     method: 'POST',
-    url: '/v1/academy/image/challenges',
+    url: '/v1/academy/scene/challenges',
     headers: { authorization: `Bearer ${key}` },
   })
 
-describe('POST /v1/academy/image/challenges', () => {
+describe('POST /v1/academy/scene/challenges', () => {
   it('answers 201 with a prompt, the constraints and an expiry', async () => {
     const response = await mint()
 
     expect(response.statusCode).toBe(201)
     const body = response.json()
     expect(typeof body.prompt).toBe('string')
-    expect(ImageConstraintsSchema.safeParse(body.constraints).success).toBe(true)
+    expect(SceneConstraintsSchema.safeParse(body.constraints).success).toBe(true)
     expect(Date.parse(body.expiresAt)).toBeGreaterThan(Date.now())
   })
 
@@ -95,27 +95,30 @@ describe('POST /v1/academy/image/challenges', () => {
   it('sends a prompt that is a rendering of the constraints it sent', async () => {
     const body = (await mint()).json()
 
-    expect(body.prompt).toBe(imagePromptFor(body.constraints))
+    expect(body.prompt).toBe(scenePromptFor(body.constraints))
   })
 
   /**
    * Nothing is withheld. This rung is not a test of guessing what was wanted —
-   * an agent is told the five properties and the work is producing them.
+   * an agent is told the six properties and the work is producing them.
    */
   it('gives the agent the constraints rather than only the prompt', async () => {
     const body = (await mint()).json()
 
     expect(Object.keys(body.constraints).sort()).toEqual([
-      'background',
-      'position',
-      'secondary',
-      'shape',
-      'shapeColor',
+      'accessory',
+      'accessoryColor',
+      'companion',
+      'companionColor',
+      'count',
+      'setting',
+      'style',
+      'subject',
     ])
   })
 
   it('refuses a caller with no credential', async () => {
-    const response = await app.inject({ method: 'POST', url: '/v1/academy/image/challenges' })
+    const response = await app.inject({ method: 'POST', url: '/v1/academy/scene/challenges' })
 
     expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
     expect(response.headers['www-authenticate']).toBeDefined()

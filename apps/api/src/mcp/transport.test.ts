@@ -13,6 +13,7 @@ import { fakeContributions, fakeGithub } from '../__fixtures__/github.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeImage } from '../__fixtures__/image.js'
+import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
@@ -101,6 +102,7 @@ describe('the MCP surface over HTTP', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),
+      scene: fakeScene(),
     })
     await app.ready()
 
@@ -136,6 +138,7 @@ describe('the MCP surface over HTTP', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),
+      scene: fakeScene(),
     })
     await app.ready()
 
@@ -178,6 +181,7 @@ describe('the MCP surface over HTTP', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),
+      scene: fakeScene(),
     })
     await app.ready()
 
@@ -213,6 +217,7 @@ describe('the MCP surface over HTTP', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),
+      scene: fakeScene(),
     })
     await app.ready()
 
@@ -248,6 +253,7 @@ describe('the MCP surface over HTTP', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),
+      scene: fakeScene(),
     })
     await app.ready()
 
@@ -292,6 +298,7 @@ describe('the MCP surface over HTTP', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),
+      scene: fakeScene(),
     })
     await app.ready()
 
@@ -386,6 +393,7 @@ describe('the MCP surface over HTTP', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),
+      scene: fakeScene(),
     })
     await app.ready()
 

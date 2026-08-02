@@ -19,6 +19,7 @@ import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
+import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeVault } from '../__fixtures__/vault.js'
@@ -73,6 +74,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
+    scene: fakeScene(),
     academy,
   })
 }

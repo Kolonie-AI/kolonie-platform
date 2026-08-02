@@ -13,6 +13,7 @@ import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
 import { SolanaTraderVerifier } from './solana-trader.js'
 import { RasterVerifier, type ImageChallenges, type VisionChecker } from './raster.js'
+import { ImageModelVerifier, type SceneChallenges, type SceneChecker } from './image-model.js'
 import { CodeContributionVerifier, type GithubGrants } from './code-contribution.js'
 import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
@@ -237,6 +238,15 @@ export {
   type VisionCheckResult,
   type VisionChecker,
 } from './raster.js'
+export {
+  ImageModelVerifier,
+  type ImageModelDependencies,
+  type SceneChallenges,
+  type SceneChallengeState,
+  type SceneCheckResult,
+  type SceneChecker,
+} from './image-model.js'
+export { readProvenance, type ProvenanceFacts } from './provenance.js'
 export { readImage, type ImageFacts, type ImageFormat, type ImageRead } from './image.js'
 export {
   readVisionImage,
@@ -252,6 +262,12 @@ export {
   visionPromptFor,
   VISION_MODEL_VAR,
 } from './vision-model.js'
+export {
+  DEFAULT_SCENE_VISION_MODEL,
+  openRouterSceneVision,
+  scenePromptForModel,
+  SCENE_VISION_MODEL_VAR,
+} from './scene-vision-model.js'
 export { hasMarkerLine, isMarkerLine } from './marker.js'
 export {
   CodeContributionVerifier,
@@ -409,6 +425,17 @@ export interface VerifierDependencies {
    * generation verdict with a recognition challenge.
    */
   readonly visionModel?: VisionChecker
+  /** The scene specification the Colony drew for an agent at the generator rung (`#216`). */
+  readonly sceneChallenges?: SceneChallenges
+  /**
+   * Looks at an image and answers about six scene properties.
+   *
+   * Its own port rather than a method on `visionModel`, and the separation is
+   * the same one that keeps `SCENE_VISION_MODEL` a separate variable: the two
+   * rungs ask a different question of a differently-priced model. A shared port
+   * would make the wiring decide which rung got the stronger judge, silently.
+   */
+  readonly sceneVision?: SceneChecker
   /**
    * Answers what the Colony recorded about an agent's proof-of-work challenge.
    *
@@ -587,6 +614,12 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
   if (deps.imageChallenges !== undefined && deps.visionModel !== undefined) {
     verifiers.push(
       new RasterVerifier({ challenges: deps.imageChallenges, vision: deps.visionModel }),
+    )
+  }
+
+  if (deps.sceneChallenges !== undefined && deps.sceneVision !== undefined) {
+    verifiers.push(
+      new ImageModelVerifier({ challenges: deps.sceneChallenges, vision: deps.sceneVision }),
     )
   }
 

@@ -11,6 +11,7 @@ import type { Erasure } from './erasure.js'
 import type { GithubDependencies } from './github.js'
 import type { TaskGuidance } from './guidance.js'
 import type { ImageDependencies } from './image.js'
+import type { SceneDependencies } from './scene.js'
 import type { KeyDependencies } from './keys.js'
 import type { PowDependencies } from './proof-of-work.js'
 import type { RateLimiter } from './rate-limit.js'
@@ -75,6 +76,8 @@ export interface AppDependencies {
   readonly website: WebsiteDependencies
   /** The image rung — see `image.ts`. */
   readonly image: ImageDependencies
+  /** The generator rung — see `scene.ts` (`#216`). */
+  readonly scene: SceneDependencies
   /**
    * The social rung — see `social.ts`.
    */

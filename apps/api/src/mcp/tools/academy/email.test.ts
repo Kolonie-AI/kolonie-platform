@@ -16,6 +16,7 @@ import { fakeErasureDesk } from '../../../__fixtures__/erasure.js'
 import { fakeContributions, fakeGithub } from '../../../__fixtures__/github.js'
 import { fakeGuidance } from '../../../__fixtures__/guidance.js'
 import { fakeImage } from '../../../__fixtures__/image.js'
+import { fakeScene } from '../../../__fixtures__/scene.js'
 import { fakeKeys } from '../../../__fixtures__/keys.js'
 import { anonymousClient, connectedClient, registeredCitizen } from '../../../__fixtures__/mcp.js'
 import { fakePow } from '../../../__fixtures__/proof-of-work.js'
@@ -81,6 +82,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),
+      scene: fakeScene(),
     })
     await app.ready()
 
@@ -112,6 +114,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         domain: fakeDomain(),
         website: fakeWebsite(),
         image: fakeImage(),
+        scene: fakeScene(),
         caller: { ip: FAKE_CALLER_IP },
       },
       `Bearer ${apiKey}`,

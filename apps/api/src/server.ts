@@ -22,6 +22,7 @@ import { GITHUB_VERIFIER_TOKEN_VAR, httpContributionReader } from '@kolonie-ai/v
 import { githubAccountOf, recordObstructedAttemptForTaskType } from '@kolonie-ai/db'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
+import { databaseSceneChallenges } from './scene.js'
 import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
@@ -225,6 +226,10 @@ const app = buildApp({
   wakeup: databaseWakeup(db),
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   image: { challenges: databaseImageChallenges(db), obstruction },
+  // The generator rung (#216). Same shape as the rung above and the same
+  // absence of a Colony credential at this layer: minting draws from a
+  // vocabulary and contacts nobody.
+  scene: { challenges: databaseSceneChallenges(db), obstruction },
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
   social: { challenges: databaseSocialChallenges(db), obstruction },

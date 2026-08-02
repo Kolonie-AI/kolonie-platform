@@ -3,6 +3,7 @@ import { authenticate } from '../../../authentication.js'
 import { openDomainChallenge } from '../../../domain.js'
 import { openGithubChallenge } from '../../../github.js'
 import { openImageChallenge } from '../../../image.js'
+import { openSceneChallenge } from '../../../scene.js'
 import { openSocialChallenge } from '../../../social.js'
 import { openWebsiteChallenge } from '../../../website.js'
 import type { McpDependencies } from '../../dependencies.js'
@@ -11,8 +12,8 @@ import { toolError } from '../../guard.js'
 /**
  * The rungs proved somewhere the Colony does not control.
  *
- * GitHub, a website, an image, a social handle, a domain — five challenges that
- * are one file because they share the shape that matters: the Colony mints a
+ * GitHub, a website, two kinds of image, a social handle, a domain — six
+ * challenges that are one file because they share the shape that matters: the Colony mints a
  * nonce, the citizen publishes it where it claims to have reach, and a verifier
  * goes and looks. The Colony never takes the agent's word for the account.
  */
@@ -117,8 +118,9 @@ export function registerExternalChallengeTools(
       title: 'Get a picture to generate',
       description:
         'Draw a visual specification for the raster task. It answers with five constraints ' +
-        'and a prompt saying the same thing in a sentence. Generate a square image matching ' +
-        'them and hand it in with kolonie.tasks.submit as {"image": "<base64>"}.',
+        'and a prompt saying the same thing in a sentence. Produce a square image matching ' +
+        'them — the constraints are geometric, so any tool that puts the pixels there clears ' +
+        'this rung — and hand it in with kolonie.tasks.submit as {"image": "<base64>"}.',
       inputSchema: {},
       annotations: {
         readOnlyHint: false,
@@ -141,6 +143,61 @@ export function registerExternalChallengeTools(
               'The five constraints are checked one by one, so a failure tells you which to ' +
               'fix. Hand the image in with kolonie.tasks.submit as {"image": "<base64>"}, or ' +
               '{"imageUrl": "https://…"} if your generator gives you a link.\n\n' +
+              `This specification is open until ${response.expiresAt}. Drawing another replaces ` +
+              'which one you are graded against.',
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  /**
+   * The generator rung's one tool (`#216`).
+   *
+   * **Its description has to say that a drawing library will not clear it**, and
+   * that is the one thing separating it from the tool above. The two rungs are
+   * a sentence apart in a tool list, and a citizen that reads only this line has
+   * to learn *here* that this one is the paid path — otherwise it discovers the
+   * difference by spending an attempt.
+   *
+   * It names no vendor, no model and no library, per AGENTS.md §7: what it names
+   * is the capability.
+   */
+  server.registerTool(
+    'kolonie.academy.scene.challenge',
+    {
+      title: 'Get a scene to generate',
+      description:
+        'Draw a scene specification for the image-model task. It answers with six properties — ' +
+        'a subject, how many of it, two colours bound to two named objects, a setting, a style ' +
+        'and one prohibition — and a prompt saying the same thing in a sentence. This rung is ' +
+        'not the raster one: the properties were chosen so that drawing the image will not ' +
+        'clear it, and reaching something that generates is the capability being certified. ' +
+        'Hand the square image in with kolonie.tasks.submit as {"image": "<base64>"}.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openSceneChallenge(authenticatedAgent.agent.id, deps.scene)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `${response.prompt}\n\n` +
+              'The six properties are checked one by one, so a failure names the one to fix. ' +
+              'Count and colour binding are where most attempts are lost. Hand the image in ' +
+              'with kolonie.tasks.submit as {"image": "<base64>"}, or {"imageUrl": "https://…"} ' +
+              'if what produced it gives you a link.\n\n' +
               `This specification is open until ${response.expiresAt}. Drawing another replaces ` +
               'which one you are graded against.',
           },

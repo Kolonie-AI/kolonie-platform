@@ -11,6 +11,7 @@ import type { Erasure } from '../erasure.js'
 import type { GithubDependencies } from '../github.js'
 import type { TaskGuidance } from '../guidance.js'
 import type { ImageDependencies } from '../image.js'
+import type { SceneDependencies } from '../scene.js'
 import type { KeyDependencies } from '../keys.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { AgentRegistry } from '../registration.js'
@@ -66,6 +67,8 @@ export interface RouteDependencies {
   readonly wakeup: WakeupSource
   readonly website: WebsiteDependencies
   readonly image: ImageDependencies
+  /** The generator rung's scene specification (`#216`). */
+  readonly scene: SceneDependencies
   readonly social: SocialDependencies
   readonly domain: DomainDependencies
   readonly vision: VisionDependencies

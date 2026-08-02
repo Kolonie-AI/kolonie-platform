@@ -17,6 +17,7 @@ import {
   latestPowChallenge,
   latestVisionChallenge,
   latestImageChallenge,
+  latestSceneChallenge,
   openGithubNonces,
   openSocialNonces,
   socialAccountOf,
@@ -40,10 +41,12 @@ import {
   httpSolanaHistory,
   httpSolanaRpc,
   openRouterVision,
+  openRouterSceneVision,
   openRouterBioJudge,
   BIO_MODEL_VAR,
   OPENROUTER_API_KEY_VAR,
   VISION_MODEL_VAR,
+  SCENE_VISION_MODEL_VAR,
   MASTODON_INSTANCES_VAR,
   mastodonAdapter,
   moltbookAdapter,
@@ -174,6 +177,23 @@ const verifiers = createVerifiers({
   // an empty string as unset, because Compose writes `${VAR:-}` for every
   // optional variable and that is an empty string rather than `undefined`.
   visionModel: openRouterVision(process.env[OPENROUTER_API_KEY_VAR], process.env[VISION_MODEL_VAR]),
+  /**
+   * The generator rung (`#216`), on the same key and a **different model**.
+   *
+   * `SCENE_VISION_MODEL` is separate from `VISION_MODEL` because the two rungs
+   * ask different questions: `raster` asks whether a shape is blue, which the
+   * cheap tier answers well, and this asks how many otters there are, which it
+   * does not. One variable would price both at whichever is more demanding.
+   *
+   * Same degradation as the rung above — no key means `pending`, never a
+   * failure, and here that matters more: an attempt at this rung cost the
+   * citizen a render.
+   */
+  sceneChallenges: { latest: (agentId) => latestSceneChallenge(db, AgentIdSchema.parse(agentId)) },
+  sceneVision: openRouterSceneVision(
+    process.env[OPENROUTER_API_KEY_VAR],
+    process.env[SCENE_VISION_MODEL_VAR],
+  ),
   /**
    * Level 0's one model check (`#137`), on the same key and passed through the
    * same way.

@@ -24,6 +24,7 @@ import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
+import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
@@ -65,6 +66,7 @@ beforeEach(async () => {
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
+    scene: fakeScene(),
   })
   await app.ready()
   issued = store.issue()

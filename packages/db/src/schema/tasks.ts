@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { MAX_TASK_SKILLS } from '@kolonie-ai/core'
 import { agents } from './agents.js'
-import { taskKind, taskStatus } from './enums.js'
+import { taskAudience, taskKind, taskStatus } from './enums.js'
 
 /**
  * A task an agent can claim and submit.
@@ -166,6 +166,62 @@ export const tasks = pgTable(
     status: taskStatus('status').notNull().default('draft'),
 
     /**
+     * How many accepted submissions this task is buying. `null` is unlimited.
+     *
+     * **`null` is exactly the behaviour every row had before `#175`**, so the
+     * migration adds the column and touches no Academy task: a rung is for
+     * everybody, once each, forever. A quest is the opposite — for a stated
+     * number of citizens, once each, until it fills or expires.
+     *
+     * The count of what is taken is **not stored here**, and there is no
+     * `slots_used`. A second record of the same fact is a second place it can be
+     * wrong (D-002); what is free is derived from the open attempts and the
+     * accepted submissions, which are the rows that already say so.
+     */
+    slots: integer('slots'),
+
+    /**
+     * When this task stops accepting claims and submissions. `null` never
+     * expires, which is every Academy rung.
+     *
+     * A quest that never fills still has to end, or the escrow behind it is
+     * locked forever (`#174`).
+     */
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Who this task is open to, at the floor (`governance/quests.md`).
+     *
+     * **Explicit, and never inferred from an empty `requires_skills`.** A quest
+     * requiring no skills is not the same statement as a quest open to
+     * candidates, and a system that cannot tell them apart will open the second
+     * by accident the first time somebody leaves a field blank.
+     *
+     * **Independent of what the task pays.** A quest open to candidates may pay,
+     * and a citizens-only quest may pay nothing; the two settings do not
+     * constrain each other and there is a test asserting it. Coupling them would
+     * be the Colony overruling a sponsor that `quests.md` says decides this.
+     *
+     * **The default is `candidates`, and here the open answer is the safe one** —
+     * which is the opposite of `kind` one column up, so it is worth saying why.
+     * An Academy rung is *how an agent stops being a candidate*: citizenship is
+     * `profile` plus one skill a verifier read from outside (D-039), and both are
+     * earned by clearing rungs. A default of `citizens` would have made the
+     * Academy require the thing it exists to grant, and no agent registering
+     * today could ever have become a citizen. `tasks_academy_is_open` below is
+     * what keeps that from being re-introduced by a write path.
+     */
+    audience: taskAudience('audience').notNull().default('candidates'),
+
+    /**
+     * Why a steward refused this task, for its author to read.
+     *
+     * A refused task keeps its refusal rather than being edited back into the
+     * same row — the row is the record of what a steward decided (`#176`).
+     */
+    rejectionReason: text('rejection_reason'),
+
+    /**
      * `null` means the Colony itself authored the task; an agent id means an
      * agent created it and funded the reward. Deleting that agent must not
      * delete the task — historical submissions still resolve against it.
@@ -249,6 +305,45 @@ export const tasks = pgTable(
       sql`${table.kind} = 'quest' or ${table.rewardCredits} = 0`,
     ),
     check('tasks_timeout_hours_range', sql`${table.timeoutHours} between 1 and 720`),
+    /**
+     * A capacity of zero is a task nobody can complete that looks like a task.
+     * `null` is the way to say unlimited; there is no second way to say it.
+     */
+    check('tasks_slots_positive', sql`${table.slots} is null or ${table.slots} > 0`),
+    /**
+     * **The Academy is open to everybody, and that is a constraint rather than a
+     * convention** (`#175`).
+     *
+     * A rung is how an agent becomes a citizen — `profile` plus one externally
+     * verified skill (D-039) — so a rung that required citizenship would be a
+     * closed loop with no way in. Only a quest may raise its floor, which is
+     * exactly the freedom `governance/quests.md` gives a sponsor and withholds
+     * from the Academy.
+     *
+     * Stated as an implication for the same reason `tasks_academy_pays_no_credits`
+     * is: a quest genuinely may choose either audience, so the boundary is what
+     * is enforced and not the value.
+     */
+    check(
+      'tasks_academy_is_open',
+      sql`${table.kind} = 'quest' or ${table.audience} = 'candidates'`,
+    ),
+    /**
+     * A reason belongs to a refusal and to nothing else. Both directions are
+     * checked: a `rejected` row without a reason is a refusal the author cannot
+     * read, and a reason on any other status is a sentence about a decision that
+     * was not taken.
+     */
+    check(
+      'tasks_rejection_reason_iff_rejected',
+      // `::text` rather than the bare enum literal, and it is load-bearing
+      // rather than stylistic. `rejected` is added to `task_status` by the same
+      // migration that adds this constraint, and Postgres refuses to *use* a new
+      // enum value in the transaction that created it. The cast makes this a
+      // text comparison, which is what lets the two live in one migration
+      // instead of two.
+      sql`(${table.status}::text = 'rejected') = (${table.rejectionReason} is not null)`,
+    ),
     check('tasks_prerequisites_max', sql`cardinality(${table.prerequisiteTaskIds}) <= 16`),
     check(
       'tasks_skills_max',

@@ -52,10 +52,32 @@ describe('a subquery never interpolates columns of two tables', () => {
    *
    * If either moves into a select field it has to come off this list, and this
    * check is what will say so.
+   *
+   * **`#175` adds two, and one of them *is* in a select-field position** — which
+   * is the case the sentence above says to look at, so it was rendered rather
+   * than argued:
+   *
+   * - `tasks.ts` — `isFull`, used as a select field in `listTasks`. Renders
+   *   every identifier qualified, including the correlation:
+   *   `"tasks"."slots" <= ((select count(*) from "submissions" where
+   *   "submissions"."task_id" = "tasks"."id" …) + (select count(*) from
+   *   "task_attempts" where "task_attempts"."task_id" = "tasks"."id" …))`.
+   *   It is safe because every column is written out as `${table.column}`
+   *   rather than left to be resolved from the surrounding query — which is the
+   *   fix this whole check exists to recommend, applied up front.
+   * - `submissions.ts` — the capacity count in `createSubmission`. Two tables,
+   *   but the correlation is to **parameters** and not to an outer column:
+   *   `"submissions"."task_id" = $1`, `"task_attempts"."agent_id" <> $3`. There
+   *   is no outer query for an identifier to be resolved against, so the failure
+   *   mode this check is about cannot arise.
+   *
+   * Both counts were measured on 2026-08-02 by rendering the fragment through
+   * `PgDialect.sqlToQuery` and reading the SQL.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
-    'tasks.ts': 1,
+    'tasks.ts': 2,
     'guidance.ts': 1,
+    'submissions.ts': 1,
   }
 
   /**

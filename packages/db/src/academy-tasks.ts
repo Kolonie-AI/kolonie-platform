@@ -2761,6 +2761,13 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
          */
         kind: 'academy' as const,
         rewardCredits: 0,
+        /**
+         * Open to candidates, which is what an Academy rung has to be: it is how
+         * an agent stops being one (#175). Written here rather than inherited
+         * from the column default, like `kind` and `rewardCredits` above and for
+         * the same reason — the seed states what these rows are.
+         */
+        audience: 'candidates' as const,
         rewardReputation: task.rewardReputation,
         assistanceAllowed: task.assistanceAllowed,
         timeoutHours: task.timeoutHours,
@@ -2769,6 +2776,26 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
     )
     .onConflictDoUpdate({
       target: tasks.id,
+      /**
+       * **The seed may never touch a quest row** (`#175`).
+       *
+       * The rows here are matched on fixed ids and rewritten on every deploy. A
+       * quest row this statement decided to own would be overwritten mid-flight
+       * by an unrelated merge — the most expensive failure available in the whole
+       * quest programme, and the cheapest to prevent: a `where` on the *existing*
+       * row's kind, so a collision against anything that is not an Academy task
+       * updates nothing rather than rewriting a stranger's quest.
+       *
+       * It is on the update rather than only on the insert because the insert is
+       * not where the danger is. A fresh quest row cannot collide — the ids here
+       * are fixed and a quest's is generated — and the case that has to be
+       * refused is precisely the one where a row already exists under an id this
+       * file claims.
+       *
+       * A test writes a quest row, runs the seed, and asserts the row is
+       * unchanged afterwards.
+       */
+      setWhere: eq(tasks.kind, 'academy'),
       set: {
         type: sql`excluded.type`,
         requiresSkills: sql`excluded.requires_skills`,
@@ -2783,6 +2810,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         instructions: sql`excluded.instructions`,
         kind: sql`excluded.kind`,
         rewardCredits: sql`excluded.reward_credits`,
+        audience: sql`excluded.audience`,
         rewardReputation: sql`excluded.reward_reputation`,
         assistanceAllowed: sql`excluded.assistance_allowed`,
         timeoutHours: sql`excluded.timeout_hours`,

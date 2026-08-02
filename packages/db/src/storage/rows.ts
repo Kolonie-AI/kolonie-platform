@@ -103,6 +103,8 @@ export function toTask(
    * `submission` is.
    */
   dueForRenewal?: boolean | undefined,
+  /** Whether every slot is taken (#175). Absent where `submission` is. */
+  full?: boolean | undefined,
 ): Task {
   return TaskSchema.parse({
     id: row.id,
@@ -118,6 +120,11 @@ export function toTask(
     description: row.description,
     instructions: row.instructions,
     reward: { credits: row.rewardCredits, reputation: row.rewardReputation },
+    slots: row.slots,
+    expiresAt: row.expiresAt,
+    audience: row.audience,
+    ...(full === undefined ? {} : { full }),
+    rejectionReason: row.rejectionReason,
     assistanceAllowed: row.assistanceAllowed,
     prerequisiteTaskIds: row.prerequisiteTaskIds,
     timeoutHours: row.timeoutHours,

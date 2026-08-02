@@ -25,6 +25,7 @@ import {
   SystemAccountSchema,
   TaskAttemptOutcomeSchema,
   TaskKindSchema,
+  TaskAudienceSchema,
   TaskStatusSchema,
   VerificationStatusSchema,
 } from '@kolonie-ai/core'
@@ -107,6 +108,16 @@ export const emailChallengePurpose = pgEnum(
 )
 
 export const taskStatus = pgEnum('task_status', valuesOf(TaskStatusSchema.options))
+
+/**
+ * Who a task is open to, at the floor. `governance/quests.md` decides it;
+ * `TaskAudienceSchema` in core is the vocabulary this derives from.
+ *
+ * An enum rather than a boolean, because the two values are two named audiences
+ * and a third is imaginable — a `null` or a `false` would have to be read as one
+ * of them, and which one is not obvious to anybody reading a row.
+ */
+export const taskAudience = pgEnum('task_audience', valuesOf(TaskAudienceSchema.options))
 
 /**
  * Whether a task teaches or produces. `governance/quests.md` draws the boundary;

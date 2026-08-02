@@ -526,6 +526,13 @@
       "when": 1785686160406,
       "tag": "0074_the_ledger_holds_credits_not_coins",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1785689646096,
+      "tag": "0075_a_task_for_a_thousand_citizens",
+      "breakpoints": true
     }
   ]
 }

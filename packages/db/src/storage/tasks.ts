@@ -14,7 +14,14 @@ import {
   type TaskReference,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills, reputationEvents, submissions, taskHints, tasks } from '../schema/index.js'
+import {
+  agentSkills,
+  reputationEvents,
+  submissions,
+  taskAttempts,
+  taskHints,
+  tasks,
+} from '../schema/index.js'
 import { dueForRenewal } from './renewal.js'
 import { toTask, toTaskSubmission } from './rows.js'
 
@@ -90,9 +97,47 @@ const reputationOf = (agentId: AgentId): SQL =>
 const missingSkillsSql = (agentId: AgentId): SQL =>
   sql`array(select unnest(${tasks.requiresSkills}) except select unnest(${skillsHeldBy(agentId)}))`
 
-/** Whether this agent may start a task, in the form a `where` clause takes. */
+/**
+ * Whether this agent may start a task, in the form a `where` clause takes.
+ *
+ * **It reads skills and reputation, and nothing else — in particular it does not
+ * read `slots`** (`#175`). Capacity is not a fact about the agent. A full quest
+ * excluded by *this* predicate would be a citizen told it does not qualify when
+ * it qualifies perfectly well and was merely late, which is the refusal `#175`
+ * names as the one that loses citizens permanently. Fullness is reported by
+ * {@link isFull} instead, and refused by its own outcome in `createSubmission`.
+ */
 const attemptableBy = (agentId: AgentId): SQL =>
   sql`${tasks.requiresSkills} <@ ${skillsHeldBy(agentId)} and ${tasks.minReputation} <= ${reputationOf(agentId)}`
+
+/**
+ * Whether a task's expiry has passed, in the form a `where` clause takes.
+ *
+ * `null` never expires, which is every Academy rung.
+ */
+const notExpired = (): SQL => sql`(${tasks.expiresAt} is null or ${tasks.expiresAt} > now())`
+
+/**
+ * Whether every slot is taken, as a boolean the listing can carry.
+ *
+ * The same derivation `createSubmission` refuses on — an accepted submission has
+ * consumed a slot permanently, and an open attempt that has not lapsed is
+ * holding one. Reported from the same shape the refusal uses, so a citizen is
+ * never shown a quest as open and then refused for capacity a moment later for a
+ * reason the listing had already computed differently.
+ *
+ * A task with no capacity is never full.
+ */
+const isFull = (): SQL =>
+  sql`(${tasks.slots} is not null and ${tasks.slots} <= (
+    (select count(*) from ${submissions}
+      where ${submissions.taskId} = ${tasks.id} and ${submissions.status} = 'passed')
+    +
+    (select count(*) from ${taskAttempts}
+      where ${taskAttempts.taskId} = ${tasks.id}
+        and ${taskAttempts.outcome} is null
+        and (${taskAttempts.expiresAt} is null or ${taskAttempts.expiresAt} > now()))
+  ))`
 
 /**
  * Whether this agent has already passed the task, as a `where` clause.
@@ -164,6 +209,15 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
    */
   if (query.availableOnly) {
     conditions.push(sql`(not ${passedBy(query.agentId)} or ${dueForRenewal(query.agentId)})`)
+    /**
+     * An expired task cannot be claimed, so it does not belong in the list whose
+     * only question is what can be claimed now (`#175`).
+     *
+     * It stays in the wider list and stays readable by id, exactly as a retired
+     * task does and for the same reason: a citizen holding a submission against
+     * it has to be able to resolve what it submitted to.
+     */
+    conditions.push(notExpired())
   }
 
   if (after !== undefined) {
@@ -187,6 +241,7 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
       // fell due can say so. Reporting it from the same expression the filter
       // uses is what stops the two from disagreeing.
       dueForRenewal: dueForRenewal(query.agentId).mapWith(Boolean),
+      full: isFull().mapWith(Boolean),
     })
     .from(tasks)
     .where(and(...conditions))
@@ -208,6 +263,7 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
           hintsOn(hints, row.task.id),
           submitted.get(row.task.id) ?? null,
           row.dueForRenewal,
+          row.full,
         ),
       ),
       nextCursor: rows.length > query.limit && last !== undefined ? encodeCursor(last) : null,

@@ -10,7 +10,7 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, submissions, tasks } from '../schema/index.js'
+import { agents, submissions, taskAttempts, tasks } from '../schema/index.js'
 import { openAttemptForSubmission } from './attempts.js'
 import { reputationOfAgent } from './balance.js'
 import { toOwnSubmission, toSubmission } from './rows.js'
@@ -153,6 +153,35 @@ export type CreateSubmissionResult =
    * Colony half-wanted it done that way.
    */
   | { readonly outcome: 'assistance-refused'; readonly declared: Assistance }
+  /**
+   * The task's expiry has passed (`#175`).
+   *
+   * A quest that never fills still has to end, or the escrow behind it is locked
+   * forever. Its own outcome rather than `task-retired`, because the two are
+   * different facts and the second is somebody's decision: a citizen told a
+   * quest was retired will look for who retired it.
+   */
+  | { readonly outcome: 'task-expired'; readonly expiresAt: string }
+  /**
+   * Every slot is taken (`#175`).
+   *
+   * **Distinct from `missing-skills` on purpose, and this is the whole of the
+   * acceptance criterion.** A citizen refused because it does not qualify has
+   * been told something about itself; a citizen refused because it was late has
+   * been told something about the quest. Collapsing the two tells a citizen it
+   * is not good enough when it is merely late, which is the failure that loses
+   * citizens permanently.
+   */
+  | { readonly outcome: 'task-full'; readonly slots: number }
+  /**
+   * The task is open to citizens and this agent is not one (`#175`, D-039).
+   *
+   * Carries the audience so the caller can say what the floor was. Refused even
+   * when the agent holds every skill the task names, and there is a test for
+   * exactly that: the audience floor is a separate axis from the skill gate, and
+   * a citizen-only quest requiring nothing must still refuse a candidate.
+   */
+  | { readonly outcome: 'audience-refused'; readonly audience: 'citizens' }
 
 /** Statuses that mean this agent's attempt at this task is still undecided. */
 const OPEN_STATUSES: readonly string[] = ['pending', 'verifying']
@@ -201,6 +230,9 @@ export async function createSubmission(
         requires: tasks.requiresSkills,
         minReputation: tasks.minReputation,
         assistanceAllowed: tasks.assistanceAllowed,
+        expiresAt: tasks.expiresAt,
+        audience: tasks.audience,
+        slots: tasks.slots,
       })
       .from(tasks)
       .where(eq(tasks.id, command.taskId))
@@ -208,6 +240,46 @@ export async function createSubmission(
 
     if (task === undefined || task.status === 'draft') return { outcome: 'unknown-task' }
     if (task.status === 'retired') return { outcome: 'task-retired' }
+    /**
+     * A task awaiting review or refused is invisible for the same reason a draft
+     * is: nobody outside its author has agreed it may be asked of citizens, and
+     * a submission against it could not fairly be judged.
+     */
+    if (task.status === 'pending_review' || task.status === 'rejected') {
+      return { outcome: 'unknown-task' }
+    }
+
+    /**
+     * Expiry, before anything else about this agent is read.
+     *
+     * It is a fact about the task rather than about the caller, so it is
+     * answered first — and an expired quest must refuse everybody identically,
+     * including a citizen that would otherwise qualify.
+     */
+    if (task.expiresAt !== null && Date.parse(task.expiresAt) <= Date.now()) {
+      return { outcome: 'task-expired', expiresAt: task.expiresAt }
+    }
+
+    /**
+     * The audience floor (`governance/quests.md`, D-039).
+     *
+     * **A separate axis from the skill gate**, checked before it so that a
+     * candidate is told the truth — this quest is for citizens — rather than
+     * being handed a skill list it could satisfy and still be refused for.
+     *
+     * `candidates` is not a lower gate that also admits citizens by accident: it
+     * admits everybody, which is what "the sponsor lowered the floor" means.
+     */
+    if (task.audience === 'citizens') {
+      const [agent] = await tx
+        .select({ status: agents.status })
+        .from(agents)
+        .where(eq(agents.id, command.agentId))
+        .limit(1)
+      if (agent?.status !== 'citizen') {
+        return { outcome: 'audience-refused', audience: 'citizens' }
+      }
+    }
 
     /**
      * Checked before the skill gate, and before anything is written.
@@ -256,6 +328,51 @@ export async function createSubmission(
       const reputation = await reputationOfAgent(tx, command.agentId)
       if (reputation < task.minReputation) {
         return { outcome: 'reputation-too-low', minReputation: task.minReputation, reputation }
+      }
+    }
+
+    /**
+     * Capacity, and the reservation that lapses with the claim (`#175`).
+     *
+     * **What is taken is derived, never stored.** There is no `slots_used`
+     * column: a second record of the same fact is a second place it can be wrong
+     * (D-002). A slot is held by either
+     *
+     * - an accepted submission, which consumed one permanently, or
+     * - an open attempt whose expiry has not passed, which is holding one.
+     *
+     * **The reservation is what stops burnt work.** Without it a quest with ten
+     * places is claimed by a thousand citizens and nine hundred and ninety of
+     * them do real work for nothing — and a citizen that wakes, works, and is
+     * told the quest filled while it was thinking has no reason to wake again.
+     *
+     * **It lapses with the attempt rather than on its own timer.** An attempt
+     * that times out is swept by `sweepAbandonedAttempts`, and the slot returns
+     * to the pool because this query stops counting it — one expiry, not two
+     * that can disagree. The `expires_at is null or expires_at > now()` is what
+     * makes a lapsed claim stop holding capacity without anything having to run
+     * first.
+     *
+     * Counted inside the same transaction that will write the row, after the
+     * agent lock above, so two citizens racing for the last slot cannot both
+     * read nine.
+     */
+    if (task.slots !== null) {
+      const [taken] = await tx.execute<{ held: string }>(sql`
+        select (
+          (select count(*) from ${submissions}
+            where ${submissions.taskId} = ${command.taskId}
+              and ${submissions.status} = 'passed')
+          +
+          (select count(*) from ${taskAttempts}
+            where ${taskAttempts.taskId} = ${command.taskId}
+              and ${taskAttempts.agentId} <> ${command.agentId}
+              and ${taskAttempts.outcome} is null
+              and (${taskAttempts.expiresAt} is null or ${taskAttempts.expiresAt} > now()))
+        )::text as held`)
+
+      if (Number(taken?.held ?? 0) >= task.slots) {
+        return { outcome: 'task-full', slots: task.slots }
       }
     }
 

@@ -235,5 +235,22 @@ export const submissions = pgTable(
       .where(sql`${table.status} in ('pending', 'verifying')`),
     /** `GET /v1/agents/me/submissions` lists an agent's own submissions. */
     index('submissions_agent_id_idx').on(table.agentId, table.submittedAt),
+    /**
+     * **One accepted submission per citizen per quest** is enforced by the
+     * trigger `submissions_one_pass_per_quest`, not by an index here (`#175`).
+     *
+     * A partial unique index on `(task_id, agent_id) where status = 'passed'`
+     * was the obvious answer and is wrong twice over. It binds every task rather
+     * than every quest, and the Academy deliberately allows a second pass: a
+     * tester's reset (`#47`) draws a line under the first one and the re-run
+     * produces another `passed` row. An index cannot tell those apart, because
+     * telling them apart means reading `tasks.kind`, and a partial index cannot
+     * reach another table.
+     *
+     * So the rule lives in a trigger that joins `tasks`, next to
+     * `ledger_entries_balanced` and for the same reason: it is a database rule
+     * because the handler is not the only writer, and two requests that both
+     * read before either writes would otherwise both be accepted.
+     */
   ],
 )

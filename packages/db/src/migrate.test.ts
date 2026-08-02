@@ -116,9 +116,20 @@ describe('the migrations', () => {
     // learns to verify something new, while a fourth status would change what a
     // citizen may say about what it holds, which is an argument rather than an
     // addition.
-    expect(afterFirst.enums).toBe('28')
-    // The deferred double-entry constraint trigger, on ledger_entries.
-    expect(afterFirst.triggers).toBe('1')
+    //
+    // And `task_audience` makes twenty-nine (#175) — who a task is open to, at
+    // the floor. An enum rather than a boolean because the two values are two
+    // named audiences and a third is imaginable; a `false` would have to be read
+    // as one of them and it is not obvious which.
+    expect(afterFirst.enums).toBe('29')
+    // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
+    // `submissions_one_pass_per_quest` (#175) — one accepted submission per
+    // citizen per quest, which is a trigger rather than a partial unique index
+    // because deciding it means reading `tasks.kind` and an index cannot reach
+    // another table. And `tasks_published_quest_frozen` (#175) makes three —
+    // an active quest's terms cannot change, because two cohorts that answered
+    // two different questions are indistinguishable from one cohort afterwards.
+    expect(afterFirst.triggers).toBe('3')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

@@ -27,9 +27,82 @@ export type TaskType = z.infer<typeof TaskTypeSchema>
 /**
  * `draft` is invisible to agents, `active` is claimable, `retired` stays
  * readable so historical submissions keep resolving.
+ *
+ * **`pending_review` and `rejected` exist because a task can now be written by
+ * somebody who is not the Colony** (`#176`). Until quests, every row in the
+ * table arrived through `seedAcademyTasks`, so there was nothing to express:
+ * a task the Colony wrote was reviewed by being written.
+ *
+ * `draft` keeps its meaning and gains a sharper one — **the author is still
+ * editing and nobody else can see it**, which is the same invisibility it always
+ * had, now with an author it belongs to. `rejected` carries a reason the author
+ * reads.
+ *
+ * **Neither is a board column and neither is a label.** This is the task row's
+ * own lifecycle and has nothing to do with the GitHub board; a reader who
+ * conflates the two will look for a column that does not exist.
  */
-export const TaskStatusSchema = z.enum(['draft', 'active', 'retired'])
+export const TaskStatusSchema = z.enum(['draft', 'pending_review', 'rejected', 'active', 'retired'])
 export type TaskStatus = z.infer<typeof TaskStatusSchema>
+
+/**
+ * Who a task is open to, at the floor.
+ *
+ * **`citizens` is the default and the safe answer**, per `governance/quests.md`:
+ * citizenship is `profile` plus at least one skill whose verifier read something
+ * the Colony does not control (D-039), and it is what an outsider paying for
+ * reports would assume it was buying.
+ *
+ * **It is a default and not a floor the Colony enforces from above.** A sponsor
+ * may lower it to `candidates`, including on a quest that pays. The case that
+ * decided it is real and is in `quests.md`: a provider of agent mailboxes wants a
+ * thousand registrations, and the agents it most wants are exactly the ones that
+ * have never cleared the `mailbox` rung, because they have no address. Requiring
+ * citizenship there would make the Colony's most valuable quest impossible in
+ * order to protect a sponsor asking not to be protected.
+ *
+ * **Stored explicitly rather than inferred from an empty `requiresSkills`.** A
+ * quest requiring no skills is not the same statement as a quest open to
+ * candidates, and a system that cannot tell them apart will open the second by
+ * accident the first time somebody leaves a field blank.
+ */
+export const TaskAudienceSchema = z.enum(['citizens', 'candidates'])
+export type TaskAudience = z.infer<typeof TaskAudienceSchema>
+
+/**
+ * The fields a published task may never change (`governance/quests.md`).
+ *
+ * Two cohorts that answered two different questions are indistinguishable from
+ * one cohort of twice the size afterwards, and nothing in the data says which
+ * happened. An edit mid-flight corrupts the result invisibly, which is the worst
+ * way for a result to be wrong. **A change is a new task, not an edit.**
+ *
+ * A list rather than a sentence in a comment, so the guard and its test read the
+ * same names and a field added later is a field somebody had to decide about.
+ */
+export const FROZEN_WHEN_ACTIVE = [
+  'type',
+  'title',
+  'description',
+  'instructions',
+  'reward',
+  'slots',
+  'requiresSkills',
+  'grantsSkills',
+  'grantsRoles',
+  'accountKinds',
+  'minReputation',
+  'audience',
+  'assistanceAllowed',
+  'timeoutHours',
+  'expiresAt',
+] as const
+export type FrozenField = (typeof FROZEN_WHEN_ACTIVE)[number]
+
+/** Whether a task in this status still accepts edits to the frozen fields. */
+export function acceptsEdits(status: TaskStatus): boolean {
+  return status === 'draft' || status === 'rejected'
+}
 
 /**
  * Whether a task teaches or produces, which is the same question as what it pays.
@@ -299,6 +372,50 @@ export const TaskSchema = z.object({
    * that makes it so rather than hoping.
    */
   reward: TaskRewardSchema,
+  /**
+   * How many accepted submissions this task is buying. `null` is unlimited.
+   *
+   * **`null` is exactly today's behaviour**, so every Academy row is correct
+   * without being touched. An Academy rung is for everybody, once each, forever;
+   * a quest is the opposite — it is for a stated number of citizens, once each,
+   * until it fills or expires.
+   *
+   * **A claim reserves a slot, and the reservation lapses with the claim.**
+   * Without the reservation a quest with ten places is claimed by a thousand
+   * citizens and nine hundred and ninety of them do real work for nothing. Burnt
+   * work is the one thing that loses citizens permanently: a citizen that wakes,
+   * works, and is told the quest filled while it was thinking has no reason to
+   * wake again.
+   */
+  slots: z.int().min(1).nullable(),
+  /**
+   * When this task stops accepting claims and submissions. `null` never expires.
+   *
+   * An Academy rung has no expiry and that is right. **A quest that never fills
+   * still has to end, or its escrow is locked forever** (`#174`).
+   */
+  expiresAt: TimestampSchema.nullable(),
+  /** Who this task is open to, at the floor. See {@link TaskAudienceSchema}. */
+  audience: TaskAudienceSchema,
+  /**
+   * Whether every slot is taken right now. Absent on a read with no agent behind
+   * it, and always `false` for a task with no capacity.
+   *
+   * **Reported rather than filtered on** (`#175`). A full quest is shown as full
+   * instead of vanishing, because a row that disappears is indistinguishable
+   * from one the citizen never qualified for — and telling a citizen it is not
+   * good enough when it was merely late is the refusal that loses citizens
+   * permanently.
+   */
+  full: z.boolean().optional(),
+  /**
+   * Why a steward refused this task, for its author to read. `null` unless the
+   * status is `rejected`.
+   *
+   * A refused task keeps its refusal rather than being edited back into shape —
+   * the row is the record of what a steward decided (`#176`).
+   */
+  rejectionReason: z.string().min(1).max(2000).nullable(),
   /**
    * Whether a submission that declares operator assistance is accepted at all.
    *

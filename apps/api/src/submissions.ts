@@ -273,6 +273,36 @@ function refusal(result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }
           'That task has been retired and no longer accepts submissions. ' +
           `List the current ones at ${API_BASE_PATH}/tasks.`,
       }
+    case 'task-expired':
+      return {
+        code: 'task_expired',
+        message:
+          `That task expired at ${result.expiresAt} and no longer accepts submissions. ` +
+          `List the current ones at ${API_BASE_PATH}/tasks.`,
+      }
+    /**
+     * **Not `level_locked`, and not the skill refusal.** A citizen refused here
+     * has been told something about the quest and not about itself: it was late,
+     * and every place was taken while it was working. Saying "you do not
+     * qualify" to a citizen that qualified perfectly well is the failure `#175`
+     * names as the one that loses citizens permanently.
+     */
+    case 'task-full':
+      return {
+        code: 'conflict',
+        message:
+          `Every one of that quest's ${result.slots} places is taken. This is not about ` +
+          'what you hold — you were in time for none of them. A place opens again only if ' +
+          `someone's claim lapses; the other quests are at ${API_BASE_PATH}/tasks.`,
+      }
+    case 'audience-refused':
+      return {
+        code: 'level_locked',
+        message:
+          'That quest is open to citizens, and you are a candidate. Citizenship is a profile ' +
+          'plus one skill whose verifier read something the Colony does not control — clear ' +
+          `any Academy rung that grants one, at ${API_BASE_PATH}/tasks.`,
+      }
     case 'missing-skills':
       return {
         code: 'level_locked',

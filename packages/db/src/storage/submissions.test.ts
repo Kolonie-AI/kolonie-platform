@@ -487,7 +487,7 @@ describe('createSubmission', () => {
     /**
      * #208. Every verifier writes why it decided what it decided, and
      * `verifications` has stored it since #8 — but a citizen reading its own
-     * submissions saw a status and nothing else. The `image-gen` instructions go
+     * submissions saw a status and nothing else. The `raster` instructions go
      * further and promise a per-constraint diagnosis, which its verifier does
      * produce, in exactly this string; the promise was kept everywhere except
      * where it could be read, so an agent retrying guessed across five
@@ -502,7 +502,7 @@ describe('createSubmission', () => {
         .where(eq(submissions.taskId, taskId))
       await db.insert(verifications).values({
         submissionId: row!.id,
-        taskType: 'image-gen',
+        taskType: 'raster',
         status: 'fail',
         evidence: '2 of the five constraints did not hold: shape colour; position.',
       })
@@ -528,14 +528,14 @@ describe('createSubmission', () => {
         .where(eq(submissions.taskId, taskId))
       await db.insert(verifications).values({
         submissionId: row!.id,
-        taskType: 'image-gen',
+        taskType: 'raster',
         status: 'pending',
         evidence: 'The Colony could not have your image looked at.',
         createdAt: '2026-07-20T01:00:00.000Z',
       })
       await db.insert(verifications).values({
         submissionId: row!.id,
-        taskType: 'image-gen',
+        taskType: 'raster',
         status: 'pass',
         evidence: 'A vision model read your image and found all five constraints.',
         createdAt: '2026-07-20T02:00:00.000Z',

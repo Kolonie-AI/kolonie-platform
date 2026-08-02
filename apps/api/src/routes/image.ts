@@ -8,7 +8,9 @@ export function registerImageRoute(v1: FastifyInstance, deps: RouteDependencies)
   const { image, store } = deps
 
   /**
-   * Draw a visual specification for the image rung — `image-gen` (#60).
+   * Draw a visual specification for the image rung — `raster` (#60, renamed
+   * from `image-gen` by #215; the route keeps its name because the rows it
+   * writes are the same rows).
    *
    * Authenticated, so the specification binds to one agent, and there is no
    * answering route: what the agent hands back is the image itself, on the

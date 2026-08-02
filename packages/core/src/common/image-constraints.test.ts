@@ -6,6 +6,8 @@ import {
   imagePromptFor,
   ImageConstraintsSchema,
   IMAGE_COLORS,
+  IMAGE_SHAPES,
+  IMAGE_SHAPES_RETIRED,
   type ImageCheck,
   type ImageConstraints,
 } from './image-constraints.js'
@@ -48,11 +50,56 @@ describe('drawImageConstraints', () => {
     }
   })
 
+  /**
+   * The rung certifies drawing, so it may only ask for what can be drawn
+   * (`#215`). A solid is a shading problem rather than a harder drawing, and one
+   * reaching a citizen would be the rung asking for the wrong thing again.
+   */
+  it('never draws a solid', () => {
+    for (let step = 0; step < 500; step += 1) {
+      expect(IMAGE_SHAPES_RETIRED).not.toContain(drawImageConstraints().shape)
+    }
+  })
+
+  it('can still reach every shape it does draw', () => {
+    const seen = new Set<string>()
+    for (let step = 0; step < 500; step += 1) seen.add(drawImageConstraints().shape)
+
+    expect(seen.size).toBe(IMAGE_SHAPES.length)
+  })
+
   it('can reach every colour as a background', () => {
     const seen = new Set<string>()
     for (let step = 0; step < 500; step += 1) seen.add(drawImageConstraints().background)
 
     expect(seen.size).toBe(IMAGE_COLORS.length)
+  })
+})
+
+describe('ImageConstraintsSchema', () => {
+  /**
+   * The rejection case `#215` names, and it is a rejection that must **not**
+   * happen. A specification naming a solid was legitimately issued before the
+   * rename, sits on a challenge row, and is read back at verification — possibly
+   * long afterwards. Refusing it as unknown would fail a citizen for holding
+   * exactly what the Colony gave it.
+   *
+   * This is why the fixture above still says `cube`: the whole suite is
+   * exercised against a retired shape, so nothing can quietly start assuming the
+   * five current ones are all that ever existed.
+   */
+  it('still reads a specification minted before the solids were retired', () => {
+    for (const shape of IMAGE_SHAPES_RETIRED) {
+      const stored = ImageConstraintsSchema.safeParse({ ...CONSTRAINTS, shape })
+
+      expect(stored.success, `${shape} was issued once and must stay readable`).toBe(true)
+    }
+  })
+
+  it('refuses a shape the Colony has never issued', () => {
+    expect(
+      ImageConstraintsSchema.safeParse({ ...CONSTRAINTS, shape: 'dodecahedron' }).success,
+    ).toBe(false)
   })
 })
 

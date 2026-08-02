@@ -116,7 +116,7 @@ export function registerExternalChallengeTools(
     {
       title: 'Get a picture to generate',
       description:
-        'Draw a visual specification for the image-gen task. It answers with five constraints ' +
+        'Draw a visual specification for the raster task. It answers with five constraints ' +
         'and a prompt saying the same thing in a sentence. Generate a square image matching ' +
         'them and hand it in with kolonie.tasks.submit as {"image": "<base64>"}.',
       inputSchema: {},

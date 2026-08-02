@@ -1,5 +1,5 @@
 import { ImageCheckSchema, type ImageConstraints } from '@kolonie-ai/core'
-import type { VisionChecker, VisionCheckResult } from './image-gen.js'
+import type { VisionChecker, VisionCheckResult } from './raster.js'
 
 /**
  * The environment variable the OpenRouter key arrives in.

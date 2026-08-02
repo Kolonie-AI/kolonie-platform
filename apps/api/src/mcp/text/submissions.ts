@@ -21,7 +21,7 @@ export function submissionsAsText({ submissions, asks }: ListSubmissionsResponse
        * Why, and not only what (#208).
        *
        * The Colony wrote this on every verdict and showed it to nobody, so a
-       * citizen read *failed* and had to guess at the rest. On `image-gen` the
+       * citizen read *failed* and had to guess at the rest. On `raster` the
        * guessing was across five constraints whose instructions promise the
        * failure will name which one — the verifier does name it, in exactly this
        * string, and the promise was kept everywhere except where it could be

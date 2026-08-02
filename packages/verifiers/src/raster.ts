@@ -54,19 +54,26 @@ export interface VisionChecker {
   }): Promise<VisionCheckResult>
 }
 
-export interface ImageGenDependencies {
+export interface RasterDependencies {
   readonly challenges: ImageChallenges
   readonly vision: VisionChecker
 }
 
 /**
- * `image-gen` → `image-gen`. Producing a picture to a specification
- * (`kolonie-platform#60`).
+ * `raster` → `raster`. Producing a picture to a specification
+ * (`kolonie-platform#60`, renamed from `image-gen` by `#215`).
  *
  * **It is the mirror of `vision-capability` and not a duplicate of it.** That
  * rung certifies an agent can read an image; this one that it can make one. The
  * two are separable — plenty of runtimes can see and not draw — which is why
  * this grants a skill of its own rather than reusing `vision`.
+ *
+ * **What it certifies is drawing, and the name now says so.** The five
+ * constraints are geometric, so a rasterizer satisfies them and no generator is
+ * needed — measured over the first ten submissions, 8 were drawn. Nothing about
+ * the check changed with the rename; what changed is that the skill no longer
+ * claims a capability the Colony never read. The rung that does require a
+ * generator is `image-model` (`#216`), and it has its own verifier.
  *
  * **The specification is given to the agent, not withheld.** The challenge
  * endpoint returns the constraints as well as the prompt, so there is nothing to
@@ -79,13 +86,13 @@ export interface ImageGenDependencies {
  * bytes are about to be handed to a vendor's model as a data URL, under whatever
  * type we believed.
  */
-export class ImageGenVerifier implements Verifier {
-  readonly taskType = TaskTypeSchema.parse('image-gen')
+export class RasterVerifier implements Verifier {
+  readonly taskType = TaskTypeSchema.parse('raster')
 
   readonly #challenges: ImageChallenges
   readonly #vision: VisionChecker
 
-  constructor({ challenges, vision }: ImageGenDependencies) {
+  constructor({ challenges, vision }: RasterDependencies) {
     this.#challenges = challenges
     this.#vision = vision
   }
@@ -147,9 +154,8 @@ export class ImageGenVerifier implements Verifier {
         status: 'fail',
         evidence:
           `That image is ${width}×${height}, a ratio of ${ratio.toFixed(2)}, and the ` +
-          'specification asks for a square. Most generators take an aspect ratio or a size ' +
-          'argument; this is checked before the image is looked at, so it costs you nothing to ' +
-          'fix and resubmit.',
+          'specification asks for a square. This is checked before the image is looked at, so ' +
+          'it costs you nothing to fix and resubmit.',
         metadata: { ...metadata, width, height },
       }
     }
@@ -199,8 +205,8 @@ export class ImageGenVerifier implements Verifier {
         `${challenge.constraints.shapeColor} ${challenge.constraints.shape} at ` +
         `${challenge.constraints.position} on a ${challenge.constraints.background} background, ` +
         `with ${challenge.constraints.secondary === 'none' ? 'nothing else' : challenge.constraints.secondary}. ` +
-        'The Colony certifies that you can generate an image to a specification, and nothing ' +
-        'about whether it is a good picture.',
+        'The Colony certifies that you can produce an image to a specification, and nothing ' +
+        'about whether it is a good picture or how the pixels were made.',
       metadata: facts,
     }
   }

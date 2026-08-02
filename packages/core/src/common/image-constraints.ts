@@ -1,8 +1,8 @@
 import { z } from 'zod'
 
 /**
- * The visual specification the `image-gen` rung issues and checks
- * (`kolonie-platform#60`).
+ * The visual specification the `raster` rung issues and checks
+ * (`kolonie-platform#60`, renamed from `image-gen` by `#215`).
  *
  * It lives in core rather than in the verifier because two workspaces have to
  * agree on it: `apps/api` mints a constraint set and renders it as a prompt, and
@@ -36,17 +36,42 @@ export const IMAGE_COLORS = [
   'white',
 ] as const
 
-/** The primary shapes. Same argument as the colours: no near-neighbours. */
-export const IMAGE_SHAPES = [
-  'cube',
-  'sphere',
-  'pyramid',
-  'circle',
-  'square',
-  'triangle',
-  'star',
-  'hexagon',
-] as const
+/**
+ * The primary shapes. Same argument as the colours: no near-neighbours.
+ *
+ * **Every one of them is flat, and that is the rung's own argument turned into a
+ * list** (`#215`). This rung certifies drawing — that is what its constraint
+ * vocabulary measures and what its name now says — so it may only ask for what
+ * can be drawn. `cube`, `sphere` and `pyramid` are solids: trivial for a
+ * generator and a shading problem for a rasterizer, which made the rung harder
+ * without making it a better test of anything. One passing citizen wrote a
+ * per-pixel Lambertian shader with a specular term to satisfy `sphere`, and got
+ * the light vector's sign wrong on the first attempt. That is a graphics
+ * exercise, not the capability being certified.
+ *
+ * A shape's difficulty is not the objection. Asking a drawing rung for something
+ * that is not a drawing is.
+ */
+export const IMAGE_SHAPES = ['circle', 'square', 'triangle', 'star', 'hexagon'] as const
+
+/**
+ * The solids this rung used to ask for, kept so old specifications still parse.
+ *
+ * **A retired shape has to stay readable.** A constraint set minted before `#215`
+ * is stored on its challenge row and read back at verification, possibly weeks
+ * later — and a citizen holding a `cube` specification it was legitimately given
+ * must be graded against it, not refused because the vocabulary moved on. The
+ * draw picks from {@link IMAGE_SHAPES}; the schema accepts both, and the
+ * asymmetry is the whole mechanism: nothing new is minted with a solid, nothing
+ * old becomes unreadable.
+ *
+ * Never add to this list. A shape belongs here because it was once issued, which
+ * is a fact about history rather than a decision anyone can take now.
+ */
+export const IMAGE_SHAPES_RETIRED = ['cube', 'sphere', 'pyramid'] as const
+
+/** Every shape the Colony has ever issued: what a stored specification may say. */
+export const IMAGE_SHAPES_EVER = [...IMAGE_SHAPES, ...IMAGE_SHAPES_RETIRED] as const
 
 /** Where the shape sits. Five positions, four of them corners. */
 export const IMAGE_POSITIONS = [
@@ -75,7 +100,8 @@ export const IMAGE_SECONDARIES = [
 
 export const ImageConstraintsSchema = z.object({
   background: z.enum(IMAGE_COLORS),
-  shape: z.enum(IMAGE_SHAPES),
+  /** Read against every shape ever issued — see {@link IMAGE_SHAPES_RETIRED}. */
+  shape: z.enum(IMAGE_SHAPES_EVER),
   shapeColor: z.enum(IMAGE_COLORS),
   position: z.enum(IMAGE_POSITIONS),
   secondary: z.enum(IMAGE_SECONDARIES),
@@ -102,8 +128,15 @@ export function imagePromptFor(constraints: ImageConstraints): string {
       ? 'Do not include any other shapes or elements.'
       : `Include ${constraints.secondary} somewhere in the image.`
 
+  /**
+   * **"Produce", not "generate"** (`#215`). The verb is the one thing in this
+   * sentence that could point a citizen at a tool, and this rung is indifferent
+   * to which one produced the pixels — the constraints are geometric and a
+   * drawing library satisfies them. The rung that requires a generator is
+   * `image-model`, and it says so itself.
+   */
   return (
-    `Generate an image with a ${constraints.shapeColor} ${constraints.shape} on a ` +
+    `Produce an image with a ${constraints.shapeColor} ${constraints.shape} on a ` +
     `${constraints.background} background. Place the ${constraints.shape} in the ` +
     `${constraints.position === 'center' ? 'centre' : `${constraints.position} corner`}. ` +
     `${secondary} The image must be square.`
@@ -114,9 +147,12 @@ export function imagePromptFor(constraints: ImageConstraints): string {
  * Draw a constraint set, given a source of randomness.
  *
  * **The shape's colour is never the background's**, which is the one rule the
- * draw enforces rather than leaving to chance. A red cube on a red background is
- * a constraint set no image can satisfy legibly, and an agent handed one would
- * fail a task the Colony made impossible.
+ * draw enforces rather than leaving to chance. A red circle on a red background
+ * is a constraint set no image can satisfy legibly, and an agent handed one
+ * would fail a task the Colony made impossible.
+ *
+ * It draws from {@link IMAGE_SHAPES} and therefore never mints a solid again
+ * (`#215`), while the schema still reads the ones it minted before.
  *
  * `random` is injected so a test can pin the draw. Defaults to `Math.random`,
  * which is right here and would not be for a nonce: nothing about this is a

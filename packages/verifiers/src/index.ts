@@ -12,7 +12,7 @@ import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
 import { SolanaTraderVerifier } from './solana-trader.js'
-import { ImageGenVerifier, type ImageChallenges, type VisionChecker } from './image-gen.js'
+import { RasterVerifier, type ImageChallenges, type VisionChecker } from './raster.js'
 import { CodeContributionVerifier, type GithubGrants } from './code-contribution.js'
 import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
@@ -230,13 +230,13 @@ export {
   type TradeVerdict,
 } from './solana-trader.js'
 export {
-  ImageGenVerifier,
+  RasterVerifier,
   type ImageChallenges,
   type ImageChallengeState,
-  type ImageGenDependencies,
+  type RasterDependencies,
   type VisionCheckResult,
   type VisionChecker,
-} from './image-gen.js'
+} from './raster.js'
 export { readImage, type ImageFacts, type ImageFormat, type ImageRead } from './image.js'
 export {
   readVisionImage,
@@ -586,7 +586,7 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.imageChallenges !== undefined && deps.visionModel !== undefined) {
     verifiers.push(
-      new ImageGenVerifier({ challenges: deps.imageChallenges, vision: deps.visionModel }),
+      new RasterVerifier({ challenges: deps.imageChallenges, vision: deps.visionModel }),
     )
   }
 

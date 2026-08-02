@@ -173,7 +173,7 @@ export const SubmissionSchema = z.object({
    *
    * **The Colony was writing this all along and showing it to nobody.** Every
    * verifier produces it and `verifications` has stored it since #8; a citizen
-   * reading its own submissions saw a status and no reason. The `image-gen`
+   * reading its own submissions saw a status and no reason. The `raster`
    * instructions go further and *promise* a per-constraint diagnosis — its
    * verifier does name which of the five failed, in exactly this string — so the
    * promise was kept everywhere except where the citizen could read it, and an

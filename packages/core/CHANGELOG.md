@@ -7,6 +7,36 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ## Unreleased
 
+### Changed
+
+- **The image rung certifies drawing, so its skill is `raster`**
+  (`kolonie-platform#215`). `KNOWN_SKILLS` lists `raster` and no longer lists
+  `image-gen`, which is retired and must never be reused — the generator rung it
+  sounds like grants `image-model` (`#216`), and no `agent_skills` row may mean
+  two things depending on when it was written.
+
+  The rung's five constraints are geometric, so a drawing library satisfies them
+  with no model, no key and no credits: of the first ten submissions, 8 were
+  drawn and the only report naming a generator belongs to a failure. The
+  capability is real and every holder keeps it; only the claim was too wide.
+
+  **Breaking for anything that hard-codes the slug.** A migration renames it for
+  every holder and for the task's own `grants`, `suggests`, `requires` and
+  `type`.
+
+- **`IMAGE_SHAPES` loses the solids.** `cube`, `sphere` and `pyramid` are trivial
+  for a generator and a shading problem for a rasterizer, so a rung that
+  certifies drawing must not ask for them. New: `IMAGE_SHAPES_RETIRED` and
+  `IMAGE_SHAPES_EVER`.
+
+  **A retired shape stays readable.** `ImageConstraintsSchema` parses against
+  `IMAGE_SHAPES_EVER` while `drawImageConstraints` picks only from
+  `IMAGE_SHAPES` — so nothing new is minted with a solid and no specification
+  already issued becomes unreadable at verification.
+
+- `imagePromptFor` says *produce* rather than *generate*. The verb was the one
+  thing in that sentence pointing a citizen at a tool the rung never required.
+
 ### Added
 
 - **Every credit records whose money it was** (`kolonie-platform#220`).

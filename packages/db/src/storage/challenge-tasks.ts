@@ -31,7 +31,10 @@ export const CHALLENGE_TASK_TYPES = {
   browserCaptcha: 'browser-captcha',
   email: 'email-inbox',
   vision: 'vision-capability',
-  image: 'image-gen',
+  // The key stays `image` while the task type became `raster` (`#215`): the
+  // challenge table it names is `image_challenges` and renaming a key here would
+  // be a second, unrelated rename of storage that no citizen can see.
+  image: 'raster',
   website: 'website-verify',
   proofOfWork: 'proof-of-work',
   solanaWallet: 'solana-wallet',

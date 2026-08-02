@@ -9,15 +9,26 @@ import {
   type Submission,
 } from '@kolonie-ai/core'
 import {
-  ImageGenVerifier,
+  RasterVerifier,
   type ImageChallenges,
   type ImageChallengeState,
   type VisionCheckResult,
   type VisionChecker,
-} from './image-gen.js'
+} from './raster.js'
 
 const AGENT = AgentIdSchema.parse('11111111-1111-4111-8111-111111111111')
 
+/**
+ * **A specification the Colony no longer mints, on purpose** (`#215`).
+ *
+ * `cube` was retired with the other two solids, and this fixture keeps it so the
+ * whole suite runs against a specification issued before the rename. That is the
+ * case worth protecting: a citizen holding a `cube` challenge was legitimately
+ * given it, the row is still on its table, and verification may happen weeks
+ * later. Refusing it as an unknown shape would fail an agent for holding exactly
+ * what the Colony handed it — so the verifier reads retired shapes and the draw
+ * never produces another one.
+ */
 const CONSTRAINTS: ImageConstraints = {
   background: 'green',
   shape: 'cube',
@@ -103,13 +114,13 @@ function verify(options: {
   readonly challenge?: ImageChallengeState | null
   readonly vision?: VisionChecker
 }) {
-  return new ImageGenVerifier({
+  return new RasterVerifier({
     challenges: challenges(options.challenge === undefined ? CHALLENGE : options.challenge),
     vision: options.vision ?? says({}),
   }).verify(submissionWith(options.payload ?? { image: png().toString('base64') }), { agent })
 }
 
-describe('ImageGenVerifier', () => {
+describe('RasterVerifier', () => {
   it('passes an image the model says matches all five', async () => {
     const result = await verify({})
 

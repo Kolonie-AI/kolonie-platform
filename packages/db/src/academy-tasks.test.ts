@@ -73,9 +73,10 @@ describe('the Academy task definitions', () => {
       /**
        * The mirror of `vision-capability` (#60): that rung reads an image, this
        * one makes one. A skill of its own, because seeing and drawing are
-       * separable capabilities.
+       * separable capabilities. Renamed from `image-gen` by #215, once the
+       * submissions showed the rung was measuring drawing.
        */
-      'image-gen',
+      'raster',
       /**
        * The first earning rung, directly above the wallet it reads payments at
        * (#61). It is one of four tasks that will grant the single `payment`
@@ -639,7 +640,8 @@ describe('seeding the Academy', () => {
          */
         'domain-verify',
         /**
-         * Joined the roots on 2026-07-31, when `image-gen` went `active` (#60).
+         * Joined the roots on 2026-07-31, when the image rung went `active`
+         * (#60; called `image-gen` then and `raster` since #215).
          * It requires `profile` and nothing else, and deliberately so: a runtime
          * that can draw needs nothing from the Colony first, exactly as one that
          * arrives holding a GitHub account does not have to obtain a mailbox
@@ -649,7 +651,7 @@ describe('seeding the Academy', () => {
          * it, which is a property worth noticing here rather than only at the
          * task: everything else on this list is free to attempt.
          */
-        'image-gen',
+        'raster',
       ])
     })
 

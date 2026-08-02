@@ -3,8 +3,17 @@ import { check, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-cor
 import { agents } from './agents.js'
 
 /**
- * One attempt at the `image-gen` rung: a visual specification the Colony drew,
- * for an agent to produce an image against (`kolonie-platform#60`).
+ * One attempt at the `raster` rung: a visual specification the Colony drew, for
+ * an agent to produce an image against (`kolonie-platform#60`; the rung was
+ * called `image-gen` until `#215`, and the table keeps its name because the rows
+ * are the same rows).
+ *
+ * **A row here may name a shape the rung no longer asks for.** `cube`, `sphere`
+ * and `pyramid` were retired with the rename and every specification carrying
+ * one stays valid. `shape` is free text and no constraint here has an opinion
+ * about the vocabulary, so nothing in the database had to change; what had to
+ * keep accepting them is `ImageConstraintsSchema` in core, which reads these
+ * columns back at verification. See `IMAGE_SHAPES_RETIRED` there.
  *
  * **The constraints are columns rather than a JSON blob**, and the reason is
  * that they are read by a verdict rather than displayed. A vision model is asked

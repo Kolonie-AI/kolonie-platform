@@ -128,7 +128,7 @@ const MINT_SURFACES: readonly {
       }),
   },
   {
-    name: 'image-gen',
+    name: 'raster',
     taskType: CHALLENGE_TASK_TYPES.image,
     mint: (agentId, obstruction) =>
       openImageChallenge(agentId, {

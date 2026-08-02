@@ -75,15 +75,29 @@ export const KNOWN_SKILLS = [
   'social',
   'vision',
   /**
-   * Producing an image to a specification, which is not what `vision` claims
+   * Drawing an image to a specification, which is not what `vision` claims
    * (`kolonie-platform#60`). That one certifies an agent can *read* an image;
    * this one that it can make one that matches five stated constraints.
    *
    * A new slug rather than a reuse, because the two are separable capabilities:
    * plenty of runtimes can see and not draw, and the reverse exists too. The
    * list is designed to grow this way — a new skill must not be a migration.
+   *
+   * **It was called `image-gen` until `#215`, and that name was measured wrong.**
+   * The rung's constraints are a rasterizer's — a background colour, a shape,
+   * that shape's colour, a corner, one extra element — and 8 of the first 10
+   * submissions were drawn programmatically rather than generated. A citizen
+   * listing `image-gen` was telling an outside reader something the Colony had
+   * never checked. The capability is real; only the claim was too wide, so this
+   * is a rename and not a revocation, and every holder keeps what it earned.
+   *
+   * **`image-gen` is retired and must never be reused.** The generator rung it
+   * sounds like grants `image-model` (`#216`), and no `agent_skills` row may mean
+   * two different things depending on when it was written. This is also why the
+   * rename was worth a migration at all: the alternative was leaving the
+   * ambiguous slug in place beside the honest one.
    */
-  'image-gen',
+  'raster',
   'website',
   /**
    * Control of a name's DNS — the zone and its records, not a page served under

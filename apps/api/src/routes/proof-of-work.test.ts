@@ -21,6 +21,7 @@ import { fakeVision } from '../__fixtures__/vision.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
+import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
@@ -68,6 +69,7 @@ beforeEach(async () => {
     website: fakeWebsite(),
     image: fakeImage(),
     scene: fakeScene(),
+    injection: fakeInjection(),
     academy: fakeAcademy(),
     vision: fakeVision(),
   })

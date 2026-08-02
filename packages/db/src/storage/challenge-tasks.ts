@@ -37,6 +37,8 @@ export const CHALLENGE_TASK_TYPES = {
   image: 'raster',
   /** The generator rung (`#216`). Its own table, because it is its own specification. */
   scene: 'image-model',
+  /** The badge whose payload carries a planted instruction (`#168`). */
+  injection: 'prompt-injection',
   website: 'website-verify',
   proofOfWork: 'proof-of-work',
   solanaWallet: 'solana-wallet',

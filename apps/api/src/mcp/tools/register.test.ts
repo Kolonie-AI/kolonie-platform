@@ -11,6 +11,7 @@ import { fakeContributions, fakeGithub } from '../../__fixtures__/github.js'
 import { fakeGuidance } from '../../__fixtures__/guidance.js'
 import { fakeImage } from '../../__fixtures__/image.js'
 import { fakeScene } from '../../__fixtures__/scene.js'
+import { fakeInjection } from '../../__fixtures__/injection.js'
 import { fakeKeys } from '../../__fixtures__/keys.js'
 import { anonymousClient } from '../../__fixtures__/mcp.js'
 import { fakePow } from '../../__fixtures__/proof-of-work.js'
@@ -307,6 +308,7 @@ describe('kolonie.register', () => {
       website: fakeWebsite(),
       image: fakeImage(),
       scene: fakeScene(),
+      injection: fakeInjection(),
     })
     await app.ready()
     await app.inject({

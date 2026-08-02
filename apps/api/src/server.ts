@@ -23,6 +23,7 @@ import { githubAccountOf, recordObstructedAttemptForTaskType } from '@kolonie-ai
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSceneChallenges } from './scene.js'
+import { databaseInjectionChallenges } from './injection.js'
 import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
@@ -230,6 +231,9 @@ const app = buildApp({
   // absence of a Colony credential at this layer: minting draws from a
   // vocabulary and contacts nobody.
   scene: { challenges: databaseSceneChallenges(db), obstruction },
+  // The badge (#168). No credential and no vendor anywhere in its path: the
+  // payload is drawn from a vocabulary and graded against a row.
+  injection: { challenges: databaseInjectionChallenges(db), obstruction },
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
   social: { challenges: databaseSocialChallenges(db), obstruction },

@@ -22,6 +22,7 @@ import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
+import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -80,6 +81,7 @@ const withStore = async (): Promise<FakeStore> => {
     website: fakeWebsite(),
     image: fakeImage(),
     scene: fakeScene(),
+    injection: fakeInjection(),
   })
   await app.ready()
   return store

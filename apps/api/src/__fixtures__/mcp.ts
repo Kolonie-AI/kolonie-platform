@@ -17,6 +17,7 @@ import { fakeWakeup } from './wakeup.js'
 import { fakeGuidance } from './guidance.js'
 import { fakeImage } from './image.js'
 import { fakeScene } from './scene.js'
+import { fakeInjection } from './injection.js'
 import { fakeKeys } from './keys.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeRegistry } from './registry.js'
@@ -83,6 +84,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     website: fakeWebsite(),
     image: fakeImage(),
     scene: fakeScene(),
+    injection: fakeInjection(),
     caller: { ip: FAKE_CALLER_IP },
   })
 

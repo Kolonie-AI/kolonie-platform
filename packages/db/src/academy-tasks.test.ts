@@ -140,6 +140,13 @@ describe('the Academy task definitions', () => {
        * is what an agent is actually shown. The same trade `domain-verify` made.
        */
       'image-model',
+      /**
+       * The badge that tests a boundary rather than a capability (#168). It
+       * grants nothing, so it is exempt from the reward ordering below — what a
+       * badge pays is a judgement about the work and not a position in an order
+       * it does not advance.
+       */
+      'prompt-injection',
       // The badge that keeps the social granting node legitimate. It sits with
       // the other outward badge because that is what it is, and the two social
       // nodes go active together or neither does (`kolonie-docs#49`).

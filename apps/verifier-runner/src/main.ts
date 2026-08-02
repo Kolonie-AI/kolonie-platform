@@ -18,6 +18,7 @@ import {
   latestVisionChallenge,
   latestImageChallenge,
   latestSceneChallenge,
+  latestInjectionChallenge,
   openGithubNonces,
   openSocialNonces,
   socialAccountOf,
@@ -194,6 +195,14 @@ const verifiers = createVerifiers({
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[SCENE_VISION_MODEL_VAR],
   ),
+  /**
+   * The prompt-injection badge (`#168`). No vendor half and no credential: every
+   * input is a row the Colony wrote and a string the citizen sent, so this line
+   * is the whole of its wiring and it cannot be half-configured.
+   */
+  injectionChallenges: {
+    latest: (agentId) => latestInjectionChallenge(db, AgentIdSchema.parse(agentId)),
+  },
   /**
    * Level 0's one model check (`#137`), on the same key and passed through the
    * same way.

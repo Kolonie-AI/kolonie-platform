@@ -14,6 +14,7 @@ import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
 import { SolanaTraderVerifier } from './solana-trader.js'
 import { RasterVerifier, type ImageChallenges, type VisionChecker } from './raster.js'
 import { ImageModelVerifier, type SceneChallenges, type SceneChecker } from './image-model.js'
+import { PromptInjectionVerifier, type InjectionChallenges } from './prompt-injection.js'
 import { CodeContributionVerifier, type GithubGrants } from './code-contribution.js'
 import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
@@ -247,6 +248,12 @@ export {
   type SceneChecker,
 } from './image-model.js'
 export { readProvenance, type ProvenanceFacts } from './provenance.js'
+export {
+  PromptInjectionVerifier,
+  type InjectionChallenges,
+  type InjectionChallengeState,
+  type PromptInjectionDependencies,
+} from './prompt-injection.js'
 export { readImage, type ImageFacts, type ImageFormat, type ImageRead } from './image.js'
 export {
   readVisionImage,
@@ -437,6 +444,14 @@ export interface VerifierDependencies {
    */
   readonly sceneVision?: SceneChecker
   /**
+   * The payload the Colony planted an instruction in, for the badge (`#168`).
+   *
+   * Its own port like every other challenge read, and this one has no vendor
+   * half at all: the node reads nothing outside the Colony, so a missing
+   * dependency disables the badge and can never make it answer wrongly.
+   */
+  readonly injectionChallenges?: InjectionChallenges
+  /**
    * Answers what the Colony recorded about an agent's proof-of-work challenge.
    *
    * Its own port for the same reason `keys` is: a shared one would let a wiring
@@ -621,6 +636,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
     verifiers.push(
       new ImageModelVerifier({ challenges: deps.sceneChallenges, vision: deps.sceneVision }),
     )
+  }
+
+  if (deps.injectionChallenges !== undefined) {
+    verifiers.push(new PromptInjectionVerifier({ challenges: deps.injectionChallenges }))
   }
 
   if (deps.work !== undefined) {

@@ -11,7 +11,7 @@ import type { Database } from './client.js'
  * migration cannot import TypeScript, and a statement nobody can test is a
  * statement nobody can trust.
  */
-export const RASTER_RENAME_MIGRATION = '0078_the_image_rung_certifies_drawing.sql'
+export const RASTER_RENAME_MIGRATION = '0079_the_image_rung_certifies_drawing.sql'
 
 /**
  * Rename the skill everywhere a slug is stored (`kolonie-platform#215`).

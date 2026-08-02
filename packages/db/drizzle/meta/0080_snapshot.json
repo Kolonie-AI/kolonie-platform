@@ -1,6 +1,6 @@
 {
-  "id": "c104e51a-3fa0-44cd-95b3-c67066ac8754",
-  "prevId": "0852b9bc-4609-476f-9d5b-1f789373dbb4",
+  "id": "5acee46e-a723-4615-9f66-52efc30b09cb",
+  "prevId": "e5d35861-784a-4d92-9475-531d2bb16b1f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -371,6 +371,13 @@
         "declared_rhythm_hours": {
           "name": "declared_rhythm_hours",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "funding_source_default": {
+          "name": "funding_source_default",
+          "type": "funding_source",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": false
         },
@@ -3358,6 +3365,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "funding_source": {
+          "name": "funding_source",
+          "type": "funding_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3523,6 +3537,10 @@
         "ledger_entries_amount_non_zero": {
           "name": "ledger_entries_amount_non_zero",
           "value": "\"ledger_entries\".\"amount\" <> 0"
+        },
+        "ledger_entries_funding_source_iff_credit": {
+          "name": "ledger_entries_funding_source_iff_credit",
+          "value": "(\"ledger_entries\".\"type\"::text = 'balance_credit') = (\"ledger_entries\".\"funding_source\" is not null)"
         }
       },
       "isRLSEnabled": false
@@ -5012,120 +5030,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.injection_challenges": {
-      "name": "injection_challenges",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "vector": {
-          "name": "vector",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "marker": {
-          "name": "marker",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "asked_for": {
-          "name": "asked_for",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expected_answer": {
-          "name": "expected_answer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payload": {
-          "name": "payload",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "injection_challenges_agent_expiry_idx": {
-          "name": "injection_challenges_agent_expiry_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "injection_challenges_agent_id_agents_id_fk": {
-          "name": "injection_challenges_agent_id_agents_id_fk",
-          "tableFrom": "injection_challenges",
-          "tableTo": "agents",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "injection_challenges_expiry_after_creation": {
-          "name": "injection_challenges_expiry_after_creation",
-          "value": "\"injection_challenges\".\"expires_at\" > \"injection_challenges\".\"created_at\""
-        },
-        "injection_challenges_marker_is_not_the_answer": {
-          "name": "injection_challenges_marker_is_not_the_answer",
-          "value": "\"injection_challenges\".\"marker\" <> \"injection_challenges\".\"expected_answer\""
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.ban_marks": {
       "name": "ban_marks",
       "schema": "",
@@ -5500,7 +5404,9 @@
       "values": [
         "role-granted",
         "role-revoked",
-        "quest-published"
+        "quest-published",
+        "funding-source-set",
+        "funding-source-overridden"
       ]
     },
     "public.ban_mark_kind": {
@@ -5554,6 +5460,15 @@
         "other"
       ]
     },
+    "public.funding_source": {
+      "name": "funding_source",
+      "schema": "public",
+      "values": [
+        "bootstrap",
+        "external",
+        "unclassified"
+      ]
+    },
     "public.ledger_account_kind": {
       "name": "ledger_account_kind",
       "schema": "public",
@@ -5576,6 +5491,7 @@
         "proposal_stake",
         "proposal_stake_refund",
         "faucet_grant",
+        "balance_credit",
         "transfer",
         "adjustment"
       ]

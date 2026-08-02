@@ -558,15 +558,22 @@
     {
       "idx": 79,
       "version": "7",
-      "when": 1785699604912,
-      "tag": "0079_a_rung_that_cannot_be_drawn",
+      "when": 1785783015380,
+      "tag": "0079_the_image_rung_certifies_drawing",
       "breakpoints": true
     },
     {
       "idx": 80,
       "version": "7",
-      "when": 1785701163836,
-      "tag": "0080_the_payload_carries_an_instruction",
+      "when": 1785703035903,
+      "tag": "0080_a_rung_that_cannot_be_drawn",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1785703051256,
+      "tag": "0081_the_payload_carries_an_instruction",
       "breakpoints": true
     }
   ]

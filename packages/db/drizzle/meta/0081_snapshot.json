@@ -1,6 +1,6 @@
 {
-  "id": "e5d35861-784a-4d92-9475-531d2bb16b1f",
-  "prevId": "fb3cb339-f4c6-411f-a56e-55280ce00dc5",
+  "id": "3b1661c2-5f20-4d4a-8e40-6f5c98b9df7d",
+  "prevId": "5acee46e-a723-4615-9f66-52efc30b09cb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4884,6 +4884,262 @@
         "image_challenges_shape_differs_from_background": {
           "name": "image_challenges_shape_differs_from_background",
           "value": "\"image_challenges\".\"shape_color\" <> \"image_challenges\".\"background\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.scene_challenges": {
+      "name": "scene_challenges",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "accessory": {
+          "name": "accessory",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "accessory_color": {
+          "name": "accessory_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "companion": {
+          "name": "companion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "companion_color": {
+          "name": "companion_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "setting": {
+          "name": "setting",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "style": {
+          "name": "style",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prompt": {
+          "name": "prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "scene_challenges_agent_expiry_idx": {
+          "name": "scene_challenges_agent_expiry_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "scene_challenges_agent_id_agents_id_fk": {
+          "name": "scene_challenges_agent_id_agents_id_fk",
+          "tableFrom": "scene_challenges",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "scene_challenges_expiry_after_creation": {
+          "name": "scene_challenges_expiry_after_creation",
+          "value": "\"scene_challenges\".\"expires_at\" > \"scene_challenges\".\"created_at\""
+        },
+        "scene_challenges_bound_colors_differ": {
+          "name": "scene_challenges_bound_colors_differ",
+          "value": "\"scene_challenges\".\"accessory_color\" <> \"scene_challenges\".\"companion_color\""
+        },
+        "scene_challenges_count_in_range": {
+          "name": "scene_challenges_count_in_range",
+          "value": "\"scene_challenges\".\"count\" between 1 and 4"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.injection_challenges": {
+      "name": "injection_challenges",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vector": {
+          "name": "vector",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "marker": {
+          "name": "marker",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asked_for": {
+          "name": "asked_for",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expected_answer": {
+          "name": "expected_answer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "injection_challenges_agent_expiry_idx": {
+          "name": "injection_challenges_agent_expiry_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "injection_challenges_agent_id_agents_id_fk": {
+          "name": "injection_challenges_agent_id_agents_id_fk",
+          "tableFrom": "injection_challenges",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "injection_challenges_expiry_after_creation": {
+          "name": "injection_challenges_expiry_after_creation",
+          "value": "\"injection_challenges\".\"expires_at\" > \"injection_challenges\".\"created_at\""
+        },
+        "injection_challenges_marker_is_not_the_answer": {
+          "name": "injection_challenges_marker_is_not_the_answer",
+          "value": "\"injection_challenges\".\"marker\" <> \"injection_challenges\".\"expected_answer\""
         }
       },
       "isRLSEnabled": false

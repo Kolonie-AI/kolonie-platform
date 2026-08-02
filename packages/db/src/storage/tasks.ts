@@ -342,9 +342,31 @@ export async function readTask(
  * decision about a public contract, and it belongs where it can be tested
  * against a task that carries fields the endpoint must drop.
  */
-export async function readAcademyGraph(db: Database): Promise<readonly Task[]> {
+export async function readAcademyGraph(db: Database): Promise<readonly AcademyGraphEntry[]> {
   const rows = await db
-    .select()
+    .select({
+      task: tasks,
+      /**
+       * Whether anybody has ever cleared this node (`#193`).
+       *
+       * **An `exists` in the same read, not a count and not a query per node.**
+       * A count would be a number this response must never carry — the boolean
+       * is what makes it safe to publish at today's population — and computing
+       * it per node would be an N+1 on a route that is otherwise one statement.
+       * `exists` also lets Postgres stop at the first passed attempt.
+       *
+       * **A `draft` node is `false` whatever the rows say.** It cannot be
+       * attempted, so it cannot have been cleared, and the guard is here rather
+       * than in the caller so that no second reader of this table has to
+       * remember it. Written as a `case` rather than as an `and` inside the
+       * `exists` so that the reason is legible: the status decides, and the
+       * attempt history is only consulted when it may be.
+       */
+      cleared: sql<boolean>`case when ${tasks.status} = 'draft' then false else exists (
+        select 1 from "task_attempts" a
+        where a."task_id" = "tasks"."id" and a."outcome"::text = 'passed'
+      ) end`,
+    })
     .from(tasks)
     .where(
       and(
@@ -358,7 +380,23 @@ export async function readAcademyGraph(db: Database): Promise<readonly Task[]> {
   // No hints and no submission, and neither is an omission the caller could
   // correct: this read has no agent to have submitted, and the hints are the
   // Colony's help with a task the reader is not attempting.
-  return rows.map((row) => toTask(row))
+  return rows.map((row) => ({ task: toTask(row.task), cleared: row.cleared }))
+}
+
+/**
+ * One node of the public graph: the task, and the one fact about it that is not
+ * a property of the task.
+ *
+ * **A pair rather than a field on `Task`**, because `cleared` is not something a
+ * task *is* — it is something the population has done to it, true of the same row
+ * for every reader and false again on a fresh database. Putting it on `Task`
+ * would carry it into every other read of a task, where it is neither computed
+ * nor meaningful, and the first caller to trust it there would be reading a
+ * default.
+ */
+export interface AcademyGraphEntry {
+  readonly task: Task
+  readonly cleared: boolean
 }
 
 /**

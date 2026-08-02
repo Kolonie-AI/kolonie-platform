@@ -76,6 +76,38 @@ export const AcademyGraphNodeSchema = z.object({
    * what keeps the two apart, so a renderer cannot fail to have it.
    */
   status: TaskSchema.shape.status,
+  /**
+   * Whether **any** citizen has ever cleared this node (`#193`).
+   *
+   * **What it means:** somebody has passed this task at least once, so the rung
+   * is walkable rather than only drawn. That is the whole of what a public page
+   * needs — the reader's question is *does this Academy work*, not *who is good
+   * at it*.
+   *
+   * **What it does not mean, and cannot be made to mean.** It is not a count, a
+   * rate, a difficulty or a ranking, and none of those may be derived from it.
+   * A count would be personal data at today's population: *"1 attempt, 0
+   * passes"* on a task names an agent to anyone reading the register beside it.
+   * *"Somebody has cleared this"* names nobody.
+   *
+   * **Two states, never three.** A node has been cleared, or the response says
+   * nothing at all. A third state — *attempted, never cleared* — reads as
+   * *broken or brutal*, which is a claim about difficulty, and difficulty is
+   * exactly what this defers until there is enough data to state it honestly.
+   *
+   * **The same value for every caller, and it gates nothing.** It is global by
+   * construction rather than by care: nothing in this response is computed from
+   * a credential, which is what keeps the whole body safe to hold at a shared
+   * cache. Nothing in the Academy, the task listing, the frontier or any
+   * ordering may read it.
+   *
+   * A `draft` node is always `false` — it cannot be attempted, so it cannot have
+   * been cleared, whatever a stray row might say.
+   *
+   * Mandatory rather than optional, for the reason `status` is: a renderer must
+   * not be able to fail to have it.
+   */
+  cleared: z.boolean(),
 })
 export type AcademyGraphNode = z.infer<typeof AcademyGraphNodeSchema>
 

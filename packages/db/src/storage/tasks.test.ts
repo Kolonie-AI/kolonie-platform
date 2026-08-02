@@ -7,6 +7,7 @@ import {
   agentSkills,
   reputationEvents,
   submissions,
+  taskAttempts,
   taskHints,
   tasks,
 } from '../schema/index.js'
@@ -906,14 +907,14 @@ describe('readAcademyGraph', () => {
   }
 
   const titles = async (): Promise<string[]> =>
-    (await readAcademyGraph(db)).map((task) => task.title)
+    (await readAcademyGraph(db)).map((entry) => entry.task.title)
 
   it('answers with the Academy as the Colony ships it', async () => {
     await seedGraph({ title: 'Complete your profile' })
 
-    const [task] = await readAcademyGraph(db)
+    const [entry] = await readAcademyGraph(db)
 
-    expect(task).toMatchObject({
+    expect(entry?.task).toMatchObject({
       title: 'Complete your profile',
       status: 'active',
       kind: 'academy',
@@ -939,7 +940,7 @@ describe('readAcademyGraph', () => {
 
     // Included *with* its status, which is what keeps the two apart for a reader.
     // D-014 keeps it away from agents; this reader is not one.
-    expect(graph.map((task) => [task.title, task.status])).toEqual([
+    expect(graph.map((entry) => [entry.task.title, entry.task.status])).toEqual([
       ['live', 'active'],
       ['designed', 'draft'],
     ])
@@ -995,14 +996,109 @@ describe('readAcademyGraph', () => {
     const [row] = await db.select({ id: tasks.id }).from(tasks)
     await db.insert(taskHints).values({ taskId: row!.id, content: 'A waypoint.', sortOrder: 0 })
 
-    const [task] = await readAcademyGraph(db)
+    const [entry] = await readAcademyGraph(db)
 
     // `undefined` rather than `[]`: nobody asked. The endpoint drops the field
     // either way, and this is where it never gets loaded in the first place.
-    expect(task?.hints).toBeUndefined()
+    expect(entry?.task.hints).toBeUndefined()
   })
 
   it('is an empty list when the Academy is empty, not an error', async () => {
     expect(await readAcademyGraph(db)).toEqual([])
+  })
+
+  /**
+   * **One boolean per node, no counts, and the same value for everybody**
+   * (`#193`). What the page needs to say is *somebody has walked this*, which
+   * names nobody — where *"1 attempt, 0 passes"* at today's population names an
+   * agent to anyone reading the register beside it.
+   */
+  describe('whether anybody has cleared a node', () => {
+    const anAttempt = async (title: string, outcome: 'passed' | 'failed' | 'abandoned' | null) => {
+      const [task] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.title, title))
+      const [agent] = await db
+        .insert(agents)
+        .values({
+          name: `walker-${title.replace(/[^a-z]/g, '')}-${outcome ?? 'open'}`,
+          platform: 'openclaw',
+        })
+        .returning({ id: agents.id })
+
+      await db.insert(taskAttempts).values({
+        taskId: task!.id,
+        agentId: agent!.id,
+        // Numbered rather than defaulted: the column has no default, because an
+        // attempt without an ordinal cannot be told from the one before it.
+        attempt: 1,
+        opener: 'challenge' as const,
+        outcome,
+        // Both times stated. `opened_at` defaults to `now()`, and
+        // `task_attempts_closed_after_opened` refuses a row that closed at the
+        // same instant — an attempt with no duration is not a thing that
+        // happened.
+        openedAt: '2026-08-01T10:00:00.000Z',
+        ...(outcome === null ? {} : { closedAt: '2026-08-01T10:05:00.000Z' }),
+      })
+    }
+
+    const clearedByTitle = async () =>
+      Object.fromEntries(
+        (await readAcademyGraph(db)).map((entry) => [entry.task.title, entry.cleared]),
+      )
+
+    it('says nothing has been cleared on a fresh Academy', async () => {
+      await seedGraph({ title: 'untouched' })
+
+      expect(await clearedByTitle()).toEqual({ untouched: false })
+    })
+
+    it('says a node somebody passed has been cleared', async () => {
+      await seedGraph({ title: 'walked' })
+      await anAttempt('walked', 'passed')
+
+      expect(await clearedByTitle()).toEqual({ walked: true })
+    })
+
+    /**
+     * The rejection case the issue names. An attempt that failed, was abandoned
+     * or is still open says nothing about whether the rung can be cleared —
+     * and *attempted, never cleared* is the third state this deliberately does
+     * not have, because it is a claim about difficulty.
+     */
+    it('says nothing when every attempt failed, was abandoned or is still open', async () => {
+      await seedGraph({ title: 'tried' })
+      await anAttempt('tried', 'failed')
+      await anAttempt('tried', 'abandoned')
+      await anAttempt('tried', null)
+
+      expect(await clearedByTitle()).toEqual({ tried: false })
+    })
+
+    it('says cleared once one attempt passed among many that did not', async () => {
+      await seedGraph({ title: 'eventually' })
+      await anAttempt('eventually', 'failed')
+      await anAttempt('eventually', 'passed')
+
+      expect(await clearedByTitle()).toEqual({ eventually: true })
+    })
+
+    /**
+     * The second rejection case. A drafted node cannot be attempted, so it
+     * cannot have been cleared — whatever a stray row says. The guard is in the
+     * query rather than in a caller, so no second reader has to remember it.
+     */
+    it('says nothing about a drafted node, even with a passed attempt against it', async () => {
+      await seedGraph({ title: 'designed', status: 'draft' })
+      await anAttempt('designed', 'passed')
+
+      expect(await clearedByTitle()).toEqual({ designed: false })
+    })
+
+    it('answers per node rather than for the graph as a whole', async () => {
+      await seedGraph({ title: 'walked', order: 0 }, { title: 'not walked', order: 1 })
+      await anAttempt('walked', 'passed')
+
+      expect(await clearedByTitle()).toEqual({ walked: true, 'not walked': false })
+    })
   })
 })

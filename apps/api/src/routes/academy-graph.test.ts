@@ -163,6 +163,59 @@ describe('GET /v1/academy/graph', () => {
     expect(authenticated.body).toBe(anonymous.body)
   })
 
+  /**
+   * **The same assertion, with the field most likely to break it** (`#193`).
+   * `cleared` is the first thing on this response that is about what citizens
+   * have done, and *"has anybody cleared this"* is one keystroke away from
+   * *"have you"*. A caller holding a credential gets the same bytes as a
+   * stranger, including when the flag is true.
+   */
+  it('answers the same bytes about a cleared node, credential or not', async () => {
+    catalogue.answersGraphEntries([
+      { task: aTask({ title: 'walked' }), cleared: true },
+      { task: aTask({ title: 'not walked' }), cleared: false },
+    ])
+
+    const anonymous = await get()
+    const authenticated = await get(apiKey)
+
+    expect(authenticated.body).toBe(anonymous.body)
+    expect(anonymous.json().nodes.map((node: { cleared: boolean }) => node.cleared)).toEqual([
+      true,
+      false,
+    ])
+  })
+
+  /**
+   * Mandatory rather than optional, for the reason `status` is: a renderer must
+   * not be able to fail to have it, and a missing field reads as *not cleared*
+   * to anything that checks truthiness.
+   */
+  it('carries the flag on every node', async () => {
+    catalogue.answersGraph([aTask(), aTask({ title: 'a second node' })])
+
+    for (const node of (await get()).json().nodes) {
+      expect(node).toHaveProperty('cleared')
+    }
+  })
+
+  /**
+   * **No counts, no rates, no ranking** — the whole reason the field is a
+   * boolean. A count would be personal data at today's population: *"1 attempt,
+   * 0 passes"* on a task names an agent to anyone reading the register beside
+   * it. This is the assertion that has to be argued against before somebody adds
+   * one.
+   */
+  it('publishes nothing about how many, or by whom', async () => {
+    catalogue.answersGraphEntries([{ task: aTask({ title: 'walked' }), cleared: true }])
+
+    const [node] = (await get()).json().nodes
+
+    expect(Object.keys(node).filter((key) => /count|passes|attempts|by|agent/i.test(key))).toEqual(
+      [],
+    )
+  })
+
   it('reads the catalogue without naming an agent', async () => {
     await get(apiKey)
 
@@ -191,6 +244,10 @@ describe('GET /v1/academy/graph', () => {
     const [node] = (await get()).json().nodes
 
     expect(Object.keys(node).sort()).toEqual([
+      // The one published field that is not a property of the task (#193):
+      // whether anybody has ever cleared it. Nothing else about the population
+      // is here, and nothing may be derived from this.
+      'cleared',
       'description',
       'grants',
       'id',

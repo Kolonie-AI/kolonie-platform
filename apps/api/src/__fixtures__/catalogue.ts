@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { TaskSchema, type AgentId, type Task, type TaskId } from '@kolonie-ai/core'
-import type { Frontier, ListTasksResult } from '@kolonie-ai/db'
+import type { AcademyGraphEntry, Frontier, ListTasksResult } from '@kolonie-ai/db'
 import type { CatalogueQuery, TaskCatalogue } from '../tasks.js'
 
 /**
@@ -44,6 +44,14 @@ export interface FakeCatalogue extends TaskCatalogue {
    * test pass without asserting anything.
    */
   readonly answersGraph: (tasks: readonly Task[]) => void
+  /**
+   * The same, for a test that cares which nodes somebody has cleared (`#193`).
+   *
+   * Kept beside `answersGraph` rather than replacing it: almost every test of
+   * this route is about the shape and not about the flag, and making all of them
+   * spell out `cleared: false` would bury the two that are.
+   */
+  readonly answersGraphEntries: (entries: readonly AcademyGraphEntry[]) => void
 }
 
 export function fakeCatalogue(): FakeCatalogue {
@@ -53,7 +61,7 @@ export function fakeCatalogue(): FakeCatalogue {
   let answer: ListTasksResult = { outcome: 'listed', page: { items: [], nextCursor: null } }
   let frontierAnswer: Frontier = { skills: [], entries: [] }
   let readAnswer: Task | undefined = undefined
-  let graphAnswer: readonly Task[] = []
+  let graphAnswer: readonly AcademyGraphEntry[] = []
   let graphReads = 0
 
   return {
@@ -63,7 +71,10 @@ export function fakeCatalogue(): FakeCatalogue {
     },
     graphReads: () => graphReads,
     answersGraph: (tasks) => {
-      graphAnswer = tasks
+      graphAnswer = tasks.map((task) => ({ task, cleared: false }))
+    },
+    answersGraphEntries: (entries) => {
+      graphAnswer = entries
     },
     list: async (query) => {
       queries.push(query)

@@ -22,6 +22,7 @@ import {
   listTasks as listTasksInDatabase,
   readAcademyGraph as readAcademyGraphInDatabase,
   readTask as readTaskInDatabase,
+  type AcademyGraphEntry,
   type Database,
   type Frontier,
   type ListTasksResult,
@@ -65,7 +66,7 @@ export interface TaskCatalogue {
    * `buildApp` to add one method. It takes no argument at all, which is what
    * distinguishes it from the other three: there is no subject to get wrong.
    */
-  graph(): Promise<readonly Task[]>
+  graph(): Promise<readonly AcademyGraphEntry[]>
 }
 
 /** A validated request, plus the agent whose skills decide what is in it. */
@@ -140,10 +141,10 @@ export const ACADEMY_GRAPH_MAX_AGE_SECONDS = 300
  * `onboarding/academy.md` says it must not become.
  */
 export async function academyGraph(catalogue: TaskCatalogue): Promise<AcademyGraphResponse> {
-  const tasks = await catalogue.graph()
+  const entries = await catalogue.graph()
 
   return {
-    nodes: tasks.map((task) =>
+    nodes: entries.map(({ task, cleared }) =>
       AcademyGraphNodeSchema.parse({
         id: task.id,
         type: task.type,
@@ -159,6 +160,14 @@ export async function academyGraph(catalogue: TaskCatalogue): Promise<AcademyGra
         rewardReputation: task.reward.reputation,
         recommendedOrder: task.recommendedOrder,
         status: task.status,
+        /**
+         * The one field here that is not a property of the task (`#193`). It
+         * comes from the same storage read rather than a second query, and it is
+         * the same value for every caller — this function still takes no
+         * credential, which is what makes the byte-identical property structural
+         * rather than a test that happens to pass.
+         */
+        cleared,
       }),
     ),
   }

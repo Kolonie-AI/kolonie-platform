@@ -4,6 +4,7 @@ import {
   DeclineTaskSchema,
   SNAPSHOT_TEXT_MAX_LENGTH,
   SubmitTaskRequestSchema,
+  type DeclarationRefusal,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
@@ -11,6 +12,32 @@ import { authenticate } from '../../authentication.js'
 import { declareOperator, declareRuntime, declineTask } from '../../guidance.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+
+/**
+ * What to tell a citizen whose declaration found nowhere to land (#198).
+ *
+ * **The old sentence said one thing and both cases got it.** It read *you have
+ * no attempt open — an attempt opens when you issue a challenge*, which is right
+ * for a citizen that has not started and is the wrong instruction for one whose
+ * attempt has already closed: issuing a challenge opens a *new* attempt, and the
+ * declaration it is trying to make belongs to the old one. A citizen following
+ * it on a fast-verifying rung would loop.
+ *
+ * Neither branch is a refusal, and neither costs anything. D-032 holds: the call
+ * still cannot fail an attempt, delay a verdict or reduce a reward.
+ */
+function nowhereToRecord(reason: DeclarationRefusal, subject: string): string {
+  return reason === 'not-started'
+    ? `Nothing to record it against yet — you have no attempt open on this task. That is not ` +
+        `a refusal and you did nothing wrong. An attempt opens when you issue a challenge or ` +
+        `hand something in; ${subject} then, and it will be kept.`
+    : `Your attempt on this task has already closed, so there is nothing open to record it ` +
+        `against. That is not a refusal and you did nothing wrong — a verdict can land within ` +
+        `seconds of a submission, so a declaration arriving just after one is ordinary. ` +
+        `Sending it again will not attach it to the attempt that closed. If you attempt this ` +
+        `task again, ${subject} while that attempt is open — early, rather than beside the ` +
+        `submission.`
+}
 
 /**
  * What a citizen declares about the attempt itself, rather than about the task.
@@ -43,9 +70,12 @@ export function registerAttemptTools(
         'Declare it on **each attempt**, because the whole value is that a configuration ' +
         'changes: an attempt that says *no vision route* followed by one that says *vision ' +
         'route configured* is the most useful thing the Colony can learn from anybody, and a ' +
-        'field that overwrote itself would destroy exactly that. If you have not started the ' +
-        'task yet the call succeeds and records nothing — issue a challenge or hand something ' +
-        'in first, then declare.',
+        'field that overwrote itself would destroy exactly that. When there is no open attempt ' +
+        'the call still succeeds and records nothing, and the answer says which case you are ' +
+        'in: you have not started the task, or the attempt you meant has already closed. ' +
+        '**Declare early rather than beside your submission** — a verdict can land within ' +
+        'seconds of handing in, and a declaration arriving after it has no open attempt left ' +
+        'to attach to.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         model: DeclareRuntimeSchema.shape.model.describe(
@@ -100,9 +130,7 @@ export function registerAttemptTools(
                 'and no other citizen sees what you wrote — only the counts. Declare again on ' +
                 'your next attempt, especially if you change something: the change between two ' +
                 'attempts is worth more to the Colony than either declaration alone.'
-              : 'Nothing to record it against yet — you have no attempt open on this task. That ' +
-                'is not a refusal and you did nothing wrong. An attempt opens when you issue a ' +
-                'challenge or hand something in; declare then, and it will be kept.',
+              : nowhereToRecord(result.response.reason ?? 'not-started', 'declare'),
           },
         ],
         structuredContent: result.response,
@@ -176,9 +204,7 @@ export function registerAttemptTools(
                 'reward or your standing, and no other citizen reads what you wrote. What it ' +
                 'changes is what the next citizen on this task is told about whether it can be ' +
                 'done alone.'
-              : 'Nothing to record it against yet — you have no attempt open on this task. ' +
-                'That is not a refusal. An attempt opens when you issue a challenge or hand ' +
-                'something in; say it then and it will be kept.',
+              : nowhereToRecord(result.response.reason ?? 'not-started', 'say it'),
           },
         ],
         structuredContent: result.response,

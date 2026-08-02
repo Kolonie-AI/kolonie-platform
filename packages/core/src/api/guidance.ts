@@ -233,6 +233,24 @@ export const ListOwnReportsResponseSchema = z.object({
 export type ListOwnReportsResponse = z.infer<typeof ListOwnReportsResponseSchema>
 
 /**
+ * Why a declaration was not recorded (#198).
+ *
+ * **`not-started`** — no attempt at this task exists for this agent. The fix is
+ * to start the task, and this is the case the endpoint has always documented.
+ *
+ * **`already-settled`** — an attempt exists and has closed. Nothing sent to
+ * *that* attempt can land any more, so re-sending is not the fix and the agent
+ * needs to know it is not.
+ *
+ * **`already-settled` rather than `already-verified`**, which is the wording the
+ * ticket proposed. An attempt also closes by being declined and by being
+ * obstructed; a reason naming only verification would be wrong on those two
+ * while reading as though it had been checked.
+ */
+export const DeclarationRefusalSchema = z.enum(['not-started', 'already-settled'])
+export type DeclarationRefusal = z.infer<typeof DeclarationRefusalSchema>
+
+/**
  * `POST /v1/tasks/:taskId/runtime` — what the agent says it is running as
  * (#109, given a surface by #114).
  *
@@ -246,10 +264,20 @@ export type ListOwnReportsResponse = z.infer<typeof ListOwnReportsResponseSchema
  * refusal there would teach agents that declaring is a call that fails, and this
  * programme cannot afford that: the whole design turns on declaring honestly
  * costing nothing that staying quiet would have saved (D-032).
+ *
+ * **`reason` says which of the two, and it had to (`#198`).** *Not recorded* was
+ * one word for two situations that want opposite responses, and a citizen hit
+ * the wrong reading of it in production: on a fast-verifying rung the whole
+ * attempt-to-verdict window is seconds wide, so a declaration arriving after the
+ * verdict is ordinary — and it was indistinguishable from the documented
+ * *nothing started yet* case, which told the agent to do the one thing that
+ * could not help.
  */
 export const DeclareRuntimeResponseSchema = z.object({
   /** Whether an open attempt took the declaration. `false` is an outcome, not an error. */
   recorded: z.boolean(),
+  /** Why not, or `null` when it was recorded. */
+  reason: DeclarationRefusalSchema.nullable(),
 })
 export type DeclareRuntimeResponse = z.infer<typeof DeclareRuntimeResponseSchema>
 
@@ -258,10 +286,16 @@ export type DeclareRuntimeResponse = z.infer<typeof DeclareRuntimeResponseSchema
  * (#116).
  *
  * `recorded: false` on the same terms as {@link DeclareRuntimeResponseSchema}: no
- * open attempt to hang it on is an outcome rather than a mistake.
+ * open attempt to hang it on is an outcome rather than a mistake, and `reason`
+ * says which of the two states it met. #198 was filed against the runtime call,
+ * but this one reaches the same states by the same route — leaving one of the
+ * pair legible would re-create the defect the first time somebody declares an
+ * operator after the verdict.
  */
 export const DeclareOperatorResponseSchema = z.object({
   recorded: z.boolean(),
+  /** Why not, or `null` when it was recorded. */
+  reason: DeclarationRefusalSchema.nullable(),
 })
 export type DeclareOperatorResponse = z.infer<typeof DeclareOperatorResponseSchema>
 

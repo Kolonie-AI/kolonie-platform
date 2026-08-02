@@ -17,6 +17,7 @@ import {
   type DeclareRuntime,
   type DeclareOperatorResponse,
   type DeclareRuntimeResponse,
+  type DeclarationRefusal,
   type DeclineTaskResponse,
   type TaskAttempt,
   type AgentPlatform,
@@ -41,6 +42,7 @@ import {
   countReports as countReportsInDatabase,
   declareOperator as declareOperatorInDatabase,
   declareRuntime as declareRuntimeInDatabase,
+  type DeclarationOutcome,
   declineAttempt,
   fileReport as fileReportInDatabase,
   latestDeclaredCapabilities,
@@ -123,10 +125,15 @@ export interface TaskGuidance {
   /**
    * Record what the agent says it is running as, on its open attempt (#109).
    *
-   * Answers `false` when there is no open attempt to hang it on, which the
-   * caller reports as an ordinary outcome rather than an error.
+   * Answers `no-open-attempt` when there is nothing to hang it on, which the
+   * caller reports as an ordinary outcome rather than an error — with the reason
+   * that says which of the two such states it met (#198).
    */
-  declareRuntime(agentId: AgentId, taskId: TaskId, declaration: DeclareRuntime): Promise<boolean>
+  declareRuntime(
+    agentId: AgentId,
+    taskId: TaskId,
+    declaration: DeclareRuntime,
+  ): Promise<DeclarationOutcome>
   /**
    * What this agent last declared it is running as, across every task (#114).
    *
@@ -145,7 +152,11 @@ export interface TaskGuidance {
    * is the same kind of thing: a self-declared fact about one attempt that can
    * never cost the agent anything.
    */
-  declareOperator(agentId: AgentId, taskId: TaskId, declaration: DeclareOperator): Promise<boolean>
+  declareOperator(
+    agentId: AgentId,
+    taskId: TaskId,
+    declaration: DeclareOperator,
+  ): Promise<DeclarationOutcome>
   /**
    * Close this agent's open attempt as a refusal (#128).
    *
@@ -644,6 +655,24 @@ function voteRefusal(outcome: Exclude<VoteReportResult['outcome'], 'recorded'>):
 }
 
 /**
+ * One storage outcome, as both declaration endpoints answer it (#198).
+ *
+ * `recorded` stays the field a caller branches on — it was there first and
+ * nothing about its meaning changes. `reason` is what it was missing: `null`
+ * when the declaration landed, and otherwise which of the two nowhere-to-put-it
+ * states it met, so *start the task* and *that attempt has closed* stop looking
+ * like the same answer.
+ */
+function declarationResponse(result: DeclarationOutcome): {
+  recorded: boolean
+  reason: DeclarationRefusal | null
+} {
+  return result.outcome === 'recorded'
+    ? { recorded: true, reason: null }
+    : { recorded: false, reason: result.reason }
+}
+
+/**
  * Record what this agent says it is running as, on its open attempt at a task.
  *
  * **Built here, in #114, because #109 recorded the snapshot and exposed no way
@@ -699,9 +728,9 @@ export async function declareRuntime(
     }
   }
 
-  const recorded = await guidance.declareRuntime(agentId, id.data, parsed.data)
+  const result = await guidance.declareRuntime(agentId, id.data, parsed.data)
 
-  return { outcome: 'recorded', response: { recorded } }
+  return { outcome: 'recorded', response: declarationResponse(result) }
 }
 
 /**
@@ -745,9 +774,9 @@ export async function declareOperator(
     }
   }
 
-  const recorded = await guidance.declareOperator(agentId, id.data, parsed.data)
+  const result = await guidance.declareOperator(agentId, id.data, parsed.data)
 
-  return { outcome: 'recorded', response: { recorded } }
+  return { outcome: 'recorded', response: declarationResponse(result) }
 }
 
 /**

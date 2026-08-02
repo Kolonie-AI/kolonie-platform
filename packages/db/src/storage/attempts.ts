@@ -483,12 +483,60 @@ export async function attemptsFor(
 }
 
 /**
+ * Why a declaration had nowhere to go (`#198`).
+ *
+ * `openAttemptFor` answers `null` for two states that are nothing alike, and a
+ * caller told only *not recorded* cannot tell them apart:
+ *
+ * - `not-started` — this agent has no attempt at this task at all. Fixed by
+ *   starting the task, which is what the documented case has always described.
+ * - `already-settled` — an attempt exists and has closed. Nothing the agent can
+ *   do to *this* one will reopen it; the declaration arrived after the verdict.
+ *
+ * **`already-settled` rather than `already-verified`**, which is the wording the
+ * ticket used. An attempt also closes by declining and by being obstructed, and
+ * a reason that names only verification would be wrong on the other two while
+ * reading as though it had been checked.
+ */
+export type NoOpenAttemptReason = 'not-started' | 'already-settled'
+
+/** Whether a declaration landed, and if not, which of the two states it met. */
+export type DeclarationOutcome =
+  | { readonly outcome: 'recorded' }
+  | { readonly outcome: 'no-open-attempt'; readonly reason: NoOpenAttemptReason }
+
+/**
+ * Which of the two no-open-attempt states this agent is in on this task.
+ *
+ * Only called once a declaration has already found no open attempt, so the
+ * ordinary path costs nothing: this is the diagnosis, not the check.
+ */
+async function whyNoOpenAttempt(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<NoOpenAttemptReason> {
+  const [row] = await db
+    .select({ id: taskAttempts.id })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, taskId)))
+    .limit(1)
+
+  return row === undefined ? 'not-started' : 'already-settled'
+}
+
+/**
  * Record what the agent says it is running as, on its open attempt.
  *
  * **Never fails an attempt, never delays a verdict, never reduces a reward.**
- * Returns `false` when there is no open attempt to hang the declaration on,
+ * Answers `no-open-attempt` when there is nothing to hang the declaration on,
  * which the caller reports and does not treat as an error: an agent declaring
  * its runtime before it has started anything has done nothing wrong.
+ *
+ * **The reason comes back with it (`#198`).** Not recording is one word for two
+ * situations, and on a fast-verifying rung the whole attempt-to-verdict window
+ * is seconds wide — so *declared too late* is reachable in practice and used to
+ * be indistinguishable from *never started*.
  *
  * Fields absent from the command are left as they were rather than nulled. An
  * agent that declares its model on one call and its capabilities on the next
@@ -501,9 +549,11 @@ export async function declareRuntime(
   agentId: AgentId,
   taskId: TaskId,
   declaration: DeclareRuntime,
-): Promise<boolean> {
+): Promise<DeclarationOutcome> {
   const open = await openAttemptFor(db, agentId, taskId)
-  if (open === null) return false
+  if (open === null) {
+    return { outcome: 'no-open-attempt', reason: await whyNoOpenAttempt(db, agentId, taskId) }
+  }
 
   const merged = { ...open.runtime.capabilities, ...(declaration.capabilities ?? {}) }
 
@@ -519,7 +569,7 @@ export async function declareRuntime(
     })
     .where(eq(taskAttempts.id, open.id))
 
-  return true
+  return { outcome: 'recorded' }
 }
 
 /** How one capability flag divides a task's outcomes. The row #114 turns into a sentence. */
@@ -986,9 +1036,14 @@ export const DECLARATIONS_MERGED = 20
  * (#116).
  *
  * **Never fails an attempt, never delays a verdict, never reduces a reward.**
- * The same terms as {@link declareRuntime}, and the same `false` when there is
- * no open attempt to hang it on — an agent that says it asked for help before it
- * started anything has done nothing wrong.
+ * The same terms as {@link declareRuntime}, and the same `no-open-attempt` when
+ * there is nothing to hang it on — an agent that says it asked for help before
+ * it started anything has done nothing wrong.
+ *
+ * **It carries the reason for the same reason (`#198`).** The ticket was filed
+ * against `tasks.runtime`, but this call reaches the identical state through the
+ * identical `openAttemptFor` null, and leaving one of the pair legible would
+ * re-create the defect the first time somebody declares an operator late.
  *
  * Fields absent from the command are left as they were, so an agent that says it
  * asked on one call and what came of it on the next has said both. The one
@@ -1001,9 +1056,11 @@ export async function declareOperator(
   agentId: AgentId,
   taskId: TaskId,
   declaration: DeclareOperator,
-): Promise<boolean> {
+): Promise<DeclarationOutcome> {
   const open = await openAttemptFor(db, agentId, taskId)
-  if (open === null) return false
+  if (open === null) {
+    return { outcome: 'no-open-attempt', reason: await whyNoOpenAttempt(db, agentId, taskId) }
+  }
 
   await db
     .update(taskAttempts)
@@ -1020,7 +1077,7 @@ export async function declareOperator(
     )
     .where(eq(taskAttempts.id, open.id))
 
-  return true
+  return { outcome: 'recorded' }
 }
 
 /**

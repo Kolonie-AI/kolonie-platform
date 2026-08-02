@@ -784,7 +784,7 @@ describe.skipIf(!target.available)('task attempts', () => {
           model: 'some-model-v3',
           capabilities: { vision: false, browser: true },
         }),
-      ).toBe(true)
+      ).toEqual({ outcome: 'recorded' })
 
       const [attempt] = await attemptsFor(db, agentId, taskId)
       expect(attempt?.runtime.model).toBe('some-model-v3')
@@ -813,7 +813,30 @@ describe.skipIf(!target.available)('task attempts', () => {
       const agentId = await anAgent()
       const taskId = await aTask()
 
-      expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toBe(false)
+      expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toEqual({
+        outcome: 'no-open-attempt',
+        reason: 'not-started',
+      })
+    })
+
+    /**
+     * The case #198 was filed about, and the reason the two are distinguished.
+     *
+     * `openAttemptFor` answers `null` here exactly as it does above, so before
+     * this the citizen got one answer for two situations — and the one it was
+     * given told it to start the task, which is the one thing that cannot
+     * attach a declaration to the attempt that just closed.
+     */
+    it('separates an attempt that has closed from one never started', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await closeAttempt(db, attempt.id, 'passed')
+
+      expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toEqual({
+        outcome: 'no-open-attempt',
+        reason: 'already-settled',
+      })
     })
 
     /**
@@ -1410,7 +1433,7 @@ describe.skipIf(!target.available)('task attempts', () => {
           askedFor: 'a mailbox that can send and receive',
           acted: true,
         }),
-      ).toBe(true)
+      ).toEqual({ outcome: 'recorded' })
 
       const [row] = await db
         .select({
@@ -1469,11 +1492,31 @@ describe.skipIf(!target.available)('task attempts', () => {
       expect(row).toEqual({ asked: false, askedFor: null, acted: null })
     })
 
-    it('answers false when there is no attempt open, and is not an error', async () => {
+    it('reports rather than throws when there is no attempt open, and is not an error', async () => {
       const agentId = await anAgent()
       const taskId = await aTask()
 
-      expect(await declareOperator(db, agentId, taskId, { asked: true })).toBe(false)
+      expect(await declareOperator(db, agentId, taskId, { asked: true })).toEqual({
+        outcome: 'no-open-attempt',
+        reason: 'not-started',
+      })
+    })
+
+    /**
+     * #198 was filed against the runtime call, and this one reaches the same two
+     * states through the same `openAttemptFor` null. Pinned here so the pair
+     * cannot drift into one being legible and the other not.
+     */
+    it('separates an attempt that has closed from one never started', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await closeAttempt(db, attempt.id, 'passed')
+
+      expect(await declareOperator(db, agentId, taskId, { asked: true })).toEqual({
+        outcome: 'no-open-attempt',
+        reason: 'already-settled',
+      })
     })
 
     /**

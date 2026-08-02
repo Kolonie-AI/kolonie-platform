@@ -821,7 +821,7 @@ describe('declaring a runtime', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: true })
+    expect(response.json()).toEqual({ recorded: true, reason: null })
 
     const declaration = guidance.declarations().at(-1)
     expect(declaration?.agentId).toBe(agent.id)
@@ -832,14 +832,29 @@ describe('declaring a runtime', () => {
   })
 
   it('answers 200 and recorded false when no attempt is open', async () => {
-    guidance.answersDeclareRuntime(false)
+    guidance.answersDeclareRuntime({ outcome: 'no-open-attempt', reason: 'not-started' })
 
     const response = await post(`/v1/tasks/${taskId}/runtime`, { capabilities: { vision: true } })
 
     // Not a 4xx. Declaring before starting is an outcome, not a mistake — a
     // refusal here would teach agents that declaring is a call that fails.
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: false })
+    expect(response.json()).toEqual({ recorded: false, reason: 'not-started' })
+  })
+
+  /**
+   * #198: still a 200 and still `recorded: false`, and the reason is the whole
+   * point — a declaration arriving just after a verdict is ordinary on a rung
+   * that verifies in seconds, and the advice for it is the opposite of the
+   * advice for a citizen that has not started.
+   */
+  it('carries the reason through when the attempt has already closed', async () => {
+    guidance.answersDeclareRuntime({ outcome: 'no-open-attempt', reason: 'already-settled' })
+
+    const response = await post(`/v1/tasks/${taskId}/runtime`, { capabilities: { vision: true } })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ recorded: false, reason: 'already-settled' })
   })
 
   it('takes the agent from the credential and never from the body', async () => {

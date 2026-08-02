@@ -23,6 +23,7 @@ import {
 } from '@kolonie-ai/core'
 import type {
   AttemptStanding,
+  DeclarationOutcome,
   ReaderContext,
   VoteReportResult,
   WriteReportResult,
@@ -104,7 +105,7 @@ export interface FakeGuidance extends TaskGuidance {
    * `true` by default. The `false` case is #109's *declared before starting*,
    * which is an outcome rather than an error and has its own test.
    */
-  readonly answersDeclareRuntime: (recorded: boolean) => void
+  readonly answersDeclareRuntime: (result: DeclarationOutcome) => void
   /** Every operator declaration the routes have sent, in order. */
   readonly operatorDeclarations: () => {
     agentId: AgentId
@@ -164,7 +165,7 @@ export function fakeGuidance(): FakeGuidance {
   let briefing: TaskBriefing | undefined
   let context: ReaderContext = { divides: [], declared: null, movesMoney: false }
   const declarations: { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[] = []
-  let declarationRecorded = true
+  let declarationRecorded: DeclarationOutcome = { outcome: 'recorded' }
   const operatorDeclarations: {
     agentId: AgentId
     taskId: TaskId
@@ -273,8 +274,8 @@ export function fakeGuidance(): FakeGuidance {
       context = next
     },
     declarations: () => [...declarations],
-    answersDeclareRuntime: (recorded) => {
-      declarationRecorded = recorded
+    answersDeclareRuntime: (result) => {
+      declarationRecorded = result
     },
     operatorDeclarations: () => [...operatorDeclarations],
     answersSovereignty: (next) => {

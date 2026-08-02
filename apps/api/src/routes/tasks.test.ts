@@ -700,7 +700,7 @@ describe('declaring an operator', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: true })
+    expect(response.json()).toEqual({ recorded: true, reason: null })
     expect(guidance.operatorDeclarations().at(-1)?.declaration).toEqual({
       asked: true,
       askedFor: 'a mailbox that can send and receive',
@@ -727,12 +727,12 @@ describe('declaring an operator', () => {
   })
 
   it('answers 200 and recorded false when no attempt is open', async () => {
-    guidance.answersDeclareRuntime(false)
+    guidance.answersDeclareRuntime({ outcome: 'no-open-attempt', reason: 'not-started' })
 
     const response = await post({ asked: true })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: false })
+    expect(response.json()).toEqual({ recorded: false, reason: 'not-started' })
   })
 
   it('takes the agent from the credential and never from the body', async () => {

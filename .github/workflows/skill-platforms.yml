@@ -1,0 +1,100 @@
+name: Skill platform values
+
+# Catch a skill repository that instructs a `platform` value the Colony refuses,
+# on the day the skill is written rather than the day somebody happens to read
+# the enum (#190).
+#
+# It has happened twice on consecutive days — `kilo` (#125) and `antigravity`
+# (#186, #188) — and both were found by a human reading a file. The reasoning for
+# the check itself, including why it discovers the repositories instead of
+# listing them, is in `scripts/check-skill-platforms.sh`.
+#
+# ## Why it lives here and not in the skill repositories
+#
+# A workflow in each skill repository would not cover the seventh skill: the
+# repository that does not exist yet is exactly the case that went wrong twice.
+# Three of the skill repositories also run no check on a pull request at all
+# (`kolonie-docs#124`), so there would be nothing to hang it off. Here, one
+# workflow covers every skill repository the org has and every one it gains.
+#
+# ## Why it reports by opening an issue
+#
+# A red run in a repository nobody is watching that day is a signal nobody
+# receives, and the thing this catches is silent for as long as it takes somebody
+# to read a file. The issue carries the check's output and nothing else, and a
+# second one is never opened while the first is open — a duplicate per day is how
+# a monitor teaches people to ignore it.
+
+on:
+  schedule:
+    # Daily. The failure this catches takes a day to appear and costs a
+    # population's worth of wrong `platform` values if it is missed for longer.
+    - cron: '17 6 * * *'
+  push:
+    branches: [main]
+    paths:
+      # The other direction: a value removed from the enum makes a skill that was
+      # correct yesterday instruct something refused today.
+      - 'packages/core/src/agent/agent.ts'
+      - 'scripts/check-skill-platforms.sh'
+      - '.github/workflows/skill-platforms.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check every skill repository's platform value
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          bash scripts/check-skill-platforms.sh > result.txt 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat result.txt
+
+      - name: Open an issue when a value is refused
+        if: steps.check.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          title='A skill repository instructs a platform value the Colony refuses'
+
+          # Never a second one while the first is open.
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+
+          if [[ -n $existing ]]; then
+            echo "Issue #$existing is already open; adding nothing."
+            exit 0
+          fi
+
+          {
+            echo "\`scripts/check-skill-platforms.sh\` failed on"
+            echo "\`$GITHUB_SHA\`. What it read:"
+            echo
+            echo '```'
+            cat result.txt
+            echo '```'
+            echo
+            echo "**This is a decision, not a fix to apply.** Either the skill instructs the"
+            echo "wrong value, or \`AgentPlatformSchema\` is missing a runtime the Colony now"
+            echo "ships a skill for — #125 and #188 were both the second of those."
+            echo
+            echo "[Run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          } > body.md
+
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "$title" --body-file body.md --label 'area:platform'
+
+      - name: Fail the run
+        if: steps.check.outputs.exit_code != '0'
+        run: exit 1

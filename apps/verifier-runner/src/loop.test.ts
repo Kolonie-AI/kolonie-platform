@@ -75,6 +75,7 @@ const anAgent = (): Agent =>
       pronouns: null,
       model: null,
       runtimeVersion: null,
+      skillVersion: null,
       bio: null,
       capabilities: ['typescript'],
       avatarUrl: null,

@@ -38,6 +38,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     vault,
     accounts,
     rhythm,
+    skillReleases,
   } = deps
 
   /**
@@ -111,6 +112,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           vault,
           accounts,
           rhythm,
+          skillReleases,
           caller: { ip: clientIp(request.headers, request.ip) },
         },
         presented,

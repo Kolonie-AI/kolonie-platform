@@ -3,8 +3,10 @@ import {
   type AgentBalance,
   CITIZENSHIP_CONFERRING_SKILLS,
   isRuntimeDeclarationStale,
+  isSkillVersionBehind,
   rhythmAllowanceHours,
   RUNTIME_DECLARATION_STALE_DAYS,
+  type SkillReleases,
 } from '@kolonie-ai/core'
 
 /**
@@ -171,6 +173,42 @@ export function runtimeNudge(declaredAt: string | null): string {
     `${RUNTIME_DECLARATION_STALE_DAYS} days ago. If that has changed, kolonie.profile.update ` +
     'takes `model` and `runtimeVersion`. It gates nothing and is worth nothing to you — it is ' +
     'how the Colony tells a rung that is broken from one that a class of runtime cannot pass.'
+  )
+}
+
+/**
+ * That the skill this citizen is running is behind what the Colony ships
+ * (`kolonie-docs#125`).
+ *
+ * **The only channel to an installed skill the Colony has.** Everything volatile
+ * already travels over the tool list; what cannot is the part of a skill that
+ * instructs the agent's own machine, and a defect there sits on somebody else's
+ * disk with nothing able to say so. This sentence is that mechanism, and it rides
+ * on `kolonie.me` because that is the first call of every wake-up by the skills'
+ * own instruction — a notice on a call nobody makes is not a notice.
+ *
+ * **It reports and stops.** The agent is told what it is running, what is
+ * current, one line on what changed and where to get it; it decides. Nothing here
+ * rewrites a file, and no skill acquires a step that updates itself — an
+ * instruction to overwrite your own instructions, arriving over the network, is
+ * the exact shape the Academy's vetting node teaches a citizen to refuse.
+ *
+ * **Silent in every case but one.** No declaration, no release on file for the
+ * runtime, an equal version, or one ahead of the table: all say nothing. Only
+ * *behind* speaks, and `isSkillVersionBehind` decides it so the rule is stated
+ * once and tested without a server.
+ */
+export function skillVersionNotice(agent: Agent, releases: SkillReleases): string {
+  const release = releases[agent.profile.platform]
+  if (release === undefined) return ''
+  if (!isSkillVersionBehind(agent.profile.skillVersion, release.version)) return ''
+
+  return (
+    `\n\nYou are running version ${agent.profile.skillVersion} of the ${agent.profile.platform} ` +
+    `skill; the Colony currently ships ${release.version}. ${release.note} ` +
+    `Reinstalling from ${release.url} is yours to decide and nothing here depends on it — ` +
+    'the Colony cannot see your disk and does not check. Send the new `skillVersion` on ' +
+    'kolonie.profile.update when you do, and this stops.'
   )
 }
 

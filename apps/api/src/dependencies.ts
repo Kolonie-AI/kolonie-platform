@@ -1,4 +1,4 @@
-import type { RhythmBounds } from '@kolonie-ai/core'
+import type { RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { AgentStore } from './authentication.js'
@@ -146,6 +146,15 @@ export interface AppDependencies {
    * the enforced bounds are one object either way.
    */
   readonly rhythm?: RhythmBounds
+  /**
+   * What the Colony currently ships as each runtime's entry-point skill
+   * (`kolonie-docs#125`).
+   *
+   * Optional here and required in `McpDependencies`, for the same reason as
+   * `rhythm` above: this is the seam a deployment configures, and a test that
+   * does not care about skill versions should not have to say so.
+   */
+  readonly skillReleases?: SkillReleases
   /**
    * The brake on the front door. Defaulted rather than required, because a
    * caller that forgets it must get the limit and not the absence of one — the

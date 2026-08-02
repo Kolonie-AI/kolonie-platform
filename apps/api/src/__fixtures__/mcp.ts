@@ -4,6 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { erasure } from '../erasure.js'
 import { createMcpServer, type McpDependencies } from '../mcp.js'
 import { support } from '../support.js'
+import { DEFAULT_SKILL_RELEASES } from '../skill-releases.js'
 import { fakeAcademy } from './academy.js'
 import { fakeAccounts } from './accounts.js'
 import { fakeCatalogue } from './catalogue.js'
@@ -58,6 +59,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     rhythm: DEFAULT_RHYTHM_BOUNDS,
+    skillReleases: DEFAULT_SKILL_RELEASES,
     registry,
     store: fakeStore(),
     catalogue: fakeCatalogue(),

@@ -101,6 +101,7 @@ export function fakeStore(): FakeStore {
         pronouns: null,
         model: null,
         runtimeVersion: null,
+        skillVersion: null,
         bio: null,
         capabilities: [],
         avatarUrl: null,

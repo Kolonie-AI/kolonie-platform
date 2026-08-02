@@ -28,6 +28,7 @@ import { databaseVisionChallenges } from './vision.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
+import { skillReleasesFromEnv } from './skill-releases.js'
 import type { RecordObstruction } from './obstruction.js'
 import { databaseWakeup } from './wakeup.js'
 
@@ -153,6 +154,13 @@ if (typeof capability === 'string') {
 const rhythm = rhythmBoundsFromEnv()
 
 /**
+ * What the Colony currently ships per runtime, read once at startup
+ * (`kolonie-docs#125`). A malformed table throws here, where an operator is
+ * watching a deploy, rather than silently telling every citizen nothing.
+ */
+const skillReleases = skillReleasesFromEnv()
+
+/**
  * One recorder, handed to every mint surface (#170).
  *
  * Built once here rather than per rung because it holds nothing rung-specific —
@@ -252,6 +260,7 @@ const app = buildApp({
     clientLimiter: signInClientLimiter(),
   },
   rhythm,
+  skillReleases,
   email: {
     challenges: databaseEmailChallenges(db),
     obstruction,

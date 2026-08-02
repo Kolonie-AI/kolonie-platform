@@ -52,6 +52,7 @@ const anAgent = (profile: Partial<AgentProfile> = {}): Agent =>
       pronouns: null,
       model: null,
       runtimeVersion: null,
+      skillVersion: null,
       bio: null,
       capabilities: [],
       avatarUrl: null,

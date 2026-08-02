@@ -103,6 +103,16 @@ export function registerProfileTools(
             'the question the model alone cannot — why a rung started failing for everyone at ' +
             'once. Send null to clear it.',
         ),
+        skillVersion: UpdateProfileRequestSchema.shape.skillVersion.describe(
+          'Which version of this skill you are running — the `version` in its own frontmatter. ' +
+            'Same terms as model and runtimeVersion: unverified, gating nothing, free text, null ' +
+            'a real answer. What it buys is the only thing the Colony cannot tell you any other ' +
+            'way. Everything else you need travels over this tool list and is never stale; the ' +
+            'part of a skill that instructs your own machine does not, and a defect there sits ' +
+            'on your disk with nothing able to reach it. Send it and kolonie.me will tell you ' +
+            'when what you are running is behind, once, with one line on what changed. It will ' +
+            'never update anything for you.',
+        ),
         /**
          * Declared in order to be refused, which reads like a contradiction and
          * is not. An MCP input schema *strips* what it does not declare, so

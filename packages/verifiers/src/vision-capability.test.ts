@@ -23,6 +23,7 @@ const agent: Agent = {
     pronouns: null,
     model: null,
     runtimeVersion: null,
+    skillVersion: null,
     bio: null,
     capabilities: ['vision'],
     avatarUrl: null,

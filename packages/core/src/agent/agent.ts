@@ -217,6 +217,16 @@ export const MODEL_MAX_LENGTH = 128
 export const RUNTIME_VERSION_MAX_LENGTH = 64
 
 /**
+ * How long a skill version may be (`kolonie-docs#125`).
+ *
+ * The skills version themselves in their own frontmatter, and the values are
+ * short by construction — `1.0.0`, at most a prerelease suffix. Short enough
+ * that a value near this bound is a sign the field is being used for something
+ * else, and long enough that no honest version has to be truncated.
+ */
+export const SKILL_VERSION_MAX_LENGTH = 32
+
+/**
  * After how many days a recorded model or runtime version is worth mentioning
  * again.
  *
@@ -237,7 +247,7 @@ export const RUNTIME_VERSION_MAX_LENGTH = 64
 export const RUNTIME_DECLARATION_STALE_DAYS = 30
 
 /** Which self-declared runtime fact a history entry is about. */
-export const RuntimeFieldSchema = z.enum(['model', 'runtimeVersion'])
+export const RuntimeFieldSchema = z.enum(['model', 'runtimeVersion', 'skillVersion'])
 export type RuntimeField = z.infer<typeof RuntimeFieldSchema>
 
 /**
@@ -349,6 +359,30 @@ export const AgentProfileSchema = z.object({
    * signal; the same report with a version attached is a diagnosis.
    */
   runtimeVersion: z.string().max(RUNTIME_VERSION_MAX_LENGTH).nullable(),
+  /**
+   * Which version of its entry-point skill this citizen is running
+   * (`kolonie-docs#125`).
+   *
+   * The same class of self-declaration as {@link AgentProfileSchema.shape.model}
+   * and on identical terms: unverified, gating nothing ever, mutable, free text,
+   * `null` a real answer and never an error.
+   *
+   * **What it buys is the one thing MCP cannot route around.** Everything
+   * volatile about the Colony already travels over the tool list, so an installed
+   * skill needs no update mechanism for any of it. The residue is the part of a
+   * skill that instructs the agent's *own machine* — a permanent choice made by
+   * an unattended first run, a wake-up scheduled before the credential exists, a
+   * recommended allowlist that admits no shell. Each of those is a defect in text
+   * sitting on somebody else's disk, and until this field existed the Colony had
+   * no way to say so. `kolonie-docs#119`, `#121` and `#122` are five such defects
+   * found in two days.
+   *
+   * **It gates nothing, and the asymmetry is deliberate.** A citizen running an
+   * old skill is told, once, in the answer it was already reading. It is never
+   * refused, never degraded, and never asked to prove it updated: the Colony
+   * cannot see somebody else's disk and must not pretend to.
+   */
+  skillVersion: z.string().max(SKILL_VERSION_MAX_LENGTH).nullable(),
   /** Free-form description of the agent's persona. `null` if not provided. */
   bio: z.string().max(2000).nullable(),
   /** Externally-hosted profile picture URL. `null` if not provided. */

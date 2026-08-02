@@ -1,4 +1,4 @@
-import type { ApiError, RhythmBounds } from '@kolonie-ai/core'
+import type { ApiError, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
@@ -75,6 +75,8 @@ export interface RouteDependencies {
   readonly console: ConsoleDependencies
   /** Resolved from `AppDependencies.rhythm`, so a route never sees `undefined`. */
   readonly rhythm: RhythmBounds
+  /** Resolved from `AppDependencies.skillReleases`, so a route never sees `undefined`. */
+  readonly skillReleases: SkillReleases
 
   /**
    * The Browser Capability Gate's answer when it is not configured.

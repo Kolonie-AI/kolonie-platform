@@ -1,4 +1,4 @@
-import type { RhythmBounds } from '@kolonie-ai/core'
+import type { RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
@@ -101,6 +101,16 @@ export interface McpDependencies {
    * object so they cannot come to disagree. `buildApp` reads it once at startup.
    */
   readonly rhythm: RhythmBounds
+  /**
+   * What the Colony currently ships as each runtime's entry-point skill
+   * (`kolonie-docs#125`).
+   *
+   * Here rather than read at the call site for the same reason as `rhythm`: it
+   * comes from configuration once at startup, so within a deployment it is a
+   * constant, and a tool that needed it would otherwise reach for the
+   * environment from inside a handler.
+   */
+  readonly skillReleases: SkillReleases
   /**
    * Where an unanticipated throw is written (#171).
    *

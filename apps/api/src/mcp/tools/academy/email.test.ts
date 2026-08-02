@@ -32,6 +32,7 @@ import { fakeWakeup } from '../../../__fixtures__/wakeup.js'
 import { buildApp } from '../../../app.js'
 import { erasure } from '../../../erasure.js'
 import { support } from '../../../support.js'
+import { DEFAULT_SKILL_RELEASES } from '../../../skill-releases.js'
 
 /**
  * The mailbox rung over MCP (#38).
@@ -89,6 +90,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
         rhythm: DEFAULT_RHYTHM_BOUNDS,
+        skillReleases: DEFAULT_SKILL_RELEASES,
         registry: fakeRegistry(),
         store,
         catalogue: fakeCatalogue(),

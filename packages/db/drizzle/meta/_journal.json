@@ -533,6 +533,13 @@
       "when": 1785689646096,
       "tag": "0075_a_task_for_a_thousand_citizens",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1785692770342,
+      "tag": "0076_an_installed_skill_can_be_told_it_is_out_of_date",
+      "breakpoints": true
     }
   ]
 }

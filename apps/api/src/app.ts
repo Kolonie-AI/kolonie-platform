@@ -49,6 +49,7 @@ import type { RouteDependencies } from './routes/dependencies.js'
 import { registerMcpRoutes } from './routes/mcp.js'
 import { rateLimited } from './registration.js'
 import { registrationLimiter } from './rate-limit.js'
+import { DEFAULT_SKILL_RELEASES } from './skill-releases.js'
 
 /**
  * Re-exported so the name stays importable where it always was.
@@ -89,6 +90,7 @@ export function buildApp({
   accounts,
   console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
+  skillReleases = DEFAULT_SKILL_RELEASES,
   limiter = registrationLimiter(),
 }: AppDependencies): FastifyInstance {
   /**
@@ -260,6 +262,7 @@ export function buildApp({
     accounts,
     console: consoleDeps,
     rhythm,
+    skillReleases,
     unavailable,
     capabilityDown,
     perceptionDown,

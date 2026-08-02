@@ -10,6 +10,7 @@ import {
   identityAsText,
   returnerAsText,
   runtimeNudge,
+  skillVersionNotice,
 } from '../text/me.js'
 
 /**
@@ -120,6 +121,7 @@ export function registerMeTools(
                 ? ''
                 : ` Wallet proved at ${verifiedSolanaAddress}.`) +
               runtimeNudge(runtimeDeclaredAt) +
+              skillVersionNotice(agent, deps.skillReleases) +
               browserStagesAsText(browserStages),
           },
         ],

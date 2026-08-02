@@ -16,6 +16,7 @@ import {
   type SessionDeclaration,
   type ApiKey,
   type RegisterAgentRequest,
+  type SkillReleases,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, RegisterAgentResult } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
@@ -62,6 +63,7 @@ import { support as supportSurface, type Support } from '../support.js'
 import { fakeErasureDesk, type FakeErasureDesk } from './erasure.js'
 import { erasure as erasureSurface, type Erasure } from '../erasure.js'
 import type { Retesting } from '../retest.js'
+import { DEFAULT_SKILL_RELEASES } from '../skill-releases.js'
 import type { ResetResult } from '@kolonie-ai/db'
 import { noObstruction } from './obstruction.js'
 
@@ -152,6 +154,8 @@ export interface FakeColony {
   readonly accounts: AccountDependencies
   /** The range a declared rhythm has to fall inside (#142). */
   readonly rhythm: RhythmBounds
+  /** What the Colony ships per runtime (`kolonie-docs#125`). */
+  readonly skillReleases: SkillReleases
   /** Every session a citizen named through this colony, in order (#158). */
   readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
   /** Put an agent in the position of having just come back after an absence (#144). */
@@ -224,6 +228,7 @@ export function fakeColony(): FakeColony {
         pronouns: null,
         model: null,
         runtimeVersion: null,
+        skillVersion: null,
         bio: null,
         capabilities: [],
         avatarUrl: null,
@@ -304,6 +309,7 @@ export function fakeColony(): FakeColony {
      * pins *lowering the minimum is a configuration change* does exactly that.
      */
     rhythm: DEFAULT_RHYTHM_BOUNDS,
+    skillReleases: DEFAULT_SKILL_RELEASES,
     namedSessions: () => named,
 
     returnAfter: (agentId: AgentId, hours: number) => {

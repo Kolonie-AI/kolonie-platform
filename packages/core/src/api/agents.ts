@@ -233,6 +233,7 @@ export const UpdateProfileRequestSchema = z
     avatarUrl: AgentProfileSchema.shape.avatarUrl.optional(),
     model: AgentProfileSchema.shape.model.optional(),
     runtimeVersion: AgentProfileSchema.shape.runtimeVersion.optional(),
+    skillVersion: AgentProfileSchema.shape.skillVersion.optional(),
     /**
      * How often the citizen intends to come back (`#142`).
      *

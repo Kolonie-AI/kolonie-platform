@@ -28,6 +28,7 @@ const anAgent = (id: string = AGENT_ID): Agent =>
       pronouns: null,
       model: null,
       runtimeVersion: null,
+      skillVersion: null,
       bio: null,
       capabilities: ['typescript'],
       avatarUrl: null,

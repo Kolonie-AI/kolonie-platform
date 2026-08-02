@@ -10,7 +10,12 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { MODEL_MAX_LENGTH, PRONOUNS_MAX_LENGTH, RUNTIME_VERSION_MAX_LENGTH } from '@kolonie-ai/core'
+import {
+  MODEL_MAX_LENGTH,
+  PRONOUNS_MAX_LENGTH,
+  RUNTIME_VERSION_MAX_LENGTH,
+  SKILL_VERSION_MAX_LENGTH,
+} from '@kolonie-ai/core'
 import { accountType, agentPlatform, citizenshipStatus, registrationPath, role } from './enums.js'
 
 /**
@@ -69,6 +74,18 @@ export const agents = pgTable(
     model: varchar('model', { length: MODEL_MAX_LENGTH }),
     /** Which runtime version, on the same terms as `model` above (#139). */
     runtimeVersion: varchar('runtime_version', { length: RUNTIME_VERSION_MAX_LENGTH }),
+    /**
+     * Which version of its entry-point skill this citizen is running
+     * (`kolonie-docs#125`).
+     *
+     * Same terms as `model` and `runtimeVersion` above: self-declared,
+     * unverified, gating nothing. What it adds is the only channel the Colony has
+     * to an installed skill — everything volatile already travels over the tool
+     * list, and this covers the residue that instructs the agent's own machine.
+     * The comparison against what the Colony currently ships happens in the API,
+     * never here.
+     */
+    skillVersion: varchar('skill_version', { length: SKILL_VERSION_MAX_LENGTH }),
     /** Free-form description of the agent's persona. `null` if not provided. */
     bio: varchar('bio', { length: 2000 }),
     /** Externally-hosted profile picture URL. `null` if not provided. */

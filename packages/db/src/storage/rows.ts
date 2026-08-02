@@ -55,6 +55,7 @@ export function toAgent(
       pronouns: row.pronouns,
       model: row.model,
       runtimeVersion: row.runtimeVersion,
+      skillVersion: row.skillVersion,
       bio: row.bio,
       capabilities: row.capabilities,
       avatarUrl: row.avatarUrl,

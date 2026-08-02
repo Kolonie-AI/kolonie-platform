@@ -1,4 +1,8 @@
-import { CAPABILITY_STAGE } from '@kolonie-ai/core'
+import {
+  CAPABILITY_STAGE,
+  mintableBrowserStages,
+  mintableInterstitialKinds,
+} from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../../__fixtures__/academy.js'
 import { connectedClient, registeredCitizen } from '../../../__fixtures__/mcp.js'
@@ -19,17 +23,139 @@ describe('kolonie.academy.challenge', () => {
     await close()
   })
 
-  it('takes no arguments — the challenge belongs to whoever holds the key', async () => {
+  it('takes no subject — the challenge belongs to whoever holds the key', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const { tools } = await client.listTools()
     const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
 
-    // The only argument is *which* challenge. Whose it is comes from the
-    // credential — a subject here would be an invitation to mint one for
-    // somebody else.
-    expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(['kind'])
+    // The arguments say *which* challenge and, where a stage has kinds, which
+    // kind. Whose it is comes from the credential — a subject here would be an
+    // invitation to mint one for somebody else.
+    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual(['kind', 'variant'])
+    await close()
+  })
+
+  /**
+   * **The parity assertion `#213` is really about.**
+   *
+   * The tool named two kinds while six were live and routed through it, and an
+   * agent that trusts the live tool surface over the task text — which is what
+   * onboarding tells it to do — concluded the other four did not exist. The
+   * defect was not that the list was short; it was that the list was written by
+   * hand beside a registry that already knew the answer. So the assertion is
+   * against the registry, and it fails the day a stage is added and the surface
+   * is not derived from it.
+   */
+  it('names every stage the registry says can be minted', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
+    const surface = JSON.stringify({
+      description: tool?.description,
+      properties: tool?.inputSchema.properties,
+    })
+
+    for (const stage of mintableBrowserStages()) {
+      expect(surface, `the tool never mentions the ${stage.kind} stage`).toContain(stage.kind)
+    }
+    await close()
+  })
+
+  /** Same argument, one level down: the kinds a kindful stage takes are named too. */
+  it('names every kind the one stage with kinds can be asked for', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
+    const surface = JSON.stringify(tool?.inputSchema.properties)
+
+    for (const kind of mintableInterstitialKinds()) {
+      expect(surface, `the tool never mentions the ${kind.slug} kind`).toContain(kind.slug)
+    }
+    await close()
+  })
+
+  /**
+   * **The half of `#213` that was not documentation.** `variant` was undeclared,
+   * so a strict client dropped it, so the stage that requires one could not be
+   * minted from this surface at all — the citizen got a refusal it had no way to
+   * explain from the tool definition.
+   */
+  it('carries the variant through to the mint', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const kind = mintableInterstitialKinds()[0]?.slug
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'interstitial', variant: kind },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toHaveProperty('challengeId')
+    await close()
+  })
+
+  /**
+   * The other half of the same guard, and the one that says the argument really
+   * arrives: a kindful stage with no kind is refused with the list, rather than
+   * minting a challenge whose page has nothing to load. Before `#213` this door
+   * ran neither check.
+   */
+  it('refuses a stage with kinds when none is named, and says which exist', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'interstitial' },
+    })
+
+    expect(result.isError).toBe(true)
+    for (const kind of mintableInterstitialKinds()) {
+      expect(JSON.stringify(result.content)).toContain(kind.slug)
+    }
+    await close()
+  })
+
+  it('refuses a kind named for a stage that has none', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: CAPABILITY_STAGE, variant: 'ordered-panels' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('no kinds')
+    await close()
+  })
+
+  /**
+   * A stage that is neither the entry rung nor the third-party badge used to be
+   * described as *the optional badge, and it has a CAPTCHA on it* — sending a
+   * citizen to reason about permission for a CAPTCHA that is not there, which is
+   * the specific harm `interstitial.ts` records about naming anything after one.
+   */
+  it('does not describe the perception page as a CAPTCHA', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'perception' },
+    })
+
+    const text = JSON.stringify(result.content)
+    expect(result.isError).toBeFalsy()
+    expect(text).not.toContain('CAPTCHA')
+    expect(text).toContain('reports its own progress')
     await close()
   })
 

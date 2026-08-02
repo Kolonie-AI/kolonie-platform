@@ -540,6 +540,13 @@
       "when": 1785692770342,
       "tag": "0076_an_installed_skill_can_be_told_it_is_out_of_date",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1785695834273,
+      "tag": "0077_the_sponsors_balance_and_the_escrow",
+      "breakpoints": true
     }
   ]
 }

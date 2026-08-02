@@ -1,8 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq, sql } from 'drizzle-orm'
+import { eq, sql, or } from 'drizzle-orm'
 import {
   now,
   RegisterAgentRequestSchema,
+  questFundingReference,
+  questPayoutReference,
   submissionReference,
   SubmissionIdSchema,
   TaskIdSchema,
@@ -85,12 +88,17 @@ describe('booking a passed submission', () => {
          * amount, so the fixture derives the kind from what the test asked for
          * rather than making every caller say it.
          *
-         * The assertions below are unchanged by that, and they are still the right
-         * assertions: `bookTaskReward` is the one booking path for both kinds, and
-         * what these tests pin down — the mint is debited, the agent credited, the
-         * pair sums to zero, a reward books once — is the machinery Quests will
-         * use. The Academy now simply arrives here with `credits: 0`, which has its
-         * own test below.
+         * **Since `#174` the two kinds pay from different places**, and that is
+         * what these assertions now say. An Academy pass is a credit the Colony
+         * creates against the `mint`; a quest report is a credit its sponsor
+         * already put into `escrow` at publication, and nothing is minted. So a
+         * paying fixture funds the escrow first, exactly as a published quest
+         * would have — otherwise the payout would overdraw it, which
+         * `payQuestReport` refuses.
+         *
+         * Everything else these tests pin down is unchanged and still the point:
+         * `bookTaskReward` is the one booking path for both kinds, the pair sums
+         * to zero, and a reward books exactly once.
          */
         kind: (options.credits ?? 10) > 0 ? ('quest' as const) : ('academy' as const),
         rewardCredits: options.credits ?? 10,
@@ -101,7 +109,38 @@ describe('booking a passed submission', () => {
       .returning({ id: tasks.id })
 
     if (row === undefined) throw new Error('insert into tasks returned no row')
-    return TaskIdSchema.parse(row.id)
+    const taskId = TaskIdSchema.parse(row.id)
+
+    /**
+     * Fund the escrow, the way publication does (`#174`), so a paying quest can
+     * actually pay. Treasury → escrow rather than sponsor → escrow because these
+     * tests are about the verdict's booking and not about where the sponsor's
+     * money came from; what matters is that the escrow holds enough and that the
+     * ledger still sums to zero.
+     */
+    if ((options.credits ?? 10) > 0) {
+      const transactionId = randomUUID()
+      await db.insert(ledgerEntries).values([
+        {
+          transactionId,
+          accountKind: 'system' as const,
+          systemAccount: 'treasury' as const,
+          amount: -1000,
+          type: 'task_funding' as const,
+          reference: questFundingReference(taskId),
+        },
+        {
+          transactionId,
+          accountKind: 'system' as const,
+          systemAccount: 'escrow' as const,
+          amount: 1000,
+          type: 'task_funding' as const,
+          reference: questFundingReference(taskId),
+        },
+      ])
+    }
+
+    return taskId
   }
 
   /**
@@ -164,11 +203,24 @@ describe('booking a passed submission', () => {
       result: { status: 'fail', evidence: 'The payload had no echo.' },
     })
 
+  /**
+   * The entries one verdict wrote, whichever kind of task it was.
+   *
+   * An Academy reward is referenced by the submission; a quest payout carries
+   * the quest as well, so that everything one quest's money did is a prefix scan
+   * (`#174`). Matching both is what lets these tests assert the same properties
+   * across the two.
+   */
   const entriesFor = (submissionId: SubmissionId) =>
     db
       .select()
       .from(ledgerEntries)
-      .where(eq(ledgerEntries.reference, submissionReference(submissionId)))
+      .where(
+        or(
+          eq(ledgerEntries.reference, submissionReference(submissionId)),
+          sql`${ledgerEntries.reference} like ${'quest:%:payout:' + submissionId}`,
+        ),
+      )
 
   /** What the whole ledger sums to. Must be zero, always, whatever happened. */
   const ledgerTotal = async (): Promise<number> => {
@@ -179,7 +231,7 @@ describe('booking a passed submission', () => {
   }
 
   describe('a pass', () => {
-    it('credits the agent and debits the mint, and the two sum to zero', async () => {
+    it('credits the agent and debits the escrow, and the two sum to zero', async () => {
       const agentId = await anAgent()
       const taskId = await aTask({ credits: 10 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
@@ -194,15 +246,17 @@ describe('booking a passed submission', () => {
       expect(entries).toHaveLength(2)
 
       const agentEntry = entries.find((entry) => entry.accountKind === 'agent')
-      const mintEntry = entries.find((entry) => entry.accountKind === 'system')
+      const systemEntry = entries.find((entry) => entry.accountKind === 'system')
 
       expect(agentEntry?.amount).toBe(10)
       expect(agentEntry?.agentId).toBe(agentId)
-      expect(mintEntry?.amount).toBe(-10)
-      expect(mintEntry?.systemAccount).toBe('mint')
+      expect(systemEntry?.amount).toBe(-10)
+      // A quest pays out of its sponsor's escrow, and the mint is never touched
+      // (D-038, `#174`). An Academy pass is the one that debits the mint.
+      expect(systemEntry?.systemAccount).toBe('escrow')
 
       // One booking, one transaction id — the deferred trigger checks the set.
-      expect(agentEntry?.transactionId).toBe(mintEntry?.transactionId)
+      expect(agentEntry?.transactionId).toBe(systemEntry?.transactionId)
       expect(await ledgerTotal()).toBe(0)
     })
 
@@ -231,13 +285,18 @@ describe('booking a passed submission', () => {
      * gap exactly where the payout is.
      */
     it('references the submission on every entry it writes', async () => {
-      const submissionId = await aClaimedSubmission()
+      const taskId = await aTask({ credits: 10 })
+      const submissionId = await aClaimedSubmission({ taskId })
 
       await pass(submissionId)
 
       for (const entry of await entriesFor(submissionId)) {
-        expect(entry.reference).toBe(submissionReference(submissionId))
-        expect(entry.type).toBe('task_reward')
+        // A quest payout carries the quest as well as the submission, so that
+        // everything one quest's money did is a prefix scan (`#174`). The
+        // property this test is about — every entry of a booking names what it
+        // paid for — holds either way.
+        expect(entry.reference).toBe(questPayoutReference(taskId, submissionId))
+        expect(entry.type).toBe('task_payout')
       }
     })
 
@@ -254,7 +313,7 @@ describe('booking a passed submission', () => {
       await pass(submissionId)
 
       for (const entry of await entriesFor(submissionId)) {
-        expect(entry.memo).toBe(`Academy — ${EXAMPLE_TASK} (unattended)`)
+        expect(entry.memo).toBe(`Quest — ${EXAMPLE_TASK} (unattended)`)
         expect(entry.memo).not.toMatch(/Level/)
       }
     })
@@ -712,6 +771,14 @@ describe('booking a passed submission', () => {
      * is the constraint underneath it, addressed directly — the thing that would
      * still refuse if a future caller booked without reading the status first.
      */
+    /**
+     * **Which index refuses it depends on the kind of task**, and the property
+     * under test is that one of them does. An Academy reward is caught by
+     * `ledger_entries_task_reward_unique`; a quest payout by
+     * `ledger_entries_quest_money_*` (`#174`). Naming only the first would have
+     * made this test pass on a message that happened to contain it, which is the
+     * thing `expectRejection` exists to prevent.
+     */
     it('is refused by the database, not only by the status check', async () => {
       const submissionId = await aClaimedSubmission()
       const bookedAt = now()
@@ -720,7 +787,7 @@ describe('booking a passed submission', () => {
 
       await expectRejection(
         () => db.transaction((tx) => bookTaskReward(tx, { submissionId, bookedAt })),
-        /ledger_entries_task_reward_unique/,
+        /ledger_entries_(task_reward|quest_money_\w+)_unique/,
       )
     })
 

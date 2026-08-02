@@ -1,0 +1,3 @@
+ALTER TYPE "public"."system_account" ADD VALUE 'escrow';--> statement-breakpoint
+CREATE UNIQUE INDEX "ledger_entries_quest_money_agent_unique" ON "ledger_entries" USING btree ("reference","agent_id") WHERE "ledger_entries"."type" in ('task_funding', 'task_payout') and "ledger_entries"."agent_id" is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX "ledger_entries_quest_money_system_unique" ON "ledger_entries" USING btree ("reference","system_account") WHERE "ledger_entries"."type" in ('task_funding', 'task_payout') and "ledger_entries"."system_account" is not null;

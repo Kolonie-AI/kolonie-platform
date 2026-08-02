@@ -4,6 +4,7 @@ import {
   LedgerEntryIdSchema,
   LedgerTransactionIdSchema,
   type SubmissionId,
+  type TaskId,
 } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 
@@ -38,8 +39,17 @@ export type CreditAmount = z.infer<typeof CreditAmountSchema>
  * `mint`     — origin of newly created credits (rewards). Always goes negative.
  * `treasury` — the Colony's own holdings, spent via governance.
  * `faucet`   — pre-funded pool for Level 4 wallet tasks.
+ * `escrow`   — a published quest's reward, held between publication and payout.
+ *
+ * **One `escrow` account, not one per quest** (`#174`). Per-quest separation
+ * comes from `reference`, which every entry already carries and which this
+ * file's own comment sets the pattern for: *"a transaction is the set of rows
+ * sharing a `transaction_id`; `reference` and `created_at` are carried on every
+ * entry of the set."* An account per quest would be a schema that grows a row
+ * per sponsor decision, and the balance of any one of them is a `where` clause
+ * either way.
  */
-export const SystemAccountSchema = z.enum(['mint', 'treasury', 'faucet'])
+export const SystemAccountSchema = z.enum(['mint', 'treasury', 'faucet', 'escrow'])
 export type SystemAccount = z.infer<typeof SystemAccountSchema>
 
 /**
@@ -141,6 +151,47 @@ export const SUBMISSION_REFERENCE_PREFIX = 'submission:'
 /** The `reference` every entry booked on a submission carries. */
 export function submissionReference(submissionId: SubmissionId): string {
   return `${SUBMISSION_REFERENCE_PREFIX}${submissionId}`
+}
+
+/**
+ * What everything a quest's escrow ever does is referenced by (`#174`).
+ *
+ * **Every entry about one quest starts with `quest:<id>:`**, so *what did this
+ * quest's money do* is a prefix scan rather than a join — the same property
+ * `submission:` was introduced for, one level up.
+ *
+ * **The three events have three different references, and that is what makes
+ * them bookable once each.** A single partial unique index on
+ * `(reference, account_kind) where type = 'task_funding'` then refuses a second
+ * publication *and* a second refund, because the two carry different references
+ * and each is two rows told apart by `account_kind` — exactly the shape
+ * `ledger_entries_task_reward_unique` already uses. Sharing one reference across
+ * funding and refund would have made that index refuse the refund, and dropping
+ * the index would have left "publish twice" to a `select` followed by an
+ * `insert`, which is a race as wide as the transaction.
+ */
+export const QUEST_REFERENCE_PREFIX = 'quest:'
+
+/** Sponsor → escrow, when a steward publishes the quest. */
+export function questFundingReference(taskId: TaskId): string {
+  return `${QUEST_REFERENCE_PREFIX}${taskId}:funding`
+}
+
+/** Escrow → sponsor, for capacity that expired unspent. */
+export function questRefundReference(taskId: TaskId): string {
+  return `${QUEST_REFERENCE_PREFIX}${taskId}:refund`
+}
+
+/**
+ * Escrow → citizen, for one accepted report.
+ *
+ * Carries the submission as well as the quest, because a payout is per report
+ * and there are as many as the capacity — the quest half is what keeps the
+ * prefix scan above complete, and the submission half is what makes each payout
+ * bookable exactly once.
+ */
+export function questPayoutReference(taskId: TaskId, submissionId: SubmissionId): string {
+  return `${QUEST_REFERENCE_PREFIX}${taskId}:payout:${submissionId}`
 }
 
 /** Balance of a single account, given the entries that belong to it. */

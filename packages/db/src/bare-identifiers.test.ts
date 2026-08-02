@@ -71,13 +71,24 @@ describe('a subquery never interpolates columns of two tables', () => {
    *   is no outer query for an identifier to be resolved against, so the failure
    *   mode this check is about cannot arise.
    *
-   * Both counts were measured on 2026-08-02 by rendering the fragment through
+   * **`#174` adds one more**, also in a select-field position and also measured:
+   *
+   * - `escrow.ts` — the reservation in `reservedBy`, a correlated subquery
+   *   counting a quest's accepted reports inside a `sum` over `tasks`. Renders
+   *   `"tasks"."reward_credits" * greatest(coalesce("tasks"."slots", 0) -
+   *   (select count(*) from "submissions" where "submissions"."task_id" =
+   *   "tasks"."id" …), 0)` — every identifier qualified, for the same reason
+   *   `isFull` is: each column is written as `${table.column}` rather than left
+   *   to be resolved from the surrounding query.
+   *
+   * All counts were measured on 2026-08-02 by rendering the fragment through
    * `PgDialect.sqlToQuery` and reading the SQL.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 2,
     'guidance.ts': 1,
     'submissions.ts': 1,
+    'escrow.ts': 1,
   }
 
   /**

@@ -17,6 +17,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Transaction } from '../client.js'
 import { agents, ledgerEntries, reputationEvents, submissions, tasks } from '../schema/index.js'
+import { payQuestReport } from './escrow.js'
 import { recordAccountsFromVerdict } from './accounts.js'
 import { promoteIfEarned } from './citizenship.js'
 import { grantRoles } from './roles.js'
@@ -110,6 +111,7 @@ export async function bookTaskReward(
       taskGrantsRoles: tasks.grantsRoles,
       rewardCredits: tasks.rewardCredits,
       rewardReputation: tasks.rewardReputation,
+      taskKind: tasks.kind,
       testRerun: submissions.testRerun,
     })
     .from(submissions)
@@ -195,14 +197,46 @@ export async function bookTaskReward(
    * they stay that way: the ledger is append-only, and a memo records what was
    * said at the time rather than what is true now.
    */
+  const what = row.taskKind === 'quest' ? 'Quest' : 'Academy'
   const memo = renewal
-    ? `Academy — ${row.taskType} (renewal, paid once)`
-    : `Academy — ${row.taskType} (${isUnattended(row.assistance) ? 'unattended' : `declared ${row.assistance}, ${UNDECLARED_REWARD_PERCENT}%`})`
+    ? `${what} — ${row.taskType} (renewal, paid once)`
+    : `${what} — ${row.taskType} (${isUnattended(row.assistance) ? 'unattended' : `declared ${row.assistance}, ${UNDECLARED_REWARD_PERCENT}%`})`
+
+  /**
+   * **A quest pays out of its escrow; the Academy pays out of the mint** (`#174`).
+   *
+   * The two are the same event from the citizen's side — a verdict passed and a
+   * balance moved — and completely different from the Colony's. An Academy reward
+   * is a credit the Colony creates against the mint. A quest reward is a credit a
+   * sponsor already had and put into escrow at publication; nothing is minted, and
+   * the mint's balance stays zero (D-038).
+   *
+   * **Only the ledger booking differs.** Everything below — reputation, the
+   * skills, the roles, the register, citizenship — is the same event whichever
+   * kind of task it was, and a quest pass grants the skill exactly as an Academy
+   * pass does. A branch that returned early here would have quietly made a quest
+   * pass worth less than it is.
+   *
+   * In the verdict's transaction either way, so there is no second job and no
+   * reconciliation: a report accepted and not paid would be a debt the Colony
+   * cannot find.
+   */
+  if (row.taskKind === 'quest') {
+    await payQuestReport(tx, {
+      taskId: row.taskId as TaskId,
+      submissionId: command.submissionId,
+      agentId,
+      credits: paid.credits,
+      memo,
+    })
+  }
 
   // Generated here rather than by the database: both entries of one booking must
   // carry the *same* id, and a column default would give each of them its own.
   const transactionId =
-    paid.credits > 0 ? LedgerTransactionIdSchema.parse(crypto.randomUUID()) : null
+    row.taskKind !== 'quest' && paid.credits > 0
+      ? LedgerTransactionIdSchema.parse(crypto.randomUUID())
+      : null
 
   if (transactionId !== null) {
     // Both sides in one statement. `ledger_entries_amount_non_zero` is why a

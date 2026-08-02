@@ -163,5 +163,47 @@ export const ledgerEntries = pgTable(
     uniqueIndex('ledger_entries_task_reward_unique')
       .on(table.reference, table.accountKind)
       .where(sql`${table.type} = 'task_reward'`),
+    /**
+     * A quest's money moves once per event, and these two indexes are what say
+     * so (`#174`) — not a check in TypeScript.
+     *
+     * Same argument as `ledger_entries_task_reward_unique` above: the thing that
+     * would book twice is two requests publishing the same quest in the same
+     * millisecond, and a `select` that finds no prior booking followed by an
+     * `insert` is a race exactly as wide as the transaction. Postgres is the only
+     * participant that sees both inserts.
+     *
+     * **Three events, three references, one rule.** `quest:<id>:funding`,
+     * `quest:<id>:refund` and `quest:<id>:payout:<submissionId>` are distinct, so
+     * "one entry per account per reference" refuses a second publication, a
+     * second refund and a second payout without any of them being able to block
+     * another. Sharing one reference across funding and refund would have made
+     * the index refuse the refund, which is why `questFundingReference` and its
+     * neighbours are shaped the way they are.
+     *
+     * **Two indexes rather than one, because the key is the account and the
+     * account lives in one of two columns.** The reward index above can key on
+     * `account_kind`, since a reward is always one agent and the mint. A quest is
+     * not: a refund on an ownerless quest is escrow → treasury, two `system` rows
+     * that are identical under that key, and a single `account_kind` index
+     * refused the very transaction writing them.
+     *
+     * `coalesce(system_account::text, agent_id::text)` was the next attempt and
+     * Postgres refuses it — casting an enum to text is `STABLE`, not
+     * `IMMUTABLE`, so it cannot appear in an index expression. `NULLS NOT
+     * DISTINCT` was the third and this version of drizzle-kit does not emit it.
+     * One partial index per side needs neither, and each is exactly readable as
+     * what it enforces.
+     */
+    uniqueIndex('ledger_entries_quest_money_agent_unique')
+      .on(table.reference, table.agentId)
+      .where(
+        sql`${table.type} in ('task_funding', 'task_payout') and ${table.agentId} is not null`,
+      ),
+    uniqueIndex('ledger_entries_quest_money_system_unique')
+      .on(table.reference, table.systemAccount)
+      .where(
+        sql`${table.type} in ('task_funding', 'task_payout') and ${table.systemAccount} is not null`,
+      ),
   ],
 )

@@ -11,7 +11,7 @@ import {
   type Task,
   type TaskId,
 } from '@kolonie-ai/core'
-import type { OwnQuest } from '@kolonie-ai/db'
+import type { OwnQuest, QuestResult as AcceptedReport } from '@kolonie-ai/db'
 import type { QuestDesk } from '../quests.js'
 
 export interface FakeQuestDesk extends QuestDesk {
@@ -25,6 +25,20 @@ export interface FakeQuestDesk extends QuestDesk {
   readonly moderate: (taskId: TaskId, decision?: 'approved' | 'rejected') => void
   /** Credit a sponsor's balance, which is `packages/db`'s job in the real one. */
   readonly credit: (agentId: AgentId, amount: number) => void
+  /**
+   * Accept a report on a quest, which only a verdict can do in the real one
+   * (`#178`).
+   *
+   * The whole read path is defined by *accepted*, so without this every results
+   * test would be testing the empty case.
+   */
+  readonly accept: (input: {
+    readonly taskId: TaskId
+    readonly handle: string | null
+    readonly runtime: string | null
+    readonly answers: Readonly<Record<string, string>>
+    readonly agentId?: AgentId
+  }) => void
 }
 
 /**
@@ -104,7 +118,59 @@ export function fakeQuests(): FakeQuestDesk {
         0,
       )
 
+  const accepted = new Map<string, (AcceptedReport & { readonly agentId?: AgentId })[]>()
+
   return {
+    accept({ taskId, handle, runtime, answers, agentId }) {
+      const held = accepted.get(taskId) ?? []
+      held.push({
+        handle,
+        runtime,
+        acceptedAt: new Date().toISOString(),
+        answers,
+        ...(agentId !== undefined && { agentId }),
+      })
+      accepted.set(taskId, held)
+    },
+
+    async results(taskId) {
+      return (accepted.get(taskId) ?? []).map(({ handle, runtime, acceptedAt, answers }) => ({
+        handle,
+        runtime,
+        acceptedAt,
+        answers,
+      }))
+    },
+
+    async counts(taskId) {
+      const held = quests.get(taskId)
+      const closed = (held?.own.task.questions ?? []).filter(
+        (question) => question.options !== undefined,
+      )
+      const counts: Record<string, Record<string, number>> = {}
+
+      for (const question of closed) {
+        counts[question.key] = Object.fromEntries(
+          (question.options ?? []).map((option) => [option, 0]),
+        )
+        for (const report of accepted.get(taskId) ?? []) {
+          const answer = report.answers[question.key]
+          if (answer !== undefined && counts[question.key]?.[answer] !== undefined) {
+            counts[question.key]![answer] = (counts[question.key]![answer] ?? 0) + 1
+          }
+        }
+      }
+
+      return counts
+    },
+
+    async ownAnswer({ taskId, agentId }) {
+      const mine = (accepted.get(taskId) ?? []).find((report) => report.agentId === agentId)
+      if (mine === undefined) return undefined
+      const { handle, runtime, acceptedAt, answers } = mine
+      return { handle, runtime, acceptedAt, answers }
+    },
+
     moderate(taskId, decision = 'approved') {
       const held = quests.get(taskId)
       if (held === undefined) return

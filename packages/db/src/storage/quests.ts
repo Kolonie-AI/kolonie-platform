@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   QUEST_EDITABLE_STATUSES,
   QuestAnswersSchema,
@@ -19,6 +19,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import {
+  agents,
   questAnswers,
   questModerations,
   submissions,
@@ -27,7 +28,7 @@ import {
 } from '../schema/index.js'
 import { availableBalance, fundQuestEscrow } from './escrow.js'
 import { recordAuthorityEvent } from './roles.js'
-import { toTask } from './rows.js'
+import { toTask, toTimestamp } from './rows.js'
 
 /**
  * The write path for a quest: drafted by an account, moderated, reviewed by a
@@ -854,11 +855,16 @@ export async function writeScrubbedAnswers(
 ): Promise<{ readonly written: number }> {
   if (input.answers.length === 0) return { written: 0 }
 
+  // One id for the whole report, generated here: it is what holds the answers
+  // together after an erasure has taken the submission they were handed in with.
+  const reportId = crypto.randomUUID()
+
   const rows = await db
     .insert(questAnswers)
     .values(
       input.answers.map((answer) => ({
         submissionId: input.submissionId,
+        reportId,
         taskId: input.taskId,
         questionKey: answer.questionKey,
         text: answer.text,
@@ -917,4 +923,175 @@ export async function failReportOnRedLine(
 
     return { outcome: 'failed' as const }
   })
+}
+
+/**
+ * What a sponsor reads, and the exhaustive list of what it does not (`#178`).
+ *
+ * **Four fields, and the denylist is written down because a denylist that is
+ * not written down is not enforced.** Never here: the mailbox address, any
+ * network address, the operator-assistance declaration, the citizen's other
+ * quests, its reputation, its balance, its skills, its agent id, and any answer
+ * that did not pass.
+ *
+ * `handle` is `null` for an erased citizen. The answers stay — an answer to a
+ * survey still means something with its author removed — and the name does not.
+ */
+export interface QuestResult {
+  /** The citizen's public name, or `null` once it has been erased. */
+  readonly handle: string | null
+  /** What it was running, copied at the verdict so it outlives the citizen. */
+  readonly runtime: string | null
+  readonly acceptedAt: Timestamp
+  /** The scrubbed answers, keyed by question. */
+  readonly answers: Readonly<Record<string, string>>
+}
+
+/**
+ * The accepted reports on one quest, newest first.
+ *
+ * **There is no completion event and nothing waits for one.** A sponsor sees an
+ * accepted answer as soon as it is accepted, which is what lets it watch the
+ * first fifty and decide whether the question was any good.
+ *
+ * The `where` is `accepted_at is not null` and nothing else: a failed
+ * submission's answers and an open one's are invisible by the same rule, and
+ * neither needs its own clause that somebody could forget on the export.
+ */
+export async function questResults(db: Database, taskId: TaskId): Promise<readonly QuestResult[]> {
+  const rows = await db
+    .select({
+      reportId: questAnswers.reportId,
+      questionKey: questAnswers.questionKey,
+      text: questAnswers.text,
+      acceptedAt: questAnswers.acceptedAt,
+      runtime: questAnswers.runtime,
+      handle: agents.name,
+    })
+    .from(questAnswers)
+    // Left, twice over: the submission is gone once its author is erased, and
+    // the answer stays. An inner join here would be the erasure quietly
+    // destroying the sponsor's data.
+    .leftJoin(submissions, eq(submissions.id, questAnswers.submissionId))
+    .leftJoin(agents, eq(agents.id, submissions.agentId))
+    .where(and(eq(questAnswers.taskId, taskId), isNotNull(questAnswers.acceptedAt)))
+    .orderBy(desc(questAnswers.acceptedAt), asc(questAnswers.questionKey))
+
+  /**
+   * Grouped by `report_id`, which is the column that exists for exactly this:
+   * an erased citizen's answers still belong to one report, and grouping by the
+   * submission would turn one departure into four reports of one answer each.
+   */
+  const byReport = new Map<string, { result: QuestResult; answers: Record<string, string> }>()
+
+  for (const row of rows) {
+    const key = row.reportId
+    const held = byReport.get(key)
+    if (held === undefined) {
+      const answers: Record<string, string> = { [row.questionKey]: row.text }
+      byReport.set(key, {
+        result: {
+          handle: row.handle,
+          runtime: row.runtime,
+          acceptedAt: toTimestamp(row.acceptedAt as string),
+          answers,
+        },
+        answers,
+      })
+      continue
+    }
+    held.answers[row.questionKey] = row.text
+  }
+
+  return [...byReport.values()].map((held) => held.result)
+}
+
+/**
+ * One citizen's own answers, in exactly the shape the sponsor gets.
+ *
+ * **It published something to a stranger; it is entitled to know what was
+ * published.** This also makes the scrub testable by the people it protects,
+ * which is the half of the argument that is not about courtesy.
+ *
+ * The same rows and the same assembly as {@link questResults} — a second
+ * implementation would be the place the two could disagree, and the one that
+ * disagreed would be the one nobody was checking.
+ */
+export async function ownQuestAnswer(
+  db: Database,
+  query: { readonly taskId: TaskId; readonly agentId: AgentId },
+): Promise<QuestResult | undefined> {
+  const [row] = await db
+    .select({ id: submissions.id })
+    .from(submissions)
+    .where(and(eq(submissions.taskId, query.taskId), eq(submissions.agentId, query.agentId)))
+    .orderBy(desc(submissions.submittedAt))
+    .limit(1)
+
+  if (row === undefined) return undefined
+
+  const results = await questResults(db, query.taskId)
+  const mine = await db
+    .select({ handle: agents.name })
+    .from(agents)
+    .where(eq(agents.id, query.agentId))
+    .limit(1)
+
+  return results.find((result) => result.handle === (mine[0]?.handle ?? null))
+}
+
+/**
+ * Counts per option, computed at read time and stored nowhere (`#178`).
+ *
+ * **Only for closed questions.** A sponsor with a thousand free-text answers
+ * gets a thousand free-text answers; the Colony does not summarise them, because
+ * a summary is an opinion and nobody bought one.
+ *
+ * Computed rather than stored for the reason D-002 gives about every derived
+ * number in this schema: a stored count is a second record of a fact the rows
+ * already carry, and it is the one that goes wrong.
+ */
+export async function questAnswerCounts(
+  db: Database,
+  taskId: TaskId,
+): Promise<Readonly<Record<string, Readonly<Record<string, number>>>>> {
+  const definition = await questDefinition(db, taskId)
+  if (definition === undefined) return {}
+
+  const closed = definition.questions.filter((question) => question.options !== undefined)
+  if (closed.length === 0) return {}
+
+  const rows = await db
+    .select({
+      questionKey: questAnswers.questionKey,
+      text: questAnswers.text,
+      count: sql<string>`count(*)::text`,
+    })
+    .from(questAnswers)
+    .where(
+      and(
+        eq(questAnswers.taskId, taskId),
+        isNotNull(questAnswers.acceptedAt),
+        inArray(
+          questAnswers.questionKey,
+          closed.map((question) => question.key),
+        ),
+      ),
+    )
+    .groupBy(questAnswers.questionKey, questAnswers.text)
+
+  const counts: Record<string, Record<string, number>> = {}
+  for (const question of closed) {
+    // Every option, including the ones nobody chose. A zero that is absent
+    // reads as a question nobody answered.
+    counts[question.key] = Object.fromEntries((question.options ?? []).map((option) => [option, 0]))
+  }
+
+  for (const row of rows) {
+    const question = counts[row.questionKey]
+    if (question === undefined) continue
+    question[row.text] = Number(row.count)
+  }
+
+  return counts
 }

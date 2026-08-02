@@ -589,6 +589,13 @@
       "when": 1785707813796,
       "tag": "0083_the_quest_report_verifier",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1785711739271,
+      "tag": "0084_the_sponsor_reads_the_answers",
+      "breakpoints": true
     }
   ]
 }

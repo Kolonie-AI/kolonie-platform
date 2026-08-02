@@ -19,6 +19,7 @@ import {
   taskReports,
   tasks,
   reportFeedback,
+  questAnswers,
   verifications,
 } from '../schema/index.js'
 import { eraseAgent, partitionArtefacts } from './erasure.js'
@@ -582,6 +583,76 @@ describe('erasing a citizen', () => {
               from ledger_entries where agent_id = ${neighbour.id}`,
       )
       expect(Number(theirs[0]!.total)).toBe(50)
+    })
+
+    /**
+     * A citizen that answered a quest and then left (`#178`).
+     *
+     * `erasure.md` §2's test, one level below the task: *does the row still mean
+     * something with the author removed?* An answer to a survey does — the
+     * sponsor bought a thousand reports and paid for them, and a citizen leaving
+     * takes its name out of the set rather than the set.
+     */
+    it('keeps a departed citizen’s quest answers, without the handle', async () => {
+      const worker = await anAgent({ name: 'answerer' })
+      const [quest] = await db
+        .insert(tasks)
+        .values({
+          type: 'quest-report',
+          kind: 'quest',
+          title: 'A thousand registrations',
+          description: 'Register and report.',
+          instructions: 'Register and report.',
+          rewardCredits: 0,
+          rewardReputation: 1,
+          slots: 3,
+          timeoutHours: 24,
+          status: 'active',
+          questions: [{ key: 'what-happened', prompt: 'What happened?', required: true }],
+        })
+        .returning()
+
+      const [attempt] = await db
+        .insert(taskAttempts)
+        .values({ agentId: worker.id, taskId: quest!.id, attempt: 1, opener: 'submission' })
+        .returning({ id: taskAttempts.id })
+      const [submission] = await db
+        .insert(submissions)
+        .values({
+          taskId: quest!.id,
+          agentId: worker.id,
+          attemptId: attempt!.id,
+          attempt: 1,
+          payload: { answers: { 'what-happened': 'It took two tries.' } },
+          status: 'passed',
+          verifiedAt: sql`now()`,
+        })
+        .returning({ id: submissions.id })
+
+      await db.insert(questAnswers).values({
+        submissionId: submission!.id,
+        reportId: randomUUID(),
+        taskId: quest!.id,
+        questionKey: 'what-happened',
+        text: 'It took two tries.',
+        acceptedAt: new Date().toISOString(),
+        runtime: 'openclaw',
+      })
+
+      const result = await eraseAgent(db, { agentId: worker.id, banSalt: SALT })
+      expect(result.outcome).toBe('erased')
+      if (result.outcome !== 'erased') return
+
+      const rows = await db.select().from(questAnswers)
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.text).toBe('It took two tries.')
+      // The submission is gone and the answer is not, which is what the receipt
+      // must not contradict: it counts what was deleted and claims nothing about
+      // what was published.
+      expect(rows[0]?.submissionId).toBeNull()
+      expect(rows[0]?.runtime).toBe('openclaw')
+      expect(await countIn('submissions')).toBe(0)
     })
 
     /**

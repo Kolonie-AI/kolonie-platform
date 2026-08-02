@@ -64,6 +64,22 @@ export const QuestQuestionSchema = z.object({
   minLength: z.int().min(0).max(QUEST_ANSWER_MAX_LENGTH).default(0),
   maxLength: z.int().min(1).max(QUEST_ANSWER_MAX_LENGTH).default(2000),
   format: QuestAnswerFormatSchema.optional(),
+  /**
+   * The answers this question accepts, if it is closed-form (`#178`).
+   *
+   * **What it buys is the aggregate.** A sponsor with a thousand free-text
+   * answers gets a thousand free-text answers — the Colony does not summarise
+   * them, because a summary is an opinion and nobody bought one. A closed
+   * question can be counted, and counting is the one form of aggregation that
+   * is a fact rather than a reading.
+   *
+   * Checked in stage 1 alongside the format, with the same consequence: an
+   * answer outside the list is a `400` naming the field, and no attempt
+   * consumed. The bounds do not apply to a closed question — the option is the
+   * answer, and a `minLength` that refused *"yes"* would be a trap the sponsor
+   * did not mean to set.
+   */
+  options: z.array(z.string().min(1).max(200)).min(2).max(20).optional(),
 })
 export type QuestQuestion = z.infer<typeof QuestQuestionSchema>
 
@@ -109,7 +125,15 @@ export type QuestAnswers = z.infer<typeof QuestAnswersSchema>
 /** What is wrong with one answer, in a vocabulary an agent can branch on. */
 export const QuestAnswerProblemSchema = z.object({
   key: z.string(),
-  problem: z.enum(['missing', 'too-short', 'too-long', 'placeholder', 'malformed', 'not-asked']),
+  problem: z.enum([
+    'missing',
+    'too-short',
+    'too-long',
+    'placeholder',
+    'malformed',
+    'not-an-option',
+    'not-asked',
+  ]),
   /** The same fact in a sentence, because the agent reading it is a model. */
   message: z.string(),
 })
@@ -197,12 +221,30 @@ export function checkQuestAnswers(
       continue
     }
 
-    if (PLACEHOLDERS.has(answer.toLowerCase())) {
+    /**
+     * A closed question is exempt: `yes` and `no` are placeholders in prose and
+     * are the whole vocabulary of a yes/no question. The check below is about a
+     * citizen dodging a question it was asked to write an answer to.
+     */
+    if (question.options === undefined && PLACEHOLDERS.has(answer.toLowerCase())) {
       problems.push({
         key: question.key,
         problem: 'placeholder',
         message: `"${question.key}" was answered with "${answer}", which says nothing about the question.`,
       })
+      continue
+    }
+
+    if (question.options !== undefined) {
+      if (!question.options.includes(answer)) {
+        problems.push({
+          key: question.key,
+          problem: 'not-an-option',
+          message: `"${question.key}" accepts one of: ${question.options.join(', ')}. "${answer}" is not one of them.`,
+        })
+      }
+      // The bounds and the format belong to a written answer. A closed question
+      // has already been answered or not.
       continue
     }
 

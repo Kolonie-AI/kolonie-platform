@@ -2,6 +2,9 @@ import { ERROR_STATUS, type Timestamp } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import {
   editQuestDraft,
+  exportQuestResults,
+  readOwnAnswer,
+  readQuestResults,
   listQuests,
   publishQuest,
   readQuest,
@@ -103,6 +106,59 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { questId } = request.params as { questId?: string }
     return send(reply, await publishQuest({ stewardId: steward.id, questId, at: now() }, quests))
+  })
+
+  /**
+   * What the quest has bought so far (`#178`).
+   *
+   * **Results stream: there is no completion event to wait for.** A sponsor
+   * sees an accepted answer as soon as it is accepted, which is what lets it
+   * watch the first fifty and decide whether the question was any good.
+   */
+  v1.get('/quests/:questId/results', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    return send(reply, await readQuestResults({ authorId: caller.id, questId }, quests))
+  })
+
+  /**
+   * The same set as a file.
+   *
+   * A separate route rather than a query parameter on the one above, because
+   * the two answer with different content types and a client that asked for
+   * JSON and got a CSV body under `application/json` would be the Colony
+   * lying in a header.
+   */
+  v1.get('/quests/:questId/results/export', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    const { format } = request.query as { format?: string }
+    const result = await exportQuestResults({ authorId: caller.id, questId, format }, quests)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.header('content-type', result.contentType).send(result.body)
+  })
+
+  /**
+   * A citizen's own answer, in the sponsor's shape.
+   *
+   * It published something to a stranger; it is entitled to know what was
+   * published — and this is what makes the scrub checkable by the people it
+   * protects.
+   */
+  v1.get('/quests/:questId/answer', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    return send(reply, await readOwnAnswer({ agentId: caller.id, questId }, quests))
   })
 
   /** Refuse it, with a reason its author reads. */

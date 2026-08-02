@@ -155,4 +155,43 @@ describe('scrubbing a quest report', () => {
       failed: 0,
     })
   })
+
+  /**
+   * **The 2026-07-30 incident, as a regression test** (`#178`).
+   *
+   * An approved report carried its author's mailbox address and the network
+   * address of its host to every reader of the task. The reader is a paying
+   * stranger now, which makes it worse rather than better — so all three of the
+   * things that leaked then are seeded here and none of them may survive.
+   */
+  it('lets no address, host or URL of the citizen’s own reach the sponsor', async () => {
+    const leaky = aReport({
+      answers: [
+        {
+          questionKey: 'what-happened',
+          text:
+            'I signed up as ariadne@example.org, from 203.0.113.7, and my own copy of the ' +
+            'page is at https://ariadne.example.net/run-42.',
+        },
+      ],
+    })
+    const { store, written } = recording([leaky])
+    const { model: impl } = model({
+      spans: [
+        { text: 'ariadne@example.org', kind: 'mailbox' },
+        { text: '203.0.113.7', kind: 'network-address' },
+        { text: 'https://ariadne.example.net/run-42', kind: 'url' },
+      ],
+    })
+
+    await moderateAnswers(leaky, { store, model: impl })
+
+    const stored = written[0]?.answers[0]?.text ?? ''
+    expect(stored).not.toContain('ariadne@example.org')
+    expect(stored).not.toContain('203.0.113.7')
+    expect(stored).not.toContain('ariadne.example.net')
+    // What remains is the report: the wall is still the wall once the author's
+    // name is gone.
+    expect(stored).toContain('I signed up as')
+  })
 })

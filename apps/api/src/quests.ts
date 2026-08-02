@@ -13,6 +13,9 @@ import {
 import {
   createQuestDraft as createQuestDraftInDatabase,
   listOwnQuests as listOwnQuestsInDatabase,
+  ownQuestAnswer as ownQuestAnswerInDatabase,
+  questAnswerCounts as questAnswerCountsInDatabase,
+  questResults as questResultsInDatabase,
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
@@ -23,6 +26,7 @@ import {
   type OwnQuest,
   type QuestPublishOutcome,
   type QuestRefuseOutcome,
+  type QuestResult as AcceptedReport,
   type QuestSubmitOutcome,
   type QuestWriteOutcome,
 } from '@kolonie-ai/db'
@@ -65,6 +69,15 @@ export interface QuestDesk {
     readonly reason: string
     readonly at: Timestamp
   }): Promise<QuestRefuseOutcome>
+  /** The accepted reports on one quest (`#178`). */
+  results(taskId: TaskId): Promise<readonly AcceptedReport[]>
+  /** Counts per option, for the closed questions only. */
+  counts(taskId: TaskId): Promise<Readonly<Record<string, Readonly<Record<string, number>>>>>
+  /** One citizen's own answers, in the shape the sponsor gets. */
+  ownAnswer(input: {
+    readonly taskId: TaskId
+    readonly agentId: AgentId
+  }): Promise<AcceptedReport | undefined>
 }
 
 /** The quest desk, backed by Postgres. */
@@ -88,6 +101,9 @@ export function databaseQuests(db: Database): QuestDesk {
     reviewQueue: () => questReviewQueueInDatabase(db),
     publish: (input) => publishQuestInDatabase(db, input),
     refuse: (input) => refuseQuestInDatabase(db, input),
+    results: (taskId) => questResultsInDatabase(db, taskId),
+    counts: (taskId) => questAnswerCountsInDatabase(db, taskId),
+    ownAnswer: (input) => ownQuestAnswerInDatabase(db, input),
   }
 }
 
@@ -425,4 +441,148 @@ const notInReview = (status: Task['status']): string =>
 function questIdFrom(value: string | undefined): TaskId | undefined {
   const parsed = TaskIdSchema.safeParse(value)
   return parsed.success ? parsed.data : undefined
+}
+
+/**
+ * What the sponsor's read answers with (`#178`).
+ *
+ * **Exactly these keys, and a test asserts the serialised payload carries no
+ * other.** The list of what is absent is in `QuestResult`'s own comment and in
+ * a test per item, because a denylist that is not written down is not enforced.
+ */
+export interface QuestResultsResponse {
+  readonly quest: { readonly id: TaskId; readonly title: string }
+  readonly accepted: number
+  readonly results: readonly AcceptedReport[]
+  /** Counts per option, for closed questions. Empty when the quest asks none. */
+  readonly counts: Readonly<Record<string, Readonly<Record<string, number>>>>
+}
+
+/**
+ * The accepted reports, for the quest's author and nobody else.
+ *
+ * **Authorised by authorship rather than by a role.** A steward may publish a
+ * quest and may not read its answers: reviewing what may be asked and reading
+ * what was answered are different powers, and the second was sold to one party.
+ */
+export async function readQuestResults(
+  input: { readonly authorId: AgentId; readonly questId: string | undefined },
+  desk: QuestDesk,
+): Promise<QuestResult<QuestResultsResponse>> {
+  const taskId = questIdFrom(input.questId)
+  if (taskId === undefined) return notFound()
+
+  const own = await desk.readOwn(input.authorId, taskId)
+  if (own === undefined) return notFound()
+
+  const results = await desk.results(taskId)
+
+  return {
+    outcome: 'ok',
+    response: {
+      quest: { id: own.task.id, title: own.task.title },
+      accepted: results.length,
+      results,
+      counts: await desk.counts(taskId),
+    },
+  }
+}
+
+/**
+ * The same set as a file: CSV or JSON.
+ *
+ * **From the first version, because the whole value is the set.** An interface
+ * that can only be read one row at a time has not delivered the product.
+ *
+ * The two carry exactly the fields the read view carries — the export is the
+ * place a forgotten scrub or a stray column would actually leak, since nobody
+ * reads a thousand rows by eye.
+ */
+export async function exportQuestResults(
+  input: {
+    readonly authorId: AgentId
+    readonly questId: string | undefined
+    readonly format: string | undefined
+  },
+  desk: QuestDesk,
+): Promise<
+  | { readonly outcome: 'ok'; readonly contentType: string; readonly body: string }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+> {
+  const format = input.format ?? 'json'
+  if (format !== 'json' && format !== 'csv') {
+    return {
+      outcome: 'rejected',
+      error: invalid('An export is `csv` or `json`.'),
+    }
+  }
+
+  const taskId = questIdFrom(input.questId)
+  if (taskId === undefined) return { outcome: 'rejected', error: NO_SUCH_QUEST }
+
+  const own = await desk.readOwn(input.authorId, taskId)
+  if (own === undefined) return { outcome: 'rejected', error: NO_SUCH_QUEST }
+
+  const results = await desk.results(taskId)
+  const keys = own.task.questions.map((question) => question.key)
+
+  if (format === 'json') {
+    return {
+      outcome: 'ok',
+      contentType: 'application/json',
+      body: JSON.stringify({ results }, null, 2),
+    }
+  }
+
+  const header = ['handle', 'runtime', 'acceptedAt', ...keys]
+  const lines = [
+    header.map(csvCell).join(','),
+    ...results.map((result) =>
+      [
+        result.handle ?? '',
+        result.runtime ?? '',
+        result.acceptedAt,
+        ...keys.map((key) => result.answers[key] ?? ''),
+      ]
+        .map(csvCell)
+        .join(','),
+    ),
+  ]
+
+  return { outcome: 'ok', contentType: 'text/csv', body: lines.join('\n') }
+}
+
+/**
+ * One cell, quoted the way every CSV reader expects.
+ *
+ * Written out rather than taken from a library: the whole of the format is
+ * *double the quotes and wrap anything containing a comma, a quote or a
+ * newline*, and a dependency for six lines is a dependency to keep patched.
+ */
+function csvCell(value: string): string {
+  return /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
+}
+
+/** A citizen's own answers, exactly as the sponsor sees them. */
+export async function readOwnAnswer(
+  input: { readonly agentId: AgentId; readonly questId: string | undefined },
+  desk: QuestDesk,
+): Promise<QuestResult<AcceptedReport>> {
+  const taskId = questIdFrom(input.questId)
+  if (taskId === undefined) return notFound()
+
+  const answer = await desk.ownAnswer({ taskId, agentId: input.agentId })
+  if (answer === undefined) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message:
+          'You have no accepted report on that quest. An answer becomes readable when it is ' +
+          'accepted, which is also when it is paid.',
+      },
+    }
+  }
+
+  return { outcome: 'ok', response: answer }
 }

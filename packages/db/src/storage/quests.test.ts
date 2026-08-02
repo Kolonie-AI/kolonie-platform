@@ -2,16 +2,27 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { noStagesRun, type AgentId, type QuestDraft, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, authorityEvents, ledgerEntries, questModerations, tasks } from '../schema/index.js'
+import {
+  agents,
+  authorityEvents,
+  ledgerEntries,
+  questAnswers,
+  questModerations,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { escrowHeldFor } from './escrow.js'
 import { createSubmission } from './submissions.js'
+import { eraseAgent } from './erasure.js'
 import { listTasks } from './tasks.js'
 import {
   createQuestDraft,
   listOwnQuests,
+  ownQuestAnswer,
   pendingAnswerModerations,
+  questAnswerCounts,
   questDefinition,
+  questResults,
   scrubbedAnswers,
   writeScrubbedAnswers,
   ownerlessQuestDrafts,
@@ -779,6 +790,181 @@ describe('the quest write path', () => {
         .returning({ id: tasks.id })
 
       expect(await questDefinition(db, row!.id as TaskId)).toBeUndefined()
+    })
+  })
+
+  /**
+   * What the sponsor reads (`#178`).
+   *
+   * The 2026-07-30 incident is why this exists, so the regression is here: the
+   * text a citizen handed in never reaches a sponsor, only the scrubbed row
+   * does — and there is no path from one to the other.
+   */
+  describe('the results', () => {
+    const questions = [
+      {
+        key: 'what-happened',
+        prompt: 'What happened when you registered?',
+        required: true,
+        minLength: 20,
+        maxLength: 500,
+      },
+      {
+        key: 'worked',
+        prompt: 'Did it work?',
+        required: true,
+        minLength: 0,
+        maxLength: 10,
+        options: ['yes', 'no'],
+      },
+    ]
+
+    const aQuestWithReports = async () => {
+      const sponsor = await anAgent(`sponsor-${crypto.randomUUID().slice(0, 8)}`)
+      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['steward'])
+      const { task } = await createQuestDraft(db, {
+        authorId: sponsor,
+        draft: aDraft({ questions }),
+      })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+      await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })
+      return { sponsor, taskId: task.id }
+    }
+
+    /** A citizen submits, the scrub writes, and a verdict accepts. */
+    const aReport = async (input: {
+      readonly taskId: TaskId
+      readonly name: string
+      readonly answers: Readonly<Record<string, string>>
+      readonly accept?: boolean
+    }) => {
+      const citizen = await anAgent(input.name)
+      const created = await createSubmission(db, {
+        taskId: input.taskId,
+        agentId: citizen,
+        payload: { answers: input.answers },
+      })
+      if (created.outcome !== 'accepted') throw new Error(`fixture failed: ${created.outcome}`)
+
+      await writeScrubbedAnswers(db, {
+        submissionId: created.submission.id,
+        taskId: input.taskId,
+        answers: Object.entries(input.answers).map(([questionKey, text]) => ({
+          questionKey,
+          text,
+        })),
+      })
+
+      if (input.accept !== false) {
+        await db
+          .update(questAnswers)
+          .set({ acceptedAt: new Date().toISOString(), runtime: 'openclaw' })
+          .where(eq(questAnswers.submissionId, created.submission.id))
+      }
+
+      return { citizen, submissionId: created.submission.id }
+    }
+
+    it('carries the handle, the runtime and the scrubbed answers', async () => {
+      const { taskId } = await aQuestWithReports()
+      await aReport({
+        taskId,
+        name: 'ariadne',
+        answers: { 'what-happened': 'The signup took two tries in total.', worked: 'yes' },
+      })
+
+      const [result] = await questResults(db, taskId)
+
+      expect(result?.handle).toBe('ariadne')
+      expect(result?.runtime).toBe('openclaw')
+      expect(result?.answers).toEqual({
+        'what-happened': 'The signup took two tries in total.',
+        worked: 'yes',
+      })
+    })
+
+    it('shows nothing that has not been accepted', async () => {
+      const { taskId } = await aQuestWithReports()
+      await aReport({
+        taskId,
+        name: 'unjudged',
+        answers: { 'what-happened': 'Still waiting for a verdict here.', worked: 'no' },
+        accept: false,
+      })
+
+      expect(await questResults(db, taskId)).toEqual([])
+    })
+
+    it('counts the closed question and leaves the free-text one alone', async () => {
+      const { taskId } = await aQuestWithReports()
+      await aReport({
+        taskId,
+        name: 'first',
+        answers: { 'what-happened': 'It worked on the first try here.', worked: 'yes' },
+      })
+      await aReport({
+        taskId,
+        name: 'second',
+        answers: { 'what-happened': 'The form lost my input entirely.', worked: 'no' },
+      })
+
+      expect(await questAnswerCounts(db, taskId)).toEqual({ worked: { yes: 1, no: 1 } })
+    })
+
+    it('keeps an erased citizen’s answers and drops its handle', async () => {
+      const { taskId } = await aQuestWithReports()
+      const { citizen } = await aReport({
+        taskId,
+        name: 'departing',
+        answers: { 'what-happened': 'I registered and then left the Colony.', worked: 'yes' },
+      })
+
+      const erased = await eraseAgent(db, { agentId: citizen, banSalt: 'a'.repeat(32) })
+      expect(erased.outcome).toBe('erased')
+
+      const [result] = await questResults(db, taskId)
+
+      // The row still means something with the author removed, which is
+      // `erasure.md` §2's own test applied one level down.
+      expect(result?.answers['what-happened']).toBe('I registered and then left the Colony.')
+      expect(result?.handle).toBeNull()
+      // And the runtime survives, because the sponsor bought the diversity.
+      expect(result?.runtime).toBe('openclaw')
+    })
+
+    it('does not merge two erased citizens into one report', async () => {
+      const { taskId } = await aQuestWithReports()
+      const first = await aReport({
+        taskId,
+        name: 'first-departing',
+        answers: { 'what-happened': 'The first of two reports here.', worked: 'yes' },
+      })
+      const second = await aReport({
+        taskId,
+        name: 'second-departing',
+        answers: { 'what-happened': 'The second of two reports here.', worked: 'no' },
+      })
+
+      await eraseAgent(db, { agentId: first.citizen, banSalt: 'a'.repeat(32) })
+      await eraseAgent(db, { agentId: second.citizen, banSalt: 'a'.repeat(32) })
+
+      expect(await questResults(db, taskId)).toHaveLength(2)
+      expect(await questAnswerCounts(db, taskId)).toEqual({ worked: { yes: 1, no: 1 } })
+    })
+
+    it('shows a citizen its own answer, exactly as the sponsor sees it', async () => {
+      const { taskId } = await aQuestWithReports()
+      const { citizen } = await aReport({
+        taskId,
+        name: 'reader',
+        answers: { 'what-happened': 'I want to see what was published.', worked: 'yes' },
+      })
+
+      const mine = await ownQuestAnswer(db, { taskId, agentId: citizen })
+      const [theirs] = await questResults(db, taskId)
+
+      expect(mine).toEqual(theirs)
     })
   })
 

@@ -415,3 +415,202 @@ describe('the routes a steward does not have', () => {
     expect(unchanged.json().quest.title).toBe('A thousand registrations')
   })
 })
+
+/**
+ * What a sponsor reads, and — at greater length — what it never does (`#178`).
+ *
+ * The denylist is asserted item by item rather than by one "no other keys"
+ * check, because a denylist that is not written down is not enforced, and the
+ * list is the thing a later change would quietly grow past.
+ */
+describe('GET /v1/quests/:questId/results', () => {
+  const withAccepted = async () => {
+    const id = await awaitingReview()
+    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.accept({
+      taskId: id as TaskId,
+      handle: 'ariadne',
+      runtime: 'openclaw',
+      answers: { 'what-happened': 'The signup took two tries.' },
+      agentId: sponsorId as never,
+    })
+    return id
+  }
+
+  it('carries exactly the four fields a sponsor is entitled to', async () => {
+    const id = await withAccepted()
+
+    const response = await get(`/v1/quests/${id}/results`, sponsorKey)
+
+    expect(response.statusCode).toBe(200)
+    const [result] = response.json().results
+    expect(Object.keys(result).sort()).toEqual(['acceptedAt', 'answers', 'handle', 'runtime'])
+    expect(result.handle).toBe('ariadne')
+    expect(result.runtime).toBe('openclaw')
+  })
+
+  it.each([
+    'agentId',
+    'email',
+    'mailbox',
+    'ip',
+    'assistance',
+    'reputation',
+    'balance',
+    'skills',
+    'submissionId',
+  ])('never carries %s, anywhere in the payload', async (field) => {
+    const id = await withAccepted()
+
+    const response = await get(`/v1/quests/${id}/results`, sponsorKey)
+
+    // The whole serialised body, because a field nested one level down is
+    // exactly as served as one at the top.
+    expect(JSON.stringify(response.json().results)).not.toContain(field)
+  })
+
+  it('refuses another sponsor the same way it refuses a stranger', async () => {
+    const id = await withAccepted()
+
+    const other = store.issue({})
+    const response = await get(`/v1/quests/${id}/results`, String(other.apiKey))
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('refuses a steward, because reviewing and reading are different powers', async () => {
+    const id = await withAccepted()
+
+    expect((await get(`/v1/quests/${id}/results`, stewardKey)).statusCode).toBe(404)
+  })
+
+  it('counts the options of a closed question and nothing else', async () => {
+    const written = await write(
+      aDraft({
+        questions: [
+          {
+            key: 'worked',
+            prompt: 'Did the signup work?',
+            options: ['yes', 'no'],
+          },
+          { key: 'notes', prompt: 'Anything else?', minLength: 10, maxLength: 200 },
+        ],
+      }),
+    )
+    const id = written.json().quest.id
+    quests.credit(sponsorId as never, 1_000_000)
+    await post(`/v1/quests/${id}/submit`, sponsorKey)
+    quests.moderate(id as TaskId)
+    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.accept({
+      taskId: id as TaskId,
+      handle: 'a',
+      runtime: 'openclaw',
+      answers: { worked: 'yes', notes: 'It was quick.' },
+    })
+    quests.accept({
+      taskId: id as TaskId,
+      handle: 'b',
+      runtime: 'kilo',
+      answers: { worked: 'yes', notes: 'Two tries.' },
+    })
+
+    const counts = (await get(`/v1/quests/${id}/results`, sponsorKey)).json().counts
+
+    expect(counts).toEqual({ worked: { yes: 2, no: 0 } })
+    // A thousand free-text answers are a thousand free-text answers: the Colony
+    // does not summarise them, because a summary is an opinion.
+    expect(counts).not.toHaveProperty('notes')
+  })
+})
+
+describe('GET /v1/quests/:questId/results/export', () => {
+  const withAccepted = async () => {
+    const id = await awaitingReview()
+    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.accept({
+      taskId: id as TaskId,
+      handle: 'ariadne',
+      runtime: 'openclaw',
+      answers: { 'what-happened': 'It worked, eventually' },
+    })
+    return id
+  }
+
+  it('exports CSV with a column per question', async () => {
+    const id = await withAccepted()
+
+    const response = await get(`/v1/quests/${id}/results/export?format=csv`, sponsorKey)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toContain('text/csv')
+    const [header, row] = response.body.split('\n')
+    expect(header).toBe('handle,runtime,acceptedAt,what-happened')
+    expect(row).toContain('ariadne,openclaw')
+    // The answer itself is one quoted cell, which the next test is about.
+    expect(row).toContain('"It worked, eventually"')
+  })
+
+  it('quotes a cell containing a comma, so the columns survive it', async () => {
+    const id = await withAccepted()
+
+    const body = (await get(`/v1/quests/${id}/results/export?format=csv`, sponsorKey)).body
+
+    expect(body).toContain('"It worked, eventually"')
+  })
+
+  it('exports JSON with the same fields as the read view', async () => {
+    const id = await withAccepted()
+
+    const response = await get(`/v1/quests/${id}/results/export?format=json`, sponsorKey)
+
+    const [result] = JSON.parse(response.body).results
+    expect(Object.keys(result).sort()).toEqual(['acceptedAt', 'answers', 'handle', 'runtime'])
+  })
+
+  it('refuses a format that is neither', async () => {
+    const id = await withAccepted()
+
+    expect((await get(`/v1/quests/${id}/results/export?format=xml`, sponsorKey)).statusCode).toBe(
+      422,
+    )
+  })
+
+  it('refuses another sponsor', async () => {
+    const id = await withAccepted()
+    const other = store.issue({})
+
+    expect(
+      (await get(`/v1/quests/${id}/results/export?format=csv`, String(other.apiKey))).statusCode,
+    ).toBe(404)
+  })
+})
+
+describe('GET /v1/quests/:questId/answer', () => {
+  it('shows a citizen its own answer in the shape the sponsor gets', async () => {
+    const id = await awaitingReview()
+    await post(`/v1/quests/${id}/publish`, stewardKey)
+    const citizen = store.issue({})
+    quests.accept({
+      taskId: id as TaskId,
+      handle: 'ariadne',
+      runtime: 'openclaw',
+      answers: { 'what-happened': 'The signup took two tries.' },
+      agentId: citizen.agent.id,
+    })
+
+    const mine = await get(`/v1/quests/${id}/answer`, String(citizen.apiKey))
+    const theirs = (await get(`/v1/quests/${id}/results`, sponsorKey)).json().results[0]
+
+    expect(mine.statusCode).toBe(200)
+    // Byte-identical, which is the point: the citizen can check the scrub.
+    expect(JSON.stringify(mine.json())).toBe(JSON.stringify(theirs))
+  })
+
+  it('answers 404 for a citizen with no accepted report', async () => {
+    const id = await awaitingReview()
+    const citizen = store.issue({})
+
+    expect((await get(`/v1/quests/${id}/answer`, String(citizen.apiKey))).statusCode).toBe(404)
+  })
+})

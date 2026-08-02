@@ -16,7 +16,14 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Transaction } from '../client.js'
-import { agents, ledgerEntries, reputationEvents, submissions, tasks } from '../schema/index.js'
+import {
+  agents,
+  ledgerEntries,
+  questAnswers,
+  reputationEvents,
+  submissions,
+  tasks,
+} from '../schema/index.js'
 import { payQuestReport } from './escrow.js'
 import { recordAccountsFromVerdict } from './accounts.js'
 import { promoteIfEarned } from './citizenship.js'
@@ -113,6 +120,7 @@ export async function bookTaskReward(
       rewardReputation: tasks.rewardReputation,
       taskKind: tasks.kind,
       proofVerifier: tasks.proofVerifier,
+      platform: agents.platform,
       testRerun: submissions.testRerun,
     })
     .from(submissions)
@@ -312,6 +320,23 @@ export async function bookTaskReward(
     row.taskKind === 'quest' && row.proofVerifier !== null
       ? await colonyGrantsFor(tx, row.proofVerifier)
       : []
+
+  /**
+   * The answers become the sponsor's to read, in the verdict's transaction
+   * (`#178`).
+   *
+   * **Stamped rather than joined**, and stamped here rather than anywhere else.
+   * The sponsor's read is defined by `accepted_at`, so an answer cannot be
+   * visible a moment before the pass that made it so — and the runtime is
+   * copied at the same instant because it has to outlive the citizen, which a
+   * join cannot.
+   */
+  if (row.taskKind === 'quest') {
+    await tx
+      .update(questAnswers)
+      .set({ acceptedAt: command.bookedAt, runtime: row.platform })
+      .where(eq(questAnswers.submissionId, command.submissionId))
+  }
 
   const { granted } = await grantSkills(tx, {
     agentId,

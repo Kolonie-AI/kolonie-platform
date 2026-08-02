@@ -4,6 +4,7 @@ import { fakeAcademy } from '../../../__fixtures__/academy.js'
 import { fakeAccounts } from '../../../__fixtures__/accounts.js'
 import { fakeConsole } from '../../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../../__fixtures__/catalogue.js'
+import { fakeQuests } from '../../../__fixtures__/quests.js'
 import { FAKE_CALLER_IP } from '../../../__fixtures__/colony.js'
 import { fakeDomain } from '../../../__fixtures__/domain.js'
 import {
@@ -66,6 +67,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       registry: fakeRegistry(),
       store,
       catalogue: fakeCatalogue(),
+      quests: fakeQuests(),
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),

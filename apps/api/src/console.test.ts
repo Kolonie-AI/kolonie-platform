@@ -5,6 +5,7 @@ import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeWakeup } from './__fixtures__/wakeup.js'
 import { fakeAccounts } from './__fixtures__/accounts.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
+import { fakeQuests } from './__fixtures__/quests.js'
 import { fakeConsole } from './__fixtures__/console.js'
 import { fakeContributions } from './__fixtures__/github.js'
 import { fakeDomain } from './__fixtures__/domain.js'
@@ -51,6 +52,7 @@ describe('the console front door', () => {
       registry: fakeRegistry(),
       store,
       catalogue: fakeCatalogue(),
+      quests: fakeQuests(),
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),

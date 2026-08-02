@@ -5,6 +5,7 @@ import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { fakeQuests } from '../__fixtures__/quests.js'
 import { FAKE_CALLER_IP, fakeColony } from '../__fixtures__/colony.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeEmail } from '../__fixtures__/email.js'
@@ -79,6 +80,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('answers an initialize handshake over HTTP', async () => {
     app = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -116,6 +118,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('is served unversioned — MCP negotiates its own version', async () => {
     app = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -160,6 +163,7 @@ describe('the MCP surface over HTTP', () => {
    */
   it('completes the handshake at the address the agent guide documents', async () => {
     app = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -197,6 +201,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('still answers at /mcp, so a client configured before the change keeps working', async () => {
     app = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -234,6 +239,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('offers the same tools whichever of its addresses is used', async () => {
     app = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -280,6 +286,7 @@ describe('the MCP surface over HTTP', () => {
     // A stranger is who this surface exists for. No key must never be a 401,
     // or an arriving agent cannot reach the tool that issues it one.
     app = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -376,6 +383,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('refuses a key that does not resolve, the same way /v1 does', async () => {
     app = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

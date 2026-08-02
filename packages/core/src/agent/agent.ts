@@ -85,6 +85,16 @@ export const AuthorityActionSchema = z.enum([
   'role-revoked',
   /** A steward moved a quest into the state where citizens can claim it (`#176`). */
   'quest-published',
+  /**
+   * A steward refused a quest, with a reason its author reads (`#176`).
+   *
+   * Recorded beside the publication and not only on the task row, because the
+   * two answer different questions. The row says *this quest was refused and
+   * why*; this says *who refused it*, which is the question an audit of a
+   * steward asks — and the one a task row cannot answer, since a refusal
+   * overwritten by a later resubmission leaves nothing behind.
+   */
+  'quest-refused',
   /** A steward set or changed what an account's deposits are classified as (`#220`). */
   'funding-source-set',
   /**

@@ -21,6 +21,7 @@ import type { SocialDependencies } from '../social.js'
 import type { SolanaDependencies } from '../solana.js'
 import type { TaskSubmissions } from '../submissions.js'
 import type { Support } from '../support.js'
+import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
@@ -52,6 +53,8 @@ export interface RouteDependencies {
   readonly registry: AgentRegistry
   readonly store: AgentStore
   readonly catalogue: TaskCatalogue
+  /** The quest write path and the review (`#176`). */
+  readonly quests: QuestDesk
   readonly submissions: TaskSubmissions
   readonly guidance: TaskGuidance
   readonly support: Support

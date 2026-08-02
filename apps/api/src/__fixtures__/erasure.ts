@@ -40,6 +40,7 @@ const RECEIPT: ErasureReceipt = {
     accounts: 0,
   },
   banMarksWritten: 0,
+  questsAdopted: 0,
   beyondReach: [
     {
       kind: 'github',

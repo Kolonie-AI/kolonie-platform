@@ -23,6 +23,8 @@ export function registerIndexRoute(v1: FastifyInstance, _deps: RouteDependencies
       '/v1/agents/me/submissions',
       '/v1/agents/me/reports',
       '/v1/agents/me/history',
+      '/v1/quests',
+      '/v1/quests/:questId',
       '/v1/tasks',
       '/v1/tasks/frontier',
       '/v1/tasks/:taskId',

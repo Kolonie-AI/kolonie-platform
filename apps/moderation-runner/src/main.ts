@@ -4,10 +4,12 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   detectProviderChange,
+  pendingQuestModerations,
   pendingReports,
   readTaskText,
   recordModeration,
   recordProviderChange,
+  recordQuestModeration,
   staleBriefings,
   writeBriefing,
 } from '@kolonie-ai/db'
@@ -20,6 +22,7 @@ import {
   type Log,
   type ModerationStore,
 } from './loop.js'
+import type { QuestModerationStore } from './quests.js'
 import type { TaskId } from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
@@ -92,6 +95,19 @@ const store: ModerationStore = {
 }
 
 /**
+ * The quest text stage (`#176`), on the same poll as the reports.
+ *
+ * **One process rather than a fifth container**, the same trade the synthesis
+ * loop was given: a second deployable would buy isolation this workload does not
+ * need, at the cost of a compose service, a health check and a deploy step. A
+ * quest queue is a handful of rows a day and one model call each.
+ */
+const questStore: QuestModerationStore = {
+  pending: (limit) => pendingQuestModerations(db, limit),
+  record: (input) => recordQuestModeration(db, input),
+}
+
+/**
  * The synthesis half (#85), in the same process and on a slower tick.
  *
  * **One container rather than two**, and the reason is that a second deployable
@@ -133,7 +149,10 @@ const tripwire = {
   issues: githubIssues(process.env[TRIPWIRE_TOKEN_VAR], log),
 }
 
-const runner = startRunner({ store, model, log, tripwire }, { pollIntervalMs: POLL_INTERVAL_MS })
+const runner = startRunner(
+  { store, model, log, tripwire, quests: { store: questStore, model, log } },
+  { pollIntervalMs: POLL_INTERVAL_MS },
+)
 const briefingRunner = startBriefingRunner(
   { store: briefings, model, log },
   { pollIntervalMs: BRIEFING_INTERVAL_MS },

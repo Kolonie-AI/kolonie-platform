@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { fakeQuests } from '../__fixtures__/quests.js'
 import type { FastifyInstance } from 'fastify'
 import {
   AcademyGraphResponseSchema,
@@ -50,6 +51,7 @@ beforeEach(async () => {
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,
+    quests: fakeQuests(),
     catalogue,
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),

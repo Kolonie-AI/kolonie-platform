@@ -152,6 +152,18 @@ export const ErasureReceiptSchema = z
      */
     banMarksWritten: z.number().int().nonnegative(),
 
+    /**
+     * Quests that outlived their author, because they were published to the
+     * Colony and other citizens are working on them (`#176`).
+     *
+     * Stated in the receipt rather than left silent, because it is the one thing
+     * an erasure does **not** destroy that the citizen might expect it to.
+     * `erasure.md` §2 argued the rule — *"it stops being the author's when it
+     * goes live"* — and a receipt that listed only what was deleted would leave
+     * a departing sponsor believing its quests went with it.
+     */
+    questsAdopted: z.number().int().nonnegative(),
+
     beyondReach: z.array(ErasureLimitSchema).readonly(),
   })
   .strict()

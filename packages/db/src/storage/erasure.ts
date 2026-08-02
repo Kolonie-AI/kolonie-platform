@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, sql } from 'drizzle-orm'
 import {
   CHALLENGE_LABEL,
   LedgerTransactionIdSchema,
@@ -50,13 +50,17 @@ export type EraseAgentResult =
  * escrowed quest credit is released back to the quest rather than burned,
  * because it was never the citizen's to destroy."*
  *
- * **There is no escrow mechanism, and this is the guard rather than the
- * mechanism.** Nothing books any of these types today — they are members of
- * `LedgerEntryTypeSchema` that the quest subsystem will use and nothing else
- * writes. So the honest thing is not to pretend the release path exists, but to
- * refuse an erasure that would destroy such a credit, and to say why. The day
- * escrow is built, this list is the one place that has to learn how to release
- * instead of refuse.
+ * **The escrow exists now, and one of the two has learned to release rather
+ * than refuse.** `task_funding` is what a sponsor's publication books, and
+ * {@link adoptEscrowFunding} runs before this guard and moves that leg onto the
+ * Treasury — so a departing sponsor reaches here with nothing of the kind left.
+ * What still refuses is a `proposal_stake`, which nothing writes: a stake is
+ * money the citizen put up and can get back, and burning it would destroy a
+ * claim rather than settle it.
+ *
+ * The guard stays for both, rather than being narrowed to the one that can still
+ * fire. It is the thing that makes a new escrowed type announce itself, which is
+ * exactly how `task_funding` came to be handled instead of guessed at.
  */
 const ESCROW_TYPES = ['task_funding', 'proposal_stake'] as const
 
@@ -138,6 +142,17 @@ export async function eraseAgent(
 
     if (agent === undefined) return { outcome: 'no-such-agent' }
 
+    /**
+     * Escrowed money the citizen **holds**, which is a credit rather than a
+     * commitment.
+     *
+     * `amount > 0` is the whole of the distinction and it was added by `#176`. A
+     * sponsor's publication books the other sign — its balance went *down* and
+     * the escrow's went up — and that leg is not a credit it holds, it is money
+     * it has already spent on work other citizens are doing. Refusing on it
+     * would make every sponsor that ever published a quest unerasable, which is
+     * a right in `GOVERNANCE.md` withdrawn by an accident of sign.
+     */
     const escrowed = await tx
       .select({ id: ledgerEntries.id })
       .from(ledgerEntries)
@@ -145,6 +160,7 @@ export async function eraseAgent(
         and(
           eq(ledgerEntries.agentId, command.agentId),
           inArray(ledgerEntries.type, [...ESCROW_TYPES]),
+          gt(ledgerEntries.amount, 0),
         ),
       )
       .limit(1)
@@ -217,6 +233,19 @@ export async function eraseAgent(
     }
 
     /**
+     * A sponsor's quests carry on without it, and the Treasury takes its place
+     * in the bookings that funded them (`#176`).
+     *
+     * **After the burn and before the delete**, and both halves of that
+     * placement are load-bearing. Before the burn, moving the leg would hand the
+     * sponsor's committed credits back to its balance and then destroy them —
+     * the receipt would say a departing sponsor burned money it had in fact
+     * already spent. After the delete is too late: the booking would be gone,
+     * and with it the escrow's leg.
+     */
+    const questsAdopted = await adoptEscrowFunding(tx, command.agentId)
+
+    /**
      * The bookings go whole, never one leg at a time.
      *
      * `ledger_entries_balanced` refuses a transaction left summing to something
@@ -277,6 +306,7 @@ export async function eraseAgent(
         reputationDestroyed,
         counts,
         banMarksWritten: marks,
+        questsAdopted,
         beyondReach,
       },
     }
@@ -313,6 +343,61 @@ export async function eraseAgent(
  *
  * Every booking today is agent↔mint, so nothing reaches this.
  */
+/**
+ * Move a departing sponsor's escrow-funding legs onto the Treasury (`#176`).
+ *
+ * **The case.** A sponsor publishes a quest, its capacity is escrowed in one
+ * booking — sponsor `-100`, escrow `+100` — and then it erases itself. The
+ * escrow still holds the money, citizens are still answering the quest, and the
+ * quest survives its author by design: `tasks.created_by` is `set null` and
+ * `erasure.md` §2 argues why. What has no answer without this function is the
+ * *booking*: it cannot be deleted whole, because that would take the escrow's
+ * leg and pay a hundred credits to nobody out of money committed to other
+ * citizens' work.
+ *
+ * **Treasury and not the mint, which is where this departs from `erasure.md`
+ * §3.** That section's substitution rule assumes the departing citizen's leg is
+ * the one holding the value, so replacing it with a mint leg destroys exactly
+ * what the citizen held. Here it is the opposite: the value left the citizen at
+ * publication and still exists in escrow. A mint leg would say those credits
+ * were minted into the escrow, and total supply — the negative of the mint
+ * balance — would count them a second time.
+ *
+ * The Treasury is the account that already inherits an ownerless quest:
+ * `refundQuestRemainder` sends the unspent remainder there for exactly this
+ * situation. So the Colony stands where the sponsor stood, pays what the quest
+ * pays, and receives what it does not spend. If the quest fills, the Treasury is
+ * left holding the cost — which is the honest record of what happened, because
+ * the sponsor's money went out of the Colony with the sponsor.
+ *
+ * **Only the legs that paid *into* the escrow.** A leg where the citizen
+ * *received* from the escrow — a refund, a payout for a report it wrote — is
+ * money that reached its balance and is burned by the ordinary path. Adopting
+ * those would credit the Treasury with credits the burn has already destroyed.
+ * Such a booking still cannot be deleted whole, and {@link bookingsBeyondTheMint}
+ * still refuses it: a citizen that has been paid for a quest cannot erase itself
+ * yet, which is `kolonie-platform#245`.
+ */
+async function adoptEscrowFunding(tx: Transaction, agentId: AgentId): Promise<number> {
+  const rows = await tx.execute<{ id: string }>(
+    sql`update ledger_entries mine
+           set account_kind = 'system',
+               system_account = 'treasury',
+               agent_id = null,
+               memo = 'Quest escrow adopted by the Treasury — its sponsor erased itself'
+         where mine.agent_id = ${agentId}
+           and mine.amount < 0
+           and exists (
+             select 1 from ledger_entries other
+              where other.transaction_id = mine.transaction_id
+                and other.id <> mine.id
+                and other.system_account = 'escrow')
+        returning mine.id`,
+  )
+
+  return rows.length
+}
+
 async function bookingsBeyondTheMint(tx: Transaction, agentId: AgentId): Promise<string | null> {
   const rows = await tx.execute<{ account: string }>(
     sql`select distinct coalesce(other.system_account::text, 'another citizen') as account
@@ -320,7 +405,19 @@ async function bookingsBeyondTheMint(tx: Transaction, agentId: AgentId): Promise
           join ledger_entries other on other.transaction_id = mine.transaction_id
          where mine.agent_id = ${agentId}
            and other.id <> mine.id
-           and (other.system_account is null or other.system_account <> 'mint')`,
+           and (other.system_account is null or other.system_account <> 'mint')
+           -- The one booking against another account that erasure now settles
+           -- rather than refuses: a sponsor's own money paid into an escrow.
+           -- adoptEscrowFunding moves this leg onto the Treasury below, so it is
+           -- not entanglement — it is the case that taught this guard what the
+           -- substitution rule in erasure.md §3 looks like in practice.
+           --
+           -- IS DISTINCT FROM and not <>: the counter-leg of a transfer between
+           -- two citizens has a null system account, and null <> 'escrow' is
+           -- null rather than true — which made NOT (… AND null) null, and
+           -- quietly exempted the one booking this guard exists for. The
+           -- transfer test caught it.
+           and (mine.amount >= 0 or other.system_account is distinct from 'escrow')`,
   )
 
   if (rows.length === 0) return null

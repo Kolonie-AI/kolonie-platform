@@ -23,6 +23,7 @@ import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { fakeQuests } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
@@ -41,6 +42,7 @@ let store: FakeStore
 const withStore = async () => {
   store = fakeStore()
   app = buildApp({
+    quests: fakeQuests(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),
@@ -258,6 +260,7 @@ describe('GET /v1/agents/me', () => {
         authenticate: async (key: string) => (lookups++, store.authenticate(key)),
       }
       app = buildApp({
+        quests: fakeQuests(),
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
         console: fakeConsole(),

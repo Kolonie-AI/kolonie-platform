@@ -5,6 +5,7 @@ import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { fakeQuests } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
@@ -42,6 +43,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
   challenges = fakeChallenges()
   academy = fakeAcademy(answer, challenges)
   return buildApp({
+    quests: fakeQuests(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),
@@ -216,6 +218,7 @@ describe('POST /v1/academy/challenges', () => {
    */
   it('keeps the rung serving when the badge cannot', async () => {
     const withoutCaptcha = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -555,6 +558,7 @@ describe('when the gate is not configured', () => {
    */
   const unconfigured = () =>
     buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -629,6 +633,7 @@ describe('when the gate is not configured', () => {
   it('leaves Level 1 passable — the promoting rung owes hCaptcha nothing', async () => {
     const disabledStore = fakeStore()
     const disabled = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

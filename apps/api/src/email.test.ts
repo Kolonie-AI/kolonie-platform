@@ -18,6 +18,7 @@ import { fakeScene } from './__fixtures__/scene.js'
 import { fakeInjection } from './__fixtures__/injection.js'
 import { fakeStore, type FakeStore } from './__fixtures__/store.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
+import { fakeQuests } from './__fixtures__/quests.js'
 import { fakeSubmissions } from './__fixtures__/submissions.js'
 import { fakeGuidance } from './__fixtures__/guidance.js'
 import { fakeSupportDesk } from './__fixtures__/support.js'
@@ -58,6 +59,7 @@ const build = (inboundSecret: string | undefined) => {
   challenges = fakeEmailChallenges()
   mailer = fakeMailer()
   return buildApp({
+    quests: fakeQuests(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),
@@ -595,6 +597,7 @@ describe('GET /v1/mailboxes', () => {
    */
   it('answers even when the Colony cannot send mail', async () => {
     const withoutMailer = buildApp({
+      quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

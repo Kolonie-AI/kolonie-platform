@@ -122,7 +122,16 @@ export function toTask(
     instructions: row.instructions,
     reward: { credits: row.rewardCredits, reputation: row.rewardReputation },
     slots: row.slots,
-    expiresAt: row.expiresAt,
+    /**
+     * Normalised like every other timestamp, and it was not until `#176`.
+     *
+     * Postgres renders `2026-08-09 22:09:29.123+00`, which `TimestampSchema`
+     * refuses — and nothing noticed, because every row that existed when the
+     * column was added carries `null`: an Academy rung never expires. The first
+     * quest to be written was the first row with a value in it, and it failed to
+     * parse on the way out of the insert that created it.
+     */
+    expiresAt: row.expiresAt === null ? null : toTimestamp(row.expiresAt),
     audience: row.audience,
     ...(full === undefined ? {} : { full }),
     rejectionReason: row.rejectionReason,

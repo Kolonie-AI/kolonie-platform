@@ -19,6 +19,7 @@ import { registerMeRoute } from './routes/me.js'
 import { registerProfileRoute } from './routes/profile.js'
 import { registerErasureRoutes } from './routes/erasure.js'
 import { registerTaskRoutes } from './routes/tasks.js'
+import { registerQuestRoutes } from './routes/quests.js'
 import { registerAcademyRoutes } from './routes/academy.js'
 import { registerConsoleRoutes } from './routes/console.js'
 import { registerEmailRoutes } from './routes/email.js'
@@ -70,6 +71,7 @@ export function buildApp({
   registry: unlimitedRegistry,
   store,
   catalogue,
+  quests,
   submissions,
   guidance,
   support,
@@ -244,6 +246,7 @@ export function buildApp({
     registry,
     store,
     catalogue,
+    quests,
     submissions,
     guidance,
     support,
@@ -299,6 +302,7 @@ export function buildApp({
       registerProfileRoute(v1, routes)
       registerErasureRoutes(v1, routes)
       registerTaskRoutes(v1, routes)
+      registerQuestRoutes(v1, routes)
       registerAcademyRoutes(v1, routes)
       registerEmailRoutes(v1, routes)
       registerInboundMailRoute(v1, routes)

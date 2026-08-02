@@ -5,6 +5,7 @@ import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { fakeQuests } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
@@ -59,6 +60,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),
+    quests: fakeQuests(),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),

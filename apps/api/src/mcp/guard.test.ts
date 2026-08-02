@@ -1,4 +1,5 @@
 import type { ApiError } from '@kolonie-ai/core'
+import { fakeQuests } from '../__fixtures__/quests.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { describe, expect, it } from 'vitest'
@@ -89,7 +90,7 @@ describe('a tool that throws something nobody planned for', () => {
     const overMcp = await client.callTool({ name: 'kolonie.vault.list', arguments: {} })
 
     const store = fakeStore()
-    const app = buildApp({ ...deps, store, console: fakeConsole() })
+    const app = buildApp({ ...deps, quests: fakeQuests(), store, console: fakeConsole() })
     await app.ready()
     const issued = store.issue({})
     const overHttp = await app.inject({

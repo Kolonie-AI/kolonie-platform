@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { fakeQuests } from '../__fixtures__/quests.js'
 import type { FastifyInstance } from 'fastify'
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
@@ -43,6 +44,7 @@ beforeEach(async () => {
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),
+    quests: fakeQuests(),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),

@@ -24,6 +24,7 @@ import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
+import { fakeQuests } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
@@ -47,6 +48,7 @@ const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
     registry,
     store: fakeStore(),
     catalogue: fakeCatalogue(),
+    quests: fakeQuests(),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),

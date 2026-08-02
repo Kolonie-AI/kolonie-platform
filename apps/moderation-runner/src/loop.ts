@@ -20,6 +20,7 @@ import { markConfidential } from './confidentiality.js'
 import { synthesise } from './synthesis.js'
 import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
+import { questTick, type QuestLoopDependencies } from './quests.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
 import type { Model } from './llm.js'
@@ -72,6 +73,15 @@ export interface LoopDependencies {
    * should degrade to the behaviour that existed, not fail to start.
    */
   readonly tripwire?: TripwireDependencies
+  /**
+   * The quest text stage (`#176`), or nothing.
+   *
+   * **Optional for the reason the tripwire is**: a deployment that has not wired
+   * it moderates reports exactly as before rather than failing to start. It
+   * shares this loop's schedule and its model, and nothing else — a quest is
+   * judged against the Colony's rules and never against the reports.
+   */
+  readonly quests?: QuestLoopDependencies
 }
 
 /** The tripwire as this loop needs it: detect, then respond. */
@@ -347,8 +357,35 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   }
 
   await checkTripwire(touched, deps, log)
+  await moderateQuests(deps, batchSize, log)
 
   return outcome
+}
+
+/**
+ * Run the quest stage on the same poll (`#176`).
+ *
+ * **Its failure is swallowed, exactly as the tripwire's is.** A quest queue that
+ * throws must not stop reports being published: the two share a process and a
+ * schedule, and nothing else. What the quests lose is a poll, which is a delay a
+ * sponsor can wait out — where a dead moderation loop is a corpus that never
+ * publishes at all.
+ */
+async function moderateQuests(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
+  const { quests } = deps
+  if (quests === undefined) return
+
+  try {
+    const outcome = await questTick({ log, ...quests }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `quests: ${outcome.judged} judged, ${outcome.approved} cleared, ` +
+          `${outcome.rejected} refused, ${outcome.failed} deferred`,
+      )
+    }
+  } catch (error) {
+    log.error('the quest moderation pass failed', error)
+  }
 }
 
 /**

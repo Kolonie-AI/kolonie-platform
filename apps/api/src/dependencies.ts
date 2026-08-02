@@ -22,6 +22,7 @@ import type { SocialDependencies } from './social.js'
 import type { SolanaDependencies } from './solana.js'
 import type { TaskSubmissions } from './submissions.js'
 import type { Support } from './support.js'
+import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { VaultDependencies } from './vault.js'
 import type { VisionDependencies } from './vision.js'
@@ -104,6 +105,8 @@ export interface AppDependencies {
   readonly store: AgentStore
   /** Where the task list is read from. Same reasoning — see `tasks.ts`. */
   readonly catalogue: TaskCatalogue
+  /** The quest write path and the review (`#176`). */
+  readonly quests: QuestDesk
   /** Where handed-in results go. Same reasoning — see `submissions.ts`. */
   readonly submissions: TaskSubmissions
   /**

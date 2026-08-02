@@ -60,6 +60,7 @@ import { fakeAccounts } from './accounts.js'
 import { fakeConsole } from './console.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
+import { fakeQuests, type FakeQuestDesk } from './quests.js'
 import { fakeSubmissions } from './submissions.js'
 import { fakeGuidance, type FakeGuidance } from './guidance.js'
 import { fakeSupportDesk, type FakeSupportDesk } from './support.js'
@@ -102,6 +103,8 @@ export interface FakeColony {
    * was sent overrides this with its own `fakeCatalogue`, which records them.
    */
   readonly catalogue: TaskCatalogue
+  /** The quest write path and the review (`#176`), in memory. */
+  readonly quests: FakeQuestDesk
   /** Where submissions go, behind both surfaces. Overridable the same way. */
   readonly submissions: TaskSubmissions
   /**
@@ -277,6 +280,7 @@ export function fakeColony(): FakeColony {
     caller: { ip: FAKE_CALLER_IP },
 
     catalogue: fakeCatalogue(),
+    quests: fakeQuests(),
 
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),

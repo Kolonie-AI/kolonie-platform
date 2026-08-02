@@ -81,14 +81,33 @@ describe('a subquery never interpolates columns of two tables', () => {
    *   `isFull` is: each column is written as `${table.column}` rather than left
    *   to be resolved from the surrounding query.
    *
-   * All counts were measured on 2026-08-02 by rendering the fragment through
-   * `PgDialect.sqlToQuery` and reading the SQL.
+   * **`#176` adds three**, all in `quests.ts` and all the same fragment twice
+   * over: *has the moderator judged this quest since its text last changed*.
+   * Two sit in a `where` and one in an `exists` inside a `where`; all three
+   * render every identifier qualified, because each column is written as
+   * `${table.column}`:
+   *
+   * ```
+   * exists (select 1 from "quest_moderations"
+   *          where "quest_moderations"."task_id" = "tasks"."id"
+   *            and "quest_moderations"."decision" = 'approved'
+   *            and "quest_moderations"."created_at" >= "tasks"."text_revised_at")
+   * ```
+   *
+   * The correlation to `tasks` is the point of the fragment rather than an
+   * accident of scope, which is exactly the shape this check recommends: name
+   * the outer column instead of letting it be resolved.
+   *
+   * All counts were measured by rendering the fragment through
+   * `PgDialect.sqlToQuery` and reading the SQL — the first four on 2026-08-02,
+   * the `quests.ts` three on 2026-08-03.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 2,
     'guidance.ts': 1,
     'submissions.ts': 1,
     'escrow.ts': 1,
+    'quests.ts': 3,
   }
 
   /**

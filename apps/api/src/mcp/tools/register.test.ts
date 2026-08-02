@@ -4,6 +4,7 @@ import { fakeAcademy } from '../../__fixtures__/academy.js'
 import { fakeAccounts } from '../../__fixtures__/accounts.js'
 import { fakeConsole } from '../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../__fixtures__/catalogue.js'
+import { fakeQuests } from '../../__fixtures__/quests.js'
 import { fakeDomain } from '../../__fixtures__/domain.js'
 import { fakeEmail } from '../../__fixtures__/email.js'
 import { fakeErasureDesk } from '../../__fixtures__/erasure.js'
@@ -290,6 +291,7 @@ describe('kolonie.register', () => {
       registry,
       store: fakeStore(),
       catalogue: fakeCatalogue(),
+      quests: fakeQuests(),
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),

@@ -11,6 +11,9 @@ import {
   SCENE_PROHIBITION,
   SCENE_STYLES,
   SCENE_SUBJECTS,
+  SCENE_SUBJECT_BEARING,
+  SCENE_WORN_ACCESSORIES,
+  sceneBindingPhrase,
   type SceneCheck,
   type SceneConstraints,
 } from './scene-constraints.js'
@@ -51,6 +54,54 @@ describe('drawSceneConstraints', () => {
 
       expect(constraints.accessoryColor).not.toBe(constraints.companionColor)
     }
+  })
+
+  /**
+   * **`#247`, and the specification it is named for was live.** Read out of the
+   * deployed rung on 2026-08-02: *"the cathedral wears or carries a purple hat"*.
+   * A subject and an accessory drawn independently produce that pair eventually,
+   * and it costs the rung twice — the instructions stop being a contract that can
+   * be taken at face value, and the binding check starts turning on how tolerant
+   * the judge is about what a hat on a cathedral looks like.
+   *
+   * Every value the draw can take, forced one at a time, for the reason the colour
+   * rule above is exercised that way: this is a property, not a tendency.
+   */
+  it('never asks a thing that cannot wear to wear something', () => {
+    for (let step = 0; step < 400; step += 1) {
+      const constraints = drawSceneConstraints(() => (step % 200) / 200)
+
+      if (SCENE_SUBJECT_BEARING[constraints.subject] === 'wears') continue
+
+      expect(
+        SCENE_WORN_ACCESSORIES as readonly string[],
+        `${constraints.subject} was given a ${constraints.accessory}`,
+      ).not.toContain(constraints.accessory)
+    }
+  })
+
+  /**
+   * Every subject has to say which it is, or the filtered draw would hand a new
+   * subject `undefined` and quietly fall back to the whole accessory list — the
+   * bug this replaced, arriving again through the door left open for it.
+   */
+  it('says of every subject whether it wears or is attached to', () => {
+    for (const subject of SCENE_SUBJECTS) {
+      expect(SCENE_SUBJECT_BEARING[subject], subject).toMatch(/^(wears|attached)$/)
+    }
+  })
+
+  /**
+   * The range the pairing was chosen to keep. Restricting ten of twelve subjects
+   * to two accessories would have narrowed the vocabulary in the course of fixing
+   * it, which is why `banner` was added rather than the list merely being split.
+   */
+  it('can still reach every accessory', () => {
+    const drawn = new Set<string>()
+
+    for (let step = 0; step < 3000; step += 1) drawn.add(drawSceneConstraints().accessory)
+
+    expect(drawn.size).toBe(SCENE_ACCESSORIES.length)
   })
 
   it('draws only values the schema accepts', () => {
@@ -102,6 +153,44 @@ describe('scenePromptFor', () => {
     expect(prompt).toContain('a snowy street')
     expect(prompt).toContain('photorealistic')
     expect(prompt).toContain(SCENE_PROHIBITION)
+  })
+
+  /**
+   * **The sentence reads correctly for every subject the draw can produce**
+   * (`#247`). Both phrasings are asserted where they belong rather than only that
+   * the words appear somewhere: a cathedral must never be told to wear anything,
+   * and an otter must not be described as something a scarf is attached to.
+   */
+  it('phrases the binding for what the subject is', () => {
+    for (let step = 0; step < 400; step += 1) {
+      const constraints = drawSceneConstraints(() => (step % 200) / 200)
+      const prompt = scenePromptFor(constraints)
+
+      if (SCENE_SUBJECT_BEARING[constraints.subject] === 'wears') {
+        expect(prompt).toContain(`The ${constraints.subject} wears a`)
+      } else {
+        expect(prompt).toContain(`is attached to the ${constraints.subject}`)
+        expect(prompt, `${constraints.subject} was told to wear`).not.toContain(
+          `The ${constraints.subject} wears`,
+        )
+      }
+    }
+  })
+
+  /**
+   * **One phrase, not two copies of one phrase** (`#247`). The judge's prompt in
+   * `packages/verifiers` wrote the binding out for itself — `worn or carried by`
+   * against this file's `wears or carries` — and two sentences that have to agree
+   * about the same picture are how a citizen produces exactly what it was asked
+   * for and is refused. This asserts the seam exists; the verifier's own test
+   * asserts it is used.
+   */
+  it('builds the binding sentence in one place', () => {
+    for (let step = 0; step < 200; step += 1) {
+      const constraints = drawSceneConstraints()
+
+      expect(scenePromptFor(constraints)).toContain(sceneBindingPhrase(constraints))
+    }
   })
 
   /**

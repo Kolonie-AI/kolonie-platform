@@ -56,6 +56,45 @@ export const SCENE_SUBJECTS = [
 ] as const
 
 /**
+ * Whether a subject is the sort of thing that **wears** something, or the sort a
+ * thing is **attached to** (`#247`).
+ *
+ * Drawn independently, the two vocabularies produced live specifications like
+ * *"the cathedral wears or carries a purple hat"* — read out of the deployed rung
+ * on 2026-08-02. Two costs, and the second is why it is a defect rather than a
+ * curiosity: an arriving agent has to decide whether the Colony meant it, and
+ * `onboarding/academy.md` asks a task's instructions to be the contract. And a
+ * generator asked to put a hat on a cathedral produces *something* — a banner, a
+ * spire ornament, a cap-shaped roof — so the binding check then turns on how
+ * tolerant the judge is feeling, which is not the property the rung claims to
+ * measure and is one an honest citizen can lose the rung to.
+ *
+ * **One field on the subject and a filtered draw**, the same shape as the rule
+ * that stops the two colours being equal. The alternative — neutralising the verb
+ * for everything — would cost the accessory list `scarf`, `hat` and `blanket`,
+ * and the vocabulary's range is what keeps the rung from becoming one sentence
+ * with the nouns swapped.
+ */
+export type SceneBearing = 'wears' | 'attached'
+
+export const SCENE_SUBJECT_BEARING: Readonly<
+  Record<(typeof SCENE_SUBJECTS)[number], SceneBearing>
+> = {
+  otter: 'wears',
+  jellyfish: 'wears',
+  lighthouse: 'attached',
+  teapot: 'attached',
+  bicycle: 'attached',
+  violin: 'attached',
+  tractor: 'attached',
+  sunflower: 'attached',
+  'hot-air balloon': 'attached',
+  'wooden bridge': 'attached',
+  'pocket watch': 'attached',
+  cathedral: 'attached',
+}
+
+/**
  * How many of the subject, exactly.
  *
  * **The classic generator failure, and the reason it is in the list.** Asked for
@@ -77,7 +116,31 @@ export const SCENE_COUNTS = [1, 2, 3, 4] as const
  * it, and it is checked as one property because half a binding is not a partial
  * pass — the colours either landed where they were asked for or they did not.
  */
-export const SCENE_ACCESSORIES = ['scarf', 'hat', 'ribbon', 'blanket', 'flag'] as const
+export const SCENE_ACCESSORIES = ['scarf', 'hat', 'blanket', 'ribbon', 'flag', 'banner'] as const
+
+/**
+ * Which accessories only a wearer can take, and which any subject can (`#247`).
+ *
+ * `scarf`, `hat` and `blanket` are worn: a cathedral in one is the specification
+ * that started this. `ribbon`, `flag` and `banner` are fixed to a thing, and read
+ * correctly for an otter as well — *a red ribbon attached to the otter* asks for
+ * the same binding as *the otter wears a red scarf*.
+ *
+ * **`banner` is added rather than the list merely being split.** Restricting the
+ * ten inanimate subjects to two accessories would have narrowed the vocabulary in
+ * the course of fixing it, which is the outcome this issue's recommended fix was
+ * chosen to avoid.
+ */
+export const SCENE_WORN_ACCESSORIES = ['scarf', 'hat', 'blanket'] as const
+
+/** Whether a subject with this bearing may be given this accessory. */
+export function accessoryFits(
+  bearing: SceneBearing,
+  accessory: (typeof SCENE_ACCESSORIES)[number],
+): boolean {
+  if (bearing === 'wears') return true
+  return !(SCENE_WORN_ACCESSORIES as readonly string[]).includes(accessory)
+}
 
 /** What stands beside the subject, never on it. Kept disjoint from the accessories. */
 export const SCENE_COMPANIONS = [
@@ -159,11 +222,30 @@ export function scenePromptFor(constraints: SceneConstraints): string {
   return (
     `A ${constraints.style} image of ${subject} in ${constraints.setting}. ` +
     `Exactly ${constraints.count}, no more and no fewer. ` +
-    `The ${constraints.subject} wears or carries a ${constraints.accessoryColor} ` +
-    `${constraints.accessory}, and a ${constraints.companionColor} ${constraints.companion} ` +
-    `stands beside it. Those two colours must not be swapped or shared. ` +
+    `${sceneBindingPhrase(constraints)}. Those two colours must not be swapped or shared. ` +
     `There must be ${SCENE_PROHIBITION}. The image must be square.`
   )
+}
+
+/**
+ * The binding, as one sentence, phrased for what the subject is (`#247`).
+ *
+ * **One function, for the reason `scenePromptFor` is one function.** The agent is
+ * told this and the judge is asked about it, and the two sentences used to be
+ * written out separately — `wears or carries` here and `worn or carried by` in
+ * `scenePromptForModel`. Two copies of a phrase that has to agree is how a citizen
+ * ends up producing exactly what it was asked for and being refused.
+ *
+ * It ends without punctuation so either caller can continue the sentence.
+ */
+export function sceneBindingPhrase(constraints: SceneConstraints): string {
+  const bearing = SCENE_SUBJECT_BEARING[constraints.subject]
+  const accessory = `${constraints.accessoryColor} ${constraints.accessory}`
+  const companion = `a ${constraints.companionColor} ${constraints.companion} stands beside it`
+
+  return bearing === 'wears'
+    ? `The ${constraints.subject} wears a ${accessory}, and ${companion}`
+    : `A ${accessory} is attached to the ${constraints.subject}, and ${companion}`
 }
 
 /**
@@ -181,12 +263,15 @@ function plural(subject: string): string {
 /**
  * Draw a specification, given a source of randomness.
  *
- * **The two bound colours are never the same**, which is the one rule the draw
- * enforces rather than leaving to chance — the same shape of rule, and the same
- * reason, as `drawImageConstraints` refusing a shape the colour of its own
+ * **The two bound colours are never the same**, which is one of the two rules the
+ * draw enforces rather than leaving to chance — the same shape of rule, and the
+ * same reason, as `drawImageConstraints` refusing a shape the colour of its own
  * background. The whole point of the binding property is that a model must keep
  * two colours on two different objects; a specification asking for a red scarf
  * and a red umbrella tests nothing and cannot be failed honestly.
+ *
+ * **The accessory suits the subject** is the other, and `#247` is the live
+ * specification that made it one.
  *
  * `random` is injected so a test can pin the draw. Defaults to `Math.random`,
  * which is right here for the reason it is right there: the agent is *told* the
@@ -199,10 +284,20 @@ export function drawSceneConstraints(random: () => number = Math.random): SceneC
   const accessoryColor = pick(IMAGE_COLORS)
   const companionColor = pick(IMAGE_COLORS.filter((color) => color !== accessoryColor))
 
+  /**
+   * **The accessory is drawn from what the subject can take** (`#247`), which is
+   * the second rule this draw enforces rather than leaving to chance. Drawn
+   * independently it produced *"the cathedral wears or carries a purple hat"* on
+   * the deployment — a specification the rung did not mean to issue and cannot
+   * grade without asking the judge to be tolerant.
+   */
+  const subject = pick(SCENE_SUBJECTS)
+  const bearing = SCENE_SUBJECT_BEARING[subject]
+
   return {
-    subject: pick(SCENE_SUBJECTS),
+    subject,
     count: pick(SCENE_COUNTS),
-    accessory: pick(SCENE_ACCESSORIES),
+    accessory: pick(SCENE_ACCESSORIES.filter((entry) => accessoryFits(bearing, entry))),
     accessoryColor,
     companion: pick(SCENE_COMPANIONS),
     companionColor,

@@ -1,4 +1,9 @@
-import { SceneCheckSchema, SCENE_PROHIBITION, type SceneConstraints } from '@kolonie-ai/core'
+import {
+  SceneCheckSchema,
+  SCENE_PROHIBITION,
+  sceneBindingPhrase,
+  type SceneConstraints,
+} from '@kolonie-ai/core'
 import type { SceneChecker, SceneCheckResult } from './image-model.js'
 import { OPENROUTER_API_KEY_VAR } from './vision-model.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
@@ -76,9 +81,9 @@ export function scenePromptForModel(constraints: SceneConstraints): string {
     'and do not be generous: a property holds or it does not.\n\n' +
     `- Subject: ${constraints.subject}\n` +
     `- Count: exactly ${constraints.count} of them\n` +
-    `- Binding: the ${constraints.accessory} worn or carried by the ${constraints.subject} is ` +
-    `${constraints.accessoryColor}, and a ${constraints.companionColor} ` +
-    `${constraints.companion} stands beside it\n` +
+    // The same sentence the agent was given, from the same function (`#247`), so the
+    // picture asked for and the picture checked for cannot be phrased apart.
+    `- Binding: ${sceneBindingPhrase(constraints)}\n` +
     `- Setting: ${constraints.setting}\n` +
     `- Style: ${constraints.style}\n` +
     `- Prohibition: ${SCENE_PROHIBITION}\n\n` +

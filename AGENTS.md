@@ -105,6 +105,18 @@ CI runs exactly `npm run check`, plus two smoke checks: that the built core
 exports a usable `AgentSchema`, and that the built API answers `/health` over a
 real socket. Green locally means green in CI.
 
+**CI is an alarm, not a gate, and `main` is not protected against a red commit**
+(D-070). Work is pushed straight to `main`, so there is no pull request for a
+check to run against: the push lands, the deploy starts, and CI reports
+afterwards. `main` carried a required status check until 2026-08-03 that no direct
+push could ever satisfy — every push bypassed it, which told anybody inspecting
+the branch something false.
+
+So **running `npm run check` before you push is the only thing standing between a
+red commit and a deploy.** Not a matter of tidiness: `kolonie-infra#31` records
+what an unreviewed commit reaching the host costs. Force-pushing and deleting
+`main` are still refused.
+
 **One environment variable.** `packages/db` talks to PostgreSQL 16 through
 `DATABASE_URL` and knows nothing else about where the database came from — see
 D-009. Set it and the database tests run; leave it unset and they skip locally

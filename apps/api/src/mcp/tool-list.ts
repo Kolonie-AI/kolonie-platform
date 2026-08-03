@@ -82,6 +82,16 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.mailboxes.list',
   'kolonie.mailboxes.promote',
   /**
+   * The operator claim (#233): a human vouches in public, once.
+   *
+   * Registered by `tools/operator-claim.ts` and with neither the Academy nor the
+   * mailboxes, because it is **not a rung** — nothing is granted, nothing is
+   * paid, and it appears in the graph nowhere. It is also not `social-account`,
+   * which proves the opposite direction; both descriptions say so.
+   */
+  'kolonie.operator.claim.request',
+  'kolonie.operator.claim.submit',
+  /**
    * The account register (#150) — the layer under the skills.
    *
    * Six tools where five would do, because *retire* and *set a note* are

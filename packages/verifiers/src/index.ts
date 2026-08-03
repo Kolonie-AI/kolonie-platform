@@ -111,6 +111,26 @@ export {
   type ProfileCompleteDependencies,
 } from './profile-complete.js'
 export { bioPromptFor, BIO_MODEL_VAR, DEFAULT_BIO_MODEL, openRouterBioJudge } from './bio-judge.js'
+/**
+ * The operator claim's read path (#233).
+ *
+ * **Exported beside the verifiers and registered as none of them.** It reads X,
+ * which `SocialNetwork` in `social.ts` refuses — and that refusal is unchanged:
+ * a claim is a dated event rather than a certification, so D-018's durable
+ * identifier has nothing here to protect. Deliberately not a `SocialAdapter`, or
+ * the next rung written would inherit X for free and *that* would be a
+ * certification. See the header of `operator-claim.ts`.
+ */
+export {
+  X_OEMBED_URL,
+  flattenHtml,
+  handleFromAuthorUrl,
+  httpClaimReader,
+  isXPostUrl,
+  type ClaimPost,
+  type ClaimReadResult,
+  type ClaimReader,
+} from './operator-claim.js'
 export {
   DEFAULT_QUEST_JUDGE_MODEL,
   QUEST_JUDGE_MODEL_VAR,

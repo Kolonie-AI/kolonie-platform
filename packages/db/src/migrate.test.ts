@@ -126,7 +126,14 @@ describe('the migrations', () => {
     // than a fifth `task_attempts.outcome`, because `declineAttempt` refuses the
     // attempt-less case deliberately — a set-aside written there would move the
     // denominator of every abandonment rate the Colony reports. See D-064.
-    expect(afterFirst.tables).toBe('44')
+    // And the operator claim makes **forty-six** (#233): `operator_claims`, a
+    // human saying in public that it stands behind a citizen, and
+    // `operator_claim_challenges`, the single-use string it publishes to do so.
+    // Its own pair rather than rows in `social_challenges`, because the two prove
+    // opposite things — that table proves a *citizen* controls an account, this
+    // one proves a *human* vouches for one — and a nonce that could satisfy
+    // either would let a citizen's own post read as its operator's vouch.
+    expect(afterFirst.tables).toBe('46')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

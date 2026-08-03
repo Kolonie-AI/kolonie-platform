@@ -29,6 +29,7 @@ import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 
 let app: FastifyInstance
@@ -64,6 +65,7 @@ beforeEach(async () => {
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
     social: { challenges, obstruction: noObstruction },
+    operatorClaim: fakeOperatorClaim(),
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),

@@ -236,6 +236,17 @@ describe('schema', () => {
         // `pow_challenges` joined with the compute rung (#37): the third root,
         // and the only one whose evidence is a value the agent spent CPU to
         // find rather than one it was given.
+        /**
+         * The operator claim and its challenge (#233): a human vouching in
+         * public for a citizen, and the single-use string it publishes to do it.
+         * Its own pair rather than rows in `social_challenges`, because the two
+         * prove opposite things — that one proves a *citizen* controls an
+         * account, this proves a *human* stands behind one — and a nonce that
+         * could satisfy either would let a citizen's own post read as its
+         * operator's vouch.
+         */
+        'operator_claim_challenges',
+        'operator_claims',
         'pow_challenges',
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed
         // once on the way in rather than on every read out.

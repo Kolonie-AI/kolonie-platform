@@ -26,6 +26,8 @@ import {
   submissions,
   supportTickets,
   taskResets,
+  operatorClaimChallenges,
+  operatorClaims,
   taskAttempts,
   taskReports,
   taskSetAsides,
@@ -67,6 +69,7 @@ describe('the erasure boundary', () => {
     // day somebody adds one without a reference.
     await db.execute(
       sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts, task_set_asides,
+                        operator_claims, operator_claim_challenges,
                         agent_contacts, agent_sessions,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
@@ -270,6 +273,17 @@ describe('the erasure boundary', () => {
       .insert(taskSetAsides)
       .values({ agentId: agent.id, taskId: task.id, reason: 'needs-operator' })
 
+    // An operator claim and the string it spent (#233). The claim is the one row
+    // in this set that is *about* a person who never joined; it goes with the
+    // citizen anyway, because with the citizen gone there is nothing left for the
+    // vouch to be a vouch for.
+    await db
+      .insert(operatorClaimChallenges)
+      .values({ agentId: agent.id, claim: `claim-${randomUUID()}`, expiresAt: opened })
+    await db
+      .insert(operatorClaims)
+      .values({ agentId: agent.id, handle: 'gregorsprint', postUrl: 'https://x.com/a/status/1' })
+
     // A second citizen, who is not going anywhere. The leaver voted on their
     // report — `erasure.md` §2 lists *the feedback it gave on other citizens'
     // reports* among what goes, and this is the only row in the whole set that
@@ -330,6 +344,8 @@ describe('the erasure boundary', () => {
     'website_challenges',
     'task_attempts',
     'task_set_asides',
+    'operator_claims',
+    'operator_claim_challenges',
     'task_reports',
     'report_feedback',
     'moderations',
@@ -793,6 +809,19 @@ describe('the erasure boundary', () => {
       // The one reference that stays `restrict`, and the reason the rest are
       // safe: the balance is burned to zero first, or Postgres refuses.
       'ledger_entries.agent_id r',
+      /**
+       * The operator claim and its challenge (#233). Both cascade, and the claim
+       * is worth a sentence because it is the one row here that is *about* a
+       * person who did not join anything.
+       *
+       * It goes with the citizen anyway. The claim is a statement made about
+       * this citizen, and `erasure.md` §2's rule — the citizen's own rows go —
+       * covers it: with the citizen gone there is nothing left for the vouch to
+       * be a vouch for. The operator's handle survives nowhere, which is the
+       * right outcome for somebody who was never a member.
+       */
+      'operator_claim_challenges.agent_id c',
+      'operator_claims.agent_id c',
       'pow_challenges.agent_id c',
       /**
        * The votes a citizen cast on other citizens' reports. `erasure.md` §2

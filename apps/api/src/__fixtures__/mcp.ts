@@ -21,6 +21,7 @@ import { fakeInjection } from './injection.js'
 import { fakeKeys } from './keys.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeRegistry } from './registry.js'
+import { fakeOperatorClaim } from './operator-claim.js'
 import { fakeSocial } from './social.js'
 import { fakeSolana } from './solana.js'
 import { fakeStore } from './store.js'
@@ -80,6 +81,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
     social: fakeSocial(),
+    operatorClaim: fakeOperatorClaim(),
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),

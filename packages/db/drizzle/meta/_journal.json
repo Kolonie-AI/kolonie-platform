@@ -617,6 +617,13 @@
       "when": 1785746578020,
       "tag": "0087_a_task_can_be_put_down",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1785750503033,
+      "tag": "0088_an_operator_vouches_in_public",
+      "breakpoints": true
     }
   ]
 }

@@ -42,6 +42,7 @@ import { registerWebsiteRoute } from './routes/website.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
 import { registerInjectionRoute } from './routes/injection.js'
+import { registerOperatorClaimRoutes } from './routes/operator-claim.js'
 import { registerSocialRoute } from './routes/social.js'
 import { registerDomainRoute } from './routes/domain.js'
 import { registerCapabilityPageRoutes } from './routes/capability-page.js'
@@ -98,6 +99,7 @@ export function buildApp({
   scene,
   injection,
   social,
+  operatorClaim,
   domain,
   vision,
   vault,
@@ -295,6 +297,7 @@ export function buildApp({
     scene,
     injection,
     social,
+    operatorClaim,
     domain,
     vision,
     vault,
@@ -354,6 +357,7 @@ export function buildApp({
       registerSceneRoute(v1, routes)
       registerInjectionRoute(v1, routes)
       registerSocialRoute(v1, routes)
+      registerOperatorClaimRoutes(v1, routes)
       registerDomainRoute(v1, routes)
       registerCapabilityPageRoutes(v1, routes)
       registerPerceptionRoutes(v1, routes)

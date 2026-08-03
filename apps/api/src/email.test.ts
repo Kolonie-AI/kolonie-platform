@@ -11,6 +11,7 @@ import { fakeKeys } from './__fixtures__/keys.js'
 import { fakeVision } from './__fixtures__/vision.js'
 import { fakePow } from './__fixtures__/proof-of-work.js'
 import { fakeContributions, fakeGithub } from './__fixtures__/github.js'
+import { fakeOperatorClaim } from './__fixtures__/operator-claim.js'
 import { fakeSocial } from './__fixtures__/social.js'
 import { fakeDomain } from './__fixtures__/domain.js'
 import { fakeWebsite } from './__fixtures__/website.js'
@@ -82,6 +83,7 @@ const build = (inboundSecret: string | undefined) => {
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
     social: fakeSocial(),
+    operatorClaim: fakeOperatorClaim(),
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),
@@ -621,6 +623,7 @@ describe('GET /v1/mailboxes', () => {
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
       social: fakeSocial(),
+      operatorClaim: fakeOperatorClaim(),
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),

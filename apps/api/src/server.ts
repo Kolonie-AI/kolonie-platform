@@ -21,12 +21,17 @@ import { databaseKeyChallenges } from './keys.js'
 import { databaseSolanaChallenges } from './solana.js'
 import { databasePowChallenges } from './proof-of-work.js'
 import { databaseGithubChallenges } from './github.js'
-import { GITHUB_VERIFIER_TOKEN_VAR, httpContributionReader } from '@kolonie-ai/verifiers'
+import {
+  GITHUB_VERIFIER_TOKEN_VAR,
+  httpClaimReader,
+  httpContributionReader,
+} from '@kolonie-ai/verifiers'
 import { githubAccountOf, recordObstructedAttemptForTaskType } from '@kolonie-ai/db'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSceneChallenges } from './scene.js'
 import { databaseInjectionChallenges } from './injection.js'
+import { databaseOperatorClaims } from './operator-claim.js'
 import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
@@ -266,6 +271,7 @@ const app = buildApp({
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
   social: { challenges: databaseSocialChallenges(db), obstruction },
+  operatorClaim: { claims: databaseOperatorClaims(db), reader: httpClaimReader() },
   domain: { challenges: databaseDomainChallenges(db), obstruction },
   vision: databaseVisionChallenges(db),
   // No configuration and no credential of the Colony's, deliberately: the vault

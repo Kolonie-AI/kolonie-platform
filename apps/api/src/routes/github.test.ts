@@ -22,6 +22,7 @@ import {
   type FakeGithubChallenges,
 } from '../__fixtures__/github.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
+import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
@@ -68,6 +69,7 @@ beforeEach(async () => {
     academy: fakeAcademy(),
     github: { challenges, obstruction: noObstruction },
     social: fakeSocial(),
+    operatorClaim: fakeOperatorClaim(),
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),

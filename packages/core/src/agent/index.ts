@@ -1,5 +1,6 @@
 export * from './agent.js'
 export * from './contact.js'
+export * from './operator-claim.js'
 export * from './credentials.js'
 export * from './renewal.js'
 export * from './rhythm.js'

@@ -16,6 +16,7 @@ import type { KeyDependencies } from '../keys.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { AgentRegistry, Caller } from '../registration.js'
 import type { Retesting } from '../retest.js'
+import type { OperatorClaimDependencies } from '../operator-claim.js'
 import type { SocialDependencies } from '../social.js'
 import type { SolanaDependencies } from '../solana.js'
 import type { TaskSubmissions } from '../submissions.js'
@@ -68,6 +69,15 @@ export interface McpDependencies {
   /** The prompt-injection badge's payload (`#168`). */
   readonly injection: InjectionDependencies
   readonly social: SocialDependencies
+  /**
+   * The operator claim (#233) — a human vouching in public, once.
+   *
+   * Beside `social` and not part of it. That one is the `social-account` rung and
+   * refuses X on D-018 grounds; this reads X deliberately, because a dated event
+   * needs no durable identifier. Keeping them separate is what stops the next
+   * rung inheriting the X read path.
+   */
+  readonly operatorClaim: OperatorClaimDependencies
   readonly domain: DomainDependencies
   /**
    * Where a citizen's inbound message goes (#11).

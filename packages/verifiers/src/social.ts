@@ -35,6 +35,15 @@
  * undocumented endpoint. The single thing that would unblock it is X publishing
  * a free endpoint that returns an account id. `state/decisions.md` has the
  * argument in full.
+ *
+ * **`packages/verifiers/src/operator-claim.ts` reads X, and does not weaken any
+ * of this** (`#233`, D-066). It records an operator *claim*: a dated event —
+ * at time T, the account then at `@handle` published this string — rather than a
+ * certification about who controls an account now. D-018 exists so a
+ * certification cannot follow a handle to a new owner, and a dated event cannot,
+ * because it asserts nothing about the present. That file deliberately does not
+ * implement `SocialAdapter`, precisely so X does not enter `SocialNetwork` and
+ * get picked up for free by the next rung — which *would* be a certification.
  */
 export type SocialNetwork = 'bluesky' | 'mastodon' | 'moltbook'
 

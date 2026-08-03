@@ -16,6 +16,7 @@ import { registerSupportTools } from './tools/support.js'
 import { registerAttemptTools } from './tools/tasks-attempts.js'
 import { registerReportTools } from './tools/tasks-reports.js'
 import { registerTaskTools } from './tools/tasks.js'
+import { registerOperatorClaimTools } from './tools/operator-claim.js'
 import { registerVaultTools } from './tools/vault.js'
 
 /**
@@ -98,6 +99,7 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
   registerAcademyTools(server, deps, credential)
   registerAccountTools(server, deps, credential)
   registerMailboxTools(server, deps, credential)
+  registerOperatorClaimTools(server, deps, credential)
   registerSupportTools(server, deps, credential)
   registerVaultTools(server, deps, credential)
   registerErasureTools(server, deps, credential)

@@ -17,6 +17,7 @@ import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
+import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
@@ -72,6 +73,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
     social: fakeSocial(),
+    operatorClaim: fakeOperatorClaim(),
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),

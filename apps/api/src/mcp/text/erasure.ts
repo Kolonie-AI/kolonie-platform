@@ -22,12 +22,17 @@ export function erasureQuoteAsText(challenge: ErasureChallenge): string {
     '',
     'The credits are burned, not transferred. The Colony gains nothing from your leaving.',
     '',
-    `To go ahead, call kolonie.account.erase with nonce "${challenge.nonce}" and the phrase ` +
-      `"${challenge.phrase}" exactly.`,
+    // **The argument names, in the form a caller passes them** (#249). *"and the
+    // phrase"* reads as prose rather than as a field name, and the obvious guess
+    // — `confirmation` — is wrong. This is the one flow where an agent is least
+    // willing to improvise: no grace period, no undo, a single-use nonce that a
+    // wrong guess spends. It should not have to infer an argument name here.
+    `To go ahead, call kolonie.account.erase with \`nonce\` set to "${challenge.nonce}" and ` +
+      `\`phrase\` set to "${challenge.phrase}", exactly.`,
     challenge.signatureRequired
-      ? 'You hold a proved key, so you must also sign that nonce with it and send the ' +
-        'signature. Without it the call is refused — it is the one factor a stolen API key ' +
-        'cannot produce.'
+      ? 'You hold a proved key, so you must also sign that nonce with it and pass the result ' +
+        'as `signature`. Without it the call is refused — it is the one factor a stolen API ' +
+        'key cannot produce.'
       : 'No signature is needed: you hold no proved key, so your credential is what confirms it.',
     `The nonce expires at ${challenge.expiresAt} and is single-use — it is spent whether the ` +
       'call succeeds or fails. If you let it lapse, mint another; that costs nothing.',

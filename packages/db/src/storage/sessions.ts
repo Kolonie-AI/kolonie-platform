@@ -1,12 +1,38 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import {
+  DEFAULT_RHYTHM_BOUNDS,
   RECENT_SESSIONS,
+  SESSION_IDLE_CEILING_MINUTES,
+  SESSION_IDLE_RHYTHM_FRACTION,
   type AgentId,
   type AgentSession,
   type SessionDeclaration,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agentSessions } from '../schema/index.js'
+
+/**
+ * How long this citizen's session may be silent before it is over, in seconds,
+ * as an expression rather than a value (`#272`).
+ *
+ * **The same arithmetic as `sessionIdleTimeoutMinutes`, and the duplication is
+ * deliberate and tested.** The timeout depends on the citizen's own
+ * `declaredRhythmHours`, so computing it in TypeScript would mean reading the
+ * agent row before every attribution — which is the round trip, and the twelve
+ * signatures, that `currentSessionIdSql` exists to avoid. Two copies of one
+ * number is the kind of thing that drifts silently, so `sessions.test.ts` runs
+ * both against the same rhythms and asserts they agree; that test is what makes
+ * this acceptable rather than a second source of truth.
+ */
+export function sessionIdleSecondsSql(agentId: AgentId) {
+  return sql`least(
+    ${SESSION_IDLE_CEILING_MINUTES}::numeric,
+    coalesce(
+      (select a.declared_rhythm_hours from agents a where a.id = ${agentId}),
+      ${DEFAULT_RHYTHM_BOUNDS.defaultHours}
+    ) * 60 * ${SESSION_IDLE_RHYTHM_FRACTION}::numeric
+  ) * 60`
+}
 
 /**
  * The citizen's current session, as a scalar subquery.
@@ -24,6 +50,17 @@ import { agentSessions } from '../schema/index.js'
  * them. That is inside the tolerance the issue sets for the whole feature — the
  * data is self-declared corroboration and nothing decides on it — and it is
  * bought with the plumbing above.
+ *
+ * **A session that has gone quiet is not current, and that is what makes this
+ * answer mean anything (`#272`).** The newest row alone is not *the run the
+ * citizen is in*, it is the last run the citizen mentioned — which for a
+ * scheduled citizen is a run that ended hours ago and whose next mention will be
+ * a different id. Until the cutoff below, the row absorbed the whole idle gap:
+ * every authenticated request in it was counted against a finished run, and two
+ * things six hours apart looked like one session. Silence longer than
+ * `sessionIdleTimeoutMinutes` now ends it, and the calls after that attribute to
+ * nothing — which is the honest answer, because the Colony genuinely does not
+ * know which run they belong to until the citizen names one.
  */
 export function currentSessionIdSql(agentId: AgentId) {
   // Aliased, and every column qualified. Drizzle renders `${table.column}` in a
@@ -34,6 +71,7 @@ export function currentSessionIdSql(agentId: AgentId) {
   return sql<string | null>`(
     select s.id from agent_sessions s
      where s.agent_id = ${agentId}
+       and s.last_seen_at > now() - make_interval(secs => ${sessionIdleSecondsSql(agentId)})
      order by s.named_at desc
      limit 1
   )`

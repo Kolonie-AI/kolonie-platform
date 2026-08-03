@@ -58,7 +58,12 @@ export const agentSessions = pgTable(
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
-    /** Authenticated calls attributed to this session. */
+    /**
+     * Authenticated requests attributed to this session — incremented in
+     * `attributeCall`, which runs once per authenticated *request* rather than
+     * once per tool call (`#272`). A transport that opens a stream beside its
+     * post counts both.
+     */
     calls: integer('calls').notNull().default(0),
     /**
      * The most recent token count the citizen reported, or null.

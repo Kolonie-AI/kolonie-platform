@@ -2,14 +2,20 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { readFile, readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { eq, sql } from 'drizzle-orm'
-import { RegisterAgentRequestSchema, type AgentId, type TaskId } from '@kolonie-ai/core'
+import {
+  DEFAULT_RHYTHM_BOUNDS,
+  RegisterAgentRequestSchema,
+  sessionIdleTimeoutMinutes,
+  type AgentId,
+  type TaskId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSessions, taskAttempts, tasks } from '../schema/index.js'
+import { agentSessions, agents, taskAttempts, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { authenticateApiKey } from './authentication.js'
 import { openAttempt } from './attempts.js'
-import { attributeCall, nameSession, recentSessions } from './sessions.js'
+import { attributeCall, nameSession, recentSessions, sessionIdleSecondsSql } from './sessions.js'
 
 const target = databaseTestTarget()
 
@@ -197,6 +203,126 @@ describe('sessions', () => {
       const distinct = new Set(rows.map((row) => row.sessionId))
       expect(rows).toHaveLength(3)
       expect(distinct.size).toBe(2)
+    })
+
+    /**
+     * The run has to end by itself (`#272`), and these are the two ways of
+     * getting that wrong: a session that never closes counts the idle gap, and
+     * one that closes eagerly loses a run that was still going.
+     */
+    describe('a run that has gone quiet is over', () => {
+      /**
+       * Time passing, without waiting for it. The row is aged rather than the
+       * clock moved, because the cutoff is `now() - timeout` against
+       * `last_seen_at` and ageing the column tests exactly that comparison.
+       */
+      const silentFor = async (agentId: AgentId, minutes: number) =>
+        db
+          .update(agentSessions)
+          .set({ lastSeenAt: sql`now() - make_interval(mins => ${minutes})` })
+          .where(eq(agentSessions.agentId, agentId))
+
+      it('counts no further calls against a session the citizen has left', async () => {
+        const registered = await anAgentWithAKey()
+        await nameSession(db, registered.agent.id, { sessionId: 'run-1' })
+        await authenticateApiKey(db, registered.credentials.apiKey)
+        await silentFor(registered.agent.id, 90)
+
+        await authenticateApiKey(db, registered.credentials.apiKey)
+
+        // The three-minute run recorded as six hours and 2058 calls: what did it
+        // was every request in the idle gap landing on a row nothing closed.
+        const [row] = await sessionRows(registered.agent.id)
+        expect(row?.calls).toBe(1)
+      })
+
+      it('keeps counting while the run is still making calls', async () => {
+        const registered = await anAgentWithAKey()
+        await nameSession(db, registered.agent.id, { sessionId: 'run-1' })
+        await silentFor(registered.agent.id, 30)
+
+        await authenticateApiKey(db, registered.credentials.apiKey)
+
+        // Half an hour of thinking is not a run that ended, and closing it here
+        // would be the opposite mistake: a citizen still working, recorded as
+        // nobody.
+        const [row] = await sessionRows(registered.agent.id)
+        expect(row?.calls).toBe(1)
+      })
+
+      it('leaves an attempt opened after the silence attributed to no run', async () => {
+        const { agent } = await anAgentWithAKey()
+        const task = await aTask()
+        await nameSession(db, agent.id, { sessionId: 'run-1' })
+        await silentFor(agent.id, 90)
+
+        await openAttempt(db, { agentId: agent.id, taskId: task, opener: 'challenge' })
+
+        const [row] = await db
+          .select({ sessionId: taskAttempts.sessionId })
+          .from(taskAttempts)
+          .where(eq(taskAttempts.agentId, agent.id))
+        // Null rather than the finished run: *we do not know which run this was*
+        // is thin and true, and the alternative was a confident wrong answer.
+        expect(row?.sessionId).toBeNull()
+      })
+
+      it('brings the citizen back into the same run when it names the id again', async () => {
+        const registered = await anAgentWithAKey()
+        await nameSession(db, registered.agent.id, { sessionId: 'run-1' })
+        await silentFor(registered.agent.id, 90)
+
+        // A citizen resuming yesterday's id has said the run continues, and the
+        // Colony has no standing to disagree — the whole table is self-declared.
+        expect(await nameSession(db, registered.agent.id, { sessionId: 'run-1' })).toBe('resumed')
+        await authenticateApiKey(db, registered.credentials.apiKey)
+
+        const [row] = await sessionRows(registered.agent.id)
+        expect(row?.calls).toBe(1)
+      })
+
+      it('shortens the window for a citizen that declared a short rhythm', async () => {
+        const registered = await anAgentWithAKey()
+        await db
+          .update(agents)
+          .set({ declaredRhythmHours: 1 })
+          .where(eq(agents.id, registered.agent.id))
+        await nameSession(db, registered.agent.id, { sessionId: 'run-1' })
+        await silentFor(registered.agent.id, 40)
+
+        await authenticateApiKey(db, registered.credentials.apiKey)
+
+        // Forty minutes is inside the hour ceiling and outside half of an hourly
+        // rhythm. This is the case the fraction exists for: `minHours` is
+        // expected to fall, and a flat hour against an hourly rhythm is the bug
+        // again.
+        expect((await sessionRows(registered.agent.id))[0]?.calls).toBe(0)
+      })
+
+      /**
+       * The cutoff is written twice — once in SQL because it has to be part of
+       * the attribution statement, once in TypeScript so a reader can be told
+       * what it is. Two copies of one number drift, so they are checked against
+       * each other rather than trusted.
+       */
+      it('computes the same timeout in SQL as the Colony states in TypeScript', async () => {
+        const registered = await anAgentWithAKey()
+
+        for (const declared of [null, 1, 6, 12, 24]) {
+          await db
+            .update(agents)
+            .set({ declaredRhythmHours: declared })
+            .where(eq(agents.id, registered.agent.id))
+
+          const [row] = await db.execute<{ seconds: string }>(
+            sql`select ${sessionIdleSecondsSql(registered.agent.id)} as seconds`,
+          )
+
+          expect(Number(row?.seconds)).toBe(
+            sessionIdleTimeoutMinutes(declared, DEFAULT_RHYTHM_BOUNDS.defaultHours) * 60,
+          )
+        }
+      })
     })
 
     it('leaves an attempt unattributed when the citizen named no run', async () => {

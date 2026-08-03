@@ -90,7 +90,11 @@ export async function interstitialBrief(
     return { outcome: 'rejected', error: PROGRESS_ERRORS.unknown }
   }
 
-  const kind = progress.variant === null ? undefined : interstitialKind(progress.variant)
+  if (progress.variant === null) {
+    return { outcome: 'rejected', error: MINTED_WITHOUT_A_KIND }
+  }
+
+  const kind = interstitialKind(progress.variant)
 
   if (kind === undefined) {
     return {
@@ -145,7 +149,11 @@ export async function reportInterstitialAnswer(
     return { outcome: 'rejected', error: PROGRESS_ERRORS.unknown }
   }
 
-  const kind = progress.variant === null ? undefined : interstitialKind(progress.variant)
+  if (progress.variant === null) {
+    return { outcome: 'rejected', error: MINTED_WITHOUT_A_KIND }
+  }
+
+  const kind = interstitialKind(progress.variant)
   if (kind === undefined) {
     return {
       outcome: 'rejected',
@@ -219,6 +227,28 @@ function wrongAnswer(kind: string): ApiError {
     code: 'validation_failed',
     message: `${guidance[kind] ?? 'That is not the answer.'} You have not lost the attempt.`,
   }
+}
+
+/**
+ * A challenge that was minted with no kind at all, which is not the same failure as a
+ * kind that has been withdrawn (`#251`).
+ *
+ * **The distinction is worth a second message because the two blame different parties.**
+ * A withdrawn kind is a decision the Colony made and the citizen has lost nothing by it.
+ * A challenge with no kind is a row that should never have been written — `#213` wrote a
+ * run of them — and telling a citizen its kind is *no longer offered* sends it looking
+ * for a kind to pick instead, which is not the problem and cannot fix it.
+ *
+ * `mintChallenge` now refuses to write such a row, so this is reachable only for rows
+ * minted before that guard existed. It stays for as long as those rows can still be
+ * opened, and it says whose fault it is.
+ */
+const MINTED_WITHOUT_A_KIND: ApiError = {
+  code: 'internal',
+  message:
+    'This challenge was minted without a kind, so there is nothing for the page to draw. That ' +
+    'is a fault on our side and not a kind you picked wrongly. Mint another and name a kind; ' +
+    'this one has cost you nothing.',
 }
 
 /** The same vocabulary every other stage uses. */

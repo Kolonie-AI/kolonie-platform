@@ -129,6 +129,26 @@ export async function mintChallenge(
   if (stage === undefined) throw new Error(`unknown browser stage: ${kind}`)
   if (stage.retired === true) throw new Error(`retired browser stage cannot be minted: ${kind}`)
 
+  /**
+   * **A stage with kinds may not be minted without one, and this is where that is
+   * made impossible rather than merely checked** (`#251`).
+   *
+   * Both mint surfaces call `variantUnusable` first, so a caller reaching here
+   * without a kind is a code path that skipped it — and that is not hypothetical.
+   * `#213` was exactly that path: the MCP tool accepted `variant`, dropped it before
+   * `openChallenge`, and wrote rows with a null variant. Each one minted a challenge
+   * whose page could only answer *this challenge names a kind the Colony no longer
+   * offers*, which reads as a retired kind and was our own bug — and it cost a
+   * citizen its attempts before it was filed.
+   *
+   * Refusing at the write is what makes the two sets unable to drift: a row exists
+   * only if its kind was named, so every challenge the page is handed is one the
+   * page can serve.
+   */
+  if (stage.hasVariants === true && variant === null) {
+    throw new Error(`browser stage ${kind} has kinds and cannot be minted without one`)
+  }
+
   // Per stage, defaulting to the branch's ten minutes. The persistence stage overrides it
   // because its whole measurement is a gap longer than that (`#161`).
   const expiresAt = new Date(Date.now() + (stage.lifetimeMs ?? CHALLENGE_LIFETIME_MS)).toISOString()

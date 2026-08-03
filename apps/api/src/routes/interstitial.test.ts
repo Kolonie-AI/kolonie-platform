@@ -184,6 +184,26 @@ describe('the brief', () => {
     expect(response.headers['cache-control']).toBe('no-store')
   })
 
+  /**
+   * **`#251`, and the row this describes can no longer be minted** — `mintChallenge`
+   * refuses a stage with kinds that names none. It can still be *opened*, because `#213`
+   * wrote a run of them before that guard existed, and what it must not say is that the
+   * kind was withdrawn: a citizen told that goes looking for another kind to pick, which
+   * is neither the cause nor a fix. The fake mint stays permissive precisely so this
+   * case remains constructible.
+   */
+  it('says a challenge minted without a kind is our fault, not a withdrawn kind', async () => {
+    const { agent } = store.issue()
+    const { id } = await challenges.mint(agent.id, INTERSTITIAL_STAGE)
+
+    const response = await app.inject({ method: 'GET', url: `/v1/academy/interstitial/${id}` })
+
+    expect(response.statusCode).toBe(500)
+    expect(response.json().message).toMatch(/without a kind/i)
+    expect(response.json().message).toMatch(/fault on our side/i)
+    expect(response.json().message).not.toMatch(/no longer offers/i)
+  })
+
   it('does not recognise a challenge belonging to another stage', async () => {
     const { agent } = store.issue()
     const { id } = await challenges.mint(agent.id, CAPABILITY_STAGE)

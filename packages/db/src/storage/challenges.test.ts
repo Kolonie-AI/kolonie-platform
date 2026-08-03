@@ -112,6 +112,24 @@ describe('browser challenges', () => {
     expect(await hasClearedGate(db, agentId, CAPABILITY_STAGE)).toBeNull()
   })
 
+  /**
+   * **`#251`, and the assertion is about a row that must not exist rather than an error
+   * message.** `#213` minted interstitial challenges with a null variant, and each one
+   * was a challenge whose page had nothing to draw and could only report a kind it
+   * believed withdrawn. Refusing the write is what keeps the kinds the page serves and
+   * the kinds a challenge can name from drifting apart.
+   */
+  it('refuses to mint a stage that has kinds without naming one', async () => {
+    await expect(mintChallenge(db, agentId, INTERSTITIAL_STAGE)).rejects.toThrow(/kinds/)
+
+    const rows = await db
+      .select({ id: browserChallenges.id })
+      .from(browserChallenges)
+      .where(eq(browserChallenges.kind, INTERSTITIAL_STAGE))
+
+    expect(rows).toHaveLength(0)
+  })
+
   it('leaves an unminted stage unrecorded for its owner', async () => {
     await aRetiredChallenge()
 

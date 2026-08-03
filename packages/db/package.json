@@ -22,6 +22,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "generate": "drizzle-kit generate",
     "migrate": "node dist/migrate.js",
+    "check:drift": "node dist/check-migration-drift.js",
     "seed": "node dist/seed.js",
     "admin": "node dist/admin.js",
     "test": "vitest run",

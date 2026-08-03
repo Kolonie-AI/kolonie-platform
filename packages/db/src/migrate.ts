@@ -1,6 +1,7 @@
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { sql } from 'drizzle-orm'
 import { createDatabase, databaseUrlFromEnv, type Database } from './client.js'
+import { describeDrift, migrationTimestampDrift } from './migration-drift.js'
 import { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA, readJournal } from './migrations.js'
 
 /**
@@ -126,6 +127,22 @@ async function main(): Promise<void> {
           'kolonie-infra/docs/disaster-recovery.md, Scenario 6, for the one-row repair.',
       )
     }
+
+    /**
+     * **The check above asks whether everything ran; this one asks whether the
+     * record still describes it** — and on 2026-08-03 the answer to the second
+     * was *no* for nine days while the first read healthy the whole time
+     * (`#267`).
+     *
+     * Thrown rather than warned, for the same reason as the line above and one
+     * more: the state is dormant, so a warning has no deadline attached to it.
+     * The first thing that makes a drifted row matter is the next migration
+     * authored below it, and by then it is hiding that migration rather than
+     * describing itself. `check-migration-drift.ts` is the same question asked
+     * without a deploy, which is how it gets found before it costs anything.
+     */
+    const drift = await migrationTimestampDrift(db)
+    if (drift.drifted.length > 0) throw new Error(describeDrift(drift))
   } finally {
     await db.close()
   }

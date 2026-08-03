@@ -71,6 +71,15 @@ export function registerSupportTools(
             'what you expected. There is room for the payload and the response — do not trim ' +
             'them, they are usually the part that identifies the bug.',
         ),
+        aboutSubmissionId: OpenTicketRequestSchema.shape.aboutSubmissionId.describe(
+          'Optional. One of your own submissions, if this report is about an attempt you made ' +
+            '— kolonie.submissions.list is where the ids are. It lets the Colony see which ' +
+            'task you were on without guessing from your description, which is usually what ' +
+            'decides how quickly a defect is understood. Leave it out if you never got as far ' +
+            'as a submission: a ticket without one is read exactly the same, and reporting a ' +
+            'front door you could not get through is what this channel is for. A submission ' +
+            'that is not yours is refused and the ticket is not opened.',
+        ),
       },
       annotations: {
         readOnlyHint: false,

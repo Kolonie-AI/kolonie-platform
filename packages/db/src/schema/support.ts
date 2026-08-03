@@ -117,6 +117,33 @@ export const supportTickets = pgTable(
       onDelete: 'set null',
     }),
 
+    /**
+     * The submission the *citizen* says this ticket is about (#255).
+     *
+     * **A second column rather than a reuse of `submissionId`, and the
+     * difference is the unique index above it.** `submission_id` is an
+     * idempotency key for machine-filed tickets — it is what lets
+     * `reportFailedRerun` be called twice by an at-least-once runner and insert
+     * once. Writing a citizen's reference into it would mean a citizen may file
+     * exactly one ticket per submission ever, with the second silently swallowed
+     * by `on conflict do nothing`, and it would collide with the automatic
+     * ticket `#254` files against the same submission after five deferrals.
+     *
+     * **So this one carries no unique constraint, deliberately.** Two tickets
+     * from one citizen about one submission are two reports, not a duplicate:
+     * an agent that hits a verifier twice and learns something new the second
+     * time is describing the case this channel exists for.
+     *
+     * `on delete set null` like its neighbour: the ticket stands on its own text
+     * and caches nothing from the submission, so it outlives one.
+     *
+     * Nothing indexes it. The one reader is the triage runner looking up a
+     * single ticket it is already holding, by primary key.
+     */
+    aboutSubmissionId: uuid('about_submission_id').references(() => submissions.id, {
+      onDelete: 'set null',
+    }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupportTicket } from '@kolonie-ai/core'
 import type { Issues, KnownIssue, NewIssue } from './github.js'
-import type { TriageModel } from './triage.js'
+import type { TicketContext, TriageModel } from './triage.js'
 import { reconcile, tick, triageOne, type LoopDependencies, type TriageStore } from './loop.js'
 
 let ticketSeq = 0
@@ -26,11 +26,13 @@ function fakeStore(
   queue: readonly SupportTicket[],
   answered: readonly SupportTicket[] = [],
   awaiting: readonly SupportTicket[] = [],
+  context: TicketContext = { runtime: 'openclaw', about: null },
 ) {
   const written: Array<Record<string, unknown>> = []
   const settled: Array<{ ticketId: string; resolution: string }> = []
   const store: TriageStore = {
     queue: async () => queue,
+    context: async () => context,
     answered: async () => answered,
     record: async (outcome) => {
       written.push({ ...outcome })
@@ -143,6 +145,41 @@ describe('one ticket', () => {
     expect(created[0]?.labels).toContain('needs-triage')
     expect(written[0]).toMatchObject({ status: 'acknowledged' })
     expect(String(written[0]?.['issueUrl'])).toContain('kolonie-infra/issues/')
+  })
+
+  /**
+   * The circumstances reach the issue, and they are read from the store rather
+   * than inferred from the ticket (#255). Both halves matter: a maintainer
+   * reading the issue can tell a runtime-specific defect from a general one, and
+   * can see which task the citizen was on.
+   */
+  it('names the runtime and the task the citizen pointed at on the issue it files', async () => {
+    const ticket = aTicket()
+    const { store } = fakeStore([ticket], [], [], {
+      runtime: 'codex',
+      about: { taskTitle: 'email-roundtrip' },
+    })
+    const { issues, created } = fakeIssues()
+
+    await triageOne(
+      ticket,
+      { issues: [], answered: [] },
+      deps({
+        store,
+        issues,
+        model: modelAnswering({
+          kind: 'new',
+          repository: 'Kolonie-AI/kolonie-platform',
+          title: 'a title long enough to pass',
+          summary: 'a summary that is long enough to be worth reading by somebody',
+        }),
+      }),
+    )
+
+    expect(created[0]?.body).toContain('codex')
+    expect(created[0]?.body).toContain('email-roundtrip')
+    // The one thing that may never travel, whatever else does.
+    expect(created[0]?.body).not.toContain(ticket.agentId)
   })
 
   /**

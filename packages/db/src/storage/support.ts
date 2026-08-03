@@ -9,7 +9,7 @@ import {
   type SupportTicketId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { supportTickets } from '../schema/index.js'
+import { submissions, supportTickets } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
 /** Turn a ticket row into the domain shape. */
@@ -66,11 +66,39 @@ function ticketFields(
  *
  * No transaction, and no companion write. Unlike a verdict, a ticket is one row and
  * has no ledger or grant to stay consistent with.
+ *
+ * **The one thing it can refuse is a submission that is not the caller's** (#255).
+ * `aboutSubmissionId` is the only field a citizen sends that points at another
+ * row, so it is the only one that could be used to ask *does this id exist* — and
+ * the answer to a stranger's id is the same as the answer to a fictional one.
  */
 export async function openTicket(
   db: Database,
   input: { readonly agentId: AgentId; readonly request: OpenTicketRequest },
-): Promise<SupportTicket> {
+): Promise<OpenTicketOutcome> {
+  const about = input.request.aboutSubmissionId
+  if (about !== undefined) {
+    /**
+     * Both conditions in one `where`, the same construction `readOwnTicket`
+     * uses: a lookup by id followed by an owner comparison in TypeScript is one
+     * forgotten `if` away from letting a citizen attach somebody else's attempt
+     * to its own report — and from learning that the attempt exists.
+     *
+     * Checked before the insert rather than enforced by the database, because
+     * *belongs to the same agent* is a join and not a constraint. The window
+     * between this read and the insert is harmless: a submission cannot change
+     * owner, and one deleted in between takes the reference with it through
+     * `on delete set null`.
+     */
+    const [owned] = await db
+      .select({ id: submissions.id })
+      .from(submissions)
+      .where(and(eq(submissions.id, about), eq(submissions.agentId, input.agentId)))
+      .limit(1)
+
+    if (owned === undefined) return { outcome: 'no-such-submission' }
+  }
+
   const [row] = await db
     .insert(supportTickets)
     .values({
@@ -78,6 +106,7 @@ export async function openTicket(
       kind: input.request.kind,
       subject: input.request.subject,
       body: input.request.body,
+      ...(about !== undefined && { aboutSubmissionId: about }),
     })
     .returning()
 
@@ -86,8 +115,21 @@ export async function openTicket(
   // tell the citizen its report was filed when it was not.
   if (row === undefined) throw new Error('inserting a support ticket returned no row')
 
-  return toTicket(row)
+  return { outcome: 'opened', ticket: toTicket(row) }
 }
+
+/**
+ * What opening a ticket can end in.
+ *
+ * An outcome rather than an exception, for the reason the API surface gives about
+ * `WriteGuidanceResult`: naming a submission that is not yours is an ordinary
+ * thing for a caller to get wrong, and it has to become a stable answer an agent
+ * can branch on rather than a thrown error caught beside a connection fault.
+ */
+export type OpenTicketOutcome =
+  | { readonly outcome: 'opened'; readonly ticket: SupportTicket }
+  /** The reference named no submission of the caller's. Whether it exists is not said. */
+  | { readonly outcome: 'no-such-submission' }
 
 /**
  * Every ticket this agent opened, newest first.

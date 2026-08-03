@@ -1,0 +1,2 @@
+ALTER TABLE "support_tickets" ADD COLUMN "about_submission_id" uuid;--> statement-breakpoint
+ALTER TABLE "support_tickets" ADD CONSTRAINT "support_tickets_about_submission_id_submissions_id_fk" FOREIGN KEY ("about_submission_id") REFERENCES "public"."submissions"("id") ON DELETE set null ON UPDATE no action;

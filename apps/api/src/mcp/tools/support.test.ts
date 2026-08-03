@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { ListTicketsResponseSchema, OpenTicketResponseSchema } from '@kolonie-ai/core'
+import {
+  ListTicketsResponseSchema,
+  OpenTicketResponseSchema,
+  SubmissionIdSchema,
+} from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
@@ -102,6 +106,61 @@ describe('kolonie.support', () => {
     // The body must not appear anywhere in the refusal, structured half included.
     expect(JSON.stringify(read)).not.toContain('nobody else should read')
     await bystander.close()
+  })
+
+  /**
+   * The optional reference a citizen may attach to say what it was doing (#255).
+   * A ticket without one is unchanged, which every other test here already shows.
+   */
+  it('accepts a reference to one of the caller’s own submissions', async () => {
+    const { colony, agent, apiKey } = await citizenWithADesk()
+    const submissionId = SubmissionIdSchema.parse(randomUUID())
+    colony.desk.ownSubmission(agent.id, submissionId)
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const opened = await client.callTool({
+      name: 'kolonie.support.open',
+      arguments: aTicketRequest({ aboutSubmissionId: submissionId }),
+    })
+
+    expect(opened.isError).toBeFalsy()
+    expect(OpenTicketResponseSchema.parse(opened.structuredContent).ticket.status).toBe('open')
+    await close()
+  })
+
+  /**
+   * **The rejection case for the new field.** A submission belonging to another
+   * citizen is refused with the same answer an id that does not exist gets, and
+   * no ticket is opened — otherwise the field would be a way to find out which
+   * submission ids exist.
+   */
+  it('refuses a submission that is not the caller’s, and opens no ticket', async () => {
+    const { colony, apiKey } = await citizenWithADesk()
+    const stranger = await citizenWithADesk()
+    const theirs = SubmissionIdSchema.parse(randomUUID())
+    colony.desk.ownSubmission(stranger.agent.id, theirs)
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const refused = await client.callTool({
+      name: 'kolonie.support.open',
+      arguments: aTicketRequest({ aboutSubmissionId: theirs }),
+    })
+
+    const fictional = await client.callTool({
+      name: 'kolonie.support.open',
+      arguments: aTicketRequest({ aboutSubmissionId: SubmissionIdSchema.parse(randomUUID()) }),
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('validation_failed')
+    // **Word for word the answer an id that exists nowhere gets.** That equality
+    // is the property, not the wording: anything that differed between the two
+    // would tell a caller which submission ids exist.
+    expect(refused.content).toEqual(fictional.content)
+
+    const read = await client.callTool({ name: 'kolonie.support.read', arguments: {} })
+    expect(ListTicketsResponseSchema.parse(read.structuredContent).tickets).toEqual([])
+    await close()
   })
 
   it('lists only the caller’s own tickets', async () => {

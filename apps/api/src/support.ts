@@ -17,6 +17,7 @@ import {
   openTicket as openTicketInDatabase,
   readOwnTicket as readOwnTicketInDatabase,
   type Database,
+  type OpenTicketOutcome,
 } from '@kolonie-ai/db'
 import { fixedWindowLimiter, type RateLimiter } from './rate-limit.js'
 
@@ -57,7 +58,7 @@ export interface SupportDesk {
   openTicket(input: {
     readonly agentId: AgentId
     readonly request: OpenTicketRequest
-  }): Promise<SupportTicket>
+  }): Promise<OpenTicketOutcome>
   listOwnTickets(agentId: AgentId, query?: ReadTicketsRequest): Promise<readonly OwnTicket[]>
   readOwnTicket(query: {
     readonly ticketId: SupportTicketId
@@ -151,8 +152,34 @@ export function support(options: {
         return { outcome: 'rate-limited', retryAfterSeconds: verdict.retryAfterSeconds }
       }
 
-      const ticket = await options.desk.openTicket({ agentId, request: parsed.data })
-      return { outcome: 'opened', response: { ticket } }
+      const opened = await options.desk.openTicket({ agentId, request: parsed.data })
+      if (opened.outcome === 'no-such-submission') {
+        /**
+         * **The same answer for a stranger's submission and for one that does
+         * not exist** (#255), the arrangement `read` already uses for ticket
+         * ids: distinguishing them would make an optional convenience field a
+         * way to enumerate which submission ids exist.
+         *
+         * The allowance stays spent. The call reached the database and the
+         * citizen is told exactly what to change, which is not the case the
+         * limiter's *validate first* rule is protecting — that one is about an
+         * agent still working out the schema.
+         */
+        return {
+          outcome: 'invalid',
+          error: {
+            code: 'validation_failed',
+            message:
+              'You have no submission with that id. The ticket was not opened. This is also ' +
+              'the answer if the id belongs to another citizen. Omit aboutSubmissionId ' +
+              'entirely if this report is not about one of your own attempts — it is optional ' +
+              'and nothing is held against a ticket without it.',
+            details: { aboutSubmissionId: 'must be a submission of your own' },
+          },
+        }
+      }
+
+      return { outcome: 'opened', response: { ticket: opened.ticket } }
     },
 
     async read({ agentId, ticketId, query }) {

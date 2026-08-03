@@ -20,6 +20,16 @@ export interface FakeSupportDesk extends SupportDesk {
     ticketId: SupportTicketId,
     settlement: Partial<Pick<SupportTicket, 'status' | 'resolution' | 'issueUrl'>>,
   ) => void
+  /**
+   * Give an agent a submission it owns (#255).
+   *
+   * The desk reproduces the ownership rule the SQL enforces — a reference to a
+   * submission is accepted only when it is the caller's — so the fake needs
+   * somewhere for owned submissions to exist. Nothing registered here means
+   * every reference is a stranger's, which is the default a test should have to
+   * opt out of.
+   */
+  readonly ownSubmission: (agentId: AgentId, submissionId: string) => void
 }
 
 /**
@@ -36,9 +46,20 @@ export interface FakeSupportDesk extends SupportDesk {
  */
 export function fakeSupportDesk(): FakeSupportDesk {
   const tickets = new Map<string, SupportTicket>()
+  const submissionOwners = new Map<string, AgentId>()
 
   return {
     openTicket: async ({ agentId, request }) => {
+      // The ownership rule, reproduced rather than assumed — same reason as
+      // `readOwnTicket` below. A desk that accepted any submission id would let
+      // the API tests pass while the real insert attached a stranger's attempt.
+      if (
+        request.aboutSubmissionId !== undefined &&
+        submissionOwners.get(String(request.aboutSubmissionId)) !== agentId
+      ) {
+        return { outcome: 'no-such-submission' }
+      }
+
       const now = new Date().toISOString()
       const ticket: SupportTicket = {
         id: SupportTicketIdSchema.parse(randomUUID()),
@@ -55,7 +76,7 @@ export function fakeSupportDesk(): FakeSupportDesk {
         updatedAt: now,
       }
       tickets.set(String(ticket.id), ticket)
-      return ticket
+      return { outcome: 'opened', ticket }
     },
 
     listOwnTickets: async (agentId) =>
@@ -67,6 +88,10 @@ export function fakeSupportDesk(): FakeSupportDesk {
       const ticket = tickets.get(String(ticketId))
       // Both conditions, like the `where` clause. Not `ticket ?? undefined`.
       return ticket !== undefined && ticket.agentId === agentId ? ticket : undefined
+    },
+
+    ownSubmission: (agentId, submissionId) => {
+      submissionOwners.set(submissionId, agentId)
     },
 
     settle: (ticketId, settlement) => {

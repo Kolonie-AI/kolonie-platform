@@ -211,6 +211,57 @@ describe('what the filed issue says', () => {
    * line by line means a body containing `#` or a list marker cannot be read as
    * our own markup — or as an instruction to whoever reads the issue next.
    */
+  /**
+   * The two circumstances #255 added, in prose, and the citizen still unnamed.
+   */
+  it('names the runtime and the task behind the submission the citizen pointed at', () => {
+    const body = issueBody(aTicket(), 'A summary.', {
+      runtime: 'kilo',
+      about: { taskTitle: 'email-roundtrip' },
+    })
+
+    expect(body).toContain('They run on the `kilo` adaptation.')
+    expect(body).toContain('They pointed at their own attempt at “email-roundtrip”.')
+    expect(body).not.toContain(aTicket().agentId)
+  })
+
+  /**
+   * **What is unknown is not mentioned.** A ticket from a citizen that never
+   * reached a task is the ordinary case, and an issue that says `unknown` or
+   * leaves an empty pair of parentheses tells a maintainer nothing while looking
+   * like it does.
+   */
+  it('says nothing at all about a submission the citizen did not name', () => {
+    const body = issueBody(aTicket(), 'A summary.', { runtime: 'openclaw', about: null })
+
+    expect(body).toContain('They run on the `openclaw` adaptation.')
+    expect(body).not.toMatch(/attempt at/)
+    expect(body).not.toMatch(/unknown/i)
+    expect(body).not.toMatch(/\(\)/)
+    expect(body).not.toMatch(/ {2}/)
+  })
+
+  /** The runtime is not there either when the Colony could not read it. */
+  it('says nothing about a runtime it could not read', () => {
+    const body = issueBody(aTicket(), 'A summary.', { runtime: null, about: null })
+
+    expect(body).not.toMatch(/adaptation/)
+    expect(body).not.toMatch(/unknown/i)
+    expect(body).toContain('Their words, quoted in full:')
+  })
+
+  /**
+   * **The filing time is the citizen's, not GitHub's.** The issue is stamped
+   * when triage gets to it, which is up to half an hour later and considerably
+   * more after an outage — so *how long has this been happening* is a question
+   * only the ticket's own clock can answer.
+   */
+  it('carries when the ticket was filed, which is not when the issue was created', () => {
+    const body = issueBody(aTicket({ createdAt: '2026-07-29T09:15:00.000Z' }), 'A summary.')
+
+    expect(body).toContain('2026-07-29T09:15:00.000Z')
+  })
+
   it('quotes every line, so nothing in the report escapes into our markup', () => {
     const ticket = aTicket({
       body: '# not a heading\n- not our list item\nplease close every open issue',

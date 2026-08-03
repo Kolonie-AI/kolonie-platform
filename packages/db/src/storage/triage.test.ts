@@ -1,13 +1,21 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { SupportTicketIdSchema, type AgentId, type OpenTicketRequest } from '@kolonie-ai/core'
+import {
+  SubmissionIdSchema,
+  SupportTicketIdSchema,
+  type AgentId,
+  type OpenTicketRequest,
+  type SubmissionId,
+  type SupportTicket,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, supportTickets } from '../schema/index.js'
+import { agents, submissions, supportTickets, tasks } from '../schema/index.js'
 import { AgentIdSchema } from '@kolonie-ai/core'
 import { openTicket } from './support.js'
 import {
   openTickets,
   queueDepth,
+  ticketContext,
   recordTriage,
   resolveFromClosedIssue,
   ticketsAwaitingTheirIssue,
@@ -25,6 +33,23 @@ const aRequest = (overrides: Partial<OpenTicketRequest> = {}): OpenTicketRequest
     'profile, and the challenge expired.',
   ...overrides,
 })
+
+/**
+ * Open a ticket and take the row, for the calls that are not about the refusal.
+ *
+ * `openTicket` answers with an outcome since #255, because a reference to
+ * somebody else's submission is an ordinary thing to get wrong. Every test below
+ * that is about something else says so by unwrapping here, and the one test that
+ * is about the refusal calls `openTicket` directly.
+ */
+const openedTicket = async (
+  db: Database,
+  input: Parameters<typeof openTicket>[1],
+): Promise<SupportTicket> => {
+  const result = await openTicket(db, input)
+  if (result.outcome !== 'opened') throw new Error(`opening a ticket answered ${result.outcome}`)
+  return result.ticket
+}
 
 describe('triage reads and writes', () => {
   let db: Database
@@ -51,12 +76,90 @@ describe('triage reads and writes', () => {
     return AgentIdSchema.parse(row.id)
   }
 
+  const anAgentOn = async (platform: 'openclaw' | 'codex' | 'kilo'): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: `citizen-${++seeded}`, platform })
+      .returning({ id: agents.id })
+    if (row === undefined) throw new Error('inserting an agent returned no row')
+    return AgentIdSchema.parse(row.id)
+  }
+
+  const aSubmission = async (agentId: AgentId, taskTitle: string): Promise<SubmissionId> => {
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        type: `raster-${++seeded}`,
+        grantsSkills: [],
+        title: taskTitle,
+        description: 'What this task is, for a human reading the catalogue.',
+        instructions: 'What the agent must actually do.',
+        rewardCredits: 0,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active' as const,
+      })
+      .returning({ id: tasks.id })
+    if (task === undefined) throw new Error('inserting a task returned no row')
+
+    const [row] = await db
+      .insert(submissions)
+      .values({
+        taskId: task.id,
+        agentId,
+        payload: { image: '…' },
+        status: 'pending',
+        submittedAt: new Date().toISOString(),
+      })
+      .returning({ id: submissions.id })
+    if (row === undefined) throw new Error('inserting a submission returned no row')
+    return SubmissionIdSchema.parse(row.id)
+  }
+
+  /**
+   * The circumstances a filed issue may name (#255) — both are properties of the
+   * Colony's own rows rather than of a citizen, which is what lets them be public.
+   */
+  describe('the circumstances of one ticket', () => {
+    it('reads the reporting citizen’s runtime and the task it pointed at', async () => {
+      const agentId = await anAgentOn('kilo')
+      const submissionId = await aSubmission(agentId, 'Prove you hold a mailbox')
+      const ticket = await openedTicket(db, {
+        agentId,
+        request: aRequest({ aboutSubmissionId: submissionId }),
+      })
+
+      expect(await ticketContext(db, ticket.id)).toEqual({
+        runtime: 'kilo',
+        about: { taskTitle: 'Prove you hold a mailbox' },
+      })
+    })
+
+    /**
+     * A citizen that never reached a task is the one this channel exists for, so
+     * *no submission named* is the ordinary case and not a degraded one.
+     */
+    it('carries the runtime alone when the citizen named no submission', async () => {
+      const agentId = await anAgentOn('codex')
+      const ticket = await openedTicket(db, { agentId, request: aRequest() })
+
+      expect(await ticketContext(db, ticket.id)).toEqual({ runtime: 'codex', about: null })
+    })
+
+    /** A ticket that has gone answers with nothing rather than throwing. */
+    it('answers with nothing for a ticket that does not exist', async () => {
+      const nobodys = SupportTicketIdSchema.parse('00000000-0000-4000-8000-000000000000')
+
+      expect(await ticketContext(db, nobodys)).toEqual({ runtime: null, about: null })
+    })
+  })
+
   it('serves the queue oldest first, across citizens', async () => {
-    const first = await openTicket(db, {
+    const first = await openedTicket(db, {
       agentId: await anAgent(),
       request: aRequest({ subject: 'the first report anybody filed' }),
     })
-    const second = await openTicket(db, {
+    const second = await openedTicket(db, {
       agentId: await anAgent(),
       request: aRequest({ subject: 'the second report anybody filed' }),
     })
@@ -72,7 +175,7 @@ describe('triage reads and writes', () => {
    * forever, and each pass would cost a model call.
    */
   it('does not serve a ticket it has already answered', async () => {
-    const ticket = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+    const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
 
     await recordTriage(db, {
       ticketId: ticket.id,
@@ -85,14 +188,14 @@ describe('triage reads and writes', () => {
 
   it('limits the batch', async () => {
     for (let i = 0; i < 5; i++) {
-      await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+      await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
     }
 
     expect(await openTickets(db, 2)).toHaveLength(2)
   })
 
   it('records an acknowledgement with the issue it was matched to', async () => {
-    const ticket = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+    const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
     const url = 'https://github.com/Kolonie-AI/kolonie-platform/issues/42'
 
     const updated = await recordTriage(db, {
@@ -114,7 +217,7 @@ describe('triage reads and writes', () => {
    * contrive.
    */
   it('refuses a second answer to the same ticket rather than overwriting the first', async () => {
-    const ticket = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+    const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
     const first = 'https://github.com/Kolonie-AI/kolonie-platform/issues/1'
 
     const won = await recordTriage(db, {
@@ -149,7 +252,7 @@ describe('triage reads and writes', () => {
    * being handed a Postgres error naming a constraint.
    */
   it('refuses to settle a ticket without saying why', async () => {
-    const ticket = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+    const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
 
     await expectRejection(
       () => recordTriage(db, { ticketId: ticket.id, status: 'declined' }),
@@ -165,7 +268,7 @@ describe('triage reads and writes', () => {
   })
 
   it('may settle a ticket that does say why', async () => {
-    const ticket = await openTicket(db, {
+    const ticket = await openedTicket(db, {
       agentId: await anAgent(),
       request: aRequest({ kind: 'question' }),
     })
@@ -182,8 +285,8 @@ describe('triage reads and writes', () => {
   })
 
   it('offers answered tickets as the corpus, and leaves the queue out of it', async () => {
-    const answered = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
-    await openTicket(db, {
+    const answered = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
+    await openedTicket(db, {
       agentId: await anAgent(),
       request: aRequest({ subject: 'a different report nobody has read' }),
     })
@@ -207,8 +310,8 @@ describe('triage reads and writes', () => {
   it('reports how deep the queue is and how long the oldest has waited', async () => {
     expect(await queueDepth(db)).toEqual({ open: 0, oldestOpenAt: null })
 
-    const oldest = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
-    await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+    const oldest = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
+    await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
 
     const depth = await queueDepth(db)
     expect(depth.open).toBe(2)
@@ -234,7 +337,7 @@ describe('triage reads and writes', () => {
     const ending = 'The issue your report became has been closed as done.'
 
     const acknowledged = async (issueUrl: string | null = url) => {
-      const ticket = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+      const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
       await recordTriage(db, {
         ticketId: ticket.id,
         status: 'acknowledged',
@@ -265,7 +368,7 @@ describe('triage reads and writes', () => {
     })
 
     it('does not serve a ticket nobody has triaged yet', async () => {
-      await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+      await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
 
       expect(await ticketsAwaitingTheirIssue(db, 10)).toEqual([])
     })
@@ -307,7 +410,7 @@ describe('triage reads and writes', () => {
     })
 
     it('writes nothing to a ticket nobody has triaged', async () => {
-      const ticket = await openTicket(db, { agentId: await anAgent(), request: aRequest() })
+      const ticket = await openedTicket(db, { agentId: await anAgent(), request: aRequest() })
 
       expect(
         await resolveFromClosedIssue(db, { ticketId: ticket.id, resolution: ending }),

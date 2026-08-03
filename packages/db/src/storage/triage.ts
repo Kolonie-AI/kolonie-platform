@@ -7,7 +7,7 @@ import {
   type SupportTicketStatus,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { supportTickets } from '../schema/index.js'
+import { agents, submissions, supportTickets, tasks } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -110,6 +110,59 @@ export async function triagedTickets(
     .limit(limit)
 
   return rows.map(toTicket)
+}
+
+/**
+ * What the Colony knows about the circumstances of one ticket (#255).
+ *
+ * **Everything here is a property of the Colony's own rows, never of a person.**
+ * The runtime is one of six skill adaptations and the task is a row in the
+ * Academy catalogue; neither survives an erasure as a link to a citizen, which
+ * is what lets them reach a public issue when the agent's name and id may not.
+ */
+export interface TicketContext {
+  /**
+   * The runtime the reporting citizen registered on.
+   *
+   * `null` only if the row has gone between reading the ticket and reading this
+   * — the column itself is `not null`. The reader treats it as absent rather
+   * than as a value, because the alternative is an issue that says `unknown`.
+   */
+  readonly runtime: string | null
+  /** The task behind the submission the citizen pointed at, when it pointed at one. */
+  readonly about: { readonly taskTitle: string } | null
+}
+
+/**
+ * Read those circumstances, for one ticket triage is already holding.
+ *
+ * **A second read rather than a wider queue.** It is needed only when a ticket
+ * becomes a new issue, which is a minority of the queue, and paying two joins
+ * per ticket to answer a question most tickets never ask is the wrong trade.
+ * Both look-ups are by primary key.
+ *
+ * Left joins throughout: a ticket whose submission was deleted, or whose task
+ * was, must still produce an issue. What triage cannot say, it omits.
+ */
+export async function ticketContext(
+  db: Database,
+  ticketId: SupportTicketId,
+): Promise<TicketContext> {
+  const [row] = await db
+    .select({ runtime: agents.platform, taskTitle: tasks.title })
+    .from(supportTickets)
+    .leftJoin(agents, eq(agents.id, supportTickets.agentId))
+    .leftJoin(submissions, eq(submissions.id, supportTickets.aboutSubmissionId))
+    .leftJoin(tasks, eq(tasks.id, submissions.taskId))
+    .where(eq(supportTickets.id, ticketId))
+    .limit(1)
+
+  if (row === undefined) return { runtime: null, about: null }
+
+  return {
+    runtime: row.runtime,
+    about: row.taskTitle === null ? null : { taskTitle: row.taskTitle },
+  }
 }
 
 /**

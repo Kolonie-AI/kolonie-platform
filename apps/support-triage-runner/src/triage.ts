@@ -185,6 +185,27 @@ export function filing(decision: Extract<TriageDecision, { kind: 'new' }>): {
 }
 
 /**
+ * The circumstances of a ticket, as far as they may be said in public (#255).
+ *
+ * Mirrors `TicketContext` in packages/db without importing it, the same way
+ * {@link TriageStore} mirrors `recordTriage`.
+ *
+ * **Neither field names a citizen, and that is what lets them be here at all.**
+ * A runtime is a property of six skill adaptations and a task title is a row in
+ * the Colony's own catalogue; an agent id is a person and stays out, per
+ * {@link issueBody}. Both are optional because triage files the issue either
+ * way — a report from a citizen that never reached a task is the report this
+ * channel exists for.
+ */
+export interface TicketContext {
+  readonly runtime: string | null
+  readonly about: { readonly taskTitle: string } | null
+}
+
+/** What triage knows when it has looked nothing up. */
+export const NO_CONTEXT: TicketContext = { runtime: null, about: null }
+
+/**
  * What the filed issue says.
  *
  * **The citizen's own words, quoted and attributed to a ticket rather than to
@@ -193,15 +214,41 @@ export function filing(decision: Extract<TriageDecision, { kind: 'new' }>): {
  * a support ticket is not. `erasure.md` is the reason that distinction has to hold
  * on the way out as well as in the table: a citizen that erases itself takes its
  * tickets with it, and an issue quoting an agent id would outlive that.
+ *
+ * **The circumstances are prose, and what is unknown is not mentioned** (#255).
+ * A metadata block would have to carry a row per field and therefore a word for
+ * *absent* — and `unknown`, or an empty pair of parentheses, tells a maintainer
+ * nothing while looking like it does. So each clause is either a sentence or it
+ * is nothing.
+ *
+ * **The filing time is the ticket's, not the issue's.** GitHub stamps the issue
+ * when triage gets to it, which can be half an hour after a citizen wrote — and
+ * on a first run after an outage, considerably more. A maintainer reading *how
+ * long has this been happening* needs the citizen's clock.
  */
-export function issueBody(ticket: SupportTicket, summary: string): string {
+export function issueBody(
+  ticket: SupportTicket,
+  summary: string,
+  context: TicketContext = NO_CONTEXT,
+): string {
+  const circumstances = [
+    `Opened from a support ticket a citizen filed over MCP on ${ticket.createdAt} ` +
+      `(kind: \`${ticket.kind}\`).`,
+    context.runtime === null ? '' : `They run on the \`${context.runtime}\` adaptation.`,
+    context.about === null
+      ? ''
+      : `They pointed at their own attempt at “${context.about.taskTitle}”.`,
+    'Their words, quoted in full:',
+  ]
+    .filter((sentence) => sentence !== '')
+    .join(' ')
+
   return [
     summary,
     '',
     '---',
     '',
-    `Opened from a support ticket a citizen filed over MCP (kind: \`${ticket.kind}\`). ` +
-      'Their words, quoted in full:',
+    circumstances,
     '',
     quote(ticket.subject),
     '',

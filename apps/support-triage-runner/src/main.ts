@@ -6,6 +6,7 @@ import {
   queueDepth,
   recordTriage,
   resolveFromClosedIssue,
+  ticketContext,
   ticketsAwaitingTheirIssue,
   triagedTickets,
 } from '@kolonie-ai/db'
@@ -100,6 +101,7 @@ const issues = ((): typeof noIssues => {
 
 const store: TriageStore = {
   queue: (limit) => openTickets(db, limit),
+  context: (ticketId) => ticketContext(db, ticketId),
   answered: (limit) => triagedTickets(db, limit),
   record: (outcome) => recordTriage(db, outcome),
   awaiting: (limit) => ticketsAwaitingTheirIssue(db, limit),

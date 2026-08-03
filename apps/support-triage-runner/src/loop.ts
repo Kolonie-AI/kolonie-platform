@@ -6,6 +6,7 @@ import {
   issueBody,
   readDecision,
   type AnsweredTicket,
+  type TicketContext,
   type TriageDecision,
   type TriageInput,
   type TriageModel,
@@ -29,6 +30,11 @@ export interface TriageStore {
     readonly resolution?: string | null
     readonly issueUrl?: string | null
   }): Promise<SupportTicket | undefined>
+  /**
+   * The circumstances of one ticket, read only when it is about to become an
+   * issue (#255). Mirrors `ticketContext`.
+   */
+  context(ticketId: SupportTicketId): Promise<TicketContext>
   /** Acknowledged tickets carrying an issue URL. Mirrors `ticketsAwaitingTheirIssue`. */
   awaiting(limit: number): Promise<readonly SupportTicket[]>
   /** Settle one because its issue closed. Mirrors `resolveFromClosedIssue`. */
@@ -126,10 +132,16 @@ export async function triageOne(
 
     case 'new': {
       const where = filing(decision)
+      // **Read here rather than with the queue** (#255): only a ticket that
+      // becomes an issue needs it, and that is a minority of the queue. A
+      // failure throws into the caller's per-ticket catch, which leaves the row
+      // `open` for the next tick — the right outcome, because the alternative
+      // is an issue permanently missing the context the next reader wanted.
+      const context = await deps.store.context(ticket.id)
       const url = await deps.issues.create({
         repository: where.repository,
         title: decision.title,
-        body: issueBody(ticket, decision.summary),
+        body: issueBody(ticket, decision.summary, context),
         labels: where.labels,
       })
 

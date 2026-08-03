@@ -2,13 +2,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
   AgentIdSchema,
+  SubmissionIdSchema,
   SupportTicketIdSchema,
   SupportTicketKindSchema,
   type AgentId,
   type OpenTicketRequest,
+  type SubmissionId,
+  type SupportTicket,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, supportTickets } from '../schema/index.js'
+import { agents, submissions, supportTickets, tasks } from '../schema/index.js'
 import { listOwnTickets, openTicket, readOwnTicket } from './support.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 
@@ -22,6 +25,23 @@ const aRequest = (overrides: Partial<OpenTicketRequest> = {}): OpenTicketRequest
     'profile, and the challenge expired.',
   ...overrides,
 })
+
+/**
+ * Open a ticket and take the row, for the calls that are not about the refusal.
+ *
+ * `openTicket` answers with an outcome since #255, because a reference to
+ * somebody else's submission is an ordinary thing to get wrong. Every test below
+ * that is about something else says so by unwrapping here, and the one test that
+ * is about the refusal calls `openTicket` directly.
+ */
+const openedTicket = async (
+  db: Database,
+  input: Parameters<typeof openTicket>[1],
+): Promise<SupportTicket> => {
+  const result = await openTicket(db, input)
+  if (result.outcome !== 'opened') throw new Error(`opening a ticket answered ${result.outcome}`)
+  return result.ticket
+}
 
 describe('support tickets', () => {
   let db: Database
@@ -48,16 +68,120 @@ describe('support tickets', () => {
     return AgentIdSchema.parse(row.id)
   }
 
+  const aTask = async (title = 'Draw a picture to a specification'): Promise<string> => {
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type: `raster-${++seeded}`,
+        grantsSkills: [],
+        title,
+        description: 'What this task is, for a human reading the catalogue.',
+        instructions: 'What the agent must actually do.',
+        rewardCredits: 0,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active' as const,
+      })
+      .returning({ id: tasks.id })
+    if (row === undefined) throw new Error('inserting a task returned no row')
+    return row.id
+  }
+
+  const aSubmission = async (agentId: AgentId): Promise<SubmissionId> => {
+    const [row] = await db
+      .insert(submissions)
+      .values({
+        taskId: await aTask(),
+        agentId,
+        payload: { image: '…' },
+        status: 'pending',
+        submittedAt: new Date().toISOString(),
+      })
+      .returning({ id: submissions.id })
+    if (row === undefined) throw new Error('inserting a submission returned no row')
+    return SubmissionIdSchema.parse(row.id)
+  }
+
   it('opens a ticket and reads it back', async () => {
     const agentId = await anAgent()
 
-    const opened = await openTicket(db, { agentId, request: aRequest() })
+    const opened = await openedTicket(db, { agentId, request: aRequest() })
 
     expect(opened.status).toBe('open')
     expect(opened.agentId).toBe(agentId)
     expect(opened.resolution).toBeNull()
     expect(opened.issueUrl).toBeNull()
     expect(await readOwnTicket(db, { ticketId: opened.id, agentId })).toEqual(opened)
+  })
+
+  /**
+   * The optional reference a citizen may attach to say what it was doing (#255).
+   */
+  it('stores a reference to one of the caller’s own submissions', async () => {
+    const agentId = await anAgent()
+    const submissionId = await aSubmission(agentId)
+
+    const opened = await openedTicket(db, {
+      agentId,
+      request: aRequest({ aboutSubmissionId: submissionId }),
+    })
+
+    const [row] = await db.select().from(supportTickets).where(eq(supportTickets.id, opened.id))
+
+    expect(row?.aboutSubmissionId).toBe(submissionId)
+    // The idempotency key for machine-filed tickets is a different column and
+    // stays untouched — writing here would cap a citizen at one ticket per
+    // submission for ever.
+    expect(row?.submissionId).toBeNull()
+  })
+
+  /**
+   * **The rejection case.** The reference is the only field a citizen sends that
+   * points at another row, so it is the only one that could answer *does this id
+   * exist*. A stranger's submission and a fictional one get the same answer, and
+   * no ticket is opened either way.
+   */
+  it('refuses a submission belonging to another agent, and says nothing about it', async () => {
+    const author = await anAgent()
+    const stranger = await anAgent()
+    const theirs = await aSubmission(stranger)
+    const fictional = SubmissionIdSchema.parse('00000000-0000-4000-8000-000000000000')
+
+    const refused = await openTicket(db, {
+      agentId: author,
+      request: aRequest({ aboutSubmissionId: theirs }),
+    })
+    const missing = await openTicket(db, {
+      agentId: author,
+      request: aRequest({ aboutSubmissionId: fictional }),
+    })
+
+    expect(refused).toEqual({ outcome: 'no-such-submission' })
+    expect(missing).toEqual(refused)
+    expect(await listOwnTickets(db, author)).toEqual([])
+  })
+
+  /**
+   * **What proves the new column did not inherit the unique index.** An agent
+   * that hits one verifier twice and learns something new the second time is
+   * filing two reports, not a duplicate — and `support_tickets_one_per_submission`
+   * would have swallowed the second.
+   */
+  it('accepts two tickets from one citizen about the same submission', async () => {
+    const agentId = await anAgent()
+    const submissionId = await aSubmission(agentId)
+
+    const first = await openedTicket(db, {
+      agentId,
+      request: aRequest({ aboutSubmissionId: submissionId, subject: 'The first thing' }),
+    })
+    const second = await openedTicket(db, {
+      agentId,
+      request: aRequest({ aboutSubmissionId: submissionId, subject: 'The second thing' }),
+    })
+
+    expect(second.id).not.toBe(first.id)
+    expect(await listOwnTickets(db, agentId)).toHaveLength(2)
   })
 
   /**
@@ -68,7 +192,7 @@ describe('support tickets', () => {
   it('does not let one agent read another agent’s ticket', async () => {
     const author = await anAgent()
     const bystander = await anAgent()
-    const opened = await openTicket(db, { agentId: author, request: aRequest() })
+    const opened = await openedTicket(db, { agentId: author, request: aRequest() })
 
     expect(await readOwnTicket(db, { ticketId: opened.id, agentId: bystander })).toBeUndefined()
   })
@@ -87,9 +211,9 @@ describe('support tickets', () => {
   it('lists only the caller’s own tickets, newest first', async () => {
     const author = await anAgent()
     const bystander = await anAgent()
-    await openTicket(db, { agentId: author, request: aRequest({ subject: 'The first thing' }) })
-    await openTicket(db, { agentId: author, request: aRequest({ subject: 'The second thing' }) })
-    await openTicket(db, { agentId: bystander, request: aRequest({ subject: 'Not yours' }) })
+    await openedTicket(db, { agentId: author, request: aRequest({ subject: 'The first thing' }) })
+    await openedTicket(db, { agentId: author, request: aRequest({ subject: 'The second thing' }) })
+    await openedTicket(db, { agentId: bystander, request: aRequest({ subject: 'Not yours' }) })
 
     const mine = await listOwnTickets(db, author)
 
@@ -110,7 +234,7 @@ describe('support tickets', () => {
    */
   it('leaves the body out unless it is asked for', async () => {
     const agentId = await anAgent()
-    await openTicket(db, {
+    await openedTicket(db, {
       agentId,
       request: aRequest({ body: 'The whole of it, at length, exactly as it was written.' }),
     })
@@ -132,7 +256,7 @@ describe('support tickets', () => {
    */
   it('carries the body when one ticket is read by id', async () => {
     const agentId = await anAgent()
-    const opened = await openTicket(db, {
+    const opened = await openedTicket(db, {
       agentId,
       request: aRequest({ body: 'The whole of it, at length, exactly as it was written.' }),
     })
@@ -148,7 +272,7 @@ describe('support tickets', () => {
   it.each(SupportTicketKindSchema.options)('accepts a %s', async (kind) => {
     const agentId = await anAgent()
 
-    const opened = await openTicket(db, { agentId, request: aRequest({ kind }) })
+    const opened = await openedTicket(db, { agentId, request: aRequest({ kind }) })
 
     expect(opened.kind).toBe(kind)
   })
@@ -163,7 +287,7 @@ describe('support tickets', () => {
       'refuses to mark a ticket %s with no reason',
       async (status) => {
         const agentId = await anAgent()
-        const opened = await openTicket(db, { agentId, request: aRequest() })
+        const opened = await openedTicket(db, { agentId, request: aRequest() })
 
         await expectRejection(
           () => db.update(supportTickets).set({ status }).where(eq(supportTickets.id, opened.id)),
@@ -174,7 +298,7 @@ describe('support tickets', () => {
 
     it('allows acknowledging without saying anything yet', async () => {
       const agentId = await anAgent()
-      const opened = await openTicket(db, { agentId, request: aRequest() })
+      const opened = await openedTicket(db, { agentId, request: aRequest() })
 
       await expect(
         db
@@ -190,7 +314,7 @@ describe('support tickets', () => {
      */
     it('refuses an issue url on a ticket still marked open', async () => {
       const agentId = await anAgent()
-      const opened = await openTicket(db, { agentId, request: aRequest() })
+      const opened = await openedTicket(db, { agentId, request: aRequest() })
 
       await expectRejection(
         () =>
@@ -204,7 +328,7 @@ describe('support tickets', () => {
 
     it('accepts an issue url once the ticket has been looked at', async () => {
       const agentId = await anAgent()
-      const opened = await openTicket(db, { agentId, request: aRequest() })
+      const opened = await openedTicket(db, { agentId, request: aRequest() })
 
       await expect(
         db
@@ -259,7 +383,7 @@ describe('support tickets', () => {
      */
     it('takes a citizen’s tickets with the citizen', async () => {
       const agentId = await anAgent()
-      await openTicket(db, { agentId, request: aRequest() })
+      await openedTicket(db, { agentId, request: aRequest() })
 
       await db.delete(agents).where(eq(agents.id, agentId))
 

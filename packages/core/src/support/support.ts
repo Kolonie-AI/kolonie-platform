@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { AgentIdSchema, SupportTicketIdSchema } from '../common/ids.js'
+import { AgentIdSchema, SubmissionIdSchema, SupportTicketIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
@@ -163,6 +163,25 @@ export const OpenTicketRequestSchema = z.object({
   kind: SupportTicketKindSchema,
   subject: z.string().min(TICKET_SUBJECT_MIN_LENGTH).max(TICKET_SUBJECT_MAX_LENGTH),
   body: z.string().min(TICKET_BODY_MIN_LENGTH).max(TICKET_BODY_MAX_LENGTH),
+  /**
+   * One of the caller's own submissions, when the ticket is about an attempt it
+   * made (#255).
+   *
+   * **Optional, and it stays optional.** A citizen that cannot reach a task at
+   * all is the one this channel exists for, and it has no submission to name.
+   * Requiring context would close the channel to exactly the reports that matter
+   * most.
+   *
+   * What it buys is that *what the citizen was doing* is something the citizen
+   * states rather than something triage infers from prose. The filed issue names
+   * the task behind it; the submission id itself does not travel into a public
+   * issue.
+   *
+   * It is refused when it names a submission belonging to another agent, and the
+   * refusal is the same answer an id that does not exist gets — otherwise the
+   * field would be a way to probe which submission ids exist.
+   */
+  aboutSubmissionId: SubmissionIdSchema.optional(),
 })
 export type OpenTicketRequest = z.infer<typeof OpenTicketRequestSchema>
 

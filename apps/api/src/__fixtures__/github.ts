@@ -5,6 +5,7 @@ import type { OpenPullRequestsResult } from '@kolonie-ai/verifiers'
 import type { GithubChallenges, GithubDependencies } from '../github.js'
 import type { ContributionDependencies } from '../contributions.js'
 import { noObstruction } from './obstruction.js'
+import { operatorConfirmed } from '../operators.js'
 
 export interface FakeGithubChallenges extends GithubChallenges {
   /** Every nonce minted for an agent, oldest first. */
@@ -40,7 +41,13 @@ export function fakeGithubChallenges(): FakeGithubChallenges {
 
 /** The GitHub rung wired for a test that does not care about it. */
 export function fakeGithub(): GithubDependencies {
-  return { challenges: fakeGithubChallenges(), obstruction: noObstruction }
+  return {
+    challenges: fakeGithubChallenges(),
+    obstruction: noObstruction,
+    // #237's gate, open by default: a test that has not thought about the
+    // operator requirement is testing the rung, not the gate.
+    operators: operatorConfirmed(),
+  }
 }
 
 /**

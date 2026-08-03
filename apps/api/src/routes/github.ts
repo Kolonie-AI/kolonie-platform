@@ -1,3 +1,4 @@
+import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { openGithubChallenge } from '../github.js'
 import { callerFor } from './authenticated.js'
@@ -27,6 +28,12 @@ export function registerGithubRoute(v1: FastifyInstance, deps: RouteDependencies
     if (caller === null) return reply
 
     const result = await openGithubChallenge(caller.id, github)
+
+    // #237: no confirmed operator, so the platform's own terms refuse this rung.
+
+    if ('refusal' in result) {
+      return reply.status(ERROR_STATUS[result.refusal.code]).send(result.refusal)
+    }
 
     return reply.status(201).send(result.response)
   })

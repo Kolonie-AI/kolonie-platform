@@ -11,6 +11,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { autonomyContracts, autonomyFormInvitations } from '../schema/index.js'
+import { confirmOperatorAddress, recordOperatorAddress } from './operator-addresses.js'
 import { toTimestamp } from './rows.js'
 
 /** An invitation as the citizen needs to see it: nothing of the token. */
@@ -55,6 +56,11 @@ export async function inviteOperator(
           isNull(autonomyFormInvitations.answeredAt),
         ),
       )
+
+    // The address the citizen named, as a standing record (#235). Written here
+    // rather than only on the invitation, so a citizen that named somebody and is
+    // waiting has something to read back.
+    await recordOperatorAddress(tx, agentId, operatorAddress)
 
     const [row] = await tx
       .insert(autonomyFormInvitations)
@@ -125,6 +131,15 @@ export async function recordAutonomyContract(
     const form = await openAutonomyForm(tx, token)
     if (form === null) return null
 
+    // The address this form was sent to, so answering it is what confirms the
+    // address (#235) — there is no separate confirmation click, and asking the
+    // same person for one would be two chances to abandon the flow for one fact.
+    const [invitation] = await tx
+      .select({ address: autonomyFormInvitations.operatorAddress })
+      .from(autonomyFormInvitations)
+      .where(eq(autonomyFormInvitations.token, token))
+      .limit(1)
+
     const [spent] = await tx
       .update(autonomyFormInvitations)
       .set({ answeredAt: sql`now()` })
@@ -163,6 +178,13 @@ export async function recordAutonomyContract(
       .returning()
 
     if (row === undefined) throw new Error('autonomy_contracts insert returned no row')
+
+    // In the same transaction as the contract, so a citizen is never told its
+    // operator answered while the answer itself was lost. This also releases
+    // everything it set aside as `needs-operator` (#234).
+    if (invitation !== undefined) {
+      await confirmOperatorAddress(tx, form.agentId, invitation.address)
+    }
 
     return {
       level: row.level,

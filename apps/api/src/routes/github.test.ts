@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ERROR_STATUS } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
@@ -35,6 +36,7 @@ import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { operatorConfirmed } from '../operators.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 
 let app: FastifyInstance
@@ -43,41 +45,50 @@ let challenges: FakeGithubChallenges
 let apiKey: string
 let issued: ReturnType<FakeStore['issue']>
 
+/**
+ * Every dependency this suite's app needs, as a function.
+ *
+ * A factory rather than an object literal in `beforeEach`, so `#237`'s gate test
+ * can build a second app that differs in exactly one field — and so the fields it
+ * does not care about cannot drift apart between the two.
+ */
+const baseDependencies = () => ({
+  vault: { vault: fakeVault() },
+  accounts: fakeAccounts(),
+  console: fakeConsole(),
+  email: fakeEmail(),
+  registry: fakeRegistry(),
+  store,
+  catalogue: fakeCatalogue(),
+  quests: fakeQuests(),
+  deposits: fakeDepositDependencies(fakeDeposits()),
+  submissions: fakeSubmissions(),
+  guidance: fakeGuidance(),
+  support: support({ desk: fakeSupportDesk() }),
+  erasure: erasure({ desk: fakeErasureDesk() }),
+  retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
+  contributions: fakeContributions(),
+  wakeup: fakeWakeup(),
+  keys: fakeKeys(),
+  solana: fakeSolana(),
+  pow: fakePow(),
+  vision: fakeVision(),
+  academy: fakeAcademy(),
+  github: { challenges, obstruction: noObstruction, operators: operatorConfirmed() },
+  social: fakeSocial(),
+  operatorClaim: fakeOperatorClaim(),
+  autonomy: fakeAutonomy(),
+  domain: fakeDomain(),
+  website: fakeWebsite(),
+  image: fakeImage(),
+  scene: fakeScene(),
+  injection: fakeInjection(),
+})
+
 beforeEach(async () => {
   store = fakeStore()
   challenges = fakeGithubChallenges()
-  app = buildApp({
-    vault: { vault: fakeVault() },
-    accounts: fakeAccounts(),
-    console: fakeConsole(),
-    email: fakeEmail(),
-    registry: fakeRegistry(),
-    store,
-    catalogue: fakeCatalogue(),
-    quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
-    submissions: fakeSubmissions(),
-    guidance: fakeGuidance(),
-    support: support({ desk: fakeSupportDesk() }),
-    erasure: erasure({ desk: fakeErasureDesk() }),
-    retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
-    contributions: fakeContributions(),
-    wakeup: fakeWakeup(),
-    keys: fakeKeys(),
-    solana: fakeSolana(),
-    pow: fakePow(),
-    vision: fakeVision(),
-    academy: fakeAcademy(),
-    github: { challenges, obstruction: noObstruction },
-    social: fakeSocial(),
-    operatorClaim: fakeOperatorClaim(),
-    autonomy: fakeAutonomy(),
-    domain: fakeDomain(),
-    website: fakeWebsite(),
-    image: fakeImage(),
-    scene: fakeScene(),
-    injection: fakeInjection(),
-  })
+  app = buildApp(baseDependencies())
   await app.ready()
   issued = store.issue()
   apiKey = issued.apiKey
@@ -148,5 +159,82 @@ describe('POST /v1/academy/github/challenges', () => {
     // cannot check, which is D-018 — and the natural thing to add by reflex,
     // because every other rung has a second door.
     expect(response.statusCode).toBe(404)
+  })
+})
+
+/**
+ * The rung refuses a citizen with no confirmed human (#237).
+ *
+ * **Refused at the mint, not at the verdict.** Finding this out after creating an
+ * account and handing in a gist would cost the citizen an attempt and the work;
+ * refused here it costs nothing at all.
+ */
+describe('the operator requirement', () => {
+  /**
+   * The same app the suite builds, with the gate shut. Built here rather than
+   * mutated in place, so the tests above keep exercising the open path.
+   */
+  const withoutOperator = async () => {
+    const shut = buildApp({
+      ...baseDependencies(),
+      github: { challenges, obstruction: noObstruction, operators: operatorConfirmed(false) },
+    })
+    await shut.ready()
+    return shut
+  }
+
+  const mint = (target: FastifyInstance, url: string) =>
+    target.inject({ method: 'POST', url, headers: { authorization: `Bearer ${apiKey}` } })
+
+  it('refuses to mint for a citizen with no confirmed operator', async () => {
+    const app = await withoutOperator()
+    try {
+      const response = await mint(app, '/v1/academy/github/challenges')
+
+      expect(response.statusCode).toBe(ERROR_STATUS.conflict)
+      expect(challenges.minted(issued.agent.id)).toHaveLength(0)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('says the requirement is the platform’s rather than the Colony’s', async () => {
+    // A citizen told *the Colony requires this* will reasonably ask the Colony to
+    // relent, and the Colony cannot: GitHub permits a machine account held by a
+    // person, and that is the reading the rung exists under at all.
+    const app = await withoutOperator()
+    try {
+      const response = await mint(app, '/v1/academy/github/challenges')
+
+      expect(response.json().message).toContain('not the Colony')
+      expect(response.json().message).toContain('held by a person')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('names the way out, including the one for a citizen with no human at all', async () => {
+    const app = await withoutOperator()
+    try {
+      const response = await mint(app, '/v1/academy/github/challenges')
+
+      expect(response.json().message).toContain('kolonie.autonomy.ask')
+      expect(response.json().message).toContain('kolonie.tasks.set-aside')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('leaves every other rung open, which is the point of it being narrow', async () => {
+    const app = await withoutOperator()
+    try {
+      // The email rung is not one of #237's two, so a citizen with no operator
+      // reaches it exactly as before.
+      const response = await mint(app, '/v1/academy/email/challenges')
+
+      expect(response.statusCode).not.toBe(ERROR_STATUS.conflict)
+    } finally {
+      await app.close()
+    }
   })
 })

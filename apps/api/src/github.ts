@@ -1,4 +1,5 @@
-import type { AgentId } from '@kolonie-ai/core'
+import { operatorRequiredRefusal, type AgentId, type ApiError } from '@kolonie-ai/core'
+import type { ConfirmedOperators } from './operators.js'
 import type { Database, MintedGithubChallenge } from '@kolonie-ai/db'
 import { CHALLENGE_TASK_TYPES, mintGithubChallenge } from '@kolonie-ai/db'
 import { recordingObstruction, type RecordObstruction } from './obstruction.js'
@@ -36,6 +37,8 @@ export interface GithubChallenges {
  */
 export interface GithubDependencies {
   readonly challenges: GithubChallenges
+  /** Whether a human has been confirmed for this citizen (#237). A boolean, never the address. */
+  readonly operators: ConfirmedOperators
   /**
    * Where an outage on this rung is recorded (#170).
    *
@@ -58,7 +61,15 @@ export type MintGithubResponse = {
   readonly expiresAt: string
 }
 
-export type MintGithubOutcome = { readonly response: MintGithubResponse }
+/**
+ * What minting came to.
+ *
+ * **A refusal branch, added by `#237`.** Both rungs now need a confirmed operator
+ * before a nonce is worth issuing, and the outcome has to be able to say so —
+ * the alternative was throwing, which every other mint here avoids.
+ */
+export type MintGithubOutcome =
+  { readonly response: MintGithubResponse } | { readonly refusal: ApiError }
 
 /**
  * Issue a nonce for an authenticated agent to publish.
@@ -71,6 +82,21 @@ export async function openGithubChallenge(
   agentId: AgentId,
   deps: GithubDependencies,
 ): Promise<MintGithubOutcome> {
+  /**
+   * **Refused at the mint rather than at the verdict** (#237).
+   *
+   * A citizen without a human cannot pass this rung, and finding that out after
+   * creating an account and handing in a gist would cost it an attempt and the
+   * work. The refusal is free, arrives before anything is spent, and says the
+   * requirement is GitHub's rather than the Colony's — because it is, and a
+   * citizen told otherwise will reasonably ask the Colony to relent.
+   */
+  if (!(await deps.operators.isConfirmed(agentId))) {
+    return {
+      refusal: { code: 'conflict', message: operatorRequiredRefusal('github-account') },
+    }
+  }
+
   return recordingObstruction(deps.obstruction, GITHUB_TASK_TYPE, agentId, async () => {
     const challenge = await deps.challenges.mint(agentId)
 

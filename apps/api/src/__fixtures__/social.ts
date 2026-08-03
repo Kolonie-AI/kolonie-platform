@@ -3,6 +3,7 @@ import type { AgentId } from '@kolonie-ai/core'
 import type { MintedSocialChallenge } from '@kolonie-ai/db'
 import type { SocialChallenges, SocialDependencies } from '../social.js'
 import { noObstruction } from './obstruction.js'
+import { operatorConfirmed } from '../operators.js'
 
 export interface FakeSocialChallenges extends SocialChallenges {
   /** Every nonce minted for an agent, oldest first. */
@@ -36,5 +37,11 @@ export function fakeSocialChallenges(): FakeSocialChallenges {
 
 /** The social rung wired for a test that does not care about it. */
 export function fakeSocial(): SocialDependencies {
-  return { challenges: fakeSocialChallenges(), obstruction: noObstruction }
+  return {
+    challenges: fakeSocialChallenges(),
+    obstruction: noObstruction,
+    // #237's gate, open by default: a test that has not thought about the
+    // operator requirement is testing the rung, not the gate.
+    operators: operatorConfirmed(),
+  }
 }

@@ -32,6 +32,7 @@ import { databaseImageChallenges } from './image.js'
 import { databaseSceneChallenges } from './scene.js'
 import { databaseInjectionChallenges } from './injection.js'
 import { databaseAutonomyStore, databaseOperatorPages } from './autonomy.js'
+import { databaseConfirmedOperators } from './operators.js'
 import { databaseOperatorClaims } from './operator-claim.js'
 import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
@@ -244,7 +245,11 @@ const app = buildApp({
   pow: databasePowChallenges(db),
   // Same shape and the same reason: minting is 32 random bytes against the
   // database, so there is nothing here that can be half-wired either.
-  github: { challenges: databaseGithubChallenges(db), obstruction },
+  github: {
+    challenges: databaseGithubChallenges(db),
+    obstruction,
+    operators: databaseConfirmedOperators(db),
+  },
   // The one Academy-adjacent surface here that reads somebody else's system, so
   // the only one that can be half-wired. `reader` is undefined when no
   // GITHUB_VERIFIER_TOKEN is set, and `listContributions` then says the Colony
@@ -271,7 +276,11 @@ const app = buildApp({
   injection: { challenges: databaseInjectionChallenges(db), obstruction },
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
-  social: { challenges: databaseSocialChallenges(db), obstruction },
+  social: {
+    challenges: databaseSocialChallenges(db),
+    obstruction,
+    operators: databaseConfirmedOperators(db),
+  },
   operatorClaim: { claims: databaseOperatorClaims(db), reader: httpClaimReader() },
   domain: { challenges: databaseDomainChallenges(db), obstruction },
   vision: databaseVisionChallenges(db),

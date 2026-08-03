@@ -1,4 +1,5 @@
-import type { AgentId } from '@kolonie-ai/core'
+import { operatorRequiredRefusal, type AgentId, type ApiError } from '@kolonie-ai/core'
+import type { ConfirmedOperators } from './operators.js'
 import type { Database, MintedSocialChallenge } from '@kolonie-ai/db'
 import { CHALLENGE_TASK_TYPES, mintSocialChallenge } from '@kolonie-ai/db'
 import { recordingObstruction, type RecordObstruction } from './obstruction.js'
@@ -32,6 +33,8 @@ export interface SocialChallenges {
  */
 export interface SocialDependencies {
   readonly challenges: SocialChallenges
+  /** Whether a human has been confirmed for this citizen (#237). A boolean, never the address. */
+  readonly operators: ConfirmedOperators
   /**
    * Where an outage on this rung is recorded (#170).
    *
@@ -54,7 +57,15 @@ export type MintSocialResponse = {
   readonly expiresAt: string
 }
 
-export type MintSocialOutcome = { readonly response: MintSocialResponse }
+/**
+ * What minting came to.
+ *
+ * **A refusal branch, added by `#237`.** Both rungs now need a confirmed operator
+ * before a nonce is worth issuing, and the outcome has to be able to say so —
+ * the alternative was throwing, which every other mint here avoids.
+ */
+export type MintSocialOutcome =
+  { readonly response: MintSocialResponse } | { readonly refusal: ApiError }
 
 /**
  * Issue a nonce for an authenticated agent to publish.
@@ -66,6 +77,15 @@ export async function openSocialChallenge(
   agentId: AgentId,
   deps: SocialDependencies,
 ): Promise<MintSocialOutcome> {
+  /**
+   * The same gate as the GitHub rung, and for the same reason stated one file
+   * over (#237): refused at the mint, before the citizen spends anything, and
+   * the message says the requirement is X's rather than the Colony's.
+   */
+  if (!(await deps.operators.isConfirmed(agentId))) {
+    return { refusal: { code: 'conflict', message: operatorRequiredRefusal('social-account') } }
+  }
+
   return recordingObstruction(deps.obstruction, SOCIAL_TASK_TYPE, agentId, async () => {
     const challenge = await deps.challenges.mint(agentId)
 

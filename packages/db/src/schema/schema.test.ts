@@ -254,6 +254,14 @@ describe('schema', () => {
          * could satisfy either would let a citizen's own post read as its
          * operator's vouch.
          */
+        /**
+         * The named human who answers for a citizen (#235). Separate from
+         * `autonomy_form_invitations.operator_address`, which is the envelope one
+         * invitation was addressed to: this is the standing fact — *this human is
+         * reachable now* — with a confirmation, a re-check and a count hanging
+         * off it.
+         */
+        'operator_addresses',
         'operator_claim_challenges',
         'operator_claims',
         /**

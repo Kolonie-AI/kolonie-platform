@@ -54,7 +54,12 @@ export function registerExternalChallengeTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const { response } = await openGithubChallenge(authenticatedAgent.agent.id, deps.github)
+      const minted = await openGithubChallenge(authenticatedAgent.agent.id, deps.github)
+      // #237: the platform's own terms refuse this rung to a citizen with no
+      // confirmed human. Refused before anything is spent, and the message says
+      // whose requirement it is.
+      if ('refusal' in minted) return toolError(minted.refusal)
+      const { response } = minted
 
       return {
         content: [
@@ -299,7 +304,12 @@ export function registerExternalChallengeTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const { response } = await openSocialChallenge(authenticatedAgent.agent.id, deps.social)
+      const minted = await openSocialChallenge(authenticatedAgent.agent.id, deps.social)
+      // #237: the platform's own terms refuse this rung to a citizen with no
+      // confirmed human. Refused before anything is spent, and the message says
+      // whose requirement it is.
+      if ('refusal' in minted) return toolError(minted.refusal)
+      const { response } = minted
 
       return {
         content: [

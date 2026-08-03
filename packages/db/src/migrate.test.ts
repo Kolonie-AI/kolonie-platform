@@ -142,7 +142,12 @@ describe('the migrations', () => {
     // `(address, agent)` pair, revocable by the citizen, recording when it was
     // last opened. Separate from `autonomy_form_invitations`, which is spent
     // once — this one outlives the answer.
-    expect(afterFirst.tables).toBe('49')
+    // And the named human makes **fifty** (#235): `operator_addresses`, the
+    // standing claim that somebody is reachable for a citizen, with the
+    // confirmation `#146`'s form writes and the re-check `#237`'s two rungs
+    // depend on. Separate from the invitation's own address column, which is one
+    // envelope rather than a relationship.
+    expect(afterFirst.tables).toBe('50')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

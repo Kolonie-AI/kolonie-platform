@@ -30,6 +30,7 @@ import {
   autonomyFormInvitations,
   operatorClaimChallenges,
   operatorClaims,
+  operatorAddresses,
   operatorPages,
   taskAttempts,
   taskReports,
@@ -74,6 +75,7 @@ describe('the erasure boundary', () => {
       sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts, task_set_asides,
                         operator_claims, operator_claim_challenges,
                         autonomy_contracts, autonomy_form_invitations, operator_pages,
+                        operator_addresses,
                         agent_contacts, agent_sessions,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
@@ -299,6 +301,11 @@ describe('the erasure boundary', () => {
     })
     void invitation
 
+    // The named human who answers for this citizen (#235).
+    await db
+      .insert(operatorAddresses)
+      .values({ agentId: agent.id, address: 'operator@example.org' })
+
     // The durable page the operator holds (#257).
     await db
       .insert(operatorPages)
@@ -380,6 +387,7 @@ describe('the erasure boundary', () => {
     'autonomy_contracts',
     'autonomy_form_invitations',
     'operator_pages',
+    'operator_addresses',
     'task_reports',
     'report_feedback',
     'moderations',
@@ -867,6 +875,11 @@ describe('the erasure boundary', () => {
        * be a vouch for. The operator's handle survives nowhere, which is the
        * right outcome for somebody who was never a member.
        */
+      /**
+       * The operator's address (#235). Cascades: it names a person who never
+       * joined anything, and `erasure.md` §4 rules out precisely that leftover.
+       */
+      'operator_addresses.agent_id c',
       'operator_claim_challenges.agent_id c',
       'operator_claims.agent_id c',
       /**

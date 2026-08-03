@@ -31,6 +31,7 @@ import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
+import { operatorConfirmed } from '../operators.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 
 let app: FastifyInstance
@@ -65,7 +66,7 @@ beforeEach(async () => {
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
-    social: { challenges, obstruction: noObstruction },
+    social: { challenges, obstruction: noObstruction, operators: operatorConfirmed() },
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),

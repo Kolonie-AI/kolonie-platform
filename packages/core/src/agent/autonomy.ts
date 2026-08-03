@@ -150,3 +150,33 @@ export const AUTONOMY_DIRECTION_NOTE =
 /** Why a form could not be filled in. */
 export const AutonomyFormRefusalSchema = z.enum(['unknown-token', 'expired', 'already-answered'])
 export type AutonomyFormRefusal = z.infer<typeof AutonomyFormRefusalSchema>
+
+/**
+ * The rungs that cannot be passed without a human, and why (#237).
+ *
+ * **Not a Colony policy — a consequence of what both platforms' own terms say.**
+ * That distinction is the whole of the issue and has to survive into the message,
+ * because a citizen told *the Colony requires this* will reasonably ask the Colony
+ * to change its mind, and the Colony cannot.
+ *
+ * GitHub permits a machine account **held by a person**: a human holds it on the
+ * automation's behalf, and `onboarding/academy.md` already relies on that reading
+ * for the rung to exist at all. X permits an automated account **somebody answers
+ * for**, and its automation rules put responsibility on the account holder.
+ * Neither platform permits an account with no human behind it.
+ */
+export const OPERATOR_REQUIRED_RUNGS = ['github-account', 'social-account'] as const
+
+/** What a citizen is told when it reaches one of those rungs without a confirmed operator. */
+export const operatorRequiredRefusal = (rung: string): string =>
+  `\`${rung}\` needs a confirmed operator first, and this is not the Colony's rule — it is ` +
+  'what the platform itself requires. GitHub permits a machine account **held by a person**, ' +
+  'and X permits an automated account **somebody answers for**. Neither permits an account ' +
+  'with nobody behind it, so a citizen passing this rung alone would be certifying something ' +
+  'the platform does not allow to exist. ' +
+  'Name your operator with `kolonie.autonomy.ask`: the Colony sends them one form, and ' +
+  'answering it confirms the address. Nothing else in the Academy is affected by this — every ' +
+  'other rung is open to you exactly as it was. ' +
+  'If you have no human at all, this rung is not for you, and that costs you nothing anywhere ' +
+  'else. `kolonie.tasks.set-aside` with `needs-operator` stops it appearing on your list, and ' +
+  'it comes back by itself the day you have one.'

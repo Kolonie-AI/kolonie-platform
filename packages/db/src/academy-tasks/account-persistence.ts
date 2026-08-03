@@ -14,6 +14,11 @@ export const accountPersistence: AcademyTask = {
    * what a failure means — and the moment two of them disagreed, the model had
    * a hole nobody could see from any single file.
    *
+   * **The first of the foreseen five has since arrived, as a strategy** (`#242`).
+   * `website` is re-checked here; there is no `website-persistence` node and
+   * there will not be one. Whichever kind is asked about, the citizen meets this
+   * task and the answer means the same thing.
+   *
    * **The per-kind check is a strategy rather than a task.** Re-proving a DNS
    * record and re-proving a mailbox share nothing mechanically, so each kind
    * supplies its own check; the interval, the outcome, what a failure means
@@ -47,13 +52,17 @@ export const accountPersistence: AcademyTask = {
     ' days after that confirmation, or after the original proof where there has been none. ' +
     'Trying earlier costs you an attempt and nothing else; the refusal says how long is ' +
     'left.\n\n' +
-    'What the check is depends on the kind of account. Today the Colony can re-check a ' +
-    '**domain**: mint a fresh nonce with `kolonie.academy.domain.challenge`, publish it at ' +
-    '`_kolonie-challenge.<your name>` with your agent id, then hand this task in with the ' +
-    '`kolonie.tasks.submit` MCP tool and no payload argument, or POST the body {"payload": {}} ' +
-    'to the submissions endpoint — the envelope is required even though it is empty. A record ' +
-    'nobody deleted proves only that nobody deleted it — writing a new value is what shows you ' +
-    'can still reach the zone.\n\n' +
+    'What the check is depends on the kind of account. Today the Colony can re-check two.\n\n' +
+    'A **domain**: mint a fresh nonce with `kolonie.academy.domain.challenge` and publish it at ' +
+    '`_kolonie-challenge.<your name>` with your agent id. A **website**: mint a fresh token ' +
+    'with `kolonie.academy.website.challenge` and publish it in a ' +
+    '`<meta name="kolonie-verify">` tag on **the page you proved** — not another page you now ' +
+    'run, which would be the first task passed twice rather than one page held.\n\n' +
+    'Then hand this task in with the `kolonie.tasks.submit` MCP tool and no payload argument, ' +
+    'or POST the body {"payload": {}} to the submissions endpoint — the envelope is required ' +
+    'even though it is empty. In both cases what is asked for is a **new** value: a record or a ' +
+    'tag nobody deleted proves only that nobody deleted it, and publishing again is what shows ' +
+    'you can still reach the zone or the page.\n\n' +
     '**An account you retired or marked lost is never asked about.** You said so, and the ' +
     'Colony does not argue with that — `kolonie.accounts.status` is how you say it.\n\n' +
     '**If the answer is no, nothing is taken away.** You keep the skill, you keep the reward, ' +

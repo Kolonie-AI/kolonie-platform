@@ -9,7 +9,12 @@ import {
   type Submission,
   type VerificationContext,
 } from '@kolonie-ai/core'
-import { AccountPersistenceVerifier, type AccountRecheck } from './account-persistence.js'
+import {
+  AccountPersistenceVerifier,
+  websiteRecheck,
+  type AccountRecheck,
+} from './account-persistence.js'
+import type { PageReader } from './website-verify.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -167,5 +172,118 @@ describe('account-persistence', () => {
     await verifier.verify(submission, context)
 
     expect(asked).toEqual([['domain']])
+  })
+})
+
+/**
+ * The `website` strategy (`#242`).
+ *
+ * Every case is driven through the {@link PageReader} port rather than the
+ * network, which is what the port is for: a timeout and a 5xx are the outcomes
+ * this measurement has to get right, and neither is producible against a real
+ * host on purpose.
+ */
+describe('websiteRecheck', () => {
+  const proved = anAccount({
+    kind: AccountKindSchema.parse('website'),
+    identifier: 'https://example.test/kolonie',
+  })
+
+  const pageServing = (html: string): PageReader => ({
+    read: async () => ({ outcome: 'read', html, contentType: 'text/html' }),
+  })
+
+  const tagged = (token: string) => `<html><head><meta name="kolonie-verify" content="${token}">`
+
+  const strategyOver = (pages: PageReader, tokens: readonly string[] = ['fresh-token']) =>
+    websiteRecheck({ pages, challenges: { openWebsiteTokens: async () => tokens } })
+
+  it('holds when the proved page serves a freshly issued token', async () => {
+    const found = await strategyOver(pageServing(tagged('fresh-token'))).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('held')
+  })
+
+  /**
+   * The measurement this strategy exists for: the *same page*, not any page the
+   * citizen controls now. A citizen that stood up a second site has shown it can
+   * pass `website-verify` twice.
+   */
+  it('reads the URL in the register and never one the citizen names now', async () => {
+    const asked: string[] = []
+    const found = await strategyOver({
+      read: async (url) => {
+        asked.push(url)
+        return { outcome: 'read', html: tagged('fresh-token'), contentType: 'text/html' }
+      },
+    }).recheck(agent.id, proved)
+
+    expect(asked).toEqual([proved.identifier])
+    expect(found.outcome).toBe('held')
+  })
+
+  it('is gone when the page answers and carries no token the Colony issued', async () => {
+    const found = await strategyOver(pageServing(tagged('some-other-token'))).recheck(
+      agent.id,
+      proved,
+    )
+
+    expect(found.outcome).toBe('gone')
+  })
+
+  it('is gone when the page is no longer served', async () => {
+    const found = await strategyOver({
+      read: async () => ({ outcome: 'missing', reason: 'it answered 404.' }),
+    }).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('gone')
+    expect(found.evidence).toContain('404')
+  })
+
+  /**
+   * A host having a bad afternoon is not a citizen abandoning its site, and the
+   * two rejection cases the issue names are the ones that must never read as
+   * evidence about the citizen.
+   */
+  it.each([
+    ['a timeout', 'it did not answer within 10000ms.'],
+    ['a 5xx', 'it answered 503.'],
+  ])('is unavailable on %s, never gone', async (_case, reason) => {
+    const found = await strategyOver({
+      read: async () => ({ outcome: 'unavailable', reason }),
+    }).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('unavailable')
+  })
+
+  /** The tag that earned the skill proves only that nobody deleted it. */
+  it('is gone when the citizen has minted no fresh token', async () => {
+    const found = await strategyOver(pageServing(tagged('fresh-token')), []).recheck(
+      agent.id,
+      proved,
+    )
+
+    expect(found.outcome).toBe('gone')
+    expect(found.evidence).toContain('kolonie.academy.website.challenge')
+  })
+
+  /**
+   * The whole model, asserted where it can be seen: a `gone` page produces a
+   * failed badge and the verdict says the skill is untouched. Nothing in this
+   * package can remove `website`, and the evidence is what tells the citizen so.
+   */
+  it('takes nothing away when the page is gone', async () => {
+    const verifier = new AccountPersistenceVerifier({
+      accounts: { recheckable: async () => [proved] },
+      checks: [
+        strategyOver({ read: async () => ({ outcome: 'missing', reason: 'it answered 404.' }) }),
+      ],
+    })
+
+    const result = await verifier.verify(submission, context)
+
+    expect(result.status).toBe('fail')
+    expect(result.metadata).toMatchObject({ recheck: 'gone', kind: 'website' })
+    expect(result.evidence).toContain('the skill you earned with it is permanent')
   })
 })

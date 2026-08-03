@@ -27,13 +27,20 @@ import {
   type SocialAccounts,
   type SocialChallenges,
 } from './social-account.js'
-import { WebsiteVerifyVerifier, type WebsiteChallenges } from './website-verify.js'
+import {
+  fetchPage,
+  WebsiteVerifyVerifier,
+  type PageReader,
+  type WebsiteChallenges,
+} from './website-verify.js'
 import { SocialPostVerifier, type SocialGrants } from './social-post.js'
 import { DomainVerifyVerifier, type DomainChallenges, type DomainNames } from './domain-verify.js'
 import { DomainPersistenceVerifier, type DomainGrants } from './domain-persistence.js'
 import {
   AccountPersistenceVerifier,
   domainRecheck,
+  websiteRecheck,
+  type AccountRecheck,
   type RecheckableAccounts,
 } from './account-persistence.js'
 export { HeartbeatVerifier, type ContactHistory, type HeartbeatDependencies } from './heartbeat.js'
@@ -164,8 +171,13 @@ export {
   type GithubChallenges,
 } from './github-account.js'
 export {
+  extractTokens,
+  fetchPage,
   isPrivateIP,
+  PAGE_TIMEOUT_MS,
   WebsiteVerifyVerifier,
+  type PageRead,
+  type PageReader,
   type WebsiteVerifyDependencies,
   type WebsiteChallenges,
 } from './website-verify.js'
@@ -184,6 +196,7 @@ export {
 export {
   AccountPersistenceVerifier,
   domainRecheck,
+  websiteRecheck,
   type AccountPersistenceDependencies,
   type AccountRecheck,
   type RecheckableAccounts,
@@ -514,6 +527,16 @@ export interface VerifierDependencies {
   /** Answers which nonces the Colony has issued to an agent for the website rung. */
   readonly websiteChallenges?: WebsiteChallenges
   /**
+   * Reads a page the Colony was told about, for the `website` re-check (`#242`).
+   *
+   * **Optional with a default, unlike every other port here**, because there is
+   * nothing to configure: `fetchPage` needs no credential and no address, and a
+   * deployment that left this unset would silently lose the ability to re-check
+   * a website while holding everything the check needs. It exists as a port at
+   * all so the strategy is testable without a web server.
+   */
+  readonly pages?: PageReader
+  /**
    * Reads a public post on a network the Colony has assessed.
    *
    * **Unlike `github`, this one needs no credential to be useful**, so there is
@@ -795,26 +818,40 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
   }
 
   /**
-   * One re-verification badge over the register (`#152`), with `domain` as its
-   * first and so far only strategy.
+   * One re-verification badge over the register (`#152`), with `domain` and
+   * `website` as its strategies.
    *
    * **It is registered beside `domain-persistence` rather than instead of it.**
    * That badge's row is retired in the seed and its verdicts are untouched — a
    * verifier deployed for a retired task decides nothing, because no submission
    * can be made against it, while removing the verifier would fail any
    * submission still in flight when the seed changed.
+   *
+   * **The strategies are assembled independently and the badge needs one of
+   * them** (`#242`). Requiring every kind's ports would mean a deployment
+   * missing the DNS reader could not re-check a *website* either, which is the
+   * half-wired shape the rest of this registry refuses; the verifier's own first
+   * check already tells a citizen which kinds the Colony can re-check today.
    */
-  if (
-    deps.recheckableAccounts !== undefined &&
-    deps.dns !== undefined &&
-    deps.domainChallenges !== undefined
-  ) {
-    verifiers.push(
-      new AccountPersistenceVerifier({
-        accounts: deps.recheckableAccounts,
-        checks: [domainRecheck({ dns: deps.dns, challenges: deps.domainChallenges })],
-      }),
-    )
+  if (deps.recheckableAccounts !== undefined) {
+    const checks: AccountRecheck[] = []
+
+    if (deps.dns !== undefined && deps.domainChallenges !== undefined) {
+      checks.push(domainRecheck({ dns: deps.dns, challenges: deps.domainChallenges }))
+    }
+
+    if (deps.websiteChallenges !== undefined) {
+      checks.push(
+        websiteRecheck({
+          pages: deps.pages ?? { read: (url) => fetchPage(url) },
+          challenges: deps.websiteChallenges,
+        }),
+      )
+    }
+
+    if (checks.length > 0) {
+      verifiers.push(new AccountPersistenceVerifier({ accounts: deps.recheckableAccounts, checks }))
+    }
   }
 
   /**

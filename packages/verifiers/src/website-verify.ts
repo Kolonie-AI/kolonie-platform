@@ -86,8 +86,99 @@ export class WebsiteVerifyVerifier implements Verifier {
   }
 }
 
-/** Extracts all kolonie-verify tokens from meta tags in HTML. */
-function extractTokens(html: string): string[] {
+/**
+ * What a read of a page answered.
+ *
+ * **Three outcomes rather than two, and the middle one is the whole point.** A
+ * page that answers `404` has told the Colony something about the citizen's
+ * site; a host that times out has told it something about the network between
+ * them. `domain-persistence` draws the same line for a zone (`DnsReadResult`),
+ * and the re-check framework spends a ninety-day wait on the difference.
+ */
+export type PageRead =
+  /** The page answered and this is what it served. */
+  | { readonly outcome: 'read'; readonly html: string; readonly contentType: string }
+  /** The page answered, and there is no page. A real answer about the site. */
+  | { readonly outcome: 'missing'; readonly reason: string }
+  /** Nothing could be established — a timeout, a 5xx, a name that stopped resolving. */
+  | { readonly outcome: 'unavailable'; readonly reason: string }
+
+/**
+ * How the Colony reads a page it was told about.
+ *
+ * Behind a port for the reason `DnsReader` is: the re-check strategy that uses
+ * it has to be testable without a web server, and every failure mode it
+ * distinguishes has to be producible in a unit test. The default implementation
+ * is {@link fetchPage} and it is the only thing that touches the network.
+ */
+export interface PageReader {
+  read(url: string): Promise<PageRead>
+}
+
+/** How long the Colony waits for a page before calling the read unavailable. */
+export const PAGE_TIMEOUT_MS = 10_000
+
+/**
+ * The default {@link PageReader}, over the same SSRF-refusing fetch the rung uses.
+ *
+ * **A refused address is `unavailable` and never `missing`.** `safeFetch` throws
+ * for a private address and for a name that stopped resolving, and neither is
+ * evidence that a citizen took its page down — one is the Colony's own rule and
+ * the other is a name server. Reading them as a gone page would spend a citizen's
+ * standing on the Colony's caution.
+ */
+export function fetchPage(url: string, timeoutMs = PAGE_TIMEOUT_MS): Promise<PageRead> {
+  return withTimeout(url, timeoutMs)
+}
+
+async function withTimeout(url: string, timeoutMs: number): Promise<PageRead> {
+  const abort = new Promise<PageRead>((resolve) =>
+    setTimeout(
+      () => resolve({ outcome: 'unavailable', reason: `it did not answer within ${timeoutMs}ms.` }),
+      timeoutMs,
+    ).unref(),
+  )
+
+  return Promise.race([readPage(url), abort])
+}
+
+async function readPage(url: string): Promise<PageRead> {
+  let response: Response
+
+  try {
+    response = await safeFetch(url)
+  } catch (error: unknown) {
+    return {
+      outcome: 'unavailable',
+      reason: `the Colony could not reach it: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+
+  // A 5xx is the server saying it is broken, which is not the citizen saying
+  // anything; a 404 or a 410 is the site answering that the page is not there.
+  if (response.status >= 500) {
+    return { outcome: 'unavailable', reason: `it answered ${response.status}.` }
+  }
+
+  if (!response.ok) {
+    return { outcome: 'missing', reason: `it answered ${response.status}.` }
+  }
+
+  return {
+    outcome: 'read',
+    html: await response.text(),
+    contentType: response.headers.get('content-type') ?? '',
+  }
+}
+
+/**
+ * Extracts all kolonie-verify tokens from meta tags in HTML.
+ *
+ * Exported so the `website` re-check reads a page exactly as the rung that
+ * granted the skill did. Two extractors would be two answers to *is the token
+ * there*, and the one that drifts is the one a citizen is failed by.
+ */
+export function extractTokens(html: string): string[] {
   const tokens: string[] = []
 
   // A simple regex to find <meta name="kolonie-verify" content="...">

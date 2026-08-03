@@ -10,6 +10,7 @@ import { PERSISTENCE_INTERVAL_DAYS, TaskTypeSchema } from '@kolonie-ai/core'
 import { CHALLENGE_LABEL, type DnsReader } from './dns.js'
 import type { DomainChallenges } from './domain-verify.js'
 import { withSupportPointer } from './support.js'
+import { extractTokens, type PageReader, type WebsiteChallenges } from './website-verify.js'
 
 export { PERSISTENCE_INTERVAL_DAYS }
 
@@ -71,6 +72,14 @@ export interface AccountPersistenceDependencies {
  * and its own phrasing of what a failure means. The moment two of them disagreed
  * about what a failed re-check costs, the model would have had a hole nobody
  * could see from any single file.
+ *
+ * **`website` is the second kind, and it arrived as a strategy** (`#242`). The
+ * issue that asked for it was written as *a `website-persistence` rung* and is
+ * built as {@link websiteRecheck} instead, because a second node would have been
+ * the first of the five this badge exists to prevent. Nothing the issue decided
+ * is lost by that: it re-checks the page that was proved, a page that is gone is
+ * `gone`, a host having a bad afternoon is `unavailable`, and no outcome takes
+ * the `website` skill away.
  *
  * **Nothing is ever revoked.** The skill stays held, the reward is paid once, a
  * failed re-check writes nothing to reputation and nothing to the ledger. What
@@ -262,6 +271,88 @@ export function domainRecheck(deps: {
         evidence:
           `its nameservers serve a freshly issued nonce at ` +
           `\`${CHALLENGE_LABEL}.${account.identifier}\` alongside \`${id}\`.`,
+      }
+    },
+  }
+}
+
+/**
+ * The `website` strategy — the page a citizen proved is still its page (`#242`).
+ *
+ * **It re-checks the URL in the register and never a URL the citizen names now.**
+ * A citizen that let one site go and stood up another has not shown persistence;
+ * it has shown it can pass `website-verify` twice. The account's `identifier` is
+ * the URL the granting submission carried, so asking about that row is what makes
+ * this a measurement of the same page rather than of the same citizen.
+ *
+ * **A fresh token, for `domainRecheck`'s reason.** The meta tag that earned the
+ * skill proves only that nobody deleted it — a citizen whose hosting credentials
+ * are gone, or whose free page quietly changed hands, passes that. Publishing a
+ * newly minted token is what shows it can still write to the page.
+ *
+ * **`website-verify` is the weaker of the two proofs and this does not pretend
+ * otherwise.** The rung passes for a URL on any shared host, so what is
+ * re-checked here is continuing *publish access*, not ownership of anything. The
+ * name a citizen must renew is `domain`, and its persistence is the other
+ * strategy in this file.
+ */
+export function websiteRecheck(deps: {
+  readonly pages: PageReader
+  readonly challenges: WebsiteChallenges
+}): AccountRecheck {
+  return {
+    kind: 'website',
+
+    async recheck(agentId, account) {
+      const tokens = await deps.challenges.openWebsiteTokens(agentId)
+
+      if (tokens.length === 0) {
+        return {
+          outcome: 'gone',
+          evidence:
+            'you have no live challenge. Mint a fresh token with ' +
+            '`kolonie.academy.website.challenge`, publish it in a ' +
+            `\`<meta name="kolonie-verify">\` tag on ${account.identifier}, and submit again. ` +
+            'It must be a new token — the tag you published to earn the skill proves only that ' +
+            'nobody deleted it.',
+        }
+      }
+
+      const read = await deps.pages.read(account.identifier)
+
+      if (read.outcome === 'unavailable') {
+        return { outcome: 'unavailable', evidence: `${account.identifier}: ${read.reason}` }
+      }
+
+      if (read.outcome === 'missing') {
+        return {
+          outcome: 'gone',
+          evidence: `${read.reason} \`${account.identifier}\` no longer serves a page.`,
+        }
+      }
+
+      /**
+       * The content type is read and not enforced, which is where this parts
+       * company with the rung above it. `website-verify` refuses anything that
+       * is not `text/html` because it is deciding what a proof may look like;
+       * here the page was already accepted years earlier, and a site that has
+       * since started serving `application/xhtml+xml` has not stopped being the
+       * citizen's. What decides the outcome is whether the token is on it.
+       */
+      const published = extractTokens(read.html).find((token) => tokens.includes(token))
+
+      if (published === undefined) {
+        return {
+          outcome: 'gone',
+          evidence:
+            `\`${account.identifier}\` answered, and no ` +
+            '`<meta name="kolonie-verify">` tag on it carries a token the Colony issued you.',
+        }
+      }
+
+      return {
+        outcome: 'held',
+        evidence: `\`${account.identifier}\` serves a freshly issued token in a meta tag.`,
       }
     },
   }

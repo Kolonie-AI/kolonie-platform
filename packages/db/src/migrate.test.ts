@@ -114,7 +114,13 @@ describe('the migrations', () => {
     // re-reading one of the judge's verdicts. Only the decisions are stored —
     // which submissions are in the sample is a deterministic query, because a
     // stored selection is one somebody could choose.
-    expect(afterFirst.tables).toBe('41')
+    // And the way in makes **forty-three** (#219): `deposit_addresses`, one
+    // keypair per identity so attribution is a property of the address rather
+    // than of a memo somebody remembered to attach, and `deposits`, every
+    // arrival the Colony observed — including the ones it did not credit, with
+    // the reason, because money that vanished into a correct system is a
+    // sponsor lost for a reason nobody can explain afterwards.
+    expect(afterFirst.tables).toBe('43')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

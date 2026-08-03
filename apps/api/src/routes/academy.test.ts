@@ -1,4 +1,5 @@
 import { CAPABILITY_STAGE, RETIRED_CHALLENGE_STAGE } from '@kolonie-ai/core'
+import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
@@ -44,6 +45,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
   academy = fakeAcademy(answer, challenges)
   return buildApp({
     quests: fakeQuests(),
+    deposits: fakeDepositDependencies(fakeDeposits()),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),
@@ -219,6 +221,7 @@ describe('POST /v1/academy/challenges', () => {
   it('keeps the rung serving when the badge cannot', async () => {
     const withoutCaptcha = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -559,6 +562,7 @@ describe('when the gate is not configured', () => {
   const unconfigured = () =>
     buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -634,6 +638,7 @@ describe('when the gate is not configured', () => {
     const disabledStore = fakeStore()
     const disabled = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

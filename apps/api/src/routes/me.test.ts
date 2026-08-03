@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import {
   API_KEY_PREFIX,
@@ -43,6 +44,7 @@ const withStore = async () => {
   store = fakeStore()
   app = buildApp({
     quests: fakeQuests(),
+    deposits: fakeDepositDependencies(fakeDeposits()),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),
@@ -261,6 +263,7 @@ describe('GET /v1/agents/me', () => {
       }
       app = buildApp({
         quests: fakeQuests(),
+        deposits: fakeDepositDependencies(fakeDeposits()),
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
         console: fakeConsole(),

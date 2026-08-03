@@ -1,4 +1,5 @@
 import { API_BASE_PATH, DEFAULT_RHYTHM_BOUNDS } from '@kolonie-ai/core'
+import { fakeDepositDependencies, fakeDeposits } from '../../../__fixtures__/deposits.js'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../../__fixtures__/academy.js'
 import { fakeAccounts } from '../../../__fixtures__/accounts.js'
@@ -68,6 +69,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       store,
       catalogue: fakeCatalogue(),
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),

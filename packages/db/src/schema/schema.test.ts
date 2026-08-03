@@ -173,6 +173,10 @@ describe('schema', () => {
         'ban_marks',
         'browser_challenges',
         'credentials',
+        // The way in (#219): one deposit address per identity, and every
+        // arrival at one.
+        'deposit_addresses',
+        'deposits',
         /**
          * `domain_challenges` joined with the `domain` rung (kolonie-docs#89):
          * the citizen proves it controls a name's DNS, not a page on somebody

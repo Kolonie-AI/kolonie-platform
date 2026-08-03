@@ -61,6 +61,8 @@ import { fakeConsole } from './console.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../registration.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeQuests, type FakeQuestDesk } from './quests.js'
+import { fakeDepositDependencies, fakeDeposits } from './deposits.js'
+import type { DepositDependencies } from '../deposits.js'
 import { fakeSubmissions } from './submissions.js'
 import { fakeGuidance, type FakeGuidance } from './guidance.js'
 import { fakeSupportDesk, type FakeSupportDesk } from './support.js'
@@ -105,6 +107,8 @@ export interface FakeColony {
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`), in memory. */
   readonly quests: FakeQuestDesk
+  /** The way in (`#219`), in memory. */
+  readonly deposits: DepositDependencies
   /** Where submissions go, behind both surfaces. Overridable the same way. */
   readonly submissions: TaskSubmissions
   /**
@@ -281,6 +285,7 @@ export function fakeColony(): FakeColony {
 
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
+    deposits: fakeDepositDependencies(fakeDeposits()),
 
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),

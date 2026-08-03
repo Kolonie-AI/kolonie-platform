@@ -21,6 +21,7 @@ import type { SocialDependencies } from '../social.js'
 import type { SolanaDependencies } from '../solana.js'
 import type { TaskSubmissions } from '../submissions.js'
 import type { Support } from '../support.js'
+import type { DepositDependencies } from '../deposits.js'
 import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { VaultDependencies } from '../vault.js'
@@ -55,6 +56,8 @@ export interface RouteDependencies {
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`). */
   readonly quests: QuestDesk
+  /** The way in (`#219`). */
+  readonly deposits: DepositDependencies
   readonly submissions: TaskSubmissions
   readonly guidance: TaskGuidance
   readonly support: Support

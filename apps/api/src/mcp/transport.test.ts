@@ -1,4 +1,5 @@
 import { API_KEY_PREFIX, type ApiError, type ApiKey, GetMeResponseSchema } from '@kolonie-ai/core'
+import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../__fixtures__/academy.js'
@@ -81,6 +82,7 @@ describe('the MCP surface over HTTP', () => {
   it('answers an initialize handshake over HTTP', async () => {
     app = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -119,6 +121,7 @@ describe('the MCP surface over HTTP', () => {
   it('is served unversioned — MCP negotiates its own version', async () => {
     app = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -164,6 +167,7 @@ describe('the MCP surface over HTTP', () => {
   it('completes the handshake at the address the agent guide documents', async () => {
     app = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -202,6 +206,7 @@ describe('the MCP surface over HTTP', () => {
   it('still answers at /mcp, so a client configured before the change keeps working', async () => {
     app = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -240,6 +245,7 @@ describe('the MCP surface over HTTP', () => {
   it('offers the same tools whichever of its addresses is used', async () => {
     app = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -287,6 +293,7 @@ describe('the MCP surface over HTTP', () => {
     // or an arriving agent cannot reach the tool that issues it one.
     app = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -384,6 +391,7 @@ describe('the MCP surface over HTTP', () => {
   it('refuses a key that does not resolve, the same way /v1 does', async () => {
     app = buildApp({
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

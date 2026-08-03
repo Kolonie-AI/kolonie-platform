@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
@@ -62,6 +63,7 @@ beforeEach(async () => {
     store,
     catalogue: fakeCatalogue(),
     quests,
+    deposits: fakeDepositDependencies(fakeDeposits()),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
@@ -284,6 +286,7 @@ describe('when the console throws', () => {
       registry: fakeRegistry(),
       store,
       catalogue: fakeCatalogue(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       quests: {
         ...failing,
         listOwn: async () => {

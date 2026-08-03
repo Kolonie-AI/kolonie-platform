@@ -20,6 +20,7 @@ import { registerProfileRoute } from './routes/profile.js'
 import { registerErasureRoutes } from './routes/erasure.js'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { registerQuestRoutes } from './routes/quests.js'
+import { registerDepositRoutes } from './routes/deposits.js'
 import {
   consoleError,
   consoleNotFound,
@@ -78,6 +79,7 @@ export function buildApp({
   store,
   catalogue,
   quests,
+  deposits,
   submissions,
   guidance,
   support,
@@ -274,6 +276,7 @@ export function buildApp({
     store,
     catalogue,
     quests,
+    deposits,
     submissions,
     guidance,
     support,
@@ -334,6 +337,7 @@ export function buildApp({
       registerErasureRoutes(v1, routes)
       registerTaskRoutes(v1, routes)
       registerQuestRoutes(v1, routes)
+      registerDepositRoutes(v1, routes)
       registerAcademyRoutes(v1, routes)
       registerEmailRoutes(v1, routes)
       registerInboundMailRoute(v1, routes)

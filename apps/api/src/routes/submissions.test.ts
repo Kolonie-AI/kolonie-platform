@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -62,6 +63,7 @@ beforeEach(async () => {
     store,
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
+    deposits: fakeDepositDependencies(fakeDeposits()),
     submissions,
     guidance,
     support: support({ desk: fakeSupportDesk() }),

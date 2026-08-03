@@ -750,6 +750,18 @@ describe('the erasure boundary', () => {
       'authority_events.subject_agent_id n',
       'browser_challenges.agent_id c',
       'credentials.agent_id c',
+      /**
+       * The deposit path, and the two halves point opposite ways on purpose
+       * (`#219`).
+       *
+       * The **address** is a fact about a citizen and nothing reads it once the
+       * citizen is gone, so it cascades. The **deposit** is a fact about money
+       * that arrived and was honoured; the credit it became is settled by the
+       * erasure's own arithmetic, and the arrival stays on record with nobody's
+       * name on it — the `tasks.created_by` model, one subject over.
+       */
+      'deposit_addresses.agent_id c',
+      'deposits.agent_id n',
       // The `domain` rung (kolonie-docs#89). Cascades, matching every other
       // challenge table: a challenge is the citizen's own attempt at a rung, and
       // `erasure.md` §2 lists *what it proved* among the things that do not

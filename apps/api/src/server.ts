@@ -4,6 +4,7 @@ import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
+import { databaseDeposits } from './deposits.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
@@ -179,6 +180,21 @@ const app = buildApp({
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
   quests: databaseQuests(db, questAuditPolicy()),
+  /**
+   * The way in (`#219`).
+   *
+   * **The sealing key is read here, at startup, and that placement is the check
+   * rather than a detail of it** — the same argument `banSaltFromEnv` makes. A
+   * process without it must not issue a deposit address whose secret it cannot
+   * seal, and finding that out at the first sponsor's first request is finding
+   * it out in the wrong place.
+   */
+  deposits: {
+    desk: databaseDeposits(db, depositSealingKey()),
+    ...(process.env['DEPOSIT_WEBHOOK_SECRET'] !== undefined && {
+      webhookSecret: process.env['DEPOSIT_WEBHOOK_SECRET'],
+    }),
+  },
   submissions: databaseSubmissions(db),
   guidance: databaseGuidance(db),
   // The limiter is created inside `support()` rather than passed, so the process
@@ -332,4 +348,22 @@ try {
 } catch (error) {
   console.error('kolonie-api failed to start', error)
   process.exit(1)
+}
+
+/**
+ * The key deposit-address secrets are sealed with.
+ *
+ * **Empty is allowed and is not silently safe**: `depositAddressFor` seals with
+ * whatever it is given, and a blank key would seal with a blank key. So an unset
+ * variable is refused here rather than accepted — the deposit path is money, and
+ * a process that cannot protect a keypair must not generate one.
+ */
+function depositSealingKey(): string {
+  const key = process.env['DEPOSIT_SEALING_KEY'] ?? ''
+  if (key.trim().length >= 32) return key
+
+  throw new Error(
+    'DEPOSIT_SEALING_KEY is unset or shorter than 32 characters. It seals the secret half of ' +
+      'every deposit address, and a process that cannot seal one must not generate one.',
+  )
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from './app.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
@@ -53,6 +54,7 @@ describe('the console front door', () => {
       store,
       catalogue: fakeCatalogue(),
       quests: fakeQuests(),
+      deposits: fakeDepositDependencies(fakeDeposits()),
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),

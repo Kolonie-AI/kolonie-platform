@@ -290,6 +290,16 @@ describe('whose money it was', () => {
       // reader — nothing branches on the value — and excluded by name rather
       // than by loosening the pattern, so a real reader still fails this.
       'migrate.test.ts',
+      /**
+       * The deposit path **writes** it, and writing is what this rule is for
+       * (`#219`): a credit that reaches the ledger from outside the Colony is
+       * exactly the entry whose origin nobody could reconstruct afterwards.
+       * Nothing here branches on the value — the write is a constant,
+       * `external`, and the test beside it asserts that constant rather than
+       * reading the column back to decide anything.
+       */
+      'deposits.ts',
+      'deposits.test.ts',
     ])
     const found: string[] = []
 

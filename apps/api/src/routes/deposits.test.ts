@@ -31,7 +31,12 @@ import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
-import { reconcileDeposits, webhookAuthorised, type DepositDesk } from '../deposits.js'
+import {
+  reconcileDeposits,
+  webhookAuthorised,
+  type DepositDesk,
+  type DepositWatcher,
+} from '../deposits.js'
 
 const SECRET = 'a-webhook-secret'
 
@@ -45,7 +50,7 @@ let apiKey: string
  * takes the default parameter, which is how the first version of this test
  * built a configured app and asserted it was unconfigured.
  */
-const build = (webhookSecret: string | null = SECRET) => {
+const build = (webhookSecret: string | null = SECRET, watcher?: DepositWatcher) => {
   store = fakeStore()
   desk = fakeDeposits()
   return buildApp({
@@ -57,7 +62,11 @@ const build = (webhookSecret: string | null = SECRET) => {
     store,
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
-    deposits: { desk, ...(webhookSecret !== null && { webhookSecret }) },
+    deposits: {
+      desk,
+      ...(webhookSecret !== null && { webhookSecret }),
+      ...(watcher !== undefined && { watcher }),
+    },
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
@@ -190,6 +199,100 @@ describe('POST /v1/deposits/webhook', () => {
     expect(webhookAuthorised(SECRET, SECRET)).toBe(true)
     expect(webhookAuthorised('a-webhook-secre', SECRET)).toBe(false)
     expect(webhookAuthorised(undefined, SECRET)).toBe(false)
+  })
+})
+
+describe('POST /v1/deposits/reconcile', () => {
+  const run = (secret: string = SECRET) =>
+    app.inject({
+      method: 'POST',
+      url: '/v1/deposits/reconcile',
+      headers: { authorization: secret },
+    })
+
+  it('credits what the webhook missed and says what it recovered', async () => {
+    // The watcher is wired at build time, so this app is built rather than
+    // reusing the one `beforeEach` made — and its address is asked for on
+    // itself, because the desk is the app's own.
+    const watched: string[] = []
+    const configured = build(SECRET, {
+      transfersAt: async (address) => {
+        watched.push(address)
+        return [aTransfer({ address })]
+      },
+    })
+    await configured.ready()
+
+    const key = String(store.issue({}).apiKey)
+    await configured.inject({
+      method: 'POST',
+      url: '/v1/deposits/address',
+      headers: { authorization: `Bearer ${key}` },
+    })
+
+    const response = await configured.inject({
+      method: 'POST',
+      url: '/v1/deposits/reconcile',
+      headers: { authorization: SECRET },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ addresses: 1, credited: 1, recovered: 1, failed: 0 })
+    expect(watched).toHaveLength(1)
+
+    await configured.close()
+  })
+
+  it('credits nothing twice when it is run again', async () => {
+    const configured = build(SECRET, {
+      transfersAt: async (address) => [aTransfer({ address, signature: 'the-same-one' })],
+    })
+    await configured.ready()
+
+    const key = String(store.issue({}).apiKey)
+    await configured.inject({
+      method: 'POST',
+      url: '/v1/deposits/address',
+      headers: { authorization: `Bearer ${key}` },
+    })
+
+    const reconcile = () =>
+      configured.inject({
+        method: 'POST',
+        url: '/v1/deposits/reconcile',
+        headers: { authorization: SECRET },
+      })
+
+    expect((await reconcile()).json()).toMatchObject({ credited: 1, recovered: 1 })
+    // The second pass sees the same signature and the unique index holds.
+    expect((await reconcile()).json()).toMatchObject({ credited: 0, recovered: 0 })
+
+    await configured.close()
+  })
+
+  it('refuses a caller with the wrong secret, or none', async () => {
+    expect((await run('wrong')).statusCode).toBe(401)
+    expect((await app.inject({ method: 'POST', url: '/v1/deposits/reconcile' })).statusCode).toBe(
+      401,
+    )
+  })
+
+  it('is not mounted at all without a secret, like the webhook it shares', async () => {
+    const unconfigured = build(null)
+    await unconfigured.ready()
+
+    expect(
+      (await unconfigured.inject({ method: 'POST', url: '/v1/deposits/reconcile' })).statusCode,
+    ).toBe(404)
+
+    await unconfigured.close()
+  })
+
+  it('answers zeros rather than an error when no RPC endpoint is configured', async () => {
+    const response = await run()
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ addresses: 0, credited: 0, recovered: 0, failed: 0 })
   })
 })
 

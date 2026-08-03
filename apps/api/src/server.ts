@@ -5,6 +5,7 @@ import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseDeposits } from './deposits.js'
+import { DEPOSIT_RPC_URL_VAR, httpDepositWatcher } from './deposit-watcher.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
@@ -191,6 +192,16 @@ const app = buildApp({
    */
   deposits: {
     desk: databaseDeposits(db, depositSealingKey()),
+    /**
+     * **Absent means the reconciliation reports zeros, and that is deliberate.**
+     * `RPC_URL` is the one part of the deposit path that degrades rather than
+     * refusing to start: the webhook still credits, and what is lost is only
+     * the recovery of a delivery the webhook missed. Saying so at startup is
+     * better than a job that throws on a schedule (kolonie-infra#72).
+     */
+    ...(process.env[DEPOSIT_RPC_URL_VAR]?.trim()
+      ? { watcher: httpDepositWatcher(process.env[DEPOSIT_RPC_URL_VAR].trim()) }
+      : {}),
     ...(process.env['DEPOSIT_WEBHOOK_SECRET'] !== undefined && {
       webhookSecret: process.env['DEPOSIT_WEBHOOK_SECRET'],
     }),

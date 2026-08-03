@@ -4,6 +4,7 @@ import {
   WEBHOOK_REFUSED,
   readDepositAddress,
   readDepositHistory,
+  reconcileDeposits,
   webhookAuthorised,
 } from '../deposits.js'
 import { callerFor } from './authenticated.js'
@@ -85,5 +86,34 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
      * outcome is in the body for whoever is reading the logs.
      */
     return reply.send({ outcome: outcome.outcome })
+  })
+
+  /**
+   * The pass that makes a missed delivery a delay instead of a loss
+   * (kolonie-infra#72).
+   *
+   * **Behind the same secret as the webhook, and mounted under the same
+   * condition**, because it credits balances by the same function and a second
+   * authentication scheme for the same power would be a second thing to get
+   * wrong. The caller is a systemd timer on the host, not a sponsor: no agent
+   * has a reason to run this, and nothing here is per-citizen.
+   *
+   * `POST` rather than `GET` because it writes. It is idempotent all the same —
+   * the unique index on the signature is what makes redelivery safe, and it is
+   * the same index the webhook relies on — so a timer that fires twice, or an
+   * operator who runs it by hand while the timer is running, credits nothing
+   * twice.
+   *
+   * **A pass with no watcher answers `200` with zeros rather than an error.**
+   * `RPC_URL` unset is a degraded deployment that has said so at startup, and a
+   * timer that failed hourly against a deliberate configuration would train
+   * whoever reads the units to ignore it.
+   */
+  v1.post('/deposits/reconcile', async (request, reply) => {
+    if (!webhookAuthorised(request.headers['authorization'], secret)) {
+      return reply.status(ERROR_STATUS[WEBHOOK_REFUSED.code]).send(WEBHOOK_REFUSED)
+    }
+
+    return reply.send(await reconcileDeposits(deposits))
   })
 }

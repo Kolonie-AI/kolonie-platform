@@ -1,6 +1,8 @@
 import type { SubmissionId, TaskType } from '@kolonie-ai/core'
 import {
   claimNextSubmission,
+  recordDeferral,
+  reportRepeatedDeferral,
   expireOverdueSubmissions,
   pruneContactHistory,
   sweepAbandonedAttempts,
@@ -12,6 +14,7 @@ import {
   type Database,
   type ExpiredSubmission,
   type RecordVerdictCommand,
+  type DeferralReportResult,
   type RecordVerdictResult,
   type ReportRoutingResult,
   type RerunReportResult,
@@ -19,6 +22,7 @@ import {
 
 export type {
   ClaimedSubmission,
+  DeferralReportResult,
   ExpiredSubmission,
   RecordVerdictCommand,
   RecordVerdictResult,
@@ -78,6 +82,25 @@ export interface SubmissionQueue {
    * read, for the reason `routeReport` is idempotent: this runner is at-least-once.
    */
   reportFailedRerun(submissionId: SubmissionId): Promise<RerunReportResult>
+  /**
+   * Count that this submission has come back `pending` again, and say how often
+   * (#254).
+   *
+   * **On the row rather than in this process's memory**, which is the whole of
+   * the issue: the count decides that a verifier's trouble has stopped being a
+   * blip, and a redeploy that forgets it can never decide that. The `until`
+   * timestamp stays in the loop's `Map` — a redeploy that retries once
+   * immediately is harmless.
+   */
+  defer(submissionId: SubmissionId): Promise<number>
+  /**
+   * Open one ticket for a submission the Colony keeps failing to verify (#254).
+   *
+   * A no-op below the threshold and after the first ticket, so the loop calls it
+   * without asking *how many* — the row answers that, and asking here would put
+   * the same condition in two places that could disagree.
+   */
+  reportRepeatedDeferral(submissionId: SubmissionId): Promise<DeferralReportResult>
   /** Return a claimed submission to the queue, undecided. */
   release(submissionId: SubmissionId): Promise<boolean>
   /** Mark everything past its deadline, including rows a dead runner abandoned. */
@@ -117,6 +140,8 @@ export function databaseQueue(db: Database): SubmissionQueue {
     record: (command) => recordVerdict(db, command),
     routeReport: (submissionId) => routeSubmissionReport(db, submissionId),
     reportFailedRerun: (submissionId) => reportFailedRerun(db, submissionId),
+    defer: (submissionId) => recordDeferral(db, submissionId),
+    reportRepeatedDeferral: (submissionId) => reportRepeatedDeferral(db, submissionId),
     release: (submissionId) => releaseSubmission(db, submissionId),
     expireOverdue: () => expireOverdueSubmissions(db),
     sweepAbandoned: () => sweepAbandonedAttempts(db),

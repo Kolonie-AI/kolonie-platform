@@ -645,6 +645,13 @@
       "when": 1785760926973,
       "tag": "0091_a_named_human_who_answers",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1785769786265,
+      "tag": "0092_a_deferral_that_survives_a_redeploy",
+      "breakpoints": true
     }
   ]
 }

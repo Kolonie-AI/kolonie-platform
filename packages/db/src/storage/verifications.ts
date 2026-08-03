@@ -358,6 +358,17 @@ export async function recordVerdict(
         // two to agree, so the terminal test decides the timestamp rather than
         // the caller remembering to.
         verifiedAt: isTerminal(next) ? decidedAt : null,
+        /**
+         * The deferral count is cleared by the verdict that decides anything
+         * (#254), in the same statement rather than in a second one that could
+         * disagree with it.
+         *
+         * Without this a submission that flapped three times and then passed
+         * would carry three deferrals into a later re-run, and file a ticket on
+         * its first bad minute — the count would be measuring the citizen's
+         * history rather than the Colony's current trouble.
+         */
+        ...(isTerminal(next) ? { deferrals: 0 } : {}),
       })
       .where(eq(submissions.id, command.submissionId))
       .returning()

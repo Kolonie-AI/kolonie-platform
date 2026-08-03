@@ -1,0 +1,1 @@
+ALTER TABLE "submissions" ADD COLUMN "deferrals" integer DEFAULT 0 NOT NULL;

@@ -58,12 +58,12 @@ export interface LoopDependencies {
    * the whole point is that the next pass remembers. `startRunner` creates one
    * and passes it to every tick; a test can pass its own and read it.
    *
-   * **In memory, deliberately, and the trade-off is stated rather than
-   * hidden.** A restart forgets, so a stuck submission is retried once more and
-   * then backed off again — which is correct behaviour, just not free. Making it
-   * durable means a column and a migration, and the fault this fixes is a
-   * head-of-line block that needs no persistence to end: what matters is that
-   * the *next* poll looks at something else.
+   * **The wait is in memory and the count is not, since #254.** A restart
+   * forgets the `until`, so a stuck submission is retried once more and then
+   * backed off again — correct behaviour, and cheap. The `count` was in memory
+   * too, and that was the defect: it is what decides *this has stopped being a
+   * blip*, so a redeploy resetting it meant the decision could never be reached.
+   * It now lives on `submissions.deferrals` and this map carries a copy.
    */
   readonly deferrals?: Map<SubmissionId, Deferral>
 }
@@ -72,7 +72,15 @@ export interface LoopDependencies {
 export interface Deferral {
   /** Epoch milliseconds before which it is not claimed again. */
   readonly until: number
-  /** How many times in a row it has come back `pending`. */
+  /**
+   * How many times in a row it has come back `pending`.
+   *
+   * **Read back from the row rather than counted here** since #254, so this is
+   * a copy for the backoff arithmetic and no longer the authority. What it is
+   * still used for is the escalation: an entry kept past its wait is what makes
+   * the doubling happen, and deleting it on expiry would hand a stuck
+   * submission a fresh thirty seconds forever.
+   */
   readonly count: number
 }
 
@@ -267,12 +275,42 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   }
 
   if (written.submission.status === 'pending') {
-    // The world could not be read, so the row goes back to the queue — and
-    // without this it goes back to the *front* of it, forever (#132).
-    const previous = deferrals?.get(submission.id)?.count ?? 0
-    const count = previous + 1
+    /**
+     * The world could not be read, so the row goes back to the queue — and
+     * without this it goes back to the *front* of it, forever (#132).
+     *
+     * **The count comes from the row and the wait stays here** (#254). It used
+     * to be `previous + 1` off the map, and a redeploy therefore reset it: half
+     * an hour of production flapping left nothing durable behind, and the Colony
+     * learned about it because a human read a log. The `until` is still in
+     * memory on purpose — forgetting a wait costs one immediate retry, and
+     * forgetting the count costs the only evidence that this is not a blip.
+     */
+    const count = await queue.defer(submission.id)
     const wait = deferralFor(count)
     deferrals?.set(submission.id, { until: Date.now() + wait, count })
+
+    /**
+     * A verifier that keeps failing for our own reasons becomes a ticket, with
+     * nobody having to think of it (#254).
+     *
+     * **After the deferral is recorded, and its failure swallowed** — the same
+     * three properties as the report and the failed re-run above, for the same
+     * reason: a submission's place in the queue can never be lost to a ticket.
+     * The threshold and the idempotency both live in `reportRepeatedDeferral`,
+     * so this call asks nothing about how many.
+     */
+    try {
+      const filed = await queue.reportRepeatedDeferral(submission.id)
+      if (filed.outcome === 'reported') {
+        log.warn(
+          `submission ${submission.id} has been deferred ${count} times; ` +
+            `filed as ticket ${filed.ticketId}`,
+        )
+      }
+    } catch (error) {
+      log.error(`could not file the repeated deferral of submission ${submission.id}`, error)
+    }
 
     // The reason, which this line has never carried. `verifySubmission` puts it
     // in the submission's evidence, where a citizen sees it and an operator

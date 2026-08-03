@@ -12,6 +12,7 @@ import {
 import { deferralFor, startRunner, tick, type Deferral, type Log } from './loop.js'
 import type {
   ClaimedSubmission,
+  DeferralReportResult,
   ExpiredSubmission,
   RecordVerdictCommand,
   RecordVerdictResult,
@@ -178,6 +179,27 @@ class FakeQueue implements SubmissionQueue {
     this.rerunsReported.push(submissionId)
     if (this.rerunReportFails) throw this.rerunReportFails
     return this.rerunReport
+  }
+
+  /**
+   * The durable deferral count (#254), which the fake keeps per submission so a
+   * test can assert the loop reads it back rather than counting in its own map.
+   */
+  readonly deferralCounts = new Map<SubmissionId, number>()
+  readonly deferralsReported: SubmissionId[] = []
+  deferralReport: DeferralReportResult = { outcome: 'nothing-to-do' }
+  deferralReportFails: Error | undefined
+
+  async defer(submissionId: SubmissionId): Promise<number> {
+    const next = (this.deferralCounts.get(submissionId) ?? 0) + 1
+    this.deferralCounts.set(submissionId, next)
+    return next
+  }
+
+  async reportRepeatedDeferral(submissionId: SubmissionId): Promise<DeferralReportResult> {
+    this.deferralsReported.push(submissionId)
+    if (this.deferralReportFails) throw this.deferralReportFails
+    return this.deferralReport
   }
 
   async release(submissionId: SubmissionId): Promise<boolean> {
@@ -576,12 +598,78 @@ describe('a submission the world cannot answer for (#132)', () => {
     const id = 'aaaaaaaa-1111-4111-8111-111111111111' as SubmissionId
     // Expired by the time this tick runs.
     const deferrals = new Map<SubmissionId, Deferral>([[id, { until: Date.now() - 1, count: 3 }]])
+    // The count's authority is the row, not the map (#254).
+    queue.deferralCounts.set(id, 3)
 
     await tick({ queue, verifiers, deferrals })
 
     expect(queue.deferredAsked[0]).toEqual([])
     // And the wait grows from where it left off rather than restarting at 30s.
     expect(deferrals.get(id)?.count).toBe(4)
+  })
+
+  /**
+   * `#254`. The count is what decides that a verifier's trouble has stopped
+   * being a blip, and before this it lived in this process's memory — so a
+   * redeploy reset it and the decision could never be reached. The `until` is
+   * still allowed to be forgotten: that costs one immediate retry.
+   */
+  it('keeps counting across a restart that empties the map', async () => {
+    // One submission only, so all three ticks provably claim the same row —
+    // with two in the queue the fake rotates and the count would be split.
+    const id = 'aaaaaaaa-1111-4111-8111-111111111111' as SubmissionId
+    const queue = new FakeQueue([
+      { submission: aSubmission(id), taskType: EXAMPLE_TASK, agent: anAgent() },
+    ])
+    queue.recordedStatus = 'pending'
+    queue.requeue = true
+
+    await tick({ queue, verifiers, deferrals: new Map() })
+    await tick({ queue, verifiers, deferrals: new Map() })
+
+    // A fresh map each time is the redeploy. The row remembers anyway.
+    const after = new Map<SubmissionId, Deferral>()
+    await tick({ queue, verifiers, deferrals: after })
+
+    expect(after.get(id)?.count).toBe(3)
+  })
+
+  it('asks for a ticket after recording the deferral, and says so once filed', async () => {
+    const queue = stuck()
+    const id = 'aaaaaaaa-1111-4111-8111-111111111111' as SubmissionId
+    queue.deferralReport = { outcome: 'reported', ticketId: 'ticket-1' }
+    const lines: string[] = []
+    const log: Log = { info: () => {}, warn: (m) => lines.push(m), error: () => {} }
+
+    await tick({ queue, verifiers, deferrals: new Map(), log })
+
+    expect(queue.deferralsReported).toEqual([id])
+    expect(lines.join('\n')).toContain('ticket-1')
+  })
+
+  /**
+   * The property `reportFailedRerun` states and this one inherits: **a
+   * submission's place in the queue can never be lost to a ticket.** The
+   * deferral is recorded first and the ticket's failure is swallowed, so a
+   * broken support table cannot turn a deferral into a head-of-line block.
+   */
+  it('still defers the submission when the ticket cannot be filed', async () => {
+    const queue = stuck()
+    const id = 'aaaaaaaa-1111-4111-8111-111111111111' as SubmissionId
+    queue.deferralReportFails = new Error('support_tickets is unhappy')
+    const errors: string[] = []
+    const deferrals = new Map<SubmissionId, Deferral>()
+
+    const outcome = await tick({
+      queue,
+      verifiers,
+      deferrals,
+      log: { info: () => {}, warn: () => {}, error: (m) => errors.push(m) },
+    })
+
+    expect(outcome).toEqual({ kind: 'decided', status: 'pending' })
+    expect(deferrals.get(id)?.count).toBe(1)
+    expect(errors.join('\n')).toContain('could not file the repeated deferral')
   })
 
   it('says why, which the old line never did', async () => {

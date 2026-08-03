@@ -181,6 +181,32 @@ export const submissions = pgTable(
      */
     testRerun: boolean('test_rerun').notNull().default(false),
 
+    /**
+     * How many times in a row this submission has come back `pending` (#254).
+     *
+     * **The count used to live in the verifier runner's memory and that was the
+     * defect.** A redeploy reset it, so half an hour of production flapping —
+     * measured 2026-08-03, the `image-gen` verifier unable to reach its model —
+     * left no durable trace at all, and the Colony found out because a human
+     * read a log on an operator's machine. What the count is *for* is deciding
+     * that this has stopped being a blip, and a number that forgets cannot
+     * decide that.
+     *
+     * **The count is here; the wait is not.** `loop.ts` still holds the `until`
+     * timestamp in a `Map`, deliberately: a redeploy that retries a deferred
+     * submission once immediately is harmless, and a redeploy that forgets how
+     * long this has been going on is the thing worth a column.
+     *
+     * **Reset to zero on any terminal verdict**, so a submission that recovers
+     * does not carry a deferral history into a later re-run. `recordVerdict`
+     * does it in the same statement that writes the status, because two
+     * statements could disagree.
+     *
+     * Defaults to zero, which is correct for every row written before this
+     * column existed: nothing had been counted.
+     */
+    deferrals: integer('deferrals').notNull().default(0),
+
     submittedAt: timestamp('submitted_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

@@ -3,6 +3,7 @@ import {
   type Agent,
   type AgentBalance,
   type AgentId,
+  type AgentHoldings,
   type AgentOrigin,
   type ApiError,
   type GetMeResponse,
@@ -13,6 +14,7 @@ import {
   authenticateSession,
   balanceOfAgent,
   contactGaps,
+  holdingsOf,
   lastRuntimeDeclarationAt,
   nameSession,
   recentOrigins,
@@ -124,6 +126,20 @@ export interface AgentStore extends ProfileStore {
    * anybody else, and the id here is the authenticated caller's.
    */
   originsOf(agentId: AgentId): Promise<readonly AgentOrigin[]>
+  /**
+   * What this citizen holds — accounts by kind, the reach address, how many
+   * names are in the vault (`#144`).
+   *
+   * A port rather than three, because the one line it feeds is one fact about
+   * one citizen and a caller assembling it from three reads would be the second
+   * place that decides what *holding something* means.
+   *
+   * **Nothing on this path opens a vault entry.** The count is counted; the
+   * descriptions are sealed and stay sealed, which matters more than it reads:
+   * `#154` made descriptions decrypt on `list`, so an implementation that
+   * reached for the listing would open sixty-four envelopes for one integer.
+   */
+  holdingsOf(agentId: AgentId): Promise<AgentHoldings>
 }
 
 /**
@@ -250,6 +266,7 @@ export function databaseStore(db: Database): AgentStore {
       await recordOrigin(db, agentId, origin)
     },
     originsOf: (agentId) => recentOrigins(db, agentId),
+    holdingsOf: (agentId) => holdingsOf(db, agentId),
     updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
 }
@@ -366,6 +383,7 @@ export async function me(
   // already in the answer: a citizen looking at its own record should see the
   // place it is calling from right now, not the state before it asked.
   const origins = await store.originsOf(authenticated.agent.id)
+  const holdings = await store.holdingsOf(authenticated.agent.id)
 
   return {
     outcome: 'found',
@@ -377,6 +395,7 @@ export async function me(
       absentHours,
       browserStages,
       origins: [...origins],
+      holdings,
     },
   }
 }

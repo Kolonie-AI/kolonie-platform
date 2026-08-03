@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import {
   AgentBalanceSchema,
+  NO_HOLDINGS,
+  type AgentHoldings,
   AgentIdSchema,
   ApiKeySchema,
   API_KEY_PREFIX,
@@ -73,6 +75,8 @@ export interface FakeStore extends AgentStore {
    * opinion about what deduplication means.
    */
   readonly observedOrigins: () => readonly { agentId: AgentId; origin: ObservedOrigin }[]
+  /** Put a citizen in the position of holding things (`#144`), without a database. */
+  readonly holding: (agentId: AgentId, holdings: AgentHoldings) => void
   /**
    * Put an agent in the position of having just come back after an absence
    * (#144), without a clock and without a contact table.
@@ -144,6 +148,7 @@ export function fakeStore(): FakeStore {
 
   const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
   const observed: { agentId: AgentId; origin: ObservedOrigin }[] = []
+  const heldHoldings = new Map<string, AgentHoldings>()
   /** How long each agent was away before the call being served (#144). */
   const absences = new Map<string, number>()
 
@@ -153,6 +158,10 @@ export function fakeStore(): FakeStore {
     namedSessions: () => named,
 
     observedOrigins: () => observed,
+
+    holding: (agentId, holdings) => {
+      heldHoldings.set(String(agentId), holdings)
+    },
 
     returnAfter: (agentId, hours) => {
       absences.set(String(agentId), hours)
@@ -263,6 +272,9 @@ export function fakeStore(): FakeStore {
      * agree with nothing.
      */
     originsOf: async () => [],
+
+    /** What the citizen holds (`#144`). Nothing, unless a test says otherwise. */
+    holdingsOf: async (agentId: AgentId) => heldHoldings.get(String(agentId)) ?? NO_HOLDINGS,
 
     lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>
       runtimeDeclarations.get(String(agentId)) ?? null,

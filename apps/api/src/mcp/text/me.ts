@@ -1,7 +1,9 @@
 import {
   type Agent,
   type AgentBalance,
+  type AgentHoldings,
   CITIZENSHIP_CONFERRING_SKILLS,
+  holdsAnything,
   isRuntimeDeclarationStale,
   isSkillVersionBehind,
   rhythmAllowanceHours,
@@ -149,6 +151,72 @@ export function citizenStandingAsText(agent: Agent, balance: AgentBalance): stri
     `Skills: ${agent.skills.join(', ')}. ` +
     `${balance.credits} credits, ${balance.reputation} reputation.`
   )
+}
+
+/**
+ * One line naming what the citizen holds (`#144`).
+ *
+ * **The last slice of `#144`, and the one that makes the one-screen budget
+ * bite.** A citizen's accounts and its stored credentials are the most valuable
+ * state it owns, and until this line existed neither was visible anywhere it
+ * would look on waking. A stateless reader that is not told what it holds is one
+ * that will go and prove something it already has.
+ *
+ * **A summary, and never the register.** `kolonie.accounts.list` is the listing;
+ * this is counts, one reach address, and the exceptions. `accountsAsText` exists
+ * and is deliberately not reused — the two are different jobs, and the listing's
+ * shape here would spend on detail the budget this call has for everything.
+ *
+ * **Absent rather than empty for a citizen holding nothing, and its absence is
+ * not an error.** *No accounts, no reach address, 0 vault entries* would tell a
+ * new citizen three times over that it is new, on the call it makes most often.
+ * The task list is where a citizen learns what it has not done yet.
+ *
+ * **The unconfirmed accounts are named where the rest are counted**, because an
+ * account the register failed to re-find is the one thing here to act on, and
+ * *two accounts need attention* would send the citizen to the register to find
+ * out which. An unconfirmed reach address gets its own clause pointing at
+ * promotion: every other unconfirmed account is something that stopped working,
+ * and that one means mail the Colony sends may not arrive.
+ *
+ * **No vault value and no vault description is read to produce this.** The count
+ * is counted — see `vaultEntryCount`, which holds no sealing token and so cannot
+ * open anything even by accident.
+ */
+export function holdingsAsText(holdings: AgentHoldings): string {
+  if (!holdsAnything(holdings)) return ''
+
+  const kinds = Object.entries(holdings.accounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([kind, held]) => `${held} ${kind}`)
+
+  const parts: string[] = []
+  if (kinds.length > 0) parts.push(`Accounts: ${kinds.join(', ')}.`)
+  if (holdings.reachAddress !== null) {
+    parts.push(`The Colony writes to ${holdings.reachAddress}.`)
+  }
+  // Zero is not printed. A citizen with no vault entries and an account or two
+  // is being told about the accounts, not reminded of an empty vault.
+  if (holdings.vaultEntries > 0) {
+    parts.push(
+      `${holdings.vaultEntries} vault ${holdings.vaultEntries === 1 ? 'entry' : 'entries'}.`,
+    )
+  }
+
+  if (holdings.unconfirmed.length > 0) {
+    parts.push(
+      `Last re-check did not find ${holdings.unconfirmed.join(', ')} — a fact, not a penalty, ` +
+        'and a later check clears it.',
+    )
+  }
+  if (holdings.reachAddressUnconfirmed) {
+    parts.push(
+      'That includes the address the Colony writes to, so mail from here may not reach you; ' +
+        'kolonie.mailboxes.promote moves it to another mailbox you have proved.',
+    )
+  }
+
+  return `\n\n${parts.join(' ')}`
 }
 
 /**

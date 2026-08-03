@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import {
   AgentBalanceSchema,
+  NO_HOLDINGS,
+  type AgentHoldings,
   skill,
   AgentIdSchema,
   DEFAULT_RHYTHM_BOUNDS,
@@ -179,6 +181,8 @@ export interface FakeColony {
   readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
   /** Every origin the door observed, in order (`#191`). Recorded, never consulted. */
   readonly observedOrigins: () => readonly { agentId: AgentId; origin: ObservedOrigin }[]
+  /** Put a citizen in the position of holding things (`#144`), without a database. */
+  readonly holding: (agentId: AgentId, holdings: AgentHoldings) => void
   /** Put an agent in the position of having just come back after an absence (#144). */
   readonly returnAfter: (agentId: AgentId, hours: number) => void
   /**
@@ -221,6 +225,7 @@ export function fakeColony(): FakeColony {
   /** Every session a citizen named through this colony, in order (#158). */
   const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
   const observed: { agentId: AgentId; origin: ObservedOrigin }[] = []
+  const heldHoldings = new Map<string, AgentHoldings>()
   /** How long each agent was away before the call being served (#144). */
   const absences = new Map<string, number>()
 
@@ -342,6 +347,10 @@ export function fakeColony(): FakeColony {
     namedSessions: () => named,
     observedOrigins: () => observed,
 
+    holding: (agentId: AgentId, holdings: AgentHoldings) => {
+      heldHoldings.set(String(agentId), holdings)
+    },
+
     returnAfter: (agentId: AgentId, hours: number) => {
       absences.set(String(agentId), hours)
     },
@@ -404,6 +413,13 @@ export function fakeColony(): FakeColony {
       },
 
       originsOf: async () => [],
+      /**
+       * What the citizen holds (`#144`). Empty by default, and settable by
+       * `holding` below — the shape is what `apps/api` has to render, and the
+       * three reads behind it are the storage layer's and are tested against a
+       * real database.
+       */
+      holdingsOf: async (agentId: AgentId) => heldHoldings.get(String(agentId)) ?? NO_HOLDINGS,
 
       /** Written by `updateProfile` below, so the round trip is real (#139). */
       lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>

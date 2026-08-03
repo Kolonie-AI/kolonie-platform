@@ -1,4 +1,10 @@
-import { type ApiKey, GetMeResponseSchema, RUNTIME_DECLARATION_STALE_DAYS } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  type AgentHoldings,
+  type ApiKey,
+  GetMeResponseSchema,
+  RUNTIME_DECLARATION_STALE_DAYS,
+} from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/colony.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
@@ -16,6 +22,14 @@ describe('kolonie.me', () => {
 
     const { agent, credentials } = registered.response
     return { colony, agent, apiKey: credentials.apiKey }
+  }
+
+  /** The half of the answer a model reads, which is what every text assertion here is about. */
+  const meText = async (colony: FakeColony, apiKey: ApiKey) => {
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+    return (result.content as Array<{ text: string }>)[0]?.text ?? ''
   }
 
   it('appears once a credential is presented', async () => {
@@ -113,18 +127,11 @@ describe('kolonie.me', () => {
   /**
    * Identity first, then standing (`#144`).
    *
-   * This is the slice of that issue the package could take: the returner variant
-   * needs `#141` and `#142`, and the holdings line needs `#150`. What is here is
-   * what the identity rung made possible.
+   * The identity and returner halves, which landed first and separately — the
+   * holdings line has its own block below, because it arrived last and is the
+   * part that makes the one-screen budget bite.
    */
   describe('the identity half', () => {
-    const meText = async (colony: FakeColony, apiKey: ApiKey) => {
-      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
-      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
-      await close()
-      return (result.content as Array<{ text: string }>)[0]?.text ?? ''
-    }
-
     const A_BIO =
       'I keep three data pipelines running and I am unusually good at reading a stack trace ' +
       'nobody else wants to look at.'
@@ -297,6 +304,136 @@ describe('kolonie.me', () => {
       const { colony, apiKey } = await authenticatedColony()
 
       expect(await meText(colony, apiKey)).not.toMatch(/in your own words/i)
+    })
+  })
+
+  /**
+   * What the citizen holds — the last slice of `#144`, and the one that makes
+   * the one-screen budget bite.
+   */
+  describe('the holdings line', () => {
+    /**
+     * Account kinds are branded in core, so a literal has to be parsed into one.
+     * A helper rather than a cast at each site: a cast would also accept a kind
+     * that does not exist, which is the thing the brand is there to refuse.
+     */
+    const held = (counts: Record<string, number>): AgentHoldings['accounts'] =>
+      Object.fromEntries(
+        Object.entries(counts).map(([kind, count]) => [AccountKindSchema.parse(kind), count]),
+      )
+
+    it('names accounts by kind, the reach address and the vault count', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      colony.holding(agent.id, {
+        accounts: held({ mailbox: 2, github: 1 }),
+        reachAddress: 'canary@example.invalid',
+        unconfirmed: [],
+        reachAddressUnconfirmed: false,
+        vaultEntries: 4,
+      })
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).toContain('2 mailbox')
+      expect(text).toContain('1 github')
+      expect(text).toContain('canary@example.invalid')
+      expect(text).toContain('4 vault entries')
+    })
+
+    /**
+     * Absent rather than empty, which is the criterion. Three statements of
+     * nothing, delivered on the call a citizen makes most often, would tell a
+     * newcomer that it is new for the third time in one answer.
+     */
+    it('is absent entirely for a citizen holding nothing', async () => {
+      const { colony, apiKey } = await authenticatedColony()
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).not.toMatch(/accounts:/i)
+      expect(text).not.toMatch(/vault entr/i)
+      expect(text).not.toMatch(/writes to/i)
+    })
+
+    it('names an account the register could not find, rather than counting it', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      colony.holding(agent.id, {
+        accounts: held({ github: 1 }),
+        reachAddress: null,
+        unconfirmed: ['canary'],
+        reachAddressUnconfirmed: false,
+        vaultEntries: 0,
+      })
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).toContain('canary')
+      // A fact and not a penalty, and the text says so rather than leaving the
+      // citizen to wonder what it cost.
+      expect(text).toMatch(/not a penalty/i)
+      expect(text).not.toMatch(/promote/i)
+    })
+
+    /** The one case that costs the citizen something gets the remedy named. */
+    it('points an unconfirmed reach address at promotion', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      colony.holding(agent.id, {
+        accounts: held({ mailbox: 2 }),
+        reachAddress: 'stale@example.invalid',
+        unconfirmed: ['stale@example.invalid'],
+        reachAddressUnconfirmed: true,
+        vaultEntries: 0,
+      })
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).toContain('kolonie.mailboxes.promote')
+      expect(text).toMatch(/may not reach you/i)
+    })
+
+    /**
+     * **The one-screen budget, re-checked with the line that makes it bite.**
+     * The earlier check was made before holdings existed; a citizen holding many
+     * skills, many accounts and a full vault is the case the criterion actually
+     * names, and it is the one this asserts.
+     */
+    it('stays one screen for a citizen holding a great deal', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      await colony.store.updateProfile(agent.id, { bio: 'x'.repeat(2000) })
+      colony.standing(agent.id, {
+        skills: ['profile', 'mailbox', 'github', 'website', 'domain', 'social', 'raster'],
+      })
+      colony.holding(agent.id, {
+        accounts: held({ mailbox: 4, github: 3, social: 2, website: 2, domain: 1 }),
+        reachAddress: 'canary@example.invalid',
+        unconfirmed: [],
+        reachAddressUnconfirmed: false,
+        vaultEntries: 64,
+      })
+
+      const text = await meText(colony, apiKey)
+
+      expect(text.length).toBeLessThan(1600)
+    })
+
+    /**
+     * Present as data even when the prose is absent, so a client parsing this
+     * never has to tell an absent field from an empty one.
+     */
+    it('carries the holdings as data for a citizen holding nothing', async () => {
+      const { colony, apiKey } = await authenticatedColony()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+      expect((result.structuredContent as { holdings: unknown }).holdings).toEqual({
+        accounts: {},
+        reachAddress: null,
+        unconfirmed: [],
+        reachAddressUnconfirmed: false,
+        vaultEntries: 0,
+      })
+      await close()
     })
   })
 

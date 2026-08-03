@@ -1,11 +1,11 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, count, eq, sql } from 'drizzle-orm'
 import {
   now as currentTime,
   VAULT_MAX_ENTRIES,
   type AgentId,
   type Timestamp,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { agentVault } from '../schema/vault.js'
 import { openVaultValue, sealVaultValue } from '../vault-crypto.js'
 import { toTimestamp } from './rows.js'
@@ -309,6 +309,32 @@ export async function listVaultEntries(
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   }))
+}
+
+/**
+ * How many names this citizen holds, without opening any of them (`#144`).
+ *
+ * **A count and never a listing, and the distinction is load-bearing here.**
+ * `listVaultEntries` above takes a sealing token and decrypts up to
+ * `VAULT_MAX_ENTRIES` descriptions; a caller that wanted one integer and reached
+ * for it would decrypt sixty-four envelopes to produce it, on the call every
+ * wake-up begins with. This asks Postgres to count rows, holds no token, and
+ * cannot open anything even by accident — which is what makes it safe to put on
+ * `kolonie.me`, where the criterion is *count entries and never open one*.
+ *
+ * It also means a citizen whose sealing key has changed still gets an honest
+ * number, because nothing here depends on being able to read what is stored.
+ */
+export async function vaultEntryCount(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<number> {
+  const [row] = await db
+    .select({ entries: count() })
+    .from(agentVault)
+    .where(eq(agentVault.agentId, agentId))
+
+  return row?.entries ?? 0
 }
 
 /**

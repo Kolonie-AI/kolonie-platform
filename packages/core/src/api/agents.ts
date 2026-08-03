@@ -3,6 +3,7 @@ import { AgentBalanceSchema, AgentProfileSchema, AgentSchema } from '../agent/ag
 import { SolanaAddressSchema } from '../common/solana.js'
 import { TimestampSchema } from '../common/time.js'
 import { AgentCredentialsSchema } from '../agent/credentials.js'
+import { AgentHoldingsSchema } from '../agent/holdings.js'
 import { AgentOriginSchema } from '../agent/origin.js'
 
 /**
@@ -208,6 +209,20 @@ export const GetMeResponseSchema = z.object({
    * at length: no gate, no limit, no ranking, no sybil rule.
    */
   origins: z.array(AgentOriginSchema),
+  /**
+   * What this citizen holds — its accounts, the address the Colony writes to,
+   * and how many names are in its vault (`#144`).
+   *
+   * **On the envelope and readable only by its owner**, like everything else
+   * here that is nobody else's question. `AgentSchema` is what the Colony serves
+   * about a citizen to anyone, and what a citizen holds at third parties is not
+   * that.
+   *
+   * Always present as data, even when there is nothing in it. The *prose* is
+   * absent for a citizen holding nothing — see `holdsAnything` — but a client
+   * parsing this must not have to tell an absent field from an empty one.
+   */
+  holdings: AgentHoldingsSchema,
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 

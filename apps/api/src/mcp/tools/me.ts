@@ -10,6 +10,7 @@ import {
   identityAsText,
   returnerAsText,
   runtimeNudge,
+  holdingsAsText,
   skillVersionNotice,
 } from '../text/me.js'
 
@@ -106,6 +107,7 @@ export function registerMeTools(
         absentHours,
         browserStages,
         origins,
+        holdings,
       } = result.response
 
       return {
@@ -134,7 +136,11 @@ export function registerMeTools(
                 : ` Wallet proved at ${verifiedSolanaAddress}.`) +
               runtimeNudge(runtimeDeclaredAt) +
               skillVersionNotice(agent, deps.skillReleases) +
-              browserStagesAsText(browserStages),
+              browserStagesAsText(browserStages) +
+              // Last, and after everything the citizen is: what it holds is
+              // the detail it reads once it has recognised itself, and the
+              // line is absent entirely for a citizen holding nothing.
+              holdingsAsText(holdings),
           },
         ],
         structuredContent: {
@@ -150,6 +156,10 @@ export function registerMeTools(
           // would spend the one-screen budget on the thing the citizen is
           // least likely to have asked about.
           origins,
+          // Always present as data even when the prose above is absent, so a
+          // client parsing this never has to tell an absent field from an
+          // empty one (`#144`).
+          holdings,
         },
       }
     },

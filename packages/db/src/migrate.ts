@@ -1,7 +1,7 @@
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { sql } from 'drizzle-orm'
 import { createDatabase, databaseUrlFromEnv, type Database } from './client.js'
-import { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA } from './migrations.js'
+import { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA, readJournal } from './migrations.js'
 
 /**
  * How many migrations Drizzle has recorded so far.
@@ -23,6 +23,50 @@ async function appliedCount(db: Database): Promise<number> {
     sql`select count(*)::text as count from ${sql.identifier(MIGRATIONS_SCHEMA)}.__drizzle_migrations`,
   )
   return Number(row?.count ?? 0)
+}
+
+/**
+ * Which migrations the journal has and the database does not.
+ *
+ * **Matched on the timestamp, which is the key drizzle itself decides with.**
+ * `migrate()` records `created_at` as the journal's `when`, and chooses what to
+ * apply by comparing those numbers — so asking the same question the same way
+ * is the only version of this check that cannot disagree with the migrator
+ * about what "applied" means.
+ *
+ * **Not by hash**, which was the first attempt and is wrong in a way worth
+ * recording: the hash is of the file's contents, so a migration whose file was
+ * edited after it ran looks exactly like one that never ran. This repository has
+ * one — `0039_backfill_task_attempts` — and a guard keyed on hashes would have
+ * failed every deploy from the moment it shipped, which is the same class of
+ * false confidence it exists to remove, pointed the other way.
+ *
+ * **Rows with no journal entry are not reported.** They are migrations that were
+ * squashed or renamed after being applied, the database is ahead of the tree,
+ * and nothing is missing. Only the other direction is a failure.
+ *
+ * This exists because on 2026-08-03 the honest answer to *did the migrations
+ * run* was **no** while every signal said yes. Drizzle does not track migrations
+ * individually: it reads the newest `created_at` and applies every journal entry
+ * newer than that, so one entry stamped in the future — `drizzle-kit` takes
+ * `when` from the clock of whichever machine generated the file — silently
+ * swallowed the five that followed it while printing `none pending`. Three
+ * deploys reported success with the tables missing.
+ *
+ * The guard against writing another such entry is in `migrate.test.ts`. This is
+ * the guard against one that is already in a database, which no test in this
+ * repository can reach.
+ */
+async function unappliedTags(db: Database): Promise<readonly string[]> {
+  const journal = await readJournal()
+  if (journal.length === 0) return []
+
+  const rows = await db.execute<{ created_at: string }>(
+    sql`select created_at::text from ${sql.identifier(MIGRATIONS_SCHEMA)}.__drizzle_migrations`,
+  )
+  const applied = new Set(rows.map((row) => Number(row.created_at)))
+
+  return journal.filter((entry) => !applied.has(entry.when)).map((entry) => entry.tag)
 }
 
 /**
@@ -60,6 +104,27 @@ async function main(): Promise<void> {
       console.log(`migrations: none pending, ${after} already applied`)
     } else {
       console.log(`migrations: applied ${after - before}, ${after} in total`)
+    }
+
+    /**
+     * **The line that makes the two above trustworthy.** Without it, `none
+     * pending` is a statement about what drizzle decided rather than about the
+     * database — and those came apart once, expensively.
+     *
+     * Thrown rather than warned: a deploy whose schema did not arrive must stop
+     * at the step that failed, not three steps later in a seed. `deploy.sh`
+     * already exits on a non-zero migrator.
+     */
+    const missing = await unappliedTags(db)
+    if (missing.length > 0) {
+      throw new Error(
+        `${missing.length} migration(s) are in the journal and not in the database: ` +
+          `${missing.join(', ')}.\n\n` +
+          'Drizzle applies journal entries newer than the newest `created_at` it has ' +
+          'recorded, so one entry stamped ahead of its neighbours hides every migration ' +
+          'after it while reporting that there is nothing to do. See ' +
+          'kolonie-infra/docs/disaster-recovery.md, Scenario 6, for the one-row repair.',
+      )
     }
   } finally {
     await db.close()

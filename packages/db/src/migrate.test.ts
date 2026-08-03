@@ -164,6 +164,30 @@ describe('the migrations', () => {
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)
   })
+  /**
+   * **A migration whose file was edited after it ran is still applied**, and a
+   * check keyed on the file's hash would say otherwise. This repository has one
+   * — `0039_backfill_task_attempts`, whose row in production carries the digest
+   * of an older text — so the first version of `unappliedTags` would have failed
+   * every deploy from the moment it shipped.
+   *
+   * The timestamp is what drizzle decides with and what it records, so it is
+   * what the guard asks about. Asserted here as a property of the journal
+   * against the database this suite migrates, which has every migration and
+   * therefore must report nothing missing.
+   */
+  it('reports nothing missing on a database that has been migrated', async () => {
+    const journal = JSON.parse(
+      await readFile(`${MIGRATIONS_FOLDER}/meta/_journal.json`, 'utf8'),
+    ) as { entries: { when: number }[] }
+
+    const rows = await db.execute<{ created_at: string }>(
+      sql`select created_at::text from drizzle.__drizzle_migrations`,
+    )
+    const applied = new Set(rows.map((row) => Number(row.created_at)))
+
+    expect(journal.entries.filter((entry) => !applied.has(entry.when))).toEqual([])
+  })
 })
 
 /**

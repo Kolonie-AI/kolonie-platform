@@ -7,6 +7,8 @@
  * in the import graph of the deploy step. Nothing would call it; it simply has
  * no business being loadable there.
  */
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** Where the generated SQL lives, resolved from this file so cwd does not matter. */
@@ -23,3 +25,26 @@ export const MIGRATIONS_FOLDER = fileURLToPath(new URL('../drizzle', import.meta
  * what `resetDatabase` in `testing.ts` is for.
  */
 export const MIGRATIONS_SCHEMA = 'drizzle'
+
+/** One entry of drizzle's journal, as it is written on disk. */
+export interface JournalEntry {
+  readonly idx: number
+  readonly when: number
+  readonly tag: string
+}
+
+/**
+ * The journal, read from the migrations folder.
+ *
+ * **The journal and not the directory listing**, because the journal is what
+ * drizzle's migrator reads: a `.sql` file nobody registered is not a migration,
+ * and an entry whose file is missing is a migration that cannot run. The test
+ * beside this asserts the two agree, which is the only place that question is
+ * worth asking.
+ */
+export async function readJournal(): Promise<readonly JournalEntry[]> {
+  const raw = await readFile(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')
+  const journal = JSON.parse(raw) as { entries?: JournalEntry[] }
+
+  return journal.entries ?? []
+}

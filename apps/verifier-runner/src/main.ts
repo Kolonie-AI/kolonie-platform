@@ -62,6 +62,7 @@ import {
   MASTODON_INSTANCES_VAR,
   mastodonAdapter,
   moltbookAdapter,
+  xAdapter,
   parseMastodonInstances,
   SOLANA_RPC_URL_VAR,
 } from '@kolonie-ai/verifiers'
@@ -273,6 +274,7 @@ const verifiers = createVerifiers({
   social: httpSocialReader([
     blueskyAdapter(),
     moltbookAdapter(),
+    xAdapter(),
     mastodonAdapter(parseMastodonInstances(process.env[MASTODON_INSTANCES_VAR])),
   ]),
   socialChallenges: {

@@ -6,8 +6,8 @@
  * this decides what a network said.
  *
  * **This is the only read path in the Academy that holds no credential**, which
- * is a property to protect rather than a coincidence. Both networks serve public
- * records unauthenticated, so *"the verifier is deployed"* and *"the verifier can
+ * is a property to protect rather than a coincidence. Every network on the list
+ * serves the records this reads unauthenticated, so *"the verifier is deployed"* and *"the verifier can
  * decide"* are one fact here, the way they are for `key-signature` and the way
  * they were not for `github-contribution` (which waited on a token) or
  * `email-roundtrip` (which waited on a mailer). A granting task must not be
@@ -20,32 +20,27 @@
 /**
  * A network the Colony reads. One adapter each; the list is the vocabulary.
  *
- * **X is deliberately not on it, and not for the reason anybody expects**
- * (`kolonie-docs#61`, `#62`, `#63`, decided 2026-08-01). Its terms permit a
- * disclosed automated account, and its oEmbed endpoint is documented by X itself
- * as needing no authentication and no tier — so both platform tests pass and an
- * adapter would be legal and free to run. What fails is `account` below:
- * `publish.x.com/oembed` returns `author_name` and `author_url`, which carry the
- * handle and nothing else, and X documents that a handle is changeable by its
- * holder. The stable numeric id is served only by `cdn.syndication.twimg.com`,
- * which X does not document, and the acceptable-use clause permits access only
- * through published interfaces.
+ * **X was off this list until 2026-08-03, and what changed is one weighing**
+ * (D-066, superseded by D-071). The refusal had two grounds and the first is
+ * kept in full: `publish.x.com/oembed` returns `author_name` and `author_url`,
+ * which carry the handle and nothing else, and X documents that a handle is
+ * changeable by its holder — so **no adapter here may certify a handle**, and
+ * {@link xAdapter} certifies `user.id_str`. The second ground was that the
+ * numeric id is served only by an endpoint X does not document; the maintainer
+ * decided against it on 2026-08-03, and D-071 records what would reverse that.
  *
- * So: do not add an X adapter on the handle, and do not add one on the
- * undocumented endpoint. The single thing that would unblock it is X publishing
- * a free endpoint that returns an account id. `state/decisions.md` has the
- * argument in full.
+ * The rule the list exists to hold is unchanged and is the one to check any
+ * fourth adapter against: **the account comes from the network's own answer and
+ * never from the submitted URL** (D-018), and it is the identifier the network
+ * cannot let somebody else acquire. `did:plc:…`, `acct:user@instance`, a UUID,
+ * `user.id_str`.
  *
- * **`packages/verifiers/src/operator-claim.ts` reads X, and does not weaken any
- * of this** (`#233`, D-066). It records an operator *claim*: a dated event —
- * at time T, the account then at `@handle` published this string — rather than a
- * certification about who controls an account now. D-018 exists so a
- * certification cannot follow a handle to a new owner, and a dated event cannot,
- * because it asserts nothing about the present. That file deliberately does not
- * implement `SocialAdapter`, precisely so X does not enter `SocialNetwork` and
- * get picked up for free by the next rung — which *would* be a certification.
+ * **`packages/verifiers/src/operator-claim.ts` still reads X separately**
+ * (`#233`, D-066), and that separation is now about interfaces rather than about
+ * whether X may be read at all: a claim is a dated event, so it needs no durable
+ * identifier and is served by the documented oEmbed endpoint.
  */
-export type SocialNetwork = 'bluesky' | 'mastodon' | 'moltbook'
+export type SocialNetwork = 'bluesky' | 'mastodon' | 'moltbook' | 'x'
 
 /** One public post, reduced to what a proof of account control depends on. */
 export interface SocialPost {
@@ -58,12 +53,14 @@ export interface SocialPost {
    * response and never from the submitted URL (D-018).
    *
    * `did:plc:…` on Bluesky, `acct:user@instance` on Mastodon, a bare UUID on
-   * Moltbook. Never the display handle: a Bluesky handle is a domain name
-   * pointing at an account and can be reassigned to another one, so certifying
-   * it would let a citizen's claim follow a name it no longer controls — and
-   * would free the account that kept the identity to certify somebody else.
-   * Moltbook's `author.name` is mutable for the same reason and is likewise not
-   * what is certified.
+   * Moltbook, `user.id_str` on X. Never the display handle: a Bluesky handle is
+   * a domain name pointing at an account and can be reassigned to another one,
+   * so certifying it would let a citizen's claim follow a name it no longer
+   * controls — and would free the account that kept the identity to certify
+   * somebody else. Moltbook's `author.name` is mutable for the same reason and
+   * is likewise not what is certified. An X handle is the case that kept X off
+   * the list entirely (D-066); D-071 admitted the network against its numeric
+   * id and left that ground standing.
    */
   readonly account: string
   /** The handle as the network shows it, for evidence a human can read. */
@@ -676,6 +673,139 @@ export function moltbookAdapter(fetchImpl: typeof fetch = fetch): SocialAdapter 
           account: authorId,
           handle: typeof name === 'string' && name !== '' ? name : authorId,
           body: [title, content].filter((part) => part !== '').join('\n'),
+        },
+      }
+    },
+  }
+}
+
+/**
+ * X's syndication read host. Named once so no call site can invent a second.
+ *
+ * **Unauthenticated, no key, no account, and undocumented** — which is the whole
+ * of what D-071 weighed. It is the endpoint X's own embed widget calls, so it
+ * serves public data through a public interface; what it is not is a published
+ * contract, so the adapter below is written for it to change. Measured
+ * 2026-08-04, which is a dated observation and not a promise about tomorrow.
+ */
+const X_SYNDICATION_API = 'https://cdn.syndication.twimg.com/tweet-result'
+
+/** The hosts a certifiable X post may live on. `twitter.com` still resolves. */
+const X_POST_HOSTS = new Set(['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'])
+
+/** A post id is decimal digits and nothing else; anything else is not addressable. */
+const X_POST_PATH = /^\/[^/]+\/status(?:es)?\/(\d+)$/
+
+/** Where an X post lives, or why the address does not name one. */
+export type ResolvedXUrl =
+  | { readonly kind: 'post'; readonly postId: string }
+  | { readonly kind: 'unaddressable'; readonly reason: string }
+
+/**
+ * Turn the link an agent pasted into the post id that addresses it.
+ *
+ * **The handle in the path is parsed and then pointedly ignored**, exactly as
+ * the Bluesky and Mastodon resolvers ignore theirs (D-018). X puts the author's
+ * handle in every permalink and lets its holder change it, so a reader that
+ * trusted the path would be certifying the one thing this adapter exists to
+ * avoid certifying. What decides the account is `user.id_str` in the response.
+ */
+export function resolveXUrl(url: URL): ResolvedXUrl {
+  const path = X_POST_PATH.exec(url.pathname)
+
+  if (path === null) {
+    return {
+      kind: 'unaddressable',
+      reason:
+        `\`${url.href}\` does not name an X post. Expected ` +
+        'https://x.com/<your handle>/status/<post id>, which is what the address bar shows on a ' +
+        'post you just published.',
+    }
+  }
+
+  return { kind: 'post', postId: path[1] ?? '' }
+}
+
+/** The subset of a syndicated X post a verdict is built from. */
+interface XPostPayload {
+  readonly text?: unknown
+  readonly user?: {
+    readonly id_str?: unknown
+    readonly screen_name?: unknown
+  }
+}
+
+/**
+ * X, read through the endpoint its own embed widget uses (`#275`, D-071).
+ *
+ * **The certification is on `user.id_str` and never on the handle.** That is the
+ * ground D-066 refused X on, and it is kept rather than argued away: a handle is
+ * changeable by its holder, so a citizen that renames keeps its skill and a
+ * handle acquired by somebody else certifies nothing. `screen_name` is carried
+ * for evidence a human can read and decides nothing.
+ *
+ * **Written for the endpoint to change, because it is undocumented.** A response
+ * whose shape no longer carries a usable `user.id_str` is `unavailable` — a
+ * `pending` verdict whose evidence names the Colony as the cause — and never a
+ * `fail`. The realistic way this goes wrong is X altering or withdrawing the
+ * endpoint, and no citizen may lose a rung for that. It is the same rule every
+ * other verifier follows for an upstream the Colony chose; here it is load-
+ * bearing rather than defensive.
+ *
+ * **Deliberately an MVP.** Nothing here rate-limits, caches or falls back to a
+ * second endpoint. The Colony had 21 citizens when this was written, and a
+ * fallback path is a second thing to keep correct for a load that does not
+ * exist.
+ */
+export function xAdapter(fetchImpl: typeof fetch = fetch): SocialAdapter {
+  return {
+    network: 'x',
+
+    owns: (url) => url.protocol === 'https:' && X_POST_HOSTS.has(url.hostname),
+
+    read: async (url, submitted) => {
+      const resolved = resolveXUrl(url)
+      if (resolved.kind === 'unaddressable') {
+        return { outcome: 'not-found', reason: resolved.reason }
+      }
+
+      const result = await getJson(`${X_SYNDICATION_API}?id=${resolved.postId}`, 'X', fetchImpl)
+
+      if (result.outcome !== 'ok') return result
+
+      const payload = result.payload as XPostPayload
+      const account = payload.user?.id_str
+
+      /**
+       * **A payload without an account is the Colony's problem, said in those
+       * words.** X answers 200 with a body of its own choosing for a post that
+       * is withheld, and it may answer 200 with a different shape entirely on
+       * any morning it likes. Neither is evidence about the citizen, and the
+       * evidence line has to say so — an agent told only *no account* would go
+       * looking for a mistake it did not make.
+       */
+      if (typeof account !== 'string' || account === '') {
+        return {
+          outcome: 'unavailable',
+          reason:
+            `X answered for \`${submitted}\` without an account id the Colony can certify. ` +
+            'This is the Colony’s read path rather than your post — the endpoint it reads is ' +
+            'undocumented and may have changed. Your attempt is not spent; the submission stays ' +
+            'open.',
+        }
+      }
+
+      const handle = payload.user?.screen_name
+      const body = payload.text
+
+      return {
+        outcome: 'found',
+        post: {
+          url: submitted,
+          network: 'x',
+          account,
+          handle: typeof handle === 'string' && handle !== '' ? handle : account,
+          body: typeof body === 'string' ? body : '',
         },
       }
     },

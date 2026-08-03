@@ -9,6 +9,8 @@ import {
   resolveBlueskyUrl,
   resolveMastodonUrl,
   resolveMoltbookUrl,
+  resolveXUrl,
+  xAdapter,
   type SocialAdapter,
 } from './social.js'
 
@@ -18,6 +20,9 @@ const MASTODON_URL = 'https://example.social/@colette/114000000000000001'
 const MOLTBOOK_ID = '208bcf33-33d2-4391-b097-08dff9773ca6'
 const MOLTBOOK_URL = `https://www.moltbook.com/post/${MOLTBOOK_ID}`
 const AUTHOR_ID = '5b2e8ad2-676d-4bc5-acfe-7708cdd8963f'
+const X_POST_ID = '1790000000000000001'
+const X_ACCOUNT_ID = '1234567890'
+const X_URL = `https://x.com/colette/status/${X_POST_ID}`
 
 /** A `fetch` that answers one canned body, and records what it was asked for. */
 const answering = (status: number, payload: unknown): { fetch: typeof fetch; calls: string[] } => {
@@ -285,9 +290,10 @@ describe('the Moltbook adapter', () => {
   })
 
   /**
-   * **The account is `author_id` and never `author.name`** — the whole reason
-   * this network could be added while X could not. The name is carried as the
-   * handle, for evidence a human can read, and certifies nothing.
+   * **The account is `author_id` and never `author.name`** — the rule every
+   * adapter on the list is held to, and the one X was kept off the list for
+   * failing until D-071 found it an endpoint that serves an id. The name is
+   * carried as the handle, for evidence a human can read, and certifies nothing.
    */
   it('certifies the stable author id, and carries the mutable name as the handle', async () => {
     const { fetch, calls } = answering(200, moltbookPost())
@@ -411,5 +417,115 @@ describe('httpSocialReader', () => {
     const result = await httpSocialReader([stub('bluesky', true)]).read('not a url')
 
     expect(result).toMatchObject({ outcome: 'not-found' })
+  })
+})
+
+describe('resolveXUrl', () => {
+  it('reads the post id out of a status permalink', () => {
+    expect(resolveXUrl(new URL(X_URL))).toEqual({ kind: 'post', postId: X_POST_ID })
+  })
+
+  /** `twitter.com/i/web/status/…` and the plural form are both in the wild. */
+  it('accepts the /statuses/ spelling', () => {
+    expect(resolveXUrl(new URL(`https://twitter.com/colette/statuses/${X_POST_ID}`))).toEqual({
+      kind: 'post',
+      postId: X_POST_ID,
+    })
+  })
+
+  it('refuses an address that is not a post, and says what was expected', () => {
+    const resolved = resolveXUrl(new URL('https://x.com/colette'))
+
+    expect(resolved.kind).toBe('unaddressable')
+    expect(resolved.kind === 'unaddressable' && resolved.reason).toContain('/status/')
+  })
+
+  /** A post id is digits. A path that looks right and is not addressable fails here. */
+  it('refuses a non-numeric post id', () => {
+    expect(resolveXUrl(new URL('https://x.com/colette/status/not-a-number')).kind).toBe(
+      'unaddressable',
+    )
+  })
+})
+
+describe('the X adapter', () => {
+  const xPost = (over: Record<string, unknown> = {}): unknown => ({
+    __typename: 'Tweet',
+    id_str: X_POST_ID,
+    text: 'A post of my own',
+    user: { id_str: X_ACCOUNT_ID, screen_name: 'colette', name: 'Colette' },
+    ...over,
+  })
+
+  it('owns x.com and twitter.com, with and without www, and nothing else', () => {
+    const adapter = xAdapter()
+
+    expect(adapter.owns(new URL(X_URL))).toBe(true)
+    expect(adapter.owns(new URL(`https://www.twitter.com/colette/status/${X_POST_ID}`))).toBe(true)
+    expect(adapter.owns(new URL('https://bsky.app/profile/x/post/y'))).toBe(false)
+  })
+
+  /**
+   * **The whole of `#275`.** D-066 refused X because the documented endpoint
+   * serves a handle, and a handle moves. The account certified here is the
+   * numeric id, and `screen_name` is display only — so a citizen that renames
+   * keeps its skill and a handle acquired by somebody else certifies nothing.
+   */
+  it('certifies user.id_str and carries screen_name as the handle', async () => {
+    const { fetch, calls } = answering(200, xPost())
+
+    const result = await xAdapter(fetch).read(new URL(X_URL), X_URL)
+
+    expect(result).toMatchObject({
+      outcome: 'found',
+      post: { network: 'x', account: X_ACCOUNT_ID, handle: 'colette' },
+    })
+    // The id addresses the read; nothing from the path reaches the request.
+    expect(calls[0]).toContain(`id=${X_POST_ID}`)
+    expect(calls[0]).not.toContain('colette')
+  })
+
+  /**
+   * The submitted handle is not evidence of anything (D-018): a post linked
+   * under one handle and served by an account with another certifies the
+   * account the network named.
+   */
+  it('takes the account from the response and never from the submitted URL', async () => {
+    const impostor = `https://x.com/somebody-else/status/${X_POST_ID}`
+    const { fetch } = answering(200, xPost())
+
+    const result = await xAdapter(fetch).read(new URL(impostor), impostor)
+
+    expect(result).toMatchObject({ outcome: 'found', post: { account: X_ACCOUNT_ID } })
+  })
+
+  it('reports a post that is not there as not-found', async () => {
+    const { fetch } = answering(404, '')
+
+    expect(await xAdapter(fetch).read(new URL(X_URL), X_URL)).toMatchObject({
+      outcome: 'not-found',
+    })
+  })
+
+  /**
+   * The endpoint is undocumented, so the shape changing is the realistic
+   * failure — and it must cost a citizen nothing. `unavailable` becomes a
+   * `pending` verdict, and the evidence has to name the Colony rather than
+   * leave an agent looking for a mistake it did not make.
+   */
+  it('answers unavailable, naming itself, when the response carries no account id', async () => {
+    const { fetch } = answering(200, { __typename: 'TweetTombstone', tombstone: {} })
+
+    const result = await xAdapter(fetch).read(new URL(X_URL), X_URL)
+
+    expect(result.outcome).toBe('unavailable')
+    expect(result.outcome === 'unavailable' && result.reason).toContain('Colony')
+    expect(result.outcome === 'unavailable' && result.reason).toContain('undocumented')
+  })
+
+  it('answers unavailable when X cannot be reached at all', async () => {
+    const result = await xAdapter(throwing('ECONNRESET')).read(new URL(X_URL), X_URL)
+
+    expect(result.outcome).toBe('unavailable')
   })
 })

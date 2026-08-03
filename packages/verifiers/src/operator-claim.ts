@@ -1,38 +1,37 @@
 /**
  * Reading one public X post, for the operator claim and for nothing else (#233).
  *
- * ## Why this is not an adapter on `SocialReader`
+ * ## Why this is a separate read path from `social.ts`
  *
- * `social.ts` refuses X and says so at length, and **that refusal is unchanged by
- * this file.** It is worth restating why, because a future reader will see X
- * being read here and reasonably wonder whether the ban lapsed:
+ * It is no longer *because X may not be read* — D-071 admitted X to
+ * `SocialNetwork` on 2026-08-03, certified on `user.id_str`. What survives is
+ * the distinction the two paths measure, and it is worth restating because a
+ * future reader will find X in both files and reasonably wonder whether one of
+ * them is redundant.
  *
- * > `publish.x.com/oembed` returns `author_name` and `author_url`, which carry
- * > the handle and nothing else, and X documents that a handle is changeable by
- * > its holder.
- *
- * That defeats the `social-account` rung because a rung issues a **certification**
- * — a standing claim that this citizen controls that account — and D-018 requires
- * a durable identifier so the certification cannot follow a handle to a new
- * owner.
+ * A rung issues a **certification** — a standing claim that this citizen
+ * controls that account — so D-018 requires a durable identifier, and
+ * `social.ts` reads the endpoint that serves one.
  *
  * An operator claim makes no standing claim. It records a **dated event**: at
  * time T, the account then at `@handle` published this string. A handle that
  * moves in 2027 leaves that event exactly as true as it was. So the identifier
- * D-018 demands is not needed here, because there is nothing for it to protect.
+ * D-018 demands is not needed here, because there is nothing for it to protect —
+ * and the documented oEmbed endpoint, which serves a handle and no id, is
+ * sufficient for what a claim asserts.
  *
- * Adding this as a `SocialAdapter` would have put X into `SocialNetwork`, where
- * the next rung to be written would have picked it up for free — and that rung
- * *would* be a certification. Keeping the read path separate is what makes the
- * distinction structural rather than a comment somebody has to notice.
+ * **Keeping them apart is what keeps the weaker read from being borrowed.**
+ * This file does not implement `SocialAdapter`: an oEmbed answer carries no
+ * account id, so a rung that picked it up would be certifying a handle. The
+ * separation is structural rather than a comment somebody has to notice, which
+ * is why it is kept now that the ban it originally enforced is gone.
  *
- * ## oEmbed only
+ * ## oEmbed only, here
  *
- * Not `cdn.syndication.twimg.com`, which X does not document and whose use its
- * acceptable-use clause forbids. If oEmbed cannot answer, the claim fails; there
- * is no fallback. This is the same rule `social.ts` states and it is not relaxed
- * by the argument above — the argument is about *which identifier is needed*, not
- * about which interfaces may be used.
+ * A claim reads `publish.x.com/oembed` and nothing else. There is no fallback:
+ * if oEmbed cannot answer, the claim fails. The syndication endpoint `social.ts`
+ * reads is undocumented and is written for accordingly there; borrowing it here
+ * would take on that risk for a read that does not need it.
  */
 
 /** X's documented oEmbed host. Named once so no call site can invent a second. */

@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { createLog } from '@kolonie-ai/core'
 import type { McpDependencies } from './dependencies.js'
 import { guardTools } from './guard.js'
 import { registerAboutTools } from './tools/about.js'
@@ -21,6 +22,16 @@ import { registerOperatorClaimTools } from './tools/operator-claim.js'
 import { registerVaultTools } from './tools/vault.js'
 
 /**
+ * Where an unanticipated throw goes when the caller wired no logger (`#230`).
+ *
+ * A structured line rather than `console.error`, which is what this defaulted to
+ * before: a fault nobody wired a logger for is exactly the one that has to stay
+ * countable. `server.ts` passes the process logger, so in production this is the
+ * path nothing takes.
+ */
+const defaultLog = createLog({ service: 'api' })
+
+/**
  * The MCP surface of the Colony, in two tiers.
  *
  * `ARCHITECTURE.md` gives MCP its own hostname because it is the address a
@@ -37,6 +48,7 @@ import { registerVaultTools } from './tools/vault.js'
  * agent cannot use is noise in its context window, and a list that names
  * `kolonie.me` to a stranger invites a call that can only fail.
  */
+
 export function createMcpServer(deps: McpDependencies, credential?: string): McpServer {
   const authenticated = credential !== undefined
 
@@ -82,7 +94,11 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
    * Before the first registration, so that every tool below is covered and the
    * ordering is what enforces it rather than a reviewer noticing.
    */
-  guardTools(server, deps.log ?? ((message, detail) => console.error(message, detail)))
+  guardTools(
+    server,
+    deps.log ??
+      ((message, detail) => defaultLog.error(message, detail, { event: 'mcp.tool.threw' })),
+  )
 
   registerAboutTools(server, deps)
   registerRegistrationTool(server, deps)

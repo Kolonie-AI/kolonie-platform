@@ -132,7 +132,10 @@ export async function moderateAnswers(
 
     return { kind: 'scrubbed', redacted: present.length }
   } catch (error) {
-    log.error(`could not moderate the answers on submission ${report.submissionId}`, error)
+    log.error(`could not moderate the answers on submission ${report.submissionId}`, error, {
+      event: 'answers.moderate.failed',
+      submissionId: report.submissionId,
+    })
     return { kind: 'failed', error }
   }
 }
@@ -176,14 +179,27 @@ export async function answerTick(
         log.info(
           `report ${report.submissionId} scrubbed` +
             (judgement.redacted > 0 ? ` (${judgement.redacted} span(s) removed)` : ''),
+          {
+            event: 'answers.judged',
+            submissionId: report.submissionId,
+            verdict: 'scrubbed',
+            redacted: judgement.redacted,
+          },
         )
         break
       case 'refused':
         outcome.refused++
-        log.info(`report ${report.submissionId} refused: ${judgement.reason}`)
+        log.info(`report ${report.submissionId} refused: ${judgement.reason}`, {
+          event: 'answers.judged',
+          submissionId: report.submissionId,
+          verdict: 'refused',
+        })
         break
       case 'stale':
-        log.warn(`report ${report.submissionId} had moved on when its scrub arrived`)
+        log.warn(`report ${report.submissionId} had moved on when its scrub arrived`, {
+          event: 'answers.stale',
+          submissionId: report.submissionId,
+        })
         break
       case 'failed':
         outcome.failed++

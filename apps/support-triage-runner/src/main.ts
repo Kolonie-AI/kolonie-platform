@@ -1,3 +1,4 @@
+import { createLog } from '@kolonie-ai/core'
 import { readFileSync } from 'node:fs'
 import {
   createDatabase,
@@ -27,11 +28,11 @@ import { createHealthServer, STALE_POLLS } from './health.js'
 const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 1_800_000)
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3003)
 
-const log: Log = {
-  info: (message) => console.log(message),
-  warn: (message) => console.warn(message),
-  error: (message, error) => console.error(message, error),
-}
+// One JSON object per line, on stdout, with `service` set once here (`#230`).
+// The three methods that forwarded to `console` printed prose, and
+// `console.error(message, error)` printed a stack through Node's inspector —
+// one failure, N lines, and nothing able to rejoin them.
+const log: Log = createLog({ service: 'support-triage-runner' })
 
 // Throws with an explanation if DATABASE_URL is missing (D-009), like every other
 // process here.
@@ -56,9 +57,10 @@ const model =
       })
 
 if (apiKey === '') {
-  console.warn(
-    `kolonie-support-triage-runner: ${OPENROUTER_API_KEY_VAR} is not set. ` +
+  log.warn(
+    `${OPENROUTER_API_KEY_VAR} is not set. ` +
       'Tickets will accumulate unread, exactly as they did before this service existed.',
+    { event: 'config.missing', variable: OPENROUTER_API_KEY_VAR },
   )
 }
 
@@ -79,10 +81,11 @@ const keyPath = process.env[APP_KEY_PATH_VAR] ?? ''
 
 const issues = ((): typeof noIssues => {
   if (appId === '' || keyPath === '') {
-    console.warn(
-      `kolonie-support-triage-runner: ${APP_ID_VAR} or ${APP_KEY_PATH_VAR} is not set. ` +
+    log.warn(
+      `${APP_ID_VAR} or ${APP_KEY_PATH_VAR} is not set. ` +
         'Nothing will be triaged: with no App the corpus of open issues is empty, and a ' +
         'ticket the Colony already has an issue for cannot be recognised as one.',
+      { event: 'config.missing', variable: `${APP_ID_VAR}/${APP_KEY_PATH_VAR}` },
     )
     return noIssues
   }
@@ -94,7 +97,10 @@ const issues = ((): typeof noIssues => {
     // Degrades rather than stops, same as a missing key — but loudly, because a
     // path that is set and unreadable is a mistake somebody made rather than a
     // configuration somebody chose.
-    console.error(`could not read the App key at ${keyPath}; nothing will be filed`, error)
+    log.error(`could not read the App key at ${keyPath}; nothing will be filed`, error, {
+      event: 'github.key.unreadable',
+      keyPath,
+    })
     return noIssues
   }
 })()
@@ -121,14 +127,23 @@ const health = createHealthServer({
   depth: () => store.depth(),
 })
 
-console.log(
+log.info(
   `kolonie-support-triage-runner started; polling every ${POLL_INTERVAL_MS}ms, ` +
     `model ${model.name}, health on :${HEALTH_PORT}/health`,
+  {
+    event: 'service.started',
+    pollIntervalMs: POLL_INTERVAL_MS,
+    model: model.name,
+    healthPort: HEALTH_PORT,
+  },
 )
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    console.log(`${signal} received; finishing the ticket in flight`)
+    log.info(`${signal} received; finishing the ticket in flight`, {
+      event: 'service.stopping',
+      signal,
+    })
     void runner
       .stop()
       .then(() => new Promise<void>((resolve) => health.close(() => resolve())))

@@ -91,8 +91,12 @@ describe('a tool that throws something nobody planned for', () => {
     const overMcp = await client.callTool({ name: 'kolonie.vault.list', arguments: {} })
 
     const store = fakeStore()
+    // `log` is dropped rather than spread: `McpDependencies.log` is the MCP
+    // surface's narrow (message, detail) shape and `AppDependencies.log` is the
+    // process logger `#230` gave every service. Same name, two seams.
+    const { log: _mcpLog, ...appDeps } = deps
     const app = buildApp({
-      ...deps,
+      ...appDeps,
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       store,

@@ -1,4 +1,4 @@
-import type { RhythmBounds, SkillReleases } from '@kolonie-ai/core'
+import type { Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { AgentStore } from './authentication.js'
@@ -179,4 +179,13 @@ export interface AppDependencies {
    * only reason to pass one is a test that wants to control the clock.
    */
   readonly limiter?: RateLimiter
+  /**
+   * Where this process says what it did (`#230`).
+   *
+   * Defaulted to the silent one rather than required, so a test does not print
+   * a line per request — but `server.ts` passes the real logger, which is what
+   * makes a 500 leave a record. Before `#230` the error handler said *"the
+   * request id correlates it with the logs"* and nothing wrote the log.
+   */
+  readonly log?: Log
 }

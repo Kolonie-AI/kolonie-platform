@@ -34,7 +34,13 @@ import {
   questDefinition,
   scrubbedAnswers,
 } from '@kolonie-ai/db'
-import { AgentIdSchema, SubmissionIdSchema, TaskIdSchema, type AgentId } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  createLog,
+  SubmissionIdSchema,
+  TaskIdSchema,
+  type AgentId,
+} from '@kolonie-ai/core'
 import {
   blueskyAdapter,
   createVerifiers,
@@ -74,11 +80,11 @@ import { databaseQueue } from './queue.js'
 const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 5_000)
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3001)
 
-const log: Log = {
-  info: (message) => console.log(message),
-  warn: (message) => console.warn(message),
-  error: (message, error) => console.error(message, error),
-}
+// One JSON object per line, on stdout, with `service` set once here (`#230`).
+// The three methods that forwarded to `console` printed prose, and
+// `console.error(message, error)` printed a stack through Node's inspector —
+// one failure, N lines, and nothing able to rejoin them.
+const log: Log = createLog({ service: 'verifier-runner' })
 
 // Throws with an explanation if DATABASE_URL is missing (D-009). Failing at
 // startup is the point: a runner that cannot reach its database has not
@@ -338,12 +344,23 @@ const health = createHealthServer({
 })
 
 const deployed = [...verifiers.keys()].join(', ') || 'none'
-console.log(`kolonie-verifier-runner started. Verifiers deployed: ${deployed}`)
-console.log(`polling every ${POLL_INTERVAL_MS}ms; health on :${HEALTH_PORT}/health`)
+log.info(
+  `kolonie-verifier-runner started. Verifiers deployed: ${deployed}. ` +
+    `Polling every ${POLL_INTERVAL_MS}ms; health on :${HEALTH_PORT}/health`,
+  {
+    event: 'service.started',
+    verifiers: deployed,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    healthPort: HEALTH_PORT,
+  },
+)
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    console.log(`${signal} received; finishing the submission in flight`)
+    log.info(`${signal} received; finishing the submission in flight`, {
+      event: 'service.stopping',
+      signal,
+    })
     void runner
       // Resolves once the verification in flight has been written. A submission
       // is lost only if the runtime kills the process before this returns, and

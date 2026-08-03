@@ -1,4 +1,4 @@
-import { BROWSER_STAGES, DEPOSIT_SEALING_KEY_VAR } from '@kolonie-ai/core'
+import { BROWSER_STAGES, createLog, DEPOSIT_SEALING_KEY_VAR } from '@kolonie-ai/core'
 import type { AgentId } from '@kolonie-ai/core'
 import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
@@ -43,6 +43,16 @@ import { rhythmBoundsFromEnv } from './rhythm.js'
 import { skillReleasesFromEnv } from './skill-releases.js'
 import type { RecordObstruction } from './obstruction.js'
 import { databaseWakeup } from './wakeup.js'
+
+/**
+ * Where this process says what it did (`#230`).
+ *
+ * **First on purpose**, above every other statement here: the configuration
+ * below reports what it could not read, and a warning emitted before the logger
+ * exists is one that has to fall back to `console` — which is the state `#230`
+ * found this file in, as the one process with real traffic and no logger at all.
+ */
+const log = createLog({ service: 'api' })
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -130,9 +140,11 @@ for (const stage of BROWSER_STAGES) {
     // Loud, per stage. A stage that quietly refuses is the wrong-but-ignored
     // signal `state/STATUS.md` keeps warning about — and with a ladder, a silent
     // one looks exactly like a stage nobody has built yet.
-    console.warn(
-      `kolonie-api: browser stage "${stage.kind}" disabled — ${stage.pageUrlEnv} not set`,
-    )
+    log.warn(`browser stage "${stage.kind}" disabled — ${stage.pageUrlEnv} not set`, {
+      event: 'browser.stage.disabled',
+      stage: stage.kind,
+      variable: stage.pageUrlEnv,
+    })
     continue
   }
 
@@ -142,14 +154,17 @@ for (const stage of BROWSER_STAGES) {
 if (typeof gate === 'string') {
   // Loud on purpose. An unconfigured gate that said nothing would be exactly the
   // wrong-but-ignored signal state/STATUS.md keeps warning about.
-  console.warn(`kolonie-api: hCaptcha badge disabled — ${gate}`)
+  log.warn(`hCaptcha badge disabled — ${gate}`, { event: 'hcaptcha.disabled', reason: gate })
 }
 
 if (typeof capability === 'string') {
   // Louder in effect, because this one stops the Academy rather than a badge:
   // with it unset no agent can pass Level 1, and everything above is gated on
   // Level 1.
-  console.warn(`kolonie-api: Level 1 browser capability rung disabled — ${capability}`)
+  log.warn(`Level 1 browser capability rung disabled — ${capability}`, {
+    event: 'browser.capability.disabled',
+    reason: capability,
+  })
 }
 
 /**
@@ -341,6 +356,7 @@ const app = buildApp({
   },
   rhythm,
   skillReleases,
+  log,
   email: {
     challenges: databaseEmailChallenges(db),
     obstruction,
@@ -397,9 +413,13 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
 
 try {
   await app.listen({ port: PORT, host: HOST })
-  console.log(`kolonie-api listening on ${HOST}:${PORT}`)
+  log.info(`kolonie-api listening on ${HOST}:${PORT}`, {
+    event: 'service.started',
+    host: HOST,
+    port: PORT,
+  })
 } catch (error) {
-  console.error('kolonie-api failed to start', error)
+  log.error('kolonie-api failed to start', error, { event: 'service.start.failed' })
   process.exit(1)
 }
 

@@ -9,6 +9,7 @@ import {
   INTERSTITIAL_STAGE,
   PERSISTENCE_STAGE,
   PERCEPTION_STAGE,
+  silentLog,
   type ApiError,
 } from '@kolonie-ai/core'
 import { MCP_ALIAS_PATH, MCP_PATH } from './mcp.js'
@@ -110,6 +111,7 @@ export function buildApp({
   rhythm = DEFAULT_RHYTHM_BOUNDS,
   skillReleases = DEFAULT_SKILL_RELEASES,
   limiter = registrationLimiter(),
+  log = silentLog,
 }: AppDependencies): FastifyInstance {
   /**
    * Every surface below sees the throttled registry and the raw one is not in
@@ -276,6 +278,7 @@ export function buildApp({
    * is what turned that into a list of calls (#195).
    */
   const routes: RouteDependencies = {
+    log,
     registry,
     store,
     catalogue,
@@ -444,6 +447,20 @@ export function buildApp({
         : // Never leak an internal message to a caller: it may quote a query or
           // a connection string. The request id correlates it with the logs.
           { code: 'internal', message: 'Internal error.' }
+
+    // And now there is a log for it to correlate with (`#230`). Only the 5xx
+    // half: a malformed request is the caller's mistake and is answered, not
+    // reported, and logging it would drown the failures that are ours in
+    // failures that are not.
+    if (status >= 500) {
+      log.error(`${request.method} ${request.url} failed`, caught, {
+        event: 'request.failed',
+        requestId: request.id,
+        method: request.method,
+        url: request.url,
+        status,
+      })
+    }
 
     return reply.status(ERROR_STATUS[error.code]).send(error)
   })

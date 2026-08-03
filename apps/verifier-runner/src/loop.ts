@@ -1,5 +1,7 @@
 import {
   now as currentTime,
+  silentLog,
+  type Log,
   type SubmissionId,
   type TaskType,
   type Timestamp,
@@ -24,12 +26,14 @@ export type TickOutcome =
   /** Nothing was waiting. */
   | { readonly kind: 'idle' }
 
-/** Where the loop writes what it did. Injected so tests are not noisy. */
-export interface Log {
-  info(message: string): void
-  warn(message: string): void
-  error(message: string, error: unknown): void
-}
+/**
+ * Where the loop writes what it did. Injected so tests are not noisy.
+ *
+ * One interface for all four processes since `#230`, defined in `packages/core`
+ * — three copies of a logging interface produced three log formats, and a
+ * format nothing else shares is one nothing can query.
+ */
+export type { Log }
 
 export interface LoopDependencies {
   readonly queue: SubmissionQueue
@@ -175,7 +179,10 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   if (verdict.outcome === 'skipped') {
     // Not a failure, and not a verdict: nothing is recorded. `AGENTS.md` §6 — a
     // verifier deployed late must never fail submissions that were correct.
-    log.warn(`submission ${submission.id} left pending: ${verdict.reason}`)
+    log.warn(`submission ${submission.id} left pending: ${verdict.reason}`, {
+      event: 'submission.left-pending',
+      submissionId: submission.id,
+    })
     await queue.release(submission.id)
     return { kind: 'skipped', reason: verdict.reason }
   }
@@ -200,6 +207,7 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
     log.info(
       `submission ${submission.id} vanished mid-verification: its author erased itself. ` +
         'The verdict was dropped.',
+      { event: 'submission.vanished', submissionId: submission.id },
     )
     return { kind: 'vanished' }
   }
@@ -208,6 +216,7 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
     log.warn(
       `submission ${submission.id} was already '${written.status}' when its verdict arrived; ` +
         `the verdict was dropped rather than reopening a decided submission.`,
+      { event: 'submission.stale', submissionId: submission.id, status: written.status },
     )
     return { kind: 'stale', status: written.status }
   }
@@ -246,10 +255,17 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   try {
     const routed = await queue.routeReport(submission.id)
     if (routed.outcome !== 'nothing-to-do') {
-      log.info(`submission ${submission.id} report ${routed.outcome}`)
+      log.info(`submission ${submission.id} report ${routed.outcome}`, {
+        event: 'report.routed',
+        submissionId: submission.id,
+        outcome: routed.outcome,
+      })
     }
   } catch (error) {
-    log.error(`could not file the report on submission ${submission.id}`, error)
+    log.error(`could not file the report on submission ${submission.id}`, error, {
+      event: 'report.route.failed',
+      submissionId: submission.id,
+    })
   }
 
   /**
@@ -268,10 +284,18 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   try {
     const reported = await queue.reportFailedRerun(submission.id)
     if (reported.outcome === 'reported') {
-      log.info(`failed re-test of ${taskType} filed as ticket ${reported.ticketId}`)
+      log.info(`failed re-test of ${taskType} filed as ticket ${reported.ticketId}`, {
+        event: 'retest.filed',
+        submissionId: submission.id,
+        taskType,
+        ticketId: reported.ticketId,
+      })
     }
   } catch (error) {
-    log.error(`could not file the failed re-test of submission ${submission.id}`, error)
+    log.error(`could not file the failed re-test of submission ${submission.id}`, error, {
+      event: 'retest.file.failed',
+      submissionId: submission.id,
+    })
   }
 
   if (written.submission.status === 'pending') {
@@ -306,10 +330,19 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
         log.warn(
           `submission ${submission.id} has been deferred ${count} times; ` +
             `filed as ticket ${filed.ticketId}`,
+          {
+            event: 'submission.deferral.reported',
+            submissionId: submission.id,
+            deferrals: count,
+            ticketId: filed.ticketId,
+          },
         )
       }
     } catch (error) {
-      log.error(`could not file the repeated deferral of submission ${submission.id}`, error)
+      log.error(`could not file the repeated deferral of submission ${submission.id}`, error, {
+        event: 'submission.deferral.report.failed',
+        submissionId: submission.id,
+      })
     }
 
     // The reason, which this line has never carried. `verifySubmission` puts it
@@ -319,12 +352,24 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
     log.warn(
       `submission ${submission.id} → pending (${taskType}), attempt ${count}, ` +
         `not retried for ${Math.round(wait / 1000)}s: ${written.verification.evidence}`,
+      {
+        event: 'submission.deferred',
+        submissionId: submission.id,
+        taskType,
+        attempt: count,
+        retryInMs: wait,
+      },
     )
     return { kind: 'decided', status: written.submission.status }
   }
 
   deferrals?.delete(submission.id)
-  log.info(`submission ${submission.id} → ${written.submission.status} (${taskType})${booked}`)
+  log.info(`submission ${submission.id} → ${written.submission.status} (${taskType})${booked}`, {
+    event: 'submission.decided',
+    submissionId: submission.id,
+    taskType,
+    status: written.submission.status,
+  })
   return { kind: 'decided', status: written.submission.status }
 }
 
@@ -368,8 +413,6 @@ const DEFAULTS = {
   batchSize: 20,
   sweepIntervalMs: 60_000,
 } as const
-
-const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
 
 /**
  * Run the loop until stopped.
@@ -434,6 +477,11 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
           for (const expired of await deps.queue.expireOverdue()) {
             log.warn(
               `submission ${expired.submissionId} timed out from '${expired.previousStatus}'`,
+              {
+                event: 'submission.expired',
+                submissionId: expired.submissionId,
+                previousStatus: expired.previousStatus,
+              },
             )
           }
 
@@ -441,12 +489,20 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
           // sweep exists to measure, not a fault. Logged at all because a count
           // that silently stays zero is how a broken sweep hides (#108).
           const abandoned = await deps.queue.sweepAbandoned()
-          if (abandoned > 0) log.info(`closed ${abandoned} abandoned attempt(s)`)
+          if (abandoned > 0)
+            log.info(`closed ${abandoned} abandoned attempt(s)`, {
+              event: 'attempts.abandoned.closed',
+              closed: abandoned,
+            })
 
           // Same tick, same reason as the line above: nobody is present to do
           // it, and a count that stays at zero is how a broken pruner hides.
           const pruned = await deps.queue.pruneContacts()
-          if (pruned > 0) log.info(`pruned ${pruned} contact record(s)`)
+          if (pruned > 0)
+            log.info(`pruned ${pruned} contact record(s)`, {
+              event: 'contacts.pruned',
+              pruned,
+            })
         }
 
         let taken = 0
@@ -463,6 +519,14 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
 
         lastPollAt = clock()
         consecutiveFailures = 0
+        // One line per completed cycle, even when nothing was waiting (`#230`).
+        // `{event: "poll.done", handled: 0}` is not noise: it is the only thing
+        // that distinguishes *the runner ran and had nothing to do* from *the
+        // runner is dead*, and error monitoring structurally misses the second.
+        log.info(`poll done; ${taken} submission(s) handled`, {
+          event: 'poll.done',
+          handled: taken,
+        })
         if (running) await pause(pollIntervalMs)
       } catch (error) {
         consecutiveFailures++
@@ -470,6 +534,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
         log.error(
           `poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
           error,
+          { event: 'poll.failed', consecutiveFailures, retryInMs: wait },
         )
         if (running) await pause(wait)
       }
@@ -504,7 +569,10 @@ async function releaseQuietly(
   try {
     await deps.queue.release(submissionId)
   } catch (error) {
-    log.error(`could not return submission ${submissionId} to the queue`, error)
+    log.error(`could not return submission ${submissionId} to the queue`, error, {
+      event: 'submission.release.failed',
+      submissionId,
+    })
   }
 }
 

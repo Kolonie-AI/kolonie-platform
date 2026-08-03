@@ -210,13 +210,18 @@ export function githubIssues(options: GitHubOptions): Issues {
       if (!response.ok) {
         // The status and nothing else. A body from GitHub can echo the request,
         // and the request carries the JWT.
-        log.error(`could not list the App's installations: ${response.status}`)
+        log.error(`could not list the App's installations: ${response.status}`, undefined, {
+          event: 'github.installations.failed',
+          status: response.status,
+        })
         return undefined
       }
       const installs = (await response.json()) as ReadonlyArray<{ id?: number }>
       installationId = installs[0]?.id
       if (installationId === undefined) {
-        log.warn('the App is not installed anywhere — nothing will be filed')
+        log.warn('the App is not installed anywhere — nothing will be filed', {
+          event: 'github.not-installed',
+        })
         return undefined
       }
     }
@@ -226,7 +231,10 @@ export function githubIssues(options: GitHubOptions): Issues {
       { method: 'POST', headers: asApp() },
     )
     if (!response.ok) {
-      log.error(`could not mint an installation token: ${response.status}`)
+      log.error(`could not mint an installation token: ${response.status}`, undefined, {
+        event: 'github.token.failed',
+        status: response.status,
+      })
       // The installation may have been removed. Forgetting it means the next
       // attempt looks it up again rather than retrying a dead id forever.
       installationId = undefined
@@ -270,7 +278,12 @@ export function githubIssues(options: GitHubOptions): Issues {
           // with a partial corpus files a duplicate, which a maintainer closes
           // in a second. One with an empty corpus files a duplicate of
           // *everything*.
-          log.warn(`could not read open issues in ${repository}: ${response.status}`)
+          log.warn(`could not read open issues in ${repository}: ${response.status}`, {
+            event: 'github.issues.read.failed',
+            repository,
+            state: 'open',
+            status: response.status,
+          })
           continue
         }
 
@@ -322,7 +335,12 @@ export function githubIssues(options: GitHubOptions): Issues {
           // half hour, and nothing else: the next tick asks again, and a ticket
           // that stays `acknowledged` is telling the citizen the truth in the
           // meantime. Warn rather than throw, so the other two are still read.
-          log.warn(`could not read closed issues in ${repository}: ${response.status}`)
+          log.warn(`could not read closed issues in ${repository}: ${response.status}`, {
+            event: 'github.issues.read.failed',
+            repository,
+            state: 'closed',
+            status: response.status,
+          })
           continue
         }
 
@@ -364,7 +382,11 @@ export function githubIssues(options: GitHubOptions): Issues {
       })
 
       if (!response.ok) {
-        log.error(`could not open an issue in ${issue.repository}: ${response.status}`)
+        log.error(`could not open an issue in ${issue.repository}: ${response.status}`, undefined, {
+          event: 'github.issue.create.failed',
+          repository: issue.repository,
+          status: response.status,
+        })
         return null
       }
 
@@ -386,7 +408,12 @@ export function githubIssues(options: GitHubOptions): Issues {
         `https://api.github.com/repos/${owner}/${repo}/issues/${number}/comments`,
         { method: 'POST', headers, body: JSON.stringify({ body }) },
       )
-      if (!response.ok) log.warn(`could not comment on ${url}: ${response.status}`)
+      if (!response.ok)
+        log.warn(`could not comment on ${url}: ${response.status}`, {
+          event: 'github.comment.failed',
+          url,
+          status: response.status,
+        })
       return response.ok
     },
   }

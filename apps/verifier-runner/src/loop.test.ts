@@ -339,6 +339,29 @@ describe('startRunner', () => {
     expect(queue.recorded.map((command) => command.submissionId)).toEqual([FIRST, SECOND])
   })
 
+  /**
+   * The line kolonie-docs' Watch Agent needs (`#230`). Without it, *the runner
+   * ran and had nothing to do* and *the runner is dead* produce identical
+   * output — nothing — and error monitoring structurally cannot tell them
+   * apart, because neither is an error.
+   */
+  it('says a cycle completed even when it handled nothing', async () => {
+    const lines: { message: string; fields?: Record<string, unknown> }[] = []
+    const recording: Log = {
+      info: (message, fields) => lines.push({ message, ...(fields ? { fields } : {}) }),
+      warn: () => {},
+      error: () => {},
+    }
+    const queue = new FakeQueue()
+    const runner = startRunner({ queue, verifiers, log: recording }, immediately)
+
+    await until(() => lines.some((line) => line.fields?.['event'] === 'poll.done'))
+    await runner.stop()
+
+    const done = lines.find((line) => line.fields?.['event'] === 'poll.done')
+    expect(done?.fields).toMatchObject({ event: 'poll.done', handled: 0 })
+  })
+
   it('sweeps for submissions past their deadline', async () => {
     const queue = new FakeQueue()
     const runner = startRunner({ queue, verifiers, log: quiet }, immediately)

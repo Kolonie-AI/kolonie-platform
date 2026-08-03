@@ -87,6 +87,12 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   could reward its own results cannot be reviewed by the same process that gates
   everything else; a verifier that cannot name an amount has nothing to reward
   itself with. See D-020 for why the booking is there and not in the API.
+- **A process logs one JSON object per line, and never prose** (`#230`). Build
+  the logger once with `createLog({ service })` from core and inject it; name an
+  `event` slug on every call, because `msg` gets reworded and a query grouping by
+  `event` must not break when it does. Never `console.log` in a service: it
+  prints prose, and `console.error(message, error)` prints a stack through Node's
+  inspector, which turns one failure into N records nothing can rejoin.
 - **An error an agent sees must carry a stable `code`.** Agents cannot branch on
   prose. Use `ApiError` and `ERROR_STATUS` from core.
 - **No `any`, no `@ts-ignore`, no disabled lint rules.** `@ts-expect-error` is

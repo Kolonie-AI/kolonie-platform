@@ -108,7 +108,10 @@ export async function judgeQuest(
 
     return crossed ? { kind: 'rejected', reason: verdict.reason } : { kind: 'approved' }
   } catch (error) {
-    log.error(`could not moderate quest ${quest.id}`, error)
+    log.error(`could not moderate quest ${quest.id}`, error, {
+      event: 'quest.moderate.failed',
+      questId: quest.id,
+    })
     return { kind: 'failed', error }
   }
 }
@@ -143,14 +146,25 @@ export async function questTick(
     switch (judgement.kind) {
       case 'approved':
         outcome.approved++
-        log.info(`quest ${quest.id} cleared moderation`)
+        log.info(`quest ${quest.id} cleared moderation`, {
+          event: 'quest.judged',
+          questId: quest.id,
+          verdict: 'cleared',
+        })
         break
       case 'rejected':
         outcome.rejected++
-        log.info(`quest ${quest.id} refused: ${judgement.reason}`)
+        log.info(`quest ${quest.id} refused: ${judgement.reason}`, {
+          event: 'quest.judged',
+          questId: quest.id,
+          verdict: 'refused',
+        })
         break
       case 'stale':
-        log.warn(`quest ${quest.id} had moved on when its verdict arrived`)
+        log.warn(`quest ${quest.id} had moved on when its verdict arrived`, {
+          event: 'quest.stale',
+          questId: quest.id,
+        })
         break
       case 'failed':
         outcome.failed++

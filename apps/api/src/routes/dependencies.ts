@@ -1,4 +1,4 @@
-import type { ApiError, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
+import type { ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
@@ -139,4 +139,12 @@ export interface RouteDependencies {
    * `server.ts` says so at startup rather than leaving it to be discovered.
    */
   readonly inboundSecret: string | undefined
+  /**
+   * Where the process says what it did (`#230`).
+   *
+   * Carried this far for one caller: the MCP surface reports an unanticipated
+   * throw through it, and before `#230` that report was a bare `console.error`
+   * whose line nothing could group or count.
+   */
+  readonly log: Log
 }

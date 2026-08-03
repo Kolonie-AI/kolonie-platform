@@ -27,7 +27,7 @@ import {
 } from './loop.js'
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
-import type { TaskId } from '@kolonie-ai/core'
+import { createLog, type TaskId } from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
@@ -47,11 +47,11 @@ const BRIEFING_INTERVAL_MS = Number(
   process.env['BRIEFING_INTERVAL_MS'] ?? POLL_INTERVAL_MS * BRIEFING_TICK_MULTIPLIER,
 )
 
-const log: Log = {
-  info: (message) => console.log(message),
-  warn: (message) => console.warn(message),
-  error: (message, error) => console.error(message, error),
-}
+// One JSON object per line, on stdout, with `service` set once here (`#230`).
+// The three methods that forwarded to `console` printed prose, and
+// `console.error(message, error)` printed a stack through Node's inspector —
+// one failure, N lines, and nothing able to rejoin them.
+const log: Log = createLog({ service: 'moderation-runner' })
 
 // Throws with an explanation if DATABASE_URL is missing (D-009), like every
 // other process here.
@@ -81,14 +81,18 @@ const model =
         ...(process.env['OPENROUTER_EMBEDDING_MODEL'] && {
           embeddingModel: process.env['OPENROUTER_EMBEDDING_MODEL'],
         }),
+        // So a reply this cannot read is counted rather than dropped in silence
+        // (`#230`).
+        log,
       })
 
 if (apiKey === '') {
   // Loud on purpose. An unconfigured moderator that said nothing would look
   // exactly like a Colony where nobody has written anything yet.
-  console.warn(
-    `kolonie-moderation-runner: ${OPENROUTER_API_KEY_VAR} is not set. ` +
+  log.warn(
+    `${OPENROUTER_API_KEY_VAR} is not set. ` +
       'Nothing will be published; entries will accumulate as pending.',
+    { event: 'config.missing', variable: OPENROUTER_API_KEY_VAR },
   )
 }
 
@@ -193,14 +197,23 @@ const health = createHealthServer({
   briefingStaleAfterMs: BRIEFING_INTERVAL_MS * STALE_POLLS,
 })
 
-console.log(
+log.info(
   `kolonie-moderation-runner started; polling every ${POLL_INTERVAL_MS}ms, ` +
     `briefings every ${BRIEFING_INTERVAL_MS}ms, health on :${HEALTH_PORT}/health`,
+  {
+    event: 'service.started',
+    pollIntervalMs: POLL_INTERVAL_MS,
+    briefingIntervalMs: BRIEFING_INTERVAL_MS,
+    healthPort: HEALTH_PORT,
+  },
 )
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    console.log(`${signal} received; finishing the entry in flight`)
+    log.info(`${signal} received; finishing the entry in flight`, {
+      event: 'service.stopping',
+      signal,
+    })
     void Promise.all([runner.stop(), briefingRunner.stop()])
       .then(() => new Promise<void>((resolve) => health.close(() => resolve())))
       .then(() => db.close())

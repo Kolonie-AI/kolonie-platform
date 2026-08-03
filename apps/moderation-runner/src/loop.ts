@@ -1,10 +1,12 @@
 import {
   MODERATION_NOTE_MAX_LENGTH,
   noStagesRun,
+  silentLog,
   type BriefingClaim,
   type ConfidentialSpan,
   type ModerationStages,
   type ReportKind,
+  type Log,
   type ReportNarrative,
   type TaskId,
 } from '@kolonie-ai/core'
@@ -52,14 +54,14 @@ export interface ModerationStore {
   }): Promise<{ readonly outcome: 'written' | 'stale' }>
 }
 
-/** Where the loop says what it did. Injected so tests are not noisy. */
-export interface Log {
-  info(message: string): void
-  warn(message: string): void
-  error(message: string, error: unknown): void
-}
-
-const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
+/**
+ * Where the loop says what it did. Injected so tests are not noisy.
+ *
+ * One interface for all four processes since `#230`, defined in `packages/core`
+ * — three copies of a logging interface produced three log formats, and a
+ * format nothing else shares is one nothing can query.
+ */
+export type { Log }
 
 export interface LoopDependencies {
   readonly store: ModerationStore
@@ -253,7 +255,11 @@ export async function judge(entry: PendingReport, deps: LoopDependencies): Promi
     // visible and reversible — unlike a verdict written from a failed call. The
     // stages accumulated so far go with it: they explain nothing that was decided,
     // because nothing was.
-    log.error(`could not moderate ${entry.kind} ${entry.id}`, error)
+    log.error(`could not moderate ${entry.kind} ${entry.id}`, error, {
+      event: 'entry.moderate.failed',
+      kind: entry.kind,
+      entryId: entry.id,
+    })
     return { kind: 'failed', error }
   }
 }
@@ -343,18 +349,38 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
     switch (judgement.kind) {
       case 'approved':
         outcome.approved++
-        log.info(`${entry.kind} ${entry.id} approved`)
+        log.info(`${entry.kind} ${entry.id} approved`, {
+          event: 'entry.judged',
+          kind: entry.kind,
+          entryId: entry.id,
+          verdict: 'approved',
+        })
         break
       case 'rejected':
         outcome.rejected++
-        log.info(`${entry.kind} ${entry.id} rejected: ${judgement.reason}`)
+        log.info(`${entry.kind} ${entry.id} rejected: ${judgement.reason}`, {
+          event: 'entry.judged',
+          kind: entry.kind,
+          entryId: entry.id,
+          verdict: 'rejected',
+        })
         break
       case 'merged':
         outcome.merged++
-        log.info(`${entry.kind} ${entry.id} merged into ${judgement.into}`)
+        log.info(`${entry.kind} ${entry.id} merged into ${judgement.into}`, {
+          event: 'entry.judged',
+          kind: entry.kind,
+          entryId: entry.id,
+          verdict: 'merged',
+          into: judgement.into,
+        })
         break
       case 'stale':
-        log.warn(`${entry.kind} ${entry.id} was already judged when its verdict arrived`)
+        log.warn(`${entry.kind} ${entry.id} was already judged when its verdict arrived`, {
+          event: 'entry.stale',
+          kind: entry.kind,
+          entryId: entry.id,
+        })
         break
       case 'failed':
         outcome.failed++
@@ -386,10 +412,17 @@ async function scrubAnswers(deps: LoopDependencies, batchSize: number, log: Log)
       log.info(
         `quest reports: ${outcome.judged} read, ${outcome.scrubbed} scrubbed, ` +
           `${outcome.refused} refused, ${outcome.failed} deferred`,
+        {
+          event: 'answers.pass.done',
+          judged: outcome.judged,
+          scrubbed: outcome.scrubbed,
+          refused: outcome.refused,
+          failed: outcome.failed,
+        },
       )
     }
   } catch (error) {
-    log.error('the quest report scrub failed', error)
+    log.error('the quest report scrub failed', error, { event: 'answers.pass.failed' })
   }
 }
 
@@ -412,10 +445,17 @@ async function moderateQuests(deps: LoopDependencies, batchSize: number, log: Lo
       log.info(
         `quests: ${outcome.judged} judged, ${outcome.approved} cleared, ` +
           `${outcome.rejected} refused, ${outcome.failed} deferred`,
+        {
+          event: 'quests.pass.done',
+          judged: outcome.judged,
+          approved: outcome.approved,
+          rejected: outcome.rejected,
+          failed: outcome.failed,
+        },
       )
     }
   } catch (error) {
-    log.error('the quest moderation pass failed', error)
+    log.error('the quest moderation pass failed', error, { event: 'quests.pass.failed' })
   }
 }
 
@@ -440,7 +480,10 @@ async function checkTripwire(
       const change = await tripwire.detect(taskId)
       if (change !== null) await respondToChange(change, tripwire, log)
     } catch (error) {
-      log.error(`tripwire failed on task ${taskId}`, error)
+      log.error(`tripwire failed on task ${taskId}`, error, {
+        event: 'tripwire.failed',
+        taskId,
+      })
     }
   }
 }
@@ -516,12 +559,25 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
     while (running) {
       try {
         const outcome = await tick(deps, batchSize)
-        if (outcome.judged > 0) {
-          log.info(
-            `moderated ${outcome.judged}: ${outcome.approved} approved, ` +
-              `${outcome.rejected} rejected, ${outcome.merged} merged, ${outcome.failed} deferred`,
-          )
-        }
+        // One line per completed cycle, even when nothing was waiting (`#230`).
+        // `{event: "poll.done", handled: 0}` is not noise: it is the only thing
+        // that distinguishes *the runner ran and had nothing to do* from *the
+        // runner is dead*, and error monitoring structurally misses the second.
+        log.info(
+          outcome.judged === 0
+            ? 'poll done; nothing waiting to be moderated'
+            : `moderated ${outcome.judged}: ${outcome.approved} approved, ` +
+                `${outcome.rejected} rejected, ${outcome.merged} merged, ` +
+                `${outcome.failed} deferred`,
+          {
+            event: 'poll.done',
+            handled: outcome.judged,
+            approved: outcome.approved,
+            rejected: outcome.rejected,
+            merged: outcome.merged,
+            failed: outcome.failed,
+          },
+        )
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)
@@ -531,6 +587,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
         log.error(
           `poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
           error,
+          { event: 'poll.failed', consecutiveFailures, retryInMs: wait },
         )
         if (running) await pause(wait)
       }
@@ -673,9 +730,19 @@ export function startBriefingRunner(
     while (running) {
       try {
         const outcome = await briefingTick(deps, batchSize)
-        if (outcome.written > 0 || outcome.failed > 0) {
-          log.info(`briefings: ${outcome.written} written, ${outcome.failed} deferred`)
-        }
+        // Same rule as the moderation cycle above: a completed pass says so even
+        // when it wrote nothing, because the synthesis loop runs on its own
+        // interval and silence is otherwise indistinguishable from death.
+        log.info(
+          outcome.written === 0 && outcome.failed === 0
+            ? 'briefing poll done; nothing to synthesise'
+            : `briefings: ${outcome.written} written, ${outcome.failed} deferred`,
+          {
+            event: 'briefing.poll.done',
+            written: outcome.written,
+            failed: outcome.failed,
+          },
+        )
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)
@@ -685,6 +752,7 @@ export function startBriefingRunner(
         log.error(
           `briefing poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
           error,
+          { event: 'briefing.poll.failed', consecutiveFailures, retryInMs: wait },
         )
         if (running) await pause(wait)
       }
@@ -729,7 +797,10 @@ export async function synthesiseNow(
       // retry — but the flag stays set rather than being cleared, because a task
       // cannot in fact be deleted (`restrict`), so this means something stranger
       // than a race and it should stay visible.
-      log.warn(`briefing for ${taskId} names a task that could not be read`)
+      log.warn(`briefing for ${taskId} names a task that could not be read`, {
+        event: 'briefing.task.unreadable',
+        taskId,
+      })
       return false
     }
 
@@ -738,6 +809,7 @@ export async function synthesiseNow(
     await store.write({ taskId, claims, model: model.name })
     log.info(
       `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,
+      { event: 'briefing.written', taskId, entries: corpus.length, claims: claims.length },
     )
 
     // **A corpus with entries in it should never produce nothing**, and this is
@@ -755,12 +827,16 @@ export async function synthesiseNow(
       log.warn(
         `briefing for ${taskId} is empty over ${corpus.length} moderated entries — ` +
           'the synthesis prompt discarded a corpus that had something in it',
+        { event: 'briefing.empty', taskId, entries: corpus.length },
       )
     }
 
     return true
   } catch (error) {
-    log.error(`could not write the briefing for ${taskId}`, error)
+    log.error(`could not write the briefing for ${taskId}`, error, {
+      event: 'briefing.failed',
+      taskId,
+    })
     return false
   }
 }

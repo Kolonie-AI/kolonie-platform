@@ -13,6 +13,8 @@
  * it that can be tested without a network should be.
  */
 
+import { silentLog, type Log } from '@kolonie-ai/core'
+
 /** The environment variable the key arrives in. Never a literal, anywhere. */
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
 
@@ -241,6 +243,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
   const model = options.model ?? MODERATION_MODEL
   const embeddingModel = options.embeddingModel ?? EMBEDDING_MODEL
   const fetchImpl = options.fetch ?? fetch
+  const log = options.log ?? silentLog
 
   const call = async (path: string, body: unknown): Promise<unknown> => {
     const response = await fetchImpl(`${OPENROUTER_BASE}${path}`, {
@@ -483,20 +486,39 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
        * shape of the reply is still load-bearing: `claims` not being an array
        * means nothing usable came back at all, and that still throws.
        *
-       * Dropping is silent here because this file has no logger and knows
-       * nothing about briefings. What makes it visible is one level up: a
-       * briefing that comes back empty over a corpus that was not gets a warning
-       * from `briefingTick`, which is the case where dropping cost everything.
+       * **Dropping is counted since `#230`**, which is what the comment here
+       * used to say could not be done: *"dropping is silent here because this
+       * file has no logger"*. A model quietly losing half of every reply and a
+       * model answering perfectly looked identical, and only the case where it
+       * lost *everything* was visible — one level up, in `briefingTick`.
        */
-      return parsed.claims.flatMap((claim) => {
+      let dropped = 0
+      const kept = parsed.claims.flatMap((claim) => {
         const { section, text, sources } = claim as Partial<ComposedClaim>
-        if (typeof section !== 'string' || typeof text !== 'string') return []
-        if (!sections.includes(section)) return []
+        if (typeof section !== 'string' || typeof text !== 'string') {
+          dropped++
+          return []
+        }
+        if (!sections.includes(section)) {
+          dropped++
+          return []
+        }
         // A claim with no usable sources is dropped by `synthesise`, which is
         // where that rule and its reasoning already live.
         const cited = Array.isArray(sources) ? sources.map(String) : []
         return [{ section, text, sources: cited }]
       })
+
+      if (dropped > 0) {
+        log.warn(`${model} returned ${dropped} claim(s) this could not read`, {
+          event: 'model.claims.dropped',
+          model,
+          dropped,
+          kept: kept.length,
+        })
+      }
+
+      return kept
     },
 
     async embed(inputs) {
@@ -527,4 +549,13 @@ export interface ModelOptions {
   readonly embeddingModel?: string
   /** Injectable so tests need no network. */
   readonly fetch?: typeof fetch
+  /**
+   * Where a dropped claim is recorded (`#230`).
+   *
+   * This file used to have no logger, and said so in a comment beside a failure
+   * it was discarding. It has one now, and it is optional for the same reason
+   * every other logger here is: a test that does not care must not have to say
+   * so, and a default of silence is what `silentLog` is for.
+   */
+  readonly log?: Log
 }

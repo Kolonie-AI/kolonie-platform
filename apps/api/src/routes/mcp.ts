@@ -14,6 +14,7 @@ import type { RouteDependencies } from './dependencies.js'
  */
 export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies): void {
   const {
+    log,
     registry,
     store,
     catalogue,
@@ -121,6 +122,11 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           accounts,
           rhythm,
           skillReleases,
+          // The MCP surface's own narrow log shape, answered by the process
+          // logger rather than by `console.error` (`#230`). `detail` is what a
+          // handler threw, and it is serialised rather than inspected, so one
+          // unanticipated fault stays one line.
+          log: (message, detail) => log.error(message, detail, { event: 'mcp.tool.threw' }),
           caller: { ip: clientIp(request.headers, request.ip) },
         },
         presented,

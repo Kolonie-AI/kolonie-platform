@@ -1,4 +1,4 @@
-import type { SupportTicket, SupportTicketId } from '@kolonie-ai/core'
+import { silentLog, type Log, type SupportTicket, type SupportTicketId } from '@kolonie-ai/core'
 import type { Issues, KnownIssue } from './github.js'
 import {
   closingNote,
@@ -12,13 +12,14 @@ import {
   type TriageModel,
 } from './triage.js'
 
-export interface Log {
-  info(message: string): void
-  warn(message: string): void
-  error(message: string, error?: unknown): void
-}
-
-const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
+/**
+ * Where the loop says what it did. Injected so tests are not noisy.
+ *
+ * One interface for all four processes since `#230`, defined in `packages/core`
+ * — three copies of a logging interface produced three log formats, and a
+ * format nothing else shares is one nothing can query.
+ */
+export type { Log }
 
 /** What triage records. Mirrors `recordTriage` in packages/db without importing it. */
 export interface TriageStore {
@@ -92,7 +93,10 @@ export async function triageOne(
     // means the next tick tries again, which is what should happen when the
     // failure is a rate limit or an outage. Writing `human` here would spend the
     // citizen's ticket on our own bad afternoon.
-    log.error(`the model could not classify ticket ${ticket.id}; leaving it open`, error)
+    log.error(`the model could not classify ticket ${ticket.id}; leaving it open`, error, {
+      event: 'ticket.classify.failed',
+      ticketId: ticket.id,
+    })
     throw error
   }
 
@@ -116,7 +120,12 @@ export async function triageOne(
           '`apps/support-triage-runner`; their report is not quoted here, because a ticket is ' +
           'not public.',
       )
-      log.info(`ticket ${ticket.id}: known, pointed at ${decision.issueUrl}`)
+      log.info(`ticket ${ticket.id}: known, pointed at ${decision.issueUrl}`, {
+        event: 'ticket.triaged',
+        ticketId: ticket.id,
+        verdict: 'known',
+        issueUrl: decision.issueUrl,
+      })
       return { decision }
     }
 
@@ -126,7 +135,12 @@ export async function triageOne(
         status: 'resolved',
         resolution: decision.answer,
       })
-      log.info(`ticket ${ticket.id}: answered from ticket ${decision.fromTicketId}`)
+      log.info(`ticket ${ticket.id}: answered from ticket ${decision.fromTicketId}`, {
+        event: 'ticket.triaged',
+        ticketId: ticket.id,
+        verdict: 'answered',
+        fromTicketId: decision.fromTicketId,
+      })
       return { decision }
     }
 
@@ -149,7 +163,10 @@ export async function triageOne(
         // **Not settled.** GitHub refusing is our problem, not the citizen's, and
         // a ticket marked acknowledged with no issue behind it is a promise
         // nobody can follow. Left open so the next tick files it.
-        log.warn(`ticket ${ticket.id}: wanted a new issue and GitHub refused; leaving it open`)
+        log.warn(`ticket ${ticket.id}: wanted a new issue and GitHub refused; leaving it open`, {
+          event: 'ticket.file.refused',
+          ticketId: ticket.id,
+        })
         return { decision: { kind: 'human', why: 'GitHub refused the issue.' } }
       }
 
@@ -161,7 +178,12 @@ export async function triageOne(
           'learn the ending.',
         issueUrl: url,
       })
-      log.info(`ticket ${ticket.id}: filed ${url}`)
+      log.info(`ticket ${ticket.id}: filed ${url}`, {
+        event: 'ticket.triaged',
+        ticketId: ticket.id,
+        verdict: 'new',
+        issueUrl: url,
+      })
       return {
         decision,
         filed: {
@@ -184,7 +206,11 @@ export async function triageOne(
           'Read, and held for a maintainer rather than answered automatically. ' +
           `Why: ${decision.why}`,
       })
-      log.info(`ticket ${ticket.id}: held for a human — ${decision.why}`)
+      log.info(`ticket ${ticket.id}: held for a human — ${decision.why}`, {
+        event: 'ticket.triaged',
+        ticketId: ticket.id,
+        verdict: 'human',
+      })
       return { decision }
     }
   }
@@ -260,11 +286,19 @@ export async function reconcile(deps: LoopDependencies): Promise<ReconcileOutcom
       })
       if (settled === undefined) continue
       resolved++
-      log.info(`ticket ${ticket.id}: resolved, ${issue.url} is closed`)
+      log.info(`ticket ${ticket.id}: resolved, ${issue.url} is closed`, {
+        event: 'ticket.resolved',
+        ticketId: ticket.id,
+        issueUrl: issue.url,
+      })
     } catch (error) {
       // One ticket that cannot be written must not cost the others theirs. The
       // row stays `acknowledged`, which is still true, and the next pass retries.
-      log.error(`ticket ${ticket.id} could not be settled from ${issue.url}`, error)
+      log.error(`ticket ${ticket.id} could not be settled from ${issue.url}`, error, {
+        event: 'ticket.resolve.failed',
+        ticketId: ticket.id,
+        issueUrl: issue.url,
+      })
     }
   }
 
@@ -310,7 +344,9 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   try {
     resolved = (await reconcile(deps)).resolved
   } catch (error) {
-    log.error('could not reconcile acknowledged tickets against closed issues', error)
+    log.error('could not reconcile acknowledged tickets against closed issues', error, {
+      event: 'reconcile.failed',
+    })
   }
 
   const queue = await deps.store.queue(batchSize)
@@ -327,6 +363,7 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
     log.warn(
       `${queue.length} ticket(s) waiting and no GitHub App is configured; ` +
         'not triaging, because matching against an empty corpus is worse than waiting',
+      { event: 'triage.skipped.no-app', waiting: queue.length },
     )
     return counts
   }
@@ -359,7 +396,10 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
       }
     } catch (error) {
       counts.failed++
-      log.error(`ticket ${ticket.id} could not be triaged; it stays in the queue`, error)
+      log.error(`ticket ${ticket.id} could not be triaged; it stays in the queue`, error, {
+        event: 'ticket.triage.failed',
+        ticketId: ticket.id,
+      })
     }
   }
 
@@ -428,13 +468,28 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
     while (running) {
       try {
         const outcome = await tick(deps, batchSize)
-        if (outcome.seen > 0) {
-          log.info(
-            `triaged ${outcome.seen}: ${outcome.known} already known, ` +
-              `${outcome.answered} answered from precedent, ${outcome.filed} filed, ` +
-              `${outcome.held} held for a human, ${outcome.failed} left in the queue`,
-          )
-        }
+        // One line per completed cycle, even when nothing was waiting (`#230`).
+        // `{event: "poll.done", handled: 0}` is not noise: it is the only thing
+        // that distinguishes *the runner ran and had nothing to do* from *the
+        // runner is dead*, and error monitoring structurally misses the second.
+        // The counts ride on the same line rather than a second one, so a cycle
+        // is one record whether it saw twenty tickets or none.
+        log.info(
+          outcome.seen === 0
+            ? 'poll done; no tickets waiting'
+            : `triaged ${outcome.seen}: ${outcome.known} already known, ` +
+                `${outcome.answered} answered from precedent, ${outcome.filed} filed, ` +
+                `${outcome.held} held for a human, ${outcome.failed} left in the queue`,
+          {
+            event: 'poll.done',
+            handled: outcome.seen,
+            known: outcome.known,
+            answered: outcome.answered,
+            filed: outcome.filed,
+            held: outcome.held,
+            failed: outcome.failed,
+          },
+        )
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)
@@ -444,6 +499,7 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
         log.error(
           `poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
           error,
+          { event: 'poll.failed', consecutiveFailures, retryInMs: wait },
         )
         if (running) await pause(wait)
       }

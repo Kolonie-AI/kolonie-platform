@@ -67,6 +67,12 @@ export async function respondToChange(
   log.warn(
     `provider change concluded on task ${change.taskId}: ` +
       `${change.reporters} distinct reporters in ${change.windowHours}h`,
+    {
+      event: 'tripwire.change.concluded',
+      taskId: change.taskId,
+      reporters: change.reporters,
+      windowHours: change.windowHours,
+    },
   )
 
   await tripwire.resynthesise(change.taskId)
@@ -78,7 +84,7 @@ export async function respondToChange(
     body: issueBody(change),
   })
 
-  if (url !== null) log.info(`opened ${url}`)
+  if (url !== null) log.info(`opened ${url}`, { event: 'tripwire.issue.opened', url })
 }
 
 /**
@@ -139,7 +145,13 @@ export const TRIPWIRE_TOKEN_VAR = 'MODERATION_GITHUB_TOKEN'
  */
 export function githubIssues(token: string | undefined, log: Log): IssueOpener {
   if (token === undefined || token.trim() === '') {
-    log.warn(`${TRIPWIRE_TOKEN_VAR} is not set — provider changes will be concluded but not filed`)
+    log.warn(
+      `${TRIPWIRE_TOKEN_VAR} is not set — provider changes will be concluded but not filed`,
+      {
+        event: 'config.missing',
+        variable: TRIPWIRE_TOKEN_VAR,
+      },
+    )
     return noIssues
   }
 
@@ -176,7 +188,10 @@ export function githubIssues(token: string | undefined, log: Log): IssueOpener {
       })
 
       if (!response.ok) {
-        log.error(`could not open an issue: ${response.status}`, await response.text())
+        log.error(`could not open an issue: ${response.status}`, await response.text(), {
+          event: 'tripwire.issue.create.failed',
+          status: response.status,
+        })
         return null
       }
 

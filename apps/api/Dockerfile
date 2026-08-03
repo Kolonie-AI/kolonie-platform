@@ -37,7 +37,11 @@ ENV NODE_ENV=production
 #
 # packages/db/src/required-env.ts is the source; this line is a copy, because a
 # label cannot import TypeScript. required-env.test.ts fails if they disagree.
-LABEL ai.kolonie.required-env="DATABASE_URL,BAN_MARK_SALT"
+#
+# This list is API_REQUIRED_ENV, not the shared REQUIRED_ENV: DEPOSIT_SEALING_KEY
+# is read by this image alone, and declaring it on the three runners would stop
+# their deploys over a variable they never read.
+LABEL ai.kolonie.required-env="DATABASE_URL,BAN_MARK_SALT,DEPOSIT_SEALING_KEY"
 
 # The compose healthcheck calls curl; alpine ships without it.
 RUN apk add --no-cache curl

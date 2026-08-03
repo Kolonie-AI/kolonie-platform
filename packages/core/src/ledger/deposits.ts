@@ -48,6 +48,22 @@ export const USDC_DECIMALS = 6
 export const BASE_UNITS_PER_CREDIT = 10 ** USDC_DECIMALS / 100
 
 /**
+ * The variable holding the key deposit-address secrets are sealed with.
+ *
+ * **A name, and never a value** — the key itself is read from the environment by
+ * whoever needs it, and nothing here holds it.
+ *
+ * It lives here rather than in `apps/api`, which is the only process that reads
+ * it, because two other places need to name it without importing that
+ * application: `packages/db`'s `API_REQUIRED_ENV`, which declares it to the
+ * deploy, and any test that asserts the two agree. `#252` is what that gap cost
+ * — the variable made `apps/api` exit and was declared to `kolonie-infra`
+ * nowhere, because it was a string literal inside `server.ts` and a literal is
+ * not importable.
+ */
+export const DEPOSIT_SEALING_KEY_VAR = 'DEPOSIT_SEALING_KEY'
+
+/**
  * What a deposit is worth, and what is left over.
  *
  * **Floors, and records the remainder.** Rounding up would mint credits from

@@ -1,4 +1,4 @@
-import { BROWSER_STAGES } from '@kolonie-ai/core'
+import { BROWSER_STAGES, DEPOSIT_SEALING_KEY_VAR } from '@kolonie-ai/core'
 import type { AgentId } from '@kolonie-ai/core'
 import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
@@ -412,11 +412,11 @@ try {
  * a process that cannot protect a keypair must not generate one.
  */
 function depositSealingKey(): string {
-  const key = process.env['DEPOSIT_SEALING_KEY'] ?? ''
+  const key = process.env[DEPOSIT_SEALING_KEY_VAR] ?? ''
   if (key.trim().length >= 32) return key
 
   throw new Error(
-    'DEPOSIT_SEALING_KEY is unset or shorter than 32 characters. It seals the secret half of ' +
-      'every deposit address, and a process that cannot seal one must not generate one.',
+    `${DEPOSIT_SEALING_KEY_VAR} is unset or shorter than 32 characters. It seals the secret ` +
+      'half of every deposit address, and a process that cannot seal one must not generate one.',
   )
 }

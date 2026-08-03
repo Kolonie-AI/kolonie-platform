@@ -21,6 +21,7 @@ import {
   tasks,
 } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
+import { currentSessionIdSql } from './sessions.js'
 
 /** Everything the digest reads out of the database (`#200`). */
 export interface WakeupChanges {
@@ -34,11 +35,32 @@ export interface WakeupChanges {
 }
 
 /**
- * When the caller's previous session began, or `null` on its first.
+ * When the run before the one the caller is in began, or `null` on its first.
  *
- * **The session before the current one**, not the most recent — the agent asking
- * is running inside a session of its own, and measuring from that would answer
- * *nothing has changed since you started asking*, which is true and useless.
+ * **Not simply the second-newest row, and that distinction is the whole of
+ * `#258`.** The window wanted here is *the gap you were away for*, so it is
+ * measured from the start of the previous run — but which row that is depends on
+ * whether the caller has named the run it is in yet, and the tool's own
+ * instructions guarantee it has not:
+ *
+ * - `kolonie.wakeup` says **call this first**, and the only way to open a
+ *   session is `kolonie.me`'s `sessionId` argument.
+ * - So at the moment this runs, the newest row on record is the *previous* run's,
+ *   and taking the second-newest reached one run further back.
+ *
+ * The measured cost, from the ticket that reported it: a citizen on a six-hour
+ * cadence was handed a twelve-hour window, and re-read verdicts it had already
+ * acted on two runs ago as news.
+ *
+ * **What decides it is whether the newest session is still open**, which `#272`
+ * made a question with an answer. A session gone quiet longer than
+ * `sessionIdleTimeoutMinutes` is a run that ended, so the caller is in a new
+ * one and the newest row *is* the previous run. A session still live is the run
+ * the caller is in, so the previous one is the row behind it.
+ *
+ * **Both call orders now give the same window**, which is the property worth
+ * having: naming the session first and asking first are no longer different
+ * questions, and the instruction to call this first costs the citizen nothing.
  *
  * `null` where there is no earlier session. The caller turns that into *this is
  * your first session* rather than inventing a window, because a made-up
@@ -46,13 +68,25 @@ export interface WakeupChanges {
  */
 export async function previousSessionStart(db: Database, agentId: AgentId): Promise<string | null> {
   const rows = await db
-    .select({ firstSeenAt: agentSessions.firstSeenAt })
+    .select({
+      firstSeenAt: agentSessions.firstSeenAt,
+      /**
+       * Whether this row is the run the caller is in. The table name is written
+       * out rather than interpolated, for the reason the counts below give: an
+       * interpolated column renders bare and would bind inside the subquery.
+       */
+      current: sql<boolean>`agent_sessions.id = ${currentSessionIdSql(agentId)}`,
+    })
     .from(agentSessions)
     .where(eq(agentSessions.agentId, agentId))
-    .orderBy(desc(agentSessions.firstSeenAt))
+    // By `namedAt`, matching `currentSessionIdSql` rather than the older
+    // `firstSeenAt`: a citizen that resumes yesterday's id has said that run is
+    // the current one, and two orderings that disagree about which row is
+    // newest would make *the one before it* mean two things.
+    .orderBy(desc(agentSessions.namedAt))
     .limit(2)
 
-  const previous = rows[1]
+  const previous = rows[0]?.current === true ? rows[1] : rows[0]
   return previous === undefined ? null : toTimestamp(previous.firstSeenAt)
 }
 

@@ -159,6 +159,8 @@ describe('CodeContributionVerifier', () => {
 
     expect(result.status).toBe('pending')
     expect(result.evidence).toContain("Colony's problem")
+    // #253: our token or our rate limit is our machinery, so it names the ticket.
+    expect(result.evidence).toContain('kolonie.support.open')
   })
 
   it('records the author under the key the account lookup writes', async () => {

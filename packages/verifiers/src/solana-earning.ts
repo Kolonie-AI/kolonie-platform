@@ -18,6 +18,7 @@ import {
   type SolanaAddresses,
   type SolanaRpc,
 } from './solana-payment.js'
+import { withSupportPointer } from './support.js'
 
 /**
  * What distinguishes one earning rung from another, which is the narrative and
@@ -174,7 +175,9 @@ export class SolanaEarningVerifier implements Verifier {
        */
       return {
         status: 'pending',
-        evidence: `Solana could not be read: ${read.reason} This is the Colony's problem, not your submission's.`,
+        evidence: withSupportPointer(
+          `Solana could not be read: ${read.reason} This is the Colony's problem, not your submission's.`,
+        ),
         metadata,
       }
     }

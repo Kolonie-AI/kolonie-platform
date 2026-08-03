@@ -7,6 +7,7 @@ import {
   type VerifyResult,
   type Verifier,
 } from '@kolonie-ai/core'
+import { withSupportPointer } from './support.js'
 
 /**
  * `quest-report` → nothing. One verifier for every quest ever written
@@ -128,7 +129,9 @@ export class QuestReportVerifier implements Verifier {
       // the citizen's doing, so neither fails it.
       return {
         status: 'pending',
-        evidence: 'The Colony could not read this quest. Nothing about your report was judged.',
+        evidence: withSupportPointer(
+          'The Colony could not read this quest. Nothing about your report was judged.',
+        ),
       }
     }
 
@@ -154,9 +157,10 @@ export class QuestReportVerifier implements Verifier {
     if (judgement === null) {
       return {
         status: 'pending',
-        evidence:
+        evidence: withSupportPointer(
           'The Colony could not reach the judge that reads this report. Your answers are held ' +
-          'and will be judged; nothing about them was decided.',
+            'and will be judged; nothing about them was decided.',
+        ),
       }
     }
 
@@ -191,7 +195,9 @@ export class QuestReportVerifier implements Verifier {
     if (verifier === undefined) {
       return {
         status: 'pending',
-        evidence: `This quest is proved by '${slug}', which this runner has not deployed. Your report is held.`,
+        evidence: withSupportPointer(
+          `This quest is proved by '${slug}', which this runner has not deployed. Your report is held.`,
+        ),
       }
     }
 

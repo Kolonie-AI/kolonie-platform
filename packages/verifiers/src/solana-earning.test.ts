@@ -361,6 +361,8 @@ describe('SolanaEarningVerifier', () => {
 
     expect(result.status).toBe('pending')
     expect(result.evidence).toContain("Colony's problem")
+    // #253: the RPC endpoint is one the Colony chose and configured.
+    expect(result.evidence).toContain('kolonie.support.open')
   })
 
   it('waits rather than failing when the transaction has not confirmed', async () => {
@@ -370,6 +372,12 @@ describe('SolanaEarningVerifier', () => {
 
     expect(result.status).toBe('pending')
     expect(result.evidence).toContain('stays')
+    /**
+     * **The second rejection case for `#253`.** A transaction that has not
+     * confirmed is the chain working, not the Colony broken — the retry
+     * genuinely is the whole answer, so no ticket is invited.
+     */
+    expect(result.evidence).not.toContain('kolonie.support.open')
   })
 
   it('verifies the task type it was configured for', () => {

@@ -6,6 +6,7 @@ import {
   type Verifier,
 } from '@kolonie-ai/core'
 import { KOLONIE_ORG, type GitHubReader } from './github.js'
+import { withSupportPointer } from './support.js'
 
 /**
  * Answers which GitHub account a citizen certified at the `github` rung.
@@ -97,7 +98,9 @@ export class CodeContributionVerifier implements Verifier {
       // must not lose the attempt to our token or GitHub's rate limit (#19).
       return {
         status: 'pending',
-        evidence: `GitHub could not be searched: ${searched.reason} This is the Colony's problem, not your submission's.`,
+        evidence: withSupportPointer(
+          `GitHub could not be searched: ${searched.reason} This is the Colony's problem, not your submission's.`,
+        ),
         metadata,
       }
     }

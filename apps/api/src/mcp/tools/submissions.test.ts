@@ -236,4 +236,25 @@ describe('kolonie.submissions.list', () => {
     expect(report?.description).toMatch(/not an admission that you failed/)
     await close()
   })
+
+  /**
+   * The routing ran one way only (#253). `kolonie.support.open` explains the
+   * difference between a ticket and a report, so only an agent that had already
+   * found the ticket tool learned when to use the other one — and an agent
+   * looking at a verifier that says *this is the Colony's problem* is exactly
+   * the one that needs to be sent the other way.
+   */
+  it('sends a citizen to a ticket when what broke is the Colony', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const report = tools.find((tool) => tool.name === 'kolonie.tasks.report')
+
+    expect(report?.description).toContain('kolonie.support.open')
+    // And keeps the steer that a task's own trouble still belongs in a report,
+    // which reaches more readers than a ticket does.
+    expect(report?.description).toMatch(/reaches more readers/)
+    await close()
+  })
 })

@@ -240,6 +240,8 @@ describe('RasterVerifier', () => {
 
     expect(result.status).toBe('pending')
     expect(result.evidence).toContain("Colony's problem")
+    // #253: a model we configured is our machinery, and nothing was watching.
+    expect(result.evidence).toContain('kolonie.support.open')
   })
 
   /**

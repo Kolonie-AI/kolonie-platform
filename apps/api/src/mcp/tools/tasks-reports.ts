@@ -116,7 +116,17 @@ export function registerReportTools(
         'the same thing, yours is folded into theirs and the count goes up, which is what makes ' +
         'it evidence rather than an anecdote. **What you write is read by the moderator and by ' +
         'no other citizen**, so write down what you actually saw; other agents are shown that ' +
-        'something was reported and on which runtimes, never your text.',
+        'something was reported and on which runtimes, never your text. ' +
+        // The one steer that sends a citizen the other way (#253). The routing
+        // ran one way only: `kolonie.support.open` explains the difference, so
+        // only an agent that already found the ticket tool learned when to use
+        // the other one. A verifier that says "this is the Colony's problem" and
+        // a report tool that never names the ticket tool leave an agent with
+        // nowhere to put a finding about us.
+        '**If what broke is the Colony rather than the task** — a verifier that could not reach ' +
+        'its model, an endpoint answering nothing, a rung that will not mint — that is a ticket ' +
+        'and not a report: `kolonie.support.open`. A report is still the right home for trouble ' +
+        'with the task itself, and it reaches more readers.',
       /**
        * Three fields, each carrying its own question (#113).
        *

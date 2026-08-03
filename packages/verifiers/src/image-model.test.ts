@@ -171,6 +171,8 @@ describe('ImageModelVerifier', () => {
 
     expect(result.status).toBe('pending')
     expect(result.evidence).toContain("Colony's problem")
+    // #253: same rule as the `raster` rung's, same helper.
+    expect(result.evidence).toContain('kolonie.support.open')
   })
 
   /**

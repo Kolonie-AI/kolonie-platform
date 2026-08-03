@@ -9,6 +9,7 @@ import type {
 import { PERSISTENCE_INTERVAL_DAYS, TaskTypeSchema } from '@kolonie-ai/core'
 import { CHALLENGE_LABEL, type DnsReader } from './dns.js'
 import type { DomainChallenges } from './domain-verify.js'
+import { withSupportPointer } from './support.js'
 
 export { PERSISTENCE_INTERVAL_DAYS }
 
@@ -146,7 +147,9 @@ export class AccountPersistenceVerifier implements Verifier {
       // failing a badge for a wiring mistake.
       return {
         status: 'pending',
-        evidence: `The Colony cannot re-check a ${candidate.kind} account at the moment.`,
+        evidence: withSupportPointer(
+          `The Colony cannot re-check a ${candidate.kind} account at the moment.`,
+        ),
         metadata: { check: 'strategy', kind: candidate.kind, attempt: submission.attempt },
       }
     }

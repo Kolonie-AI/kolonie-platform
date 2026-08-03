@@ -98,6 +98,23 @@ describe('account-persistence', () => {
     expect(result.metadata).not.toHaveProperty('recheck', 'held')
   })
 
+  /**
+   * `#253`, on the one branch here whose cause is unambiguously ours: the
+   * register offered a kind this runner has no strategy for, which is a wiring
+   * mistake and not a slow resolver. The `unavailable` case above is
+   * deliberately left alone — there the world is merely taking its time, and the
+   * retry genuinely is the whole answer.
+   */
+  it('tells the citizen the Colony may not know when no strategy exists for the kind', async () => {
+    const result = await verifierOver(
+      [anAccount({ kind: AccountKindSchema.parse('github') })],
+      check('held'),
+    ).verify(submission, context)
+
+    expect(result.status).toBe('pending')
+    expect(result.evidence).toContain('kolonie.support.open')
+  })
+
   it('refuses before the interval has elapsed, and says how long is left', async () => {
     const fresh = anAccount({ confirmedAt: new Date(Date.now() - 3 * DAY_MS).toISOString() })
 

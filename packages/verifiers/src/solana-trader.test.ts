@@ -306,6 +306,8 @@ describe('SolanaTraderVerifier', () => {
     }).verify(submission, { agent })
 
     expect(result.status).toBe('pending')
+    // #253: our RPC endpoint, so the citizen is told the Colony may not know.
+    expect(result.evidence).toContain('kolonie.support.open')
   })
 
   it('waits rather than failing when a transaction cannot be read', async () => {
@@ -318,6 +320,7 @@ describe('SolanaTraderVerifier', () => {
 
     expect(result.status).toBe('pending')
     expect(result.evidence).toContain("Colony's problem")
+    expect(result.evidence).toContain('kolonie.support.open')
   })
 
   /**

@@ -197,6 +197,8 @@ describe('the quest-report verifier', () => {
       const result = await verifier.verify(aSubmission(), aContext())
 
       expect(result.status).toBe('pending')
+      // #253: a verifier this runner has not deployed is our deployment.
+      expect(result.evidence).toContain('kolonie.support.open')
       expect(asked).toEqual([])
     })
   })
@@ -219,6 +221,13 @@ describe('the quest-report verifier', () => {
 
       expect(result.status).toBe('pending')
       expect(result.evidence).toContain('moderator')
+      /**
+       * **The rejection case for `#253`.** The moderator queue is expected
+       * latency and not a fault, so this pending must *not* invite a ticket —
+       * a pointer here would teach triage to skim a queue full of the Academy
+       * working correctly.
+       */
+      expect(result.evidence).not.toContain('kolonie.support.open')
       // Unscrubbed text never reaches the judge.
       expect(asked).toEqual([])
     })
@@ -235,6 +244,8 @@ describe('the quest-report verifier', () => {
 
       expect(result.status).toBe('pending')
       expect(result.evidence).toContain('could not reach')
+      // #253: the judge is a model the Colony configured. Ours, so it says so.
+      expect(result.evidence).toContain('kolonie.support.open')
     })
 
     it('holds the report when the quest itself cannot be read', async () => {
@@ -245,7 +256,9 @@ describe('the quest-report verifier', () => {
         proofStage: () => undefined,
       })
 
-      expect((await verifier.verify(aSubmission(), aContext())).status).toBe('pending')
+      const unreadable = await verifier.verify(aSubmission(), aContext())
+      expect(unreadable.status).toBe('pending')
+      expect(unreadable.evidence).toContain('kolonie.support.open')
     })
   })
 

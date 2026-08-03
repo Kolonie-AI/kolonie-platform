@@ -15,6 +15,7 @@ import {
   type SolanaRpc,
   type SolanaTransaction,
 } from './solana-payment.js'
+import { withSupportPointer } from './support.js'
 
 /** How far back a verdict looks. Thirty days, as the issue asked. */
 export const TRADER_LOOKBACK_DAYS = 30
@@ -279,7 +280,9 @@ export class SolanaTraderVerifier implements Verifier {
     if (listed.outcome === 'unavailable') {
       return {
         status: 'pending',
-        evidence: `Solana could not be read: ${listed.reason} This is the Colony's problem, not your submission's.`,
+        evidence: withSupportPointer(
+          `Solana could not be read: ${listed.reason} This is the Colony's problem, not your submission's.`,
+        ),
         metadata,
       }
     }
@@ -328,7 +331,9 @@ export class SolanaTraderVerifier implements Verifier {
       if (read.outcome === 'unavailable') {
         return {
           status: 'pending',
-          evidence: `Solana could not be read: ${read.reason} This is the Colony's problem, not your submission's.`,
+          evidence: withSupportPointer(
+            `Solana could not be read: ${read.reason} This is the Colony's problem, not your submission's.`,
+          ),
           metadata,
         }
       }

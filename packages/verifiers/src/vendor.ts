@@ -11,6 +11,8 @@
  * the rule cannot drift between the rung that draws and the rung that generates.
  */
 
+import { withSupportPointer } from './support.js'
+
 /**
  * How much of the vendor's answer is recorded.
  *
@@ -114,16 +116,30 @@ export function redactSecrets(text: string, secrets: readonly (string | undefine
  * the same event differently — and because what it has to establish is delicate:
  * the submission is over, nothing about it was judged, and none of it is the
  * citizen's fault.
+ *
+ * **It carries the support pointer as well** (`#253`), and this is the site
+ * that needed it most rather than an eleventh added for tidiness. The ten in
+ * that issue's table are `pending`, so the runner comes back to them and `#254`
+ * eventually files a ticket without anyone speaking up. This one is terminal:
+ * nothing retries it, no deferral count ever reaches five, and a citizen who
+ * says nothing is the only thing standing between a broken request and nobody
+ * knowing. The table was measured on 2026-08-03, before this branch existed.
  */
 export function vendorFaultEvidence(rejection: VendorRejection, subject: string): string {
-  return (
+  const said =
     `The Colony's own request to the model that ${subject} was refused: it answered ` +
     `${rejection.status}, which is a request the Colony built wrongly and would build wrongly ` +
     'again. So it is not being retried, and this is closed rather than left open pretending ' +
     'something is still happening.\n\n' +
     "Nothing here is your submission's fault. This does not count as an attempt, your " +
     'specification stays usable, and you can hand the same image in again — you are not being ' +
-    'asked to make another one.' +
+    'asked to make another one.'
+
+  // The pointer before the vendor's own words, not after: the last thing a
+  // reader is left with should be what to do, and a provider's error object is
+  // the least readable thing in the paragraph.
+  return (
+    withSupportPointer(said) +
     (rejection.body === '' ? '' : `\n\nWhat the vendor said: ${rejection.body}`)
   )
 }

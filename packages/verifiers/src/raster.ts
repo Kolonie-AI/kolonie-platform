@@ -14,6 +14,7 @@ import {
   type Verifier,
 } from '@kolonie-ai/core'
 import { readImage, type ImageFormat } from './image.js'
+import { withSupportPointer } from './support.js'
 import { vendorFaultEvidence } from './vendor.js'
 import { safeFetch } from './website-verify.js'
 
@@ -207,9 +208,10 @@ export class RasterVerifier implements Verifier {
     if (verdict.outcome === 'unavailable') {
       return {
         status: 'pending',
-        evidence:
+        evidence: withSupportPointer(
           `The Colony could not have your image looked at: ${verdict.reason} This is the ` +
-          "Colony's problem, not your submission's — it stays open and is tried again.",
+            "Colony's problem, not your submission's — it stays open and is tried again.",
+        ),
         metadata,
       }
     }

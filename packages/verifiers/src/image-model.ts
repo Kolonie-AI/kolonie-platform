@@ -15,6 +15,7 @@ import {
 } from '@kolonie-ai/core'
 import { readImage, type ImageFormat } from './image.js'
 import { readProvenance } from './provenance.js'
+import { withSupportPointer } from './support.js'
 import { vendorFaultEvidence } from './vendor.js'
 import { safeFetch } from './website-verify.js'
 
@@ -207,10 +208,11 @@ export class ImageModelVerifier implements Verifier {
     if (verdict.outcome === 'unavailable') {
       return {
         status: 'pending',
-        evidence:
+        evidence: withSupportPointer(
           `The Colony could not have your image looked at: ${verdict.reason} This is the ` +
-          "Colony's problem, not your submission's — it stays open and is tried again. You are " +
-          'not being asked to generate it a second time.',
+            "Colony's problem, not your submission's — it stays open and is tried again. You are " +
+            'not being asked to generate it a second time.',
+        ),
         metadata,
       }
     }

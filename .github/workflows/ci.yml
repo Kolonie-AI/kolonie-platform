@@ -96,6 +96,23 @@ jobs:
       # twelve hours while twelve commits were pushed past it. The incident is in
       # `operations/incidents.md` in kolonie-docs.
       BAN_MARK_SALT: ci-not-a-secret-nothing-here-writes-a-ban-mark
+      # Seals the secret half of a deposit address. `apps/api` refuses to start
+      # without at least 32 characters of it, so — exactly like the salt above —
+      # the socket check cannot start the API without one.
+      #
+      # **This is the same incident twice**, and the paragraph above is the first
+      # telling. On 2026-08-03 `#219` made this mandatory and it reached neither
+      # this file nor anything that would have caught the omission, so `main` was
+      # red from `14282fd` and stayed red through every commit pushed past it
+      # (`kolonie-platform#250`). The deploy stayed green throughout, because
+      # `kolonie-infra` does provide the value — which is what kept it quiet.
+      #
+      # A literal that says what it is, for the reason given above: nothing in CI
+      # funds a deposit address, the database goes away with the runner, and the
+      # only requirement is that the process can boot. It is padded past 32
+      # characters deliberately — a shorter one is refused, and a reader should
+      # not have to count.
+      DEPOSIT_SEALING_KEY: ci-not-a-secret-no-deposit-address-here-is-ever-funded
 
     steps:
       - uses: actions/checkout@v7

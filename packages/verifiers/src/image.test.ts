@@ -1,17 +1,72 @@
+import { crc32 } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { readImage } from './image.js'
 
-/** A PNG, as far as anything reading its header is concerned. */
+/**
+ * A complete PNG: signature, `IHDR`, an `IDAT` and an `IEND`, every chunk
+ * carrying its own checksum.
+ *
+ * **These fixtures used to be twenty-four bytes of header** and the tests below
+ * asserted the reader read them, which it did — that is `#273` in miniature. A
+ * file that is only a header is exactly what a truncated submission looks like,
+ * so a fixture that stops there cannot tell a working reader from one that never
+ * looks past the first chunk.
+ *
+ * The checksums come from `node:zlib`, which is a different implementation from
+ * the one in `image.ts`. That is the point of using it rather than exporting
+ * ours: a fixture built with the code under test would agree with it however
+ * wrong both were.
+ */
 function png(width: number, height: number): Uint8Array {
-  const bytes = new Uint8Array(24)
-  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
-  const view = new DataView(bytes.buffer)
-  view.setUint32(8, 13, false)
-  bytes.set([0x49, 0x48, 0x44, 0x52], 12)
-  view.setUint32(16, width, false)
-  view.setUint32(20, height, false)
+  const chunk = (name: string, data: Uint8Array): number[] => {
+    const named = Uint8Array.from([...Buffer.from(name, 'ascii'), ...data])
+    const length = data.length
+    const crc = crc32(named)
 
-  return bytes
+    return [
+      (length >>> 24) & 0xff,
+      (length >>> 16) & 0xff,
+      (length >>> 8) & 0xff,
+      length & 0xff,
+      ...named,
+      (crc >>> 24) & 0xff,
+      (crc >>> 16) & 0xff,
+      (crc >>> 8) & 0xff,
+      crc & 0xff,
+    ]
+  }
+
+  const header = Uint8Array.from([
+    (width >>> 24) & 0xff,
+    (width >>> 16) & 0xff,
+    (width >>> 8) & 0xff,
+    width & 0xff,
+    (height >>> 24) & 0xff,
+    (height >>> 16) & 0xff,
+    (height >>> 8) & 0xff,
+    height & 0xff,
+    // Depth 8, truecolour, and the only compression, filter and interlace
+    // methods PNG defines. Nothing reads these; they are here so the file is one.
+    8,
+    2,
+    0,
+    0,
+    0,
+  ])
+
+  return Uint8Array.from([
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+    0x0d,
+    0x0a,
+    0x1a,
+    0x0a,
+    ...chunk('IHDR', header),
+    ...chunk('IDAT', Uint8Array.from([0x78, 0x9c, 0x63, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01])),
+    ...chunk('IEND', new Uint8Array(0)),
+  ])
 }
 
 /**
@@ -42,6 +97,9 @@ function jpeg(width: number, height: number, options: { marker?: number; segment
     width & 0xff,
     0x03,
     ...new Array(8).fill(0),
+    // End-of-image. A JPEG without it is a JPEG that was cut short (`#273`).
+    0xff,
+    0xd9,
   ])
 }
 
@@ -58,6 +116,8 @@ function webp(width: number, height: number): Uint8Array {
   ascii(8, 'WEBP')
   ascii(12, 'VP8 ')
   const view = new DataView(bytes.buffer)
+  // The RIFF length, which is the file's own account of how long it is (`#273`).
+  view.setUint32(4, bytes.length - 8, true)
   view.setUint16(26, width, true)
   view.setUint16(28, height, true)
 
@@ -122,5 +182,123 @@ describe('readImage', () => {
     const bytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xff, 0, 0, 0, 0, 0, 0])
 
     expect(readImage(bytes).outcome).toBe('unreadable')
+  })
+})
+
+/**
+ * **`#273`, and the submission behind it was not a valid PNG.** A citizen filed a
+ * defect saying the Colony refused its well-formed square PNG. The bytes, read
+ * out of the row: 1757 of them, signature and `IHDR` intact, 512×512, an `IDAT`
+ * declaring 2057 bytes of data with 1716 left in the file, and an `IEND` on the
+ * end.
+ *
+ * Every check the Colony made looked at the first 24 bytes, so the file passed,
+ * went to a vendor's model, and came back `400 image_parse_error` — at which
+ * point `raster.ts` told the citizen this was a request *the Colony built
+ * wrongly*, closed the attempt as our fault, and left the citizen with nothing to
+ * act on. It was right about everything except whose fault it was, because
+ * nothing between the header and the vendor could tell it.
+ *
+ * What these pin is the rule that follows: the Colony does not hand a vendor
+ * bytes it has not walked to the end.
+ */
+describe('a file that starts as an image and does not finish as one', () => {
+  it('refuses a PNG whose last chunk is cut short, and says so', () => {
+    // Inside the IDAT, which is where the submission behind `#273` was cut.
+    const complete = png(512, 512)
+    const cut = complete.subarray(0, complete.length - 20)
+
+    const read = readImage(cut)
+
+    expect(read.outcome).toBe('unreadable')
+    expect(read.outcome === 'unreadable' && read.reason).toMatch(/left in the file/)
+  })
+
+  /**
+   * **The header is named as good in the same breath.** *"Not an image"* would be
+   * wrong and would send a citizen back to its generator, when the cause is
+   * almost always the transfer — so the message says the picture began correctly
+   * and stopped early, which points at what it sent rather than at what it drew.
+   */
+  it('tells the citizen its header was fine and its file was not', () => {
+    const complete = png(640, 640)
+    const read = readImage(complete.subarray(0, complete.length - 4))
+
+    expect(read.outcome === 'unreadable' && read.reason).toMatch(/valid image\/png of 640×640/)
+    expect(read.outcome === 'unreadable' && read.reason).toMatch(/check that what you sent/)
+  })
+
+  it('refuses a PNG that never reaches its IEND', () => {
+    const complete = png(64, 64)
+    const withoutEnd = complete.subarray(0, complete.length - 12)
+
+    expect(readImage(withoutEnd).outcome).toBe('unreadable')
+  })
+
+  /**
+   * Truncation is the failure that reached us; a file of the right length with
+   * the wrong bytes in it is the one that would reach us next. The chunk
+   * checksums catch it for the cost of one pass over a file the size limit
+   * already caps.
+   */
+  it('refuses a PNG whose bytes were altered in transit', () => {
+    const corrupted = Uint8Array.from(png(128, 128))
+    const at = corrupted.length - 20
+    corrupted[at] = (corrupted[at] as number) ^ 0xff
+
+    const read = readImage(corrupted)
+
+    expect(read.outcome).toBe('unreadable')
+    expect(read.outcome === 'unreadable' && read.reason).toMatch(/checksum/)
+  })
+
+  /**
+   * The name goes into an evidence line a citizen reads, and the only time it is
+   * printed is when the bytes are damaged — which is exactly when copying them
+   * raw would put control characters into it.
+   */
+  it('never puts unprintable bytes into the message', () => {
+    const corrupted = Uint8Array.from(png(32, 32))
+    // The first byte of the IHDR chunk's name, which is the one the message quotes.
+    corrupted[12] = 0x01
+
+    const read = readImage(corrupted)
+    const reason = read.outcome === 'unreadable' ? read.reason : ''
+
+    // Char codes rather than a regular expression, because a regular expression
+    // holding control characters is one `no-control-regex` refuses on sight —
+    // for the same reason this test exists.
+    for (const character of reason) {
+      const code = character.codePointAt(0) as number
+      expect(code, `${JSON.stringify(character)} is a control character`).toBeGreaterThan(0x1f)
+      expect(code).not.toBe(0x7f)
+    }
+
+    expect(reason).toContain('?HDR')
+  })
+
+  it('refuses a JPEG with no end-of-image marker', () => {
+    const complete = jpeg(800, 600)
+
+    expect(readImage(complete.subarray(0, complete.length - 2)).outcome).toBe('unreadable')
+  })
+
+  it('refuses a WebP shorter than its own RIFF header says it is', () => {
+    const bytes = Uint8Array.from(webp(256, 256))
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    view.setUint32(4, bytes.length * 2, true)
+
+    expect(readImage(bytes).outcome).toBe('unreadable')
+  })
+
+  /**
+   * A JPEG may legitimately carry bytes after its end-of-image marker — cameras
+   * and editors append thumbnails — so the check is that one exists, never that
+   * the file stops at it. Refusing these would fail ordinary photographs.
+   */
+  it('accepts a JPEG that carries data after its end-of-image marker', () => {
+    const bytes = Uint8Array.from([...jpeg(800, 600), 1, 2, 3, 4])
+
+    expect(readImage(bytes)).toMatchObject({ outcome: 'read' })
   })
 })

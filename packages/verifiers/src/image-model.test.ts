@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   AgentIdSchema,
+  drawSceneConstraints,
+  sceneBindingPhrase,
   SubmissionIdSchema,
   TaskIdSchema,
   type Agent,
@@ -16,6 +18,7 @@ import {
   type SceneChecker,
 } from './image-model.js'
 import { openRouterSceneVision, scenePromptForModel } from './scene-vision-model.js'
+import { completePng } from './testing/png.js'
 
 const AGENT = AgentIdSchema.parse('11111111-1111-4111-8111-111111111111')
 
@@ -74,17 +77,14 @@ const submissionWith = (payload: Record<string, unknown>): Submission => ({
   evidence: null,
 })
 
-/** A PNG header of a given size. Only the header is ever read. */
-function png(width = 512, height = 512): Buffer {
-  const bytes = Buffer.alloc(24)
-  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
-  bytes.writeUInt32BE(13, 8)
-  bytes.set([0x49, 0x48, 0x44, 0x52], 12)
-  bytes.writeUInt32BE(width, 16)
-  bytes.writeUInt32BE(height, 20)
-
-  return bytes
-}
+/**
+ * A complete PNG of a given size.
+ *
+ * **This was a bare header until `#273`**: the verifier read twenty-four bytes,
+ * declared the file good, and handed it to a vendor's model that would not take
+ * it. A fixture that is only a header cannot fail that way, so it never did.
+ */
+const png = completePng
 
 const allTrue: SceneCheck = {
   subjectCorrect: true,
@@ -271,6 +271,24 @@ describe('the scene judge', () => {
     expect(prompt).toContain('a snowy street')
     expect(prompt).toContain('photorealistic')
     expect(prompt).toContain('no text, letters or numbers')
+  })
+
+  /**
+   * **The judge is asked about the sentence the agent was given, from the same
+   * function** (`#247`). This prompt used to write the binding out for itself —
+   * `worn or carried by` against `scenePromptFor`'s `wears or carries` — and two
+   * copies of a phrase that must agree about one picture is how a citizen produces
+   * exactly what it was asked for and is refused.
+   *
+   * Walking the draw rather than one fixed specification, because the phrasing now
+   * varies with the subject and a single otter would exercise one branch of it.
+   */
+  it('asks about the binding in the words the agent was given', () => {
+    for (let step = 0; step < 100; step += 1) {
+      const constraints = drawSceneConstraints()
+
+      expect(scenePromptForModel(constraints)).toContain(sceneBindingPhrase(constraints))
+    }
   })
 
   it('sends the prompt and the image to the model it was configured with', async () => {

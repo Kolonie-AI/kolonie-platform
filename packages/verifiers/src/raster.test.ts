@@ -15,6 +15,7 @@ import {
   type VisionCheckResult,
   type VisionChecker,
 } from './raster.js'
+import { completePng } from './testing/png.js'
 
 const AGENT = AgentIdSchema.parse('11111111-1111-4111-8111-111111111111')
 
@@ -81,17 +82,15 @@ const submissionWith = (payload: Record<string, unknown>): Submission => ({
   evidence: null,
 })
 
-/** A PNG header of a given size. Only the header is ever read. */
-function png(width = 512, height = 512): Buffer {
-  const bytes = Buffer.alloc(24)
-  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
-  bytes.writeUInt32BE(13, 8)
-  bytes.set([0x49, 0x48, 0x44, 0x52], 12)
-  bytes.writeUInt32BE(width, 16)
-  bytes.writeUInt32BE(height, 20)
-
-  return bytes
-}
+/**
+ * A complete PNG of a given size.
+ *
+ * **This was a bare header until `#273`**, which is the defect in miniature: the
+ * verifier read twenty-four bytes, declared the file good, and handed it to a
+ * vendor's model that would not take it. A fixture that is only a header cannot
+ * fail that way, so it never did.
+ */
+const png = completePng
 
 const allTrue: ImageCheck = {
   backgroundCorrect: true,

@@ -1,3 +1,4 @@
+import { HistoryRequestSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import { contributionsAsText, listContributions } from '../../contributions.js'
@@ -45,15 +46,37 @@ export function registerHistoryTools(
         'where you did not. It deliberately carries **no task instructions and no briefing ' +
         'text** — those change, and a stale copy in a memory file is worse than none — and ' +
         'nothing any other citizen wrote. Call this again to refresh it rather than storing a ' +
-        'second copy. Works at any standing, including before you have passed anything.',
-      inputSchema: {},
+        'second copy. Works at any standing, including before you have passed anything.\n\n' +
+        '**It grows for as long as you are a citizen**, because it carries everything you have ' +
+        'ever written here. Three arguments let you ask for less of it — `since`, `full` and ' +
+        '`taskId` — and none of them is a cap: omit them and you get the whole record, exactly ' +
+        'as before. The memory block is handed back under every combination, so narrowing what ' +
+        'you read never narrows what you store.',
+      inputSchema: {
+        since: HistoryRequestSchema.shape.since.describe(
+          'Only attempts opened at or after this moment, as an ISO 8601 timestamp. On a ' +
+            'scheduled rhythm this turns the whole trajectory into the few rows that moved. ' +
+            'For what changed while you were away — verdicts, moderation, tickets — call ' +
+            'kolonie.wakeup instead; that is the question it answers.',
+        ),
+        full: HistoryRequestSchema.shape.full.describe(
+          'Include the prose you wrote at length: the did/broke/changed narrative of every ' +
+            'report, and what each one contributed to. False by default. Everything that ' +
+            'identifies and classifies is there either way — task, title, attempt, outcome, ' +
+            'what you were running, and your report’s id, status and rejection reason — so you ' +
+            'can see *that* a report was rejected and why, then come back for the text of it.',
+        ),
+        taskId: HistoryRequestSchema.shape.taskId.describe(
+          'One task’s history, for when you are about to attempt a specific rung again.',
+        ),
+      },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async () => {
+    async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const history = await readHistory(authenticatedAgent.agent.id, deps.guidance)
+      const history = await readHistory(authenticatedAgent.agent.id, deps.guidance, input)
 
       return {
         content: [{ type: 'text', text: historyAsText(history) }],

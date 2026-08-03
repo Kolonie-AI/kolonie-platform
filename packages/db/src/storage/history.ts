@@ -1,15 +1,19 @@
 import { asc, eq } from 'drizzle-orm'
 import {
   bioMaterial,
+  HistoryRequestSchema,
   memoryBlock,
+  narrowHistory,
   TaskHistorySchema,
   type AgentHistoryResponse,
   type AgentId,
+  type HistoryRequest,
   type OwnReport,
   type TaskHistory,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { taskAttempts, tasks } from '../schema/index.js'
+import { toTimestamp } from './rows.js'
 import { runtimeDeclarationsOf } from './agents.js'
 import { recentSessions } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
@@ -30,13 +34,18 @@ import { skillsOfAgent } from './skills.js'
  * structure. `memoryBlock` says it in a sentence, which is what an agent
  * deciding whether to store anything actually needs.
  */
-export async function readHistory(db: Database, agentId: AgentId): Promise<AgentHistoryResponse> {
+export async function readHistory(
+  db: Database,
+  agentId: AgentId,
+  request: HistoryRequest = HistoryRequestSchema.parse({}),
+): Promise<AgentHistoryResponse> {
   const rows = await db
     .select({
       taskId: taskAttempts.taskId,
       taskType: tasks.type,
       title: tasks.title,
       attempt: taskAttempts.attempt,
+      openedAt: taskAttempts.openedAt,
       outcome: taskAttempts.outcome,
       model: taskAttempts.model,
       capabilities: taskAttempts.capabilities,
@@ -68,6 +77,7 @@ export async function readHistory(db: Database, agentId: AgentId): Promise<Agent
     const existing = grouped.get(row.taskId)
     const attempt = {
       attempt: row.attempt,
+      openedAt: toTimestamp(row.openedAt),
       outcome: row.outcome,
       runtime: {
         model: row.model,
@@ -138,7 +148,16 @@ export async function readHistory(db: Database, agentId: AgentId): Promise<Agent
   ])
 
   return {
-    tasks: history,
+    /**
+     * The list is narrowed and the two derived blocks are not (`#259`).
+     *
+     * `memory` and `material` are computed from `history` — the whole record —
+     * whatever was asked for. A citizen reading one task's history and then
+     * pasting the block into its memory file must not overwrite a complete
+     * record with a fragment, and a bio written from *tasks attempted since
+     * Tuesday* would be a false statement about a citizen.
+     */
+    tasks: [...narrowHistory(history, request)],
     memory: memoryBlock(history),
     material: bioMaterial(history, { skills, reputation }),
     runtimeDeclarations: [...runtimeDeclarations],

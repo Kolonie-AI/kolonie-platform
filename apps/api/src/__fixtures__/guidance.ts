@@ -10,6 +10,7 @@ import {
   type AgentHistoryResponse,
   type AgentId,
   type HistoryAttempt,
+  type HistoryRequest,
   type TaskHistory,
   type DeclareOperator,
   type DeclareRuntime,
@@ -140,6 +141,15 @@ export interface FakeGuidance extends TaskGuidance {
    * agent at any standing may call this, including one that has passed nothing.
    */
   readonly answersHistory: (history: AgentHistoryResponse) => void
+  /**
+   * Every narrowing the routes forwarded, in order (`#259`).
+   *
+   * Recorded rather than asserted through the response, because the response is
+   * the fixture's own and would prove nothing about what reached it — and the
+   * one thing worth proving is that `full=true` in a query string arrives as a
+   * boolean.
+   */
+  readonly historyRequests: () => HistoryRequest[]
   /** Every refusal the routes have sent, in order (#128). */
   readonly declines: () => { agentId: AgentId; taskId: TaskId; reason: string }[]
   /**
@@ -204,6 +214,7 @@ export function fakeGuidance(): FakeGuidance {
    * real read had stopped serving it.
    */
   let history: AgentHistoryResponse | undefined
+  const historyRequests: HistoryRequest[] = []
   let askContext: AskContext = {
     attempt: 1,
     closed: 0,
@@ -255,7 +266,10 @@ export function fakeGuidance(): FakeGuidance {
     sovereigntyByType: async () => new Map(),
     operatorBreak: async () => operatorBroke,
     askContext: async () => askContext,
-    history: async () => history ?? historyFromReports(ownReports),
+    history: async (_agentId, request) => {
+      historyRequests.push(request)
+      return history ?? historyFromReports(ownReports)
+    },
     declareRuntime: async (agentId, taskId, declaration) => {
       declarations.push({ agentId, taskId, declaration })
       return declarationRecorded
@@ -333,6 +347,7 @@ export function fakeGuidance(): FakeGuidance {
     answersAskContext: (next) => {
       askContext = next
     },
+    historyRequests: () => historyRequests,
     answersHistory: (next) => {
       history = next
     },
@@ -513,6 +528,7 @@ function historyFromReports(reports: readonly OwnReport[]): AgentHistoryResponse
   for (const report of reports) {
     const attempt: HistoryAttempt = {
       attempt: report.attempt,
+      openedAt: report.createdAt,
       outcome: report.kind === 'advice' ? 'passed' : 'failed',
       runtime: { model: null, capabilities: {}, configurationNotes: null, session: null },
       operator: { asked: null, askedFor: null, acted: null },

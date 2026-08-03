@@ -22,21 +22,46 @@ import type { RouteDependencies } from './dependencies.js'
  * and a citizen's own history. Eight routes in one module because they are one
  * loop: what a citizen writes here is what the next citizen reads.
  */
+/**
+ * A query string carries `full=true` as the four characters, and the schema
+ * wants a boolean (`#259`).
+ *
+ * **Converted here rather than loosened in core**, because the two callers are
+ * genuinely different: an MCP client sends JSON and a boolean is a boolean,
+ * while HTTP has only text. A schema that accepted both would put the string
+ * form in front of every MCP agent reading the tool definition, to serve a
+ * transport it never uses.
+ *
+ * Anything that is not one of the two words is left alone for the schema to
+ * reject, which falls back to the unfiltered answer — `full=yes` gets the whole
+ * record rather than a quiet `false`.
+ */
+function fromQueryString(query: unknown): unknown {
+  if (typeof query !== 'object' || query === null) return query
+  const { full, ...rest } = query as Record<string, unknown>
+
+  if (full === 'true') return { ...rest, full: true }
+  if (full === 'false') return { ...rest, full: false }
+  return query
+}
+
 export function registerGuidanceRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
   const { guidance, store } = deps
 
   /**
    * A citizen's own trajectory, and the block it can take away (#118).
    *
-   * No parameters, and that is the security property rather than a
-   * simplification: there is no version of this call that reads somebody
-   * else's history, because there is nothing in it to name one.
+   * **No parameter names whose history to read**, and that is the security
+   * property rather than a simplification. `#259` added `since`, `full` and
+   * `taskId`, and none of them changes that: they say what to leave out of the
+   * caller's own record, and there is no argument here that could reach
+   * somebody else's.
    */
   v1.get('/agents/me/history', async (request, reply) => {
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    return reply.send(await readHistory(caller.id, guidance))
+    return reply.send(await readHistory(caller.id, guidance, fromQueryString(request.query)))
   })
 
   /**

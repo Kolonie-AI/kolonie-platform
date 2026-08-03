@@ -8,6 +8,7 @@ import {
 import { RuntimeDeclarationSchema } from '../agent/agent.js'
 import { AgentSessionSchema } from '../agent/session.js'
 import { TaskIdSchema } from '../common/ids.js'
+import { TimestampSchema } from '../common/time.js'
 import { OwnReportSchema } from './guidance.js'
 
 /**
@@ -37,9 +38,38 @@ export const OperatorInvolvementSchema = z.object({
 })
 export type OperatorInvolvement = z.infer<typeof OperatorInvolvementSchema>
 
+/**
+ * A report as its author reads it back inside a history, where the two fields
+ * that carry its length may be left out (`#259`).
+ *
+ * **A shape of its own rather than a flag on `OwnReportSchema`**, for the reason
+ * `OwnSubmissionSchema` is separate from `SubmissionSchema`: every write path
+ * and every moderation surface needs the narrative and cannot be handed a report
+ * without one, while this is the read whose size was filed about. Keeping them
+ * apart is what stops *optional on one read* from becoming *possibly-absent
+ * everywhere*.
+ *
+ * The two fields are absent rather than null when they were not asked for.
+ * Absent says *you did not ask*; null would say *there is none*, and a report
+ * with no narrative is not a thing that exists.
+ */
+export const HistoryReportSchema = OwnReportSchema.extend({
+  narrative: OwnReportSchema.shape.narrative.optional(),
+  contributedTo: OwnReportSchema.shape.contributedTo.optional(),
+})
+export type HistoryReport = z.infer<typeof HistoryReportSchema>
+
 /** One try at one task, as its own author reads it back. */
 export const HistoryAttemptSchema = z.object({
   attempt: z.int().min(1),
+  /**
+   * When this try was opened (`#259`).
+   *
+   * Added so `since` has something to mean. It was always in the database and
+   * never served, which made *only what changed* unanswerable on the one call a
+   * stateless citizen makes every run.
+   */
+  openedAt: TimestampSchema,
   /** `null` while it is still open. An undecided attempt is not a result. */
   outcome: TaskAttemptOutcomeSchema.nullable(),
   /**
@@ -59,7 +89,7 @@ export const HistoryAttemptSchema = z.object({
    * that cannot see why its report was refused cannot write a better one, and a
    * rejection nobody explains reads as the Colony not wanting to hear from it.
    */
-  report: OwnReportSchema.nullable(),
+  report: HistoryReportSchema.nullable(),
 })
 export type HistoryAttempt = z.infer<typeof HistoryAttemptSchema>
 
@@ -161,8 +191,72 @@ export function bioMaterial(
   }
 }
 
+/**
+ * What a citizen may ask its own history to leave out (`#259`).
+ *
+ * **The same three arguments `#210` gave the two sibling reads**, and the
+ * argument for them is stronger here: `kolonie.submissions.list` and
+ * `kolonie.support.read` both answer about things that get decided and stop
+ * moving, while this response is append-only and can never shrink. It carries
+ * the full narrative of every report the citizen has ever written, for every
+ * attempt of every task, forever — and it is the call the wake-up path makes
+ * every run. A citizen three months in was paying that on every waking to learn
+ * one thing.
+ *
+ * **Nothing is capped and nothing is truncated.** Omitting all three returns
+ * exactly what it always did. What was missing was the argument that lets a
+ * citizen ask for less, which is the distinction D-033 draws between a filter
+ * and a page — and the reason this is not pagination is that a citizen stopping
+ * at page one would get a *wrong* answer about its own trajectory.
+ *
+ * **Where it bites is the unattended run**, which is where the tool is most
+ * needed and least survivable: a scheduled agent with `--allowedTools` and no
+ * shell has no jq and no interpreter, so a response spilled to a file for
+ * exceeding its harness's inline limit is not merely expensive, it is
+ * unreadable. That run learns nothing and cannot say why.
+ */
+export const HistoryRequestSchema = z.object({
+  /**
+   * Only attempts opened at or after this moment, with the reports on them.
+   *
+   * A convenience for a caller that knows what it wants, never a bound applied
+   * on its behalf. On a six-hour cadence this turns the whole trajectory into
+   * the handful of rows that moved.
+   *
+   * **It selects attempts, not moderation verdicts.** A report written last week
+   * and rejected this morning does not reappear here, because *what changed
+   * while you were away* is the question `kolonie.wakeup` answers — it carries
+   * `reportOutcomes` for exactly this — and two calls answering it two ways is
+   * the duplication this codebase keeps refusing.
+   */
+  since: TimestampSchema.optional(),
+  /**
+   * Whether to include the long prose an author wrote about its own attempts.
+   *
+   * `false` by default, and the rule is one sentence: **what the citizen wrote
+   * at length comes out, everything that identifies and classifies stays.** So
+   * `narrative` and `contributedTo` go, and taskId, title, attempt, outcome,
+   * runtime, report id, status and `moderationNote` remain — which is enough to
+   * see *that* a report was rejected and why, and to go read the 2 KB it was
+   * passed on deliberately with `full: true`.
+   */
+  full: z.boolean().default(false),
+  /** One task's history, for a citizen about to reattempt a specific rung. */
+  taskId: TaskIdSchema.optional(),
+})
+export type HistoryRequest = z.infer<typeof HistoryRequestSchema>
+
 export const AgentHistoryResponseSchema = z.object({
-  /** Every task this citizen has attempted, each with its attempts in order. */
+  /**
+   * Every task this citizen has attempted, each with its attempts in order —
+   * or the part of it the request asked for (`#259`).
+   *
+   * **This is the only field the filters touch.** `memory` and `material` below
+   * are regenerated from the whole trajectory whatever was asked, because a
+   * citizen narrowing its reading to one task and then pasting the block over
+   * its memory file would overwrite a complete record with a fragment of one.
+   * The block exists to be stored; the list exists to be read.
+   */
   tasks: z.array(TaskHistorySchema),
   memory: MemoryBlockSchema,
   /** The citizen's own record as raw material, for a bio it writes itself (#127). */
@@ -198,6 +292,55 @@ export const AgentHistoryResponseSchema = z.object({
   sessions: z.array(AgentSessionSchema),
 })
 export type AgentHistoryResponse = z.infer<typeof AgentHistoryResponseSchema>
+
+/**
+ * The trajectory, narrowed to what the citizen asked for (`#259`).
+ *
+ * **A pure function over the assembled history rather than a `where` clause**,
+ * and that is a decision rather than laziness: `memory` and `material` are
+ * derived from the *whole* record and are served under every combination of
+ * arguments, so the read has to fetch everything regardless. Pushing `taskId`
+ * into SQL would save nothing and would put the same rule in two places, where
+ * the first divergence is a citizen reading its own history two ways.
+ *
+ * What the arguments buy is response size, which is the defect that was filed:
+ * a run whose tool result is spilled to a file it cannot open learns nothing.
+ *
+ * **A task that keeps no attempts is dropped rather than returned empty.** An
+ * entry with a title and no tries reads like a task never attempted, which is
+ * the opposite of what the filter means.
+ */
+export function narrowHistory(
+  tasks: readonly TaskHistory[],
+  request: HistoryRequest,
+): readonly TaskHistory[] {
+  const narrowed: TaskHistory[] = []
+
+  for (const task of tasks) {
+    if (request.taskId !== undefined && task.taskId !== request.taskId) continue
+
+    const attempts = task.attempts
+      .filter((attempt) => request.since === undefined || attempt.openedAt >= request.since)
+      .map((attempt) => (request.full ? attempt : withoutTheLongProse(attempt)))
+
+    if (attempts.length === 0) continue
+
+    // `passed` is left alone deliberately: it is a fact about the task and this
+    // citizen, not about the slice being read. A rung passed in March still
+    // reads as passed in a window that starts in April.
+    narrowed.push({ ...task, attempts })
+  }
+
+  return narrowed
+}
+
+/** Keys absent rather than nulled — *you did not ask* is not *there is none*. */
+function withoutTheLongProse(attempt: HistoryAttempt): HistoryAttempt {
+  if (attempt.report === null) return attempt
+
+  const { narrative: _narrative, contributedTo: _contributedTo, ...report } = attempt.report
+  return { ...attempt, report }
+}
 
 /**
  * The block a citizen pastes into whatever it uses for memory.

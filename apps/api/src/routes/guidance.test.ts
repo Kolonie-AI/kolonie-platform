@@ -1117,6 +1117,7 @@ describe('GET /v1/agents/me/history', () => {
         attempts: [
           {
             attempt: 1,
+            openedAt: '2026-08-01T09:00:00.000Z',
             outcome: 'failed',
             runtime: {
               model: 'some-model-v3',
@@ -1129,6 +1130,7 @@ describe('GET /v1/agents/me/history', () => {
           },
           {
             attempt: 2,
+            openedAt: '2026-08-01T09:00:00.000Z',
             outcome: 'passed',
             runtime: {
               model: 'some-model-v3',
@@ -1193,6 +1195,7 @@ describe('GET /v1/agents/me/history', () => {
         attempts: [
           {
             attempt: 1,
+            openedAt: '2026-08-01T09:00:00.000Z',
             outcome: 'failed',
             runtime: {
               model: null,
@@ -1290,6 +1293,40 @@ describe('GET /v1/agents/me/history', () => {
     const response = await get('/v1/agents/me/history', null)
 
     expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
+  })
+
+  /**
+   * The narrowing arguments (`#259`), and specifically the part HTTP makes
+   * awkward: a query string carries `full=true` as four characters, and a
+   * schema wanting a boolean would quietly reject it and answer with
+   * everything.
+   */
+  it('takes the narrowing arguments off the query string', async () => {
+    guidance.answersHistory(history())
+    const taskId = randomUUID()
+
+    const response = await get(
+      `/v1/agents/me/history?since=2026-08-01T09:00:00.000Z&full=true&taskId=${taskId}`,
+    )
+
+    expect(response.statusCode).toBe(200)
+    expect(guidance.historyRequests().at(-1)).toEqual({
+      since: '2026-08-01T09:00:00.000Z',
+      full: true,
+      taskId,
+    })
+  })
+
+  it('answers with everything rather than refusing a narrowing it cannot read', async () => {
+    guidance.answersHistory(history())
+
+    const response = await get('/v1/agents/me/history?since=last%20tuesday&full=yes')
+
+    // This is on the wake-up path. A citizen that mistyped a timestamp is
+    // better served with its whole record than with an error — the judgement
+    // `wakeup` makes about its own `since`, for the same reason.
+    expect(response.statusCode).toBe(200)
+    expect(guidance.historyRequests().at(-1)).toEqual({ full: false })
   })
 
   /**

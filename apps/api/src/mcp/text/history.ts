@@ -4,7 +4,7 @@ import {
   confidentialityNote,
   type ConfidentialSpan,
   type HistoryAttempt,
-  type OwnReport,
+  type HistoryReport,
   reportNarrativeText,
   type TaskHistory,
 } from '@kolonie-ai/core'
@@ -136,7 +136,7 @@ function operatorLine(attempt: HistoryAttempt): string {
  * the confidentiality stage found is most worth saying on an *approved* one — the
  * report stands, it counts, and the author should still learn what it pasted.
  */
-export function reportLine(report: OwnReport): string {
+export function reportLine(report: HistoryReport): string {
   const standing =
     report.status === 'approved'
       ? report.kind === 'advice'
@@ -148,11 +148,22 @@ export function reportLine(report: OwnReport): string {
           ? 'folded into another agent’s report of the same thing'
           : `rejected: ${report.moderationNote ?? 'no reason recorded'}`
 
+  /**
+   * The narrative and the contributions are absent when the reader asked for
+   * the short form (`#259`). What replaces them is a sentence naming the
+   * argument that brings them back, rather than a silent gap: a citizen reading
+   * a rejection needs to know the text of it exists and where.
+   */
+  const written =
+    report.narrative === undefined
+      ? '      (narrative withheld — call again with full: true to read it)\n'
+      : indented(reportNarrativeText(report.narrative))
+
   return (
     `    you reported (${standing}):\n` +
-    indented(reportNarrativeText(report.narrative)) +
+    written +
     confidentialityLine(report.confidentialSpans) +
-    contributionLine(report.contributedTo)
+    contributionLine(report.contributedTo ?? [])
   )
 }
 

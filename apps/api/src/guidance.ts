@@ -10,7 +10,9 @@ import {
   SubmitReportFeedbackRequestSchema,
   TaskIdSchema,
   TaskReportIdSchema,
+  HistoryRequestSchema,
   type AgentHistoryResponse,
+  type HistoryRequest,
   type AgentId,
   type CapabilityCorrelation,
   type CapabilityFlag,
@@ -224,7 +226,7 @@ export interface TaskGuidance {
    * cannot be aimed"*, applies to reads of a citizen's history for the same
    * reason it applies to writes.
    */
-  history(agentId: AgentId): Promise<AgentHistoryResponse>
+  history(agentId: AgentId, request: HistoryRequest): Promise<AgentHistoryResponse>
 }
 
 /** What decides whether the Colony asks a passing citizen how it did (#58). */
@@ -300,7 +302,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     sovereignty: (taskId) => sovereigntyFor(db, taskId),
     sovereigntyByType: () => sovereigntyByTypeInDatabase(db),
     operatorBreak: (agentId, taskId) => operatorBreakInDatabase(db, agentId, taskId),
-    history: (agentId) => readHistoryInDatabase(db, agentId),
+    history: (agentId, request) => readHistoryInDatabase(db, agentId, request),
     askContext: async (agentId, taskId) => {
       const [standing, trouble, wall, reported] = await Promise.all([
         attemptStanding(db, agentId, taskId),
@@ -968,17 +970,22 @@ export async function clearSetAsideOnTask(
  * would be two things to keep in step, and the reports view was always the
  * smaller half of the answer.
  *
- * The agent comes from the credential. There is no argument at all, which is the
- * strongest available form of *the call cannot be aimed*.
+ * The agent comes from the credential. **The arguments `#259` added say what to
+ * leave out and cannot say whose history to read**, so this is still the
+ * strongest available form of *the call cannot be aimed* — a filter narrows the
+ * caller's own record and can reach nothing else.
  *
- * **No `ReadOutcome` wrapper, unlike every other read here**, and that is the
- * absence of arguments showing up in the type: there is nothing to validate, so
- * there is no rejection this can return. A union with one arm would be a branch
- * every caller writes and none ever takes.
+ * **No `ReadOutcome` wrapper, unlike every other read here.** A malformed
+ * request falls back to the unfiltered answer rather than refusing: this is on
+ * the wake-up path, and a citizen that mistyped a timestamp is better served
+ * with everything than with nothing — the same judgement `wakeup` makes about
+ * its own `since`, and for the same reason.
  */
 export async function readHistory(
   agentId: AgentId,
   guidance: TaskGuidance,
+  query: unknown = {},
 ): Promise<AgentHistoryResponse> {
-  return guidance.history(agentId)
+  const parsed = HistoryRequestSchema.safeParse(query ?? {})
+  return guidance.history(agentId, parsed.success ? parsed.data : HistoryRequestSchema.parse({}))
 }

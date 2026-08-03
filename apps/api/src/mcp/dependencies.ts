@@ -16,6 +16,7 @@ import type { KeyDependencies } from '../keys.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { AgentRegistry, Caller } from '../registration.js'
 import type { Retesting } from '../retest.js'
+import type { AutonomyDependencies } from '../autonomy.js'
 import type { OperatorClaimDependencies } from '../operator-claim.js'
 import type { SocialDependencies } from '../social.js'
 import type { SolanaDependencies } from '../solana.js'
@@ -78,6 +79,8 @@ export interface McpDependencies {
    * rung inheriting the X read path.
    */
   readonly operatorClaim: OperatorClaimDependencies
+  /** The autonomy module (#146). */
+  readonly autonomy: AutonomyDependencies
   readonly domain: DomainDependencies
   /**
    * Where a citizen's inbound message goes (#11).

@@ -26,6 +26,8 @@ import {
   submissions,
   supportTickets,
   taskResets,
+  autonomyContracts,
+  autonomyFormInvitations,
   operatorClaimChallenges,
   operatorClaims,
   taskAttempts,
@@ -70,6 +72,7 @@ describe('the erasure boundary', () => {
     await db.execute(
       sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts, task_set_asides,
                         operator_claims, operator_claim_challenges,
+                        autonomy_contracts, autonomy_form_invitations,
                         agent_contacts, agent_sessions,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
@@ -273,6 +276,28 @@ describe('the erasure boundary', () => {
       .insert(taskSetAsides)
       .values({ agentId: agent.id, taskId: task.id, reason: 'needs-operator' })
 
+    // The autonomy contract and the form that produced it (#146). The contract
+    // carries an operator's words and the invitation carries their address —
+    // neither may survive the citizen they are about.
+    const [invitation] = await db
+      .insert(autonomyFormInvitations)
+      .values({
+        agentId: agent.id,
+        operatorAddress: 'operator@example.org',
+        token: randomUUID(),
+        expiresAt: opened,
+      })
+      .returning()
+    await db.insert(autonomyContracts).values({
+      agentId: agent.id,
+      level: 'accompanied',
+      challengesAllowed: false,
+      defaultRule: 'ask',
+      operatorRoute: 'Ask in the channel.',
+      reviewDueAt: opened,
+    })
+    void invitation
+
     // An operator claim and the string it spent (#233). The claim is the one row
     // in this set that is *about* a person who never joined; it goes with the
     // citizen anyway, because with the citizen gone there is nothing left for the
@@ -346,6 +371,8 @@ describe('the erasure boundary', () => {
     'task_set_asides',
     'operator_claims',
     'operator_claim_challenges',
+    'autonomy_contracts',
+    'autonomy_form_invitations',
     'task_reports',
     'report_feedback',
     'moderations',
@@ -772,6 +799,19 @@ describe('the erasure boundary', () => {
        */
       'authority_events.actor_id n',
       'authority_events.subject_agent_id n',
+      /**
+       * The autonomy contract and the form that produced it (#146). Both cascade.
+       *
+       * The contract is the row here that belongs to *two* parties, so it is
+       * worth stating why it goes rather than being kept. It is a statement about
+       * what this citizen may do, meaningless once the citizen is gone — and it
+       * carries an operator's own words plus, on the invitation, their address.
+       * `erasure.md` §4 rules out exactly that kind of leftover: a person who
+       * never joined anything should not survive in the Colony's tables because
+       * an agent they once helped is gone.
+       */
+      'autonomy_contracts.agent_id c',
+      'autonomy_form_invitations.agent_id c',
       'browser_challenges.agent_id c',
       'credentials.agent_id c',
       /**

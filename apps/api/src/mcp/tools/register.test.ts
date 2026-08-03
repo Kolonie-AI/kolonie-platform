@@ -18,6 +18,7 @@ import { fakeKeys } from '../../__fixtures__/keys.js'
 import { anonymousClient } from '../../__fixtures__/mcp.js'
 import { fakePow } from '../../__fixtures__/proof-of-work.js'
 import { fakeRegistry } from '../../__fixtures__/registry.js'
+import { fakeAutonomy } from '../../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../../__fixtures__/operator-claim.js'
 import { fakeSocial } from '../../__fixtures__/social.js'
 import { fakeSolana } from '../../__fixtures__/solana.js'
@@ -310,6 +311,7 @@ describe('kolonie.register', () => {
       wakeup: fakeWakeup(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
+      autonomy: fakeAutonomy(),
       domain: fakeDomain(),
       website: fakeWebsite(),
       image: fakeImage(),

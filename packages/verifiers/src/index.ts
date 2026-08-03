@@ -37,6 +37,12 @@ import {
   type RecheckableAccounts,
 } from './account-persistence.js'
 export { HeartbeatVerifier, type ContactHistory, type HeartbeatDependencies } from './heartbeat.js'
+export {
+  AutonomyVerifier,
+  type AutonomyContracts,
+  type AutonomyDependencies as AutonomyVerifierDependencies,
+} from './autonomy.js'
+import { AutonomyVerifier, type AutonomyContracts } from './autonomy.js'
 import { HeartbeatVerifier, type ContactHistory } from './heartbeat.js'
 import type { GitHubReader } from './github.js'
 import type { SocialReader } from './social.js'
@@ -584,6 +590,15 @@ export interface VerifierDependencies {
    * meant here.
    */
   readonly contacts?: ContactHistory
+  /**
+   * Whether a citizen's operator has recorded a contract (#146).
+   *
+   * A port answering `boolean` and never the contract, so this process could not
+   * grade the answer even if a later change wanted it to. Absent leaves
+   * `autonomy-contract` submissions pending, the same as every other missing
+   * verifier here.
+   */
+  readonly autonomyContracts?: AutonomyContracts
 }
 
 /**
@@ -810,6 +825,15 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
    */
   if (deps.contacts !== undefined) {
     verifiers.push(new HeartbeatVerifier({ contacts: deps.contacts }))
+  }
+
+  /**
+   * The autonomy rung (#146). It reads one boolean from the Colony's own records
+   * — whether a contract exists — and nothing else, which is what keeps it from
+   * ever grading what the contract says.
+   */
+  if (deps.autonomyContracts !== undefined) {
+    verifiers.push(new AutonomyVerifier({ contracts: deps.autonomyContracts }))
   }
 
   /**

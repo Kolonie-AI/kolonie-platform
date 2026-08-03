@@ -31,6 +31,7 @@ import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSceneChallenges } from './scene.js'
 import { databaseInjectionChallenges } from './injection.js'
+import { databaseAutonomyStore } from './autonomy.js'
 import { databaseOperatorClaims } from './operator-claim.js'
 import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
@@ -302,6 +303,31 @@ const app = buildApp({
     consoleUrl: process.env['CONSOLE_URL'] ?? '',
     addressLimiter: signInAddressLimiter(),
     clientLimiter: signInClientLimiter(),
+  },
+  /**
+   * The autonomy module (#146).
+   *
+   * The same mailer three other surfaces get, on the same three variables, and
+   * absent for the same reason: a form that could not be sent must read as the
+   * Colony's own gap rather than as an operator who did not reply.
+   *
+   * `CONSOLE_URL` carries the form's base too — one host serves both, and a
+   * second variable naming the same host is a second thing to get wrong.
+   */
+  autonomy: {
+    store: databaseAutonomyStore(db),
+    ...(process.env['CLOUDFLARE_ACCOUNT_ID'] &&
+    process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'] &&
+    process.env['ACADEMY_SENDER_ADDRESS']
+      ? {
+          mailer: cloudflareMailer({
+            accountId: process.env['CLOUDFLARE_ACCOUNT_ID'],
+            token: process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'],
+            sender: process.env['ACADEMY_SENDER_ADDRESS'],
+          }),
+        }
+      : {}),
+    ...(process.env['CONSOLE_URL'] ? { formBaseUrl: process.env['CONSOLE_URL'] } : {}),
   },
   rhythm,
   skillReleases,

@@ -29,6 +29,7 @@ import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 
@@ -66,6 +67,7 @@ beforeEach(async () => {
     wakeup: fakeWakeup(),
     social: { challenges, obstruction: noObstruction },
     operatorClaim: fakeOperatorClaim(),
+    autonomy: fakeAutonomy(),
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),

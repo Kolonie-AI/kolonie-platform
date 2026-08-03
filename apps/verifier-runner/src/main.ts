@@ -26,6 +26,7 @@ import {
   lastDomainExpiry,
   citizenForDomainName,
   contactGaps,
+  hasAutonomyContract,
   domainGrantOf,
   recheckableAccounts,
   openWebsiteTokens,
@@ -318,6 +319,11 @@ const verifiers = createVerifiers({
   },
   // The heartbeat rung reads the Colony's own record and nothing else (#143).
   contacts: { gapsOf: (agentId, count) => contactGaps(db, agentId, count) },
+  /**
+   * The autonomy rung (#146). A boolean and never the contract — see
+   * `AutonomyContracts` for why the port is narrowed rather than convenient.
+   */
+  autonomyContracts: { isRecorded: (agentId) => hasAutonomyContract(db, agentId) },
 })
 
 const runner = startRunner(

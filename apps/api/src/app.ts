@@ -42,6 +42,7 @@ import { registerWebsiteRoute } from './routes/website.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
 import { registerInjectionRoute } from './routes/injection.js'
+import { registerAutonomyPageRoutes } from './routes/autonomy-page.js'
 import { registerOperatorClaimRoutes } from './routes/operator-claim.js'
 import { registerSocialRoute } from './routes/social.js'
 import { registerDomainRoute } from './routes/domain.js'
@@ -100,6 +101,7 @@ export function buildApp({
   injection,
   social,
   operatorClaim,
+  autonomy,
   domain,
   vision,
   vault,
@@ -298,6 +300,7 @@ export function buildApp({
     injection,
     social,
     operatorClaim,
+    autonomy,
     domain,
     vision,
     vault,
@@ -321,6 +324,10 @@ export function buildApp({
   // (`#179`). Registered before the prefixed tree for readability only —
   // they cannot collide, because they answer on a different host.
   registerConsolePages(app, routes)
+  // Host routes rather than `/v1/`: these are pages a person clicks out of a
+  // mail, and an API version in the URL would break them for reasons that have
+  // nothing to do with the form. Same call the console made (#146).
+  registerAutonomyPageRoutes(app, routes)
 
   /**
    * The whole REST surface, one call per domain.

@@ -19,6 +19,8 @@ import {
   ReputationReasonSchema,
   RoleSchema,
   RuntimeFieldSchema,
+  AutonomyDefaultRuleSchema,
+  AutonomyLevelSchema,
   SetAsideReasonSchema,
   SubmissionStatusSchema,
   SupportTicketKindSchema,
@@ -268,3 +270,20 @@ export const runtimeField = pgEnum('runtime_field', valuesOf(RuntimeFieldSchema.
  * `where` clause, and a clause cannot filter on prose.
  */
 export const setAsideReason = pgEnum('set_aside_reason', valuesOf(SetAsideReasonSchema.options))
+
+/**
+ * What an operator has permitted its citizen to do (#146).
+ *
+ * **An enum of names and never an integer column.** A level must be insertable
+ * later — the obvious next one concerns money — and a stored `2` would silently
+ * change meaning when a third is added between the second and the fourth. It is
+ * also what stops anything ordering citizens by it: there is no order to read
+ * without inventing one in the query, where review would see it.
+ */
+export const autonomyLevel = pgEnum('autonomy_level', valuesOf(AutonomyLevelSchema.options))
+
+/** What applies when the contract is silent: ask, or refrain (#146). */
+export const autonomyDefaultRule = pgEnum(
+  'autonomy_default_rule',
+  valuesOf(AutonomyDefaultRuleSchema.options),
+)

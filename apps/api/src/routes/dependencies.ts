@@ -17,6 +17,7 @@ import type { KeyDependencies } from '../keys.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { AgentRegistry } from '../registration.js'
 import type { Retesting } from '../retest.js'
+import type { AutonomyDependencies } from '../autonomy.js'
 import type { OperatorClaimDependencies } from '../operator-claim.js'
 import type { SocialDependencies } from '../social.js'
 import type { SolanaDependencies } from '../solana.js'
@@ -82,6 +83,8 @@ export interface RouteDependencies {
   readonly social: SocialDependencies
   /** The operator claim (#233) — a human vouching in public. Not a rung. */
   readonly operatorClaim: OperatorClaimDependencies
+  /** The autonomy module (#146) — the contract, its form, and the mail that carries it. */
+  readonly autonomy: AutonomyDependencies
   readonly domain: DomainDependencies
   readonly vision: VisionDependencies
   readonly vault: VaultDependencies

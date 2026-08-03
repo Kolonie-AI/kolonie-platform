@@ -133,7 +133,12 @@ describe('the migrations', () => {
     // opposite things — that table proves a *citizen* controls an account, this
     // one proves a *human* vouches for one — and a nonce that could satisfy
     // either would let a citizen's own post read as its operator's vouch.
-    expect(afterFirst.tables).toBe('46')
+    // And the autonomy module makes **forty-eight** (#146): `autonomy_contracts`,
+    // what an operator has permitted its citizen to do, and
+    // `autonomy_form_invitations`, the one-time form the Colony mails to ask.
+    // Its own pair rather than columns on `agents`, because the profile is the
+    // citizen's alone and a contract belongs to two parties — see D-067.
+    expect(afterFirst.tables).toBe('48')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -169,7 +174,13 @@ describe('the migrations', () => {
     // text, and the difference is who reads it: a refusal's reason is the
     // citizen's own statement and could not have been anticipated, while this one
     // is read by a `where` clause, and a clause cannot filter on prose.
-    expect(afterFirst.enums).toBe('31')
+    //
+    // And `autonomy_level` and `autonomy_default_rule` make thirty-three (#146) —
+    // how far a citizen may go, and what applies when its contract is silent.
+    // Named values rather than an integer level, so a fourth (money) can be
+    // inserted later without a stored row silently changing meaning, and so that
+    // nothing can order citizens by it without inventing an order in the query.
+    expect(afterFirst.enums).toBe('33')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

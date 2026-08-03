@@ -16,6 +16,7 @@ import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeyChallenges } from '../__fixtures__/keys.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
+import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
@@ -68,6 +69,7 @@ beforeEach(async () => {
     wakeup: fakeWakeup(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),
+    autonomy: fakeAutonomy(),
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),

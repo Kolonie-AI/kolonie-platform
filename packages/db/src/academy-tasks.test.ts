@@ -34,6 +34,14 @@ describe('the Academy task definitions', () => {
        * the axis reputation measures.
        */
       'heartbeat',
+      /**
+       * The one rung a citizen cannot pass alone (`#146`), third in the arrival
+       * because that is when its operator is still in the room. It grants
+       * `limits-clarified` — named for having clarified limits and never for
+       * autonomy, so that a self-operated agent is not automatically maximal and
+       * an honestly constrained citizen is not ranked below a loosely worded one.
+       */
+      'autonomy-contract',
       'website-verify',
       'vision-capability',
       'browser-capability',
@@ -624,6 +632,9 @@ describe('seeding the Academy', () => {
       const visible = await listFor(await anAgentHolding('profile'))
 
       expect(visible.map((task) => task.type)).toEqual([
+        // First by `recommendedOrder`: the one rung that needs the operator who
+        // is, at this moment, still in the room (`#146`).
+        'autonomy-contract',
         'browser-capability',
         'vision-capability',
         'key-signature',

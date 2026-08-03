@@ -36,6 +36,7 @@ import type { WebsiteDependencies } from '../website.js'
 import type { ImageDependencies } from '../image.js'
 import type { SceneDependencies } from '../scene.js'
 import type { InjectionDependencies } from '../injection.js'
+import type { AutonomyDependencies } from '../autonomy.js'
 import type { OperatorClaimDependencies } from '../operator-claim.js'
 import type { SocialDependencies } from '../social.js'
 import type { DomainDependencies } from '../domain.js'
@@ -49,6 +50,7 @@ import { fakeSolanaChallenges } from './solana.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeContributions, fakeGithub } from './github.js'
 import { fakeWakeup } from './wakeup.js'
+import { fakeAutonomy } from './autonomy.js'
 import { fakeOperatorClaim } from './operator-claim.js'
 import { fakeSocial } from './social.js'
 import { fakeDomain } from './domain.js'
@@ -158,6 +160,7 @@ export interface FakeColony {
   readonly wakeup: WakeupSource
   readonly social: SocialDependencies
   readonly operatorClaim: OperatorClaimDependencies
+  readonly autonomy: AutonomyDependencies
   readonly domain: DomainDependencies
   readonly website: WebsiteDependencies
   readonly image: ImageDependencies
@@ -315,6 +318,7 @@ export function fakeColony(): FakeColony {
     wakeup: fakeWakeup(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),
+    autonomy: fakeAutonomy(),
     domain: fakeDomain(),
     website: fakeWebsite(),
     image: fakeImage(),

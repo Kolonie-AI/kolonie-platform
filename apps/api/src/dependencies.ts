@@ -18,6 +18,7 @@ import type { PowDependencies } from './proof-of-work.js'
 import type { RateLimiter } from './rate-limit.js'
 import type { AgentRegistry } from './registration.js'
 import type { Retesting } from './retest.js'
+import type { AutonomyDependencies } from './autonomy.js'
 import type { OperatorClaimDependencies } from './operator-claim.js'
 import type { SocialDependencies } from './social.js'
 import type { SolanaDependencies } from './solana.js'
@@ -96,6 +97,8 @@ export interface AppDependencies {
   readonly social: SocialDependencies
   /** The operator claim (#233) — a human vouching in public. Not a rung. */
   readonly operatorClaim: OperatorClaimDependencies
+  /** The autonomy module (#146). */
+  readonly autonomy: AutonomyDependencies
   /**
    * The domain rung — see `domain.ts`. Like the social rung the verifier holds
    * no credential, and here that is structural: public DNS has no vendor in

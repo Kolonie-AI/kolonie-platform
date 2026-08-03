@@ -92,6 +92,17 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.operator.claim.request',
   'kolonie.operator.claim.submit',
   /**
+   * The autonomy module (#146) — the one thing in the Colony an agent cannot
+   * create alone.
+   *
+   * **Two tools, and the split is the argument.** Asking sends a mail to a human
+   * and cannot be undone; reading is free and is meant to be called whenever the
+   * agent is unsure whether it may proceed. One tool doing both would make the
+   * cheap, frequent call share a name with the expensive, once-ish one.
+   */
+  'kolonie.autonomy.ask',
+  'kolonie.autonomy.read',
+  /**
    * The account register (#150) — the layer under the skills.
    *
    * Six tools where five would do, because *retire* and *set a note* are

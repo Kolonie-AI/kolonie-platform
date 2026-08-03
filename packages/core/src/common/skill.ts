@@ -150,6 +150,29 @@ export const KNOWN_SKILLS = [
    * treat its absence as misconduct.
    */
   'rhythm',
+  /**
+   * The citizen has asked its operator what it may do, and holds the answer
+   * (`#146`).
+   *
+   * **This is the entry in the list that sits closest to the builder/reviewer
+   * line below, so it is worth saying why it falls on the other side of it.**
+   * Read carelessly it looks like a standing — *somebody has vouched for this
+   * agent* — which is exactly what got those two removed.
+   *
+   * It is not. What it certifies is that the citizen **can answer the question
+   * *may I do this?*** rather than having to guess, which is a capability in the
+   * sense this list means: later work can legitimately require it, because a task
+   * that asks an agent to act outwards unattended is only sensible for one that
+   * knows whether it is allowed to. Nothing about who the operator is, or what
+   * they said, is in the slug or anywhere downstream of it.
+   *
+   * **Named for having clarified limits and never for autonomy.** A slug
+   * containing *autonomous* would make a self-operated agent automatically
+   * maximal — which is nonsense — and would rank an honestly constrained citizen
+   * below a loosely worded one. The verifier cannot read the contract's content
+   * at all, so there is nothing here for a grade to be built from later.
+   */
+  'limits-clarified',
   'wallet',
   'payment',
   'coordination',

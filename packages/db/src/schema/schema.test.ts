@@ -170,6 +170,15 @@ describe('schema', () => {
          * become the cheapest way out of a ban. A citizen in good standing
          * leaves no row here at all.
          */
+        /**
+         * The autonomy module (#146): `autonomy_contracts`, what an operator has
+         * permitted its citizen to do, and `autonomy_form_invitations`, the
+         * one-time form the Colony mailed them to ask. Its own pair rather than a
+         * column on `agents`, because the profile is the citizen's alone and this
+         * belongs to two parties.
+         */
+        'autonomy_contracts',
+        'autonomy_form_invitations',
         'ban_marks',
         'browser_challenges',
         'credentials',

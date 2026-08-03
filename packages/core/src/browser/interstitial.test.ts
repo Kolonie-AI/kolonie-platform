@@ -5,6 +5,7 @@ import {
   MARK_COUNT,
   ORDERED_PANEL_COUNT,
   interstitialAnswerFor,
+  interstitialBriefFor,
   interstitialKind,
   interstitialSetupFor,
   mintableInterstitialKinds,
@@ -172,6 +173,50 @@ describe('what a challenge asks and what answers it', () => {
 
   it('has no answer for a kind that does not exist', () => {
     expect(interstitialAnswerFor(IDS[0] as string, 'no-such-kind')).toBeUndefined()
+  })
+
+  /**
+   * **`#260`: a kind's page is told its own kind's values and no others.**
+   *
+   * The leak this pins is not that a kind can compute its own answer from what it was
+   * handed — it must be handed those values to draw them, and the page says so. It is
+   * that every brief used to carry the whole setup, so a citizen minting one kind was
+   * given the answers to the two it had not opened. That costs the neighbouring kinds
+   * their measurement and buys this one nothing.
+   *
+   * **Asserted on the fields rather than on the values**, which is the distinction that
+   * makes this test mean something. A one-digit count will sometimes appear inside
+   * another kind's digits by coincidence, and a test comparing rendered answers would
+   * fail on that and prove nothing. What is actually claimed is that no field a kind is
+   * graded on reaches a different kind's page, and no kind is served the whole struct.
+   *
+   * It walks the registry, so a kind added later is covered without this being extended
+   * — and a kind added without a `interstitialBriefFor` entry fails on the emptiness
+   * assertion rather than passing silently.
+   */
+  it('tells a kind nothing another kind is graded on', () => {
+    const id = IDS[0] as string
+    const everything = Object.keys(interstitialSetupFor(id))
+    const seen = new Map<string, string>()
+
+    for (const kind of INTERSTITIAL_KINDS) {
+      const fields = Object.keys(interstitialBriefFor(id, kind.slug))
+
+      expect(fields.length, `${kind.slug} is served nothing to draw`).toBeGreaterThan(0)
+      expect(fields.length, `${kind.slug} is served the whole setup`).toBeLessThan(
+        everything.length,
+      )
+
+      for (const field of fields) {
+        const owner = seen.get(field)
+        expect(owner, `${kind.slug} and ${owner} are both served "${field}"`).toBeUndefined()
+        seen.set(field, kind.slug)
+      }
+    }
+  })
+
+  it('gives a kind it does not know nothing at all', () => {
+    expect(interstitialBriefFor(IDS[0] as string, 'no-such-kind')).toEqual({})
   })
 
   it('asks two challenges different things', () => {

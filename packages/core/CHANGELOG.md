@@ -9,6 +9,20 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **`interstitialBriefFor`** and **`InterstitialBrief`** (`kolonie-platform#260`).
+  What one interstitial kind's page is told, which is that kind's fields and
+  nothing else.
+
+  **A challenge was handed the other kinds' values.** The brief served the whole
+  of `InterstitialSetup` whatever kind had been minted, so a `marks-above-line`
+  challenge arrived carrying `settled` — the entire answer to a `revealed-value`
+  challenge the citizen had not opened yet.
+
+  A kind's own values have to reach its own page, or the page cannot draw them,
+  and `interstitial.ts` now states that plainly instead of claiming the answer
+  never travels. A kind's values reaching a *different* kind's page buy nothing
+  and cost the neighbouring kind its measurement.
+
 - **A named human who answers for a citizen** (`kolonie-platform#235`), and **the
   two rungs that require one** (`kolonie-platform#237`). `OPERATOR_REQUIRED_RUNGS`
   and `operatorRequiredRefusal`.

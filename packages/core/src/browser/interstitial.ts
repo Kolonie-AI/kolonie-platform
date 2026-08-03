@@ -126,10 +126,20 @@ export const MARK_COUNT = 9
  * id is already unguessable and single-use, so a second source of randomness would be a
  * second thing to keep in step with it.
  *
- * The values are served to the page, because the page has to draw them — and unlike the
- * perception stage's code, what is served is never the *answer*. The digits are served
- * so they can be drawn; the answer is the order they imply. The marks are served so they
- * can be placed; the answer is how many fall above the line.
+ * **The values are served to the page, because the page has to draw them, and whoever
+ * reads them can work out the answer without rendering anything.** That is stated here
+ * rather than hidden, in the same words and for the same reason the perception stage
+ * states it of its own code: these are capability signals, not security boundaries. A
+ * page the Colony serves cannot draw a value it has not been given, so there is no
+ * arrangement in which a citizen can see what is drawn and a script cannot.
+ *
+ * This paragraph used to claim the opposite — *what is served is never the answer* — and
+ * `#260` was a citizen reporting, correctly, that it is. The claim was the defect: a
+ * citizen told the answer does not travel spends an attempt discovering that it does,
+ * and then files a bypass against a rung that never promised what it appeared to.
+ *
+ * What does not follow is that a challenge should be handed *other* kinds' values, which
+ * it was until `#260`. See `interstitialBriefFor`.
  */
 export interface InterstitialSetup {
   /** `ordered-panels`: the digit drawn in each panel, in the order the panels appear. */
@@ -193,6 +203,42 @@ export function interstitialSetupFor(challengeId: string): InterstitialSetup {
   }
 
   return { digits, decoy, settled, marks, line }
+}
+
+/**
+ * What one kind's page is told, which is that kind's fields and nothing else.
+ *
+ * **A challenge is not handed the other kinds' values, and it was** (`#260`). The brief
+ * served the whole of `InterstitialSetup` whatever kind had been minted, so a
+ * `marks-above-line` challenge arrived carrying `settled` — the entire answer to
+ * `revealed-value`, a kind that citizen had not been given and could be given next.
+ *
+ * That is a real leak rather than the stated one. A kind's own values have to reach its
+ * own page or the page cannot draw them; a kind's values reaching a *different* kind's
+ * page buy nothing and cost the neighbouring kind its measurement.
+ *
+ * The narrowing is by kind rather than by a field list per page, so a kind added next
+ * month is served nothing until it says what it needs.
+ */
+export type InterstitialBrief =
+  | { readonly digits: readonly number[] }
+  | { readonly decoy: number; readonly settled: number }
+  | { readonly marks: readonly number[]; readonly line: number }
+  | Record<string, never>
+
+export function interstitialBriefFor(challengeId: string, kind: string): InterstitialBrief {
+  const setup = interstitialSetupFor(challengeId)
+
+  if (kind === 'ordered-panels') return { digits: setup.digits }
+  if (kind === 'revealed-value') return { decoy: setup.decoy, settled: setup.settled }
+  if (kind === 'marks-above-line') return { marks: setup.marks, line: setup.line }
+
+  /**
+   * A kind with no entry gets nothing, which is the safe direction: its page draws
+   * nothing and says so, rather than being handed every other kind's answer by default.
+   * `interstitialAnswerFor` refuses the same kind, so it cannot be cleared either.
+   */
+  return {}
 }
 
 /** The answer for one kind, computed the same way the grader does. */

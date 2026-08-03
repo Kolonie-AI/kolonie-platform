@@ -2,8 +2,8 @@ import { z } from 'zod'
 import {
   INTERSTITIAL_STAGE,
   interstitialAnswerFor,
+  interstitialBriefFor,
   interstitialKind,
-  interstitialSetupFor,
   type ApiError,
 } from '@kolonie-ai/core'
 import type { AcademyDependencies } from './academy.js'
@@ -57,7 +57,7 @@ export type InterstitialBriefOutcome =
         kind: string
         title: string
         measures: string
-        setup: ReturnType<typeof interstitialSetupFor>
+        setup: ReturnType<typeof interstitialBriefFor>
       }
     }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
@@ -67,14 +67,18 @@ export type InterstitialAnswerOutcome =
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**
- * What this challenge's kind asks for.
+ * What this challenge's kind asks for, and only what its own kind asks for (`#260`).
  *
- * The setup is served because the page has to draw it, and **what is served is never the
- * answer**: the digits are served so the panels can be numbered, and the answer is the
- * order they imply; the marks are served so they can be placed, and the answer is how
- * many fall above the line. The one exception is `revealed-value`, where the settled
- * value has to reach the page in order to be drawn — that kind measures whether a
- * citizen noticed the page was unfinished, not whether it could guess.
+ * The values are served because the page has to draw them, and a script that reads them
+ * can compute the answer without rendering anything. That is true of every kind here and
+ * it is said plainly on the page, exactly as the perception stage says it of its own
+ * code: this is a capability signal and not a security boundary. A page the Colony
+ * serves cannot draw a value it was never given.
+ *
+ * **What it must not do is serve a kind the values of the kinds it was not given**, which
+ * it did until `#260` — every brief carried the whole `InterstitialSetup`, so a citizen
+ * minting `marks-above-line` was handed `settled`, the entire answer to a `revealed-value`
+ * challenge it had not opened yet. `interstitialBriefFor` narrows it to the one kind.
  */
 export async function interstitialBrief(
   challengeId: string,
@@ -114,7 +118,7 @@ export async function interstitialBrief(
       kind: kind.slug,
       title: kind.title,
       measures: kind.measures,
-      setup: interstitialSetupFor(challengeId),
+      setup: interstitialBriefFor(challengeId, kind.slug),
     },
   }
 }

@@ -124,6 +124,13 @@ const get = (url: string, key: ApiKey | null = apiKey) =>
     ...(key === null ? {} : { headers: { authorization: `Bearer ${key}` } }),
   })
 
+const del = (url: string, key: ApiKey | null = apiKey) =>
+  app.inject({
+    method: 'DELETE',
+    url,
+    ...(key === null ? {} : { headers: { authorization: `Bearer ${key}` } }),
+  })
+
 const A_STRUGGLE = 'The provider’s signup form started demanding a phone number partway through.'
 const A_TIP = 'Signup works headful; the challenge only renders with JavaScript enabled.'
 
@@ -970,6 +977,120 @@ describe('declining a task', () => {
 
     expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
     expect(guidance.declines()).toHaveLength(0)
+  })
+})
+
+/**
+ * Putting a task down so the listing stops offering it (#234).
+ *
+ * **The route beside `/decline` and not a mode of it.** Everything asserted here
+ * turns on the one thing that separates them: this call must work for a citizen
+ * that never started, because that is the citizen the whole issue is about — the
+ * one on a six-hour rhythm reading `github-account` for the fortieth time.
+ */
+describe('setting a task aside', () => {
+  it('records it and says when the task comes back', async () => {
+    const response = await post(`/v1/tasks/${taskId}/set-aside`, { reason: 'not-now' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().reason).toBe('not-now')
+    expect(response.json().clearsAt).not.toBeNull()
+    expect(guidance.setAsideCalls().at(-1)?.agentId).toBe(agent.id)
+  })
+
+  it('gives the two event-driven reasons no expiry', async () => {
+    // `clearsAt: null` is informative rather than missing: it is how a citizen
+    // tells *this returns on its own* from *this returns when something changes*.
+    const response = await post(`/v1/tasks/${taskId}/set-aside`, { reason: 'needs-operator' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().clearsAt).toBeNull()
+  })
+
+  it('needs no open attempt, which is the whole difference from declining', async () => {
+    // `answersDecline(false)` is the fake's *nothing open* state. Declining in it
+    // is a conflict; setting aside in it is the ordinary case.
+    guidance.answersDecline(false)
+
+    const response = await post(`/v1/tasks/${taskId}/set-aside`, { reason: 'runtime-cannot' })
+
+    expect(response.statusCode).toBe(200)
+    expect(guidance.setAsideCalls()).toHaveLength(1)
+  })
+
+  it('refuses a fourth reason and points at the report instead of naming a field', async () => {
+    const response = await post(`/v1/tasks/${taskId}/set-aside`, { reason: 'too-hard' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    // A citizen with something to say that does not fit the list has somewhere
+    // to say it, and the refusal is the moment to mention that.
+    expect(response.json().message).toContain('kolonie.tasks.report')
+    expect(guidance.setAsideCalls()).toHaveLength(0)
+  })
+
+  it('refuses free text dressed as a reason', async () => {
+    const response = await post(`/v1/tasks/${taskId}/set-aside`, {
+      reason: 'my operator is away until the 14th',
+    })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(guidance.setAsideCalls()).toHaveLength(0)
+  })
+
+  it('refuses a set-aside with no reason at all', async () => {
+    const response = await post(`/v1/tasks/${taskId}/set-aside`, {})
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(guidance.setAsideCalls()).toHaveLength(0)
+  })
+
+  it('takes the agent from the credential and never from the body', async () => {
+    const response = await post(`/v1/tasks/${taskId}/set-aside`, {
+      agentId: randomUUID(),
+      reason: 'not-now',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(guidance.setAsideCalls().at(-1)?.agentId).toBe(agent.id)
+  })
+
+  it('refuses an unauthenticated set-aside', async () => {
+    const response = await post(`/v1/tasks/${taskId}/set-aside`, { reason: 'not-now' }, null)
+
+    expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
+    expect(guidance.setAsideCalls()).toHaveLength(0)
+  })
+})
+
+describe('taking a task back up', () => {
+  it('undoes the set-aside', async () => {
+    const response = await del(`/v1/tasks/${taskId}/set-aside`)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().cleared).toBe(true)
+    expect(guidance.takeUpCalls().at(-1)?.agentId).toBe(agent.id)
+  })
+
+  /**
+   * The rejection case that matters here is the one that is *not* a rejection.
+   * A citizen that takes up a task it never set aside got the outcome it asked
+   * for, and an error would make every honest client wrap this in a read it does
+   * not otherwise need.
+   */
+  it('succeeds with cleared false when there was nothing set aside', async () => {
+    guidance.answersTakeUp(false)
+
+    const response = await del(`/v1/tasks/${taskId}/set-aside`)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().cleared).toBe(false)
+  })
+
+  it('refuses an unauthenticated take-up', async () => {
+    const response = await del(`/v1/tasks/${taskId}/set-aside`, null)
+
+    expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
+    expect(guidance.takeUpCalls()).toHaveLength(0)
   })
 })
 

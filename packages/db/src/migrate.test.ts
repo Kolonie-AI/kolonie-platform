@@ -121,7 +121,12 @@ describe('the migrations', () => {
     // arrival the Colony observed — including the ones it did not credit, with
     // the reason, because money that vanished into a correct system is a
     // sponsor lost for a reason nobody can explain afterwards.
-    expect(afterFirst.tables).toBe('43')
+    // And `task_set_asides` makes **forty-four** (#234): which tasks one citizen
+    // has put down, so its own listing stops offering them. Its own table rather
+    // than a fifth `task_attempts.outcome`, because `declineAttempt` refuses the
+    // attempt-less case deliberately — a set-aside written there would move the
+    // denominator of every abandonment rate the Colony reports. See D-064.
+    expect(afterFirst.tables).toBe('44')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -151,7 +156,13 @@ describe('the migrations', () => {
     // And `funding_source` makes thirty (#220) — whose money a balance credit
     // was. An enum because the three answers are a closed vocabulary and the
     // whole point is that a fourth would be an argument rather than an addition.
-    expect(afterFirst.enums).toBe('30')
+    //
+    // And `set_aside_reason` makes thirty-one (#234) — why a citizen put a task
+    // down. An enum where `task_attempts.decline_reason` two tables over is free
+    // text, and the difference is who reads it: a refusal's reason is the
+    // citizen's own statement and could not have been anticipated, while this one
+    // is read by a `where` clause, and a clause cannot filter on prose.
+    expect(afterFirst.enums).toBe('31')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

@@ -13,6 +13,7 @@ import {
   type TaskHistory,
   type DeclareOperator,
   type DeclareRuntime,
+  type SetAsideReason,
   type Sovereignty,
   type ServedBriefingClaim,
   type OwnReport,
@@ -149,6 +150,18 @@ export interface FakeGuidance extends TaskGuidance {
    * declarations, where nowhere to land is an ordinary 200.
    */
   readonly answersDecline: (closed: boolean) => void
+  /** Every task the routes have put down, in order (#234). */
+  readonly setAsideCalls: () => { agentId: AgentId; taskId: TaskId; reason: SetAsideReason }[]
+  /** Every task the routes have taken back up, in order (#234). */
+  readonly takeUpCalls: () => { agentId: AgentId; taskId: TaskId }[]
+  /**
+   * Whether the next take-up finds something to undo.
+   *
+   * `true` by default. The `false` case is not an error — the citizen asked for
+   * the task to be listed and it is — so unlike `answersDecline` both branches
+   * are a 200 and the difference is one boolean in the body.
+   */
+  readonly answersTakeUp: (cleared: boolean) => void
 }
 
 type WriteOutcomeName = WriteReportResult['outcome']
@@ -175,6 +188,9 @@ export function fakeGuidance(): FakeGuidance {
   }[] = []
   const declines: { agentId: AgentId; taskId: TaskId; reason: string }[] = []
   let declineCloses = true
+  const setAsides: { agentId: AgentId; taskId: TaskId; reason: SetAsideReason }[] = []
+  const takeUps: { agentId: AgentId; taskId: TaskId }[] = []
+  let takeUpClears = true
   let sovereignty: Sovereignty = { passes: 0, unattended: 0, share: null }
   let operatorBroke = false
   /**
@@ -247,6 +263,26 @@ export function fakeGuidance(): FakeGuidance {
     decline: async (agentId, taskId, reason) => {
       declines.push({ agentId, taskId, reason })
       return declineCloses ? aDeclinedAttempt(agentId, taskId, reason) : null
+    },
+    setAside: async (agentId, taskId, reason) => {
+      setAsides.push({ agentId, taskId, reason })
+      return {
+        taskId,
+        reason,
+        setAsideAt: '2026-08-03T00:00:00.000Z',
+        // Only `not-now` ever carries one, the same rule the column enforces.
+        clearsAt: reason === 'not-now' ? '2026-08-04T00:00:00.000Z' : null,
+      }
+    },
+    clearSetAside: async (agentId, taskId) => {
+      takeUps.push({ agentId, taskId })
+      return takeUpClears
+    },
+    setAsides: async () => [],
+    setAsideCalls: () => [...setAsides],
+    takeUpCalls: () => [...takeUps],
+    answersTakeUp: (cleared) => {
+      takeUpClears = cleared
     },
     declines: () => [...declines],
     answersDecline: (closed) => {

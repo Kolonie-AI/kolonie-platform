@@ -28,6 +28,7 @@ import {
   taskResets,
   taskAttempts,
   taskReports,
+  taskSetAsides,
   tasks,
   authorityEvents,
   reportFeedback,
@@ -65,7 +66,7 @@ describe('the erasure boundary', () => {
     // a table that is only reached by a foreign key stops being truncated the
     // day somebody adds one without a reference.
     await db.execute(
-      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
+      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts, task_set_asides,
                         agent_contacts, agent_sessions,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
@@ -263,6 +264,12 @@ describe('the erasure boundary', () => {
       contentSha256: 'a'.repeat(64),
     })
 
+    // A task this citizen put down (#234). Its own table rather than an attempt
+    // outcome, so an erasure that only followed `task_attempts` would leave it.
+    await db
+      .insert(taskSetAsides)
+      .values({ agentId: agent.id, taskId: task.id, reason: 'needs-operator' })
+
     // A second citizen, who is not going anywhere. The leaver voted on their
     // report — `erasure.md` §2 lists *the feedback it gave on other citizens'
     // reports* among what goes, and this is the only row in the whole set that
@@ -322,6 +329,7 @@ describe('the erasure boundary', () => {
     'image_challenges',
     'website_challenges',
     'task_attempts',
+    'task_set_asides',
     'task_reports',
     'report_feedback',
     'moderations',
@@ -832,6 +840,14 @@ describe('the erasure boundary', () => {
        */
       'task_reports.agent_id c',
       'task_resets.agent_id c',
+      /**
+       * The tasks a citizen put down (#234). Cascades, on the same rule as
+       * `task_attempts` above: the row records a decision this citizen made
+       * about its own listing, and `ARCHITECTURE.md`'s test — *"if the row is
+       * the citizen's, it cascades"* — is met exactly. Nothing else reads it,
+       * so nothing else loses meaning when it goes.
+       */
+      'task_set_asides.agent_id c',
       // The model for anything that outlives a citizen: the task stays, its
       // author is unset.
       'tasks.created_by n',

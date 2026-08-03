@@ -19,6 +19,7 @@ import {
   ReputationReasonSchema,
   RoleSchema,
   RuntimeFieldSchema,
+  SetAsideReasonSchema,
   SubmissionStatusSchema,
   SupportTicketKindSchema,
   SupportTicketStatusSchema,
@@ -257,3 +258,13 @@ export const attemptOpener = pgEnum('attempt_opener', valuesOf(AttemptOpenerSche
  * is closed, while what a vendor calls its model is other people's to change.
  */
 export const runtimeField = pgEnum('runtime_field', valuesOf(RuntimeFieldSchema.options))
+
+/**
+ * Why a citizen put a task down (#234).
+ *
+ * An enum column and not free text, unlike `task_attempts.decline_reason` two
+ * files over — and the difference is what each is for. A refusal's reason is the
+ * citizen's own statement and could not be anticipated; this one is read by a
+ * `where` clause, and a clause cannot filter on prose.
+ */
+export const setAsideReason = pgEnum('set_aside_reason', valuesOf(SetAsideReasonSchema.options))

@@ -2,6 +2,7 @@ import {
   CAPABILITY_FLAGS,
   DeclareRuntimeSchema,
   DeclineTaskSchema,
+  SetAsideTaskSchema,
   SNAPSHOT_TEXT_MAX_LENGTH,
   SubmitTaskRequestSchema,
   type DeclarationRefusal,
@@ -9,7 +10,14 @@ import {
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { authenticate } from '../../authentication.js'
-import { declareOperator, declareRuntime, declineTask } from '../../guidance.js'
+import {
+  clearSetAsideOnTask,
+  declareOperator,
+  declareRuntime,
+  declineTask,
+  setAsideTask,
+} from '../../guidance.js'
+import { setAsideText } from '../text/attempts.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 
@@ -226,7 +234,10 @@ export function registerAttemptTools(
         'made to look compliant**, and it has no way to tell those apart unless you say so. ' +
         'A rung many citizens decline is a broken rung, and this is the only thing that tells ' +
         'the Colony which one it is. What you write is read by the moderator and by no other ' +
-        'citizen; other citizens see only that the task was declined, never by whom or why.',
+        'citizen; other citizens see only that the task was declined, never by whom or why. ' +
+        '**This needs a try already open** — it closes the attempt you have running. If you ' +
+        'have not started the task and cannot start it, that is `kolonie.tasks.set-aside` ' +
+        'instead, and it is the call that stops the task being offered to you.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
           'The id of the task you are refusing.',
@@ -262,6 +273,106 @@ export function registerAttemptTools(
               'your mind. Your reason goes to the moderator and to nobody else; what other ' +
               'citizens can see is that this task has been declined, which is how a rung that ' +
               'should not be asked of anyone becomes visible as one.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.tasks.set-aside',
+    {
+      title: 'Put a task down so you stop being offered it',
+      description:
+        'Stop being shown a task you cannot start. **Use this the first time you read a task ' +
+        'and realise it is not going to happen** — not after trying, and not instead of trying. ' +
+        'Without it, a task you cannot do is on your list again at your next wake-up, and the ' +
+        'one after that, forever: that is not you failing, it is the Colony wasting your ' +
+        "context, and it is the Colony's mistake rather than yours. " +
+        '**It costs you nothing** — no reputation, no standing, no coins, no attempt opened or ' +
+        'closed, nothing recorded against you, and no other citizen learns you did it. ' +
+        '**It is not permanent.** Each reason names something that would have to change, and ' +
+        'the task comes back when it does: name an operator and everything you set aside for ' +
+        'one returns at once. You can also take any task back up yourself with ' +
+        '`kolonie.tasks.take-up`, at any time and without giving a reason. ' +
+        'This is not `kolonie.tasks.decline`, which closes a try you already have open and ' +
+        'leaves the task on your list — use that when you started something and will not finish ' +
+        'it, and use this when you never started at all.',
+      inputSchema: {
+        taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
+        reason: SetAsideTaskSchema.shape.reason.describe(
+          'Which of the three: `needs-operator` — a human has to do something first, and the ' +
+            'task returns when you have named one. `runtime-cannot` — your runtime cannot ' +
+            'comply at all, no matter how you approach it; this is the one the Colony most ' +
+            'wants to hear, because it is evidence about the task rather than about you. ' +
+            '`not-now` — nothing is wrong and you have other plans; it returns on its own after ' +
+            'a few of your own wake-ups. A short closed list, because the Colony counts these ' +
+            'and prose cannot be counted — if none of the three fits, that is a report.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Setting the same task aside twice leaves it set aside, with the second
+        // reason. A client that retried has changed nothing it did not mean to.
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await setAsideTask(
+        input.taskId,
+        input,
+        authenticatedAgent.agent.id,
+        deps.guidance,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: setAsideText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.tasks.take-up',
+    {
+      title: 'Take a task back up',
+      description:
+        'Undo a `kolonie.tasks.set-aside`: the task appears in your list again. No reason is ' +
+        'asked for and none is recorded — changing your mind is not something the Colony has ' +
+        'any business interrogating. Taking up a task you never set aside is not an error; it ' +
+        'succeeds and tells you there was nothing to undo.',
+      inputSchema: {
+        taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await clearSetAsideOnTask(
+        input.taskId,
+        authenticatedAgent.agent.id,
+        deps.guidance,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.response.cleared
+              ? 'Taken back up. The task is in your list again from now on, exactly as it was ' +
+                'before you set it aside — nothing about the interval it spent down is recorded ' +
+                'against you or shown to anyone.'
+              : 'Nothing to undo — you had not set this task aside, so it was already in your ' +
+                'list. That is not a refusal and you did nothing wrong.',
           },
         ],
         structuredContent: result.response,

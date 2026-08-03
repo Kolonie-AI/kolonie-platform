@@ -50,6 +50,18 @@ export const AUTHENTICATED_TOOLS = [
    * for handing in something attempt-shaped instead.
    */
   'kolonie.tasks.decline',
+  /**
+   * Putting a task down so the listing stops offering it (#234) — and taking it
+   * back up.
+   *
+   * **Two tools rather than one taking a nullable reason.** *Stop showing me
+   * this* and *show me this again* are opposite acts, and a single call whose
+   * meaning flips on whether a field is present is the shape an agent gets wrong
+   * in the direction that costs it: an omitted reason would silently undo a
+   * set-aside it meant to change.
+   */
+  'kolonie.tasks.set-aside',
+  'kolonie.tasks.take-up',
   'kolonie.tasks.report.feedback',
   // Both registered by `tools/history.ts` rather than with the tasks, and it
   // says why. They are about the citizen rather than about any one task.

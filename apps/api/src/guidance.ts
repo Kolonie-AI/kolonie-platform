@@ -5,6 +5,7 @@ import {
   DeclineTaskSchema,
   GuidanceQuerySchema,
   personaliseClaims,
+  SetAsideTaskSchema,
   SubmitReportRequestSchema,
   SubmitReportFeedbackRequestSchema,
   TaskIdSchema,
@@ -28,6 +29,9 @@ import {
   type ReportKind,
   type ReportNarrative,
   type RevisionRefusal,
+  type SetAsideClearedResponse,
+  type SetAsideReason,
+  type SetAsideResponse,
   type SubmitReportResponse,
   type NamedWall,
   type Sovereignty,
@@ -43,6 +47,10 @@ import {
   countReports as countReportsInDatabase,
   declareOperator as declareOperatorInDatabase,
   declareRuntime as declareRuntimeInDatabase,
+  clearSetAside as clearSetAsideInDatabase,
+  listSetAsides as listSetAsidesInDatabase,
+  setAside as setAsideInDatabase,
+  type SetAsideRecord,
   type DeclarationOutcome,
   declineAttempt,
   fileReport as fileReportInDatabase,
@@ -176,6 +184,24 @@ export interface TaskGuidance {
    * caller believes it did.
    */
   decline(agentId: AgentId, taskId: TaskId, reason: string): Promise<TaskAttempt | null>
+  /**
+   * The citizen puts a task down, so its own listing stops offering it (#234).
+   *
+   * **Beside {@link decline} and emphatically not the same call.** That one ends
+   * an attempt and refuses when there is none — *"a refusal is a thing that
+   * happens inside a try"*. This one is for the case that comment excludes: a
+   * task the citizen never started and cannot start, which is the loop `#234`
+   * measures at four wasted wakings a day. Neither is a substitute for the other
+   * and both exist because they answer different questions.
+   *
+   * It cannot fail on state. Setting aside a task already set aside replaces the
+   * reason, which is why there is no `null` branch here to mirror `decline`'s.
+   */
+  setAside(agentId: AgentId, taskId: TaskId, reason: SetAsideReason): Promise<SetAsideRecord>
+  /** The citizen takes one task back up; `false` when nothing was set aside (#234). */
+  clearSetAside(agentId: AgentId, taskId: TaskId): Promise<boolean>
+  /** What this citizen currently has put down, oldest first (#234). */
+  setAsides(agentId: AgentId): Promise<readonly SetAsideRecord[]>
   /** How a task's passes divide between citizens that were alone and citizens that were not (#116). */
   sovereignty(taskId: TaskId): Promise<Sovereignty>
   /** The same, for every task type at once — what a listing page needs. */
@@ -268,6 +294,9 @@ export function databaseGuidance(db: Database): TaskGuidance {
     declareOperator: (agentId, taskId, declaration) =>
       declareOperatorInDatabase(db, agentId, taskId, declaration),
     decline: (agentId, taskId, reason) => declineAttempt(db, agentId, taskId, reason),
+    setAside: (agentId, taskId, reason) => setAsideInDatabase(db, agentId, taskId, reason),
+    clearSetAside: (agentId, taskId) => clearSetAsideInDatabase(db, agentId, taskId),
+    setAsides: (agentId) => listSetAsidesInDatabase(db, agentId),
     sovereignty: (taskId) => sovereigntyFor(db, taskId),
     sovereigntyByType: () => sovereigntyByTypeInDatabase(db),
     operatorBreak: (agentId, taskId) => operatorBreakInDatabase(db, agentId, taskId),
@@ -852,6 +881,80 @@ export async function declineTask(
     outcome: 'recorded',
     response: { attempt: attempt.attempt, reason: attempt.declineReason ?? parsed.data.reason },
   }
+}
+
+/**
+ * The citizen puts a task down (#234).
+ *
+ * **The one refusal here is the reason, and it is a refusal of vocabulary
+ * rather than of state.** A fourth value is rejected because the three exist to
+ * be filtered and counted; anything else the citizen wants to say belongs in a
+ * report, and the message says which call that is rather than leaving it to be
+ * inferred.
+ *
+ * Nothing else can refuse. There is no *already set aside* conflict — the second
+ * statement replaces the first — and no *no open attempt*, which is the whole
+ * difference between this and {@link declineTask}.
+ */
+export async function setAsideTask(
+  taskId: string | undefined,
+  body: unknown,
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<WriteOutcome<SetAsideResponse>> {
+  const id = TaskIdSchema.safeParse(taskId)
+  if (!id.success) return { outcome: 'rejected', error: noSuchTask }
+
+  const parsed = SetAsideTaskSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    const details: Record<string, string> = {}
+    for (const issue of parsed.error.issues) {
+      details[issue.path.length === 0 ? '(body)' : issue.path.map(String).join('.')] = issue.message
+    }
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Setting a task aside takes one of three reasons: `needs-operator` if a human has to ' +
+          'act first, `runtime-cannot` if your runtime cannot comply at all, `not-now` if ' +
+          'nothing is wrong and you have other plans. It is a short list on purpose — the ' +
+          'Colony counts these, and a sentence cannot be counted. If what you want to say does ' +
+          'not fit one of the three, that is a report: use `kolonie.tasks.report`, which takes ' +
+          'your own words and costs you nothing either.',
+        details,
+      },
+    }
+  }
+
+  const record = await guidance.setAside(agentId, id.data, parsed.data.reason)
+
+  return {
+    outcome: 'recorded',
+    response: { taskId: record.taskId, reason: record.reason, clearsAt: record.clearsAt },
+  }
+}
+
+/**
+ * The citizen takes a task back up (#234).
+ *
+ * **Clearing something that was never set aside is `recorded`, not `conflict`.**
+ * The citizen asked for the task to be listed and the task is listed; there is
+ * nothing to tell it off about. `cleared: false` carries the distinction for a
+ * client that wants it, which is the same shape `declareRuntime` uses for a
+ * declaration that found nowhere to land.
+ */
+export async function clearSetAsideOnTask(
+  taskId: string | undefined,
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<WriteOutcome<SetAsideClearedResponse>> {
+  const id = TaskIdSchema.safeParse(taskId)
+  if (!id.success) return { outcome: 'rejected', error: noSuchTask }
+
+  const cleared = await guidance.clearSetAside(agentId, id.data)
+
+  return { outcome: 'recorded', response: { taskId: id.data, cleared } }
 }
 
 /**

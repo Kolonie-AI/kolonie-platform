@@ -17,6 +17,7 @@ import type { Database } from '../client.js'
 import { agentSkills, reputationEvents, submissions, taskHints, tasks } from '../schema/index.js'
 import { dueForRenewal } from './renewal.js'
 import { toTask, toTaskSubmission } from './rows.js'
+import { setAsideBy } from './set-asides.js'
 
 /** What `GET /v1/tasks` asks the catalogue for. */
 export interface ListTasksQuery {
@@ -243,6 +244,21 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
      * it has to be able to resolve what it submitted to.
      */
     conditions.push(notExpired())
+    /**
+     * A task this citizen has put down (#234).
+     *
+     * **On `availableOnly` and not on both lists**, following `passedBy`
+     * exactly: the narrow list answers *what can I start now*, and a task the
+     * citizen has said it cannot start is not an answer to that. The wider list
+     * still carries it, because *what have I put down and why* has to be
+     * askable — {@link listSetAsides} is the direct way and this is the one that
+     * survives a citizen paging through everything.
+     *
+     * **This citizen's rows and no others.** The predicate is correlated on
+     * `agentId`, so nobody else's listing moves. Whether one agent set a task
+     * aside is not evidence about the task and never reaches another reader.
+     */
+    conditions.push(sql`not ${setAsideBy(query.agentId, sql`${tasks.id}`)}`)
   }
 
   if (after !== undefined) {

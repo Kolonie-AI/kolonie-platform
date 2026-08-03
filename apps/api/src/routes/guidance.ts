@@ -3,7 +3,9 @@ import type { FastifyInstance } from 'fastify'
 import {
   declareOperator,
   declareRuntime,
+  clearSetAsideOnTask,
   declineTask,
+  setAsideTask,
   listOwnReports,
   listReports,
   readHistory,
@@ -208,6 +210,45 @@ export function registerGuidanceRoutes(v1: FastifyInstance, deps: RouteDependenc
 
     const { taskId } = request.params as { taskId?: string }
     const result = await declineTask(taskId, request.body, caller.id, guidance)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.send(result.response)
+  })
+
+  /**
+   * The citizen puts this task down, so its own listing stops offering it (#234).
+   *
+   * **Beside `/decline` rather than a variant of it.** That route ends an open
+   * attempt and refuses when there is none; this one is for the case that
+   * refusal excludes — a task never started and not startable. Two routes
+   * because they are two acts, and a single one branching on whether an attempt
+   * happened to be open would do a different thing depending on timing the
+   * citizen does not control.
+   */
+  v1.post('/tasks/:taskId/set-aside', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { taskId } = request.params as { taskId?: string }
+    const result = await setAsideTask(taskId, request.body, caller.id, guidance)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.send(result.response)
+  })
+
+  /** The citizen takes it back up. `DELETE`, because it removes the set-aside (#234). */
+  v1.delete('/tasks/:taskId/set-aside', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { taskId } = request.params as { taskId?: string }
+    const result = await clearSetAsideOnTask(taskId, caller.id, guidance)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

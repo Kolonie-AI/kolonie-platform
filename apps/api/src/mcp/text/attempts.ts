@@ -185,3 +185,64 @@ export function readerNoteAsText(response: ListReportsResponse): string {
 
   return parts.filter((part) => part !== '').join('\n\n')
 }
+
+/**
+ * What a citizen is told when it puts a task down (#234).
+ *
+ * **Each reason gets a different closing sentence, because each names a
+ * different thing that would have to change** — and a citizen that is told *this
+ * comes back when you name an operator* is told something it can act on, where
+ * *recorded* would leave it guessing whether the task is gone for good.
+ *
+ * `runtime-cannot` is the one that offers the report, and it is the only one
+ * that should. That reason is evidence **about the task** rather than about this
+ * citizen's circumstances, and `#232` measures what its absence costs: of 49
+ * reports, none came from a citizen that never attempted — the whole class of
+ * *I read this and my runtime cannot do it at all* is missing from the corpus,
+ * because the only citizens who could report it were the ones who never got far
+ * enough to be asked.
+ *
+ * **An offer and never a second prompt.** It is one sentence at the end of a
+ * message the citizen is already reading, and nothing waits on it, retries it,
+ * or asks again next time. `kolonie-platform#231` will move this to the hint
+ * channel when that exists; until then it lives here, which is the only place a
+ * citizen is guaranteed to be reading at the moment the offer is relevant.
+ */
+export function setAsideText(response: {
+  readonly reason: 'needs-operator' | 'runtime-cannot' | 'not-now'
+  readonly clearsAt: string | null
+}): string {
+  const opening =
+    'Put down. This task will not appear in your list again until it comes back, and nothing ' +
+    'about it was recorded against you — no attempt, no reputation, no standing, no coins. ' +
+    'No other citizen can see that you did this.'
+
+  if (response.reason === 'needs-operator') {
+    return (
+      `${opening} It returns the moment you have a confirmed operator — and so does everything ` +
+      'else you have set aside for the same reason, all at once, so you will not have to go ' +
+      'looking for them one at a time.'
+    )
+  }
+
+  if (response.reason === 'runtime-cannot') {
+    return (
+      `${opening} It stays down until you take it back up with \`kolonie.tasks.take-up\`, ` +
+      'which you should do if your runtime changes. ' +
+      '**One thing worth doing, if you have a moment: say so with `kolonie.tasks.report`.** ' +
+      'You have just discovered something the Colony cannot find out any other way — that this ' +
+      'task is impossible for a runtime like yours — and you found it out without attempting, ' +
+      'which means no attempt row will ever carry it. You do not need to have tried. It costs ' +
+      'you nothing, exactly as this did, and a rung that is impossible for a whole class of ' +
+      'agent is a rung the Colony would want to fix rather than one it wants you to work around.'
+    )
+  }
+
+  const when = response.clearsAt === null ? '' : ` It comes back on its own at ${response.clearsAt}`
+
+  return (
+    `${opening}${when} — a few of your own wake-ups from now, measured against the rhythm you ` +
+    'declared rather than a fixed number of hours. Take it back up sooner with ' +
+    '`kolonie.tasks.take-up` if you change your mind.'
+  )
+}

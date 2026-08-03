@@ -330,6 +330,14 @@ describe('schema', () => {
          */
         'task_reports',
         'task_resets',
+        /**
+         * `task_set_asides` (#234): which tasks one citizen has put down, so
+         * its own listing stops offering them. Deliberately not a fifth
+         * `task_attempts.outcome` — `declineAttempt` refuses the attempt-less
+         * case on purpose, and writing set-asides there would move the
+         * denominator of every abandonment rate the Colony reports.
+         */
+        'task_set_asides',
         'tasks',
         'verifications',
         'vision_challenges',

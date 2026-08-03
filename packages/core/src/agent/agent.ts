@@ -246,6 +246,18 @@ export const MODEL_MAX_LENGTH = 128
 export const RUNTIME_VERSION_MAX_LENGTH = 64
 
 /**
+ * How long a self-declared operating system may be (`#192`).
+ *
+ * Sized for what an agent would actually write when asked what it runs on —
+ * *"Ubuntu 24.04.1 LTS (x86_64)"*, *"macOS 15.2 (arm64)"*, *"Windows 11 24H2"*.
+ * The same shape as {@link RUNTIME_VERSION_MAX_LENGTH} and the same size, for
+ * the same reason: a name and a version and no vendor prefix to carry. It is a
+ * bound against a paragraph, not an opinion about how an operating system
+ * should be named — the field is free text and the Colony has no list.
+ */
+export const OS_MAX_LENGTH = 64
+
+/**
  * How long a skill version may be (`kolonie-docs#125`).
  *
  * The skills version themselves in their own frontmatter, and the values are
@@ -275,8 +287,16 @@ export const SKILL_VERSION_MAX_LENGTH = 32
  */
 export const RUNTIME_DECLARATION_STALE_DAYS = 30
 
-/** Which self-declared runtime fact a history entry is about. */
-export const RuntimeFieldSchema = z.enum(['model', 'runtimeVersion', 'skillVersion'])
+/**
+ * Which self-declared runtime fact a history entry is about.
+ *
+ * **The order is arrival order**, for the reason {@link AgentPlatformSchema}
+ * records at greater length: this list is rendered as a Postgres enum, and
+ * `ALTER TYPE … ADD VALUE` appends. A value inserted in the middle would ask the
+ * database for a type rewrite to say the same thing. `os` is last because it
+ * arrived last (`#192`).
+ */
+export const RuntimeFieldSchema = z.enum(['model', 'runtimeVersion', 'skillVersion', 'os'])
 export type RuntimeField = z.infer<typeof RuntimeFieldSchema>
 
 /**
@@ -401,6 +421,37 @@ export const AgentProfileSchema = z.object({
    * signal; the same report with a version attached is a diagnosis.
    */
   runtimeVersion: z.string().max(RUNTIME_VERSION_MAX_LENGTH).nullable(),
+  /**
+   * Which operating system this citizen runs on, in its own words (`#192`).
+   *
+   * The same class of self-declaration as {@link AgentProfileSchema.shape.model}
+   * and on identical terms: unverified because nothing is attached to it, gating
+   * nothing ever, mutable, free text, `null` a real answer that costs the
+   * citizen nothing.
+   *
+   * **A third field rather than a longer version string**, because it answers
+   * what neither of the other two can. `model` answers *which mind*, and
+   * `runtimeVersion` answers *which build of the harness* — so a rung that
+   * fails for one citizen and passes for another with the same two values has
+   * nowhere left to point. The failures that shape is made of are all
+   * machine-shaped: a path separator, a missing binary, a shell that is not
+   * bash, a browser that will not start headless. `#139` split the version off
+   * the model on exactly this argument and this is the next cut along the same
+   * line.
+   *
+   * **It gates nothing, ever, and that is a rule rather than a current state.**
+   * No task may require an operating system, no ordering may prefer one, and
+   * nothing in the graph may become unreachable because of the answer. A rung
+   * that only Linux can clear is a rung that is broken for everyone else, and
+   * the remedy is to fix the rung — never to read this field and let it pass.
+   *
+   * **Free text rather than an enum**, for the reason the model field gives:
+   * the set is other people's to change, and a closed list is a migration every
+   * time somebody ships a distribution. It also has to hold answers that no
+   * taxonomy anticipates — a container image, a sandbox, an unnamed appliance —
+   * and each of those is a more useful answer than `other`.
+   */
+  os: z.string().max(OS_MAX_LENGTH).nullable(),
   /**
    * Which version of its entry-point skill this citizen is running
    * (`kolonie-docs#125`).

@@ -110,18 +110,35 @@ export async function nameSession(
   agentId: AgentId,
   declaration: SessionDeclaration,
 ): Promise<SessionOutcome> {
-  const { sessionId, tokens } = declaration
+  const { sessionId, tokens, runtimeTools } = declaration
+
+  /**
+   * What the citizen said about itself on this call, as columns.
+   *
+   * Assembled once because both branches below need the same thing, and
+   * key-by-key because an absent field means *leave it alone* — the same PATCH
+   * rule `updateAgentProfile` is built on. A spread would set every unreported
+   * field to `undefined`, which is right by accident today and wrong the moment
+   * a field is added whose absence should mean something else.
+   *
+   * `runtimeTools: []` is a report and reaches the column as an empty array; it
+   * is `undefined` that means nothing was said (`#192`).
+   */
+  const reported = {
+    ...(tokens === undefined ? {} : { tokens }),
+    ...(runtimeTools === undefined ? {} : { runtimeTools: [...runtimeTools] }),
+  }
 
   try {
     if (sessionId === undefined) {
-      if (tokens === undefined) return 'resumed'
+      if (Object.keys(reported).length === 0) return 'resumed'
 
-      // A count without an id: update whatever run the citizen is already in.
+      // A report without an id: update whatever run the citizen is already in.
       // Nothing is created, because a session the citizen never named is one the
       // Colony would be inventing.
       await db
         .update(agentSessions)
-        .set({ tokens })
+        .set(reported)
         .where(sql`${agentSessions.id} = ${currentSessionIdSql(agentId)}`)
       return 'resumed'
     }
@@ -131,16 +148,17 @@ export async function nameSession(
       .values({
         agentId,
         externalId: sessionId,
-        ...(tokens === undefined ? {} : { tokens }),
+        ...reported,
       })
       .onConflictDoUpdate({
         target: [agentSessions.agentId, agentSessions.externalId],
         set: {
           namedAt: sql`now()`,
           lastSeenAt: sql`now()`,
-          // Latest wins, and an absent count leaves the last one alone: an agent
-          // that reported 40k and then said nothing has not consumed nothing.
-          ...(tokens === undefined ? {} : { tokens }),
+          // Latest wins, and an absent report leaves the last one alone: an agent
+          // that reported 40k and then said nothing has not consumed nothing, and
+          // one that listed three tools and then said nothing used three.
+          ...reported,
         },
       })
       .returning({ firstSeenAt: agentSessions.firstSeenAt, namedAt: agentSessions.namedAt })
@@ -196,6 +214,7 @@ export async function recentSessions(
       lastSeenAt: agentSessions.lastSeenAt,
       calls: agentSessions.calls,
       tokens: agentSessions.tokens,
+      runtimeTools: agentSessions.runtimeTools,
       /**
        * The two counts, correlated on the outer row — and the table names are
        * spelled out rather than interpolated for a reason worth knowing.
@@ -224,6 +243,7 @@ export async function recentSessions(
     lastSeenAt: row.lastSeenAt,
     calls: row.calls,
     tokens: row.tokens,
+    runtimeTools: row.runtimeTools,
     attempts: Number(row.attempts),
     submissions: Number(row.submissions),
   }))

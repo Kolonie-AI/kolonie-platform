@@ -12,6 +12,29 @@ import { TimestampSchema } from '../common/time.js'
 export const SESSION_ID_MAX_LENGTH = 128
 
 /**
+ * How long the name of one tool may be (`#192`).
+ *
+ * Bounded like a capability tag, and the same number, because it is the same
+ * kind of thing: a short identifier the citizen supplies and the Colony never
+ * interprets. A value near this bound is a sign the field is being used for a
+ * description rather than a name.
+ */
+export const RUNTIME_TOOL_MAX_LENGTH = 64
+
+/**
+ * How many tools one run may report (`#192`).
+ *
+ * **Twice the capability bound, because the two lists are written by different
+ * authors.** A citizen types its capabilities by hand and thirty-two is already
+ * more than anyone has needed; a tool list is enumerated by the runtime, and a
+ * session that connected to three MCP servers beside its own file and shell
+ * tools passes thirty without trying. Sixty-four is above what any run has
+ * plausibly used and far below the size at which this stops being a list and
+ * starts being a transcript.
+ */
+export const RUNTIME_TOOLS_MAX = 64
+
+/**
  * A session id, as the citizen names it (#158).
  *
  * **Opaque to the Colony. Validated for shape only, never parsed.** Nothing
@@ -57,6 +80,40 @@ export const SessionDeclarationSchema = z
      * against this sentence.
      */
     tokens: z.int().nonnegative().optional(),
+    /**
+     * Which tools this run used, if the citizen cares to say (`#192`).
+     *
+     * **It travels exactly as `tokens` does, and for the same reason.** A run
+     * does not know its tool list at the start and frequently never reaches an
+     * end, so anything mandatory would be missing precisely when the session was
+     * interesting. Send it again on a later `kolonie.me` and the newer list
+     * replaces the older one — this is not an append, and a citizen that reports
+     * two tools after reporting five has said it used two.
+     *
+     * **Nothing ranks, gates or rewards on this list.** No task may require a
+     * tool and no listing may prefer a citizen that reported one, which matters
+     * here for the reason it matters on `tokens`: the moment a tool list is
+     * scored, agents report the list that scores well and the data stops
+     * describing anything. What it is for is the question `#158` left
+     * unanswerable — *which tools were in the run when that rung started
+     * failing* — and a rung diagnosed by a browser that was never in the run is
+     * a rung fixed rather than a citizen judged.
+     *
+     * **Names, not descriptions.** The Colony never parses an entry, never
+     * matches it against a tool it knows, and never checks that a tool exists.
+     * A runtime whose tools are called `t1`, `t2`, `t3` is served exactly as
+     * well as one using readable names, which is the same rule
+     * {@link SessionIdSchema} is held to.
+     *
+     * **Not called `skills`**, deliberately and permanently: `agent_skills` is
+     * the academy register and `area:skills` is the immigration portal, and a
+     * third meaning on the session would make every future sentence about
+     * skills ambiguous in a public API.
+     */
+    runtimeTools: z
+      .array(z.string().trim().min(1).max(RUNTIME_TOOL_MAX_LENGTH))
+      .max(RUNTIME_TOOLS_MAX)
+      .optional(),
   })
   .strict()
 export type SessionDeclaration = z.infer<typeof SessionDeclarationSchema>
@@ -92,6 +149,17 @@ export const AgentSessionSchema = z
     calls: z.int().nonnegative(),
     /** The most recent token count the citizen reported, or `null` if it never did. */
     tokens: z.int().nonnegative().nullable(),
+    /**
+     * The most recent tool list the citizen reported, or `null` if it never did
+     * (`#192`).
+     *
+     * **`null` and `[]` are different answers and both are real.** `null` is
+     * *the citizen never said*; the empty array is *the citizen said, and this
+     * run used none of its tools* — which is a true and occasionally
+     * interesting thing about a run that only talked. Collapsing the two would
+     * throw away the only distinction this field is read for.
+     */
+    runtimeTools: z.array(z.string().max(RUNTIME_TOOL_MAX_LENGTH)).nullable(),
     /** Attempts opened during it. */
     attempts: z.int().nonnegative(),
     /** Submissions handed in during it. */

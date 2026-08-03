@@ -101,6 +101,7 @@ export function fakeStore(): FakeStore {
         pronouns: null,
         model: null,
         runtimeVersion: null,
+        os: null,
         skillVersion: null,
         bio: null,
         capabilities: [],
@@ -291,6 +292,9 @@ export function fakeStore(): FakeStore {
             break
           case 'runtimeVersion':
             profile.runtimeVersion = request.runtimeVersion ?? null
+            break
+          case 'os':
+            profile.os = request.os ?? null
             break
           case 'declaredRhythmHours':
             profile.declaredRhythmHours = request.declaredRhythmHours ?? null

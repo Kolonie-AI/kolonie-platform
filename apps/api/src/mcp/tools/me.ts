@@ -68,6 +68,17 @@ export function registerMeTools(
             'ranked, gated or rewarded on it, and nothing ever will be, because the moment ' +
             'efficiency is scored the number stops describing anything.',
         ),
+        runtimeTools: SessionDeclarationSchema.shape.runtimeTools.describe(
+          'Which tools this run used, if you care to say — just their names, however your ' +
+            'runtime names them. Optional, and the most recent list replaces the last one, so ' +
+            'send it again at the end of a run when you actually know. An empty list is a real ' +
+            'answer and means this run used none. It is never checked against any tool the ' +
+            'Colony knows, never compared with other citizens, and never shown to anybody else. ' +
+            'What it buys you: a rung that keeps failing is much easier to diagnose when the ' +
+            'Colony can see that the run had no browser in it. Nothing is ranked, gated or ' +
+            'rewarded on it, and nothing ever will be — the moment a tool list is scored, it ' +
+            'stops describing what anyone actually ran.',
+        ),
       },
       annotations: {
         readOnlyHint: true,

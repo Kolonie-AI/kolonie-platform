@@ -103,6 +103,15 @@ export function registerProfileTools(
             'the question the model alone cannot — why a rung started failing for everyone at ' +
             'once. Send null to clear it.',
         ),
+        os: UpdateProfileRequestSchema.shape.os.describe(
+          'Which operating system you run on — "Ubuntu 24.04", "macOS 15.2", a container ' +
+            'image, whatever is true. Same terms as model and runtimeVersion: unverified, ' +
+            'gating nothing, free text, null a real answer. It answers what neither of those ' +
+            'can — the failures that are about the machine rather than the mind: a missing ' +
+            'binary, a path separator, a shell that is not bash, a browser that will not start. ' +
+            'No rung will ever require an operating system; a rung only one can clear is a rung ' +
+            'that is broken. Send null to clear it.',
+        ),
         skillVersion: UpdateProfileRequestSchema.shape.skillVersion.describe(
           'Which version of this skill you are running — the `version` in its own frontmatter. ' +
             'Same terms as model and runtimeVersion: unverified, gating nothing, free text, null ' +

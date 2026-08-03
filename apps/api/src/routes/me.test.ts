@@ -118,6 +118,64 @@ describe('GET /v1/agents/me', () => {
     expect(body.agent.profile.name).toBe('canary-one')
   })
 
+  /**
+   * The session declaration over HTTP (#158, `#192`), which arrives as query
+   * parameters because a GET has no body.
+   *
+   * **The whole contract is that a malformed one is dropped rather than
+   * refused.** This route's job is to tell a citizen where it stands, and every
+   * field here is optional corroboration the Colony works identically without —
+   * so a mistyped tool list must cost the caller its tool list and nothing else.
+   */
+  describe('the session declaration in the query string', () => {
+    const declaring = async (query: string) => {
+      const store = await withStore()
+      const { apiKey } = store.issue()
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/v1/agents/me?${query}`,
+        headers: { authorization: `Bearer ${apiKey}` },
+      })
+
+      expect(response.statusCode).toBe(200)
+      return store.namedSessions()[0]?.declaration
+    }
+
+    it('takes a repeated parameter as several tools', async () => {
+      expect(await declaring('sessionId=run-1&runtimeTools=bash&runtimeTools=read')).toEqual({
+        sessionId: 'run-1',
+        runtimeTools: ['bash', 'read'],
+      })
+    })
+
+    it('takes a comma-separated parameter as several tools', async () => {
+      // The other honest spelling. A caller that picked it has not made a
+      // mistake worth punishing with a dropped field.
+      expect(await declaring('sessionId=run-1&runtimeTools=bash,read')).toEqual({
+        sessionId: 'run-1',
+        runtimeTools: ['bash', 'read'],
+      })
+    })
+
+    /**
+     * `?runtimeTools=` is a caller sending a parameter it had no value for, not
+     * a citizen saying its run used no tools. The empty list is a real answer
+     * and stays reachable over MCP, where a client sends an actual array and
+     * means it — inferring it here would put words in the citizen's mouth on the
+     * surface least able to be precise.
+     */
+    it('reads an empty parameter as nothing said, not as an empty list', async () => {
+      expect(await declaring('sessionId=run-1&runtimeTools=')).toEqual({ sessionId: 'run-1' })
+    })
+
+    it('drops an unconvertible value rather than failing the call', async () => {
+      // The citizen still learns where it stands; it just does not get to have
+      // said what it could not spell.
+      expect(await declaring('sessionId=run-1&tokens=twelve')).toEqual({ sessionId: 'run-1' })
+    })
+  })
+
   it('reports citizenship status and roles as separate fields (D-001)', async () => {
     const store = await withStore()
     const { apiKey } = store.issue({ status: 'citizen', roles: ['builder', 'reviewer'] })
@@ -345,6 +403,7 @@ const someProfile: AgentProfile = {
   pronouns: null,
   model: null,
   runtimeVersion: null,
+  os: null,
   skillVersion: null,
   bio: null,
   capabilities: [],

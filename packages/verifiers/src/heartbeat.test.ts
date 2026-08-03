@@ -22,6 +22,7 @@ const anAgent = (declaredRhythmHours: number | null): Agent => ({
     pronouns: null,
     model: null,
     runtimeVersion: null,
+    os: null,
     skillVersion: null,
     bio: null,
     avatarUrl: null,

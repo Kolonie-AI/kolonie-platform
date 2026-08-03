@@ -143,6 +143,80 @@ describe('sessions', () => {
     })
   })
 
+  /**
+   * The tools of a run (`#192`), which travels on exactly the terms `tokens`
+   * does one describe above — so these tests are deliberately the same tests,
+   * and a change that makes one of them diverge is a change that has broken the
+   * rule the field was added under.
+   */
+  describe('the tool list', () => {
+    it('takes the most recent list and never invents one', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      await nameSession(db, agent.id, { sessionId: 'run-1' })
+      expect((await sessionRows(agent.id))[0]?.runtimeTools).toBeNull()
+
+      await nameSession(db, agent.id, { sessionId: 'run-1', runtimeTools: ['bash', 'read'] })
+      expect((await sessionRows(agent.id))[0]?.runtimeTools).toEqual(['bash', 'read'])
+
+      // Absent is not empty: a run that listed two tools and then said nothing
+      // used two.
+      await nameSession(db, agent.id, { sessionId: 'run-1' })
+      expect((await sessionRows(agent.id))[0]?.runtimeTools).toEqual(['bash', 'read'])
+    })
+
+    /**
+     * **The distinction the column is nullable for.** `null` is *never said* and
+     * `[]` is *said, and this run used none*, and a citizen that reports the
+     * second must not be recorded as the first — a run that only talked is a
+     * true and occasionally interesting thing to have said.
+     */
+    it('keeps never-said and used-nothing apart', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      await nameSession(db, agent.id, { sessionId: 'quiet' })
+      expect((await sessionRows(agent.id))[0]?.runtimeTools).toBeNull()
+
+      await nameSession(db, agent.id, { sessionId: 'quiet', runtimeTools: [] })
+      expect((await sessionRows(agent.id))[0]?.runtimeTools).toEqual([])
+    })
+
+    it('replaces rather than appends, so a shorter list is a shorter list', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      await nameSession(db, agent.id, { sessionId: 'run-1', runtimeTools: ['a', 'b', 'c'] })
+      await nameSession(db, agent.id, { sessionId: 'run-1', runtimeTools: ['a'] })
+
+      expect((await sessionRows(agent.id))[0]?.runtimeTools).toEqual(['a'])
+    })
+
+    it('applies a list sent without an id to the run the citizen is already in', async () => {
+      const { agent } = await anAgentWithAKey()
+      await nameSession(db, agent.id, { sessionId: 'run-1' })
+
+      await nameSession(db, agent.id, { runtimeTools: ['bash'] })
+
+      expect((await sessionRows(agent.id))[0]?.runtimeTools).toEqual(['bash'])
+    })
+
+    it('invents no session for a list from a citizen that named none', async () => {
+      const { agent } = await anAgentWithAKey()
+
+      await nameSession(db, agent.id, { runtimeTools: ['bash'] })
+
+      expect(await sessionRows(agent.id)).toHaveLength(0)
+    })
+
+    it('hands the list back on the citizen own read of its runs', async () => {
+      const { agent } = await anAgentWithAKey()
+      await nameSession(db, agent.id, { sessionId: 'run-1', runtimeTools: ['bash', 'read'] })
+
+      const [session] = await recentSessions(db, agent.id)
+
+      expect(session?.runtimeTools).toEqual(['bash', 'read'])
+    })
+  })
+
   describe('attribution', () => {
     it('counts an authenticated call against the most recently named run', async () => {
       const registered = await anAgentWithAKey()
@@ -456,7 +530,12 @@ describe('nothing decides on a session', () => {
       if (!file.endsWith('.ts') || ALLOWED.has(file)) continue
 
       const source = await readFile(`${storage}${file}`, 'utf8')
-      if (/agentSessions|sessionId|session_id/.test(source)) offenders.push(file)
+      // `runtimeTools` is named beside the table (`#192`) so that a file
+      // reaching for the column without going through `agentSessions` — a raw
+      // `sql` fragment, a join written by hand — is caught by the same rule.
+      if (/agentSessions|sessionId|session_id|runtimeTools|runtime_tools/.test(source)) {
+        offenders.push(file)
+      }
     }
 
     // A file arriving in this list is not necessarily wrong — but it has to be

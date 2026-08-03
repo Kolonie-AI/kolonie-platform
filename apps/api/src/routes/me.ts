@@ -81,5 +81,39 @@ function sessionDeclarationFromQuery(query: unknown): Record<string, unknown> {
     declaration['tokens'] = Number(tokens)
   }
 
+  const runtimeTools = toolNamesFromQuery(record['runtimeTools'])
+  if (runtimeTools !== undefined) declaration['runtimeTools'] = runtimeTools
+
   return declaration
+}
+
+/**
+ * The tool list carried in a query string (`#192`).
+ *
+ * **Two spellings, because a query string has two honest ways to say "several"**
+ * — `?runtimeTools=bash&runtimeTools=read` and `?runtimeTools=bash,read` — and a
+ * caller that picked the other one has not made a mistake worth punishing. Both
+ * arrive here; anything else is dropped and read as *the citizen did not tell
+ * us*, which is the same treatment the token count gets and for the same reason:
+ * this route's job is to say where a citizen stands, and a malformed optional
+ * field is not a reason to withhold that.
+ *
+ * **Empty is undefined, not `[]`.** `?runtimeTools=` is a caller sending a
+ * parameter it had no value for, not a citizen declaring that its run used no
+ * tools. The empty array is a real answer and it is reachable — over MCP, where
+ * a client sends an actual array and means it. Inferring it from an empty string
+ * here would put words in the citizen's mouth on the surface least able to be
+ * precise.
+ */
+function toolNamesFromQuery(value: unknown): readonly string[] | undefined {
+  const raw =
+    typeof value === 'string'
+      ? value.split(',')
+      : Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+        ? value.flatMap((entry) => entry.split(','))
+        : undefined
+  if (raw === undefined) return undefined
+
+  const names = raw.map((entry) => entry.trim()).filter((entry) => entry !== '')
+  return names.length === 0 ? undefined : names
 }

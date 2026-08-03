@@ -314,7 +314,11 @@ describe('kolonie.me', () => {
     const { tools } = await client.listTools()
     const tool = tools.find((candidate) => candidate.name === 'kolonie.me')
 
-    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual(['sessionId', 'tokens'])
+    expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual([
+      'runtimeTools',
+      'sessionId',
+      'tokens',
+    ])
     await close()
   })
 
@@ -335,6 +339,53 @@ describe('kolonie.me', () => {
     expect(silent.structuredContent).toEqual(named.structuredContent)
     expect(colony.namedSessions()).toHaveLength(1)
     expect(colony.namedSessions()[0]?.declaration).toEqual({ sessionId: 'run-1', tokens: 4200 })
+    await close()
+  })
+
+  /**
+   * The tools of a run (`#192`). MCP is the surface where the empty list is
+   * reachable, because a client sends an actual array here rather than a string
+   * that might merely be blank.
+   */
+  it('records the tools a run says it used, including none of them', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const withTools = await client.callTool({
+      name: 'kolonie.me',
+      arguments: { sessionId: 'run-1', runtimeTools: ['bash', 'read'] },
+    })
+    const withNone = await client.callTool({
+      name: 'kolonie.me',
+      arguments: { sessionId: 'run-2', runtimeTools: [] },
+    })
+
+    expect(withTools.isError).toBeFalsy()
+    expect(withNone.isError).toBeFalsy()
+    expect(colony.namedSessions()[0]?.declaration).toEqual({
+      sessionId: 'run-1',
+      runtimeTools: ['bash', 'read'],
+    })
+    // `[]` is a report, not an absence: a run that used no tools has said
+    // something, and it survives to the storage layer as a list.
+    expect(colony.namedSessions()[1]?.declaration).toEqual({
+      sessionId: 'run-2',
+      runtimeTools: [],
+    })
+    await close()
+  })
+
+  it('refuses a tool name longer than the bound, rather than truncating it', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const refused = await client.callTool({
+      name: 'kolonie.me',
+      arguments: { sessionId: 'run-1', runtimeTools: ['x'.repeat(200)] },
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(colony.namedSessions()).toHaveLength(0)
     await close()
   })
 

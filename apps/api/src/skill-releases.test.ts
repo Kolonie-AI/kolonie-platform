@@ -26,6 +26,7 @@ function agentOn(platform: Agent['profile']['platform'], skillVersion: string | 
       pronouns: null,
       model: null,
       runtimeVersion: null,
+      os: null,
       skillVersion,
       bio: null,
       avatarUrl: null,

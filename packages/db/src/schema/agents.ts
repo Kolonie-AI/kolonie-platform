@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import {
   MODEL_MAX_LENGTH,
+  OS_MAX_LENGTH,
   PRONOUNS_MAX_LENGTH,
   RUNTIME_VERSION_MAX_LENGTH,
   SKILL_VERSION_MAX_LENGTH,
@@ -94,6 +95,20 @@ export const agents = pgTable(
     model: varchar('model', { length: MODEL_MAX_LENGTH }),
     /** Which runtime version, on the same terms as `model` above (#139). */
     runtimeVersion: varchar('runtime_version', { length: RUNTIME_VERSION_MAX_LENGTH }),
+    /**
+     * Which operating system this citizen says it runs on (`#192`).
+     *
+     * Same terms as `model` and `runtimeVersion` above: self-declared,
+     * unverified, gating nothing, `null` a real answer. What it adds is the
+     * third axis of *why did this rung fail for this citizen and not that one* —
+     * the machine-shaped failures, which neither of the other two can point at.
+     * The prohibition on gating is argued on `AgentProfileSchema.shape.os` in
+     * core, where a reader tempted to add one is already looking.
+     *
+     * The current value only; every change is a row in
+     * `agent_runtime_declarations` like the other two.
+     */
+    os: varchar('os', { length: OS_MAX_LENGTH }),
     /**
      * Which version of its entry-point skill this citizen is running
      * (`kolonie-docs#125`).

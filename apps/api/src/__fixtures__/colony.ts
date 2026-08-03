@@ -247,6 +247,7 @@ export function fakeColony(): FakeColony {
         pronouns: null,
         model: null,
         runtimeVersion: null,
+        os: null,
         skillVersion: null,
         bio: null,
         capabilities: [],
@@ -438,6 +439,9 @@ export function fakeColony(): FakeColony {
               break
             case 'runtimeVersion':
               profile.runtimeVersion = request.runtimeVersion ?? null
+              break
+            case 'os':
+              profile.os = request.os ?? null
               break
             case 'declaredRhythmHours':
               profile.declaredRhythmHours = request.declaredRhythmHours ?? null

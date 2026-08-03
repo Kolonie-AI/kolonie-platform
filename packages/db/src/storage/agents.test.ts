@@ -6,6 +6,7 @@ import {
   AgentIdSchema,
   AgentSchema,
   MODEL_MAX_LENGTH,
+  OS_MAX_LENGTH,
   RegisterAgentRequestSchema,
   RUNTIME_VERSION_MAX_LENGTH,
   UpdateProfileRequestSchema,
@@ -136,6 +137,7 @@ describe('registerAgent', () => {
       pronouns: null,
       model: null,
       runtimeVersion: null,
+      os: null,
       skillVersion: null,
       bio: null,
       capabilities: [],
@@ -593,9 +595,59 @@ describe('runtime declarations', () => {
     await expect(
       patch(agent.id, { runtimeVersion: 'v'.repeat(RUNTIME_VERSION_MAX_LENGTH + 1) }),
     ).rejects.toThrow()
+    await expect(patch(agent.id, { os: 'o'.repeat(OS_MAX_LENGTH + 1) })).rejects.toThrow()
 
     // Refused at the boundary, so nothing reached either table.
     expect(await runtimeDeclarationsOf(db, agent.id)).toEqual([])
+  })
+
+  /**
+   * The operating system (`#192`), which is a third value on the terms the two
+   * above already set — so what is tested here is that it travels the same road
+   * rather than a road of its own: the column, the history, and the clearing.
+   */
+  it('records the operating system on the profile and in the history', async () => {
+    const agent = await anAgent()
+    expect(agent.profile.os).toBeNull()
+
+    const result = await patch(agent.id, { os: 'Ubuntu 24.04.1 LTS (x86_64)' })
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(result.agent.profile.os).toBe('Ubuntu 24.04.1 LTS (x86_64)')
+
+    const history = await runtimeDeclarationsOf(db, agent.id)
+    expect(history).toHaveLength(1)
+    expect(history[0]?.field).toBe('os')
+    expect(history[0]?.value).toBe('Ubuntu 24.04.1 LTS (x86_64)')
+  })
+
+  it('records clearing the operating system as a declaration in its own right', async () => {
+    const agent = await anAgent()
+    await patch(agent.id, { os: 'macOS 15.2 (arm64)' })
+
+    const result = await patch(agent.id, { os: null })
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(result.agent.profile.os).toBeNull()
+    // A clearing is something the citizen said, and is not the same as never
+    // having said it.
+    expect((await runtimeDeclarationsOf(db, agent.id)).map((entry) => entry.value)).toEqual([
+      null,
+      'macOS 15.2 (arm64)',
+    ])
+  })
+
+  it('writes one row per field when all three runtime facts are declared at once', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, {
+      model: 'claude-opus-5',
+      runtimeVersion: 'Claude Code 2.1.4',
+      os: 'Ubuntu 24.04',
+    })
+
+    const history = await runtimeDeclarationsOf(db, agent.id)
+    expect(history.map((entry) => entry.field).sort()).toEqual(['model', 'os', 'runtimeVersion'])
   })
 
   /**

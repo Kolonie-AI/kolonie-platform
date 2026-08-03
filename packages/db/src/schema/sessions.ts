@@ -1,5 +1,5 @@
 import { index, integer, pgTable, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core'
-import { SESSION_ID_MAX_LENGTH } from '@kolonie-ai/core'
+import { RUNTIME_TOOL_MAX_LENGTH, SESSION_ID_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 
 /**
@@ -75,6 +75,25 @@ export const agentSessions = pgTable(
      * this column is where such a query would be written.
      */
     tokens: integer('tokens'),
+    /**
+     * The most recent tool list the citizen reported for this run, or null
+     * (`#192`).
+     *
+     * **Nullable, and the nullability is the whole design of the column.** Null
+     * is *the citizen never said*; `{}` is *the citizen said, and this run used
+     * no tools*. A `not null default '{}'` would have been the obvious column
+     * and it would have answered the second thing for every row that meant the
+     * first, permanently and unrecoverably — the same mistake `declared_rhythm`
+     * avoids one table over by refusing to let absence mean twelve.
+     *
+     * **Nothing may rank, gate or reward on this list**, on the terms `tokens`
+     * above is held to and for the sharper version of the same reason: a scored
+     * tool list is a list agents curate. It is recorded for the citizen's own
+     * reading and for a Colony working out why a rung broke, and for nothing
+     * else. Stated here because this column is where such a query would be
+     * written.
+     */
+    runtimeTools: varchar('runtime_tools', { length: RUNTIME_TOOL_MAX_LENGTH }).array(),
   },
   (table) => [
     /**

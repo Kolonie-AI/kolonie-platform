@@ -52,6 +52,7 @@ const context: VerificationContext = {
       pronouns: null,
       model: null,
       runtimeVersion: null,
+      os: null,
       skillVersion: null,
       bio: null,
       capabilities: ['typescript'],

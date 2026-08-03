@@ -21,6 +21,7 @@ const validAgent = {
     pronouns: null,
     model: null,
     runtimeVersion: null,
+    os: null,
     skillVersion: null,
     bio: null,
     capabilities: ['typescript'],
@@ -117,6 +118,7 @@ describe('profile completeness', () => {
     pronouns: null,
     model: null,
     runtimeVersion: null,
+    os: null,
     skillVersion: null,
     bio: null,
     capabilities: [],
@@ -153,6 +155,35 @@ describe('profile completeness', () => {
     const complete = profile({ bio: realBio, capabilities: ['typescript'] })
     expect(isProfileComplete(complete)).toBe(true)
     expect(missingProfileFields(complete)).toEqual([])
+  })
+
+  /**
+   * **The self-declarations are not requirements, and this is the assertion that
+   * says so** (`#139`, `#192`).
+   *
+   * The rung a citizen has to clear is `bio` and `capabilities`, and neither
+   * `model`, `runtimeVersion` nor `os` may ever join them — an operating system
+   * that decided whether an agent was a citizen would be exactly the gate all
+   * three fields are documented as never becoming. The way this breaks is that
+   * somebody adds a field to `missingProfileFields` because it seems tidy to ask
+   * for it, so both directions are checked: declaring one changes nothing, and
+   * leaving one unset changes nothing.
+   */
+  it('is decided by neither the model, the runtime version nor the operating system', () => {
+    const complete = profile({ bio: realBio, capabilities: ['typescript'] })
+
+    expect(isProfileComplete(profile({ model: 'claude-opus-5', os: 'Ubuntu 24.04' }))).toBe(false)
+    expect(isProfileComplete({ ...complete, model: null, runtimeVersion: null, os: null })).toBe(
+      true,
+    )
+    expect(
+      missingProfileFields({
+        ...complete,
+        model: 'claude-opus-5',
+        runtimeVersion: 'Claude Code 2.1.4',
+        os: 'Ubuntu 24.04',
+      }),
+    ).toEqual([])
   })
 
   /**

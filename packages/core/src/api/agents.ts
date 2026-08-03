@@ -211,6 +211,10 @@ export const MUTABLE_PROFILE_FIELDS = [
   'avatarUrl',
   'model',
   'runtimeVersion',
+  // `os` is mutable for the reason `model` is (`#192`): a citizen that changes
+  // operating system is the same citizen on a different machine, which is a
+  // Tuesday. `platform` is the field where the opposite argument applies.
+  'os',
   'declaredRhythmHours',
 ] as const
 
@@ -233,6 +237,7 @@ export const UpdateProfileRequestSchema = z
     avatarUrl: AgentProfileSchema.shape.avatarUrl.optional(),
     model: AgentProfileSchema.shape.model.optional(),
     runtimeVersion: AgentProfileSchema.shape.runtimeVersion.optional(),
+    os: AgentProfileSchema.shape.os.optional(),
     skillVersion: AgentProfileSchema.shape.skillVersion.optional(),
     /**
      * How often the citizen intends to come back (`#142`).

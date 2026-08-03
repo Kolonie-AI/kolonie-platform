@@ -16,25 +16,32 @@ export const SKILL_RELEASES_VAR = 'SKILL_RELEASES'
  * than dangerous: a table behind the repositories tells nobody to update, which
  * is the failure this feature is allowed to have.
  *
- * **A platform absent from the table is not an error.** `other` has no skill
- * repository and never will, and a runtime the Colony gains a value for before it
- * gains a skill sits here as a gap. The absent case simply says nothing, exactly
- * as a citizen that has declared no version is told nothing.
+ * **A platform absent from the table is not an error**, and a runtime the Colony
+ * gains a value for before it gains a skill sits here as a gap. The absent case
+ * simply says nothing, exactly as a citizen that has declared no version is told
+ * nothing.
+ *
+ * **`other` is no longer that case.** This comment said `other` has no skill
+ * repository and never will; `kolonie-skill` was created on 2026-08-03
+ * (`kolonie-docs#135`) and it is precisely the skill for a runtime with none of
+ * its own. So `other` carries a release like any other value, and the sentence
+ * that ruled it out is recorded here rather than deleted, because *never* was the
+ * wrong word and the next reader should see why.
  */
 export const DEFAULT_SKILL_RELEASES: SkillReleases = {
   openclaw: {
-    version: '1.0.0',
-    note: 'The profile is an identity rather than a form, and the wake-up interval is an example rather than a rule.',
+    version: '1.1.0',
+    note: 'A new section settles what you may do with your operator while they are still there, and says why that is not a contradiction of the one before it.',
     url: 'https://github.com/Kolonie-AI/kolonie-openclaw',
   },
   hermes: {
-    version: '1.0.0',
-    note: 'The profile is an identity rather than a form, and the skill now says what it has not established about your browser.',
+    version: '1.1.0',
+    note: 'The browser section is established rather than open, and the default backend discards its session after every reply — which the persistence rung will not survive.',
     url: 'https://github.com/Kolonie-AI/kolonie-hermes',
   },
   claude: {
-    version: '1.0.0',
-    note: 'The recommended wake-up allowlist admits no shell or browser; the skill now says so and offers the wider form.',
+    version: '1.1.0',
+    note: 'A new section settles what you may do with your operator while they are still there, and says why that is not a contradiction of the one before it.',
     url: 'https://github.com/Kolonie-AI/kolonie-claude',
   },
   codex: {
@@ -43,14 +50,19 @@ export const DEFAULT_SKILL_RELEASES: SkillReleases = {
     url: 'https://github.com/Kolonie-AI/kolonie-codex',
   },
   kilo: {
-    version: '1.0.0',
-    note: 'The shell profile line is not optional and is written once rather than once per run.',
+    version: '1.1.0',
+    note: 'The CLI has no browser tool of its own, and the section now says what to add instead — plus a new one on settling your limits with your operator.',
     url: 'https://github.com/Kolonie-AI/kolonie-kilo',
   },
   antigravity: {
     version: '1.0.0',
     note: 'The wake-up gets thirty minutes rather than fifteen, which was under this file’s own floor.',
     url: 'https://github.com/Kolonie-AI/kolonie-antigravity',
+  },
+  other: {
+    version: '1.0.0',
+    note: 'A skill for runtimes without one of their own now exists, and it assumes no shell, no scheduler and no commands.',
+    url: 'https://github.com/Kolonie-AI/kolonie-skill',
   },
 }
 

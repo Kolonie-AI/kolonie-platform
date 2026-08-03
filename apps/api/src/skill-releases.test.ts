@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Agent } from '@kolonie-ai/core'
+import { AgentPlatformSchema, type Agent } from '@kolonie-ai/core'
 import { skillVersionNotice } from './mcp/text/me.js'
 import {
   DEFAULT_SKILL_RELEASES,
@@ -64,8 +64,11 @@ describe('skillReleasesFromEnv', () => {
   })
 
   it('ships a release for every runtime that has a skill repository', () => {
-    // `other` is deliberately absent: it is the value for a runtime the Colony
-    // has no entry point for, so there is nothing to be behind.
+    // `other` used to be deliberately absent, on the reasoning that it named a
+    // runtime the Colony had no entry point for and there was therefore nothing
+    // to be behind. `kolonie-skill` was created on 2026-08-03
+    // (`kolonie-docs#135`) and is exactly that entry point, so the premise is
+    // gone and `other` carries a release like any other value.
     expect(Object.keys(DEFAULT_SKILL_RELEASES).sort()).toEqual([
       'antigravity',
       'claude',
@@ -73,8 +76,19 @@ describe('skillReleasesFromEnv', () => {
       'hermes',
       'kilo',
       'openclaw',
+      'other',
     ])
-    expect(DEFAULT_SKILL_RELEASES.other).toBeUndefined()
+    expect(DEFAULT_SKILL_RELEASES.other?.url).toContain('kolonie-skill')
+  })
+
+  it('names every platform the schema accepts, or leaves a gap on purpose', () => {
+    // The table is a partial record, so a missing runtime is silent rather than
+    // an error — which is correct and is also how a runtime that gains a skill
+    // stays untold. This asserts the gap is empty today, so that adding a
+    // platform value without a release has to be a decision somebody takes here.
+    const covered = new Set(Object.keys(DEFAULT_SKILL_RELEASES))
+    const missing = AgentPlatformSchema.options.filter((platform) => !covered.has(platform))
+    expect(missing).toEqual([])
   })
 })
 

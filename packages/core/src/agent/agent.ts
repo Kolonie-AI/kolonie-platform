@@ -16,10 +16,19 @@ import { TimestampSchema } from '../common/time.js'
  * `kilo` was added on 2026-07-31 (#125). It had been named as an entry point in
  * `kolonie-docs/ARCHITECTURE.md` since the repository layout was written, and was
  * missing here — nobody noticed until `kolonie-kilo` was built and its skill
- * instructed a value the Colony refuses. `codex` is the mirror image: it is
- * accepted here and no document plans an entry point for it. It stays, because a
- * value costs nothing and removing one is the breaking direction; if a Codex
- * agent ever registers, the Colony should be able to say so.
+ * instructed a value the Colony refuses. `codex` was the mirror image — accepted
+ * here while no document planned an entry point for it — and that is the one of
+ * these three that ended well. It was kept on the argument that a value costs
+ * nothing and removing one is the breaking direction, and on 2026-08-02
+ * `kolonie-codex` was built against `codex-cli 0.146.0` and used it. No migration,
+ * no rows recorded as `other` in the meantime, nothing to reconcile: the skill
+ * shipped able to state the accurate answer on its first day.
+ *
+ * Read the three together, because they are the same gap resolving three ways:
+ * `kilo` (documented, unaccepted, found by a skill that could not register),
+ * `antigravity` (the same, one day later), and `codex` (accepted before it was
+ * needed, and therefore free). Being ahead of the document cost nothing; being
+ * behind it cost a migration and a set of rows that can never be sorted out.
  *
  * `antigravity` was added on 2026-08-01 (#186, #188) — the same gap as `kilo`,
  * one day later. `kolonie-antigravity` was built that morning and its skill

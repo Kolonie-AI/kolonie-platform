@@ -246,6 +246,16 @@ export async function eraseAgent(
     const questsAdopted = await adoptEscrowFunding(tx, command.agentId)
 
     /**
+     * The other half of the escrow, and the opposite substitution (`#245`).
+     *
+     * Placed beside its sibling and after the burn for the same reasons, and it
+     * is the mirror image rather than the same rule twice — see
+     * {@link substitutePayoutsWithTheMint} for why the signs need opposite
+     * answers.
+     */
+    const payoutsSubstituted = await substitutePayoutsWithTheMint(tx, command.agentId)
+
+    /**
      * The bookings go whole, never one leg at a time.
      *
      * `ledger_entries_balanced` refuses a transaction left summing to something
@@ -307,6 +317,7 @@ export async function eraseAgent(
         counts,
         banMarksWritten: marks,
         questsAdopted,
+        payoutsSubstituted,
         beyondReach,
       },
     }
@@ -372,11 +383,9 @@ export async function eraseAgent(
  *
  * **Only the legs that paid *into* the escrow.** A leg where the citizen
  * *received* from the escrow — a refund, a payout for a report it wrote — is
- * money that reached its balance and is burned by the ordinary path. Adopting
- * those would credit the Treasury with credits the burn has already destroyed.
- * Such a booking still cannot be deleted whole, and {@link bookingsBeyondTheMint}
- * still refuses it: a citizen that has been paid for a quest cannot erase itself
- * yet, which is `kolonie-platform#245`.
+ * money that reached its balance and is destroyed rather than relocated. That is
+ * {@link substitutePayoutsWithTheMint}, and the two must not be collapsed into
+ * one pass however similar they look.
  */
 async function adoptEscrowFunding(tx: Transaction, agentId: AgentId): Promise<number> {
   const rows = await tx.execute<{ id: string }>(
@@ -398,6 +407,62 @@ async function adoptEscrowFunding(tx: Transaction, agentId: AgentId): Promise<nu
   return rows.length
 }
 
+/**
+ * A quest payout the departing citizen received, substituted onto the mint
+ * (`#245`).
+ *
+ * **The mirror image of {@link adoptEscrowFunding}, and the opposite answer,
+ * because the signs are opposite.** A sponsor's leg is *negative* — money that
+ * left its balance and still exists in the escrow — so the Treasury takes it
+ * over and nothing is destroyed. A payee's leg is *positive* — money that
+ * reached its balance and is destroyed by the ordinary burn — so relocating it
+ * to the Treasury or the mint as a credit would hand somebody credits the burn
+ * has already accounted for, and total supply would count them twice.
+ *
+ * **So it is the citizen's own leg that moves, not the counterparty's.** That is
+ * the whole arithmetic and it is easy to get backwards:
+ *
+ * ```
+ * before   escrow −100   citizen +100
+ * after    escrow −100   mint    +100
+ * ```
+ *
+ * The escrow's leg is untouched, so its balance is exactly what it was — which
+ * matters because the escrow still owes the rest of that quest's capacity to the
+ * citizens who have not been paid yet. Substituting the *escrow* leg instead
+ * would leave the escrow holding money it had already paid out, and the quest
+ * would over-pay by that amount before it closed.
+ *
+ * The booking now has no leg belonging to the citizen, so the delete below does
+ * not select it: it survives as a permanent record that the escrow paid, with
+ * the mint standing where the payee was. `erasure.md` §3's substitution rule,
+ * applied in the direction that removes value.
+ *
+ * **After the burn**, like its sibling and for a sharper reason. The burn books
+ * the citizen's balance to zero against the mint; running this first would take
+ * the `+100` out of the balance before the burn could see it, and the receipt
+ * would tell a departing citizen it burned less than it held.
+ */
+async function substitutePayoutsWithTheMint(tx: Transaction, agentId: AgentId): Promise<number> {
+  const rows = await tx.execute<{ id: string }>(
+    sql`update ledger_entries mine
+           set account_kind = 'system',
+               system_account = 'mint',
+               agent_id = null,
+               memo = 'Quest payout substituted onto the mint — its payee erased itself'
+         where mine.agent_id = ${agentId}
+           and mine.amount > 0
+           and exists (
+             select 1 from ledger_entries other
+              where other.transaction_id = mine.transaction_id
+                and other.id <> mine.id
+                and other.system_account = 'escrow')
+        returning mine.id`,
+  )
+
+  return rows.length
+}
+
 async function bookingsBeyondTheMint(tx: Transaction, agentId: AgentId): Promise<string | null> {
   const rows = await tx.execute<{ account: string }>(
     sql`select distinct coalesce(other.system_account::text, 'another citizen') as account
@@ -406,18 +471,30 @@ async function bookingsBeyondTheMint(tx: Transaction, agentId: AgentId): Promise
          where mine.agent_id = ${agentId}
            and other.id <> mine.id
            and (other.system_account is null or other.system_account <> 'mint')
-           -- The one booking against another account that erasure now settles
-           -- rather than refuses: a sponsor's own money paid into an escrow.
-           -- adoptEscrowFunding moves this leg onto the Treasury below, so it is
-           -- not entanglement — it is the case that taught this guard what the
-           -- substitution rule in erasure.md §3 looks like in practice.
+           -- The escrow is the one counterparty erasure settles rather than
+           -- refuses, and since #245 that holds in both directions:
+           --
+           --   negative leg — the sponsor's own money paid in. adoptEscrowFunding
+           --   moves it onto the Treasury, relocating value that still exists.
+           --
+           --   positive leg — a payout the citizen received. Since #245,
+           --   substitutePayoutsWithTheMint moves the citizen's own leg onto the
+           --   mint, removing value the burn has destroyed. Before that this
+           --   clause also tested mine.amount >= 0, which refused exactly this
+           --   case — so the first citizen paid for a quest report was a citizen
+           --   that could not exercise the right in GOVERNANCE.md.
+           --
+           -- **Narrowing is by counterparty, never by sign.** Both directions
+           -- have a substitution now, and a guard that also tested the sign
+           -- would be stating the rule twice — once here and once in the two
+           -- functions — with nothing keeping the two statements in agreement.
            --
            -- IS DISTINCT FROM and not <>: the counter-leg of a transfer between
            -- two citizens has a null system account, and null <> 'escrow' is
            -- null rather than true — which made NOT (… AND null) null, and
            -- quietly exempted the one booking this guard exists for. The
            -- transfer test caught it.
-           and (mine.amount >= 0 or other.system_account is distinct from 'escrow')`,
+           and other.system_account is distinct from 'escrow'`,
   )
 
   if (rows.length === 0) return null

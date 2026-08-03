@@ -164,6 +164,21 @@ export const ErasureReceiptSchema = z
      */
     questsAdopted: z.number().int().nonnegative(),
 
+    /**
+     * Quest payouts this citizen was paid, whose record outlives it (`#245`).
+     *
+     * The counterpart of `questsAdopted` one sign over. Those credits **were**
+     * destroyed with the balance, and what survives is the booking: the escrow's
+     * leg stays exactly as it was, and the mint stands where the payee's leg
+     * did, because the escrow still owes the rest of that quest's capacity to
+     * citizens who have not been paid yet.
+     *
+     * In the receipt for the same reason as the line above — it is a row with
+     * this citizen's name on it that does not disappear, and a receipt claiming
+     * otherwise would be untrue in a document `erasure.md` §4 makes public.
+     */
+    payoutsSubstituted: z.number().int().nonnegative(),
+
     beyondReach: z.array(ErasureLimitSchema).readonly(),
   })
   .strict()

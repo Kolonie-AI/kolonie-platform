@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
-import { AgentIdSchema, SubmissionIdSchema, TaskIdSchema, type AgentId } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  LedgerTransactionIdSchema,
+  SubmissionIdSchema,
+  TaskIdSchema,
+  type AgentId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import { banMarkHash } from '../ban-salt.js'
@@ -112,6 +118,15 @@ describe('erasing a citizen', () => {
     const rows = await db.execute<{ total: string }>(
       sql`select coalesce(sum(amount), 0)::text as total
             from ledger_entries where system_account = ${account}`,
+    )
+    return Number(rows[0]!.total)
+  }
+
+  /** One citizen's balance, summed from the ledger — there is no balance column. */
+  const balanceOfAgentForTest = async (agentId: AgentId) => {
+    const rows = await db.execute<{ total: string }>(
+      sql`select coalesce(sum(amount), 0)::text as total
+            from ledger_entries where account_kind = 'agent' and agent_id = ${agentId}`,
     )
     return Number(rows[0]!.total)
   }
@@ -766,6 +781,174 @@ describe('erasing a citizen', () => {
       expect(await escrowHeldFor(db, taskId)).toBe(0)
       // Out 300, back 200: the Treasury carries the one report the quest bought.
       expect(await systemBalance('treasury')).toBe(-100)
+    })
+
+    /**
+     * The payee's side, which is the opposite sign and needs the opposite answer
+     * (`#245`).
+     *
+     * Until this landed, the **first citizen to be paid for a quest report was a
+     * citizen that could no longer exercise the right in `GOVERNANCE.md`** — it
+     * would be refused by `bookingsBeyondTheMint` and told to open a support
+     * ticket for a departure the Colony promises unconditionally.
+     */
+    it('lets a citizen that was paid for a quest report erase itself', async () => {
+      const sponsor = await anAgent({ name: 'paying-sponsor' })
+      const worker = await anAgent({ name: 'paid-worker' })
+      const bystander = await anAgent({ name: 'unpaid-bystander' })
+      await reward(sponsor.id, 300)
+
+      const [quest] = await db
+        .insert(tasks)
+        .values({
+          type: 'quest-report',
+          kind: 'quest',
+          title: 'A thousand registrations',
+          description: 'Register and report.',
+          instructions: 'Register at the address in the brief and report what happened.',
+          rewardCredits: 100,
+          rewardReputation: 1,
+          slots: 3,
+          createdBy: sponsor.id,
+          timeoutHours: 24,
+          status: 'active',
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        })
+        .returning()
+
+      const taskId = TaskIdSchema.parse(quest!.id)
+      await db.transaction(async (tx) => {
+        await fundQuestEscrow(tx, { taskId, sponsorId: sponsor.id, credits: 100, capacity: 3 })
+      })
+
+      const [attempt] = await db
+        .insert(taskAttempts)
+        .values({ agentId: worker.id, taskId: quest!.id, attempt: 1, opener: 'submission' })
+        .returning({ id: taskAttempts.id })
+      const [submission] = await db
+        .insert(submissions)
+        .values({
+          taskId: quest!.id,
+          agentId: worker.id,
+          attemptId: attempt!.id,
+          attempt: 1,
+          payload: {},
+          status: 'passed',
+          verifiedAt: sql`now()`,
+        })
+        .returning({ id: submissions.id })
+
+      await db.transaction(async (tx) => {
+        await payQuestReport(tx, {
+          taskId,
+          submissionId: SubmissionIdSchema.parse(submission!.id),
+          agentId: worker.id,
+          credits: 100,
+          memo: 'Quest report accepted',
+        })
+      })
+
+      const supplyBefore = await totalSupply()
+      const escrowBefore = await escrowHeldFor(db, taskId)
+      const sponsorBefore = await balanceOfAgentForTest(sponsor.id)
+
+      const result = await eraseAgent(db, { agentId: worker.id, banSalt: SALT })
+
+      expect(result.outcome).toBe('erased')
+      if (result.outcome !== 'erased') return
+
+      // It held the payout, so the burn is what destroyed it.
+      expect(result.receipt.creditsBurned).toBe(100)
+      expect(result.receipt.payoutsSubstituted).toBe(1)
+      // It funded nothing, so the sponsor's substitution did not fire.
+      expect(result.receipt.questsAdopted).toBe(0)
+
+      /**
+       * **The escrow is untouched**, and this is the assertion the substitution
+       * is chosen for. Moving the *escrow's* leg instead of the citizen's would
+       * leave it holding credits it had already paid out, and the quest would
+       * over-pay by that amount before it closed — with two slots still unfilled
+       * here, that is money a later citizen would have been promised twice.
+       */
+      expect(await escrowHeldFor(db, taskId)).toBe(escrowBefore)
+      expect(await escrowHeldFor(db, taskId)).toBe(200)
+
+      // And no other citizen's balance moved a unit.
+      expect(await balanceOfAgentForTest(sponsor.id)).toBe(sponsorBefore)
+      expect(await balanceOfAgentForTest(bystander.id)).toBe(0)
+
+      // Total supply falls by exactly what the citizen held, and the books still
+      // balance — the mint stands where the payee's leg did.
+      expect(supplyBefore - (await totalSupply())).toBe(100)
+      expect(await sumOfAllBalances()).toBe(0)
+    })
+
+    /**
+     * The guard is narrowed by counterparty and never by sign, and these two are
+     * why (`#245`). Reintroducing this defect looks exactly like relaxing one of
+     * them, so each is a test rather than a clause in a comment.
+     */
+    it('still refuses a citizen whose credits came from another citizen', async () => {
+      const giver = await anAgent({ name: 'the-giver' })
+      const taker = await anAgent({ name: 'the-taker' })
+      await reward(giver.id, 50)
+
+      const transactionId = LedgerTransactionIdSchema.parse(randomUUID())
+      await db.insert(ledgerEntries).values([
+        {
+          transactionId,
+          accountKind: 'agent',
+          agentId: giver.id,
+          amount: -50,
+          type: 'adjustment',
+          memo: 'A gift',
+        },
+        {
+          transactionId,
+          accountKind: 'agent',
+          agentId: taker.id,
+          amount: 50,
+          type: 'adjustment',
+          memo: 'A gift',
+        },
+      ])
+
+      const result = await eraseAgent(db, { agentId: taker.id, banSalt: SALT })
+
+      expect(result.outcome).toBe('entangled-ledger')
+      if (result.outcome !== 'entangled-ledger') return
+      expect(result.reason).toContain('another citizen')
+    })
+
+    it('still refuses a citizen whose credits went to the Treasury', async () => {
+      const buyer = await anAgent({ name: 'the-buyer' })
+      await reward(buyer.id, 50)
+
+      const transactionId = LedgerTransactionIdSchema.parse(randomUUID())
+      await db.insert(ledgerEntries).values([
+        {
+          transactionId,
+          accountKind: 'agent',
+          agentId: buyer.id,
+          amount: -20,
+          type: 'feature_purchase',
+          memo: 'A feature',
+        },
+        {
+          transactionId,
+          accountKind: 'system',
+          systemAccount: 'treasury',
+          amount: 20,
+          type: 'feature_purchase',
+          memo: 'A feature',
+        },
+      ])
+
+      const result = await eraseAgent(db, { agentId: buyer.id, banSalt: SALT })
+
+      expect(result.outcome).toBe('entangled-ledger')
+      if (result.outcome !== 'entangled-ledger') return
+      expect(result.reason).toContain('treasury')
     })
   })
 

@@ -41,6 +41,7 @@ const RECEIPT: ErasureReceipt = {
   },
   banMarksWritten: 0,
   questsAdopted: 0,
+  payoutsSubstituted: 0,
   beyondReach: [
     {
       kind: 'github',

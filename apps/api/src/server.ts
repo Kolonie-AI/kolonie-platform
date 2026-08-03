@@ -31,7 +31,7 @@ import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSceneChallenges } from './scene.js'
 import { databaseInjectionChallenges } from './injection.js'
-import { databaseAutonomyStore } from './autonomy.js'
+import { databaseAutonomyStore, databaseOperatorPages } from './autonomy.js'
 import { databaseOperatorClaims } from './operator-claim.js'
 import { databaseSocialChallenges } from './social.js'
 import { databaseDomainChallenges } from './domain.js'
@@ -316,6 +316,7 @@ const app = buildApp({
    */
   autonomy: {
     store: databaseAutonomyStore(db),
+    pages: databaseOperatorPages(db),
     ...(process.env['CLOUDFLARE_ACCOUNT_ID'] &&
     process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'] &&
     process.env['ACADEMY_SENDER_ADDRESS']

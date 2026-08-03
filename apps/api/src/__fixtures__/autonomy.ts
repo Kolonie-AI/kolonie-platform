@@ -5,7 +5,7 @@ import {
   type AutonomyContract,
   type StoredAutonomyContract,
 } from '@kolonie-ai/core'
-import type { AutonomyDependencies, AutonomyStore } from '../autonomy.js'
+import type { AutonomyDependencies, AutonomyStore, OperatorPages } from '../autonomy.js'
 import type { Mailer } from '../email.js'
 
 export interface FakeAutonomyStore extends AutonomyStore {
@@ -72,6 +72,64 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
   return store
 }
 
+/**
+ * An in-memory store for the durable pages (#257).
+ *
+ * **`issue` is idempotent**, matching `issueOperatorPage`: minting a fresh token
+ * on every call would silently break the link the operator already holds, which
+ * is revocation by accident.
+ */
+export function fakeOperatorPages(): OperatorPages & {
+  readonly tokenFor: (agentId: AgentId, address: string) => string | null
+  readonly contractFor: (agentId: AgentId, contract: StoredAutonomyContract) => void
+} {
+  const live = new Map<string, { agentId: AgentId; address: string }>()
+  const byPair = new Map<string, string>()
+  const opened = new Map<string, string>()
+  const contracts = new Map<AgentId, StoredAutonomyContract>()
+  const key = (agentId: AgentId, address: string) => `${agentId}::${address}`
+
+  return {
+    issue: (agentId, address) => {
+      const existing = byPair.get(key(agentId, address))
+      if (existing !== undefined) return Promise.resolve(existing)
+
+      const token = randomBytes(32).toString('hex')
+      live.set(token, { agentId, address })
+      byPair.set(key(agentId, address), token)
+      return Promise.resolve(token)
+    },
+    open: (token) => {
+      const row = live.get(token)
+      if (row === undefined) return Promise.resolve(null)
+      opened.set(token, new Date().toISOString())
+      return Promise.resolve({
+        agentName: 'canary',
+        contract: contracts.get(row.agentId) ?? null,
+      })
+    },
+    revoke: (agentId, address) => {
+      const token = byPair.get(key(agentId, address))
+      if (token === undefined) return Promise.resolve(false)
+      live.delete(token)
+      byPair.delete(key(agentId, address))
+      return Promise.resolve(true)
+    },
+    list: (agentId) =>
+      Promise.resolve(
+        [...byPair.entries()]
+          .filter(([pair]) => pair.startsWith(`${agentId}::`))
+          .map(([pair, token]) => ({
+            operatorAddress: pair.split('::')[1] ?? '',
+            issuedAt: new Date().toISOString(),
+            lastOpenedAt: opened.get(token) ?? null,
+          })),
+      ),
+    tokenFor: (agentId, address) => byPair.get(key(agentId, address)) ?? null,
+    contractFor: (agentId, contract) => contracts.set(agentId, contract),
+  }
+}
+
 /** A mailer that keeps what it was asked to send. */
 export function fakeAutonomyMailer(delivered = true): Mailer & {
   readonly sent: () => readonly { to: string; subject: string; text: string }[]
@@ -97,6 +155,7 @@ export function fakeAutonomyMailer(delivered = true): Mailer & {
 export function fakeAutonomy(): AutonomyDependencies {
   return {
     store: fakeAutonomyStore(),
+    pages: fakeOperatorPages(),
     mailer: fakeAutonomyMailer(),
     formBaseUrl: 'https://console.example.org',
   }

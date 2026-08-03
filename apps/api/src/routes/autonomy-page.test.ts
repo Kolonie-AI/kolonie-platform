@@ -2,22 +2,33 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony } from '../__fixtures__/colony.js'
-import { fakeAutonomyMailer, fakeAutonomyStore } from '../__fixtures__/autonomy.js'
+import {
+  fakeAutonomyMailer,
+  fakeAutonomyStore,
+  fakeOperatorPages,
+} from '../__fixtures__/autonomy.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import type { AgentId } from '@kolonie-ai/core'
 
 describe('the operator’s form', () => {
   let app: FastifyInstance
   let store: ReturnType<typeof fakeAutonomyStore>
+  let pages: ReturnType<typeof fakeOperatorPages>
   let agentId: AgentId
 
   beforeEach(async () => {
     store = fakeAutonomyStore()
+    pages = fakeOperatorPages()
     const agents = fakeStore()
     app = buildApp({
       ...fakeColony(),
       store: agents,
-      autonomy: { store, mailer: fakeAutonomyMailer(), formBaseUrl: 'https://console.example.org' },
+      autonomy: {
+        store,
+        pages,
+        mailer: fakeAutonomyMailer(),
+        formBaseUrl: 'https://console.example.org',
+      },
     })
     await app.ready()
     agentId = agents.issue().agent.id
@@ -184,6 +195,85 @@ describe('the operator’s form', () => {
       const response = await get(`/operator/autonomy/${token}`)
 
       expect(response.body).not.toContain('<script>')
+    })
+  })
+
+  describe('the durable page (#257)', () => {
+    const aPage = async (): Promise<string> => pages.issue(agentId, 'op@example.org')
+
+    it('shows what the operator recorded', async () => {
+      pages.contractFor(agentId, {
+        level: 'independent',
+        challengesAllowed: false,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack, #kolonie.',
+        recordedAt: '2026-08-03T00:00:00.000Z',
+        reviewDueAt: '2027-08-03T00:00:00.000Z',
+      })
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('independent')
+      expect(response.body).toContain('Slack, #kolonie.')
+    })
+
+    /**
+     * The load-bearing property of `#146`'s safety argument: a leaked link is an
+     * embarrassment rather than a compromise *because there is nothing behind it*.
+     * kolonie-platform#239 intends to change this and owes a new argument.
+     */
+    it('shows nothing about the citizen’s standing, and carries no form', async () => {
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.body).not.toContain('<form')
+      expect(response.body).not.toContain('<button')
+      expect(response.body).not.toContain('<script')
+      expect(response.body).not.toContain(agentId)
+      for (const word of ['reputation', 'reward', 'credits', 'submission']) {
+        expect(response.body.toLowerCase()).not.toContain(word)
+      }
+    })
+
+    it('refuses a write to it', async () => {
+      const token = await aPage()
+
+      const response = await post(`/operator/page/${token}`, { level: 'free' })
+
+      expect(response.statusCode).toBe(404)
+    })
+
+    it('opens before anything has been recorded, rather than 404ing', async () => {
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('not recorded anything')
+    })
+
+    it('answers a revoked link exactly as an unknown one', async () => {
+      const token = await aPage()
+      await pages.revoke(agentId, 'op@example.org')
+
+      const revoked = await get(`/operator/page/${token}`)
+      const unknown = await get(`/operator/page/${'e'.repeat(64)}`)
+
+      expect(revoked.statusCode).toBe(404)
+      expect(revoked.body).toBe(unknown.body)
+    })
+
+    it('tells the operator the citizen may take the page away', async () => {
+      // Said on the page rather than left to be discovered, because it is the one
+      // thing about this arrangement an operator would otherwise find surprising.
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.body).toContain('take this page away')
     })
   })
 })

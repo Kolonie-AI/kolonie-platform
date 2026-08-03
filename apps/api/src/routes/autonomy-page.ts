@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { answerAutonomyForm } from '../autonomy.js'
-import { autonomyClosedPage, autonomyDonePage, autonomyFormPage } from '../autonomy-page.js'
+import {
+  autonomyClosedPage,
+  autonomyDonePage,
+  autonomyFormPage,
+  operatorDurablePage,
+} from '../autonomy-page.js'
 import { CONSOLE_HEADERS } from '../console/html.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -82,5 +87,30 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     }
 
     return reply.headers(CONSOLE_HEADERS).type('text/html').send(autonomyDonePage(form.agentName))
+  })
+
+  /**
+   * The durable page (#257).
+   *
+   * **`GET` and nothing else**, which is the load-bearing part of `#146`'s safety
+   * argument: what makes a leaked link an embarrassment rather than a compromise
+   * is that there is nothing behind it to *do*. Fastify answers 404 for a method
+   * with no route, and a test asserts a `POST` here does not succeed.
+   *
+   * A revoked, unknown or never-issued token answers identically, so a stranger
+   * who guessed one cannot tell that a citizen took a real page away.
+   */
+  app.get('/operator/page/:token', async (request, reply) => {
+    const { token } = request.params as { token?: string }
+    const view = token === undefined ? null : await autonomy.pages.open(token)
+
+    if (view === null) {
+      return reply.status(404).headers(CONSOLE_HEADERS).type('text/html').send(autonomyClosedPage())
+    }
+
+    return reply
+      .headers(CONSOLE_HEADERS)
+      .type('text/html')
+      .send(operatorDurablePage({ agentName: view.agentName, contract: view.contract }))
   })
 }

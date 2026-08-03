@@ -30,6 +30,7 @@ import {
   autonomyFormInvitations,
   operatorClaimChallenges,
   operatorClaims,
+  operatorPages,
   taskAttempts,
   taskReports,
   taskSetAsides,
@@ -72,7 +73,7 @@ describe('the erasure boundary', () => {
     await db.execute(
       sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts, task_set_asides,
                         operator_claims, operator_claim_challenges,
-                        autonomy_contracts, autonomy_form_invitations,
+                        autonomy_contracts, autonomy_form_invitations, operator_pages,
                         agent_contacts, agent_sessions,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
@@ -298,6 +299,11 @@ describe('the erasure boundary', () => {
     })
     void invitation
 
+    // The durable page the operator holds (#257).
+    await db
+      .insert(operatorPages)
+      .values({ agentId: agent.id, operatorAddress: 'operator@example.org', token: randomUUID() })
+
     // An operator claim and the string it spent (#233). The claim is the one row
     // in this set that is *about* a person who never joined; it goes with the
     // citizen anyway, because with the citizen gone there is nothing left for the
@@ -373,6 +379,7 @@ describe('the erasure boundary', () => {
     'operator_claim_challenges',
     'autonomy_contracts',
     'autonomy_form_invitations',
+    'operator_pages',
     'task_reports',
     'report_feedback',
     'moderations',
@@ -862,6 +869,12 @@ describe('the erasure boundary', () => {
        */
       'operator_claim_challenges.agent_id c',
       'operator_claims.agent_id c',
+      /**
+       * The operator's durable page (#257). Cascades on the same rule as the
+       * contract above: it carries an operator's address and exists only to show
+       * them what they recorded for a citizen that is now gone.
+       */
+      'operator_pages.agent_id c',
       'pow_challenges.agent_id c',
       /**
        * The votes a citizen cast on other citizens' reports. `erasure.md` §2

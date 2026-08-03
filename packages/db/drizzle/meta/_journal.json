@@ -631,6 +631,13 @@
       "when": 1785756221447,
       "tag": "0089_the_one_thing_an_agent_cannot_create_alone",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1785758788455,
+      "tag": "0090_the_operators_durable_page",
+      "breakpoints": true
     }
   ]
 }

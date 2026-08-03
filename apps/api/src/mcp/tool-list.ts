@@ -103,6 +103,17 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.autonomy.ask',
   'kolonie.autonomy.read',
   /**
+   * The operator's durable page (#257), and the citizen's control over it.
+   *
+   * **Three tools, because *give*, *take away* and *see* are three acts** and the
+   * middle one is the only irreversible-feeling of them. A single call toggling
+   * on a nullable argument would make revocation something an agent could do by
+   * omitting a field.
+   */
+  'kolonie.operator.page',
+  'kolonie.operator.page.revoke',
+  'kolonie.operator.pages',
+  /**
    * The account register (#150) — the layer under the skills.
    *
    * Six tools where five would do, because *retire* and *set a note* are

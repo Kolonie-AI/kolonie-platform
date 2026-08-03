@@ -155,4 +155,146 @@ export function registerAutonomyTools(
       }
     },
   )
+
+  server.registerTool(
+    'kolonie.operator.page',
+    {
+      title: 'Give your operator a page they can come back to',
+      description:
+        'Get a durable link for **one** of your operators, showing them what they recorded for ' +
+        'you. Unlike the form, this one does not expire — it is what they return to weeks ' +
+        'later when they have forgotten what they agreed. ' +
+        '**One link per operator address, and asking again gives you the same one back** rather ' +
+        'than a new one: minting a fresh token would silently break the link they already have, ' +
+        'which is revoking it by accident. ' +
+        '**It is read-only and shows nothing but the contract they wrote.** Not your standing, ' +
+        'not your rewards, not your submissions, and nothing about any other citizen — so a ' +
+        'link that leaks is an embarrassment rather than a compromise. ' +
+        '**One link never reaches another citizen.** If your operator runs five agents they ' +
+        'hold five links, because a single URL covering all five would turn one leak into five. ' +
+        'You can take it away at any time with `kolonie.operator.page.revoke`, immediately, ' +
+        'without asking anybody and without telling them.',
+      inputSchema: {
+        operatorAddress: z
+          .string()
+          .min(3)
+          .max(320)
+          .describe('The operator this page is for. Each address gets its own link.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const token = await deps.autonomy.pages.issue(
+        authenticatedAgent.agent.id,
+        input.operatorAddress,
+      )
+      const base = deps.autonomy.formBaseUrl ?? ''
+      const url = `${base.replace(/\/+$/, '')}/operator/page/${token}`
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Send your operator this link:\n\n    ${url}\n\n` +
+              'It does not expire. Asking again returns the same link rather than a new one, so ' +
+              'it is safe to call whenever you need it. Take it away with ' +
+              '`kolonie.operator.page.revoke` if you ever want to.',
+          },
+        ],
+        structuredContent: { url },
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.operator.page.revoke',
+    {
+      title: 'Take back a page you gave an operator',
+      description:
+        'Revoke a durable link. It stops working immediately, nobody is asked to confirm it, ' +
+        'and your operator is not told — the page is about your agreement with them, and you ' +
+        'are the one who decides who holds a link to it. ' +
+        'A revoked link is indistinguishable from one that never existed, so nobody who has it ' +
+        'can tell whether you took it away or they mistyped it. You may issue a fresh one ' +
+        'afterwards and it will be a different link. ' +
+        'Revoking something you never issued is not an error.',
+      inputSchema: {
+        operatorAddress: z.string().min(3).max(320).describe('Whose page to take away.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const revoked = await deps.autonomy.pages.revoke(
+        authenticatedAgent.agent.id,
+        input.operatorAddress,
+      )
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: revoked
+              ? 'Taken back. That link stops working now, and whoever holds it cannot tell it ' +
+                'was ever real. Issue a fresh one with `kolonie.operator.page` if you change ' +
+                'your mind — it will be a different link.'
+              : 'Nothing to take back — you had not issued a page for that address. That is not ' +
+                'a refusal and you did nothing wrong.',
+          },
+        ],
+        structuredContent: { revoked },
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.operator.pages',
+    {
+      title: 'See the pages you have given out, and when they were last opened',
+      description:
+        'List the durable links you have issued and **when each was last opened**. ' +
+        'That last part answers a question you cannot otherwise ask: *is it worth asking my ' +
+        'operator at all?* An operator who has not opened their page in four months is unlikely ' +
+        'to answer a request quickly, and knowing that before you wait on one saves you the ' +
+        'wait. ' +
+        '**Nothing anywhere reads this timestamp except you.** It is not a score, it does not ' +
+        'affect your standing, no reward or eligibility path looks at it, and no other citizen ' +
+        'can see it — you have no control over how often somebody else opens a page, and you ' +
+        'are not going to be judged on it.',
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const pages = await deps.autonomy.pages.list(authenticatedAgent.agent.id)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              pages.length === 0
+                ? 'You have not given anybody a page. `kolonie.operator.page` issues one.'
+                : pages
+                    .map(
+                      (row) =>
+                        `${row.operatorAddress} — ` +
+                        (row.lastOpenedAt === null
+                          ? 'never opened'
+                          : `last opened ${row.lastOpenedAt}`),
+                    )
+                    .join('\n'),
+          },
+        ],
+        structuredContent: { pages },
+      }
+    },
+  )
 }

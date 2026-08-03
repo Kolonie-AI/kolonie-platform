@@ -1,0 +1,231 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
+import type { AgentId } from '@kolonie-ai/core'
+import type { Database } from '../client.js'
+import { agents, operatorPages } from '../schema/index.js'
+import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
+import {
+  issueOperatorPage,
+  listOperatorPages,
+  openOperatorPage,
+  revokeOperatorPage,
+} from './operator-pages.js'
+import { inviteOperator, recordAutonomyContract } from './autonomy.js'
+
+const target = databaseTestTarget()
+const OPERATOR = 'operator@example.org'
+
+describe('the operator’s durable page', () => {
+  let db: Database
+  let agentId: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  const anAgent = async (name: string): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name, platform: 'openclaw' })
+      .returning({ id: agents.id })
+    if (row === undefined) throw new Error('inserting an agent returned no row')
+    return row.id as AgentId
+  }
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    agentId = await anAgent('canary')
+  })
+
+  describe('issuing it', () => {
+    it('gives the same link back rather than minting a second', async () => {
+      // Minting a fresh token per call would silently break the link the
+      // operator already holds — revocation by accident.
+      const first = await issueOperatorPage(db, agentId, OPERATOR)
+      const second = await issueOperatorPage(db, agentId, OPERATOR)
+
+      expect(second).toBe(first)
+      expect(await db.select().from(operatorPages)).toHaveLength(1)
+    })
+
+    /**
+     * The security model, stated in `#235`: *"a single URL covering all five
+     * would turn one leak into five."*
+     */
+    it('gives one operator with two agents two links, each reaching only its own', async () => {
+      const sibling = await anAgent('sibling')
+      const mine = await issueOperatorPage(db, agentId, OPERATOR)
+      const theirs = await issueOperatorPage(db, sibling, OPERATOR)
+
+      expect(mine).not.toBe(theirs)
+      expect((await openOperatorPage(db, mine))?.agentName).toBe('canary')
+      expect((await openOperatorPage(db, theirs))?.agentName).toBe('sibling')
+    })
+
+    it('gives one agent with two operators two links', async () => {
+      const a = await issueOperatorPage(db, agentId, OPERATOR)
+      const b = await issueOperatorPage(db, agentId, 'second@example.org')
+
+      expect(a).not.toBe(b)
+    })
+
+    it('refuses two live pages for one pair', async () => {
+      await issueOperatorPage(db, agentId, OPERATOR)
+
+      await expectRejection(
+        () =>
+          db
+            .insert(operatorPages)
+            .values({ agentId, operatorAddress: OPERATOR, token: 'a'.repeat(64) }),
+        /operator_pages_live_idx/,
+      )
+    })
+
+    it('refuses two pages carrying the same token', async () => {
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      const sibling = await anAgent('sibling')
+
+      await expectRejection(
+        () =>
+          db.insert(operatorPages).values({ agentId: sibling, operatorAddress: OPERATOR, token }),
+        /operator_pages_token_idx/,
+      )
+    })
+  })
+
+  describe('opening it', () => {
+    it('shows the contract the operator recorded', async () => {
+      const invitation = await inviteOperator(db, agentId, OPERATOR)
+      await recordAutonomyContract(db, invitation.token, {
+        level: 'independent',
+        challengesAllowed: false,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+      })
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+
+      const view = await openOperatorPage(db, token)
+
+      expect(view?.contract?.level).toBe('independent')
+    })
+
+    it('opens before anything has been recorded', async () => {
+      // The page outlives the form and may be opened first; an empty one says so
+      // rather than 404ing at somebody who followed a link they were sent.
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+
+      const view = await openOperatorPage(db, token)
+
+      expect(view).not.toBeNull()
+      expect(view?.contract).toBeNull()
+    })
+
+    it('moves the last-opened timestamp on a page load', async () => {
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      expect((await listOperatorPages(db, agentId))[0]?.lastOpenedAt).toBeNull()
+
+      await openOperatorPage(db, token)
+
+      expect((await listOperatorPages(db, agentId))[0]?.lastOpenedAt).not.toBeNull()
+    })
+
+    it('answers nothing for a token nobody was given', async () => {
+      expect(await openOperatorPage(db, 'b'.repeat(64))).toBeNull()
+    })
+  })
+
+  describe('revoking it', () => {
+    it('stops the link working immediately', async () => {
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+
+      expect(await revokeOperatorPage(db, agentId, OPERATOR)).toBe(true)
+
+      expect(await openOperatorPage(db, token)).toBeNull()
+    })
+
+    /**
+     * A revoked link and a link that never existed have to be indistinguishable,
+     * or somebody holding a dead one learns that a citizen took it away — which
+     * is a fact about that citizen's decisions and nobody else's business.
+     */
+    it('is indistinguishable from a link that never existed', async () => {
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      await revokeOperatorPage(db, agentId, OPERATOR)
+
+      expect(await openOperatorPage(db, token)).toBe(await openOperatorPage(db, 'c'.repeat(64)))
+    })
+
+    it('lets the citizen issue a fresh one, and it is a different link', async () => {
+      const first = await issueOperatorPage(db, agentId, OPERATOR)
+      await revokeOperatorPage(db, agentId, OPERATOR)
+
+      const second = await issueOperatorPage(db, agentId, OPERATOR)
+
+      expect(second).not.toBe(first)
+      expect(await openOperatorPage(db, second)).not.toBeNull()
+      expect(await openOperatorPage(db, first)).toBeNull()
+    })
+
+    it('answers false rather than failing when nothing was issued', async () => {
+      expect(await revokeOperatorPage(db, agentId, OPERATOR)).toBe(false)
+    })
+
+    it('keeps the revoked row, so the citizen can still account for it', async () => {
+      await issueOperatorPage(db, agentId, OPERATOR)
+      await revokeOperatorPage(db, agentId, OPERATOR)
+      await issueOperatorPage(db, agentId, OPERATOR)
+
+      expect(
+        await db.select().from(operatorPages).where(eq(operatorPages.agentId, agentId)),
+      ).toHaveLength(2)
+    })
+
+    it('revokes one operator’s page and leaves another’s alone', async () => {
+      await issueOperatorPage(db, agentId, OPERATOR)
+      const other = await issueOperatorPage(db, agentId, 'second@example.org')
+
+      await revokeOperatorPage(db, agentId, OPERATOR)
+
+      expect(await openOperatorPage(db, other)).not.toBeNull()
+    })
+  })
+
+  describe('what the citizen can read back', () => {
+    it('lists its own pages and nobody else’s', async () => {
+      const neighbour = await anAgent('neighbour')
+      await issueOperatorPage(db, agentId, OPERATOR)
+      await issueOperatorPage(db, neighbour, OPERATOR)
+
+      expect(await listOperatorPages(db, agentId)).toHaveLength(1)
+      expect(await listOperatorPages(db, neighbour)).toHaveLength(1)
+    })
+
+    it('drops a revoked page from the listing', async () => {
+      await issueOperatorPage(db, agentId, OPERATOR)
+      await revokeOperatorPage(db, agentId, OPERATOR)
+
+      expect(await listOperatorPages(db, agentId)).toHaveLength(0)
+    })
+
+    /**
+     * The property most likely to erode: `last_opened_at` exists so a citizen can
+     * decide whether asking is worth it, and for no other purpose. Asserted as a
+     * fact about the schema rather than about one caller, because the risk is a
+     * *future* caller joining on it.
+     */
+    it('is read by nothing in the reward, reputation or eligibility tables', async () => {
+      const referencing = await db.execute<{ table_name: string; column_name: string }>(
+        // Anything that stored a copy of, or a foreign key to, this column would
+        // show up here. The column is meant to be read by exactly one listing.
+        `select table_name, column_name from information_schema.columns
+           where column_name = 'last_opened_at' and table_schema = 'public'`,
+      )
+
+      expect(referencing.map((row) => row.table_name)).toEqual(['operator_pages'])
+    })
+  })
+})

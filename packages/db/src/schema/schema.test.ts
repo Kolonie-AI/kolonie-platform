@@ -256,6 +256,13 @@ describe('schema', () => {
          */
         'operator_claim_challenges',
         'operator_claims',
+        /**
+         * The operator's durable page (#257) — one link per `(address, agent)`
+         * pair, revocable by the citizen, recording when it was last opened.
+         * Separate from `autonomy_form_invitations`, which is spent once: this
+         * outlives the answer and is what the operator comes back to.
+         */
+        'operator_pages',
         'pow_challenges',
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed
         // once on the way in rather than on every read out.

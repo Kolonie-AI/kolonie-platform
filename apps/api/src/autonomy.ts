@@ -5,13 +5,23 @@ import {
   type AutonomyContract,
   type StoredAutonomyContract,
 } from '@kolonie-ai/core'
-import type { AutonomyInvitation, Database, OpenAutonomyForm } from '@kolonie-ai/db'
+import type {
+  AutonomyInvitation,
+  Database,
+  OpenAutonomyForm,
+  OperatorPageRecord,
+  OperatorPageView,
+} from '@kolonie-ai/db'
 import {
   hasAutonomyContract,
   inviteOperator,
   openAutonomyForm,
   readAutonomyContract,
   recordAutonomyContract,
+  issueOperatorPage,
+  listOperatorPages,
+  openOperatorPage,
+  revokeOperatorPage,
 } from '@kolonie-ai/db'
 import type { Mailer } from './email.js'
 
@@ -24,8 +34,22 @@ export interface AutonomyStore {
   isRecorded(agentId: AgentId): Promise<boolean>
 }
 
+/**
+ * The durable page (#257), behind its own port beside the contract store.
+ *
+ * Separate from {@link AutonomyStore} because it is a separate issue with a
+ * separate lifetime: the form is spent once, and this outlives the answer.
+ */
+export interface OperatorPages {
+  issue(agentId: AgentId, operatorAddress: string): Promise<string>
+  open(token: string): Promise<OperatorPageView | null>
+  revoke(agentId: AgentId, operatorAddress: string): Promise<boolean>
+  list(agentId: AgentId): Promise<readonly OperatorPageRecord[]>
+}
+
 export interface AutonomyDependencies {
   readonly store: AutonomyStore
+  readonly pages: OperatorPages
   /**
    * Sends the one mail.
    *
@@ -41,6 +65,16 @@ export interface AutonomyDependencies {
    * the base and composes the link — the same arrangement `challengeDomain` has.
    */
   readonly formBaseUrl?: string | undefined
+}
+
+/** The durable pages, wired to a real database. */
+export function databaseOperatorPages(db: Database): OperatorPages {
+  return {
+    issue: (agentId, address) => issueOperatorPage(db, agentId, address),
+    open: (token) => openOperatorPage(db, token),
+    revoke: (agentId, address) => revokeOperatorPage(db, agentId, address),
+    list: (agentId) => listOperatorPages(db, agentId),
+  }
 }
 
 /** Storage wired to a real database. The only place these two meet. */

@@ -1,0 +1,1 @@
+ALTER TABLE "task_attempts" ADD COLUMN "runtime_declared_at" timestamp with time zone;

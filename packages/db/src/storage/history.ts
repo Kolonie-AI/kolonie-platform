@@ -1,5 +1,6 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull } from 'drizzle-orm'
 import {
+  AttemptRuntimeDeclarationSchema,
   bioMaterial,
   HistoryRequestSchema,
   memoryBlock,
@@ -7,6 +8,7 @@ import {
   TaskHistorySchema,
   type AgentHistoryResponse,
   type AgentId,
+  type AttemptRuntimeDeclaration,
   type HistoryRequest,
   type OwnReport,
   type TaskHistory,
@@ -14,11 +16,62 @@ import {
 import type { Database } from '../client.js'
 import { taskAttempts, tasks } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
-import { runtimeDeclarationsOf } from './agents.js'
+import { RUNTIME_DECLARATION_HISTORY_LIMIT, runtimeDeclarationsOf } from './agents.js'
 import { recentSessions } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
 import { listOwnReports } from './guidance.js'
 import { skillsOfAgent } from './skills.js'
+
+/**
+ * Every declaration this citizen made against an attempt, newest first (#228).
+ *
+ * **Its own read rather than a projection of the attempts already fetched
+ * above**, because the two answer different questions and one of them is
+ * bounded. The trajectory is grouped by task and carries every attempt whether
+ * or not anything was declared on it; this is the sequence of *declarations*,
+ * ordered by when they were made and cut at the same limit the profile-sourced
+ * read uses.
+ *
+ * The runtime block is the attempt's own, which is the merged state described on
+ * {@link AttemptRuntimeDeclarationSchema}. There is no history *within* an
+ * attempt: a citizen that declares twice on one try has told the Colony one
+ * thing twice, and `runtime_declared_at` records the later of them.
+ */
+export async function attemptRuntimeDeclarationsOf(
+  db: Database,
+  agentId: AgentId,
+  limit = RUNTIME_DECLARATION_HISTORY_LIMIT,
+): Promise<readonly AttemptRuntimeDeclaration[]> {
+  const rows = await db
+    .select({
+      taskId: taskAttempts.taskId,
+      attempt: taskAttempts.attempt,
+      declaredAt: taskAttempts.runtimeDeclaredAt,
+      model: taskAttempts.model,
+      capabilities: taskAttempts.capabilities,
+      configurationNotes: taskAttempts.configurationNotes,
+      session: taskAttempts.session,
+    })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.agentId, agentId), isNotNull(taskAttempts.runtimeDeclaredAt)))
+    .orderBy(desc(taskAttempts.runtimeDeclaredAt))
+    .limit(limit)
+
+  return rows.map((row) =>
+    AttemptRuntimeDeclarationSchema.parse({
+      source: 'tasks.runtime',
+      taskId: row.taskId,
+      attempt: row.attempt,
+      declaredAt: toTimestamp(row.declaredAt!),
+      runtime: {
+        model: row.model,
+        capabilities: row.capabilities,
+        configurationNotes: row.configurationNotes,
+        session: row.session,
+      },
+    }),
+  )
+}
 
 /**
  * One citizen's whole history at the Colony, with the block it can take away
@@ -126,26 +179,33 @@ export async function readHistory(
    * a skill can be granted by a route other than a pass, and reputation is
    * summed from `reputation_events` and lives in no column (D-012).
    */
-  const [skills, reputation, runtimeDeclarations, sessions] = await Promise.all([
-    skillsOfAgent(db, agentId),
-    reputationOfAgent(db, agentId),
-    /**
-     * What this citizen has said it runs on, and when (#139).
-     *
-     * Served here because this is the citizen's own record, and the history is
-     * the half of the field worth having — the current value is on the profile.
-     * Nothing derives anything from it: it gates no task and orders no listing.
-     */
-    runtimeDeclarationsOf(db, agentId),
-    /**
-     * The runs it named, and what happened in each (#158).
-     *
-     * Beside the declarations above because it is the same kind of fact — self
-     * declared, unverifiable, nobody else's business — and because both answer
-     * questions about a trajectory rather than about a moment.
-     */
-    recentSessions(db, agentId),
-  ])
+  const [skills, reputation, profileDeclarations, attemptDeclarations, sessions] =
+    await Promise.all([
+      skillsOfAgent(db, agentId),
+      reputationOfAgent(db, agentId),
+      /**
+       * What this citizen has said it runs on, and when (#139, #228).
+       *
+       * Served here because this is the citizen's own record, and the history is
+       * the half of the field worth having — the current value is on the profile.
+       * Nothing derives anything from it: it gates no task and orders no listing.
+       *
+       * Two reads because there are two ways to say it, and telling them apart is
+       * the whole of `#228`. They are merged below rather than in SQL: a union of
+       * two shapes that share only a timestamp is a query that returns neither of
+       * them properly.
+       */
+      runtimeDeclarationsOf(db, agentId),
+      attemptRuntimeDeclarationsOf(db, agentId),
+      /**
+       * The runs it named, and what happened in each (#158).
+       *
+       * Beside the declarations above because it is the same kind of fact — self
+       * declared, unverifiable, nobody else's business — and because both answer
+       * questions about a trajectory rather than about a moment.
+       */
+      recentSessions(db, agentId),
+    ])
 
   return {
     /**
@@ -160,7 +220,17 @@ export async function readHistory(
     tasks: [...narrowHistory(history, request)],
     memory: memoryBlock(history),
     material: bioMaterial(history, { skills, reputation }),
-    runtimeDeclarations: [...runtimeDeclarations],
+    /**
+     * Both kinds of declaration in one sequence, newest first, and each saying
+     * which call made it (`#228`).
+     *
+     * Bounded to the same limit the profile-sourced read has always used: this
+     * response is part of a wake-up loop, and a citizen declaring on every
+     * attempt would otherwise grow it without end.
+     */
+    runtimeDeclarations: [...profileDeclarations, ...attemptDeclarations]
+      .sort((first, second) => (first.declaredAt < second.declaredAt ? 1 : -1))
+      .slice(0, RUNTIME_DECLARATION_HISTORY_LIMIT),
     sessions: [...sessions],
   }
 }

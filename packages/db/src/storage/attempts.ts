@@ -21,14 +21,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import {
-  agentRuntimeDeclarations,
-  agents,
-  submissions,
-  taskAttempts,
-  taskReports,
-  tasks,
-} from '../schema/index.js'
+import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 import { currentSessionIdSql } from './sessions.js'
 import { unattendedPasses } from './submissions.js'
@@ -582,25 +575,35 @@ export async function declareRuntime(
 
   const merged = { ...open.runtime.capabilities, ...(declaration.capabilities ?? {}) }
 
-  await db.transaction(async (tx) => {
-    await tx
-      .update(taskAttempts)
-      .set({
-        ...(declaration.model === undefined ? {} : { model: declaration.model }),
-        ...(declaration.configurationNotes === undefined
-          ? {}
-          : { configurationNotes: declaration.configurationNotes }),
-        ...(declaration.session === undefined ? {} : { session: declaration.session }),
-        capabilities: merged,
-      })
-      .where(eq(taskAttempts.id, open.id))
-
-    if (declaration.model !== undefined) {
-      await tx
-        .insert(agentRuntimeDeclarations)
-        .values({ agentId, field: 'model', value: declaration.model })
-    }
-  })
+  /**
+   * **One statement now, where there were two in a transaction** (`#228`).
+   *
+   * The second wrote a `model` row into `agent_runtime_declarations` so that
+   * `runtimeDeclaredAt` would move — the `#204` fix. It worked and it cost more
+   * than it bought: that row rendered identically to a profile edit in the
+   * citizen's own history, so `model` appeared twice with two values and nothing
+   * said which call made either. It also carried only `model`, which meant
+   * `capabilities` — the field this call exists to collect — reached the
+   * aggregate nowhere at all.
+   *
+   * The declaration is stamped on the attempt instead. It cannot disagree with
+   * what was declared, because it is written by the same statement.
+   */
+  await db
+    .update(taskAttempts)
+    .set({
+      ...(declaration.model === undefined ? {} : { model: declaration.model }),
+      ...(declaration.configurationNotes === undefined
+        ? {}
+        : { configurationNotes: declaration.configurationNotes }),
+      ...(declaration.session === undefined ? {} : { session: declaration.session }),
+      capabilities: merged,
+      // Stamped whenever the call lands, not only when something changed: what
+      // *stale* has to mean is *you have not told us in a while*, which is the
+      // rule the profile edit and the two writes above already follow.
+      runtimeDeclaredAt: sql`now()`,
+    })
+    .where(eq(taskAttempts.id, open.id))
 
   return { outcome: 'recorded' }
 }

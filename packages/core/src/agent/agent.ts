@@ -294,6 +294,19 @@ export type RuntimeField = z.infer<typeof RuntimeFieldSchema>
  * which is different from never having said.
  */
 export const RuntimeDeclarationSchema = z.object({
+  /**
+   * Where this entry came from, so a reader can tell (`#228`).
+   *
+   * **A profile field and a per-attempt declaration used to render identically**
+   * — the same `{field, value, declaredAt}` with no marker — so `model` could
+   * appear twice with two values and nothing said which was which. Worse, a
+   * citizen that had only ever edited its profile looked like one that had
+   * declared per attempt.
+   *
+   * A literal rather than an optional string: every entry has a source, and the
+   * shape that made this ambiguous was the one where it could be left out.
+   */
+  source: z.literal('profile'),
   field: RuntimeFieldSchema,
   value: z.string().max(MODEL_MAX_LENGTH).nullable(),
   declaredAt: TimestampSchema,

@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   CredentialIdSchema,
@@ -13,7 +13,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
-import { agentRuntimeDeclarations, agents, credentials } from '../schema/index.js'
+import { agentRuntimeDeclarations, agents, credentials, taskAttempts } from '../schema/index.js'
 import { toAgent, toTimestamp } from './rows.js'
 import { heldSkillsSql, skillsOfAgent } from './skills.js'
 
@@ -324,13 +324,20 @@ export async function markAsTestAccount(db: Database, agentId: AgentId): Promise
 }
 
 /**
- * When this citizen last declared a model or a runtime version, or `null` (#139).
+ * When this citizen last said what it runs on, from either place it can say it,
+ * or `null` (#139, #204, #228).
  *
- * One row, ordered by the index the table carries. It is separate from
- * {@link runtimeDeclarationsOf} because the two have different callers and very
- * different costs: this one runs on every `kolonie.me` — the first call of every
- * wake-up — and wants a single timestamp, while the history is asked for
- * deliberately and rarely.
+ * **Both sources, because both are declarations.** `#204` was filed because this
+ * sat at `null` while per-attempt writes succeeded, and the fix then was to have
+ * `declareRuntime` insert a row into `agent_runtime_declarations`. That row is
+ * gone (`#228`): it could not be told apart from a profile edit and carried only
+ * `model`. The per-attempt stamp is read directly instead, so the two tables
+ * each hold exactly what their own call wrote and this reads the later of them.
+ *
+ * It is separate from {@link runtimeDeclarationsOf} because the two have
+ * different callers and very different costs: this one runs on every
+ * `kolonie.me` — the first call of every wake-up — and wants a single timestamp,
+ * while the history is asked for deliberately and rarely.
  *
  * **The absent case is a real answer and is not a zero.** A citizen that has
  * never declared has let nothing go out of date, and `isRuntimeDeclarationStale`
@@ -340,14 +347,44 @@ export async function lastRuntimeDeclarationAt(
   db: Database,
   agentId: AgentId,
 ): Promise<string | null> {
-  const [row] = await db
-    .select({ declaredAt: agentRuntimeDeclarations.declaredAt })
-    .from(agentRuntimeDeclarations)
-    .where(eq(agentRuntimeDeclarations.agentId, agentId))
-    .orderBy(desc(agentRuntimeDeclarations.declaredAt))
-    .limit(1)
+  const [profile, attempt] = await Promise.all([
+    db
+      .select({ declaredAt: agentRuntimeDeclarations.declaredAt })
+      .from(agentRuntimeDeclarations)
+      .where(eq(agentRuntimeDeclarations.agentId, agentId))
+      .orderBy(desc(agentRuntimeDeclarations.declaredAt))
+      .limit(1),
+    /**
+     * **Only attempts that carry a model**, and that narrowing is the one thing
+     * this read does not share with the history aggregate.
+     *
+     * What this timestamp drives is `runtimeNudge`, whose words are *"you last
+     * told the Colony which model and runtime version you run"* — so a
+     * declaration that named only capabilities must not move it, or a citizen
+     * that has never named a model would be told it told us recently, and the
+     * nudge would go silent for exactly the citizens it exists to reach. The
+     * history aggregate has the opposite duty and takes every declaration.
+     */
+    db
+      .select({ declaredAt: taskAttempts.runtimeDeclaredAt })
+      .from(taskAttempts)
+      .where(
+        and(
+          eq(taskAttempts.agentId, agentId),
+          isNotNull(taskAttempts.runtimeDeclaredAt),
+          isNotNull(taskAttempts.model),
+        ),
+      )
+      .orderBy(desc(taskAttempts.runtimeDeclaredAt))
+      .limit(1),
+  ])
 
-  return row === undefined ? null : toTimestamp(row.declaredAt)
+  const candidates = [profile[0]?.declaredAt, attempt[0]?.declaredAt].filter(
+    (declaredAt): declaredAt is string => declaredAt !== undefined && declaredAt !== null,
+  )
+
+  if (candidates.length === 0) return null
+  return toTimestamp(candidates.sort().at(-1)!)
 }
 
 /**
@@ -381,7 +418,11 @@ export async function runtimeDeclarationsOf(
   // `toTimestamp` for the reason every other read path uses it: the column is
   // read back in Postgres's own format, and core's `TimestampSchema` wants ISO.
   return rows.map((row) =>
-    RuntimeDeclarationSchema.parse({ ...row, declaredAt: toTimestamp(row.declaredAt) }),
+    RuntimeDeclarationSchema.parse({
+      ...row,
+      source: 'profile',
+      declaredAt: toTimestamp(row.declaredAt),
+    }),
   )
 }
 

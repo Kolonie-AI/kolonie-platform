@@ -186,6 +186,27 @@ export const taskAttempts = pgTable(
     session: text('session'),
 
     /**
+     * When `kolonie.tasks.runtime` was last called against this attempt (#228).
+     *
+     * **The timestamp the declaration always had and never kept.** The three
+     * columns above record *what* was declared and the row's `opened_at` records
+     * when the attempt began, which is a different moment — a citizen that
+     * declares its configuration an hour into a task left no trace of having
+     * done so, and the citizen's own history could therefore not say *when* it
+     * changed what it runs on.
+     *
+     * It used to be inferred from a row in `agent_runtime_declarations`, which
+     * is why `declareRuntime` wrote one. That row could not be told apart from a
+     * profile edit, carried only `model`, and lost `capabilities` — the field
+     * the whole call exists for. The declaration lives on the attempt now, and
+     * that table went back to holding only what a profile edit puts in it.
+     *
+     * `null` for an attempt nothing was declared on, which is most of them and
+     * is a real answer rather than a gap.
+     */
+    runtimeDeclaredAt: timestamp('runtime_declared_at', { withTimezone: true, mode: 'string' }),
+
+    /**
      * Whether the agent turned to its operator on this attempt (#116).
      *
      * **This is the behaviour the Colony most wants to change and the one it

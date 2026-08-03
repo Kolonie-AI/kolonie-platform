@@ -14,7 +14,7 @@ import { eq, sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { taskAttempts, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { registerAgent } from './agents.js'
+import { registerAgent, updateAgentProfile } from './agents.js'
 import { closeAttempt, declareOperator, declareRuntime, openAttempt } from './attempts.js'
 import { fileReport } from './guidance.js'
 import { readHistory } from './history.js'
@@ -308,6 +308,42 @@ describe('a citizen’s own history', () => {
       // And the bio material with it: *tasks attempted since Tuesday* would be a
       // false statement about a citizen.
       expect(narrowed.material).toEqual(whole.material)
+    })
+  })
+
+  /**
+   * The aggregate `#228` was filed about: one sequence, both sources, each
+   * saying which call made it.
+   */
+  describe('what it has said it runs on', () => {
+    it('carries both kinds of declaration, newest first, each marked', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await updateAgentProfile(db, agentId, { model: 'declared-on-the-profile' })
+      await declareRuntime(db, agentId, taskId, {
+        model: 'declared-on-the-attempt',
+        capabilities: { vision: true },
+      })
+
+      const { runtimeDeclarations } = await readHistory(db, agentId)
+
+      // Both present, newest first, and a reader can tell which call wrote
+      // which — `model` used to appear twice with nothing saying that.
+      expect(runtimeDeclarations.map((row) => row.source)).toEqual(['tasks.runtime', 'profile'])
+
+      const [attempt] = runtimeDeclarations
+      if (attempt?.source !== 'tasks.runtime') throw new Error('expected the attempt declaration')
+      expect(attempt.taskId).toBe(taskId)
+      expect(attempt.attempt).toBe(1)
+      expect(attempt.runtime.capabilities).toEqual({ vision: true })
+    })
+
+    it('says nothing about a citizen that has declared nothing', async () => {
+      const { runtimeDeclarations } = await readHistory(db, await anAgent())
+
+      expect(runtimeDeclarations).toEqual([])
     })
   })
 })

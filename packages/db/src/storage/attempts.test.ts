@@ -25,7 +25,13 @@ import {
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { lastRuntimeDeclarationAt, registerAgent, runtimeDeclarationsOf } from './agents.js'
+import {
+  lastRuntimeDeclarationAt,
+  registerAgent,
+  runtimeDeclarationsOf,
+  updateAgentProfile,
+} from './agents.js'
+import { attemptRuntimeDeclarationsOf } from './history.js'
 import {
   attemptStanding,
   attemptTallies,
@@ -836,10 +842,69 @@ describe('task attempts', () => {
       await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })
 
       expect(await lastRuntimeDeclarationAt(db, agentId)).not.toBeNull()
-      const history = await runtimeDeclarationsOf(db, agentId)
+      const history = await attemptRuntimeDeclarationsOf(db, agentId)
       expect(history).toHaveLength(1)
-      expect(history[0]?.field).toBe('model')
-      expect(history[0]?.value).toBe('some-model-v3')
+      expect(history[0]?.runtime.model).toBe('some-model-v3')
+      expect(history[0]?.taskId).toBe(taskId)
+      expect(history[0]?.attempt).toBe(1)
+
+      // And **not** in the profile-sourced history, which is the correction
+      // #228 made to this fix: a row there was indistinguishable from a profile
+      // edit, so `model` appeared twice with nothing saying which call wrote
+      // either.
+      expect(await runtimeDeclarationsOf(db, agentId)).toEqual([])
+    })
+
+    /**
+     * The field this whole aggregate exists for, and the one #204's fix could
+     * not carry (`#228`).
+     *
+     * `kolonie.tasks.runtime` tells a citizen to declare on every attempt
+     * because *"an attempt that says no vision route followed by one that says
+     * vision route configured is the most useful thing the Colony can learn from
+     * anybody"*. That sentence is `capabilities`, and it reached the citizen's
+     * own history nowhere at all while the aggregate was fed by a `model` row.
+     */
+    it('carries the capabilities, the notes and the session, not only the model', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await declareRuntime(db, agentId, taskId, {
+        model: 'some-model-v3',
+        capabilities: { vision: true, shell: false },
+        configurationNotes: 'A vision route configured through a local proxy.',
+        session: 'headless, no shell on this run',
+      })
+
+      const [declaration] = await attemptRuntimeDeclarationsOf(db, agentId)
+      expect(declaration?.source).toBe('tasks.runtime')
+      expect(declaration?.runtime.capabilities).toEqual({ vision: true, shell: false })
+      expect(declaration?.runtime.configurationNotes).toBe(
+        'A vision route configured through a local proxy.',
+      )
+      expect(declaration?.runtime.session).toBe('headless, no shell on this run')
+    })
+
+    /**
+     * The false positive that mirrors #204's false negative: a citizen that only
+     * ever edited its profile must not look like one that declared per attempt.
+     */
+    it('keeps a profile edit and a per-attempt declaration apart', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await updateAgentProfile(db, agentId, { model: 'declared-on-the-profile' })
+      await declareRuntime(db, agentId, taskId, { model: 'declared-on-the-attempt' })
+
+      const profile = await runtimeDeclarationsOf(db, agentId)
+      const attempts = await attemptRuntimeDeclarationsOf(db, agentId)
+
+      expect(profile.map((row) => row.source)).toEqual(['profile'])
+      expect(profile[0]?.value).toBe('declared-on-the-profile')
+      expect(attempts.map((row) => row.source)).toEqual(['tasks.runtime'])
+      expect(attempts[0]?.runtime.model).toBe('declared-on-the-attempt')
     })
 
     /**
@@ -858,6 +923,13 @@ describe('task attempts', () => {
 
       expect(await lastRuntimeDeclarationAt(db, agentId)).toBeNull()
       expect(await runtimeDeclarationsOf(db, agentId)).toEqual([])
+
+      // It is in the citizen's own history all the same (`#228`), which is the
+      // half of this that used to be missing: the timestamp drives a nudge
+      // about the *model*, and the aggregate is a record of everything said.
+      const [declaration] = await attemptRuntimeDeclarationsOf(db, agentId)
+      expect(declaration?.runtime.capabilities).toEqual({ shell: true })
+      expect(declaration?.runtime.model).toBeNull()
     })
 
     /**

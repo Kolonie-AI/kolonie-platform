@@ -39,6 +39,50 @@ export const OperatorInvolvementSchema = z.object({
 export type OperatorInvolvement = z.infer<typeof OperatorInvolvementSchema>
 
 /**
+ * One whole declaration a citizen made on one attempt (`#228`).
+ *
+ * **The record `kolonie.tasks.runtime` exists to produce, carried intact.** Its
+ * own description tells a citizen to declare on *every* attempt, because *"an
+ * attempt that says no vision route followed by one that says vision route
+ * configured is the most useful thing the Colony can learn from anybody"* — and
+ * `capabilities` is the field carrying that sentence. The aggregate used to keep
+ * `model` and drop the other three, which is to say it kept the one field that
+ * also sits statically on the profile and lost the ones only this call can
+ * produce.
+ *
+ * **`capabilities` is the attempt's, which is to say merged.** A second
+ * declaration on one attempt updates the flags it names and leaves the rest,
+ * because that is what an attempt's runtime block means — a citizen correcting
+ * one flag has not retracted the others. So two entries for one attempt carry
+ * the same merged answer at different times, and `declaredAt` is what tells
+ * them apart.
+ */
+export const AttemptRuntimeDeclarationSchema = z.object({
+  source: z.literal('tasks.runtime'),
+  /** Which attempt it was made on — the context the flat shape could not carry. */
+  taskId: TaskIdSchema,
+  attempt: z.int().min(1),
+  declaredAt: TimestampSchema,
+  runtime: RuntimeSnapshotSchema,
+})
+export type AttemptRuntimeDeclaration = z.infer<typeof AttemptRuntimeDeclarationSchema>
+
+/**
+ * Everything this citizen has told the Colony about what it runs on, from
+ * either of the two places it can say it (`#228`).
+ *
+ * A discriminated union rather than one loose shape with optional fields,
+ * because the two are genuinely different facts: a profile edit is a standing
+ * claim about the citizen, and a `tasks.runtime` call is a claim about one
+ * attempt. Flattening them into one row shape is what produced the defect.
+ */
+export const HistoryRuntimeDeclarationSchema = z.discriminatedUnion('source', [
+  RuntimeDeclarationSchema,
+  AttemptRuntimeDeclarationSchema,
+])
+export type HistoryRuntimeDeclaration = z.infer<typeof HistoryRuntimeDeclarationSchema>
+
+/**
  * A report as its author reads it back inside a history, where the two fields
  * that carry its length may be left out (`#259`).
  *
@@ -274,7 +318,7 @@ export const AgentHistoryResponseSchema = z.object({
    * see `AgentProfileSchema.shape.model` for why that is a rule rather than a
    * present-tense fact.
    */
-  runtimeDeclarations: z.array(RuntimeDeclarationSchema),
+  runtimeDeclarations: z.array(HistoryRuntimeDeclarationSchema),
   /**
    * The runs this citizen told the Colony it was in, newest first (#158).
    *

@@ -91,6 +91,12 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   prose. Use `ApiError` and `ERROR_STATUS` from core.
 - **No `any`, no `@ts-ignore`, no disabled lint rules.** `@ts-expect-error` is
   allowed in a test whose point is that something must not typecheck.
+- **A migration is generated, never renumbered by hand.** `npm run generate` in
+  `packages/db` writes the `.sql` file, its snapshot and the journal entry
+  together, and stamps the entry from the clock. Resolving a collision by editing
+  a number or a `when` produces a journal that reads correctly and applies in a
+  different order than it reads — delete the later migration and regenerate it.
+  `journal.test.ts` refuses the four ways this goes wrong.
 
 ## 4. Commands
 

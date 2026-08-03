@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { readdir, readFile } from 'node:fs/promises'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { createDatabase, type Database } from './client.js'
+import { readJournal } from './migrations.js'
 import { databaseTestTarget, MIGRATIONS_FOLDER, resetDatabase } from './testing.js'
 
 const target = databaseTestTarget()
@@ -215,88 +215,26 @@ describe('the migrations', () => {
    * therefore must report nothing missing.
    */
   it('reports nothing missing on a database that has been migrated', async () => {
-    const journal = JSON.parse(
-      await readFile(`${MIGRATIONS_FOLDER}/meta/_journal.json`, 'utf8'),
-    ) as { entries: { when: number }[] }
+    const journal = await readJournal()
 
     const rows = await db.execute<{ created_at: string }>(
       sql`select created_at::text from drizzle.__drizzle_migrations`,
     )
     const applied = new Set(rows.map((row) => Number(row.created_at)))
 
-    expect(journal.entries.filter((entry) => !applied.has(entry.when))).toEqual([])
+    expect(journal.filter((entry) => !applied.has(entry.when)).map((entry) => entry.tag)).toEqual(
+      [],
+    )
   })
 })
 
 /**
- * **The journal's timestamps must increase with its own order** — and this test
- * exists because they did not, on 2026-08-03, in production.
+ * **What the journal has to be true of on its own lives in `journal.test.ts`** —
+ * the four invariants that make it safe to merge, including the timestamp order
+ * that broke production on 2026-08-03. Those questions are answered from disk
+ * and were moved out of this file so they stop needing a database: a guard
+ * against a bad merge that only runs where `DATABASE_URL` is set is a guard that
+ * does not run on the machine doing the merging.
  *
- * Drizzle's migrator does not track which migrations have run individually. It
- * reads the newest `created_at` in `__drizzle_migrations` and applies every
- * journal entry whose `when` is greater than that. So one entry with a
- * timestamp in the future does not merely sort oddly: **it silently swallows
- * every migration generated after it until the wall clock catches up.**
- *
- * What that looked like: `0079` was recorded with a `when` twenty-two hours
- * ahead of the entries either side of it. Five migrations then landed on `main`,
- * their tables never appeared, and every deploy reported `migrations: none
- * pending`. The deploy that finally failed did so two steps later — the seed ran
- * new code against an old schema — which is a long way from the cause.
- *
- * The clock is not something this repository can control: `drizzle-kit` stamps
- * `when` from whichever machine generated the file, and two agents work this
- * board from two machines. What it can do is refuse the result, here, in the
- * commit that introduces it rather than in a deploy log at four in the morning.
- *
- * **A database that already applied the out-of-order entry is not fixed by
- * this.** Its own `__drizzle_migrations` still carries the future stamp, and the
- * repair is one `update` against that row — see `docs/disaster-recovery.md`.
+ * What stays here is everything that needs a database to ask.
  */
-describe('the journal', () => {
-  it('stamps every migration later than the one before it', async () => {
-    const journal = JSON.parse(
-      await readFile(`${MIGRATIONS_FOLDER}/meta/_journal.json`, 'utf8'),
-    ) as { entries: { idx: number; when: number; tag: string }[] }
-
-    const outOfOrder = journal.entries
-      .slice(1)
-      .filter((entry, index) => entry.when <= (journal.entries[index]?.when ?? 0))
-      .map((entry) => entry.tag)
-
-    expect(outOfOrder).toEqual([])
-  })
-
-  /**
-   * The check catches the shape it is written for, on a synthetic journal — the
-   * same technique `bare-identifiers.test.ts` uses. Without this, a rewrite that
-   * quietly stopped comparing anything would still pass the test above.
-   */
-  it('would have caught the entry that was twenty-two hours ahead', () => {
-    const entries = [
-      { idx: 78, when: 1785696615380, tag: '0078' },
-      { idx: 79, when: 1785783015380, tag: '0079' },
-      { idx: 80, when: 1785703035903, tag: '0080' },
-    ]
-
-    const outOfOrder = entries
-      .slice(1)
-      .filter((entry, index) => entry.when <= (entries[index]?.when ?? 0))
-      .map((entry) => entry.tag)
-
-    expect(outOfOrder).toEqual(['0080'])
-  })
-
-  it('has one journal entry per migration file, and no orphan of either kind', async () => {
-    const journal = JSON.parse(
-      await readFile(`${MIGRATIONS_FOLDER}/meta/_journal.json`, 'utf8'),
-    ) as { entries: { tag: string }[] }
-
-    const files = (await readdir(MIGRATIONS_FOLDER))
-      .filter((name) => name.endsWith('.sql'))
-      .map((name) => name.replace(/\.sql$/, ''))
-      .sort()
-
-    expect(journal.entries.map((entry) => entry.tag).sort()).toEqual(files)
-  })
-})

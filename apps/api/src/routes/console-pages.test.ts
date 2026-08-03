@@ -34,6 +34,7 @@ import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 import { consoleHost, wantsHtml } from './console-pages.js'
 import { CONSOLE_HEADERS, escape } from '../console/html.js'
+import { questAsCitizenReads } from '../console/sponsor.js'
 
 /**
  * The host the console answers on, in this test.
@@ -339,5 +340,293 @@ describe('when the console throws', () => {
     expect(response.body).not.toContain('secret.txt')
 
     await app2.close()
+  })
+})
+
+/**
+ * The sponsor's pages (`#180`).
+ *
+ * The rules a sponsor meets in the form are tested without a server in
+ * `console/quest-form.test.ts`; what is tested here is that the routes carry
+ * them, that both representations answer, and that one sponsor cannot reach
+ * another's quests.
+ */
+describe('the sponsor’s pages', () => {
+  /** Post a form the way a browser does. */
+  const postForm = (url: string, form: Record<string, string>) =>
+    app.inject({
+      method: 'POST',
+      url,
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${session}`,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: new URLSearchParams(form).toString(),
+    })
+
+  const aForm = (overrides: Record<string, string> = {}): Record<string, string> => ({
+    title: 'A thousand registrations',
+    description: 'What this quest is, for a human reading the catalogue.',
+    instructions: 'Register at the address in the brief and report what happened.',
+    questions: JSON.stringify([
+      { key: 'went-well', prompt: 'How did it go?', required: true },
+      { key: 'blocked', prompt: 'Were you blocked?', required: false, options: ['yes', 'no'] },
+    ]),
+    slots: '10',
+    rewardCredits: '0',
+    expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10),
+    minReputation: '0',
+    audience: 'citizens',
+    proofVerifier: 'email-inbox',
+    ...overrides,
+  })
+
+  it('shows the form with the balance, and offers no targeting input', async () => {
+    const page = await asBrowser('/quests/new', { signedIn: true })
+
+    expect(page.statusCode).toBe(200)
+    expect(page.body).toContain('available balance')
+    // Skills are a list of checkboxes and never a text field.
+    expect(page.body).toContain('name="requires" value="mailbox"')
+    // The two fields with consequences say what the consequence is, in the form.
+    expect(page.body).toContain('nothing to lose')
+    expect(page.body).toContain('citizen’s own word')
+  })
+
+  it('answers the same page as JSON to an API key', async () => {
+    const answer = await asAgent('/quests/new')
+
+    expect(answer.statusCode).toBe(200)
+    expect(answer.json().fields).toContain('slots')
+    expect(answer.json().skills).toContain('mailbox')
+    // The promise kolonie-docs#108 makes: no sponsor needs a browser.
+    expect(answer.headers['content-type']).toContain('application/json')
+  })
+
+  it('refuses a skill the Colony does not mint, and says why', async () => {
+    const refused = await postForm('/quests', aForm({ requires: 'mailbocks' }))
+
+    expect(refused.statusCode).toBe(422)
+    expect(refused.body).toContain('mailbocks')
+  })
+
+  it('refuses an expiry in the past', async () => {
+    const past = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+
+    expect((await postForm('/quests', aForm({ expiresAt: past }))).statusCode).toBe(422)
+  })
+
+  it('refuses a capacity of zero', async () => {
+    expect((await postForm('/quests', aForm({ slots: '0' }))).statusCode).toBe(422)
+  })
+
+  /**
+   * The preview is the citizen's own renderer, so it cannot drift from it.
+   *
+   * Asserted as the same **string** rather than as the same intent: a preview
+   * that matched at review time and diverged afterwards is exactly the failure
+   * `#180` asks for a preview to prevent.
+   */
+  it('previews the quest with the renderer a citizen reads', async () => {
+    const created = await postForm('/quests', aForm())
+    const location = created.headers['location'] as string
+
+    const draft = await asBrowser(location, { signedIn: true })
+    const own = await asAgent(location)
+    const quest = own.json().quest
+
+    expect(draft.body).toContain(
+      questAsCitizenReads({
+        title: quest.title,
+        description: quest.description,
+        instructions: quest.instructions,
+        questions: quest.questions ?? [],
+        requires: quest.requires,
+        minReputation: quest.minReputation,
+        reward: quest.reward,
+      }),
+    )
+  })
+
+  it('escapes a title that is trying to be markup', async () => {
+    const created = await postForm('/quests', aForm({ title: '<script>alert(1)</script>' }))
+    const draft = await asBrowser(created.headers['location'] as string, { signedIn: true })
+
+    expect(draft.body).not.toContain('<script>alert(1)</script>')
+    expect(draft.body).toContain(escape('<script>alert(1)</script>'))
+  })
+
+  describe('what a quest costs', () => {
+    it('names the shortfall rather than only refusing', async () => {
+      const created = await postForm('/quests', aForm({ slots: '10', rewardCredits: '100' }))
+      const location = created.headers['location'] as string
+
+      const submitted = await app.inject({
+        method: 'POST',
+        url: `${location}/submit`,
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'application/json',
+          authorization: `Bearer ${apiKey}`,
+        },
+      })
+
+      expect(submitted.statusCode).toBe(422)
+      // 1000 asked for, nothing available.
+      expect(submitted.json().message).toContain('1000')
+      expect(submitted.json().message).toContain('short')
+    })
+
+    it('submits once the balance covers it', async () => {
+      quests.credit(agentId as never, 1000)
+      const created = await postForm('/quests', aForm({ slots: '10', rewardCredits: '100' }))
+      const location = created.headers['location'] as string
+
+      const submitted = await app.inject({
+        method: 'POST',
+        url: `${location}/submit`,
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'application/json',
+          authorization: `Bearer ${apiKey}`,
+        },
+      })
+
+      expect(submitted.statusCode).toBe(200)
+      expect(submitted.json().quest.status).toBe('pending_review')
+    })
+  })
+
+  it('shows one sponsor nothing of another’s', async () => {
+    const created = await postForm('/quests', aForm())
+    const location = created.headers['location'] as string
+
+    const stranger = store.issue({})
+    const asStranger = (url: string) =>
+      app.inject({
+        method: 'GET',
+        url,
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'application/json',
+          authorization: `Bearer ${String(stranger.apiKey)}`,
+        },
+      })
+
+    // Not found rather than forbidden: a distinguishable refusal would let
+    // anybody holding a credential enumerate which task ids are quests.
+    expect((await asStranger(location)).statusCode).toBe(404)
+    expect((await asStranger(`${location}/results`)).statusCode).toBe(404)
+    expect((await asStranger(`${location}/results/export?format=csv`)).statusCode).toBe(404)
+  })
+
+  it('exports the answers as CSV and as JSON', async () => {
+    const created = await postForm('/quests', aForm())
+    const location = created.headers['location'] as string
+
+    const csv = await asAgent(`${location}/results/export?format=csv`)
+    const json = await asAgent(`${location}/results/export?format=json`)
+
+    expect(csv.statusCode).toBe(200)
+    expect(csv.headers['content-type']).toContain('csv')
+    expect(json.statusCode).toBe(200)
+    expect(json.headers['content-type']).toContain('json')
+  })
+
+  it('shows the answers as they arrive, with a count per closed question', async () => {
+    const created = await postForm('/quests', aForm())
+    const location = created.headers['location'] as string
+    const questId = location.split('/').pop() as string
+
+    // Accepted through the fixture, because only a verdict accepts a report in
+    // the real one and the verifier runner is another workspace (`#178`).
+    quests.accept({
+      taskId: questId as never,
+      handle: 'first-citizen',
+      runtime: 'openclaw',
+      answers: { 'went-well': 'It took two tries.', blocked: 'no' },
+    })
+    quests.accept({
+      taskId: questId as never,
+      handle: null,
+      runtime: 'claude',
+      answers: { 'went-well': 'Straightforward.', blocked: 'no' },
+    })
+
+    const page = await asBrowser(`${location}/results`, { signedIn: true })
+
+    expect(page.statusCode).toBe(200)
+    expect(page.body).toContain('2 accepted report(s)')
+    expect(page.body).toContain('It took two tries.')
+    expect(page.body).toContain('openclaw')
+    // A citizen that has erased itself keeps its answer and loses its name.
+    expect(page.body).toContain('— erased')
+
+    // The closed question is counted; counting is the one aggregation that is a
+    // fact rather than a reading.
+    const json = await asAgent(`${location}/results`)
+    expect(json.json().accepted).toBe(2)
+    // Every option, including the one nobody chose: a zero is an answer to the
+    // sponsor's question and leaving it out would read as a missing option.
+    expect(json.json().counts['blocked']).toEqual({ yes: 0, no: 2 })
+  })
+
+  it('says why there is nothing to count when every question is free text', async () => {
+    const created = await postForm(
+      '/quests',
+      aForm({
+        questions: JSON.stringify([{ key: 'went-well', prompt: 'How did it go?', required: true }]),
+      }),
+    )
+    const page = await asBrowser(`${created.headers['location']}/results`, { signedIn: true })
+
+    expect(page.body).toContain('nothing the Colony can count')
+    // The reason, which is the decision `#178` made: a summary is an opinion.
+    expect(page.body).toContain('would be an opinion')
+  })
+
+  it('offers a refused quest a copy, and leaves the refused row intact', async () => {
+    const created = await postForm('/quests', aForm())
+    const location = created.headers['location'] as string
+    const questId = location.split('/').pop() as string
+
+    quests.moderate(questId as never)
+    await app.inject({
+      method: 'POST',
+      url: `${location}/submit`,
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+    })
+
+    // Refused by a steward through the desk rather than through a route: the
+    // steward's own pages are `#181`, and this test is about what the sponsor
+    // is shown afterwards.
+    const steward = store.issue({})
+    await quests.refuse({
+      stewardId: steward.agent.id,
+      taskId: questId as never,
+      reason: 'The instructions ask for something impossible.',
+      at: new Date().toISOString() as never,
+    })
+
+    const draft = await asBrowser(location, { signedIn: true })
+    expect(draft.body).toContain('impossible')
+    expect(draft.body).toContain('Copy into a new draft')
+
+    const copy = await postForm(`${location}/copy`, {})
+    expect(copy.statusCode).toBe(200)
+    // The words come across…
+    expect(copy.body).toContain('A thousand registrations')
+    // …and the refusal is shown as the reason it is being copied.
+    expect(copy.body).toContain('impossible')
+
+    // The refused quest is untouched: it keeps its refusal and its status.
+    const after = await asAgent(location)
+    expect(after.json().rejectionReason).toContain('impossible')
   })
 })

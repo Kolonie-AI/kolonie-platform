@@ -27,6 +27,7 @@ import {
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
+  availableBalance,
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
@@ -65,6 +66,20 @@ export interface QuestDesk {
     readonly taskId: TaskId
     readonly at: Timestamp
   }): Promise<QuestSubmitOutcome>
+  /**
+   * What this sponsor may still commit: its balance minus what it has reserved
+   * (`#174`).
+   *
+   * On the quest desk rather than on a ledger desk of its own, because the only
+   * question anybody asks it here is *can this sponsor afford this quest* — and
+   * `#180` requires the answer to be visible in the form **before** submission
+   * rather than discovered at publication.
+   */
+  balance(authorId: AgentId): Promise<{
+    readonly balance: number
+    readonly reserved: number
+    readonly available: number
+  }>
   listOwn(authorId: AgentId): Promise<readonly OwnQuest[]>
   readOwn(authorId: AgentId, taskId: TaskId): Promise<OwnQuest | undefined>
   reviewQueue(): Promise<readonly Task[]>
@@ -117,6 +132,7 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
         at: input.at,
       }),
     submit: (input) => submitQuestForReviewInDatabase(db, input),
+    balance: (authorId) => availableBalance(db, authorId),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
     reviewQueue: () => questReviewQueueInDatabase(db),

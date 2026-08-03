@@ -297,6 +297,31 @@ export function fakeQuests(): FakeQuestDesk {
       }
     },
 
+    /**
+     * Balance minus what is reserved, reproducing `#174`'s rule rather than
+     * returning the raw balance.
+     *
+     * **The reservation is the half a fake would be tempted to skip**, and
+     * skipping it would let the console's tests pass while a sponsor with one
+     * quest in review appeared able to fund a second one out of the same
+     * credits. Whether Postgres computes it the same way is asserted in
+     * `packages/db` against a real one.
+     */
+    async balance(authorId) {
+      const balance = balances.get(authorId) ?? 0
+      const reserved = [...quests.values()]
+        .filter(
+          (held) =>
+            held.own.task.createdBy === authorId && held.own.task.status === 'pending_review',
+        )
+        .reduce(
+          (total, held) => total + (held.own.task.slots ?? 0) * held.own.task.reward.credits,
+          0,
+        )
+
+      return { balance, reserved, available: balance - reserved }
+    },
+
     async listOwn(authorId) {
       return [...quests.values()]
         .filter((held) => held.own.task.createdBy === authorId)

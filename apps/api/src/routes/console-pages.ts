@@ -1,9 +1,32 @@
 import { randomUUID } from 'node:crypto'
-import { ERROR_STATUS } from '@kolonie-ai/core'
+import {
+  ERROR_STATUS,
+  type AgentId,
+  type ApiError,
+  type Task,
+  type Timestamp,
+} from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate } from '../authentication.js'
 import { CHECK_YOUR_MAIL, RequestLinkSchema, redeemSignIn, requestSignIn } from '../console.js'
-import { CONSOLE_HEADERS, errorPage, homePage, signInPage } from '../console/html.js'
+import { CONSOLE_HEADERS, errorPage, signInPage } from '../console/html.js'
+import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
+import {
+  AUDIENCE_CHOICES,
+  PROOF_CHOICES,
+  QUEST_FORM_FIELDS,
+  SKILL_CHOICES,
+  affordability,
+  parseQuestForm,
+  proofNote,
+} from '../console/quest-form.js'
+import {
+  exportQuestResults,
+  readQuest,
+  readQuestResults,
+  submitQuest,
+  writeQuestDraft,
+} from '../quests.js'
 import { clientIp } from '../client-ip.js'
 import { sessionCookie } from './authenticated.js'
 import { SESSION_COOKIE } from './console.js'
@@ -108,10 +131,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       title: quest.task.title,
       status: quest.task.status,
       awaitingModeration: quest.awaitingModeration,
+      rejectionReason: quest.rejectionReason,
     }))
 
     return wantsHtml(request)
-      ? html(reply, homePage({ name: agent.profile.name, quests: listed }))
+      ? html(reply, questsPage({ name: agent.profile.name, quests: listed }))
       : reply.send({ signedIn: true, name: agent.profile.name, quests: listed })
   })
 
@@ -186,6 +210,291 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply.status(303).header('location', '/').send()
       : reply.status(200).send({ agentId: result.agentId })
+  })
+
+  registerSponsorPages(app, deps, { guard, caller })
+}
+
+/**
+ * The sponsor's own pages (`#180`).
+ *
+ * Registered from the same file and behind the same guard, so there is one
+ * answer to *is this the console host* and one place a session is read.
+ *
+ * **Every one of them answers JSON to an API key.** `kolonie-docs#108` promises
+ * that an agent may be a sponsor without driving a browser, and the way that
+ * promise is kept is that no route here has an HTML-only branch — `wantsHtml`
+ * chooses a representation of the same answer, never a different answer.
+ */
+function registerSponsorPages(
+  app: FastifyInstance,
+  deps: RouteDependencies,
+  ctx: {
+    readonly guard: (request: FastifyRequest, reply: FastifyReply) => Promise<boolean>
+    readonly caller: (request: FastifyRequest) => Promise<{ readonly id: AgentId } | null>
+  },
+): void {
+  /**
+   * Signed in, or nothing — the check every sponsor route begins with.
+   *
+   * **A signed-out browser is handed to the not-found handler rather than
+   * refused**, which looks like a status-code detail and is the rule this file
+   * already states one function up: *"a 404 listing what exists would be an
+   * oracle for pages a signed-out caller cannot reach anyway."* Answering `401`
+   * here would tell an unauthenticated stranger which console paths are real —
+   * `/quests/new` refusing and `/quests/nonsense` not existing are two different
+   * answers, and the difference is the map.
+   *
+   * **An agent gets `401`**, because it is the answer an agent can act on: it
+   * holds a credential, it may have sent the wrong one, and a `404` would send
+   * it looking for a route rather than for its key. The two representations
+   * differ here precisely because the readers differ — one is a stranger with a
+   * browser and the other is a caller with a key.
+   */
+  const sponsor = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!(await ctx.guard(request, reply))) return null
+
+    const agent = await ctx.caller(request)
+    if (agent === null) {
+      if (wantsHtml(request)) reply.callNotFound()
+      else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
+      return null
+    }
+
+    return agent
+  }
+
+  /** The form, with what the sponsor may still commit shown on it. */
+  app.get('/quests/new', async (request, reply) => {
+    const agent = await sponsor(request, reply)
+    if (agent === null) return reply
+
+    const { available } = await deps.quests.balance(agent.id)
+
+    return wantsHtml(request)
+      ? html(reply, questFormPage({ available }))
+      : reply.send({
+          available,
+          fields: QUEST_FORM_FIELDS,
+          skills: SKILL_CHOICES,
+          audiences: AUDIENCE_CHOICES,
+          proofVerifiers: PROOF_CHOICES,
+          proofNote: proofNote(null),
+        })
+  })
+
+  /** Save a draft. */
+  app.post('/quests', async (request, reply) => {
+    const agent = await sponsor(request, reply)
+    if (agent === null) return reply
+
+    const parsed = parseQuestForm(request.body)
+    if (parsed.outcome === 'rejected') {
+      const { available } = await deps.quests.balance(agent.id)
+      return wantsHtml(request)
+        ? html(
+            reply.status(ERROR_STATUS.validation_failed),
+            questFormPage({ available, problems: parsed.problems }),
+          )
+        : reply.status(ERROR_STATUS.validation_failed).send({
+            code: 'validation_failed',
+            message: parsed.problems.join(' '),
+            problems: parsed.problems,
+          })
+    }
+
+    const written = await writeQuestDraft({ authorId: agent.id, body: parsed.draft }, deps.quests)
+    if (written.outcome === 'rejected') {
+      const { available } = await deps.quests.balance(agent.id)
+      return wantsHtml(request)
+        ? html(
+            reply.status(ERROR_STATUS[written.error.code]),
+            questFormPage({ available, problems: [written.error.message] }),
+          )
+        : reply.status(ERROR_STATUS[written.error.code]).send(written.error)
+    }
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', `/quests/${written.response.quest.id}`).send()
+      : reply.status(201).send(written.response)
+  })
+
+  /** One quest: what it costs, what a citizen will read, and what to do next. */
+  app.get('/quests/:questId', async (request, reply) => {
+    const agent = await sponsor(request, reply)
+    if (agent === null) return reply
+
+    const own = await readQuest(
+      { authorId: agent.id, questId: (request.params as { questId?: string }).questId },
+      deps.quests,
+    )
+    if (own.outcome === 'rejected') return refuse(request, reply, own.error)
+
+    const money = affordabilityOf(
+      own.response.quest,
+      (await deps.quests.balance(agent.id)).available,
+    )
+
+    return wantsHtml(request)
+      ? html(
+          reply,
+          questDraftPage({
+            quest: own.response.quest,
+            money,
+            rejectionReason: own.response.rejectionReason,
+            awaitingModeration: own.response.awaitingModeration,
+          }),
+        )
+      : reply.send({ ...own.response, money })
+  })
+
+  /** Submit a draft for review. */
+  app.post('/quests/:questId/submit', async (request, reply) => {
+    const agent = await sponsor(request, reply)
+    if (agent === null) return reply
+
+    const questId = (request.params as { questId?: string }).questId
+
+    /**
+     * The balance is checked here as well as shown on the page, because the
+     * page is a courtesy and this is the refusal. A sponsor that submits a
+     * quest it cannot fund would otherwise occupy review time on something
+     * publication will refuse — which is the sequence `#174` reserves at
+     * submission precisely to avoid.
+     */
+    const own = await readQuest({ authorId: agent.id, questId }, deps.quests)
+    if (own.outcome === 'rejected') return refuse(request, reply, own.error)
+
+    const money = affordabilityOf(
+      own.response.quest,
+      (await deps.quests.balance(agent.id)).available,
+    )
+    if (!money.affordable) {
+      const error = {
+        code: 'validation_failed' as const,
+        message:
+          `This quest costs ${money.total} credit(s) and you may commit ${money.available}. ` +
+          `You are ${money.shortfall} short. A quest that cannot be paid for never reaches a steward.`,
+      }
+      return wantsHtml(request)
+        ? html(
+            reply.status(ERROR_STATUS.validation_failed),
+            questDraftPage({
+              quest: own.response.quest,
+              money,
+              rejectionReason: own.response.rejectionReason,
+              awaitingModeration: own.response.awaitingModeration,
+              problems: [error.message],
+            }),
+          )
+        : reply.status(ERROR_STATUS.validation_failed).send(error)
+    }
+
+    const submitted = await submitQuest(
+      { authorId: agent.id, questId, at: new Date().toISOString() as Timestamp },
+      deps.quests,
+    )
+    if (submitted.outcome === 'rejected') return refuse(request, reply, submitted.error)
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', `/quests/${submitted.response.quest.id}`).send()
+      : reply.send(submitted.response)
+  })
+
+  /**
+   * Copy a refused quest into a new draft.
+   *
+   * **The refused row is not touched.** `#180` is explicit that a refused quest
+   * keeps its refusal — it is the record of what a steward decided — so this
+   * hands back a *form* filled with the old words rather than writing anything.
+   * Nothing is created until the sponsor submits the copy, which also means a
+   * sponsor that opens this and changes its mind has created no clutter.
+   */
+  app.post('/quests/:questId/copy', async (request, reply) => {
+    const agent = await sponsor(request, reply)
+    if (agent === null) return reply
+
+    const own = await readQuest(
+      { authorId: agent.id, questId: (request.params as { questId?: string }).questId },
+      deps.quests,
+    )
+    if (own.outcome === 'rejected') return refuse(request, reply, own.error)
+
+    const quest = own.response.quest
+    const prefill: Record<string, string> = {
+      title: quest.title,
+      description: quest.description,
+      instructions: quest.instructions,
+      questions: JSON.stringify(quest.questions ?? []),
+      slots: String(quest.slots ?? ''),
+      rewardCredits: String(quest.reward.credits),
+      minReputation: String(quest.minReputation),
+    }
+
+    const { available } = await deps.quests.balance(agent.id)
+    const copiedFrom =
+      own.response.rejectionReason === null
+        ? undefined
+        : { title: quest.title, reason: own.response.rejectionReason }
+
+    return wantsHtml(request)
+      ? html(reply, questFormPage({ available, prefill, copiedFrom }))
+      : reply.send({ prefill, available, copiedFrom: copiedFrom ?? null })
+  })
+
+  /** The answers as they arrive, with the counts. */
+  app.get('/quests/:questId/results', async (request, reply) => {
+    const agent = await sponsor(request, reply)
+    if (agent === null) return reply
+
+    const results = await readQuestResults(
+      { authorId: agent.id, questId: (request.params as { questId?: string }).questId },
+      deps.quests,
+    )
+    if (results.outcome === 'rejected') return refuse(request, reply, results.error)
+
+    return wantsHtml(request)
+      ? html(reply, questResultsPage(results.response))
+      : reply.send(results.response)
+  })
+
+  /**
+   * The same set as a file.
+   *
+   * Always the file, whatever the `Accept` header says: a caller that asked for
+   * a download asked for a download, and answering it with a page would be this
+   * route being clever about something the query string already settled.
+   */
+  app.get('/quests/:questId/results/export', async (request, reply) => {
+    const agent = await sponsor(request, reply)
+    if (agent === null) return reply
+
+    const exported = await exportQuestResults(
+      {
+        authorId: agent.id,
+        questId: (request.params as { questId?: string }).questId,
+        format: (request.query as { format?: string }).format,
+      },
+      deps.quests,
+    )
+    if (exported.outcome === 'rejected') return refuse(request, reply, exported.error)
+
+    return reply.type(exported.contentType).send(exported.body)
+  })
+
+  /** One refusal, in whichever representation the caller reads. */
+  const refuse = (request: FastifyRequest, reply: FastifyReply, error: ApiError): FastifyReply =>
+    wantsHtml(request)
+      ? html(reply.status(ERROR_STATUS[error.code]), errorPage(error.message))
+      : reply.status(ERROR_STATUS[error.code]).send(error)
+}
+
+/** Capacity × price against what this sponsor may still commit. */
+function affordabilityOf(quest: Task, available: number) {
+  return affordability({
+    slots: quest.slots ?? 0,
+    credits: quest.reward.credits,
+    available,
   })
 }
 

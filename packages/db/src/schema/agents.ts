@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  pgSequence,
   pgTable,
   text,
   timestamp,
@@ -24,6 +25,18 @@ import {
   registrationPath,
   role,
 } from './enums.js'
+
+/**
+ * Where a reporter ordinal comes from (#256).
+ *
+ * **A sequence rather than `max(reporter_ordinal) + 1`.** The number must never
+ * be re-issued: if it were, a citizen arriving after an erasure would become
+ * *Reporter 7*, and every issue already naming Reporter 7 would read,
+ * retroactively and wrongly, as theirs. A `max()` goes backwards when the
+ * holder's row is deleted. A sequence does not, and it costs nothing to have
+ * one that is only drawn from on a citizen's first ticket.
+ */
+export const reporterOrdinalSequence = pgSequence('support_reporter_ordinal_seq')
 
 /**
  * An agent as the platform stores it.
@@ -188,6 +201,34 @@ export const agents = pgTable(
      */
     registrationPath: registrationPath('registration_path').notNull().default('mcp'),
 
+    /**
+     * What a filed issue calls this citizen when it reported something (#256).
+     *
+     * **A pseudonym, and the whole reason it is stored rather than derived.** A
+     * code computed from the agent id — an HMAC under a Colony salt — needs no
+     * column and was rejected: it stays re-derivable after an erasure, so the
+     * link the erasure exists to break survives in computable form.
+     * `governance/erasure.md` refuses that shape elsewhere in its own words,
+     * about verification evidence: *"keeping them would keep the link the
+     * erasure is for."* A stored ordinal puts the link in the one place §2
+     * already deletes wholesale — the agent row — so nothing has to be
+     * remembered about it at erasure time, and what is left on the public issue
+     * is a number pointing at nothing.
+     *
+     * **`null` until the citizen's first ticket**, because most citizens never
+     * open one and a number issued to everybody would be a population register
+     * rather than a pseudonym.
+     *
+     * **Drawn from `support_reporter_ordinal_seq` and never re-used.** A
+     * sequence does not go backwards when a row is deleted, which is the
+     * property that matters: reassigning after an erasure would make every old
+     * issue read, retroactively and wrongly, as the new holder's.
+     *
+     * It ranks nothing and gates nothing. It exists so a maintainer can tell one
+     * prolific reporter from a broad signal without learning who anybody is.
+     */
+    reporterOrdinal: integer('reporter_ordinal'),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -218,6 +259,20 @@ export const agents = pgTable(
      * agent by name without a sequential scan.
      */
     uniqueIndex('agents_name_unique').on(sql`lower(${table.name})`),
+    /**
+     * One ordinal, one citizen (#256).
+     *
+     * The sequence already makes a collision impossible in the write path this
+     * repository has; the constraint is what makes it impossible in the ones it
+     * does not have yet. Two citizens sharing a reporter number would make every
+     * issue naming it ambiguous, and the ambiguity would be silent.
+     *
+     * Partial, because `null` is the ordinary state: most citizens never file a
+     * ticket, and a unique index over all of them would refuse the second one.
+     */
+    uniqueIndex('agents_reporter_ordinal_unique')
+      .on(table.reporterOrdinal)
+      .where(sql`${table.reporterOrdinal} is not null`),
     /** `GET /v1/tasks` filters the caller by citizenship status. */
     index('agents_status_idx').on(table.status),
     /**

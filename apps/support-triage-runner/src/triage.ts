@@ -200,10 +200,20 @@ export function filing(decision: Extract<TriageDecision, { kind: 'new' }>): {
 export interface TicketContext {
   readonly runtime: string | null
   readonly about: { readonly taskTitle: string } | null
+  /**
+   * The reporter's pseudonym and how much they had reported by then (#256).
+   *
+   * **An ordinal rather than a name, and it is stored rather than derived.** A
+   * code computed from the agent id would be re-derivable after the citizen
+   * erased itself, which is the link `governance/erasure.md` exists to break;
+   * the ordinal lives on the agent row that erasure deletes, so what stays on
+   * the public issue is a number pointing at nothing.
+   */
+  readonly reporter: { readonly ordinal: number; readonly ticketsFiled: number } | null
 }
 
 /** What triage knows when it has looked nothing up. */
-export const NO_CONTEXT: TicketContext = { runtime: null, about: null }
+export const NO_CONTEXT: TicketContext = { runtime: null, about: null, reporter: null }
 
 /**
  * What the filed issue says.
@@ -238,6 +248,10 @@ export function issueBody(
     context.about === null
       ? ''
       : `They pointed at their own attempt at “${context.about.taskTitle}”.`,
+    context.reporter === null
+      ? ''
+      : `The Colony calls them Reporter ${context.reporter.ordinal}, and counting this one ` +
+        `they have filed ${tickets(context.reporter.ticketsFiled)}.`,
     'Their words, quoted in full:',
   ]
     .filter((sentence) => sentence !== '')
@@ -319,6 +333,17 @@ export function closingNote(issue: ClosedIssue): string {
  * answer.
  */
 const CLOSING_NOTE_OVERHEAD = 340
+
+/**
+ * *one ticket* / *twelve tickets*, because the count is read as a sentence.
+ *
+ * The number is the point of the clause — a maintainer seeing *counting this one
+ * they have filed 27 tickets* is being told that the signal in front of them is
+ * one citizen rather than a population.
+ */
+function tickets(filed: number): string {
+  return filed === 1 ? '1 ticket' : `${filed} tickets`
+}
 
 /** Quote a citizen's text so that nothing in it can be read as our markup. */
 function quote(text: string): string {

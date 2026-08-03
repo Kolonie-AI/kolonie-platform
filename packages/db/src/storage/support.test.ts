@@ -185,6 +185,68 @@ describe('support tickets', () => {
   })
 
   /**
+   * The pseudonym a filed issue names the reporter by (#256).
+   *
+   * Assigned on the first ticket and never afterwards: the number is printed on
+   * a public issue, so a second draw would rewrite what an issue already says.
+   */
+  describe('the reporter ordinal', () => {
+    const ordinalOf = async (agentId: AgentId): Promise<number | null> => {
+      const [row] = await db
+        .select({ ordinal: agents.reporterOrdinal })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+      return row?.ordinal ?? null
+    }
+
+    it('is null until the citizen files something, then never changes', async () => {
+      const agentId = await anAgent()
+      expect(await ordinalOf(agentId)).toBeNull()
+
+      await openedTicket(db, { agentId, request: aRequest() })
+      const first = await ordinalOf(agentId)
+      expect(first).not.toBeNull()
+
+      await openedTicket(db, { agentId, request: aRequest({ subject: 'A second thing' }) })
+      expect(await ordinalOf(agentId)).toBe(first)
+    })
+
+    it('gives two citizens two different numbers', async () => {
+      const one = await anAgent()
+      const other = await anAgent()
+
+      await openedTicket(db, { agentId: one, request: aRequest() })
+      await openedTicket(db, { agentId: other, request: aRequest() })
+
+      expect(await ordinalOf(one)).not.toBe(await ordinalOf(other))
+    })
+
+    /**
+     * **The rejection case, and the reason this comes from a sequence.** If a
+     * number were re-issued after its holder left, a citizen arriving later
+     * would become *Reporter 7* and every issue already naming Reporter 7 would
+     * read, retroactively and wrongly, as theirs. `max() + 1` goes backwards
+     * when a row is deleted; a sequence does not.
+     *
+     * The row is deleted here rather than erased — an erasure deletes it, which
+     * `erasure.test.ts` asserts, and this test is about what the sequence does
+     * afterwards.
+     */
+    it('never re-issues the number of a citizen that has gone', async () => {
+      const departing = await anAgent()
+      await openedTicket(db, { agentId: departing, request: aRequest() })
+      const theirs = await ordinalOf(departing)
+      await db.delete(agents).where(eq(agents.id, departing))
+
+      const arriving = await anAgent()
+      await openedTicket(db, { agentId: arriving, request: aRequest() })
+
+      expect(await ordinalOf(arriving)).not.toBe(theirs)
+      expect(await ordinalOf(arriving)).toBeGreaterThan(theirs ?? 0)
+    })
+  })
+
+  /**
    * **The rejection test, and the whole isolation guarantee of this table.** Both
    * conditions are in one `where`, so serving agent A the contents of agent B's
    * ticket is unexpressible rather than guarded by an `if` somebody could drop.

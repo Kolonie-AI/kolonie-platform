@@ -26,7 +26,7 @@ function fakeStore(
   queue: readonly SupportTicket[],
   answered: readonly SupportTicket[] = [],
   awaiting: readonly SupportTicket[] = [],
-  context: TicketContext = { runtime: 'openclaw', about: null },
+  context: TicketContext = { runtime: 'openclaw', about: null, reporter: null },
 ) {
   const written: Array<Record<string, unknown>> = []
   const settled: Array<{ ticketId: string; resolution: string }> = []
@@ -158,6 +158,7 @@ describe('one ticket', () => {
     const { store } = fakeStore([ticket], [], [], {
       runtime: 'codex',
       about: { taskTitle: 'email-roundtrip' },
+      reporter: { ordinal: 4, ticketsFiled: 9 },
     })
     const { issues, created } = fakeIssues()
 
@@ -178,6 +179,7 @@ describe('one ticket', () => {
 
     expect(created[0]?.body).toContain('codex')
     expect(created[0]?.body).toContain('email-roundtrip')
+    expect(created[0]?.body).toContain('Reporter 4')
     // The one thing that may never travel, whatever else does.
     expect(created[0]?.body).not.toContain(ticket.agentId)
   })

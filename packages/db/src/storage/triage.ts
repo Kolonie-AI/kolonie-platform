@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, ne } from 'drizzle-orm'
+import { and, asc, count, eq, isNotNull, ne } from 'drizzle-orm'
 import {
   SupportTicketSchema,
   isSettled,
@@ -131,6 +131,21 @@ export interface TicketContext {
   readonly runtime: string | null
   /** The task behind the submission the citizen pointed at, when it pointed at one. */
   readonly about: { readonly taskTitle: string } | null
+  /**
+   * Who reported it, as a pseudonym, and how much they had reported by then
+   * (#256).
+   *
+   * **The ordinal is a number pointing at nothing.** It lives on the agent row,
+   * which erasure deletes wholesale, so it dies with the citizen and nothing
+   * anywhere can map it back afterwards. What it buys is that a maintainer can
+   * tell one prolific reporter from a broad signal — on 2026-08-03, 27 of 35
+   * tickets came from one citizen and thirty-four issues each said *a citizen*.
+   *
+   * `null` when the agent row has gone between reading the ticket and reading
+   * this, which is the erasure case and the one state where saying nothing is
+   * exactly right.
+   */
+  readonly reporter: { readonly ordinal: number; readonly ticketsFiled: number } | null
 }
 
 /**
@@ -149,7 +164,12 @@ export async function ticketContext(
   ticketId: SupportTicketId,
 ): Promise<TicketContext> {
   const [row] = await db
-    .select({ runtime: agents.platform, taskTitle: tasks.title })
+    .select({
+      agentId: supportTickets.agentId,
+      runtime: agents.platform,
+      ordinal: agents.reporterOrdinal,
+      taskTitle: tasks.title,
+    })
     .from(supportTickets)
     .leftJoin(agents, eq(agents.id, supportTickets.agentId))
     .leftJoin(submissions, eq(submissions.id, supportTickets.aboutSubmissionId))
@@ -157,12 +177,36 @@ export async function ticketContext(
     .where(eq(supportTickets.id, ticketId))
     .limit(1)
 
-  if (row === undefined) return { runtime: null, about: null }
+  if (row === undefined) return { runtime: null, about: null, reporter: null }
+
+  /**
+   * Counted now, and written into the issue text once (#256). An issue is a
+   * record of what was true when it was written, so this number is not
+   * recomputed later and does not move when the citizen files its next ticket.
+   */
+  const reporter =
+    row.ordinal === null
+      ? null
+      : {
+          ordinal: row.ordinal,
+          ticketsFiled: await ticketsFiledBy(db, row.agentId),
+        }
 
   return {
     runtime: row.runtime,
     about: row.taskTitle === null ? null : { taskTitle: row.taskTitle },
+    reporter,
   }
+}
+
+/** How many tickets one citizen has opened, this one included. */
+async function ticketsFiledBy(db: Database, agentId: string): Promise<number> {
+  const [row] = await db
+    .select({ filed: count() })
+    .from(supportTickets)
+    .where(eq(supportTickets.agentId, agentId))
+
+  return row?.filed ?? 0
 }
 
 /**

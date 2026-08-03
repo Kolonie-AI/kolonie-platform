@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm'
 import {
   OwnTicketSchema,
   SupportTicketSchema,
@@ -9,7 +9,7 @@ import {
   type SupportTicketId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { submissions, supportTickets } from '../schema/index.js'
+import { agents, submissions, supportTickets } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
 /** Turn a ticket row into the domain shape. */
@@ -64,8 +64,10 @@ function ticketFields(
  * has no way to say otherwise, which is the same rule the guidance write paths
  * follow: a path that could write `resolved` would be a citizen answering itself.
  *
- * No transaction, and no companion write. Unlike a verdict, a ticket is one row and
- * has no ledger or grant to stay consistent with.
+ * **One transaction, for one companion write.** A ticket carries no ledger entry
+ * and no grant, so it needed none until #256: the citizen's reporter ordinal is
+ * drawn on its first ticket, and a ticket whose author has no ordinal is exactly
+ * the state that would make a filed issue say *a citizen* again.
  *
  * **The one thing it can refuse is a submission that is not the caller's** (#255).
  * `aboutSubmissionId` is the only field a citizen sends that points at another
@@ -99,16 +101,42 @@ export async function openTicket(
     if (owned === undefined) return { outcome: 'no-such-submission' }
   }
 
-  const [row] = await db
-    .insert(supportTickets)
-    .values({
-      agentId: input.agentId,
-      kind: input.request.kind,
-      subject: input.request.subject,
-      body: input.request.body,
-      ...(about !== undefined && { aboutSubmissionId: about }),
-    })
-    .returning()
+  const row = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(supportTickets)
+      .values({
+        agentId: input.agentId,
+        kind: input.request.kind,
+        subject: input.request.subject,
+        body: input.request.body,
+        ...(about !== undefined && { aboutSubmissionId: about }),
+      })
+      .returning()
+
+    /**
+     * The citizen's reporter ordinal, drawn on its first ticket and never again
+     * (#256).
+     *
+     * **`where reporter_ordinal is null` is what makes it never change**, not an
+     * `if` above it: two tickets opened at once would otherwise both see a null
+     * and both draw, and the second would overwrite a number already printed on
+     * an issue. The condition makes the second update match no row.
+     *
+     * In the same transaction as the insert, because a ticket that exists
+     * without its author having an ordinal is the one state that would make a
+     * filed issue say *a citizen* again.
+     *
+     * `nextval` even when the update matches nothing: a sequence draw is not a
+     * spend, and the gap it leaves in the numbering is the cost of an ordinal
+     * being cheap rather than contended.
+     */
+    await tx
+      .update(agents)
+      .set({ reporterOrdinal: sql`nextval('support_reporter_ordinal_seq')` })
+      .where(and(eq(agents.id, input.agentId), isNull(agents.reporterOrdinal)))
+
+    return inserted
+  })
 
   // The insert either wrote a row or threw. A missing row here is not a state to
   // handle; it is an invariant that failed, and returning something empty would

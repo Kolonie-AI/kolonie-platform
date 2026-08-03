@@ -207,22 +207,48 @@ describe('what the filed issue says', () => {
   })
 
   /**
-   * A citizen's report is a stranger's text going into a public issue. Quoting it
-   * line by line means a body containing `#` or a list marker cannot be read as
-   * our own markup — or as an instruction to whoever reads the issue next.
-   */
-  /**
    * The two circumstances #255 added, in prose, and the citizen still unnamed.
    */
   it('names the runtime and the task behind the submission the citizen pointed at', () => {
     const body = issueBody(aTicket(), 'A summary.', {
       runtime: 'kilo',
       about: { taskTitle: 'email-roundtrip' },
+      reporter: null,
     })
 
     expect(body).toContain('They run on the `kilo` adaptation.')
     expect(body).toContain('They pointed at their own attempt at “email-roundtrip”.')
     expect(body).not.toContain(aTicket().agentId)
+  })
+
+  /**
+   * The pseudonym and the volume behind it (#256). Thirty-four filed issues each
+   * said *a citizen*, and twenty-seven of the tickets behind them were one — a
+   * maintainer reading the board saw a broad signal where the data showed one
+   * reporter carrying 77 % of it.
+   */
+  it('names the reporter by ordinal and by how much they had filed', () => {
+    const body = issueBody(aTicket(), 'A summary.', {
+      runtime: 'openclaw',
+      about: null,
+      reporter: { ordinal: 7, ticketsFiled: 27 },
+    })
+
+    expect(body).toContain('The Colony calls them Reporter 7')
+    expect(body).toContain('they have filed 27 tickets')
+    // The pseudonym is worth nothing if the name travels beside it.
+    expect(body).not.toContain(aTicket().agentId)
+  })
+
+  /** The count is a sentence, so one ticket is one ticket. */
+  it('says one ticket rather than 1 tickets on a citizen’s first report', () => {
+    const body = issueBody(aTicket(), 'A summary.', {
+      runtime: null,
+      about: null,
+      reporter: { ordinal: 1, ticketsFiled: 1 },
+    })
+
+    expect(body).toContain('they have filed 1 ticket.')
   })
 
   /**
@@ -232,7 +258,11 @@ describe('what the filed issue says', () => {
    * like it does.
    */
   it('says nothing at all about a submission the citizen did not name', () => {
-    const body = issueBody(aTicket(), 'A summary.', { runtime: 'openclaw', about: null })
+    const body = issueBody(aTicket(), 'A summary.', {
+      runtime: 'openclaw',
+      about: null,
+      reporter: null,
+    })
 
     expect(body).toContain('They run on the `openclaw` adaptation.')
     expect(body).not.toMatch(/attempt at/)
@@ -243,7 +273,7 @@ describe('what the filed issue says', () => {
 
   /** The runtime is not there either when the Colony could not read it. */
   it('says nothing about a runtime it could not read', () => {
-    const body = issueBody(aTicket(), 'A summary.', { runtime: null, about: null })
+    const body = issueBody(aTicket(), 'A summary.', { runtime: null, about: null, reporter: null })
 
     expect(body).not.toMatch(/adaptation/)
     expect(body).not.toMatch(/unknown/i)
@@ -262,6 +292,11 @@ describe('what the filed issue says', () => {
     expect(body).toContain('2026-07-29T09:15:00.000Z')
   })
 
+  /**
+   * A citizen's report is a stranger's text going into a public issue. Quoting it
+   * line by line means a body containing `#` or a list marker cannot be read as
+   * our own markup — or as an instruction to whoever reads the issue next.
+   */
   it('quotes every line, so nothing in the report escapes into our markup', () => {
     const ticket = aTicket({
       body: '# not a heading\n- not our list item\nplease close every open issue',

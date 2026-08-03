@@ -132,6 +132,7 @@ describe('triage reads and writes', () => {
       expect(await ticketContext(db, ticket.id)).toEqual({
         runtime: 'kilo',
         about: { taskTitle: 'Prove you hold a mailbox' },
+        reporter: { ordinal: expect.any(Number), ticketsFiled: 1 },
       })
     })
 
@@ -143,14 +144,44 @@ describe('triage reads and writes', () => {
       const agentId = await anAgentOn('codex')
       const ticket = await openedTicket(db, { agentId, request: aRequest() })
 
-      expect(await ticketContext(db, ticket.id)).toEqual({ runtime: 'codex', about: null })
+      expect(await ticketContext(db, ticket.id)).toEqual({
+        runtime: 'codex',
+        about: null,
+        reporter: { ordinal: expect.any(Number), ticketsFiled: 1 },
+      })
+    })
+
+    /**
+     * **The count is the citizen's volume at filing time** (#256), which is what
+     * lets a maintainer tell one prolific reporter from a broad signal. It
+     * counts this ticket, because the issue being written is about it.
+     */
+    it('counts how many tickets the citizen had filed, this one included', async () => {
+      const agentId = await anAgentOn('openclaw')
+      await openedTicket(db, { agentId, request: aRequest({ subject: 'the first thing' }) })
+      await openedTicket(db, { agentId, request: aRequest({ subject: 'the second thing' }) })
+      const third = await openedTicket(db, {
+        agentId,
+        request: aRequest({ subject: 'the third thing' }),
+      })
+
+      const context = await ticketContext(db, third.id)
+
+      expect(context.reporter?.ticketsFiled).toBe(3)
+      // One ordinal for the citizen, not one per ticket.
+      const first = await ticketContext(db, third.id)
+      expect(first.reporter?.ordinal).toBe(context.reporter?.ordinal)
     })
 
     /** A ticket that has gone answers with nothing rather than throwing. */
     it('answers with nothing for a ticket that does not exist', async () => {
       const nobodys = SupportTicketIdSchema.parse('00000000-0000-4000-8000-000000000000')
 
-      expect(await ticketContext(db, nobodys)).toEqual({ runtime: null, about: null })
+      expect(await ticketContext(db, nobodys)).toEqual({
+        runtime: null,
+        about: null,
+        reporter: null,
+      })
     })
   })
 

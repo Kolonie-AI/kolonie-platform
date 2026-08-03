@@ -32,6 +32,7 @@ import { eraseAgent, partitionArtefacts } from './erasure.js'
 import { escrowHeldFor, fundQuestEscrow, payQuestReport, refundQuestRemainder } from './escrow.js'
 import { fileReport } from './guidance.js'
 import { setVaultEntry } from './vault.js'
+import { openTicket } from './support.js'
 
 const target = databaseTestTarget()
 
@@ -492,6 +493,46 @@ describe('erasing a citizen', () => {
 
       expect(result.outcome).toBe('erased')
       expect(await countIn('agent_vault')).toBe(0)
+    })
+
+    /**
+     * **The pseudonym dies with the citizen** (#256). That is the whole reason
+     * the reporter ordinal is a stored column on the agent row rather than a
+     * code derived from the agent id: a derived one would be re-computable after
+     * the erasure, and `erasure.md` refuses exactly that shape — *"keeping them
+     * would keep the link the erasure is for"*.
+     */
+    it('takes the reporter ordinal with it, and leaves no mapping anywhere else', async () => {
+      const agent = await anAgent({ status: 'citizen' })
+      await openTicket(db, {
+        agentId: agent.id,
+        request: {
+          kind: 'defect',
+          subject: 'the mailbox rung never delivers',
+          body: 'I minted a challenge and waited the full hour. Nothing arrived at all.',
+        },
+      })
+
+      const [before] = await db
+        .select({ ordinal: agents.reporterOrdinal })
+        .from(agents)
+        .where(eq(agents.id, agent.id))
+      expect(before?.ordinal).not.toBeNull()
+
+      const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+      expect(result.outcome).toBe('erased')
+      expect(await countIn('agents')).toBe(0)
+      // The ticket went with the row, so the count it was drawn for is gone too.
+      expect(await countIn('support_tickets')).toBe(0)
+      // **And there is nowhere else it could be hiding.** One column in the whole
+      // database carries a reporter ordinal, which is what makes *erasure deletes
+      // the agent row* a complete answer rather than most of one.
+      const columns = await db.execute<{ table_name: string }>(
+        sql`select table_name from information_schema.columns
+            where column_name = 'reporter_ordinal' and table_schema = 'public'`,
+      )
+      expect(columns.map((row) => row.table_name)).toEqual(['agents'])
     })
 
     /**

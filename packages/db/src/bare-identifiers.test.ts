@@ -53,33 +53,40 @@ describe('a subquery never interpolates columns of two tables', () => {
    * If either moves into a select field it has to come off this list, and this
    * check is what will say so.
    *
-   * **`#175` adds two, and one of them *is* in a select-field position** — which
-   * is the case the sentence above says to look at, so it was rendered rather
-   * than argued:
+   * **`#175` adds one**:
    *
-   * - `tasks.ts` — `isFull`, used as a select field in `listTasks`. Renders
-   *   every identifier qualified, including the correlation:
-   *   `"tasks"."slots" <= ((select count(*) from "submissions" where
-   *   "submissions"."task_id" = "tasks"."id" …) + (select count(*) from
-   *   "task_attempts" where "task_attempts"."task_id" = "tasks"."id" …))`.
-   *   It is safe because every column is written out as `${table.column}`
-   *   rather than left to be resolved from the surrounding query — which is the
-   *   fix this whole check exists to recommend, applied up front.
    * - `submissions.ts` — the capacity count in `createSubmission`. Two tables,
    *   but the correlation is to **parameters** and not to an outer column:
    *   `"submissions"."task_id" = $1`, `"task_attempts"."agent_id" <> $3`. There
    *   is no outer query for an identifier to be resolved against, so the failure
    *   mode this check is about cannot arise.
    *
-   * **`#174` adds one more**, also in a select-field position and also measured:
+   * ## Two entries were cleared on a measurement that was wrong (#246)
    *
-   * - `escrow.ts` — the reservation in `reservedBy`, a correlated subquery
-   *   counting a quest's accepted reports inside a `sum` over `tasks`. Renders
-   *   `"tasks"."reward_credits" * greatest(coalesce("tasks"."slots", 0) -
-   *   (select count(*) from "submissions" where "submissions"."task_id" =
-   *   "tasks"."id" …), 0)` — every identifier qualified, for the same reason
-   *   `isFull` is: each column is written as `${table.column}` rather than left
-   *   to be resolved from the surrounding query.
+   * `isFull` in `tasks.ts` and `reservedBy` in `escrow.ts` were both listed here
+   * as *renders every identifier qualified*, both in a select-field position,
+   * both argued from a rendering. **Neither rendering was real.** Re-measured on
+   * 2026-08-03 through the same dialect, `isFull` came out
+   *
+   * ```sql
+   * (select count(*) from "submissions" where "task_id" = "id" and "status" = 'passed')
+   * ```
+   *
+   * — bare on both sides, the exact defect at the top of this file, in the exact
+   * position this file says to look at. A quest with capacity never read as full
+   * for as long as that stood.
+   *
+   * **The check was right and the exemption was wrong**, which is the failure
+   * mode of an allowlist and worth stating plainly: a list of measured
+   * exceptions is only as good as the measurements, and an entry that says
+   * *measured* reads exactly like one that was reasoned about. The words in this
+   * file that survived unchanged — *"render it and read the SQL"* — are the ones
+   * that were not followed.
+   *
+   * Both are now written with literal table names and an aliased inner table, so
+   * they no longer interpolate a column at all and have left this list rather
+   * than moved down it. That is the durable answer: an expression that names no
+   * table variable cannot be qualified wrongly, whatever position it ends up in.
    *
    * **`#176` adds three**, all in `quests.ts` and all the same fragment twice
    * over: *has the moderator judged this quest since its text last changed*.
@@ -111,15 +118,15 @@ describe('a subquery never interpolates columns of two tables', () => {
    * yet*, in the `where` of the audit queue. Same shape and same rendering —
    * `"quest_audits"."submission_id" = "submissions"."id"`, both written out.
    *
-   * All counts were measured by rendering the fragment through
-   * `PgDialect.sqlToQuery` and reading the SQL — the first four on 2026-08-02,
-   * the `quests.ts` three on 2026-08-03.
+   * All counts were measured by rendering the fragment and reading the SQL — the
+   * `quests.ts` five and the two re-measurements above on 2026-08-03, the rest
+   * on 2026-08-02. The two that were wrong are gone from the list rather than
+   * corrected in it, because they no longer name a table variable.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
-    'tasks.ts': 2,
+    'tasks.ts': 1,
     'guidance.ts': 1,
     'submissions.ts': 1,
-    'escrow.ts': 1,
     'quests.ts': 5,
   }
 

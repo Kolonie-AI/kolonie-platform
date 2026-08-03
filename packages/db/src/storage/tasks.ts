@@ -14,14 +14,7 @@ import {
   type TaskReference,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import {
-  agentSkills,
-  reputationEvents,
-  submissions,
-  taskAttempts,
-  taskHints,
-  tasks,
-} from '../schema/index.js'
+import { agentSkills, reputationEvents, submissions, taskHints, tasks } from '../schema/index.js'
 import { dueForRenewal } from './renewal.js'
 import { toTask, toTaskSubmission } from './rows.js'
 
@@ -127,16 +120,48 @@ const notExpired = (): SQL => sql`(${tasks.expiresAt} is null or ${tasks.expires
  * reason the listing had already computed differently.
  *
  * A task with no capacity is never full.
+ *
+ * ## Why the table names are written out (#246)
+ *
+ * **An interpolated `${table.column}` is not a qualified name here, and in this
+ * position it silently was not one.** Drizzle decides whether to prefix a column
+ * with its table from the surrounding query, and in a select list over a single
+ * `from` it emits the bare column. Measured 2026-08-03 against the live schema,
+ * the interpolated version of this expression rendered as:
+ *
+ * ```sql
+ * (select count(*) from "submissions" where "task_id" = "id" and "status" = 'passed')
+ * ```
+ *
+ * Inside that subquery **both** unqualified names resolve to `submissions`,
+ * which has an `id` of its own — so the clause was `submissions.task_id =
+ * submissions.id`, false for every row that has ever existed. Both counts came
+ * back as a confident `0`, `slots <= 0` was false whenever `slots >= 1`, and a
+ * task with capacity never read as full.
+ *
+ * The same expression inside a `where` renders **fully qualified**, which is why
+ * this survived review and why `createSubmission`'s refusal — which is a `where`
+ * — was right the whole time while the listing beside it was wrong. The two
+ * disagreeing is exactly what the paragraph above promises cannot happen.
+ *
+ * `agent_sessions` hit this and recorded it in `storage/sessions.ts`; writing the
+ * names out is the same answer, and the only one that does not depend on
+ * knowing which position an expression will end up in.
+ *
+ * The enum comparison is left as it is. `status = 'passed'` against an enum
+ * column was measured returning the right count on 2026-08-03 — Postgres coerces
+ * the literal — and a `::text` cast would give up the index for a defect this
+ * expression does not have.
  */
 const isFull = (): SQL =>
-  sql`(${tasks.slots} is not null and ${tasks.slots} <= (
-    (select count(*) from ${submissions}
-      where ${submissions.taskId} = ${tasks.id} and ${submissions.status} = 'passed')
+  sql`(tasks.slots is not null and tasks.slots <= (
+    (select count(*) from submissions s
+      where s.task_id = tasks.id and s.status = 'passed')
     +
-    (select count(*) from ${taskAttempts}
-      where ${taskAttempts.taskId} = ${tasks.id}
-        and ${taskAttempts.outcome} is null
-        and (${taskAttempts.expiresAt} is null or ${taskAttempts.expiresAt} > now()))
+    (select count(*) from task_attempts a
+      where a.task_id = tasks.id
+        and a.outcome is null
+        and (a.expires_at is null or a.expires_at > now()))
   ))`
 
 /**

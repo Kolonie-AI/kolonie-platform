@@ -9,7 +9,7 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { ledgerEntries, submissions, tasks } from '../schema/index.js'
+import { ledgerEntries, tasks } from '../schema/index.js'
 
 /**
  * A sponsor's coins are on account before its quest is written, reserved when
@@ -58,11 +58,25 @@ const RESERVING_STATUSES = ['pending_review', 'active'] as const
 export async function reservedBy(db: Database | Transaction, sponsorId: AgentId): Promise<number> {
   const [row] = await db
     .select({
+      /**
+       * The table names are written out for the reason `isFull()` records at
+       * length (#246): an interpolated `${table.column}` in a **select list**
+       * over a single `from` renders without its table, and the two bare names
+       * in this subquery would both resolve to `submissions` — making the
+       * correlation `submissions.task_id = submissions.id`, false for every row.
+       *
+       * Latent rather than live, because this query is filtered to
+       * `pending_review` and a quest that has not been published has no passed
+       * submissions to subtract. It is fixed anyway: the paragraph above already
+       * describes the published case, and a defect that is only invisible
+       * because of a `where` clause somewhere else is one revision away from
+       * being a sponsor told the wrong number about its own money.
+       */
       reserved: sql<string>`coalesce(sum(
-        ${tasks.rewardCredits} * greatest(
-          coalesce(${tasks.slots}, 0) - (
-            select count(*) from ${submissions}
-            where ${submissions.taskId} = ${tasks.id} and ${submissions.status} = 'passed'
+        tasks.reward_credits * greatest(
+          coalesce(tasks.slots, 0) - (
+            select count(*) from submissions s
+            where s.task_id = tasks.id and s.status = 'passed'
           ), 0)
       ), 0)::text`,
     })

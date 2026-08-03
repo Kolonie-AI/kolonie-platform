@@ -119,11 +119,27 @@ describe('a task for a thousand citizens', () => {
     await db.insert(agentSkills).values({ agentId, skill, submissionId: submission!.id })
   }
 
-  /** Take a slot the way an accepted report does: a submission that passed. */
+  /**
+   * Take a slot the way an accepted report does: a submission that passed.
+   *
+   * **The attempt is closed, because a verdict closes it** — `recordVerdict`
+   * calls `closeAttempt` in the same transaction that writes the status. A
+   * helper that left it open would have this citizen holding a slot *and*
+   * occupying one, so a quest with two places would read as full after a single
+   * pass. That went unnoticed until `#246` made the counts real: while both
+   * subqueries returned a confident zero, no test could tell the two apart.
+   */
   const passed = async (taskId: TaskId, agentId: AgentId, attempt = 1) => {
     const [row] = await db
       .insert(taskAttempts)
-      .values({ agentId, taskId, attempt, opener: 'submission' as const })
+      .values({
+        agentId,
+        taskId,
+        attempt,
+        opener: 'submission' as const,
+        outcome: 'passed' as const,
+        closedAt: sql`now()`,
+      })
       .returning({ id: taskAttempts.id })
     await db.insert(submissions).values({
       taskId,
@@ -234,6 +250,61 @@ describe('a task for a thousand citizens', () => {
       const taskId = await aQuest({ expiresAt: new Date(Date.now() + 3_600_000).toISOString() })
 
       expect((await submit(taskId, await anAgent('punctual'))).outcome).toBe('accepted')
+    })
+
+    /**
+     * The listing's own answer, which is a different expression from the
+     * refusal above and was never asserted (`#246`).
+     *
+     * `createSubmission` refuses on capacity and `listTasks` reports a `full`
+     * flag, and the two derive it separately. Every existing capacity test
+     * exercises the refusal, so a listing that disagreed with it — a quest
+     * shown as open and then refused a moment later for a reason the listing
+     * had already computed — would have passed the whole suite.
+     */
+    it('reports a quest whose slots are taken as full, in the listing', async () => {
+      const taskId = await aQuest({ slots: 1 })
+      await passed(taskId, await anAgent('winner'))
+      const reader = await anAgent('reader')
+
+      const result = await listTasks(db, { agentId: reader, availableOnly: false, limit: 10 })
+
+      expect(result.outcome).toBe('listed')
+      if (result.outcome !== 'listed') return
+      expect(result.page.items.find((item) => item.id === taskId)?.full).toBe(true)
+    })
+
+    /** And the other side of it, so the flag is not simply always true. */
+    it('reports a quest with a free slot as not full', async () => {
+      const taskId = await aQuest({ slots: 2 })
+      await passed(taskId, await anAgent('winner'))
+      const reader = await anAgent('reader')
+
+      const result = await listTasks(db, { agentId: reader, availableOnly: false, limit: 10 })
+
+      expect(result.outcome).toBe('listed')
+      if (result.outcome !== 'listed') return
+      expect(result.page.items.find((item) => item.id === taskId)?.full).toBe(false)
+    })
+
+    /** An open claim holds a slot in the listing too, not only at submission. */
+    it('reports a quest whose only slot is claimed as full', async () => {
+      const taskId = await aQuest({ slots: 1 })
+      const holder = await anAgent('holder')
+      await db.insert(taskAttempts).values({
+        agentId: holder,
+        taskId,
+        attempt: 1,
+        opener: 'challenge' as const,
+        expiresAt: sql`now() + interval '1 hour'`,
+      })
+      const reader = await anAgent('reader')
+
+      const result = await listTasks(db, { agentId: reader, availableOnly: false, limit: 10 })
+
+      expect(result.outcome).toBe('listed')
+      if (result.outcome !== 'listed') return
+      expect(result.page.items.find((item) => item.id === taskId)?.full).toBe(true)
     })
 
     it('does not list an expired quest among what can be started now', async () => {

@@ -14,6 +14,7 @@ import {
   type Verifier,
 } from '@kolonie-ai/core'
 import { readImage, type ImageFormat } from './image.js'
+import { vendorFaultEvidence } from './vendor.js'
 import { safeFetch } from './website-verify.js'
 
 /** The specification the Colony drew for this agent, as the rung's storage has it. */
@@ -36,6 +37,20 @@ export interface ImageChallenges {
 export type VisionCheckResult =
   | { readonly outcome: 'checked'; readonly check: ImageCheck; readonly model: string }
   | { readonly outcome: 'unavailable'; readonly reason: string }
+  /**
+   * The vendor refused the Colony's request, permanently (`#217`).
+   *
+   * **Apart from `unavailable`, because the two mean opposite things to the
+   * runner**: that one is *ask again in thirty seconds*, this one is *asking
+   * again produces the same answer*. Collapsing them is the defect — a 400 read
+   * as `unavailable` was retried 1829 times for one submission.
+   */
+  | {
+      readonly outcome: 'rejected'
+      readonly reason: string
+      readonly status: number
+      readonly body: string
+    }
 
 /**
  * The seam the rung's judgement arrives through, so its tests need no model.
@@ -165,6 +180,29 @@ export class RasterVerifier implements Verifier {
       format: read.facts.format,
       constraints: challenge.constraints,
     })
+
+    /**
+     * The vendor refused the request itself, so retrying is pointless (`#217`).
+     *
+     * **`timeout` rather than `fail`**, and the difference is the citizen's
+     * record: `fail` closes the attempt as this agent's failure and raises the
+     * rung's failure rate, for something the agent did not do. `timeout` is
+     * terminal — the loop stops — and `recordVerdict` deliberately leaves the
+     * attempt open on it, which is exactly *the Colony could not serve this*.
+     */
+    if (verdict.outcome === 'rejected') {
+      return {
+        status: 'timeout',
+        evidence: vendorFaultEvidence(verdict, 'reads your image'),
+        metadata: {
+          ...metadata,
+          colonyFault: true,
+          challenge: 'image',
+          vendorStatus: verdict.status,
+          vendorBody: verdict.body,
+        },
+      }
+    }
 
     if (verdict.outcome === 'unavailable') {
       return {

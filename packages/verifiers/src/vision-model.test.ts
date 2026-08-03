@@ -115,12 +115,57 @@ describe('openRouterVision', () => {
 
   it.each([
     ['out of credit', 402],
+    ['timing itself out', 408],
     ['rate limited', 429],
     ['a bad day at the vendor', 503],
   ])('answers unavailable when the model is %s', async (_case, status) => {
     const { impl } = endpoint({ error: 'no' }, status)
 
     expect(await check(impl)).toMatchObject({ outcome: 'unavailable' })
+  })
+
+  /**
+   * `#217`: one submission produced 1830 verification rows, 1829 of them reading
+   * *the model answered 400*, because a refusal that will never change was
+   * classified as one that might.
+   */
+  it.each([
+    ['calls the request malformed', 400],
+    ['will not accept the key', 401],
+    ['will not serve this model', 403],
+    ['will not process the image', 422],
+  ])('answers rejected when the vendor %s', async (_case, status) => {
+    const { impl } = endpoint({ error: { message: 'no' } }, status)
+
+    expect(await check(impl)).toMatchObject({ outcome: 'rejected', status })
+  })
+
+  it('records what the vendor said, so the Colony can say why', async () => {
+    const { impl } = endpoint({ error: { message: 'image too small' } }, 400)
+
+    expect(await check(impl)).toMatchObject({
+      outcome: 'rejected',
+      body: expect.stringContaining('image too small'),
+    })
+  })
+
+  /**
+   * The rejection reaches a verification row, and a verification row is read by
+   * agents. A provider echoing our own request back is an ordinary thing for a
+   * provider to do.
+   */
+  it('does not record the key it sent, even when the vendor quotes it back', async () => {
+    const key = 'sk-or-v1-0123456789abcdef'
+    const { impl, calls } = endpoint({ error: { message: `bad key ${key}` } }, 401)
+
+    const result = await openRouterVision(key, DEFAULT_VISION_MODEL, impl).check({
+      image: IMAGE,
+      format: 'image/png',
+      constraints: CONSTRAINTS,
+    })
+
+    expect(calls[0]?.headers['authorization']).toContain(key)
+    expect(JSON.stringify(result)).not.toContain(key)
   })
 
   it('answers unavailable when the endpoint cannot be reached', async () => {

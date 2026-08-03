@@ -1,5 +1,6 @@
 import { ImageCheckSchema, type ImageConstraints } from '@kolonie-ai/core'
 import type { VisionChecker, VisionCheckResult } from './raster.js'
+import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
 
 /**
  * The environment variable the OpenRouter key arrives in.
@@ -146,8 +147,27 @@ export function openRouterVision(
         }
       }
 
-      // 402 is out of credit and 429 is rate-limited. Both are ours.
+      /**
+       * A refusal is either something that will clear or something that will
+       * not, and telling them apart is `#217`.
+       *
+       * 402 is out of credit, 429 is rate-limited and a 5xx is a bad day —
+       * those are ours, they clear, and `unavailable` means *try again*. Any
+       * other 4xx is the vendor calling this request malformed, and it will be
+       * malformed identically on the next attempt: retrying it is what produced
+       * 1830 verification rows for one submission. See `vendor.ts`.
+       */
       if (!response.ok) {
+        if (isPermanentVendorStatus(response.status)) {
+          const rejection = await readVendorRejection(response, [apiKey])
+          return {
+            outcome: 'rejected',
+            reason: `the model refused the Colony's request with ${rejection.status}.`,
+            status: rejection.status,
+            body: rejection.body,
+          }
+        }
+
         return { outcome: 'unavailable', reason: `the model answered ${response.status}.` }
       }
 

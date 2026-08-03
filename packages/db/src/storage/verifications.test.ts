@@ -11,11 +11,13 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
-import { agentSkills, submissions, tasks, verifications } from '../schema/index.js'
+import { agentSkills, imageChallenges, submissions, tasks, verifications } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
   citizenForGithubAuthor,
+  COLONY_FAULT_GRACE_MS,
+  MAX_VERIFICATION_ATTEMPTS,
   citizenForPaymentTxid,
   githubAccountOf,
   claimNextSubmission,
@@ -341,6 +343,189 @@ describe('the verifier-runner storage loop', () => {
         'second look: not confirmed',
         'third look: confirmed',
       ])
+    })
+
+    /**
+     * The retry ceiling (`#217`). A verdict of `pending` means *ask again*, and
+     * before this there was nothing in the system that ever stopped asking:
+     * one submission collected 1830 verification rows.
+     */
+    describe('the ceiling on how often one submission is checked', () => {
+      /** Claim and answer `pending`, the way a flapping verifier does. */
+      const checkAgain = async (id: SubmissionId) => {
+        const claimed = await claim()
+        return recordVerdict(db, {
+          submissionId: id,
+          taskType: claimed.taskType,
+          result: { status: 'pending', evidence: 'the model could not be reached.' },
+        })
+      }
+
+      it(`decides the submission on the ${MAX_VERIFICATION_ATTEMPTS}th check`, async () => {
+        const id = await aSubmission()
+
+        for (let n = 1; n < MAX_VERIFICATION_ATTEMPTS; n++) await checkAgain(id)
+        const last = await checkAgain(id)
+
+        expect(last.outcome).toBe('recorded')
+        if (last.outcome !== 'recorded') return
+        // `timeout` rather than `failed`: terminal, and not the citizen's failure.
+        expect(last.submission.status).toBe('timeout')
+        expect(last.verification.status).toBe('timeout')
+        expect(last.booking).toBeUndefined()
+        expect(await verificationsFor(db, id)).toHaveLength(MAX_VERIFICATION_ATTEMPTS)
+      })
+
+      /**
+       * The rejection case, and the one that would go unnoticed: a ceiling that
+       * fires early cuts off a world that was merely slow.
+       */
+      it(`is still pending on the ${MAX_VERIFICATION_ATTEMPTS - 1}th`, async () => {
+        const id = await aSubmission()
+
+        for (let n = 1; n < MAX_VERIFICATION_ATTEMPTS - 1; n++) await checkAgain(id)
+        const result = await checkAgain(id)
+
+        expect(result.outcome).toBe('recorded')
+        if (result.outcome !== 'recorded') return
+        expect(result.submission.status).toBe('pending')
+      })
+
+      it('keeps the last verifier’s own evidence and adds why nobody will look again', async () => {
+        const id = await aSubmission()
+
+        for (let n = 1; n < MAX_VERIFICATION_ATTEMPTS; n++) await checkAgain(id)
+        const last = await checkAgain(id)
+
+        if (last.outcome !== 'recorded') throw new Error(last.outcome)
+        expect(last.verification.evidence).toContain('could not be reached')
+        expect(last.verification.evidence).toContain('does not count as an attempt')
+      })
+
+      /**
+       * The ceiling may only ever turn *undecided* into *decided*. A verdict
+       * that judged the citizen is the verifier's to give, and this function
+       * overruling one would be a submission failed by bookkeeping.
+       */
+      it('never overrides a verdict that decided something', async () => {
+        const id = await aSubmission()
+
+        for (let n = 1; n < MAX_VERIFICATION_ATTEMPTS; n++) await checkAgain(id)
+
+        const claimed = await claim()
+        const last = await recordVerdict(db, {
+          submissionId: id,
+          taskType: claimed.taskType,
+          result: { status: 'pass', evidence: 'it answered on the last look.' },
+        })
+
+        if (last.outcome !== 'recorded') throw new Error(last.outcome)
+        expect(last.submission.status).toBe('passed')
+      })
+    })
+
+    /**
+     * The repair a Colony-fault verdict promises the citizen in writing (`#217`):
+     * *your specification stays usable, and you can hand the same image in
+     * again*. Nothing else in the system would keep that promise — a challenge
+     * expires on its own clock.
+     */
+    describe('a verdict the Colony’s own machinery ended', () => {
+      const aChallengeExpiringIn = async (agentId: AgentId, ms: number) => {
+        await db.insert(imageChallenges).values({
+          agentId,
+          background: 'green',
+          shape: 'circle',
+          shapeColor: 'red',
+          position: 'top-left',
+          secondary: 'none',
+          prompt: 'a red circle',
+          // Dated back, because `image_challenges_expiry_after_creation` will
+          // not accept a row that expired before it was written — which is
+          // exactly the row the already-run-out case needs.
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          expiresAt: new Date(Date.now() + ms).toISOString(),
+        })
+      }
+
+      const expiryFor = async (agentId: AgentId) => {
+        const [row] = await db
+          .select({ expiresAt: imageChallenges.expiresAt })
+          .from(imageChallenges)
+          .where(eq(imageChallenges.agentId, agentId))
+        return row === undefined ? null : Date.parse(new Date(row.expiresAt).toISOString())
+      }
+
+      const recordFault = async (id: SubmissionId) => {
+        const claimed = await claim()
+        return recordVerdict(db, {
+          submissionId: id,
+          taskType: claimed.taskType,
+          result: {
+            status: 'timeout',
+            evidence: "the vendor refused the Colony's request with 400.",
+            metadata: { colonyFault: true, challenge: 'image', vendorStatus: 400 },
+          },
+          now: new Date().toISOString(),
+        })
+      }
+
+      it('extends a specification with less than the grace period left', async () => {
+        const agentId = await anAgent()
+        const id = await aSubmission({ agentId })
+        await aChallengeExpiringIn(agentId, 5 * 60 * 1000)
+
+        const before = Date.now()
+        await recordFault(id)
+
+        expect(await expiryFor(agentId)).toBeGreaterThanOrEqual(before + COLONY_FAULT_GRACE_MS)
+      })
+
+      /**
+       * A floor, not a grant. A citizen with fifty minutes left keeps fifty
+       * minutes; shortening one would be the repair doing harm.
+       */
+      it('leaves a specification with more time than that alone', async () => {
+        const agentId = await anAgent()
+        const id = await aSubmission({ agentId })
+        await aChallengeExpiringIn(agentId, 2 * 60 * 60 * 1000)
+
+        const before = await expiryFor(agentId)
+        await recordFault(id)
+
+        expect(await expiryFor(agentId)).toBe(before)
+      })
+
+      /**
+       * The rejection case. A verdict arriving late must not undecide something
+       * the citizen has long since let go — an expired specification is over.
+       */
+      it('does not resurrect a specification that has already run out', async () => {
+        const agentId = await anAgent()
+        const id = await aSubmission({ agentId })
+        await aChallengeExpiringIn(agentId, -60 * 1000)
+
+        const before = await expiryFor(agentId)
+        await recordFault(id)
+
+        expect(await expiryFor(agentId)).toBe(before)
+      })
+
+      it('touches nothing when the verdict claims no fault of ours', async () => {
+        const agentId = await anAgent()
+        const id = await aSubmission({ agentId })
+        await aChallengeExpiringIn(agentId, 5 * 60 * 1000)
+
+        const before = await expiryFor(agentId)
+        const claimed = await claim()
+        await recordVerdict(db, {
+          submissionId: id,
+          taskType: claimed.taskType,
+          result: { status: 'fail', evidence: 'two of the five constraints did not hold.' },
+        })
+
+        expect(await expiryFor(agentId)).toBe(before)
+      })
     })
 
     it('refuses to decide a submission that is no longer verifying', async () => {

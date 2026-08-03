@@ -91,3 +91,41 @@ export function submissionStatusFor(status: VerificationStatus): SubmissionStatu
 export function isRewardable(result: Pick<VerifyResult, 'status'>): boolean {
   return result.status === 'pass'
 }
+
+/**
+ * A verdict that ended because the Colony's own machinery broke (`#217`).
+ *
+ * **The shape lives here because two packages have to agree on it and neither
+ * may import the other.** `packages/verifiers` writes it into a verdict's
+ * metadata; `packages/db` reads it back when recording that verdict, to leave
+ * the citizen's specification usable. A pair of string literals typed out in two
+ * files is the version of this that drifts silently — the writer renames a key,
+ * the reader keeps compiling, and the repair stops happening.
+ *
+ * It travels in `metadata` rather than as a field on `VerifyResult` for the same
+ * reason `recheck` does: it is a fact about one kind of verdict, not a dimension
+ * every verifier has to answer.
+ */
+export const ColonyFaultSchema = z.object({
+  /** Always literally `true`. Present or absent is the whole signal. */
+  colonyFault: z.literal(true),
+  /**
+   * Which specification to keep alive, if the rung mints one.
+   *
+   * Named by the challenge rather than by the task type, because that is the
+   * vocabulary `CHALLENGE_TASK_TYPES` in `packages/db` already keys on.
+   */
+  challenge: z.enum(['image', 'scene']).optional(),
+})
+export type ColonyFault = z.infer<typeof ColonyFaultSchema>
+
+/**
+ * Read a Colony fault out of a verdict's metadata, or `null` if it carries none.
+ *
+ * Tolerant by construction: metadata is an open record written by every verifier
+ * in the package, so anything that is not this shape is simply not this.
+ */
+export function colonyFaultFrom(metadata: unknown): ColonyFault | null {
+  const parsed = ColonyFaultSchema.safeParse(metadata)
+  return parsed.success ? parsed.data : null
+}

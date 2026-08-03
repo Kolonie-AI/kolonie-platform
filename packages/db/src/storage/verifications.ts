@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import {
   canTransition,
+  colonyFaultFrom,
   isTerminal,
   now as currentTime,
   submissionStatusFor,
@@ -18,10 +19,12 @@ import {
   type Verification,
   type VerifyResult,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { recordAccountRecheck, resolveAccount } from './accounts.js'
 import { closeAttempt } from './attempts.js'
+import { extendImageChallenge } from './image.js'
+import { extendSceneChallenge } from './scene.js'
 import { isRenewalPass } from './renewal.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
 import { toAgent, toSubmission, toVerification } from './rows.js'
@@ -46,6 +49,31 @@ const SOCIAL_SKILL = 'social'
 
 /** The register's name for what `domain` is earned by proving. */
 const DOMAIN_ACCOUNT_KIND = AccountKindSchema.parse('domain')
+
+/**
+ * How many times one submission may be checked before it is decided anyway
+ * (`#217`).
+ *
+ * **Five, and the number is chosen against the backoff rather than in the
+ * abstract.** Waits before the *n*-th retry run 30 s, 60 s, 120 s, 240 s
+ * (`apps/verifier-runner/src/loop.ts`, measured 2026-08-03), so five checks span
+ * roughly seven and a half minutes: long enough that an outward service having a
+ * bad minute still resolves normally, short enough that nothing is left circling
+ * for an hour. Below this a genuinely slow world would be cut off; far above it,
+ * a submission that will never be decidable keeps costing vendor calls.
+ */
+export const MAX_VERIFICATION_ATTEMPTS = 5
+
+/**
+ * How long a citizen has to hand the same work in again after the Colony broke
+ * (`#217`).
+ *
+ * Half an hour from the verdict, and it is a floor rather than a grant: a
+ * specification with longer left keeps what it has. Long enough that an agent
+ * polling on a slow cycle still finds its specification alive, short enough that
+ * it is not a way to hold a rung open indefinitely by provoking failures.
+ */
+export const COLONY_FAULT_GRACE_MS = 30 * 60 * 1000
 
 /**
  * The skill control of a name's DNS certifies, named here for the same reason
@@ -252,7 +280,6 @@ export async function recordVerdict(
   command: RecordVerdictCommand,
 ): Promise<RecordVerdictResult> {
   const decidedAt = command.now ?? currentTime()
-  const next = submissionStatusFor(command.result.status)
 
   return db.transaction(async (tx) => {
     const [current] = await tx
@@ -268,6 +295,23 @@ export async function recordVerdict(
     if (current === undefined) return { outcome: 'vanished' }
 
     if (current.status !== 'verifying') return { outcome: 'stale', status: current.status }
+
+    /**
+     * The ceiling on how often one submission may be checked (`#217`).
+     *
+     * **A cap regardless of classification**, and it exists as well as the
+     * classification fix rather than instead of it. `#132` closed one shape of
+     * runaway retry and `#217` closed another in a different code path; both
+     * were a verdict that meant *try again* being reachable forever. This is the
+     * backstop for the third one nobody has found yet, and it is deliberately
+     * indifferent to why: past this many checks, something is wrong with the
+     * Colony and the submission is decided rather than left circling.
+     *
+     * Counted from the rows rather than from the runner's memory, because the
+     * rows are the durable record and a redeploy is not an amnesty.
+     */
+    const result = await capped(tx, command)
+    const next = submissionStatusFor(result.status)
 
     // The state machine lives in core so that both writers of this table agree
     // on it (see `SUBMISSION_TRANSITIONS`). Re-deriving the rule here would be
@@ -292,14 +336,14 @@ export async function recordVerdict(
       .values({
         submissionId: command.submissionId,
         taskType: command.taskType,
-        status: command.result.status,
-        evidence: command.result.evidence,
+        status: result.status,
+        evidence: result.evidence,
         // The verifier's own metadata, plus what the Colony knows about the
         // shape of this pass. A renewal that looked like a first pass in the
         // record would be a verdict nobody could audit the payment against.
         metadata: renewal
-          ? { ...(command.result.metadata ?? {}), renewal: true }
-          : (command.result.metadata ?? null),
+          ? { ...(result.metadata ?? {}), renewal: true }
+          : (result.metadata ?? null),
         createdAt: decidedAt,
       })
       .returning()
@@ -336,12 +380,36 @@ export async function recordVerdict(
      * A `pending` verdict records neither: a resolver that timed out is not
      * evidence about a citizen.
      */
-    const recheck = command.result.metadata as { accountId?: unknown; recheck?: unknown } | null
+    const recheck = result.metadata as { accountId?: unknown; recheck?: unknown } | null
     if (
       typeof recheck?.accountId === 'string' &&
       (recheck.recheck === 'held' || recheck.recheck === 'gone')
     ) {
       await recordAccountRecheck(tx, recheck.accountId, recheck.recheck, decidedAt)
+    }
+
+    /**
+     * A verdict the Colony's own machinery ended keeps the citizen's
+     * specification alive (`#217`).
+     *
+     * **Here rather than in the verifier**, because a verifier reads and does
+     * not write — `AGENTS.md` §3, and the same rule that puts `recordVerdict` in
+     * charge of the ledger. So the verifier states the fact in its metadata and
+     * this transaction acts on it, exactly as the re-check above does.
+     *
+     * **Its failure is not swallowed**, unlike the report and the ticket further
+     * down the loop. Those are instrumentation; this is the repair the verdict
+     * promised the citizen in writing — *your specification stays usable*. A
+     * promise that silently did not happen is worse than a verdict that rolls
+     * back and is retried.
+     */
+    const fault = colonyFaultFrom(result.metadata)
+    if (fault?.challenge !== undefined) {
+      const until = new Date(Date.parse(decidedAt) + COLONY_FAULT_GRACE_MS).toISOString()
+      const agentId = AgentIdSchema.parse(updated.agentId)
+
+      if (fault.challenge === 'image') await extendImageChallenge(tx, agentId, until)
+      else await extendSceneChallenge(tx, agentId, until)
     }
 
     /**
@@ -387,6 +455,49 @@ export async function recordVerdict(
       ...(booking === undefined ? {} : { booking }),
     }
   })
+}
+
+/**
+ * The verdict as it will be written, once the retry ceiling has had its say
+ * (`#217`).
+ *
+ * **Only a `pending` verdict can be changed by this**, and that is the whole of
+ * its authority. `pass`, `fail` and `timeout` have already decided something —
+ * turning one of those into something else would be this function overruling a
+ * verifier about a citizen, which is not a thing it is allowed to do. `pending`
+ * decided nothing, so replacing it with `timeout` takes nothing away.
+ *
+ * **`timeout` and not `fail`**, for the reason that runs through this whole
+ * change: `fail` closes the attempt as the citizen's failure, and the citizen
+ * did not fail. `timeout` is terminal for the submission and leaves the attempt
+ * open — *the Colony could not serve this* — which is exactly true.
+ *
+ * The sentence is appended to the verifier's own evidence rather than replacing
+ * it. What the last check found is still the most useful thing in the record;
+ * this only adds why nobody is going to look again.
+ */
+async function capped(tx: Transaction, command: RecordVerdictCommand): Promise<VerifyResult> {
+  if (command.result.status !== 'pending') return command.result
+
+  const [row] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(verifications)
+    .where(eq(verifications.submissionId, command.submissionId))
+
+  // The row about to be written is the one being counted, so `+ 1`.
+  const checks = (row?.count ?? 0) + 1
+  if (checks < MAX_VERIFICATION_ATTEMPTS) return command.result
+
+  return {
+    ...command.result,
+    status: 'timeout',
+    evidence:
+      `${command.result.evidence}\n\n` +
+      `The Colony has now checked this submission ${checks} times and reached the same ` +
+      'unfinished answer every time, so it is stopping rather than carrying on. That is a ' +
+      'fault in the Colony and not in your work: nothing here has been judged, and this does ' +
+      'not count as an attempt against you.',
+  }
 }
 
 /**

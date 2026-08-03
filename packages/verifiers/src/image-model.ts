@@ -15,6 +15,7 @@ import {
 } from '@kolonie-ai/core'
 import { readImage, type ImageFormat } from './image.js'
 import { readProvenance } from './provenance.js'
+import { vendorFaultEvidence } from './vendor.js'
 import { safeFetch } from './website-verify.js'
 
 /** The specification the Colony drew for this agent, as the rung's storage has it. */
@@ -37,6 +38,17 @@ export interface SceneChallenges {
 export type SceneCheckResult =
   | { readonly outcome: 'checked'; readonly check: SceneCheck; readonly model: string }
   | { readonly outcome: 'unavailable'; readonly reason: string }
+  /**
+   * The vendor refused the Colony's request, permanently (`#217`) — the same
+   * third outcome `VisionCheckResult` carries, for the same reason: *try again*
+   * and *this will never work* must not be the same word.
+   */
+  | {
+      readonly outcome: 'rejected'
+      readonly reason: string
+      readonly status: number
+      readonly body: string
+    }
 
 /**
  * The seam the rung's judgement arrives through, so its tests need no model.
@@ -171,6 +183,26 @@ export class ImageModelVerifier implements Verifier {
       format: read.facts.format,
       constraints: challenge.constraints,
     })
+
+    /**
+     * The vendor refused the request itself (`#217`) — terminal, and not the
+     * citizen's failure. The reasoning for `timeout` over `fail` is the `raster`
+     * rung's exactly, and it weighs more here: this rung's attempts cost the
+     * citizen money, so counting one of ours as one of theirs is expensive.
+     */
+    if (verdict.outcome === 'rejected') {
+      return {
+        status: 'timeout',
+        evidence: vendorFaultEvidence(verdict, 'reads your image'),
+        metadata: {
+          ...metadata,
+          colonyFault: true,
+          challenge: 'scene',
+          vendorStatus: verdict.status,
+          vendorBody: verdict.body,
+        },
+      }
+    }
 
     if (verdict.outcome === 'unavailable') {
       return {

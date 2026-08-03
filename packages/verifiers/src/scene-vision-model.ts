@@ -1,6 +1,7 @@
 import { SceneCheckSchema, SCENE_PROHIBITION, type SceneConstraints } from '@kolonie-ai/core'
 import type { SceneChecker, SceneCheckResult } from './image-model.js'
 import { OPENROUTER_API_KEY_VAR } from './vision-model.js'
+import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
 
 /**
  * Which model judges a scene. Its own variable, so the two image rungs are tuned
@@ -162,8 +163,27 @@ export function openRouterSceneVision(
         }
       }
 
-      // 402 is out of credit and 429 is rate-limited. Both are ours.
+      /**
+       * The same split as the `raster` rung's caller, from the same rule in
+       * `vendor.ts` (`#217`): 402, 408, 429 and every 5xx clear on their own and
+       * stay `unavailable`; any other 4xx is a request this process built and
+       * will build identically next time.
+       *
+       * **It matters more here than there.** An attempt at this rung cost the
+       * citizen money to generate, so a submission looping on a permanent error
+       * is spending someone else's budget as well as ours.
+       */
       if (!response.ok) {
+        if (isPermanentVendorStatus(response.status)) {
+          const rejection = await readVendorRejection(response, [apiKey])
+          return {
+            outcome: 'rejected',
+            reason: `the model refused the Colony's request with ${rejection.status}.`,
+            status: rejection.status,
+            body: rejection.body,
+          }
+        }
+
         return { outcome: 'unavailable', reason: `the model answered ${response.status}.` }
       }
 

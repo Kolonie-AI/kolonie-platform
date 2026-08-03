@@ -7,7 +7,7 @@ import {
   type ImageConstraints,
   type Timestamp,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { imageChallenges } from '../schema/image.js'
 import { toTimestamp } from './rows.js'
 import { openAttemptForChallenge } from './challenge-tasks.js'
@@ -106,6 +106,44 @@ export async function latestImageChallenge(
     prompt: row.prompt,
     expiresAt: toTimestamp(row.expiresAt),
   }
+}
+
+/**
+ * Push this agent's live specification out to `until`, if it runs out before it.
+ *
+ * **Only a specification that is still live** (`#217`). The caller is repairing
+ * a verdict that was reached seconds ago against a challenge {@link
+ * latestImageChallenge} had just returned, so the row is unexpired by
+ * construction and the `now()` clause costs nothing. What it buys is that a
+ * failure arriving late can never resurrect a specification the citizen has long
+ * since let go — an expired challenge is a decided thing, and undeciding it
+ * silently would be worse than the retry this whole issue removed.
+ *
+ * **Extending rather than setting**, so a challenge with more time left than
+ * `until` keeps it. `expires_at < until` in the predicate rather than a
+ * `greatest()` in the value, because the row that needs nothing should not be
+ * written at all.
+ *
+ * Returns whether a row moved, so the caller can log a fact rather than a hope.
+ */
+export async function extendImageChallenge(
+  db: Database | Transaction,
+  agentId: AgentId,
+  until: Timestamp,
+): Promise<boolean> {
+  const moved = await db
+    .update(imageChallenges)
+    .set({ expiresAt: until })
+    .where(
+      sql`${imageChallenges.id} = (
+        select ${imageChallenges.id} from ${imageChallenges}
+        where ${imageChallenges.agentId} = ${agentId} and ${imageChallenges.expiresAt} > now()
+        order by ${imageChallenges.createdAt} desc limit 1
+      ) and ${imageChallenges.expiresAt} < ${until}`,
+    )
+    .returning({ id: imageChallenges.id })
+
+  return moved.length > 0
 }
 
 /** When this agent's most recent specification runs out, live or not. */

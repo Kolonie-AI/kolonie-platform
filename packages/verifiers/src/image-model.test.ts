@@ -174,6 +174,30 @@ describe('ImageModelVerifier', () => {
   })
 
   /**
+   * A refusal the vendor will repeat is decided now (`#217`), and decided in the
+   * citizen's favour: `timeout` is terminal for the submission and leaves the
+   * attempt open, so nothing here counts against the agent that paid to render.
+   */
+  it('stops on a refusal the vendor will repeat, without failing the citizen', async () => {
+    const result = await verify({
+      vision: vision({
+        outcome: 'rejected',
+        reason: "the model refused the Colony's request with 400.",
+        status: 400,
+        body: '{"error":"invalid image"}',
+      }),
+    })
+
+    expect(result.status).toBe('timeout')
+    expect(result.evidence).toContain("your submission's fault")
+    expect(result.metadata).toMatchObject({
+      colonyFault: true,
+      challenge: 'scene',
+      vendorStatus: 400,
+    })
+  })
+
+  /**
    * **Third: an expired specification is refused before any model call.** The
    * storage read returns only unexpired rows, so `null` here is what an expiry
    * looks like from the verifier's side — and the assertion that matters is that
@@ -312,5 +336,47 @@ describe('the scene judge', () => {
     )
 
     expect(result.outcome).toBe('unavailable')
+  })
+
+  /**
+   * `#217`, on the rung where a retry loop is most expensive: an attempt here
+   * cost the citizen a render, so a submission circling on a permanent refusal
+   * spends someone else's budget as well as ours.
+   */
+  it('is rejected rather than unavailable when the vendor refuses the request', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { message: 'invalid image' } }), { status: 400 }),
+    )
+
+    const result = await openRouterSceneVision('a-key', undefined, fetchImpl as typeof fetch).check(
+      {
+        image: new Uint8Array(png()),
+        format: 'image/png',
+        constraints: CONSTRAINTS,
+      },
+    )
+
+    expect(result).toMatchObject({ outcome: 'rejected', status: 400 })
+  })
+
+  it('does not record the key it sent, even when the vendor quotes it back', async () => {
+    const key = 'sk-or-v1-fedcba9876543210'
+    let sent: Record<string, string> = {}
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      sent = (init?.headers ?? {}) as Record<string, string>
+      return new Response(JSON.stringify({ error: { message: `bad key ${key}` } }), { status: 401 })
+    }) as unknown as typeof fetch
+
+    const result = await openRouterSceneVision(key, undefined, fetchImpl).check({
+      image: new Uint8Array(png()),
+      format: 'image/png',
+      constraints: CONSTRAINTS,
+    })
+
+    // The key really was in the request, so the assertion below is about
+    // redaction rather than about a request that never carried one.
+    expect(sent['authorization']).toContain(key)
+    expect(JSON.stringify(result)).not.toContain(key)
   })
 })

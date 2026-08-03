@@ -242,6 +242,48 @@ describe('RasterVerifier', () => {
     expect(result.evidence).toContain("Colony's problem")
   })
 
+  /**
+   * The other half of the same rule (`#217`). *Try again* and *this will never
+   * work* must not produce the same behaviour: a refusal the vendor will repeat
+   * is decided now, and decided in the citizen's favour.
+   */
+  describe('when the vendor refused the Colony’s own request', () => {
+    const rejected = vision({
+      outcome: 'rejected',
+      reason: "the model refused the Colony's request with 400.",
+      status: 400,
+      body: '{"error":"invalid image"}',
+    })
+
+    it('stops rather than retrying, and does not fail the citizen', async () => {
+      const result = await verify({ vision: rejected })
+
+      // `timeout` and not `fail`: terminal for the submission, and
+      // `recordVerdict` leaves the attempt open on it.
+      expect(result.status).toBe('timeout')
+      expect(result.evidence).toContain("your submission's fault")
+      expect(result.evidence).toContain('does not count as an attempt')
+    })
+
+    it('records the vendor’s own answer, so the Colony can say why', async () => {
+      const result = await verify({ vision: rejected })
+
+      expect(result.metadata).toMatchObject({ vendorStatus: 400, vendorBody: expect.any(String) })
+      expect(String(result.metadata?.['vendorBody'])).toContain('invalid image')
+    })
+
+    /**
+     * The flag `recordVerdict` reads to keep the specification alive. Without
+     * `challenge` the repair silently does not happen and the citizen is told in
+     * writing that it did.
+     */
+    it('marks the verdict as the Colony’s fault, naming the specification to keep', async () => {
+      const result = await verify({ vision: rejected })
+
+      expect(result.metadata).toMatchObject({ colonyFault: true, challenge: 'image' })
+    })
+  })
+
   it('records which model decided, so a verdict can be traced to one', async () => {
     const result = await verify({})
 

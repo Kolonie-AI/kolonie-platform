@@ -7,7 +7,7 @@ import {
   type SceneConstraints,
   type Timestamp,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { sceneChallenges } from '../schema/scene.js'
 import { toTimestamp } from './rows.js'
 import { openAttemptForChallenge } from './challenge-tasks.js'
@@ -112,6 +112,39 @@ export async function latestSceneChallenge(
     prompt: row.prompt,
     expiresAt: toTimestamp(row.expiresAt),
   }
+}
+
+/**
+ * Push this agent's live scene specification out to `until`, if it runs out
+ * before it.
+ *
+ * The image rung's {@link extendImageChallenge} exactly, on this table, and the
+ * whole of the reasoning is written there: still-live rows only, extend rather
+ * than set, and a row that needs nothing is not written.
+ *
+ * **Two functions rather than one generic one**, deliberately. The tables share
+ * no base and drizzle's typing does not let one statement address both without
+ * casting away the thing that makes the query safe — and a cast here would be
+ * a cast in the one place that decides how long a citizen has left.
+ */
+export async function extendSceneChallenge(
+  db: Database | Transaction,
+  agentId: AgentId,
+  until: Timestamp,
+): Promise<boolean> {
+  const moved = await db
+    .update(sceneChallenges)
+    .set({ expiresAt: until })
+    .where(
+      sql`${sceneChallenges.id} = (
+        select ${sceneChallenges.id} from ${sceneChallenges}
+        where ${sceneChallenges.agentId} = ${agentId} and ${sceneChallenges.expiresAt} > now()
+        order by ${sceneChallenges.createdAt} desc limit 1
+      ) and ${sceneChallenges.expiresAt} < ${until}`,
+    )
+    .returning({ id: sceneChallenges.id })
+
+  return moved.length > 0
 }
 
 /** When this agent's most recent specification runs out, live or not. */

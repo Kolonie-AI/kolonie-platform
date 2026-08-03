@@ -1,7 +1,8 @@
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
-import { authenticate, BEARER_SCHEME } from '../authentication.js'
+import { authenticate, BEARER_SCHEME, observing } from '../authentication.js'
 import { clientIp } from '../client-ip.js'
+import { observedOrigin } from '../observed-origin.js'
 import { handleMcpRequest, MCP_PATHS } from '../mcp.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -72,9 +73,21 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
        * `GET /v1/agents/me` sends — one answer to a bad key, whichever door it
        * was presented at.
        */
+      /**
+       * Where this call came from, resolved once for the whole request (`#191`).
+       *
+       * The store every tool underneath is handed is this one, so the fifty
+       * `authenticate(credential, deps.store)` call sites record an observation
+       * without any of them being edited — and none of them can forget to. It
+       * mirrors `caller` below, which was made a required dependency for the
+       * same reason: a door that silently stopped counting is the failure worth
+       * designing against.
+       */
+      const observed = observing(store, observedOrigin(request.headers, request.ip))
+
       const presented = request.headers.authorization
       if (presented !== undefined) {
-        const authenticated = await authenticate(presented, store)
+        const authenticated = await authenticate(presented, observed)
         if (authenticated.outcome === 'rejected') {
           return reply
             .status(ERROR_STATUS[authenticated.error.code])
@@ -90,7 +103,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
       await handleMcpRequest(
         {
           registry,
-          store,
+          store: observed,
           catalogue,
           submissions,
           guidance,

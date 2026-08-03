@@ -3,6 +3,7 @@ import {
   type Agent,
   type AgentBalance,
   type AgentId,
+  type AgentOrigin,
   type ApiError,
   type GetMeResponse,
   type SessionDeclaration,
@@ -14,10 +15,13 @@ import {
   contactGaps,
   lastRuntimeDeclarationAt,
   nameSession,
+  recentOrigins,
+  recordOrigin,
   updateAgentProfile,
   verifiedSolanaAddress,
   type AuthenticationResult,
   type Database,
+  type ObservedOrigin,
   browserDiagnostics,
 } from '@kolonie-ai/db'
 import type { ProfileStore } from './profile.js'
@@ -103,6 +107,61 @@ export interface AgentStore extends ProfileStore {
       lastObservation: unknown
     }[]
   >
+  /**
+   * Record where an authenticated call was observed arriving from (`#191`).
+   *
+   * On this interface for the reason `nameSession` is on it: the write belongs
+   * to a seam both doors already pass through, and a surface that recorded it
+   * itself would be a second implementation that agrees until one of them grows
+   * a condition. It never throws and nothing depends on its answer.
+   */
+  recordOrigin(agentId: AgentId, origin: ObservedOrigin): Promise<void>
+  /**
+   * The places this citizen has been observed calling from, newest first
+   * (`#191`).
+   *
+   * Only ever the caller's own — there is no surface that answers it about
+   * anybody else, and the id here is the authenticated caller's.
+   */
+  originsOf(agentId: AgentId): Promise<readonly AgentOrigin[]>
+}
+
+/**
+ * The same store, told where the call it is about to authenticate came from
+ * (`#191`).
+ *
+ * **A decorator rather than an argument on `authenticate`, and the reason is
+ * the fifty call sites.** Every MCP tool resolves its own credential through
+ * `authenticate(credential, deps.store)`; an extra parameter there would be
+ * optional in practice whatever its type said, and a door that silently stopped
+ * observing is precisely the failure `McpDependencies` already refuses for
+ * `caller`. Wrapping the store instead means the observation is attached once,
+ * where the request is — `routes/mcp.ts` for the MCP door, `callerFor` and the
+ * `me` route for the HTTP one — and every path underneath is already carrying
+ * it without knowing.
+ *
+ * **It records after a successful authentication and never before.** A caller
+ * that could not authenticate has no citizen to attribute an observation to, and
+ * inventing one would make this table a log of strangers rather than a record
+ * about citizens.
+ *
+ * **The write is awaited rather than left dangling.** It is one upsert on a path
+ * that already writes `last_used_at` and a contact row, it cannot throw, and an
+ * unawaited promise here would be a write racing the erasure that is about to
+ * delete the row it targets.
+ */
+export function observing(store: AgentStore, origin: ObservedOrigin): AgentStore {
+  const recording = async (result: AuthenticationResult): Promise<AuthenticationResult> => {
+    if (result.outcome === 'authenticated') await store.recordOrigin(result.agent.id, origin)
+    return result
+  }
+
+  return {
+    ...store,
+    authenticate: async (apiKey) => await recording(await store.authenticate(apiKey)),
+    authenticateSession: async (session) =>
+      await recording(await store.authenticateSession(session)),
+  }
 }
 
 /** What `GET /v1/agents/me` resolved to, in the API's own vocabulary. */
@@ -184,6 +243,13 @@ export function databaseStore(db: Database): AgentStore {
       const [gap] = await contactGaps(db, agentId, 2)
       return gap?.hours ?? null
     },
+    recordOrigin: async (agentId, origin) => {
+      // The outcome is dropped rather than inspected, for the reason
+      // `recordContact` gives: there is nothing this function could usefully do
+      // with it, and the write cannot fail the request either way.
+      await recordOrigin(db, agentId, origin)
+    },
+    originsOf: (agentId) => recentOrigins(db, agentId),
     updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
 }
@@ -281,7 +347,13 @@ export async function me(
     return { outcome: 'rejected', error: authenticated.error }
   }
 
-  if (declaration.sessionId !== undefined || declaration.tokens !== undefined) {
+  // Any field at all, rather than a list of the ones that exist today. The
+  // enumerated version was here until `#192` added a third field and silently
+  // did not include it — a declaration carrying only `runtimeTools` was dropped
+  // between the schema that accepted it and the storage that knew what to do
+  // with it, and nothing failed. A field the caller sent is a field the citizen
+  // said; which ones those are is `SessionDeclarationSchema`'s business.
+  if (Object.keys(declaration).length > 0) {
     await store.nameSession(authenticated.agent.id, declaration)
   }
 
@@ -290,6 +362,10 @@ export async function me(
   const runtimeDeclaredAt = await store.lastRuntimeDeclarationAt(authenticated.agent.id)
   const absentHours = await store.absenceOf(authenticated.agent.id)
   const browserStages = await store.browserStagesOf(authenticated.agent.id)
+  // Read after `authenticate` rather than before, so the call being served is
+  // already in the answer: a citizen looking at its own record should see the
+  // place it is calling from right now, not the state before it asked.
+  const origins = await store.originsOf(authenticated.agent.id)
 
   return {
     outcome: 'found',
@@ -300,6 +376,7 @@ export async function me(
       runtimeDeclaredAt,
       absentHours,
       browserStages,
+      origins: [...origins],
     },
   }
 }

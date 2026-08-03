@@ -176,6 +176,50 @@ describe('GET /v1/agents/me', () => {
     })
   })
 
+  /**
+   * The observation the HTTP door makes (`#191`). What is asserted here is the
+   * wiring — that the door observes at all, and that what it hands on is a
+   * digest — because deduplication and counting are the storage layer's rules
+   * and are tested against a real database.
+   */
+  describe('the origin the Colony observed', () => {
+    it('observes an authenticated call, with a digest and never an address', async () => {
+      const store = await withStore()
+      const { apiKey, agent } = store.issue()
+
+      await app.inject({
+        method: 'GET',
+        url: '/v1/agents/me',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'cf-connecting-ip': '203.0.113.7',
+          'cf-ipcountry': 'DE',
+          'cf-ray': '7d4f2a1b9c8e0000-FRA',
+        },
+      })
+
+      const [observed] = store.observedOrigins()
+      expect(observed?.agentId).toBe(agent.id)
+      expect(observed?.origin.country).toBe('DE')
+      expect(observed?.origin.colo).toBe('FRA')
+      expect(observed?.origin.fingerprint).toHaveLength(64)
+      expect(JSON.stringify(observed?.origin)).not.toContain('203.0.113.7')
+    })
+
+    /**
+     * A caller that could not authenticate has no citizen to attribute an
+     * observation to, and inventing one would make the table a log of strangers
+     * rather than a record about citizens.
+     */
+    it('observes nothing for a call that did not authenticate', async () => {
+      const store = await withStore()
+
+      await me({ authorization: 'Bearer kol_nobody', 'cf-connecting-ip': '203.0.113.7' })
+
+      expect(store.observedOrigins()).toEqual([])
+    })
+  })
+
   it('reports citizenship status and roles as separate fields (D-001)', async () => {
     const store = await withStore()
     const { apiKey } = store.issue({ status: 'citizen', roles: ['builder', 'reviewer'] })

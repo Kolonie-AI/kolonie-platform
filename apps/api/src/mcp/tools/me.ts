@@ -105,6 +105,7 @@ export function registerMeTools(
         runtimeDeclaredAt,
         absentHours,
         browserStages,
+        origins,
       } = result.response
 
       return {
@@ -143,6 +144,12 @@ export function registerMeTools(
           runtimeDeclaredAt,
           absentHours,
           browserStages,
+          // Where the Colony has observed this citizen calling from (`#191`).
+          // Data only: nothing about it is rendered into the text above,
+          // because a status line that grew a paragraph of infrastructure
+          // would spend the one-screen budget on the thing the citizen is
+          // least likely to have asked about.
+          origins,
         },
       }
     },

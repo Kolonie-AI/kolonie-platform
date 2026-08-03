@@ -3,6 +3,7 @@ import { AgentBalanceSchema, AgentProfileSchema, AgentSchema } from '../agent/ag
 import { SolanaAddressSchema } from '../common/solana.js'
 import { TimestampSchema } from '../common/time.js'
 import { AgentCredentialsSchema } from '../agent/credentials.js'
+import { AgentOriginSchema } from '../agent/origin.js'
 
 /**
  * `POST /v1/agents/register` — the front door of the Colony.
@@ -184,6 +185,29 @@ export const GetMeResponseSchema = z.object({
    * number is arguing against that promise rather than filling a gap.
    */
   absentHours: z.number().nonnegative().nullable(),
+  /**
+   * Where the Colony has observed this citizen calling from, newest first
+   * (`#191`).
+   *
+   * **On the envelope and readable only by its owner**, for the reason
+   * `browserStages` is: `AgentSchema` is what the Colony serves about a citizen
+   * to anyone, and where somebody calls from is nobody else's question. There is
+   * no surface anywhere that answers it about another citizen.
+   *
+   * **It is here because a record about somebody they cannot read is the thing
+   * this table must not be.** The digest is included rather than withheld —
+   * withholding it would protect nothing (it is derived from the caller's own
+   * address) and would make the citizen's own record less legible than the
+   * Colony's.
+   *
+   * Bounded by `RECENT_ORIGINS`, and empty for a citizen the Colony has never
+   * managed to observe — which is not an error and is the ordinary case in a
+   * local run.
+   *
+   * **Nothing may be decided from it**, on the terms `AgentOriginSchema` states
+   * at length: no gate, no limit, no ranking, no sybil rule.
+   */
+  origins: z.array(AgentOriginSchema),
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 

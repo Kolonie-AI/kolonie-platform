@@ -18,7 +18,7 @@ import {
   type RegisterAgentRequest,
   type SkillReleases,
 } from '@kolonie-ai/core'
-import type { AuthenticationResult, RegisterAgentResult } from '@kolonie-ai/db'
+import type { AuthenticationResult, ObservedOrigin, RegisterAgentResult } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { TaskSubmissions } from '../submissions.js'
@@ -177,6 +177,8 @@ export interface FakeColony {
   readonly skillReleases: SkillReleases
   /** Every session a citizen named through this colony, in order (#158). */
   readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
+  /** Every origin the door observed, in order (`#191`). Recorded, never consulted. */
+  readonly observedOrigins: () => readonly { agentId: AgentId; origin: ObservedOrigin }[]
   /** Put an agent in the position of having just come back after an absence (#144). */
   readonly returnAfter: (agentId: AgentId, hours: number) => void
   /**
@@ -218,6 +220,7 @@ export function fakeColony(): FakeColony {
   const runtimeDeclarations = new Map<string, string>()
   /** Every session a citizen named through this colony, in order (#158). */
   const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
+  const observed: { agentId: AgentId; origin: ObservedOrigin }[] = []
   /** How long each agent was away before the call being served (#144). */
   const absences = new Map<string, number>()
 
@@ -337,6 +340,7 @@ export function fakeColony(): FakeColony {
     rhythm: DEFAULT_RHYTHM_BOUNDS,
     skillReleases: DEFAULT_SKILL_RELEASES,
     namedSessions: () => named,
+    observedOrigins: () => observed,
 
     returnAfter: (agentId: AgentId, hours: number) => {
       absences.set(String(agentId), hours)
@@ -388,6 +392,18 @@ export function fakeColony(): FakeColony {
       nameSession: async (agentId: AgentId, declaration: SessionDeclaration) => {
         named.push({ agentId, declaration })
       },
+
+      /**
+       * Origins, recorded and never derived (`#191`). Deduplication, counting
+       * and ordering are the storage layer's rules and are tested against a real
+       * database — a fake that reimplemented them would be a second opinion able
+       * to agree with nothing.
+       */
+      recordOrigin: async (agentId: AgentId, origin: ObservedOrigin) => {
+        observed.push({ agentId, origin })
+      },
+
+      originsOf: async () => [],
 
       /** Written by `updateProfile` below, so the round trip is real (#139). */
       lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>

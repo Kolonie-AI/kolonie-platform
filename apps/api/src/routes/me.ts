@@ -1,6 +1,7 @@
 import { ERROR_STATUS, SessionDeclarationSchema } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
-import { BEARER_SCHEME, me } from '../authentication.js'
+import { BEARER_SCHEME, me, observing } from '../authentication.js'
+import { observedOrigin } from '../observed-origin.js'
 import { sessionCookie } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -36,7 +37,9 @@ export function registerMeRoute(v1: FastifyInstance, deps: RouteDependencies): v
     const query = SessionDeclarationSchema.safeParse(sessionDeclarationFromQuery(request.query))
     const result = await me(
       request.headers.authorization,
-      store,
+      // The same wrapping `callerFor` does, because this route resolves its own
+      // caller rather than going through it (`#191`).
+      observing(store, observedOrigin(request.headers, request.ip)),
       query.success ? query.data : {},
       // A sponsor reading the console asks the same question an agent does, and
       // gets it answered by the same route (`#172`). The cookie is read only

@@ -1,7 +1,8 @@
 import type { Agent } from '@kolonie-ai/core'
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { authenticate, BEARER_SCHEME, type AgentStore } from '../authentication.js'
+import { authenticate, BEARER_SCHEME, observing, type AgentStore } from '../authentication.js'
+import { observedOrigin } from '../observed-origin.js'
 import { SESSION_COOKIE } from './console.js'
 
 /**
@@ -33,7 +34,11 @@ export async function callerFor(
 ): Promise<Agent | null> {
   const authenticated = await authenticate(
     request.headers.authorization,
-    store,
+    // Where this call came from, attached here because this is the HTTP door
+    // (`#191`). Every authenticated route in the API resolves its caller through
+    // this function, so wrapping the store once here is what makes the
+    // observation impossible to forget in the forty-seventh route.
+    observing(store, observedOrigin(request.headers, request.ip)),
     sessionCookie(request.headers.cookie),
   )
   if (authenticated.outcome !== 'rejected') return authenticated.agent

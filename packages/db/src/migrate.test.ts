@@ -147,7 +147,13 @@ describe('the migrations', () => {
     // confirmation `#146`'s form writes and the re-check `#237`'s two rungs
     // depend on. Separate from the invitation's own address column, which is one
     // envelope rather than a relationship.
-    expect(afterFirst.tables).toBe('50')
+    // And the origin the Colony observed makes **fifty-one** (`#191`):
+    // `agent_origins`, a digest of the address a citizen was seen calling from
+    // with the country and the Cloudflare data centre beside it, deduplicated
+    // per citizen. Its own table rather than columns on the declaration
+    // history, because those are claims a citizen made and these are
+    // observations it did not.
+    expect(afterFirst.tables).toBe('51')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

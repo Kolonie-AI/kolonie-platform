@@ -369,6 +369,48 @@ describe('the MCP surface over HTTP', () => {
   })
 
   /**
+   * The MCP door observes where a call came from (`#191`).
+   *
+   * **Asserted across the real transport rather than on the tool**, for the
+   * reason the registration-limit test one block down gives: what can break here
+   * is the *wiring*. Every tool resolves its own credential through
+   * `authenticate(credential, deps.store)`, and the store those fifty call sites
+   * receive is wrapped once in `routes/mcp.ts` — a tool test that built its own
+   * dependencies would pass whether or not that wrapping existed.
+   */
+  it('observes where an authenticated MCP call came from', async () => {
+    const colony = fakeColony()
+    app = buildApp(colony)
+    await app.ready()
+
+    const registered = await rpc('tools/call', {
+      name: 'kolonie.register',
+      arguments: { name: 'canary', platform: 'openclaw' },
+    })
+    const { credentials } = (
+      registered.result as { structuredContent: { credentials: { apiKey: ApiKey } } }
+    ).structuredContent
+
+    await rpc(
+      'tools/call',
+      { name: 'kolonie.me', arguments: {} },
+      {
+        authorization: `Bearer ${credentials.apiKey}`,
+        'cf-connecting-ip': '203.0.113.7',
+        'cf-ipcountry': 'DE',
+        'cf-ray': '7d4f2a1b9c8e0000-FRA',
+      },
+    )
+
+    const observed = colony.observedOrigins()
+    expect(observed.length).toBeGreaterThan(0)
+    expect(observed[0]?.origin.country).toBe('DE')
+    expect(observed[0]?.origin.colo).toBe('FRA')
+    // The digest and never the address, at this door as at the other one.
+    expect(JSON.stringify(observed)).not.toContain('203.0.113.7')
+  })
+
+  /**
    * One limit, two doors (#10). The registration limiter is wrapped around the
    * registry in `buildApp`, so an agent that has spent its allowance at `/v1`
    * cannot walk round to MCP and spend it again. Asserted across both surfaces

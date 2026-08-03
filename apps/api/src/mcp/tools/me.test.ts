@@ -375,6 +375,25 @@ describe('kolonie.me', () => {
     await close()
   })
 
+  /**
+   * A tool list with no session id beside it still reaches the storage layer,
+   * which knows to apply it to the run the citizen is already in.
+   *
+   * Its own test because the seam that forwards a declaration used to name the
+   * fields it forwarded, so a third field was accepted by the schema, described
+   * on the tool, and dropped on the way to the Colony without anything failing.
+   */
+  it('forwards a declaration that carries only a tool list', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({ name: 'kolonie.me', arguments: { runtimeTools: ['bash'] } })
+
+    expect(colony.namedSessions()).toHaveLength(1)
+    expect(colony.namedSessions()[0]?.declaration).toEqual({ runtimeTools: ['bash'] })
+    await close()
+  })
+
   it('refuses a tool name longer than the bound, rather than truncating it', async () => {
     const { colony, apiKey } = await authenticatedColony()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

@@ -13,7 +13,7 @@ import {
   type ApiKey,
   type Role,
 } from '@kolonie-ai/core'
-import type { AuthenticationResult } from '@kolonie-ai/db'
+import type { AuthenticationResult, ObservedOrigin } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
 
 /**
@@ -65,6 +65,14 @@ export interface FakeStore extends AgentStore {
    * fake growing a second opinion about what a session means.
    */
   readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
+  /**
+   * Every origin observed through this store, in order (`#191`).
+   *
+   * Recorded and never consulted, exactly as `namedSessions` is: a test asserts
+   * *the door observed this* without a database, and the fake grows no second
+   * opinion about what deduplication means.
+   */
+  readonly observedOrigins: () => readonly { agentId: AgentId; origin: ObservedOrigin }[]
   /**
    * Put an agent in the position of having just come back after an absence
    * (#144), without a clock and without a contact table.
@@ -135,6 +143,7 @@ export function fakeStore(): FakeStore {
   const sessions = new Map<string, AgentId>()
 
   const named: { agentId: AgentId; declaration: SessionDeclaration }[] = []
+  const observed: { agentId: AgentId; origin: ObservedOrigin }[] = []
   /** How long each agent was away before the call being served (#144). */
   const absences = new Map<string, number>()
 
@@ -142,6 +151,8 @@ export function fakeStore(): FakeStore {
     issue,
 
     namedSessions: () => named,
+
+    observedOrigins: () => observed,
 
     returnAfter: (agentId, hours) => {
       absences.set(String(agentId), hours)
@@ -240,6 +251,18 @@ export function fakeStore(): FakeStore {
     nameSession: async (agentId: AgentId, declaration: SessionDeclaration) => {
       named.push({ agentId, declaration })
     },
+
+    recordOrigin: async (agentId: AgentId, origin: ObservedOrigin) => {
+      observed.push({ agentId, origin })
+    },
+
+    /**
+     * Empty by default. The fake records what it was told and derives nothing:
+     * deduplication, counting and ordering are the storage layer's rules and are
+     * tested against a real database, not reimplemented here where they could
+     * agree with nothing.
+     */
+    originsOf: async () => [],
 
     lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>
       runtimeDeclarations.get(String(agentId)) ?? null,

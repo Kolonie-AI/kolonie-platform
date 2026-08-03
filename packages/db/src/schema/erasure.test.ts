@@ -5,6 +5,7 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import {
   agentContacts,
+  agentOrigins,
   agentSessions,
   agentRuntimeDeclarations,
   agentSkills,
@@ -76,7 +77,7 @@ describe('the erasure boundary', () => {
                         operator_claims, operator_claim_challenges,
                         autonomy_contracts, autonomy_form_invitations, operator_pages,
                         operator_addresses,
-                        agent_contacts, agent_sessions,
+                        agent_contacts, agent_sessions, agent_origins,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -195,6 +196,17 @@ describe('the erasure boundary', () => {
 
     /** A named run (#158), here for the same reason the contact row is. */
     await db.insert(agentSessions).values({ agentId: agent.id, externalId: 'run-1' })
+
+    /**
+     * An observed origin (`#191`), and it is here for a sharper version of the
+     * same reason. The rows above are things the citizen *said*; this is a
+     * timeline of one citizen's infrastructure that the Colony wrote down
+     * without being told, and a record nobody consented to is the last thing an
+     * erasure may leave behind.
+     */
+    await db
+      .insert(agentOrigins)
+      .values({ agentId: agent.id, fingerprint: 'f'.repeat(64), country: 'DE', colo: 'FRA' })
 
     await db.insert(browserChallenges).values({ agentId: agent.id, expiresAt: later() })
     await db
@@ -361,6 +373,7 @@ describe('the erasure boundary', () => {
   const CITIZEN_TABLES = [
     'agent_contacts',
     'agent_sessions',
+    'agent_origins',
     'agent_runtime_declarations',
     'credentials',
     'agent_skills',
@@ -782,6 +795,14 @@ describe('the erasure boundary', () => {
       // one citizen's infrastructure, which is exactly the residue `erasure.md`
       // §4 rules out. Nothing about it is anonymous — every row names the agent
       // it belongs to and when it changed.
+      /**
+       * `#191`. Cascades, and it is the one table here the citizen did not write
+       * a word of: an origin history is the same residue as a declaration
+       * history, observed instead of declared. `erasure.md` §4 does not
+       * distinguish the two, and a record about somebody that outlives them is
+       * the leftover it rules out.
+       */
+      'agent_origins.agent_id c',
       'agent_runtime_declarations.agent_id c',
       /**
        * #158. Cascades: the sessions a citizen named are the first thing the

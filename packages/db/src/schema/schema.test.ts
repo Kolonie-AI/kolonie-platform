@@ -129,6 +129,17 @@ describe('schema', () => {
          */
         'accounts',
         'agent_contacts',
+        /**
+         * `agent_origins` (`#191`): where the Colony has *observed* each
+         * citizen calling from — a digest of the address, the country and the
+         * Cloudflare data centre, deduplicated per citizen rather than stamped
+         * on every row. Its own table and not more columns on the declaration
+         * history, because those are claims a citizen made and these are
+         * observations it did not, and a reader who cannot tell them apart
+         * cannot tell a fact from a statement. Nothing gates, limits or ranks
+         * on it, and it cascades with the citizen.
+         */
+        'agent_origins',
         // `agent_skills` joined the list with D-030: what an agent may attempt
         // stopped being a number on the agent row and became a set of rows with
         // provenance.

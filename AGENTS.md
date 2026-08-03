@@ -91,6 +91,19 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   prose. Use `ApiError` and `ERROR_STATUS` from core.
 - **No `any`, no `@ts-ignore`, no disabled lint rules.** `@ts-expect-error` is
   allowed in a test whose point is that something must not typecheck.
+- **Independent work gets independent files.** Where a list, an array or a
+  registry grows one entry per unit of work — a task, a decision, a migration, a
+  change note — each entry is a file and something assembles them. A shared
+  append point is a merge conflict with a delay on it. A directory owns its own
+  `index.ts`, so a split changes the parent barrel by one line and two splits in
+  the same week do not collide. This is not new practice: `mcp.ts` and `app.ts`
+  were both fixed this way. **A file that is appended to and read from the end is
+  a chronicle and is left alone** — test files and changelog-shaped records are
+  the example, and they are on the measured list without being a problem. There
+  is deliberately **no line limit**: size is a readability question, judged case
+  by case, and the worst file on that list is forty lines long. Which files are
+  contended, when it was last measured, and how to re-measure:
+  [`docs/contention.md`](docs/contention.md).
 - **A migration is generated, never renumbered by hand.** `npm run generate` in
   `packages/db` writes the `.sql` file, its snapshot and the journal entry
   together, and stamps the entry from the clock. Resolving a collision by editing

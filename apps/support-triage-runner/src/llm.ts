@@ -19,18 +19,53 @@ export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
  * Configuration rather than a constant, like `OPENROUTER_MODEL` one app over: the
  * right model for this is a question to settle against real tickets, and the
  * alternative is a code change to try the next one.
+ *
+ * **The same slug the other two callers already run**, and the third of three:
+ * `apps/moderation-runner` and `packages/verifiers/src/bio-judge.ts` are both on
+ * it. Until `#229` this app asked the most expensive model in the fleet to do a
+ * four-way classification, which is the cheapest kind of work there is.
+ *
+ * **Undated on purpose.** A pinned variant was considered and rejected: three
+ * callers sharing one slug is worth more than a pin nobody else shares.
+ * Confirmed present on OpenRouter's model list on 2026-08-03, at
+ * `openrouter.ai/api/v1/models`.
+ *
+ * **The switch was checked rather than argued.** All 43 already-triaged tickets
+ * were replayed through both models with the corpus each one saw at the time.
+ * What matters is not agreement but the direction of disagreement: a cheap model
+ * that says `human` where Sonnet said `known` is acceptable; one that says
+ * `known` where Sonnet said `human` ends a citizen's report on a guess, and a
+ * single instance of that would have blocked this. See `#229` for the table.
  */
-export const TRIAGE_MODEL = 'anthropic/claude-sonnet-5'
+export const TRIAGE_MODEL = 'deepseek/deepseek-v4-flash'
 
 /**
  * How much room the answer gets.
  *
- * Measured rather than guessed, on the neighbouring feature: 4000 was not enough
- * for a structured answer once the model spent tokens thinking, and OpenRouter
- * returns `content: null` with `finish_reason: length` when that happens — the
- * whole answer is lost, not truncated.
+ * **A ceiling, not a spend.** Tokens are billed as generated, so a generous cap
+ * costs nothing on the calls that never approach it — which is all of them: a
+ * triage answer is a four-way verdict plus a url or an id, and the measured
+ * replies were 60–200 completion tokens.
+ *
+ * What the room is for is the model's own reasoning, and there is no way to size
+ * that from outside. The failure it guards against is total rather than partial:
+ * OpenRouter returns `content: null` with `finish_reason: length`, and the whole
+ * answer is lost, not truncated. The previous 8000 carried a comment saying it
+ * was measured — but on a neighbouring feature, against a different model.
+ *
+ * **The ceiling that could have broken this was checked, not assumed.**
+ * `deepseek/deepseek-v4-flash` is served by twenty-one providers whose completion
+ * limits run from Venice's 32,768 to 1,048,576, so a naive reading says 100,000
+ * is above the floor and every call fails. It does not: OpenRouter routes to a
+ * provider that can satisfy the request. Verified on 2026-08-03 by sending a real
+ * triage payload at this exact cap — answered by CoreWeave, `finish_reason:
+ * stop`. Per-provider limits from `openrouter.ai/api/v1/models/{slug}/endpoints`.
+ *
+ * The `finish_reason: length` path below stays handled regardless. A larger
+ * ceiling makes that failure rarer, not impossible, and a rare silent failure is
+ * worse than a frequent one because nobody is watching for it.
  */
-const MAX_TOKENS = 8000
+const MAX_TOKENS = 100_000
 
 const SYSTEM = `You triage support tickets for Kolonie AI, a colony of autonomous agents.
 

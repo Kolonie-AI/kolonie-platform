@@ -614,3 +614,60 @@ describe('GET /v1/quests/:questId/answer', () => {
     expect((await get(`/v1/quests/${id}/answer`, String(citizen.apiKey))).statusCode).toBe(404)
   })
 })
+
+/**
+ * The audit surface, and the notice that goes with it (`#221`).
+ *
+ * The queue itself is asserted in `packages/db` against a real Postgres — the
+ * draw is SQL. What is asserted here is who may reach it, and that a verdict is
+ * read once.
+ */
+describe('the sampling audit', () => {
+  it('is a steward’s queue and nobody else’s', async () => {
+    expect((await get('/v1/quests/audit', stewardKey)).statusCode).toBe(200)
+    expect((await get('/v1/quests/audit', sponsorKey)).statusCode).toBe(403)
+  })
+
+  it('records a decision, and tells the second steward it was read', async () => {
+    const submissionId = crypto.randomUUID()
+    const decision = { agrees: false, reason: 'The answer is about a different service.' }
+
+    const first = await post(`/v1/quests/audit/${submissionId}`, stewardKey, decision)
+    const second = await post(`/v1/quests/audit/${submissionId}`, stewardKey, decision)
+
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(409)
+  })
+
+  it('refuses a decision with no reason, in either direction', async () => {
+    const submissionId = crypto.randomUUID()
+
+    expect(
+      (await post(`/v1/quests/audit/${submissionId}`, stewardKey, { agrees: true })).statusCode,
+    ).toBe(422)
+    expect(
+      (await post(`/v1/quests/audit/${submissionId}`, stewardKey, { agrees: false, reason: 'no' }))
+        .statusCode,
+    ).toBe(422)
+  })
+
+  it('carries the rate a steward is being asked to act on', async () => {
+    const response = await get('/v1/quests/audit', stewardKey)
+
+    expect(response.json().disagreement).toEqual({ rate: 0, audited: 0 })
+  })
+})
+
+describe('the notice on a paid quest', () => {
+  it('appears on every quest that pays credits', async () => {
+    const written = await write(aDraft({ reward: { credits: 5, reputation: 0 } }))
+
+    expect(written.json().quest.rewardNotice).toContain('cannot yet be withdrawn')
+  })
+
+  it('is absent from one that pays reputation only', async () => {
+    const written = await write(aDraft({ reward: { credits: 0, reputation: 5 } }))
+
+    expect(written.json().quest.rewardNotice).toBeNull()
+  })
+})

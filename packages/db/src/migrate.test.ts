@@ -110,7 +110,11 @@ describe('the migrations', () => {
     // report, because the sponsor's product is the aggregate — counts per
     // option, a column per question, a thousand rows exported — and none of
     // those is a reasonable thing to do to a blob.
-    expect(afterFirst.tables).toBe('40')
+    // And `quest_audits` makes **forty-one** (#221): what a steward found on
+    // re-reading one of the judge's verdicts. Only the decisions are stored —
+    // which submissions are in the sample is a deterministic query, because a
+    // stored selection is one somebody could choose.
+    expect(afterFirst.tables).toBe('41')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -1,11 +1,16 @@
 import {
+  AuditDecisionSchema,
+  QUEST_AUDIT_OFF,
   QuestDraftSchema,
   QuestPatchSchema,
   QuestRefusalSchema,
+  SubmissionIdSchema,
   TaskIdSchema,
   questSubmissionRejection,
   type AgentId,
   type ApiError,
+  type QuestAuditPolicy,
+  type SubmissionId,
   type Task,
   type TaskId,
   type Timestamp,
@@ -15,7 +20,10 @@ import {
   listOwnQuests as listOwnQuestsInDatabase,
   ownQuestAnswer as ownQuestAnswerInDatabase,
   questAnswerCounts as questAnswerCountsInDatabase,
+  questAuditQueue as questAuditQueueInDatabase,
+  questDisagreementRate as questDisagreementRateInDatabase,
   questResults as questResultsInDatabase,
+  recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
@@ -26,6 +34,8 @@ import {
   type OwnQuest,
   type QuestPublishOutcome,
   type QuestRefuseOutcome,
+  type AuditCandidate,
+  type AuditRecordOutcome,
   type QuestResult as AcceptedReport,
   type QuestSubmitOutcome,
   type QuestWriteOutcome,
@@ -78,10 +88,21 @@ export interface QuestDesk {
     readonly taskId: TaskId
     readonly agentId: AgentId
   }): Promise<AcceptedReport | undefined>
+  /** The verdicts drawn for a second reading (`#221`). */
+  auditQueue(): Promise<readonly AuditCandidate[]>
+  /** What a steward found. It changes nothing else. */
+  audit(input: {
+    readonly submissionId: SubmissionId
+    readonly stewardId: AgentId
+    readonly agrees: boolean
+    readonly reason: string
+  }): Promise<AuditRecordOutcome>
+  /** How often the judge has been overruled lately. */
+  disagreement(): Promise<{ readonly rate: number; readonly audited: number }>
 }
 
 /** The quest desk, backed by Postgres. */
-export function databaseQuests(db: Database): QuestDesk {
+export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUDIT_OFF): QuestDesk {
   return {
     create: (input) =>
       createQuestDraftInDatabase(db, {
@@ -99,11 +120,14 @@ export function databaseQuests(db: Database): QuestDesk {
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
     reviewQueue: () => questReviewQueueInDatabase(db),
-    publish: (input) => publishQuestInDatabase(db, input),
+    publish: (input) => publishQuestInDatabase(db, { ...input, audit }),
     refuse: (input) => refuseQuestInDatabase(db, input),
     results: (taskId) => questResultsInDatabase(db, taskId),
     counts: (taskId) => questAnswerCountsInDatabase(db, taskId),
     ownAnswer: (input) => ownQuestAnswerInDatabase(db, input),
+    auditQueue: () => questAuditQueueInDatabase(db, audit),
+    audit: (input) => recordAuditDecisionInDatabase(db, input),
+    disagreement: () => questDisagreementRateInDatabase(db, audit),
   }
 }
 
@@ -361,6 +385,69 @@ export async function publishQuest(
             'so publishing it would escrow money that is not there.',
         },
       }
+    case 'audit-missing':
+      return { outcome: 'rejected', error: { code: 'conflict', message: result.reason } }
+  }
+}
+
+/** The audit queue, for a steward. */
+export async function readAuditQueue(desk: QuestDesk): Promise<
+  QuestResult<{
+    readonly disagreement: { readonly rate: number; readonly audited: number }
+    readonly verdicts: readonly AuditCandidate[]
+  }>
+> {
+  return {
+    outcome: 'ok',
+    response: { disagreement: await desk.disagreement(), verdicts: await desk.auditQueue() },
+  }
+}
+
+/** Record what a steward found on re-reading a verdict. */
+export async function recordAudit(
+  input: {
+    readonly stewardId: AgentId
+    readonly submissionId: string | undefined
+    readonly body: unknown
+  },
+  desk: QuestDesk,
+): Promise<QuestResult<{ readonly recorded: true }>> {
+  const parsed = AuditDecisionSchema.safeParse(input.body)
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: invalid(
+        'An audit carries `agrees` and a `reason`, and the reason is required either way: a ' +
+          'steward asked for one only when it disagrees learns that the field means disagreement.',
+      ),
+    }
+  }
+
+  const submissionId = SubmissionIdSchema.safeParse(input.submissionId)
+  if (!submissionId.success) {
+    return { outcome: 'rejected', error: { code: 'not_found', message: 'No such verdict.' } }
+  }
+
+  const result = await desk.audit({
+    submissionId: submissionId.data,
+    stewardId: input.stewardId,
+    agrees: parsed.data.agrees,
+    reason: parsed.data.reason,
+  })
+
+  switch (result.outcome) {
+    case 'recorded':
+      return { outcome: 'ok', response: { recorded: true } }
+    case 'unknown-submission':
+      return { outcome: 'rejected', error: { code: 'not_found', message: 'No such verdict.' } }
+    case 'already-audited':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message: 'Another steward has already read this one.',
+        },
+      }
   }
 }
 
@@ -585,4 +672,32 @@ export async function readOwnAnswer(
   }
 
   return { outcome: 'ok', response: answer }
+}
+
+/** The variable that switches the audit on. Off unless it says `true`. */
+export const QUEST_AUDIT_VAR = 'QUEST_AUDIT_ENABLED'
+export const QUEST_AUDIT_RATE_VAR = 'QUEST_AUDIT_RATE'
+
+/**
+ * The audit policy this process runs under (`#221`).
+ *
+ * **Off unless the variable says otherwise, and the default is the safe one on
+ * purpose** — a deployment that has not thought about the audit refuses to
+ * publish paid quests rather than publishing them unguarded. The same shape of
+ * default `tasks.kind` has: a writer that says nothing gets the kind that cannot
+ * mint.
+ *
+ * A rate that does not parse is the default rate rather than an error. The
+ * failure it would otherwise cause is the API refusing to start over a typo in
+ * a number that has a sensible value, and the switch above is the part that
+ * matters.
+ */
+export function questAuditPolicy(env: NodeJS.ProcessEnv = process.env): QuestAuditPolicy {
+  const rate = Number.parseFloat(env[QUEST_AUDIT_RATE_VAR] ?? '')
+
+  return {
+    ...QUEST_AUDIT_OFF,
+    enabled: env[QUEST_AUDIT_VAR] === 'true',
+    ...(Number.isFinite(rate) && rate > 0 && rate <= 1 && { rate }),
+  }
 }

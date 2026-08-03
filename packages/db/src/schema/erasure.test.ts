@@ -781,6 +781,14 @@ describe('the erasure boundary', () => {
        * recomputes the affected counters inside the erasing transaction rather
        * than making the citizen stay so the number stays tidy.
        */
+      /**
+       * An audit is a measurement of the **judge**, and losing every decision a
+       * departing steward made would rewrite the Colony's own record of how
+       * often its model is wrong. Who read the verdict stops being known; that
+       * it was read does not — the same line `authority_events` draws, one
+       * subject over.
+       */
+      'quest_audits.steward_id n',
       'report_feedback.agent_id c',
       'reputation_events.agent_id c',
       // The generator rung's scene specification (#216). Same argument as the

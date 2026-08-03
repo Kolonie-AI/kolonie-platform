@@ -6,8 +6,10 @@ import {
   StoredQuestQuestionsSchema,
   QUEST_PENDING_LIMIT,
   QUEST_TASK_TYPE,
+  paidQuestRejection,
   questCommitment,
   type AgentId,
+  type QuestAuditPolicy,
   type ModerationStages,
   type QuestDraft,
   type QuestPatch,
@@ -21,6 +23,7 @@ import type { Database, Transaction } from '../client.js'
 import {
   agents,
   questAnswers,
+  questAudits,
   questModerations,
   submissions,
   tasks,
@@ -92,6 +95,12 @@ export type QuestPublishOutcome =
   /** The moderation stage has not answered yet, so no steward is entitled to see it. */
   | { readonly outcome: 'awaiting-moderation' }
   | { readonly outcome: 'insufficient-funds'; readonly shortfall: number }
+  /**
+   * This quest pays, and the sampling audit is off or the judge is being
+   * overruled too often (`#221`). Carries the sentence rather than a code,
+   * because both refusals name what would change them.
+   */
+  | { readonly outcome: 'audit-missing'; readonly reason: string }
 
 export type QuestRefuseOutcome =
   | { readonly outcome: 'refused' }
@@ -391,7 +400,20 @@ export async function questReviewQueue(db: Database): Promise<readonly Task[]> {
  */
 export async function publishQuest(
   db: Database,
-  command: { readonly stewardId: AgentId; readonly taskId: TaskId; readonly at: Timestamp },
+  command: {
+    readonly stewardId: AgentId
+    readonly taskId: TaskId
+    readonly at: Timestamp
+    /**
+     * The audit as this deployment has it configured (`#221`).
+     *
+     * **Required rather than optional, and it defaults to off nowhere.** A
+     * caller that forgot it would publish paid quests with no audit behind
+     * them, which is the precise failure the guard exists for — so the compiler
+     * asks, exactly as `banSalt` does in `eraseAgent`.
+     */
+    readonly audit: QuestAuditPolicy
+  },
 ): Promise<QuestPublishOutcome> {
   return await db.transaction(async (tx) => {
     const [row] = await tx
@@ -426,6 +448,21 @@ export async function publishQuest(
       .limit(1)
 
     if (cleared === undefined) return { outcome: 'awaiting-moderation' }
+
+    /**
+     * The precondition, checked at the one moment it matters: the transaction
+     * that turns a quest into work citizens can take for money.
+     *
+     * Inside the transaction rather than at the route, so no second write path
+     * can reach publication without it — the same reason the self-approval ban
+     * is checked here as well as in the guard.
+     */
+    const disagreement = await questDisagreementRate(tx, command.audit)
+    const refusal = paidQuestRejection(command.audit, {
+      credits: row.rewardCredits,
+      disagreement: disagreement.rate,
+    })
+    if (refusal !== undefined) return { outcome: 'audit-missing', reason: refusal }
 
     const sponsorId = row.createdBy as AgentId | null
     const capacity = row.slots ?? 0
@@ -1094,4 +1131,165 @@ export async function questAnswerCounts(
   }
 
   return counts
+}
+
+/**
+ * The sample, as a `where` clause.
+ *
+ * **The SQL half of `questAuditDraw`**, and the one place this schema
+ * deliberately duplicates a rule from core — the same arrangement
+ * `tasks_type_slug` has with `TASK_TYPE_PATTERN`, and for the same reason: a
+ * check constraint cannot call into TypeScript, and neither can a `where`. There
+ * is a test asserting the two agree over two hundred submission ids.
+ */
+const drawnBelow = (rate: number) =>
+  sql`(('x' || substr(md5(${submissions.id}::text), 1, 8))::bit(32)::bigint::numeric / 4294967295.0) < ${rate}`
+
+/** One verdict awaiting a steward's second reading, with no citizen in it. */
+export interface AuditCandidate {
+  readonly submissionId: SubmissionId
+  readonly taskId: TaskId
+  readonly questTitle: string
+  readonly questions: readonly QuestQuestion[]
+  readonly answers: readonly ScrubbedAnswer[]
+  /** What the judge said, in the words the citizen was given. */
+  readonly verdict: string
+  readonly acceptedAt: Timestamp
+}
+
+/**
+ * The audit queue: sampled passes on judged quests that no steward has read yet.
+ *
+ * **It carries the questions, the answers and the verdict — and not the
+ * citizen.** `#177` keeps the judge blind for a reason, and a human auditor with
+ * more context than the judge is not auditing the judge. There is no agent id in
+ * this shape and no join that could put one there.
+ *
+ * A `hard` quest is excluded: its report was proved by a third party rather than
+ * by a model, and re-reading a mailbox round trip tells nobody anything.
+ */
+export async function questAuditQueue(
+  db: Database,
+  policy: { readonly rate: number },
+  limit = 50,
+): Promise<readonly AuditCandidate[]> {
+  const rows = await db
+    .select({
+      submissionId: submissions.id,
+      taskId: submissions.taskId,
+      questTitle: tasks.title,
+      questions: tasks.questions,
+      proofVerifier: tasks.proofVerifier,
+      verdict: verifications.evidence,
+      acceptedAt: submissions.verifiedAt,
+    })
+    .from(submissions)
+    .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+    .innerJoin(verifications, eq(verifications.submissionId, submissions.id))
+    .where(
+      and(
+        eq(tasks.kind, 'quest'),
+        eq(submissions.status, 'passed'),
+        isNull(tasks.proofVerifier),
+        eq(verifications.status, 'pass'),
+        drawnBelow(policy.rate),
+        sql`not exists (
+          select 1 from ${questAudits} where ${questAudits.submissionId} = ${submissions.id}
+        )`,
+      ),
+    )
+    .orderBy(asc(submissions.verifiedAt))
+    .limit(limit)
+
+  const candidates: AuditCandidate[] = []
+
+  for (const row of rows) {
+    const answers = await db
+      .select({ questionKey: questAnswers.questionKey, text: questAnswers.text })
+      .from(questAnswers)
+      .where(eq(questAnswers.submissionId, row.submissionId))
+      .orderBy(asc(questAnswers.questionKey))
+
+    candidates.push({
+      submissionId: row.submissionId as SubmissionId,
+      taskId: row.taskId as TaskId,
+      questTitle: row.questTitle,
+      questions: StoredQuestQuestionsSchema.parse(row.questions),
+      answers,
+      verdict: row.verdict,
+      acceptedAt: toTimestamp(row.acceptedAt as string),
+    })
+  }
+
+  return candidates
+}
+
+export type AuditRecordOutcome =
+  | { readonly outcome: 'recorded' }
+  | { readonly outcome: 'unknown-submission' }
+  /** Somebody read it first. Two stewards opening the queue at once is ordinary. */
+  | { readonly outcome: 'already-audited' }
+
+/**
+ * Record what a steward found. It changes nothing else, by construction.
+ *
+ * There is no update to the submission, the verification or the ledger anywhere
+ * in this function, and there is a test asserting the citizen's balance is
+ * unchanged after a disagreement. **A disagreement is counted, never applied.**
+ */
+export async function recordAuditDecision(
+  db: Database,
+  command: {
+    readonly submissionId: SubmissionId
+    readonly stewardId: AgentId
+    readonly agrees: boolean
+    readonly reason: string
+  },
+): Promise<AuditRecordOutcome> {
+  const [submission] = await db
+    .select({ id: submissions.id })
+    .from(submissions)
+    .where(eq(submissions.id, command.submissionId))
+    .limit(1)
+
+  if (submission === undefined) return { outcome: 'unknown-submission' }
+
+  const rows = await db
+    .insert(questAudits)
+    .values({
+      submissionId: command.submissionId,
+      stewardId: command.stewardId,
+      agrees: command.agrees,
+      reason: command.reason,
+    })
+    .onConflictDoNothing()
+    .returning({ id: questAudits.id })
+
+  return rows.length === 0 ? { outcome: 'already-audited' } : { outcome: 'recorded' }
+}
+
+/**
+ * How often a steward has overruled the judge lately.
+ *
+ * **Computed by query and stored nowhere** (`#221`), which is D-002's rule about
+ * every derived number here. An empty window is `0` rather than `null`: nothing
+ * has been overruled, which is the honest reading and the one that does not stop
+ * the programme on its first day.
+ */
+export async function questDisagreementRate(
+  db: Database | Transaction,
+  policy: { readonly windowDays: number },
+): Promise<{ readonly rate: number; readonly audited: number; readonly disagreed: number }> {
+  const [row] = await db
+    .select({
+      audited: sql<string>`count(*)::text`,
+      disagreed: sql<string>`count(*) filter (where not ${questAudits.agrees})::text`,
+    })
+    .from(questAudits)
+    .where(sql`${questAudits.createdAt} > now() - make_interval(days => ${policy.windowDays})`)
+
+  const audited = Number(row?.audited ?? 0)
+  const disagreed = Number(row?.disagreed ?? 0)
+
+  return { rate: audited === 0 ? 0 : disagreed / audited, audited, disagreed }
 }

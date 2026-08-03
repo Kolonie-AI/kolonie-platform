@@ -3,7 +3,7 @@ import type { AgentId } from '@kolonie-ai/core'
 import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
-import { databaseQuests } from './quests.js'
+import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
@@ -178,7 +178,7 @@ const app = buildApp({
   registry: databaseRegistry(db),
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
-  quests: databaseQuests(db),
+  quests: databaseQuests(db, questAuditPolicy()),
   submissions: databaseSubmissions(db),
   guidance: databaseGuidance(db),
   // The limiter is created inside `support()` rather than passed, so the process

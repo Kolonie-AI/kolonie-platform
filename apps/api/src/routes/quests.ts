@@ -3,8 +3,10 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import {
   editQuestDraft,
   exportQuestResults,
+  readAuditQueue,
   readOwnAnswer,
   readQuestResults,
+  recordAudit,
   listQuests,
   publishQuest,
   readQuest,
@@ -159,6 +161,32 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { questId } = request.params as { questId?: string }
     return send(reply, await readOwnAnswer({ agentId: caller.id, questId }, quests))
+  })
+
+  /**
+   * The verdicts drawn for a second reading (`#221`).
+   *
+   * A steward's surface, and it shows the questions, the answers and the
+   * verdict — never the citizen. `#177` keeps the judge blind for a reason, and
+   * a human auditor with more context than the judge is not auditing the judge.
+   */
+  v1.get('/quests/audit', async (request, reply) => {
+    const steward = await stewardFor(request, reply, store)
+    if (steward === null) return reply
+
+    return send(reply, await readAuditQueue(quests))
+  })
+
+  /** What the steward found. It is counted; it is never applied. */
+  v1.post('/quests/audit/:submissionId', async (request, reply) => {
+    const steward = await stewardFor(request, reply, store)
+    if (steward === null) return reply
+
+    const { submissionId } = request.params as { submissionId?: string }
+    return send(
+      reply,
+      await recordAudit({ stewardId: steward.id, submissionId, body: request.body }, quests),
+    )
   })
 
   /** Refuse it, with a reason its author reads. */

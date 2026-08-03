@@ -6,6 +6,7 @@ import {
   QuestPatchSchema,
   TaskIdSchema,
   TaskTypeSchema,
+  nonWithdrawableNotice,
   questCommitment,
   type AgentId,
   type Task,
@@ -90,6 +91,7 @@ export function fakeQuests(): FakeQuestDesk {
     status: input.status,
     questions: input.draft.questions,
     proofVerifier: input.draft.proofVerifier,
+    rewardNotice: nonWithdrawableNotice(input.draft.reward) ?? null,
     createdBy: input.authorId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -120,7 +122,36 @@ export function fakeQuests(): FakeQuestDesk {
 
   const accepted = new Map<string, (AcceptedReport & { readonly agentId?: AgentId })[]>()
 
+  const audits = new Map<string, { agrees: boolean }>()
+
   return {
+    /**
+     * The audit surface, in memory (`#221`).
+     *
+     * The rate and the draw are `packages/db`'s to get right and are asserted
+     * there against a real Postgres; what this reproduces is the one rule the
+     * routes rely on — a verdict is audited once.
+     */
+    async auditQueue() {
+      return []
+    },
+
+    async audit({ submissionId, agrees, reason }) {
+      if (reason.trim().length < 10) return { outcome: 'unknown-submission' }
+      if (audits.has(submissionId)) return { outcome: 'already-audited' }
+      audits.set(submissionId, { agrees })
+      return { outcome: 'recorded' }
+    },
+
+    async disagreement() {
+      const decisions = [...audits.values()]
+      const disagreed = decisions.filter((decision) => !decision.agrees).length
+      return {
+        rate: decisions.length === 0 ? 0 : disagreed / decisions.length,
+        audited: decisions.length,
+      }
+    },
+
     accept({ taskId, handle, runtime, answers, agentId }) {
       const held = accepted.get(taskId) ?? []
       held.push({

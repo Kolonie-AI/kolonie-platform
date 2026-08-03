@@ -1,6 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { noStagesRun, type AgentId, type QuestDraft, type TaskId } from '@kolonie-ai/core'
+import {
+  QUEST_AUDIT_OFF,
+  isAudited,
+  noStagesRun,
+  type AgentId,
+  type QuestDraft,
+  type SubmissionId,
+  type TaskId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agents,
@@ -8,7 +16,10 @@ import {
   ledgerEntries,
   questAnswers,
   questModerations,
+  submissions,
+  taskAttempts,
   tasks,
+  verifications,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { escrowHeldFor } from './escrow.js'
@@ -20,6 +31,9 @@ import {
   listOwnQuests,
   ownQuestAnswer,
   pendingAnswerModerations,
+  questAuditQueue,
+  questDisagreementRate,
+  recordAuditDecision,
   questAnswerCounts,
   questDefinition,
   questResults,
@@ -63,6 +77,94 @@ describe('the quest write path', () => {
   })
 
   const now = (): string => new Date().toISOString()
+
+  /**
+   * The audit, switched on (`#221`).
+   *
+   * Every test that publishes a **paying** quest needs it, because the guard
+   * refuses one while the sample is not being read. The zero-reward tests use
+   * `QUEST_AUDIT_OFF` deliberately: the pilot pays nothing, and the guard must
+   * be invisible to it.
+   */
+  const AUDIT_ON = { ...QUEST_AUDIT_OFF, enabled: true }
+
+  /**
+   * A passed report on a judged quest, which is what the audit samples.
+   *
+   * Written directly rather than driven through the runner: what is being tested
+   * is the selection and the record, and a fixture that had to reach a model to
+   * produce one would be testing the model.
+   */
+  const aPassedQuestSubmission = async (
+    name: string,
+    options: { readonly proofVerifier?: string; readonly drawn?: boolean } = {},
+  ) => {
+    const citizen = await anAgent(`citizen-${name}`)
+    const [quest] = await db
+      .insert(tasks)
+      .values({
+        type: 'quest-report',
+        kind: 'quest' as const,
+        title: `Quest for ${name}`,
+        description: 'A description.',
+        instructions: 'Answer the question.',
+        rewardCredits: 0,
+        rewardReputation: 1,
+        slots: 10,
+        timeoutHours: 24,
+        status: 'active' as const,
+        createdBy: await anAgent(`author-${name}`),
+        questions: [
+          {
+            key: 'what-happened',
+            prompt: 'What happened?',
+            criteria: 'Say something specific.',
+            required: true,
+            minLength: 0,
+            maxLength: 500,
+          },
+        ],
+        ...(options.proofVerifier !== undefined && { proofVerifier: options.proofVerifier }),
+      })
+      .returning({ id: tasks.id })
+
+    const [attempt] = await db
+      .insert(taskAttempts)
+      .values({ agentId: citizen, taskId: quest!.id, attempt: 1, opener: 'submission' as const })
+      .returning({ id: taskAttempts.id })
+
+    const [submission] = await db
+      .insert(submissions)
+      .values({
+        taskId: quest!.id,
+        agentId: citizen,
+        attemptId: attempt!.id,
+        attempt: 1,
+        payload: { answers: { 'what-happened': 'It took two tries.' } },
+        status: 'passed' as const,
+        verifiedAt: sql`now()`,
+      })
+      .returning({ id: submissions.id })
+
+    await db.insert(verifications).values({
+      submissionId: submission!.id,
+      taskType: 'quest-report',
+      status: 'pass' as const,
+      evidence: 'Both questions are answered.',
+    })
+
+    await db.insert(questAnswers).values({
+      submissionId: submission!.id,
+      reportId: crypto.randomUUID(),
+      taskId: quest!.id,
+      questionKey: 'what-happened',
+      text: 'It took two tries.',
+      acceptedAt: new Date().toISOString(),
+      runtime: 'openclaw',
+    })
+
+    return submission!.id as SubmissionId
+  }
 
   const countIn = async (table: 'submissions' | 'task_attempts'): Promise<number> => {
     const rows = await db.execute<{ count: string }>(
@@ -276,7 +378,12 @@ describe('the quest write path', () => {
       // once the first is decided, the reservation is what refuses the second.
       await moderate(first.task.id)
       const steward = await anAgent('steward', ['steward'])
-      await publishQuest(db, { stewardId: steward, taskId: first.task.id, at: now() })
+      await publishQuest(db, {
+        stewardId: steward,
+        taskId: first.task.id,
+        at: now(),
+        audit: AUDIT_ON,
+      })
 
       const result = await submitQuestForReview(db, {
         authorId: sponsor,
@@ -410,7 +517,12 @@ describe('the quest write path', () => {
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
 
-      const result = await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })
+      const result = await publishQuest(db, {
+        stewardId: steward,
+        taskId: task.id,
+        at: now(),
+        audit: AUDIT_ON,
+      })
 
       expect(result).toEqual({ outcome: 'published', escrowed: 100 })
       expect((await readOwnQuest(db, sponsor, task.id))?.task.status).toBe('active')
@@ -455,7 +567,7 @@ describe('the quest write path', () => {
       ])
 
       await expect(
-        publishQuest(db, { stewardId: steward, taskId: task.id, at: now() }),
+        publishQuest(db, { stewardId: steward, taskId: task.id, at: now(), audit: AUDIT_ON }),
       ).rejects.toThrow()
 
       expect((await readOwnQuest(db, sponsor, task.id))?.task.status).toBe('pending_review')
@@ -467,7 +579,14 @@ describe('the quest write path', () => {
       await submitQuestForReview(db, { authorId: steward, taskId: task.id, at: now() })
       await moderate(task.id)
 
-      expect(await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })).toEqual({
+      expect(
+        await publishQuest(db, {
+          stewardId: steward,
+          taskId: task.id,
+          at: now(),
+          audit: QUEST_AUDIT_OFF,
+        }),
+      ).toEqual({
         outcome: 'own-quest',
       })
       expect(
@@ -486,7 +605,14 @@ describe('the quest write path', () => {
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
 
-      expect(await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })).toEqual({
+      expect(
+        await publishQuest(db, {
+          stewardId: steward,
+          taskId: task.id,
+          at: now(),
+          audit: QUEST_AUDIT_OFF,
+        }),
+      ).toEqual({
         outcome: 'awaiting-moderation',
       })
     })
@@ -540,7 +666,12 @@ describe('the quest write path', () => {
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
-      await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })
+      await publishQuest(db, {
+        stewardId: steward,
+        taskId: task.id,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
 
       const [event] = await db
         .select()
@@ -556,7 +687,14 @@ describe('the quest write path', () => {
       const steward = await anAgent('steward', ['steward'])
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
 
-      expect(await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })).toEqual({
+      expect(
+        await publishQuest(db, {
+          stewardId: steward,
+          taskId: task.id,
+          at: now(),
+          audit: QUEST_AUDIT_OFF,
+        }),
+      ).toEqual({
         outcome: 'not-in-review',
         status: 'draft',
       })
@@ -595,7 +733,12 @@ describe('the quest write path', () => {
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
-      await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })
+      await publishQuest(db, {
+        stewardId: steward,
+        taskId: task.id,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
 
       const result = await listTasks(db, { agentId: citizen, availableOnly: true, limit: 50 })
       expect(result.outcome).toBe('listed')
@@ -663,7 +806,12 @@ describe('the quest write path', () => {
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
-      await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })
+      await publishQuest(db, {
+        stewardId: steward,
+        taskId: task.id,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
       return task.id
     }
 
@@ -828,7 +976,12 @@ describe('the quest write path', () => {
       })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
-      await publishQuest(db, { stewardId: steward, taskId: task.id, at: now() })
+      await publishQuest(db, {
+        stewardId: steward,
+        taskId: task.id,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
       return { sponsor, taskId: task.id }
     }
 
@@ -965,6 +1118,178 @@ describe('the quest write path', () => {
       const [theirs] = await questResults(db, taskId)
 
       expect(mine).toEqual(theirs)
+    })
+  })
+
+  /**
+   * The audit that has to exist before a quest pays a coin (`#221`).
+   *
+   * The load-bearing test is the first one: a precondition that lives in a
+   * document is one nobody reads at the moment it matters, and this one fails
+   * the request.
+   */
+  describe('before the first coin', () => {
+    const aPaidQuest = async (credits = 10) => {
+      const sponsor = await anAgent(`sponsor-${crypto.randomUUID().slice(0, 8)}`)
+      const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['steward'])
+      await credit(sponsor, 10_000)
+      const { task } = await createQuestDraft(db, {
+        authorId: sponsor,
+        draft: aDraft({ reward: { credits, reputation: 1 }, slots: 10 }),
+      })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+      return { sponsor, steward, taskId: task.id }
+    }
+
+    it('refuses to publish a paying quest while sampling is off', async () => {
+      const { sponsor, steward, taskId } = await aPaidQuest()
+
+      const result = await publishQuest(db, {
+        stewardId: steward,
+        taskId,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
+
+      expect(result.outcome).toBe('audit-missing')
+      if (result.outcome !== 'audit-missing') return
+      expect(result.reason).toContain('sampling audit')
+      // Refused means the quest is still awaiting review, not half published.
+      expect((await readOwnQuest(db, sponsor, taskId))?.task.status).toBe('pending_review')
+      expect(await escrowHeldFor(db, taskId)).toBe(0)
+    })
+
+    it('leaves a zero-reward quest entirely alone', async () => {
+      const { steward, taskId } = await aPaidQuest(0)
+
+      const result = await publishQuest(db, {
+        stewardId: steward,
+        taskId,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
+
+      expect(result.outcome).toBe('published')
+    })
+
+    it('refuses to publish once the judge is being overruled too often', async () => {
+      const { steward, taskId } = await aPaidQuest()
+
+      // Five audits, four of them disagreements: 80%, against a 20% threshold.
+      for (let index = 0; index < 5; index++) {
+        const submissionId = await aPassedQuestSubmission(`overruled-${index}`)
+        await recordAuditDecision(db, {
+          submissionId,
+          stewardId: steward,
+          agrees: index === 0,
+          reason: 'The report does not answer the question that was asked.',
+        })
+      }
+
+      const rate = await questDisagreementRate(db, { windowDays: 30 })
+      expect(rate.rate).toBeCloseTo(0.8)
+
+      const result = await publishQuest(db, {
+        stewardId: steward,
+        taskId,
+        at: now(),
+        audit: AUDIT_ON,
+      })
+
+      expect(result.outcome).toBe('audit-missing')
+      if (result.outcome !== 'audit-missing') return
+      // The current rate is in the message, so a steward knows why and by how much.
+      expect(result.reason).toContain('80%')
+    })
+
+    it('draws the same submissions in SQL as core draws in TypeScript', async () => {
+      const ids: string[] = []
+      for (let index = 0; index < 200; index++) ids.push(crypto.randomUUID())
+
+      const rows = await db.execute<{ id: string; drawn: boolean }>(
+        sql`select id, (('x' || substr(md5(id::text), 1, 8))::bit(32)::bigint::numeric / 4294967295.0) < 0.1 as drawn
+              from unnest(array[${sql.join(
+                ids.map((id) => sql`${id}::uuid`),
+                sql`, `,
+              )}]) as id`,
+      )
+
+      expect(rows).toHaveLength(200)
+      for (const row of rows) {
+        expect(row.drawn).toBe(isAudited(row.id, 0.1))
+      }
+    })
+
+    it('records a decision once, and a second steward gets told', async () => {
+      const steward = await anAgent('audit-steward', ['steward'])
+      const other = await anAgent('other-steward', ['steward'])
+      const submissionId = await aPassedQuestSubmission('audited')
+
+      expect(
+        await recordAuditDecision(db, {
+          submissionId,
+          stewardId: steward,
+          agrees: true,
+          reason: 'I would have passed this one too.',
+        }),
+      ).toEqual({ outcome: 'recorded' })
+
+      expect(
+        await recordAuditDecision(db, {
+          submissionId,
+          stewardId: other,
+          agrees: false,
+          reason: 'I would not have passed this one.',
+        }),
+      ).toEqual({ outcome: 'already-audited' })
+    })
+
+    it('changes no balance when a steward disagrees', async () => {
+      const steward = await anAgent('paying-steward', ['steward'])
+      const submissionId = await aPassedQuestSubmission('paid-and-audited')
+
+      const before = await db.execute<{ total: string }>(
+        sql`select coalesce(sum(amount), 0)::text as total from ledger_entries`,
+      )
+
+      await recordAuditDecision(db, {
+        submissionId,
+        stewardId: steward,
+        agrees: false,
+        reason: 'The judge accepted an answer about a different service.',
+      })
+
+      const after = await db.execute<{ total: string }>(
+        sql`select coalesce(sum(amount), 0)::text as total from ledger_entries`,
+      )
+
+      // A disagreement is counted, never applied. Reversing would mean clawing
+      // back from a citizen that did what it was asked.
+      expect(after[0]?.total).toBe(before[0]?.total)
+      const [submission] = await db
+        .select({ status: submissions.status })
+        .from(submissions)
+        .where(eq(submissions.id, submissionId))
+      expect(submission?.status).toBe('passed')
+    })
+
+    it('shows a steward the questions, the answers and the verdict — and no citizen', async () => {
+      const submissionId = await aPassedQuestSubmission('in-the-queue', { drawn: true })
+
+      const queue = await questAuditQueue(db, { rate: 1 })
+      const candidate = queue.find((entry) => entry.submissionId === submissionId)
+
+      expect(candidate).toBeDefined()
+      expect(JSON.stringify(candidate)).not.toContain('agentId')
+      expect(candidate?.answers).not.toEqual([])
+      expect(candidate?.verdict).toContain('answered')
+    })
+
+    it('never draws a hard quest, whatever the rate', async () => {
+      await aPassedQuestSubmission('hard-quest', { proofVerifier: 'email-inbox' })
+
+      expect(await questAuditQueue(db, { rate: 1 })).toEqual([])
     })
   })
 

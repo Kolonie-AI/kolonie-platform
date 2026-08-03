@@ -107,6 +107,10 @@ describe('a subquery never interpolates columns of two tables', () => {
    *              where "quest_answers"."submission_id" = "submissions"."id")
    * ```
    *
+   * **`#221` adds a fifth to `quests.ts`**: *has a steward read this verdict
+   * yet*, in the `where` of the audit queue. Same shape and same rendering —
+   * `"quest_audits"."submission_id" = "submissions"."id"`, both written out.
+   *
    * All counts were measured by rendering the fragment through
    * `PgDialect.sqlToQuery` and reading the SQL — the first four on 2026-08-02,
    * the `quests.ts` three on 2026-08-03.
@@ -116,7 +120,7 @@ describe('a subquery never interpolates columns of two tables', () => {
     'guidance.ts': 1,
     'submissions.ts': 1,
     'escrow.ts': 1,
-    'quests.ts': 4,
+    'quests.ts': 5,
   }
 
   /**

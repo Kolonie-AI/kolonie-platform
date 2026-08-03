@@ -236,6 +236,10 @@ describe('schema', () => {
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed
         // once on the way in rather than on every read out.
         'quest_answers',
+        // `quest_audits` (#221): the second reading of a verdict a model
+        // reached, and the count that stops the Colony selling work when the
+        // judge is being overruled.
+        'quest_audits',
         // `quest_moderations` (#176): the same shape one subject over — the
         // verdict on a sponsor's brief, which a steward must not have to read
         // unjudged.

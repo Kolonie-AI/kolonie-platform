@@ -9,6 +9,17 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **The sampling audit, and the refusal it exists for** (`kolonie-platform#221`).
+  `paidQuestRejection`, `questAuditDraw`, `isAudited`, `AUDITED_TIERS`,
+  `AuditDecisionSchema`, `QuestAuditPolicy` and `nonWithdrawableNotice`. A quest
+  with a non-zero reward cannot be published while the audit is off, or while a
+  steward has been overruling the judge above the threshold.
+
+  `Task` gains **`rewardNotice`**: one Colony-written sentence on every task that
+  pays credits, saying they cannot yet be withdrawn. Derived from the reward and
+  stored nowhere, so it disappears from every surface at once when the payout leg
+  ships.
+
 - **A question may be closed-form** (`kolonie-platform#178`). `QuestQuestionSchema`
   gains `options`: two to twenty of them, checked in stage 1 with the same
   consequence as a format, and the only thing the Colony aggregates. Length

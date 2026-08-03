@@ -1,0 +1,192 @@
+import { createHash } from 'node:crypto'
+import { z } from 'zod'
+import type { QuestTier } from './quest.js'
+
+/**
+ * The audit that has to exist before a quest pays a coin (`#221`).
+ *
+ * `governance/quests.md`:
+ *
+ * > The thing deciding a payout is a language model reading a report, and that
+ * > is acceptable **with** an audit sample and not without one. **An audit
+ * > sample is a precondition of the first coin-paying quest**, in the same sense
+ * > that anti-farming is a precondition of the stake below: not a refinement to
+ * > be scheduled afterwards, but something that exists first or the quest does
+ * > not run.
+ *
+ * Every quest in the pilot pays zero, so nothing is unguarded today — and the
+ * moment somebody sets a non-zero price, it is. The load-bearing part of this
+ * file is therefore the refusal, not the sampling: **a precondition that lives
+ * in a document is one nobody reads at the moment it matters, and this one fails
+ * the request.**
+ */
+
+/** One in ten accepted reports is re-read. Configurable; this is the default. */
+export const QUEST_AUDIT_DEFAULT_RATE = 0.1
+
+/**
+ * The disagreement rate at which the Colony stops selling work.
+ *
+ * One in five. Above it, publishing a quest with a non-zero reward is refused
+ * with the current rate in the message — **the judge being wrong is a fact about
+ * the Colony's ability to sell work, and the correct response is to stop selling
+ * it** rather than to argue with the citizens who were already paid.
+ *
+ * A fifth rather than a tenth because a steward's second reading is itself a
+ * judgement: two readers disagreeing occasionally is what two readers do, and a
+ * threshold at the noise floor would stop the programme on a quiet week.
+ */
+export const QUEST_AUDIT_DISAGREEMENT_THRESHOLD = 0.2
+
+/**
+ * How far back the rate is measured.
+ *
+ * Rolling rather than all-time, because the question is *is the judge wrong
+ * now*. An all-time rate carries a bad fortnight forever and would make the
+ * programme harder to restart than it was to stop, which is the wrong direction
+ * for a brake.
+ */
+export const QUEST_AUDIT_WINDOW_DAYS = 30
+
+/**
+ * The tiers whose verdicts are worth re-reading.
+ *
+ * A `hard` quest was answered by a third-party API rather than by a model, and
+ * re-reading a mailbox round trip tells nobody anything. The audit exists
+ * because a *model* decided, so it samples exactly the verdicts a model decided.
+ */
+export const AUDITED_TIERS: readonly QuestTier[] = ['colony-judged', 'soft']
+
+/** Whether a verdict on this tier is eligible to be drawn at all. */
+export function isAuditable(tier: QuestTier): boolean {
+  return AUDITED_TIERS.includes(tier)
+}
+
+/**
+ * Where this submission falls in the draw: a number in `[0, 1)`.
+ *
+ * **Deterministic from the submission id, and from nothing else.** So it cannot
+ * be influenced by the citizen, the sponsor or the steward, and re-running the
+ * selection gives the same answer — *a sample selected afterwards is a sample
+ * somebody chose*.
+ *
+ * **The value is fixed at the verdict and the threshold is policy**, which is
+ * why this returns the draw rather than a boolean. Raising the rate from a tenth
+ * to a fifth then adds submissions to the sample without re-drawing the ones
+ * already in it, and lowering it removes the same ones it would have removed
+ * yesterday. A stored boolean would freeze one rate into the rows.
+ *
+ * MD5 because it is a hash function here and not a security primitive: what is
+ * wanted is a uniform, stable, cheap map from a uuid to a fraction, and the same
+ * expression has to be computable in SQL — `quest_audits`' own query does it
+ * with `md5()`, and a test asserts the two agree over two hundred ids.
+ */
+export function questAuditDraw(submissionId: string): number {
+  const digest = createHash('md5').update(submissionId).digest('hex')
+  return Number.parseInt(digest.slice(0, 8), 16) / 0xffffffff
+}
+
+/** Whether this submission is in the sample at this rate. */
+export function isAudited(submissionId: string, rate = QUEST_AUDIT_DEFAULT_RATE): boolean {
+  return questAuditDraw(submissionId) < rate
+}
+
+/** What a steward decided about a verdict it re-read. */
+export const AuditDecisionSchema = z.object({
+  agrees: z.boolean(),
+  /**
+   * Why, and it is required in both directions.
+   *
+   * A steward asked for a reason only when it disagrees learns that the field
+   * means disagreement — the same argument `bio-judge`'s schema makes about
+   * `reason` on a pass.
+   */
+  reason: z.string().trim().min(10).max(1000),
+})
+export type AuditDecision = z.infer<typeof AuditDecisionSchema>
+
+/** How the audit is configured, as every caller that needs it receives it. */
+export interface QuestAuditPolicy {
+  /**
+   * Whether the sampling audit exists at all.
+   *
+   * **A deployment switch and not a stored row**, because what it answers is
+   * *does the Colony currently re-read verdicts* — a fact about the running
+   * system rather than about any quest. Off is the default everywhere, so a
+   * process wired without it refuses to publish paid work rather than allowing
+   * it.
+   */
+  readonly enabled: boolean
+  readonly rate: number
+  readonly disagreementThreshold: number
+  readonly windowDays: number
+}
+
+/** The policy a process gets when nothing configured one. */
+export const QUEST_AUDIT_OFF: QuestAuditPolicy = {
+  enabled: false,
+  rate: QUEST_AUDIT_DEFAULT_RATE,
+  disagreementThreshold: QUEST_AUDIT_DISAGREEMENT_THRESHOLD,
+  windowDays: QUEST_AUDIT_WINDOW_DAYS,
+}
+
+/**
+ * Why this quest may not be published for money, or `undefined` if it may.
+ *
+ * Both refusals name what is missing rather than saying no: a steward reading
+ * *"sampling is not enabled"* knows what to do, and one reading *"the judge and
+ * a steward have disagreed on 34% of the sample"* knows why the Colony has
+ * stopped selling work and what would change it.
+ *
+ * A zero-reward quest passes both unchanged. The pilot is entirely zero-reward,
+ * so this guard is invisible until the day it matters, which is the day it must
+ * not be missing.
+ */
+export function paidQuestRejection(
+  policy: QuestAuditPolicy,
+  input: { readonly credits: number; readonly disagreement: number },
+): string | undefined {
+  if (input.credits === 0) return undefined
+
+  if (!policy.enabled) {
+    return (
+      'This quest pays credits, and a paying quest may not be published while the sampling ' +
+      'audit is switched off. A model decides whether a report passes, and that is acceptable ' +
+      'with a sample of those verdicts being re-read and not without one ' +
+      '(governance/quests.md, kolonie-platform#221).'
+    )
+  }
+
+  if (input.disagreement > policy.disagreementThreshold) {
+    return (
+      `A steward has disagreed with ${percent(input.disagreement)} of the judge's audited ` +
+      `verdicts over the last ${policy.windowDays} days, against a threshold of ` +
+      `${percent(policy.disagreementThreshold)}. While the judge is being overruled that often ` +
+      'the Colony does not sell more work; a zero-reward quest is unaffected.'
+    )
+  }
+
+  return undefined
+}
+
+const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`
+
+/**
+ * The sentence every paid quest carries, until a citizen can take the money out.
+ *
+ * **Written by the Colony and never by the sponsor**, appended to what a citizen
+ * reads. Somebody earning something it cannot have and finding out afterwards is
+ * the cheapest possible way to lose the citizens this whole programme is for.
+ *
+ * It disappears on its own when the payout leg ships (`#222`): the caller passes
+ * `withdrawable`, and there is no second place to remember to delete this from.
+ */
+export function nonWithdrawableNotice(reward: { readonly credits: number }): string | undefined {
+  if (reward.credits === 0) return undefined
+
+  return (
+    'This quest pays Quest Credits into your Colony balance. Credits cannot yet be withdrawn ' +
+    'to a wallet of your own — the way out is not built. Take this quest for the balance and ' +
+    'the standing, and not for money you can move today.'
+  )
+}

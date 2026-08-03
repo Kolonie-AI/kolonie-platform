@@ -20,6 +20,12 @@ import { registerProfileRoute } from './routes/profile.js'
 import { registerErasureRoutes } from './routes/erasure.js'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { registerQuestRoutes } from './routes/quests.js'
+import {
+  consoleError,
+  consoleNotFound,
+  isConsoleRequest,
+  registerConsolePages,
+} from './routes/console-pages.js'
 import { registerAcademyRoutes } from './routes/academy.js'
 import { registerConsoleRoutes } from './routes/console.js'
 import { registerEmailRoutes } from './routes/email.js'
@@ -146,6 +152,27 @@ export function buildApp({
         failure.statusCode = 400
         done(failure, undefined)
       }
+    },
+  )
+
+  /**
+   * A submitted form, which is the console's only inbound shape (`#179`).
+   *
+   * Four lines rather than `@fastify/formbody`, for the reason the cookie parse
+   * in `authenticated.ts` is written out: `URLSearchParams` is the whole of the
+   * format, and a dependency's behaviour on a malformed body would be somebody
+   * else's decision to keep patched.
+   *
+   * Registered on the app rather than under the console's host, because a
+   * content-type parser is not routable — it runs before routing. A form posted
+   * at an API route still reaches a handler that will refuse it on its schema,
+   * which is the same answer it gave before.
+   */
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_request, body: string, done) => {
+      done(null, Object.fromEntries(new URLSearchParams(body)))
     },
   )
 
@@ -284,6 +311,10 @@ export function buildApp({
   }
 
   registerMcpRoutes(app, routes)
+  // The console's pages sit at the root of their own host, not under `/v1`
+  // (`#179`). Registered before the prefixed tree for readability only —
+  // they cannot collide, because they answer on a different host.
+  registerConsolePages(app, routes)
 
   /**
    * The whole REST surface, one call per domain.
@@ -346,6 +377,13 @@ export function buildApp({
    * host names out of this repository entirely.
    */
   app.setNotFoundHandler(async (request, reply) => {
+    // The console's own answer, on the console's own host (`#179`). Naming the
+    // REST prefix and the MCP path to a browser would be the wrong sentence in
+    // the one place a human is reading.
+    if (isConsoleRequest(request, routes.console.consoleUrl)) {
+      return consoleNotFound(reply, request)
+    }
+
     const error: ApiError = {
       code: 'not_found',
       message:
@@ -356,7 +394,18 @@ export function buildApp({
     return reply.status(ERROR_STATUS[error.code]).send(error)
   })
 
-  app.setErrorHandler(async (caught: FastifyError, _request, reply) => {
+  app.setErrorHandler(async (caught: FastifyError, request, reply) => {
+    /**
+     * The console renders its own failures (`#179`), and that path is the
+     * sanitiser rather than the default: `errorPage` takes an **id** and has no
+     * parameter a stack, a path or a query could arrive through. `#171` is open
+     * on precisely this leak, and a brand-new surface with its own error
+     * rendering is the likeliest place to reproduce it.
+     */
+    if ((caught.statusCode ?? 500) >= 500 && isConsoleRequest(request, routes.console.consoleUrl)) {
+      return consoleError(reply, request)
+    }
+
     /**
      * Fastify rejects some requests before any handler runs — unparseable JSON
      * is a 400, a body sent without a content-type it can read is a 415. Those

@@ -733,15 +733,39 @@ describe('the Colony’s write-up of a task', () => {
       const reviseTaskText = async (at: string) =>
         db.update(tasks).set({ textRevisedAt: at }).where(eq(tasks.id, taskId))
 
-      it('demotes a claim that has not been confirmed since', async () => {
+      it('demotes a claim the briefing predates the revision of', async () => {
         // Well inside both recency bounds, so nothing but the revision can
         // demote it — which is the point being made.
         const briefing = await briefingWith(daysAgo(5))
         expect(briefing?.claims[0]?.current).toBe(true)
 
-        await reviseTaskText(daysAgo(2))
+        // Revised *after* the briefing was written, which is the state `#182`
+        // measured: the wording moved and nothing has re-read the corpus since.
+        await reviseTaskText(new Date().toISOString())
 
         expect((await readBriefing(db, taskId))?.claims[0]?.current).toBe(false)
+      })
+
+      /**
+       * `#203`: the same rule, applied one step too far.
+       *
+       * A citizen found `email-inbox` serving sixteen claims with every one of
+       * them demoted, including one supported twenty-nine minutes before the
+       * briefing was written. Measured against production: the wording was
+       * revised at 22:47, the newest supporting report was 22:35 — so the rule
+       * was working — but the briefing was written at 23:05, by a synthesis
+       * that had been handed the new instructions and told they overrule the
+       * corpus. The correction had already been made, and applying it again
+       * left the reader with an empty foreground and the synthesis paid for.
+       */
+      it('leaves the claims alone when the synthesis has run since the revision', async () => {
+        await reviseTaskText(new Date().toISOString())
+
+        // Written after the revision, from reports that all predate it — which
+        // is exactly the shape the citizen measured.
+        const briefing = await briefingWith(daysAgo(5))
+
+        expect(briefing?.claims[0]?.current).toBe(true)
       })
 
       it('leaves a claim confirmed after the revision alone', async () => {

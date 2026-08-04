@@ -307,6 +307,25 @@ function laterOf(left: string | null, right: string | null): string | null {
 }
 
 /**
+ * The demotion line, or `null` because the synthesis has already answered it
+ * (`#203`).
+ *
+ * **A change the briefing was written after is a change the briefing already
+ * accounts for.** The structural demotion exists for the window between the
+ * world moving and the corpus being re-read; once the synthesis has run against
+ * the new state, its output *is* the re-reading, and demoting it protects a
+ * reader from the Colony's own current answer.
+ *
+ * Equal timestamps demote, which is the conservative side of a boundary nobody
+ * will ever hit: a synthesis that started in the same millisecond as the
+ * revision read the old text.
+ */
+function demotionLine(changedAt: string | null, writtenAt: string): string | null {
+  if (changedAt === null) return null
+  return Date.parse(writtenAt) > Date.parse(changedAt) ? null : changedAt
+}
+
+/**
  * One task's briefing, or nothing.
  *
  * **Serves a stale briefing without complaint**, which is the degradation
@@ -357,7 +376,8 @@ export async function readBriefing(
     oldestCurrentAttempt: await oldestCurrentAttempt(db, taskId),
     now: currentTime(),
     /**
-     * The demotion line, which two events can draw (#115, #182).
+     * The demotion line, which two events can draw — and only while the briefing
+     * predates it (#115, #182, #203).
      *
      * It overrides both recency bounds, because either one is positive evidence
      * rather than silence: a wall the provider has taken down should leave the
@@ -366,11 +386,31 @@ export async function readBriefing(
      * **The later of the two, because both are that same kind of evidence and
      * the more recent one is the one still true.** A provider change is the
      * world moving under the claims; a text revision is the Colony moving it.
-     * Taking the later means a task whose wording changed after a detected
-     * change is measured from the wording, which is the state a reader is
-     * actually in.
+     *
+     * **And it stops applying once the synthesis has run since (`#203`).** A
+     * citizen found `email-inbox` serving sixteen claims and every one of them
+     * demoted. Measured against production on 2026-08-04, the rule had done
+     * exactly what `#182` asked: the wording was revised at 22:47, and the
+     * newest report supporting any claim was from 22:35. But the briefing itself
+     * was written at 23:05 — *after* the revision — by a synthesis that had been
+     * handed the new instructions and told they overrule the corpus whatever the
+     * confirmation count. So the correction had already been applied by the half
+     * of `#182` that reads meaning, and applying it again here demoted the
+     * result of that work. The reader got a briefing with an empty foreground,
+     * which is not the safer answer: it is the same silence as no briefing at
+     * all, with the cost of the synthesis already paid.
+     *
+     * The structural half still covers the case it was built for — a briefing
+     * written before the wording moved, where nothing has re-read the corpus and
+     * the reader is genuinely unprotected. That is the state `#182` measured.
+     * Once a synthesis has run against the new text, what it wrote is the
+     * Colony's current reading, and demoting it is the Colony disagreeing with
+     * itself in favour of the older answer.
      */
-    changeDetectedAt: laterOf(row.changeDetectedAt, row.textRevisedAt),
+    changeDetectedAt: demotionLine(
+      laterOf(row.changeDetectedAt, row.textRevisedAt),
+      toTimestamp(row.writtenAt),
+    ),
   }
 
   return TaskBriefingSchema.parse({

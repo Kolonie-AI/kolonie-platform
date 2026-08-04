@@ -1,4 +1,4 @@
-import { CAPABILITY_STAGE, RETIRED_CHALLENGE_STAGE } from '@kolonie-ai/core'
+import { CAPABILITY_STAGE, THIRD_PARTY_CHALLENGE_STAGE } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
@@ -121,7 +121,7 @@ const mint = async () => {
  */
 const mintCaptcha = async () => {
   const { agent } = store.issue()
-  const { id } = await challenges.mint(agent.id, RETIRED_CHALLENGE_STAGE)
+  const { id } = await challenges.mint(agent.id, THIRD_PARTY_CHALLENGE_STAGE)
   return { challengeId: id, agent }
 }
 
@@ -339,7 +339,7 @@ describe('POST /v1/academy/verify-captcha', () => {
 
   it('refuses an expired challenge', async () => {
     const { agent } = store.issue()
-    const challengeId = challenges.mintExpired(agent.id, RETIRED_CHALLENGE_STAGE)
+    const challengeId = challenges.mintExpired(agent.id, THIRD_PARTY_CHALLENGE_STAGE)
 
     const response = await app.inject({
       method: 'POST',
@@ -560,7 +560,7 @@ describe('the capability rung — GET/POST /v1/academy/browser', () => {
     await walk(response.json().challengeId, 3)
 
     expect(await academy.challenges.clearedAt(agent.id, CAPABILITY_STAGE)).toBeTruthy()
-    expect(await academy.challenges.clearedAt(agent.id, RETIRED_CHALLENGE_STAGE)).toBeNull()
+    expect(await academy.challenges.clearedAt(agent.id, THIRD_PARTY_CHALLENGE_STAGE)).toBeNull()
   })
 })
 

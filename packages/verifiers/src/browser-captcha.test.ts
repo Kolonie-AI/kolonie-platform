@@ -7,7 +7,7 @@ import {
   type Submission,
   type Timestamp,
   CAPABILITY_STAGE,
-  RETIRED_CHALLENGE_STAGE,
+  THIRD_PARTY_CHALLENGE_STAGE,
 } from '@kolonie-ai/core'
 import { BrowserCaptchaVerifier, type ChallengeKind } from './browser-captcha.js'
 
@@ -60,7 +60,7 @@ const aSubmission = ({ payload = {} }: { payload?: Record<string, unknown> } = {
  * verifier *asks about its own kind*. A fake that answered regardless would pass
  * whatever the verifier queried, including the wrong thing.
  */
-const gates = (clearedAt: Timestamp | null, kind: ChallengeKind = RETIRED_CHALLENGE_STAGE) => ({
+const gates = (clearedAt: Timestamp | null, kind: ChallengeKind = THIRD_PARTY_CHALLENGE_STAGE) => ({
   clearedAt: async (_agentId: AgentId, asked: ChallengeKind) => (asked === kind ? clearedAt : null),
 })
 

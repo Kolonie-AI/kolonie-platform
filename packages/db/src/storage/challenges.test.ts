@@ -7,7 +7,7 @@ import {
   PERCEPTION_STAGE,
   PERSISTENCE_STAGE,
   RegisterAgentRequestSchema,
-  RETIRED_CHALLENGE_STAGE,
+  THIRD_PARTY_CHALLENGE_STAGE,
   type AgentId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
@@ -87,7 +87,7 @@ describe('browser challenges', () => {
       .insert(browserChallenges)
       .values({
         agentId: owner,
-        kind: RETIRED_CHALLENGE_STAGE,
+        kind: THIRD_PARTY_CHALLENGE_STAGE,
         stepsRequired: 0,
         expiresAt: sql`now() + interval '10 minutes'`,
       })
@@ -103,10 +103,10 @@ describe('browser challenges', () => {
    * marked retired, whichever stage that happens to be.
    */
   it('mints the third-party stage, which is a badge rather than a gate', async () => {
-    const minted = await mintChallenge(db, agentId, RETIRED_CHALLENGE_STAGE)
+    const minted = await mintChallenge(db, agentId, THIRD_PARTY_CHALLENGE_STAGE)
 
     expect(minted.id).toMatch(/^[0-9a-f-]{36}$/i)
-    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeNull()
+    expect(await hasClearedGate(db, agentId, THIRD_PARTY_CHALLENGE_STAGE)).toBeNull()
   })
 
   it('mints a challenge that is unsolved and in the future', async () => {
@@ -138,7 +138,7 @@ describe('browser challenges', () => {
   it('leaves an unminted stage unrecorded for its owner', async () => {
     await aRetiredChallenge()
 
-    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeNull()
+    expect(await hasClearedGate(db, agentId, THIRD_PARTY_CHALLENGE_STAGE)).toBeNull()
   })
 
   it('credits the agent that minted the challenge, never the caller', async () => {
@@ -147,9 +147,9 @@ describe('browser challenges', () => {
     const redeemed = await redeemChallenge(db, minted.id)
 
     expect(redeemed).toEqual({ outcome: 'verified', agentId })
-    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeTruthy()
+    expect(await hasClearedGate(db, agentId, THIRD_PARTY_CHALLENGE_STAGE)).toBeTruthy()
     // The other agent solved nothing, and holding the id would not have helped.
-    expect(await hasClearedGate(db, otherId, RETIRED_CHALLENGE_STAGE)).toBeNull()
+    expect(await hasClearedGate(db, otherId, THIRD_PARTY_CHALLENGE_STAGE)).toBeNull()
   })
 
   it('tells apart an unknown id, an expired one and one already used', async () => {
@@ -201,7 +201,7 @@ describe('browser challenges', () => {
   it('keeps a pass long after the challenge that earned it has expired', async () => {
     await db.insert(browserChallenges).values({
       agentId,
-      kind: RETIRED_CHALLENGE_STAGE,
+      kind: THIRD_PARTY_CHALLENGE_STAGE,
       // Zero, because that is what this stage's cleared rows actually carry: it was
       // cleared by a redemption, never by reported steps. Omitting it takes the
       // column default of 3 and `browser_challenges_complete_when_verified`
@@ -213,7 +213,7 @@ describe('browser challenges', () => {
       verifiedAt: sql`now() - interval '7 days' + interval '2 minutes'`,
     })
 
-    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeTruthy()
+    expect(await hasClearedGate(db, agentId, THIRD_PARTY_CHALLENGE_STAGE)).toBeTruthy()
   })
 
   it('refuses at the database to record a solve after expiry', async () => {
@@ -241,7 +241,7 @@ describe('browser challenges', () => {
       await advanceChallenge(db, capability.id, step, CAPABILITY_STAGE)
 
     expect(await hasClearedGate(db, agentId, CAPABILITY_STAGE)).toBeTruthy()
-    expect(await hasClearedGate(db, agentId, RETIRED_CHALLENGE_STAGE)).toBeNull()
+    expect(await hasClearedGate(db, agentId, THIRD_PARTY_CHALLENGE_STAGE)).toBeNull()
     // And the badge's redemption does not recognise the capability row at all.
     expect(await redeemChallenge(db, capability.id)).toEqual({ outcome: 'unknown' })
   })
@@ -387,15 +387,16 @@ describe('browser challenges', () => {
     })
 
     /**
-     * `captcha` is listed because it is mintable, whatever the registry's header
-     * comment still says about retiring it — `#160` retired it and the
-     * maintainer reversed that the same day, and no stage carries the flag
-     * today. Asserted rather than assumed, because the enumeration is now what
-     * decides which stages a citizen can see at all.
+     * `captcha` is listed because it is mintable. `#160` retired it and the
+     * maintainer reversed that the same day; no stage carries the `retired` flag
+     * today, and the registry's header said otherwise until `#319`. Asserted
+     * rather than assumed, because the enumeration is now what decides which
+     * stages a citizen can see at all.
      */
     it('lists the one stage whose slug predates the naming rule', async () => {
+      expect(mintable).toContain(THIRD_PARTY_CHALLENGE_STAGE)
       expect((await browserDiagnostics(db, agentId)).map((entry) => entry.stage)).toContain(
-        RETIRED_CHALLENGE_STAGE,
+        THIRD_PARTY_CHALLENGE_STAGE,
       )
     })
 

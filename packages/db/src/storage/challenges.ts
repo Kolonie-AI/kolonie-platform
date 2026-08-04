@@ -3,7 +3,7 @@ import {
   BROWSER_STAGES,
   browserStage,
   now as currentTime,
-  RETIRED_CHALLENGE_STAGE,
+  THIRD_PARTY_CHALLENGE_STAGE,
   type AgentId,
   type BrowserStage,
   type Timestamp,
@@ -195,7 +195,7 @@ export async function redeemChallenge(
     .where(
       and(
         eq(browserChallenges.id, challengeId),
-        eq(browserChallenges.kind, RETIRED_CHALLENGE_STAGE),
+        eq(browserChallenges.kind, THIRD_PARTY_CHALLENGE_STAGE),
         isNull(browserChallenges.verifiedAt),
         gt(browserChallenges.expiresAt, sql`now()`),
       ),
@@ -206,7 +206,7 @@ export async function redeemChallenge(
     return { outcome: 'verified', agentId: updated.agentId as AgentId }
   }
 
-  const existing = await readChallenge(db, challengeId, RETIRED_CHALLENGE_STAGE)
+  const existing = await readChallenge(db, challengeId, THIRD_PARTY_CHALLENGE_STAGE)
 
   if (existing === undefined) return { outcome: 'unknown' }
   if (existing.verifiedAt !== null) return { outcome: 'already_verified' }

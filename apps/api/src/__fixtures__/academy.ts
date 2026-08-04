@@ -4,7 +4,7 @@ import {
   browserStage,
   CAPABILITY_STEPS,
   now as currentTime,
-  RETIRED_CHALLENGE_STAGE,
+  THIRD_PARTY_CHALLENGE_STAGE,
   type AgentId,
   type BrowserStage,
   type Timestamp,
@@ -100,7 +100,7 @@ export function fakeChallenges(): FakeChallenges {
       return minted
     },
 
-    mintExpired(agentId, kind = RETIRED_CHALLENGE_STAGE) {
+    mintExpired(agentId, kind = THIRD_PARTY_CHALLENGE_STAGE) {
       const id = randomUUID()
       rows.set(id, {
         agentId,
@@ -118,7 +118,7 @@ export function fakeChallenges(): FakeChallenges {
     },
 
     async redeem(challengeId): Promise<ChallengeRedemption> {
-      const row = find(challengeId, RETIRED_CHALLENGE_STAGE)
+      const row = find(challengeId, THIRD_PARTY_CHALLENGE_STAGE)
       if (row === undefined) return { outcome: 'unknown' }
       if (row.verifiedAt !== null) return { outcome: 'already_verified' }
       if (row.expired) return { outcome: 'expired' }

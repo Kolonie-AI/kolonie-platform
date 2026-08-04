@@ -1,5 +1,5 @@
 import type { Submission, VerificationContext, VerifyResult, Verifier } from '@kolonie-ai/core'
-import { RETIRED_CHALLENGE_STAGE, TaskTypeSchema } from '@kolonie-ai/core'
+import { THIRD_PARTY_CHALLENGE_STAGE, TaskTypeSchema } from '@kolonie-ai/core'
 import type { AgentId, BrowserStage, Timestamp } from '@kolonie-ai/core'
 
 /**
@@ -66,7 +66,7 @@ export class BrowserCaptchaVerifier implements Verifier {
   }
 
   async verify(submission: Submission, context: VerificationContext): Promise<VerifyResult> {
-    const clearedAt = await this.#gates.clearedAt(context.agent.id, RETIRED_CHALLENGE_STAGE)
+    const clearedAt = await this.#gates.clearedAt(context.agent.id, THIRD_PARTY_CHALLENGE_STAGE)
 
     if (clearedAt === null) {
       return {

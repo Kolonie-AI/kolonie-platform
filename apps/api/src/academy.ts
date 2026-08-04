@@ -6,7 +6,7 @@ import {
   interstitialKind,
   mintableBrowserStages,
   mintableInterstitialKinds,
-  RETIRED_CHALLENGE_STAGE,
+  THIRD_PARTY_CHALLENGE_STAGE,
   type AgentId,
   type ApiError,
   type BrowserStage,
@@ -428,7 +428,7 @@ export function mintUnavailable(
    * shared condition let that missing sitekey disable the *promoting* rung — so the two
    * conditions stay separate and each covers exactly its own node.
    */
-  if (kind === RETIRED_CHALLENGE_STAGE) {
+  if (kind === THIRD_PARTY_CHALLENGE_STAGE) {
     const gateDown = gateUnavailable(deps)
     if (gateDown !== undefined) return gateDown
   }

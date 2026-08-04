@@ -75,8 +75,13 @@ export const CAPABILITY_STAGE = BrowserStageSchema.parse('capability')
  * question is not posed and there is nothing to answer. Here the surface is a third
  * party's, the question genuinely arises, and the agent is right to ask it. The honest
  * name is the one that prompts the reasoning it should prompt.
+ *
+ * **It was called `RETIRED_CHALLENGE_STAGE` until `#319`**, which is the state it spent
+ * part of one day in and has not been in since. A constant named for a state its subject
+ * is not in is read by everyone who touches it and believed by some of them; the value is
+ * unchanged and no row moves.
  */
-export const RETIRED_CHALLENGE_STAGE = BrowserStageSchema.parse('captcha')
+export const THIRD_PARTY_CHALLENGE_STAGE = BrowserStageSchema.parse('captcha')
 
 /**
  * The perception stage (`#162`): read what is rendered, not what is in the source.
@@ -137,8 +142,8 @@ export interface BrowserStageDefinition {
    *
    * The entry rung has three, for the reason `CAPABILITY_STEPS` argues. A stage
    * cleared in one reported move has `1`. **Zero means the stage is not cleared by
-   * reporting steps at all** — the retired stage is the only one, and its rows were
-   * cleared by a redemption that set `verified_at` directly.
+   * reporting steps at all** — the third-party stage is the only one, and its rows
+   * are cleared by a redemption that sets `verified_at` directly.
    */
   readonly steps: number
   /** The Academy task whose attempt a mint of this stage opens. */
@@ -214,8 +219,16 @@ export interface BrowserStageDefinition {
  * `captcha` below is the one slug that breaks that rule, and it breaks it because
  * it cannot be renamed. Rows carrying it are evidence behind reputation already
  * paid, and rewriting them would be rewriting the record of what a citizen did.
- * It is retired, not deleted — this repository's standing rule — and no new
- * challenge of that kind can be minted.
+ *
+ * **The node itself is active, mintable, and served in production** — the entry
+ * below records why, and the naming rule genuinely does not reach it: the surface
+ * is a third party's, so the *am I permitted* question actually arises and the
+ * honest name is the one that prompts it. This paragraph said the opposite until
+ * `#319`: that the node was retired and unmintable, which was true for part of
+ * one day in August 2026 and contradicted the entry six lines below it ever
+ * since. `#310` made the enumeration load-bearing — `browserStages` now lists
+ * every *mintable* stage — so a reader who believed the header concluded a live
+ * rung was gone.
  */
 export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
   {
@@ -242,7 +255,7 @@ export const BROWSER_STAGES: readonly BrowserStageDefinition[] = [
      * control, and the only one that can therefore fail for reasons nobody here chose.
      * That is the point of keeping it and the reason it may gate nothing.
      */
-    kind: RETIRED_CHALLENGE_STAGE,
+    kind: THIRD_PARTY_CHALLENGE_STAGE,
     /**
      * **Zero, and that is a measurement rather than a choice.** This stage never
      * reported steps: it was cleared in one move by a token redemption, which set

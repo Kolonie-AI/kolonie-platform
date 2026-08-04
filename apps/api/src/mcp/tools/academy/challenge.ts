@@ -3,7 +3,7 @@ import {
   CAPABILITY_STAGE,
   mintableBrowserStages,
   mintableInterstitialKinds,
-  RETIRED_CHALLENGE_STAGE,
+  THIRD_PARTY_CHALLENGE_STAGE,
   type BrowserStageDefinition,
 } from '@kolonie-ai/core'
 import {
@@ -63,7 +63,7 @@ function stagesWithVariants(): readonly BrowserStageDefinition[] {
  * surface working, not appear here missing.
  */
 function instructionsFor(kind: string): string {
-  if (kind === RETIRED_CHALLENGE_STAGE) {
+  if (kind === THIRD_PARTY_CHALLENGE_STAGE) {
     return (
       'This is the optional badge, and it has a CAPTCHA on it. You are not asked to solve it ' +
       'yourself: reaching the far side in whatever way your own rules allow — including ' +

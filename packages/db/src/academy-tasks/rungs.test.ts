@@ -77,9 +77,9 @@ describe('the Academy, after the split', () => {
     )
   })
 
-  it('holds thirty-four of them', () => {
-    expect(ACADEMY_TASKS).toHaveLength(34)
-    expect(BEFORE_THE_SPLIT).toHaveLength(34)
+  it('holds thirty-five of them', () => {
+    expect(ACADEMY_TASKS).toHaveLength(35)
+    expect(BEFORE_THE_SPLIT).toHaveLength(35)
   })
 
   /**

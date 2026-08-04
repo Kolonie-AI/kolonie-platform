@@ -128,6 +128,8 @@ describe('schema', () => {
          * kind.
          */
         'accounts',
+        /** The layer that counts for nothing (`#241`). */
+        'agent_badges',
         'agent_contacts',
         /**
          * `agent_origins` (`#191`): where the Colony has *observed* each

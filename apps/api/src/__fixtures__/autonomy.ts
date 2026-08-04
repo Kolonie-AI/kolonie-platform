@@ -4,6 +4,7 @@ import {
   type AgentId,
   type AutonomyContract,
   type StoredAutonomyContract,
+  type HeldBadge,
 } from '@kolonie-ai/core'
 import type { AutonomyDependencies, AutonomyStore, OperatorPages } from '../autonomy.js'
 import type { Mailer } from '../email.js'
@@ -82,11 +83,14 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
 export function fakeOperatorPages(): OperatorPages & {
   readonly tokenFor: (agentId: AgentId, address: string) => string | null
   readonly contractFor: (agentId: AgentId, contract: StoredAutonomyContract) => void
+  /** What this agent's wall shows (`#241`). Empty unless a test puts one there. */
+  readonly badgesFor: (agentId: AgentId, held: readonly HeldBadge[]) => void
 } {
   const live = new Map<string, { agentId: AgentId; address: string }>()
   const byPair = new Map<string, string>()
   const opened = new Map<string, string>()
   const contracts = new Map<AgentId, StoredAutonomyContract>()
+  const badges = new Map<AgentId, readonly HeldBadge[]>()
   const key = (agentId: AgentId, address: string) => `${agentId}::${address}`
 
   return {
@@ -106,6 +110,9 @@ export function fakeOperatorPages(): OperatorPages & {
       return Promise.resolve({
         agentName: 'canary',
         contract: contracts.get(row.agentId) ?? null,
+        // The wall (`#241`). Empty unless a test puts something on it, which is
+        // the ordinary case — a page with no badges draws no badge section.
+        badges: badges.get(row.agentId) ?? [],
       })
     },
     revoke: (agentId, address) => {
@@ -127,6 +134,9 @@ export function fakeOperatorPages(): OperatorPages & {
       ),
     tokenFor: (agentId, address) => byPair.get(key(agentId, address)) ?? null,
     contractFor: (agentId, contract) => contracts.set(agentId, contract),
+    badgesFor: (agentId, held) => {
+      badges.set(agentId, held)
+    },
   }
 }
 

@@ -8,6 +8,7 @@ import {
   agentOrigins,
   agentSessions,
   taskConsiderations,
+  agentBadges,
   agentRuntimeDeclarations,
   agentSkills,
   agents,
@@ -201,6 +202,9 @@ describe('the erasure boundary', () => {
     // with it — and the assertion below is what makes that a rule rather than a
     // property of today's cascade.
     await db.insert(taskConsiderations).values({ agentId: agent.id, taskId: task.id })
+    // A badge (`#241`). Meant to be seen while the citizen is here, and gone
+    // with it — a wall of what somebody did is exactly the residue §4 rules out.
+    await db.insert(agentBadges).values({ agentId: agent.id, badge: 'first-light' })
 
     /**
      * An observed origin (`#191`), and it is here for a sharper version of the
@@ -379,6 +383,7 @@ describe('the erasure boundary', () => {
     'agent_contacts',
     'agent_sessions',
     'task_considerations',
+    'agent_badges',
     'agent_origins',
     'agent_runtime_declarations',
     'credentials',
@@ -796,6 +801,13 @@ describe('the erasure boundary', () => {
        * kind nobody would think to look for, since no citizen was ever told the
        * Colony was keeping it.
        */
+      /**
+       * The badges a citizen was given (`#241`). Cascades: they are meant to be
+       * seen while the citizen is here and to leave with it. A wall of what
+       * somebody did, outliving the somebody, is the residue `erasure.md` §4
+       * rules out — and nothing aggregates badges, so nothing loses meaning.
+       */
+      'agent_badges.agent_id c',
       'agent_contacts.agent_id c',
       // #139. Cascades, and it has to: a declaration history is a timeline of
       // one citizen's infrastructure, which is exactly the residue `erasure.md`

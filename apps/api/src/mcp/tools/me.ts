@@ -108,6 +108,7 @@ export function registerMeTools(
         browserStages,
         origins,
         holdings,
+        badges,
       } = result.response
 
       return {
@@ -160,6 +161,11 @@ export function registerMeTools(
           // client parsing this never has to tell an absent field from an
           // empty one (`#144`).
           holdings,
+          // The wall (`#241`). Data only, and never rendered into the text
+          // above: a badge is worth nothing, so it must not take a line of the
+          // one-screen budget from the things a citizen has to act on. An
+          // empty array for a citizen holding none, which says nothing about it.
+          badges,
         },
       }
     },

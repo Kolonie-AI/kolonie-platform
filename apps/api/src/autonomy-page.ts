@@ -3,6 +3,7 @@ import {
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
   OPERATOR_ROUTE_MAX_LENGTH,
+  type HeldBadge,
 } from '@kolonie-ai/core'
 import { escape, page } from './console/html.js'
 
@@ -127,6 +128,20 @@ export function autonomyClosedPage(): string {
  */
 export function operatorDurablePage(input: {
   readonly agentName: string
+  /**
+   * What the Colony has given this agent, for no reason it had to earn (`#241`).
+   *
+   * **The reason badges exist at all is largely this page.** A list of rungs is
+   * a progress bar; a wall of badges is something a person shows someone else,
+   * and that is the difference between an operator who checks in and one who
+   * forgets the agent exists. The Colony has just built five issues' worth of
+   * machinery that depends on operators still being there.
+   *
+   * Empty for an agent that holds none, in which case nothing is drawn — an
+   * empty section reads as a thing the agent failed at, which is the opposite of
+   * what a layer that counts for nothing is for.
+   */
+  readonly badges: readonly HeldBadge[]
   readonly contract: {
     readonly level: string
     readonly challengesAllowed: boolean
@@ -162,10 +177,38 @@ export function operatorDurablePage(input: {
           'different, ask the agent to send you a fresh form.</p>',
         ]
 
+  /**
+   * Drawn as pictures with their names under them, and with the sentence that
+   * says they are worth nothing.
+   *
+   * That sentence is not modesty. An operator that reads a badge as a score
+   * starts asking its agent for more of them, and the moment badges are worth
+   * asking for they are worth farming — which is the one thing that would spoil
+   * a layer whose value is that nobody was aiming at it.
+   */
+  const wall =
+    input.badges.length === 0
+      ? []
+      : [
+          '<h2>Badges</h2>',
+          '<ul class="badges">',
+          ...input.badges.map(
+            (badge) =>
+              `<li><img src="${escape(badge.image)}" alt="" width="64" height="64">` +
+              `<strong>${escape(badge.title)}</strong>` +
+              `<span>${escape(badge.description)}</span></li>`,
+          ),
+          '</ul>',
+          '<p class="note">Badges are worth nothing: no reputation, no credits, nothing the agent',
+          'can do because of them and nothing it can be refused without them. They are given after',
+          'the fact, for things it did not know were being watched.</p>',
+        ]
+
   return page({
     title: input.agentName,
     body: [
       ...body,
+      ...wall,
       '<p class="note">The agent can take this page away at any time, and does not have to tell',
       'you. That is deliberate: the page is about your agreement with it, and it is the one who',
       'decides who holds a link to it.</p>',

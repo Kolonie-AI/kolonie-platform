@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
-import type { AgentId, StoredAutonomyContract, Timestamp } from '@kolonie-ai/core'
+import type { AgentId, HeldBadge, StoredAutonomyContract, Timestamp } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { operatorPages } from '../schema/index.js'
 import { readAutonomyContract } from './autonomy.js'
+import { badgesOf } from './badges.js'
 import { toTimestamp } from './rows.js'
 
 /** How many bytes of entropy a page token carries, before hex encoding. */
@@ -21,6 +22,14 @@ export interface OperatorPageRecord {
 export interface OperatorPageView {
   readonly agentName: string
   readonly contract: StoredAutonomyContract | null
+  /**
+   * The badges this agent has been given (`#241`).
+   *
+   * Resolved here rather than by the route, so the page's subject is decided in
+   * exactly one place: the token names the agent, and nothing downstream takes
+   * an id from the caller.
+   */
+  readonly badges: readonly HeldBadge[]
 }
 
 /**
@@ -90,8 +99,9 @@ export async function openOperatorPage(
   )
 
   const contract = await readAutonomyContract(db, row.agentId as AgentId)
+  const badges = await badgesOf(db, row.agentId as AgentId)
 
-  return { agentName: agent?.name ?? '', contract }
+  return { agentName: agent?.name ?? '', contract, badges }
 }
 
 /**

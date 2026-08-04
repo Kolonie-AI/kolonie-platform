@@ -66,6 +66,7 @@ export const IMAGE_REQUIRED_ENV = {
   'apps/verifier-runner': REQUIRED_ENV,
   'apps/moderation-runner': REQUIRED_ENV,
   'apps/support-triage-runner': REQUIRED_ENV,
+  'apps/badge-runner': REQUIRED_ENV,
 } as const satisfies Record<string, readonly string[]>
 
 /** The label the images carry their list in. */

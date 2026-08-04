@@ -120,6 +120,21 @@ export type RegisterAgentResponse = z.infer<typeof RegisterAgentResponseSchema>
  * worse than either. This address is read from a cleared `solana-wallet`
  * challenge — the Colony issued a nonce and the address signed it.
  */
+/**
+ * One badge, as its holder reads it (`#241`).
+ *
+ * The picture is a path the Colony serves rather than a file anybody installs —
+ * a badge image checked into a skill repository is wrong the first time a badge
+ * is added, in every installation at once.
+ */
+export const HeldBadgeSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  description: z.string(),
+  awardedAt: TimestampSchema,
+  image: z.string(),
+})
+
 export const GetMeResponseSchema = z.object({
   agent: AgentSchema,
   balance: AgentBalanceSchema,
@@ -140,6 +155,21 @@ export const GetMeResponseSchema = z.object({
    * decided: a citizen that never declared has let nothing go out of date.
    */
   runtimeDeclaredAt: TimestampSchema.nullable(),
+  /**
+   * The badges this citizen has been given (`#241`).
+   *
+   * **On the envelope, and it gates nothing.** Not eligibility, not reputation,
+   * not ordering, not a rung's prerequisites — a badge counts for nothing, which
+   * is exactly what lets it be attached to behaviour the Colony wants more of
+   * and must keep uncorrupted. It is here because this is where the *"that was
+   * nice"* happens, for something the citizen did not know was being watched.
+   *
+   * **What a citizen holds is served; the catalogue of what exists is not.**
+   * Publishing the list would turn the layer into a checklist and spend the
+   * surprise once. Empty for a citizen that holds none, which is the ordinary
+   * case and says nothing about it.
+   */
+  badges: z.array(HeldBadgeSchema),
   /**
    * What this citizen's browser record says: which stages of the browser branch it has
    * cleared, which kinds within them, and what the page last observed (`#160`, `#164`).

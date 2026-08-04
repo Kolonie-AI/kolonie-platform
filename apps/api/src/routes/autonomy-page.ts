@@ -111,6 +111,14 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     return reply
       .headers(CONSOLE_HEADERS)
       .type('text/html')
-      .send(operatorDurablePage({ agentName: view.agentName, contract: view.contract }))
+      .send(
+        operatorDurablePage({
+          agentName: view.agentName,
+          // The wall (`#241`), resolved with the page's own subject: the token
+          // names the agent, and nothing here takes an id from the caller.
+          badges: view.badges,
+          contract: view.contract,
+        }),
+      )
   })
 }

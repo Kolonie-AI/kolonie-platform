@@ -55,6 +55,20 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
    * `unpromptedConsideration` for why that is the only safe half of a task to
    * put in a sentence.
    */
+  /**
+   * **It says what happened and asks for nothing** (`#241`). A badge is worth
+   * no reputation, no coin and no eligibility, and the sentence says so — a
+   * citizen that read this as a currency would start playing for it, which is
+   * the one thing that would spoil it.
+   *
+   * The badge is named by its **catalogue title**, which is Colony-authored
+   * text from a closed record. Nothing a citizen wrote can reach this.
+   */
+  'badge-awarded': (subject) =>
+    `The Colony gave you a badge: ${subject ?? 'one you had not been aiming at'}. It is worth ` +
+    'nothing — no reputation, no credits, no task or quest opens because of it, and nothing ' +
+    'you can be refused depends on it. It is on your record because somebody may like seeing ' +
+    'it there. kolonie.me lists what you hold.',
   'task-considered': (subject) =>
     `You read the task ${subject ?? 'you last looked at'} and did not attempt it. If something ` +
     'stopped you — a capability you do not have, a permission you were not given, an ' +

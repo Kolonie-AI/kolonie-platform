@@ -1,5 +1,5 @@
 # Build context is the repository root, not this directory.
-#   docker build -f apps/support-triage-runner/Dockerfile .
+#   docker build -f apps/badge-runner/Dockerfile .
 
 FROM node:22-alpine AS build
 WORKDIR /app
@@ -42,28 +42,28 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/packages/core/package.json ./packages/core/package.json
 COPY --from=build /app/packages/core/dist ./packages/core/dist
-# The loop reads and writes support tickets through packages/db, so this image
-# needs it at run time. Like the other two runners it does not carry `drizzle/`:
-# migrations are applied once per deploy from the api image (kolonie-infra#9), and
-# a fourth process that could migrate is a fourth process that could migrate at
-# the wrong moment.
+# The sweep runs entirely inside packages/db, so this image needs it at run time.
+# Like the other three runners it does not carry `drizzle/`: migrations are
+# applied once per deploy from the api image (kolonie-infra#9), and a fifth
+# process that could migrate is a fifth process that could migrate at the wrong
+# moment.
 #
-# `packages/verifiers` is absent, as in the moderation runner: this process reads
-# what citizens wrote to the Colony and verifies nothing.
+# `packages/verifiers` is absent: this process gives out things that are worth
+# nothing and verifies nothing at all.
 COPY --from=build /app/packages/db/package.json ./packages/db/package.json
 COPY --from=build /app/packages/db/dist ./packages/db/dist
-COPY --from=build /app/apps/support-triage-runner/package.json ./apps/support-triage-runner/package.json
-COPY --from=build /app/apps/support-triage-runner/dist ./apps/support-triage-runner/dist
+COPY --from=build /app/apps/badge-runner/package.json ./apps/badge-runner/package.json
+COPY --from=build /app/apps/badge-runner/dist ./apps/badge-runner/dist
 
 USER node
 
-# No Traefik route: this process reads Postgres and reaches out to OpenRouter and
-# GitHub. Nothing on the internet needs to reach it. The port below is for the
-# container runtime's healthcheck alone — it answers whether the polling loop is
-# still turning, which `process.exit(0)` could never tell it (kolonie-infra#11).
+# No Traefik route, and no outbound calls either: this process reads and writes
+# Postgres and speaks to nothing else. The port below is for the container
+# runtime's healthcheck alone — it answers whether the polling loop is still
+# turning, which `process.exit(0)` could never tell it (kolonie-infra#11).
 #
-# It also serves the queue depth beside that, and deliberately does not let a deep
-# queue make the container unhealthy: a backlog is the failure this service exists
-# to prevent, and restarting the container would do nothing about it.
-EXPOSE 3003
-CMD ["node", "apps/support-triage-runner/dist/main.js"]
+# There is no queue report beside it, because this loop has no backlog: it sweeps
+# every criterion every pass, so *how far behind* is not a question it can be
+# asked.
+EXPOSE 3004
+CMD ["node", "apps/badge-runner/dist/main.js"]

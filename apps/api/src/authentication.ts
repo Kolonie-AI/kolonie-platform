@@ -8,10 +8,12 @@ import {
   type ApiError,
   type GetMeResponse,
   type SessionDeclaration,
+  type HeldBadge,
 } from '@kolonie-ai/core'
 import {
   authenticateApiKey,
   authenticateSession,
+  badgesOf,
   balanceOfAgent,
   contactGaps,
   holdingsOf,
@@ -140,6 +142,16 @@ export interface AgentStore extends ProfileStore {
    * reached for the listing would open sixty-four envelopes for one integer.
    */
   holdingsOf(agentId: AgentId): Promise<AgentHoldings>
+  /**
+   * The badges this citizen has been given (`#241`).
+   *
+   * On this interface because `kolonie.me` is where a citizen sees its own, and
+   * only ever the caller's own — there is no agent-id a route could aim at
+   * somebody else. Not because badges are private (they are the one thing here
+   * meant to be seen) but because each surface that shows them resolves its own
+   * subject.
+   */
+  badgesOf(agentId: AgentId): Promise<readonly HeldBadge[]>
 }
 
 /**
@@ -239,6 +251,7 @@ export function databaseStore(db: Database): AgentStore {
     authenticate: (apiKey) => authenticateApiKey(db, apiKey),
     authenticateSession: (session) => authenticateSession(db, session),
     balanceOf: (agentId) => balanceOfAgent(db, agentId),
+    badgesOf: (agentId) => badgesOf(db, agentId),
     verifiedWalletOf: (agentId) => verifiedSolanaAddress(db, agentId),
     lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
     nameSession: async (agentId, declaration) => {
@@ -384,6 +397,9 @@ export async function me(
   // place it is calling from right now, not the state before it asked.
   const origins = await store.originsOf(authenticated.agent.id)
   const holdings = await store.holdingsOf(authenticated.agent.id)
+  // The wall (`#241`). Read here rather than by a route of its own: badges are
+  // meant to be seen, and this is the read where the citizen sees its own.
+  const badges = await store.badgesOf(authenticated.agent.id)
 
   return {
     outcome: 'found',
@@ -396,6 +412,7 @@ export async function me(
       browserStages,
       origins: [...origins],
       holdings,
+      badges: [...badges],
     },
   }
 }

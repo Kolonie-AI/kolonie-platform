@@ -1,5 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import {
+  BADGE_CATALOGUE,
   chooseStandingHint,
   considerationGapHours,
   type AgentId,
@@ -8,6 +9,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, agentSessions, taskConsiderations } from '../schema/index.js'
 import { currentSessionIdSql } from './sessions.js'
+import { markBadgeTold, untoldBadge } from './badges.js'
 
 /**
  * Which standing hint this citizen is due, if any, and the claiming of it
@@ -36,6 +38,8 @@ interface Standing {
   readonly slot: string | null
   /** The `task_considerations` row behind a `task-considered` finding, if any. */
   readonly consideration: string | null
+  /** The `agent_badges` row behind a `badge-awarded` finding, if any. */
+  readonly badge: string | null
 }
 
 /**
@@ -140,17 +144,30 @@ async function unpromptedConsideration(
 async function standing(db: Database | Transaction, agentId: AgentId): Promise<Standing | null> {
   const cheap = await slotAndCheapConditions(db, agentId)
   if (cheap === null) return null
-  if (cheap.slot === null) return { applicable: [], slot: null, consideration: null }
+  if (cheap.slot === null) {
+    return { applicable: [], slot: null, consideration: null, badge: null }
+  }
 
-  const considered = await unpromptedConsideration(db, agentId, cheap.declaredRhythmHours)
+  const [considered, badge] = await Promise.all([
+    unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
+    untoldBadge(db, agentId),
+  ])
 
   const applicable: StandingHintFinding[] = []
+  if (badge !== null) {
+    applicable.push({ code: 'badge-awarded', subject: BADGE_CATALOGUE[badge.slug].title })
+  }
   if (cheap.rhythmUndeclared) applicable.push({ code: 'rhythm-undeclared', subject: null })
   if (considered !== null) {
     applicable.push({ code: 'task-considered', subject: considered.taskType })
   }
 
-  return { applicable, slot: cheap.slot, consideration: considered?.id ?? null }
+  return {
+    applicable,
+    slot: cheap.slot,
+    consideration: considered?.id ?? null,
+    badge: badge?.id ?? null,
+  }
 }
 
 /**
@@ -226,6 +243,11 @@ export async function dueStandingHint(
     if (chosen.code === 'task-considered') {
       if (found.consideration === null) return null
       if (!(await claimConsideration(db, found.consideration))) return null
+    }
+
+    if (chosen.code === 'badge-awarded') {
+      if (found.badge === null) return null
+      if (!(await markBadgeTold(db, found.badge))) return null
     }
 
     return chosen

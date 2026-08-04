@@ -158,7 +158,11 @@ describe('the migrations', () => {
     // whether the Colony has asked about it. Its own table because
     // `task_attempts` cannot hold it — a citizen that opened no attempt has no
     // row there, which is exactly the case being made visible.
-    expect(afterFirst.tables).toBe('52')
+    // And the layer that counts for nothing makes **fifty-three** (`#241`):
+    // `agent_badges`, given out by a sweep for things a citizen did not know
+    // were being watched. Its own table because it is deliberately outside
+    // everything that decides — nothing about a badge may reach a skill row.
+    expect(afterFirst.tables).toBe('53')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -220,6 +220,43 @@ describe('the operator’s form', () => {
     })
 
     /**
+     * `#241`: the reason badges exist at all. A list of rungs is a progress bar;
+     * a wall of badges is something a person shows someone else, and that is the
+     * difference between an operator who checks in and one who forgets the agent
+     * exists.
+     *
+     * **The sentence saying they are worth nothing goes with them**, and that is
+     * not modesty: an operator that reads a badge as a score starts asking its
+     * agent for more of them, and the moment badges are worth asking for they
+     * are worth farming.
+     */
+    it('shows the badges its agent was given, and says they are worth nothing', async () => {
+      pages.badgesFor(agentId, [
+        {
+          slug: 'first-light',
+          title: 'First light',
+          description: 'You passed your first rung of the Academy.',
+          awardedAt: '2026-08-04T00:00:00.000Z',
+          image: '/badges/first-light.svg',
+        },
+      ])
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.body).toContain('First light')
+      expect(response.body).toContain('/badges/first-light.svg')
+      expect(response.body).toContain('worth nothing')
+    })
+
+    /** A page with no badges draws no badge section, rather than an empty one. */
+    it('draws no wall for an agent that holds none', async () => {
+      const token = await aPage()
+
+      expect((await get(`/operator/page/${token}`)).body).not.toContain('Badges')
+    })
+
+    /**
      * The load-bearing property of `#146`'s safety argument: a leaked link is an
      * embarrassment rather than a compromise *because there is nothing behind it*.
      * kolonie-platform#239 intends to change this and owes a new argument.

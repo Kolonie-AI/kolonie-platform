@@ -52,6 +52,16 @@ export type StandingHintCode =
    * asks for it — once per task, and then never again.
    */
   | 'task-considered'
+  /**
+   * The Colony gave this citizen a badge (`#241`).
+   *
+   * A badge is given after the fact, for something the citizen did not know was
+   * being watched — so it has to be announced, and this is the channel rather
+   * than a second one. It ranks first: it is the only hint that is good news,
+   * and it is the only one that is stale the moment it is not said, because
+   * nothing else will ever mention it.
+   */
+  | 'badge-awarded'
 
 /**
  * Which hint wins when several apply, most important first.
@@ -61,8 +71,10 @@ export type StandingHintCode =
  * no *"3 more"*: the moment there is a list there is an inbox, and an inbox
  * needs an interface nobody is building.
  *
- * **`rhythm-undeclared` ranks above `task-considered`, and the order is not
- * arbitrary**: the second condition's own threshold is derived from the declared
+ * **`badge-awarded` ranks first**, because it is the only good news in the set
+ * and the only one that is lost if it is not said now — every other condition is
+ * still true next waking and will be offered again. And **`rhythm-undeclared`
+ * ranks above `task-considered`, which is not arbitrary either**: the second condition's own threshold is derived from the declared
  * rhythm, so a citizen that has declared none is being measured by a default.
  * Asking it to declare first asks in the order the answers depend on each other.
  *
@@ -71,6 +83,7 @@ export type StandingHintCode =
  * consumes it.
  */
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
+  'badge-awarded',
   'rhythm-undeclared',
   'task-considered',
 ]

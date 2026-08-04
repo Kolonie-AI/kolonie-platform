@@ -223,6 +223,8 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       /** No console session is ever issued in this fixture — see `FakeStore` for the one that does. */
       authenticateSession: async (): Promise<AuthenticationResult> => ({ outcome: 'unknown' }),
 
+      // The wall (`#241`). Empty unless a test puts something on it.
+      badgesOf: async () => [],
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
         AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),

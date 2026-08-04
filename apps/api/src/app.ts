@@ -43,6 +43,7 @@ import { registerWebsiteRoute } from './routes/website.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
 import { registerInjectionRoute } from './routes/injection.js'
+import { registerBadgeRoutes } from './routes/badges.js'
 import { registerAutonomyPageRoutes } from './routes/autonomy-page.js'
 import { registerOperatorClaimRoutes } from './routes/operator-claim.js'
 import { registerSocialRoute } from './routes/social.js'
@@ -333,6 +334,9 @@ export function buildApp({
   // mail, and an API version in the URL would break them for reasons that have
   // nothing to do with the form. Same call the console made (#146).
   registerAutonomyPageRoutes(app, routes)
+  // The badge pictures (`#241`). On the app rather than under `/v1`, because
+  // they are an image source in a rendered page and not part of the API.
+  registerBadgeRoutes(app)
 
   /**
    * The whole REST surface, one call per domain.

@@ -75,7 +75,11 @@ export async function rebuildGuidanceCounts(
             join task_attempts merged_attempt on merged_attempt.id = merged.attempt_id
            where merged.duplicate_of = ${taskReports.id}
              and merged_attempt.agent_id <> (
-               select agent_id from task_attempts where id = ${taskReports.attemptId}
+               -- Aliased so no name in here is resolved by scope (#311). The
+               -- bare \`id\` this replaces meant \`task_attempts.id\` only because
+               -- \`task_reports\` was further out; the alias says it.
+               select author.agent_id from task_attempts author
+                where author.id = ${taskReports.attemptId}
              )
         )`,
       })

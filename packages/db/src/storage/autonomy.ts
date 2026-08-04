@@ -94,7 +94,21 @@ export async function openAutonomyForm(
   const [row] = await db
     .select({
       agentId: autonomyFormInvitations.agentId,
-      agentName: sql<string>`(select name from agents where agents.id = ${autonomyFormInvitations.agentId})`,
+      /**
+       * **Both tables written out, and the inner one aliased** (`#311`).
+       *
+       * This was `agents.id = ${autonomyFormInvitations.agentId}`, which renders
+       * as `agents.id = "agent_id"` — a select field of a single-table query is
+       * where Drizzle drops the table name. The bare `"agent_id"` resolves
+       * outward only because `agents` has no column of that name. Adding one
+       * would bind it inward and name the wrong citizen on every form, from a
+       * query that still returns a row.
+       *
+       * The cost, the same trade `heldSkillsSql` states: with no table object
+       * interpolated, renaming either table stops being a compile error here. A
+       * rename breaks loudly at the first query; this bug does not break at all.
+       */
+      agentName: sql<string>`(select named.name from agents named where named.id = autonomy_form_invitations.agent_id)`,
     })
     .from(autonomyFormInvitations)
     .where(

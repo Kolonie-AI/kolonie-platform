@@ -71,6 +71,32 @@ import { fileURLToPath } from 'node:url'
  * Same technique as `required-env.test.ts` and the session check in
  * `storage/sessions.test.ts`, and for the same reason: the failure is invisible
  * from any single file, so no test that exercises a code path can find it.
+ *
+ * ## Text cannot decide it, and this is what compensates (`#311`)
+ *
+ * Everything above is a proxy. The question is *does this fragment render a bare
+ * identifier*, and the answer depends on the query it is embedded in — which is
+ * usually in another function and sometimes in another file. This check reads one
+ * file at a time and cannot see that, and the list below is the price: entries
+ * argued rather than decided, two of which were wrong until `#246`.
+ *
+ * **The half that decides is `bare-identifiers.ts`**, which reads the rendered
+ * SQL and is wired into `connectForTests` as postgres.js's `debug` hook. Every
+ * statement the suite executes is checked, so a fragment is judged in every shape
+ * a test puts it in — including shapes nobody thought to list, and including the
+ * hand-written SQL in the data migrations, which this file never looked at. It
+ * costs nothing measurable: 46.5 s against 46.7 s and 46.6 s with the hook
+ * removed, on 2026-08-04.
+ *
+ * **Neither half is redundant.** The hook cannot see a call site no test reaches
+ * — `extendSceneChallenge` is one, and `#311` rendered it by hand rather than
+ * assume — and this file cannot see position. A fragment is safe when both agree.
+ *
+ * `#311` read all 23 fragments this way. Two were wrong, both in the shape one
+ * unqualified side is enough for: `autonomy.ts` rendered
+ * `agents.id = "agent_id"` and `standing-hints.ts` rendered `t.id = "task_id"`,
+ * each correct only because the inner table had no column of that name. Both are
+ * written out now, and neither interpolates a table variable any more.
  */
 describe('a subquery never interpolates columns of two tables', () => {
   /**

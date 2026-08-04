@@ -1,5 +1,6 @@
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { sql } from 'drizzle-orm'
+import { assertNoBareOuterReference } from './bare-identifiers.js'
 import { createDatabase, databaseUrlFromEnv, DATABASE_URL_VAR, type Database } from './client.js'
 import { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA } from './migrations.js'
 
@@ -341,7 +342,24 @@ export async function connectForTests(
 ): Promise<Database> {
   await recreateFromTemplate(url, baseUrl)
 
-  const db = createDatabase(url, { max: 1, onnotice: () => {} })
+  const db = createDatabase(url, {
+    max: 1,
+    onnotice: () => {},
+    /**
+     * **Every statement the tests run is read for the `#183` defect** (`#311`).
+     *
+     * Whether a `sql` fragment renders a bare identifier is decided at its call
+     * site — select-field position *and* a single-table query — so no amount of
+     * reading the fragment settles it, which is what `bare-identifiers.test.ts`
+     * says about itself. This is the other half: the rendering is right here, and
+     * a fragment gets judged in every shape a test puts it in.
+     *
+     * It throws, so the failure lands on the query that produced it rather than
+     * in a summary at the end of the run. Here and not in `createDatabase`,
+     * because nothing about this belongs in a running service.
+     */
+    debug: (_connection, query) => assertNoBareOuterReference(query),
+  })
   poolsByDatabase.set(databaseNameOf(url), db)
   return db
 }

@@ -132,8 +132,15 @@ async function unpromptedConsideration(
        * the only thing about the task that reaches the sentence. A title would
        * be authored text, and the rule this channel is built on is that no
        * authored string travels in it (`#231`).
+       *
+       * **The outer reference is written out rather than interpolated** (`#311`).
+       * `${taskConsiderations.taskId}` rendered as a bare `"task_id"` here —
+       * select field, single-table query — and resolved outward only because
+       * `tasks` has no `task_id` column. The `where` fragment below is the same
+       * expression in a position Drizzle qualifies, which is why one is written
+       * out and the other is not.
        */
-      taskType: sql<string>`(select t.type from tasks t where t.id = ${taskConsiderations.taskId})`,
+      taskType: sql<string>`(select t.type from tasks t where t.id = task_considerations.task_id)`,
     })
     .from(taskConsiderations)
     .where(

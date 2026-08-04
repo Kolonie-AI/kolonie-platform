@@ -862,10 +862,10 @@ describe('booking a passed submission', () => {
 
         await pass(submissionId)
 
-        // Half of each, floored — the constant is core's, not restated here.
+        // Half of each, rounded up — the constant is core's, not restated here.
         expect(await balanceOfAgent(db, agentId)).toMatchObject({
-          credits: Math.floor((10 * UNDECLARED_REWARD_PERCENT) / 100),
-          reputation: Math.floor((5 * UNDECLARED_REWARD_PERCENT) / 100),
+          credits: Math.ceil((10 * UNDECLARED_REWARD_PERCENT) / 100),
+          reputation: Math.ceil((5 * UNDECLARED_REWARD_PERCENT) / 100),
         })
 
         // An entry that booked 5 where the task says 10 has to say why, or an
@@ -939,8 +939,8 @@ describe('booking a passed submission', () => {
         .from(ledgerEntries)
         .where(eq(ledgerEntries.accountKind, 'system'))
 
-      // 11 at the full rate, then 5 twice — floored, not rounded.
-      expect(Number(minted?.total ?? '0')).toBe(-(11 + 5 + 5))
+      // 11 at the full rate, then 6 twice — half of an odd reward rounds up.
+      expect(Number(minted?.total ?? '0')).toBe(-(11 + 6 + 6))
     })
   })
 })

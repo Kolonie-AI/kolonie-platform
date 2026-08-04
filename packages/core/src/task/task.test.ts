@@ -47,10 +47,33 @@ describe('rewardFor', () => {
     expect(rewardFor(reward, 'unknown')).toEqual(rewardFor(reward, 'operator-performed'))
   })
 
-  it('rounds down, so the Colony never pays a credit it did not decide to', () => {
+  it('rounds up, so an odd reward is reduced rather than erased', () => {
     expect(rewardFor({ credits: 7, reputation: 1 }, 'unknown')).toEqual({
-      credits: 3,
-      reputation: 0,
+      credits: 4,
+      reputation: 1,
+    })
+  })
+
+  /**
+   * The invariant `#281` was filed about, stated on its own so that a later
+   * change to the rounding has to break it by name. Six rungs advertise a
+   * reputation of `1`; under the old floor every one of them paid nothing to
+   * every citizen that did not declare `none`, and `autonomy-contract` cannot
+   * be passed with `none` at all.
+   */
+  it('never pays nothing for a reward the task advertised as something', () => {
+    for (const assistance of ['unknown', 'operator-provided', 'operator-performed'] as const) {
+      const paid = rewardFor({ credits: 1, reputation: 1 }, assistance)
+
+      expect(paid.credits).toBeGreaterThan(0)
+      expect(paid.reputation).toBeGreaterThan(0)
+    }
+  })
+
+  it('still reduces every reward large enough to have a lower whole unit', () => {
+    expect(rewardFor({ credits: 2, reputation: 3 }, 'unknown')).toEqual({
+      credits: 1,
+      reputation: 2,
     })
   })
 

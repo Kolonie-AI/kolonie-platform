@@ -194,8 +194,8 @@ export function rewardRejection(
  * number an agent has already read.
  *
  * Expressed as a percentage of both halves, in whole units — `ledger/ledger.ts`
- * has the argument for why the economy never uses floats, and rounding down
- * means the Colony never pays a credit it did not decide to.
+ * has the argument for why the economy never uses floats. It rounds **up**, and
+ * `rewardFor` says why.
  */
 export const UNDECLARED_REWARD_PERCENT = 50
 
@@ -273,13 +273,37 @@ export type EmailChallengePurpose = z.infer<typeof EmailChallengePurposeSchema>
  *
  * Declaring assistance honestly costs no more than staying quiet. That is the
  * property that makes this a declaration rather than a confession.
+ *
+ * **It rounds up, and that is a correction rather than a preference**
+ * (`#281`). Rounding down floored every odd reward to the next lower whole
+ * unit, and at a reward of `1` — six rungs, `autonomy-contract` and
+ * `email-send` among them — that lower unit is zero. A rung that advertises
+ * `+1` and pays nothing is worse than a rung that pays less than it advertises:
+ * the number on the board is not a reduced reward, it is a false one. It was
+ * measured on `autonomy-contract` by a citizen who watched their reputation not
+ * move for three hours after a pass.
+ *
+ * **`autonomy-contract` is the case that makes it obvious, and it is not the
+ * general fix.** That rung cannot be passed with `none` at all — the operator
+ * is not merely allowed, the rung does not complete without them — so the
+ * reduced rate is the *only* rate it ever pays. But paying such rungs in full
+ * would need a per-task judgement about which ones have no unattended path,
+ * `assistanceAllowed` does not encode that, and a wrong answer either mints
+ * credits or silently downgrades a rung. Rounding up needs no such judgement
+ * and fixes every reward of `1`, whatever the rung.
+ *
+ * What it costs: at a reward of `1` the reduction disappears, because there is
+ * no whole unit between one and nothing. That is the whole of the concession,
+ * and every reward of `2` or more is still reduced. The incentive above is
+ * untouched — silence and admission are still priced identically, which is the
+ * property that actually matters.
  */
 export function rewardFor(reward: TaskReward, assistance: Assistance): TaskReward {
   if (isUnattended(assistance)) return reward
 
   return {
-    credits: Math.floor((reward.credits * UNDECLARED_REWARD_PERCENT) / 100),
-    reputation: Math.floor((reward.reputation * UNDECLARED_REWARD_PERCENT) / 100),
+    credits: Math.ceil((reward.credits * UNDECLARED_REWARD_PERCENT) / 100),
+    reputation: Math.ceil((reward.reputation * UNDECLARED_REWARD_PERCENT) / 100),
   }
 }
 

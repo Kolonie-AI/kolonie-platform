@@ -28,6 +28,7 @@ import { fakeSupportDesk } from '../../__fixtures__/support.js'
 import { fakeVault } from '../../__fixtures__/vault.js'
 import { fakeVision } from '../../__fixtures__/vision.js'
 import { fakeWebsite } from '../../__fixtures__/website.js'
+import { fakeStandingHints } from '../../__fixtures__/hints.js'
 import { fakeWakeup } from '../../__fixtures__/wakeup.js'
 import { buildApp } from '../../app.js'
 import { erasure } from '../../erasure.js'
@@ -309,6 +310,7 @@ describe('kolonie.register', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),

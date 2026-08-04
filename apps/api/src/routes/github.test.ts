@@ -22,6 +22,7 @@ import {
   fakeGithubChallenges,
   type FakeGithubChallenges,
 } from '../__fixtures__/github.js'
+import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
@@ -69,6 +70,7 @@ const baseDependencies = () => ({
   retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
   contributions: fakeContributions(),
   wakeup: fakeWakeup(),
+  hints: fakeStandingHints(),
   keys: fakeKeys(),
   solana: fakeSolana(),
   pow: fakePow(),

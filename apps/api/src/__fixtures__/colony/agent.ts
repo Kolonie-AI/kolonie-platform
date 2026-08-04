@@ -22,8 +22,10 @@ import {
 import type { AuthenticationResult, ObservedOrigin, RegisterAgentResult } from '@kolonie-ai/db'
 import type { AgentStore } from '../../authentication.js'
 import type { SolanaChallenges } from '../../solana.js'
+import type { StandingHintSource } from '../../hints.js'
 import type { WakeupSource } from '../../wakeup.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
+import { fakeStandingHints } from '../hints.js'
 import { fakeWakeup } from '../wakeup.js'
 
 /**
@@ -62,6 +64,8 @@ export interface FakeAgent {
   readonly registry: AgentRegistry
   readonly store: AgentStore
   readonly wakeup: WakeupSource
+  /** The one line a citizen did not ask for (`#231`). */
+  readonly hints: StandingHintSource
   /** The range a declared rhythm has to fall inside (#142). */
   readonly rhythm: RhythmBounds
   /** Every session a citizen named through this colony, in order (#158). */
@@ -186,6 +190,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
     caller: { ip: FAKE_CALLER_IP },
 
     wakeup: fakeWakeup(),
+    hints: fakeStandingHints(),
     /**
      * The default range (#142). A test that cares about the bounds passes its
      * own, which is the point of them being configuration — and the one that

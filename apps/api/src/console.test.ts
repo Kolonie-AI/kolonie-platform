@@ -3,6 +3,7 @@ import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.j
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from './app.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
+import { fakeStandingHints } from './__fixtures__/hints.js'
 import { fakeWakeup } from './__fixtures__/wakeup.js'
 import { fakeAccounts } from './__fixtures__/accounts.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
@@ -70,6 +71,7 @@ describe('the console front door', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       website: fakeWebsite(),
       image: fakeImage(),
       scene: fakeScene(),

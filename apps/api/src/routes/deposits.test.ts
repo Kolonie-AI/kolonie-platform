@@ -15,6 +15,7 @@ import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeKeyChallenges } from '../__fixtures__/keys.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
+import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
@@ -81,6 +82,7 @@ const build = (webhookSecret: string | null = SECRET, watcher?: DepositWatcher) 
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
+    hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),

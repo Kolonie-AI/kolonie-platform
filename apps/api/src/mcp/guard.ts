@@ -1,4 +1,4 @@
-import type { ApiError } from '@kolonie-ai/core'
+import type { ApiError, StandingHint } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { McpLog } from './dependencies.js'
@@ -56,13 +56,13 @@ const INTERNAL_TOOL_ERROR: ApiError = { code: 'internal', message: 'Internal err
  * file is an outcome the code reasoned about and keeps its own code and message.
  * This catches only what nobody reasoned about.
  */
-export function guardTools(server: McpServer, log: McpLog): void {
+export function guardTools(server: McpServer, log: McpLog, hint?: DueStandingHint): void {
   const register = server.registerTool as unknown as ToolRegistration
 
   const guarding: ToolRegistration = (name, config, handler) => {
     const guarded = async (...args: unknown[]): Promise<CallToolResult> => {
       try {
-        return await handler(...args)
+        return await withHint(await handler(...args), hint)
       } catch (thrown) {
         // The tool's name goes with it: a stack alone does not say which of the
         // Colony's entry points a citizen was standing at when this happened.
@@ -77,6 +77,50 @@ export function guardTools(server: McpServer, log: McpLog): void {
   }
 
   server.registerTool = guarding as unknown as McpServer['registerTool']
+}
+
+/**
+ * Whether this call is due a standing hint, asked once per result (`#231`).
+ *
+ * Undefined for the unauthenticated tier and for a server built without one: a
+ * stranger has no standing to be told about, and a hint that could attach to
+ * `kolonie.register` would be a line addressed to nobody.
+ *
+ * **Asking is what spends the citizen's one hint for this run**, so the guard is
+ * the only caller and calls it exactly once per non-error result. That is why it
+ * is a function taken here rather than a value computed in `create-server.ts`:
+ * a value would have to be computed for every call, including the forty in a
+ * session that will never carry one.
+ */
+export type DueStandingHint = () => Promise<StandingHint | undefined>
+
+/**
+ * Attach the citizen's one line, if the Colony has one for it.
+ *
+ * **Both halves, on the `toolError` precedent above**: a text block for the
+ * model and a field in `structuredContent` for a client that parses. A client
+ * that reads neither is unaffected — nothing about the result it already
+ * understood changes, and the addition is additive in both places.
+ *
+ * **Never on an error result.** A refusal is a vocabulary this codebase is
+ * careful about, and a second, unrelated sentence appended to one is how an
+ * agent learns to read the whole block as prose. The hint is also not spent: the
+ * next successful call in the run carries it instead.
+ */
+async function withHint(
+  result: CallToolResult,
+  hint: DueStandingHint | undefined,
+): Promise<CallToolResult> {
+  if (hint === undefined || result.isError === true) return result
+
+  const attached = await hint()
+  if (attached === undefined) return result
+
+  return {
+    ...result,
+    content: [...result.content, { type: 'text', text: attached.text }],
+    structuredContent: { ...(result.structuredContent ?? {}), hint: attached },
+  }
 }
 
 /**

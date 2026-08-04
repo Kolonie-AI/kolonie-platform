@@ -1,4 +1,4 @@
-import { ERROR_STATUS } from '@kolonie-ai/core'
+import { ERROR_STATUS, type AgentId } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { authenticate, BEARER_SCHEME, observing } from '../authentication.js'
 import { clientIp } from '../client-ip.js'
@@ -45,6 +45,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     accounts,
     rhythm,
     skillReleases,
+    hints,
   } = deps
 
   /**
@@ -86,6 +87,15 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
       const observed = observing(store, observedOrigin(request.headers, request.ip))
 
       const presented = request.headers.authorization
+      /**
+       * Who is calling, kept from the check that was happening anyway (`#231`).
+       *
+       * The citizen was resolved here and discarded before hints existed. Held
+       * now, because a sentence about a citizen's own standing needs to know
+       * whose standing it is — and resolving the same key a second time deeper
+       * down would be a credential lookup per call bought for nothing.
+       */
+      let agentId: AgentId | undefined
       if (presented !== undefined) {
         const authenticated = await authenticate(presented, observed)
         if (authenticated.outcome === 'rejected') {
@@ -94,6 +104,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
             .header('www-authenticate', BEARER_SCHEME)
             .send(authenticated.error)
         }
+        agentId = authenticated.agent.id
       }
 
       // Fastify has already parsed the body and would otherwise send its own
@@ -141,8 +152,10 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // unanticipated fault stays one line.
           log: (message, detail) => log.error(message, detail, { event: 'mcp.tool.threw' }),
           caller: { ip: clientIp(request.headers, request.ip) },
+          hints,
         },
         presented,
+        agentId,
         request.raw,
         reply.raw,
         request.body,

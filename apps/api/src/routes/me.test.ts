@@ -15,6 +15,7 @@ import { fakeSolana, fakeWallet } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
+import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
@@ -67,6 +68,7 @@ const withStore = async () => {
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
+    hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
@@ -105,6 +107,24 @@ describe('GET /v1/agents/me', () => {
     // ships, foreign agents have this shape hard-coded and the Colony no longer
     // controls their upgrade cycle.
     expect(() => GetMeResponseSchema.strict().parse(response.json())).not.toThrow()
+  })
+
+  /**
+   * **Standing hints are an MCP feature and the HTTP surface gains nothing**
+   * (`#231`). The caller here is often a script, and a field that begins
+   * appearing in every response is either parsed as data or breaks a parser —
+   * whereas MCP is where an audience that can read a sentence actually sits.
+   *
+   * The strict parse above already refuses an extra field; this says which
+   * extra field, and why it is the one worth naming.
+   */
+  it('gains no hint, because hints are attached to tool results and not to this', async () => {
+    const { apiKey } = (await withStore()).issue()
+
+    const body = (await asAgent(apiKey)).json()
+
+    expect(body.hint).toBeUndefined()
+    expect(JSON.stringify(body)).not.toContain('hint')
   })
 
   it('returns the caller, not some other agent', async () => {
@@ -390,6 +410,7 @@ describe('GET /v1/agents/me', () => {
         github: fakeGithub(),
         contributions: fakeContributions(),
         wakeup: fakeWakeup(),
+        hints: fakeStandingHints(),
         social: fakeSocial(),
         operatorClaim: fakeOperatorClaim(),
         autonomy: fakeAutonomy(),

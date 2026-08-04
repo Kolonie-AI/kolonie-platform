@@ -43,6 +43,7 @@ import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import { skillReleasesFromEnv } from './skill-releases.js'
 import type { RecordObstruction } from './obstruction.js'
+import { databaseStandingHints } from './hints.js'
 import { databaseWakeup } from './wakeup.js'
 
 /**
@@ -331,6 +332,11 @@ const app = buildApp({
         }
       : {}),
   }),
+  // The one line a citizen did not ask for (`#231`). Its own seam beside the
+  // digest above, and deliberately not part of it: the digest is what a
+  // returning citizen asks for, and this is what the Colony says to a citizen
+  // that never asks.
+  hints: databaseStandingHints(db),
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same

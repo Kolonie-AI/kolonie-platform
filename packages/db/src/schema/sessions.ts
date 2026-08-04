@@ -94,6 +94,30 @@ export const agentSessions = pgTable(
      * written.
      */
     runtimeTools: varchar('runtime_tools', { length: RUNTIME_TOOL_MAX_LENGTH }).array(),
+    /**
+     * When the Colony attached a standing hint in this run, or null (`#231`).
+     *
+     * **This is a record of what the Colony sent, and it is not a read flag.**
+     * Nothing here says whether the citizen saw the line, acted on it or wished
+     * it away — a hint clears by the condition underneath it becoming false and
+     * by nothing else, so there is no dismissal to store and no acknowledgement
+     * to wait for. What this column buys is the one rule that cannot be derived:
+     * *at most one hint per waking*. A citizen making twenty calls in a cycle
+     * sees the hint on one of them, because the twenty-first repetition is what
+     * teaches an agent that the field is noise, and that is not recoverable by
+     * writing better hints later.
+     *
+     * **It is claimed rather than set.** The write is
+     * `where hinted_at is null returning`, so two concurrent calls in one
+     * session cannot both attach: one claims the slot and the other is told
+     * nothing. And it is claimed only once a condition has actually been found —
+     * burning the slot on a citizen with nothing wrong would silence the hint
+     * that appeared an hour later in the same run.
+     *
+     * **Nothing may rank, gate or reward on this**, on the terms `tokens` and
+     * `runtime_tools` above are held to. It is here so the Colony can be quiet.
+     */
+    hintedAt: timestamp('hinted_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

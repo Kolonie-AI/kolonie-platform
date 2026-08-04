@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { createLog } from '@kolonie-ai/core'
+import { createLog, type AgentId } from '@kolonie-ai/core'
+import { standingHintText } from '../hints.js'
 import type { McpDependencies } from './dependencies.js'
 import { guardTools } from './guard.js'
 import { registerAboutTools } from './tools/about.js'
@@ -49,7 +50,25 @@ const defaultLog = createLog({ service: 'api' })
  * `kolonie.me` to a stranger invites a call that can only fail.
  */
 
-export function createMcpServer(deps: McpDependencies, credential?: string): McpServer {
+export function createMcpServer(
+  deps: McpDependencies,
+  credential?: string,
+  /**
+   * Whose standing the hints are about, when the credential resolved to
+   * somebody (`#231`).
+   *
+   * **Resolved by the route and handed down rather than looked up here.** The
+   * route already authenticates the presented key to decide whether to serve the
+   * authenticated tier at all, so the citizen is in hand; resolving it a second
+   * time would be a second credential lookup on every single MCP call, bought
+   * for nothing.
+   *
+   * Separate from `credential` rather than derived from it, because the two
+   * answer different questions: the credential decides which tools exist, and
+   * this decides who a sentence would be addressed to.
+   */
+  agentId?: AgentId,
+): McpServer {
   const authenticated = credential !== undefined
 
   const server = new McpServer(
@@ -98,6 +117,18 @@ export function createMcpServer(deps: McpDependencies, credential?: string): Mcp
     server,
     deps.log ??
       ((message, detail) => defaultLog.error(message, detail, { event: 'mcp.tool.threw' })),
+    /**
+     * The standing hint, asked for only when there is somebody to address
+     * (`#231`). A stranger's result carries none: the unauthenticated tier is
+     * `about` and `register`, and neither has a citizen whose state a sentence
+     * could be about.
+     */
+    agentId === undefined
+      ? undefined
+      : async () => {
+          const due = await deps.hints.due(agentId)
+          return due === null ? undefined : standingHintText(due)
+        },
   )
 
   registerAboutTools(server, deps)

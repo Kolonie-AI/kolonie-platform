@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { AgentId } from '@kolonie-ai/core'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { createMcpServer } from './create-server.js'
 import type { McpDependencies } from './dependencies.js'
@@ -22,11 +23,17 @@ import type { McpDependencies } from './dependencies.js'
 export async function handleMcpRequest(
   deps: McpDependencies,
   credential: string | undefined,
+  /**
+   * Who the credential turned out to belong to, when it belonged to anybody
+   * (`#231`). Resolved by the route for the same reason `credential` is, and
+   * carried here rather than looked up again — see `createMcpServer`.
+   */
+  agentId: AgentId | undefined,
   request: IncomingMessage,
   response: ServerResponse,
   body: unknown,
 ): Promise<void> {
-  const server = createMcpServer(deps, credential)
+  const server = createMcpServer(deps, credential, agentId)
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
 
   // Close the pair when the response ends, whichever way it ends. Without this,

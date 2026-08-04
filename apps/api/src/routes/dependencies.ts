@@ -4,6 +4,7 @@ import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
 import type { ConsoleDependencies } from '../console.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { StandingHintSource } from '../hints.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
@@ -74,6 +75,8 @@ export interface RouteDependencies {
   readonly contributions: ContributionDependencies
   /** What changed while a citizen was not running — see `wakeup.ts` (#200). */
   readonly wakeup: WakeupSource
+  /** The one line a citizen did not ask for — see `hints.ts` (`#231`). */
+  readonly hints: StandingHintSource
   readonly website: WebsiteDependencies
   readonly image: ImageDependencies
   /** The generator rung's scene specification (`#216`). */

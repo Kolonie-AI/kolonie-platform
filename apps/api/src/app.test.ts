@@ -3,6 +3,7 @@ import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.j
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from './app.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
+import { fakeStandingHints } from './__fixtures__/hints.js'
 import { fakeWakeup } from './__fixtures__/wakeup.js'
 import { fakeSolana } from './__fixtures__/solana.js'
 import { fakeKeys } from './__fixtures__/keys.js'
@@ -55,6 +56,7 @@ beforeAll(async () => {
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
+    hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),

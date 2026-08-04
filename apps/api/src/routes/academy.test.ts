@@ -16,6 +16,7 @@ import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
+import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
@@ -67,6 +68,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
+    hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
@@ -245,6 +247,7 @@ describe('POST /v1/academy/challenges', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
@@ -588,6 +591,7 @@ describe('when the gate is not configured', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
@@ -666,6 +670,7 @@ describe('when the gate is not configured', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),

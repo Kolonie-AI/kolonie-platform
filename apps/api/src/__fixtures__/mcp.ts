@@ -1,4 +1,4 @@
-import { DEFAULT_RHYTHM_BOUNDS } from '@kolonie-ai/core'
+import { DEFAULT_RHYTHM_BOUNDS, type AgentId } from '@kolonie-ai/core'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { erasure } from '../erasure.js'
@@ -13,6 +13,7 @@ import { fakeDomain } from './domain.js'
 import { fakeEmail } from './email.js'
 import { fakeErasureDesk } from './erasure.js'
 import { fakeContributions, fakeGithub } from './github.js'
+import { fakeStandingHints } from './hints.js'
 import { fakeWakeup } from './wakeup.js'
 import { fakeGuidance } from './guidance.js'
 import { fakeImage } from './image.js'
@@ -48,8 +49,16 @@ import { fakeWebsite } from './website.js'
 export const connectedClient = async (
   deps: McpDependencies = fakeColony(),
   credential?: string,
+  /**
+   * Whose standing a hint would be about (`#231`).
+   *
+   * Omitted by almost every test, and that is the right default: a server built
+   * without it attaches nothing, so the several hundred assertions on exact tool
+   * results predate hints and keep meaning what they meant.
+   */
+  agentId?: AgentId,
 ) => {
-  const server = createMcpServer(deps, credential)
+  const server = createMcpServer(deps, credential, agentId)
   const client = new Client({ name: 'test', version: '0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
 
@@ -81,6 +90,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
+    hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),

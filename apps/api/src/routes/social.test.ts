@@ -17,6 +17,7 @@ import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
+import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeSocialChallenges, type FakeSocialChallenges } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
@@ -66,6 +67,7 @@ beforeEach(async () => {
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
+    hints: fakeStandingHints(),
     social: { challenges, obstruction: noObstruction, operators: operatorConfirmed() },
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),

@@ -12,6 +12,7 @@ import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { fakeContributions, fakeGithub } from '../__fixtures__/github.js'
+import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeImage } from '../__fixtures__/image.js'
@@ -105,6 +106,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
@@ -146,6 +148,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
@@ -194,6 +197,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
@@ -235,6 +239,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
@@ -276,6 +281,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
@@ -326,6 +332,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
@@ -468,6 +475,7 @@ describe('the MCP surface over HTTP', () => {
       github: fakeGithub(),
       contributions: fakeContributions(),
       wakeup: fakeWakeup(),
+      hints: fakeStandingHints(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),

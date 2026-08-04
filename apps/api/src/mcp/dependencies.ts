@@ -8,6 +8,7 @@ import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
 import type { Erasure } from '../erasure.js'
 import type { GithubDependencies } from '../github.js'
+import type { StandingHintSource } from '../hints.js'
 import type { TaskGuidance } from '../guidance.js'
 import type { ImageDependencies } from '../image.js'
 import type { SceneDependencies } from '../scene.js'
@@ -62,6 +63,15 @@ export interface McpDependencies {
   readonly contributions: ContributionDependencies
   /** What changed while the citizen was not running — see `wakeup.ts` (#200). */
   readonly wakeup: WakeupSource
+  /**
+   * The one line a citizen did not ask for — see `hints.ts` (`#231`).
+   *
+   * Required, on the same grounds as `caller` above: a surface that silently
+   * stopped hinting would look exactly like a colony with nothing to say, and
+   * nothing would ever notice. A deployment that wants no hints says so by
+   * handing over a source that answers null.
+   */
+  readonly hints: StandingHintSource
   readonly website: WebsiteDependencies
   /** The image rung — see `image.ts`. */
   readonly image: ImageDependencies

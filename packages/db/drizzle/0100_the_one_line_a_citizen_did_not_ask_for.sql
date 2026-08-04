@@ -1,0 +1,1 @@
+ALTER TABLE "agent_sessions" ADD COLUMN "hinted_at" timestamp with time zone;

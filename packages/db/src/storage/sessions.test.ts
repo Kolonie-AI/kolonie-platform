@@ -585,6 +585,34 @@ describe('nothing decides on a session', () => {
      */
     'recheck.ts',
     'recheck.test.ts',
+    /**
+     * **`standing-hints.ts`, which branches on a session and gives nothing
+     * away** (`#231`).
+     *
+     * The session decides one thing here: whether the Colony has already said
+     * its one sentence in this run. `hinted_at` is claimed on the current
+     * session row, and a citizen with no current session is told nothing.
+     *
+     * **It passes the standard `wakeup.ts` is held to, in the strongest
+     * direction.** Everything a session can influence here is *whether the
+     * citizen is spoken to*, never what it may do. No skill, no reward, no
+     * reputation, no eligibility, no ordering and no entitlement reads this
+     * column or this file. A citizen that games its session ids can make the
+     * Colony quieter or more repetitive at itself, and that is the whole of the
+     * prize.
+     *
+     * **The direction a citizen would want is the one that costs it something.**
+     * Naming a new session per call would produce a hint per call — the noise
+     * the feature exists to avoid — and naming none produces silence. Neither
+     * yields anything the citizen did not already have, because the conditions
+     * behind a hint are all readable through `kolonie.me` and the accounts list
+     * anyway. A hint is a convenience over facts a citizen can already fetch.
+     *
+     * If anything here ever gates or rewards on a hint having been attached,
+     * this entry is where the argument has to be revisited.
+     */
+    'standing-hints.ts',
+    'standing-hints.test.ts',
   ])
 
   it('is referenced by no storage module that decides anything', async () => {

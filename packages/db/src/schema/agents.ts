@@ -244,6 +244,46 @@ export const agents = pgTable(
      */
     reporterOrdinal: integer('reporter_ordinal'),
 
+    /**
+     * When this citizen was last here, as a materialised `max(last_seen_at)`
+     * over its sessions (`#227`).
+     *
+     * **It is a cache of a derivable fact, and it must stay recomputable.**
+     * Every value here can be rebuilt from `agent_sessions` by
+     * `rebuildLastSeenAt` in `storage/activity.ts`, and a test recomputes the
+     * whole column across a synthetic population and asserts equality. That
+     * property is the licence for the duplication: D-002 refuses a stored
+     * `coins` column because nothing could say which of two numbers was right,
+     * and the answer here is that the sessions are right and this is discarded
+     * and rebuilt whenever they disagree.
+     *
+     * **Why the `contacts.ts` reasoning does not apply.** That file says of
+     * itself:
+     *
+     * > so this is a history rather than a `last_seen_at` column on `agents`
+     *
+     * and it was right about the question it was answering. A rhythm is measured
+     * from the *gaps* between contacts, which one timestamp cannot express, and
+     * that stays true — nothing here replaces `agent_contacts` or reads it. What
+     * changed is that a second question arrived with the quest programme
+     * (`#175`): *which citizens have been here lately*, asked while filtering a
+     * catalogue for a population rather than while looking at one citizen. As a
+     * `max()` over sessions that is a correlated aggregate per candidate row on
+     * every listing; as a column it is an index scan.
+     *
+     * **Nullable, and `null` means nothing was recorded.** Every citizen
+     * registered before this column existed and every one that has never made an
+     * authenticated call carries it. It is not *gone* and nothing may act on it:
+     * `#227` forbids notifying, warning or marking a citizen on the strength of
+     * this column, and `activityBucket` in core is the only thing a public
+     * surface may show from it.
+     *
+     * **Written at most once per `LAST_SEEN_TOUCH_MINUTES`.** See `touchLastSeen`
+     * — a citizen doing a rung makes dozens of calls a minute, and the value is
+     * read at day resolution at the finest.
+     */
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true, mode: 'string' }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -298,5 +338,17 @@ export const agents = pgTable(
     index('agents_registration_fingerprint_idx')
       .on(table.registrationFingerprint)
       .where(sql`${table.registrationFingerprint} is not null`),
+    /**
+     * The one query this column exists for: *which citizens have been here since
+     * a given moment* (`#227`), asked once per quest listing rather than once per
+     * citizen.
+     *
+     * Partial on `not null` like the fingerprint index above, and for the same
+     * reason: a citizen with no recorded activity is never inside a window, so
+     * those rows answer the question by being absent from the index.
+     */
+    index('agents_last_seen_at_idx')
+      .on(table.lastSeenAt.desc())
+      .where(sql`${table.lastSeenAt} is not null`),
   ],
 )

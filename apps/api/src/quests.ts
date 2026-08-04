@@ -28,9 +28,11 @@ import {
   questReviewQueue as questReviewQueueInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   availableBalance,
+  countAudience,
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
+  type AudienceCriteria,
   type Database,
   type OwnQuest,
   type QuestPublishOutcome,
@@ -80,6 +82,16 @@ export interface QuestDesk {
     readonly reserved: number
     readonly available: number
   }>
+  /**
+   * How many citizens this targeting could reach today (`#227`).
+   *
+   * On the quest desk beside `balance` and for the same reason `#180` put the
+   * balance there: a sponsor is choosing an audience, and a criterion whose
+   * effect on the audience is invisible until publication is a trap. The
+   * criteria are passed rather than the quest, so the same question can be asked
+   * of a draft that has not been written yet.
+   */
+  audience(criteria: AudienceCriteria): Promise<number>
   listOwn(authorId: AgentId): Promise<readonly OwnQuest[]>
   readOwn(authorId: AgentId, taskId: TaskId): Promise<OwnQuest | undefined>
   reviewQueue(): Promise<readonly Task[]>
@@ -133,6 +145,7 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
       }),
     submit: (input) => submitQuestForReviewInDatabase(db, input),
     balance: (authorId) => availableBalance(db, authorId),
+    audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
     reviewQueue: () => questReviewQueueInDatabase(db),

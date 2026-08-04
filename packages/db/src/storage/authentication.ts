@@ -3,6 +3,7 @@ import { AgentIdSchema, CredentialIdSchema, type Agent, type CredentialId } from
 import type { Database } from '../client.js'
 import { apiKeyHashEquals, hashApiKey } from '../api-key.js'
 import { agents, credentials } from '../schema/index.js'
+import { touchLastSeen } from './activity.js'
 import { recordContact } from './contacts.js'
 import { attributeCall } from './sessions.js'
 import { toAgent } from './rows.js'
@@ -138,6 +139,13 @@ async function authenticateCredential(
   // that has never named one is a citizen this statement matches nothing for,
   // which is the ordinary case and costs an indexed lookup.
   await attributeCall(db, agentId)
+
+  // And move the citizen's own stamp, at most once a quarter of an hour (#227).
+  // It is here rather than beside the session write because this is the one
+  // place both doors pass through, and a stamp that only some surfaces moved
+  // would understate exactly the citizens that use the other ones. Like the two
+  // above it never throws and its outcome is dropped.
+  await touchLastSeen(db, agentId)
 
   return {
     outcome: 'authenticated',

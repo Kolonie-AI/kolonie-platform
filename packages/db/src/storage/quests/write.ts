@@ -78,6 +78,7 @@ export async function createQuestDraft(
       audience: command.draft.audience,
       requiresSkills: [...command.draft.requires],
       minReputation: command.draft.minReputation,
+      minActivityDays: command.draft.minActivityDays,
       timeoutHours: command.draft.timeoutHours,
       assistanceAllowed: command.draft.assistanceAllowed,
       questions: command.draft.questions,
@@ -147,6 +148,7 @@ export async function updateQuestDraft(
         ...(patch.audience !== undefined && { audience: patch.audience }),
         ...(patch.requires !== undefined && { requiresSkills: [...patch.requires] }),
         ...(patch.minReputation !== undefined && { minReputation: patch.minReputation }),
+        ...(patch.minActivityDays !== undefined && { minActivityDays: patch.minActivityDays }),
         ...(patch.timeoutHours !== undefined && { timeoutHours: patch.timeoutHours }),
         ...(patch.assistanceAllowed !== undefined && {
           assistanceAllowed: patch.assistanceAllowed,

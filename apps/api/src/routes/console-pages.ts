@@ -335,17 +335,29 @@ function registerSponsorPages(
       (await deps.quests.balance(agent.id)).available,
     )
 
+    /**
+     * What this quest's targeting reaches today (`#227`).
+     *
+     * Computed here rather than on the form, because this console carries no
+     * script and the criteria only exist once a draft holds them — and this is
+     * still before the sponsor submits anything or commits a credit. It rides on
+     * the JSON answer as well, so an agent sponsor sees the same number a person
+     * does without a browser.
+     */
+    const audience = await deps.quests.audience(audienceOf(own.response.quest))
+
     return wantsHtml(request)
       ? html(
           reply,
           questDraftPage({
             quest: own.response.quest,
             money,
+            audience,
             rejectionReason: own.response.rejectionReason,
             awaitingModeration: own.response.awaitingModeration,
           }),
         )
-      : reply.send({ ...own.response, money })
+      : reply.send({ ...own.response, money, audience })
   })
 
   /** Submit a draft for review. */
@@ -487,6 +499,24 @@ function registerSponsorPages(
     wantsHtml(request)
       ? html(reply.status(ERROR_STATUS[error.code]), errorPage(error.message))
       : reply.status(ERROR_STATUS[error.code]).send(error)
+}
+
+/**
+ * The three targeting axes of a quest, in the shape the audience count takes
+ * (`#227`).
+ *
+ * One function rather than an object literal at each call site: a fourth
+ * criterion added to a quest and forgotten here would make the count quietly
+ * wider than the listing, and a number that overstates the audience is worse
+ * than none — it is the sponsor's decision, made on a figure nothing supports.
+ */
+function audienceOf(quest: Task) {
+  return {
+    audience: quest.audience,
+    requires: quest.requires,
+    minReputation: quest.minReputation,
+    minActivityDays: quest.minActivityDays,
+  }
 }
 
 /** Capacity × price against what this sponsor may still commit. */

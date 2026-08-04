@@ -215,6 +215,24 @@ export const tasks = pgTable(
     audience: taskAudience('audience').notNull().default('candidates'),
 
     /**
+     * How recently a citizen must have been here to be offered this task, in
+     * days. `null` is no requirement (`#227`).
+     *
+     * **Null on every row that existed before it, which is what the migration
+     * relies on**: an Academy rung is for everybody whenever they arrive, and a
+     * quest written before this column was added asked nothing about activity.
+     * Adding the column filters nothing until a sponsor chooses a window.
+     *
+     * **No check constraint, deliberately** — the same decision
+     * `declared_rhythm_hours` records one table over. The admissible windows are
+     * a closed set in core (`ActivityWindowSchema`), and putting a copy of that
+     * set here would mean a migration every time the product offers a fourth
+     * one. What the database enforces is that it is positive, because a window of
+     * zero days is a quest nobody can ever be inside.
+     */
+    minActivityDays: integer('min_activity_days'),
+
+    /**
      * The report a quest asks for: an ordered list of questions (`#177`).
      *
      * `jsonb` and not a table, which is the one place this schema prefers a
@@ -365,6 +383,16 @@ export const tasks = pgTable(
      * `null` is the way to say unlimited; there is no second way to say it.
      */
     check('tasks_slots_positive', sql`${table.slots} is null or ${table.slots} > 0`),
+    /**
+     * A window of zero days is a task nobody is ever inside, which is a quest
+     * that reads as targeted and is unattemptable. `null` is the way to say *no
+     * requirement*, and there is no second way to say it — the same shape
+     * `tasks_slots_positive` uses one line up (`#227`).
+     */
+    check(
+      'tasks_min_activity_days_positive',
+      sql`${table.minActivityDays} is null or ${table.minActivityDays} > 0`,
+    ),
     /**
      * **The Academy is open to everybody, and that is a constraint rather than a
      * convention** (`#175`).

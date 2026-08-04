@@ -135,6 +135,7 @@ export function toTask(
      */
     expiresAt: row.expiresAt === null ? null : toTimestamp(row.expiresAt),
     audience: row.audience,
+    minActivityDays: row.minActivityDays,
     ...(full === undefined ? {} : { full }),
     rejectionReason: row.rejectionReason,
     assistanceAllowed: row.assistanceAllowed,

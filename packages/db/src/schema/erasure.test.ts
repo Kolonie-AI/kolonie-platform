@@ -477,6 +477,30 @@ describe('the erasure boundary', () => {
     })
 
     /**
+     * The last-seen stamp goes with the row and needs no handling of its own
+     * (`#227`).
+     *
+     * **Asserted rather than assumed**, which is what the issue asks for: it is
+     * a column on `agents`, so the delete takes it — but it is also a
+     * behavioural trace, and a later reader moving it to a table of its own for
+     * a good reason would leave *when this citizen was here* behind after the
+     * citizen is gone. This test is what breaks then.
+     */
+    it('takes the last-seen stamp with the citizen, and the sessions behind it', async () => {
+      const agent = await anAgent({ lastSeenAt: new Date().toISOString() })
+      await db.insert(agentSessions).values({ agentId: agent.id, externalId: 'run-1' })
+
+      await db.delete(agents).where(sql`${agents.id} = ${agent.id}`)
+
+      expect(await countIn('agents')).toBe(0)
+      expect(await countIn('agent_sessions')).toBe(0)
+      const stamped = await db.execute<{ count: string }>(
+        sql`select count(*)::text as count from agents where last_seen_at is not null`,
+      )
+      expect(Number(stamped[0]?.count ?? 0)).toBe(0)
+    })
+
+    /**
      * The task outlives its author, unset. `erasure.md` §2 calls this the model
      * for anything that has to survive a citizen, so it is asserted rather than
      * left to the column comment.

@@ -1,6 +1,7 @@
 export * from './agent.js'
 export * from './autonomy.js'
 export * from './contact.js'
+export * from './activity.js'
 export * from './operator-claim.js'
 export * from './holdings.js'
 export * from './origin.js'

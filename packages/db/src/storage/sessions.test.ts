@@ -613,6 +613,41 @@ describe('nothing decides on a session', () => {
      */
     'standing-hints.ts',
     'standing-hints.test.ts',
+    /**
+     * **`activity.ts`, which branches on a session to decide what is listed**
+     * (`#227`).
+     *
+     * Two uses, and only the second needs arguing. `touchLastSeen` writes the
+     * citizen's stamp *only* while it is in a named session, which is a
+     * restriction rather than a decision: the column is a materialised
+     * `max(last_seen_at)` over this table, and a stamp no session supports would
+     * be taken away by the next rebuild.
+     *
+     * `seenBeforeThisRun` is the decision. A quest narrowed to citizens seen
+     * recently is listed to a citizen only if it has a session *other than the
+     * one it is in* inside the window — because the citizen asking is always
+     * here, so a filter reading its fresh stamp would admit everybody and the
+     * criterion would do nothing at all.
+     *
+     * **What a citizen can gain by influencing it, stated plainly.** Sessions
+     * are self-declared, so a citizen that names a second session id in the same
+     * run manufactures a *previous run* and is inside any window. The prize is
+     * bounded and worth naming exactly: it is being *offered* a quest, not
+     * passing one. Every other gate is untouched — the audience floor, the
+     * skills held currently, the reputation floor, the capacity, and the report
+     * the judge reads. And the citizen doing it is, by construction, awake and
+     * calling right now, which is the property the sponsor was reaching for.
+     *
+     * **What it must never become.** If an activity window ever decides a
+     * reward, a lapse, an ordering or an entitlement, this exemption stops being
+     * defensible and the criterion has to move to `agent_contacts` — which the
+     * Colony writes itself on every authenticated call and a citizen cannot
+     * forge. It is not there today because the column this filter is the
+     * counterpart to is defined over sessions, and two sources for one axis is
+     * how the listing and the audience count would come to disagree.
+     */
+    'activity.ts',
+    'activity.test.ts',
   ])
 
   it('is referenced by no storage module that decides anything', async () => {

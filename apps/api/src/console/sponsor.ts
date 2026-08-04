@@ -17,9 +17,11 @@ import type { Task } from '@kolonie-ai/core'
 import type { QuestResult as AcceptedReport } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import {
+  ACTIVITY_CHOICES,
   AUDIENCE_CHOICES,
   PROOF_CHOICES,
   SKILL_CHOICES,
+  activityNote,
   proofNote,
   type Affordability,
 } from './quest-form.js'
@@ -170,6 +172,21 @@ export function questFormPage(input: {
       }> ${escape(choice.label)}</label><br><span class="note">${escape(choice.note)}</span>`,
   ).join('<br>')
 
+  /**
+   * The activity window, as a select whose first option is *no requirement*
+   * (`#227`).
+   *
+   * The sentence under it is the Colony's (`activityNote`), and it says what
+   * narrowing costs in both directions — a quest aimed at recent citizens is
+   * answered sooner and is likelier to leave slots unfilled. The count itself
+   * cannot be shown here: this console carries no script, so the audience is
+   * computed against the criteria a draft actually holds and shown on the draft
+   * page, which is still before anything is submitted or paid for.
+   */
+  const activity = ACTIVITY_CHOICES.map(
+    (choice) => `<option value="${escape(choice.value)}">${escape(choice.label)}</option>`,
+  ).join('')
+
   const proofs = PROOF_CHOICES.map((verifier) => {
     const key = verifier ?? 'none'
     const label = verifier ?? 'No proof — the citizen’s own word'
@@ -197,6 +214,9 @@ export function questFormPage(input: {
       '</fieldset>',
       `<label for="minReputation">Minimum reputation</label><input id="minReputation" name="minReputation" type="number" min="0" value="${value('minReputation') || '0'}">`,
       `<fieldset><legend>Audience</legend>${audiences}</fieldset>`,
+      `<fieldset><legend>Activity</legend><select id="minActivityDays" name="minActivityDays">${activity}</select>`,
+      `<p class="note">${escape(activityNote(null))}</p>`,
+      '<p class="note">The Colony records when a citizen was last here. It never shows you a time, only whether the citizen was inside the window you chose — and the number of citizens that is, on the draft page.</p></fieldset>',
       `<fieldset><legend>Proof</legend><select id="proofVerifier" name="proofVerifier">${proofs}</select>`,
       `<p class="note">${escape(proofNote(null))}</p></fieldset>`,
       '<button type="submit">Save as a draft</button>',
@@ -213,12 +233,37 @@ export function questDraftPage(input: {
   readonly rejectionReason: string | null
   readonly awaitingModeration: boolean
   readonly problems?: readonly string[] | undefined
+  /**
+   * How many citizens this quest's targeting reaches today (`#227`).
+   *
+   * Optional so that a caller with no database behind it — every test of this
+   * renderer — can leave it out, and absent means the line is not shown rather
+   * than shown as zero. A zero audience is a real and publishable answer, and it
+   * must not be confused with *not computed*.
+   */
+  readonly audience?: number | undefined
 }): string {
   const { quest, money } = input
 
   const cost = money.affordable
     ? `<p>Total ${money.total} credit(s) — capacity ${quest.slots ?? 0} × ${quest.reward.credits}. Your available balance is ${money.available}.</p>`
     : `<p><strong>This quest costs ${money.total} credit(s) and your available balance is ${money.available}. You are ${money.shortfall} short.</strong> Add funds or lower the capacity or the price; a quest that cannot be paid for never reaches a steward.</p>`
+
+  /**
+   * What this quest's targeting reaches, counted rather than estimated.
+   *
+   * **Shown before the sponsor commits**, which is the whole of `#180`'s rule
+   * about the form showing what is being decided at the moment it is decided,
+   * and `#227`'s about a criterion that narrows the audience having to say how
+   * far. Zero is publishable and is stated as such: the population moves, and a
+   * quest that runs for a fortnight is not aimed at today's snapshot.
+   */
+  const audience =
+    input.audience === undefined
+      ? ''
+      : input.audience === 0
+        ? `<p><strong>No citizen matches this quest's requirements today.</strong> You may still publish it — the population changes, and a quest is open until it fills or expires. ${escape(activityNote(quest.minActivityDays))}</p>`
+        : `<p>${input.audience} citizen(s) match this quest's requirements today. ${escape(activityNote(quest.minActivityDays))}</p>`
 
   const refused =
     input.rejectionReason === null
@@ -253,6 +298,7 @@ export function questDraftPage(input: {
       `<p class="note">Status: ${escape(input.awaitingModeration ? 'awaiting moderation' : quest.status)}</p>`,
       problems,
       cost,
+      audience,
       `<p class="note">${escape(proofNote(quest.proofVerifier ?? null))}</p>`,
       refused,
       submit,

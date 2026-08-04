@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SkillSchema, TimestampSchema } from '../common/index.js'
+import { ActivityWindowSchema } from '../agent/activity.js'
 import { QuestQuestionsSchema, type QuestQuestion } from './questions.js'
 import {
   MAX_TASK_SKILLS,
@@ -242,6 +243,19 @@ const QUEST_FIELDS = {
   /** Skills the citizen must already hold. A quest may require any; it grants none. */
   requires: z.array(SkillSchema).max(MAX_TASK_SKILLS),
   minReputation: z.int().min(0),
+  /**
+   * How recently a citizen must have been here to be offered this quest, or
+   * `null` for no requirement (`#227`).
+   *
+   * The third targeting field, and the only one added since `#175` wrote *"no
+   * new targeting language"* — `TaskSchema.shape.minActivityDays` carries why an
+   * observed fact is admissible where a free-text criterion is not. The console
+   * states what narrowing costs at the moment it is chosen
+   * ({@link activityWindowNotice}), because a criterion whose effect on the
+   * audience is invisible is the trap `#180` already refused once — see
+   * `activityWindowNotice` in `agent/activity.ts` for the sentence it shows.
+   */
+  minActivityDays: ActivityWindowSchema.nullable(),
   timeoutHours: z.int().min(1).max(720),
   assistanceAllowed: z.boolean(),
   /** The report this quest asks for. See {@link QuestQuestionsSchema}. */
@@ -278,6 +292,8 @@ export const QuestDraftSchema = z.object({
   audience: QUEST_FIELDS.audience.default('citizens'),
   requires: QUEST_FIELDS.requires.default([]),
   minReputation: QUEST_FIELDS.minReputation.default(0),
+  /** No requirement, so a sponsor that says nothing about activity narrows nothing. */
+  minActivityDays: QUEST_FIELDS.minActivityDays.default(null),
   /** A day, which is the Academy's usual allowance and long enough for a report. */
   timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
   assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),

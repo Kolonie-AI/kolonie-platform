@@ -15,6 +15,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agentSkills, reputationEvents, submissions, taskHints, tasks } from '../schema/index.js'
+import { seenBeforeThisRun } from './activity.js'
 import { currentSkillsHeldBy } from './currency.js'
 import { dueForRenewal } from './renewal.js'
 import { toTask, toTaskSubmission } from './rows.js'
@@ -265,6 +266,23 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
      * aside is not evidence about the task and never reaches another reader.
      */
     conditions.push(sql`not ${setAsideBy(query.agentId, sql`${tasks.id}`)}`)
+    /**
+     * A quest narrowed to citizens who have been here recently (`#227`).
+     *
+     * **On `availableOnly`, following `passedBy` and the set-asides exactly.** A
+     * quest this citizen is outside the window for is not an answer to *what can
+     * I start now*; the wider list still carries it, so nothing becomes
+     * unresolvable and no submission of the citizen's stops making sense.
+     *
+     * **It is not a refusal and nothing tells the citizen it was applied.** A
+     * quest requiring a skill it does not hold is absent from this list in
+     * exactly the same way, and `#227` is explicit that this feature makes
+     * activity legible without acting on it: no notification, no warning, no
+     * mark. `createSubmission` correspondingly has no activity refusal — a
+     * citizen submitting is here by definition, and refusing it for a window it
+     * is inside at that moment would be the Colony arguing with its own clock.
+     */
+    conditions.push(seenBeforeThisRun(query.agentId))
   }
 
   if (after !== undefined) {

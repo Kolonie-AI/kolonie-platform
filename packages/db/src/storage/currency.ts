@@ -37,7 +37,7 @@ import { ACCOUNT_FROM_SKILL } from './accounts.js'
  * `browser` — can never appear here: nothing in {@link ACCOUNT_FROM_SKILL} maps
  * them, so the whole mechanism is invisible to most of the graph.
  */
-export function lapsedSkillsSql(agentId: AgentId): SQL {
+export function lapsedSkillsSql(agentId: AgentId | SQL): SQL {
   const pairs = Object.entries(ACCOUNT_FROM_SKILL).map(
     ([skill, source]) => sql`(${skill}, ${source.kind})`,
   )
@@ -96,8 +96,15 @@ function breakerTrippedSql(kind: SQL): SQL {
  * that shows a citizen what it has done read that table directly, because a
  * lapse is not a deletion and a citizen must never find its own history edited
  * by an account going quiet.
+ *
+ * **The subject may be a column rather than a value** (`#227`). Every caller
+ * until the audience count passed one citizen's id; that count asks the same
+ * question of every row of `agents` at once, correlated on `a.id`. Widening the
+ * parameter is what stops it from being asked twice in two hand-written
+ * expressions that agree until one of them grows a condition — which is the
+ * failure `missingSkills`/`missingSkillsSql` already have a test against.
  */
-export function currentSkillsHeldBy(agentId: AgentId): SQL {
+export function currentSkillsHeldBy(agentId: AgentId | SQL): SQL {
   return sql`(
     select coalesce(array_agg(s.skill::text), '{}'::text[])
       from agent_skills s

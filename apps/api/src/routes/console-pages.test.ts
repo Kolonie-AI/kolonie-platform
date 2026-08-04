@@ -5,7 +5,7 @@ import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
-import { fakeQuests, type FakeQuestDesk } from '../__fixtures__/quests.js'
+import { FAKE_AUDIENCE, fakeQuests, type FakeQuestDesk } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
@@ -574,6 +574,41 @@ describe('the sponsor’s pages', () => {
     // Every option, including the one nobody chose: a zero is an answer to the
     // sponsor's question and leaving it out would read as a missing option.
     expect(json.json().counts['blocked']).toEqual({ yes: 0, no: 2 })
+  })
+
+  /**
+   * The audience count reaches the sponsor before it commits anything (`#227`).
+   *
+   * Two halves, and the second is the one worth a test: that the count is asked
+   * about *this quest's* criteria rather than about a default. A number computed
+   * from the wrong criteria is worse than none — it is the sponsor's decision,
+   * made on a figure nothing supports.
+   */
+  it('shows the audience the quest reaches, asked about the quest’s own criteria', async () => {
+    const created = await postForm('/quests', aForm({ minActivityDays: '' }))
+    const location = created.headers['location'] as string
+
+    const page = await asBrowser(location, { signedIn: true })
+    expect(page.body).toContain(`${FAKE_AUDIENCE} citizen(s) match`)
+    // And an agent sponsor reads the same number without a browser.
+    expect((await asAgent(location)).json().audience).toBe(FAKE_AUDIENCE)
+
+    const asked = quests.audienceAsked.at(-1)
+    expect(asked?.minActivityDays).toBeNull()
+    expect(asked?.audience).toBe('citizens')
+  })
+
+  it('says a narrowed quest reaching nobody is still publishable', async () => {
+    const created = await postForm('/quests', aForm({ minActivityDays: '1' }))
+    const location = created.headers['location'] as string
+
+    const page = await asBrowser(location, { signedIn: true })
+
+    // Zero is an answer rather than a refusal: the population moves, and a quest
+    // is open until it fills or expires.
+    expect(page.body).toContain('No citizen matches')
+    expect(page.body).toContain('may still publish')
+    expect(quests.audienceAsked.at(-1)?.minActivityDays).toBe(1)
   })
 
   it('says why there is nothing to count when every question is free text', async () => {

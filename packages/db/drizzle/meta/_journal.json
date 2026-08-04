@@ -743,6 +743,13 @@
       "when": 1785841228611,
       "tag": "0105_a_retirement_that_knows_when_it_happened",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1785845068856,
+      "tag": "0106_the_colony_knows_when_a_citizen_was_last_here",
+      "breakpoints": true
     }
   ]
 }

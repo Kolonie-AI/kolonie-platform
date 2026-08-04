@@ -6,6 +6,7 @@ import { AccountKindSchema } from '../account/account.js'
 import { TaskHintSchema } from '../guidance/guidance.js'
 import { isUnattended, TaskSubmissionSchema, type Assistance } from '../submission/submission.js'
 import { TimestampSchema } from '../common/time.js'
+import { ActivityWindowSchema } from '../agent/activity.js'
 
 /**
  * A task type is a slug like `email-create` or `instagram-follow`.
@@ -94,6 +95,7 @@ export const FROZEN_WHEN_ACTIVE = [
   'accountKinds',
   'minReputation',
   'audience',
+  'minActivityDays',
   'assistanceAllowed',
   'timeoutHours',
   'expiresAt',
@@ -430,6 +432,25 @@ export const TaskSchema = z.object({
   expiresAt: TimestampSchema.nullable(),
   /** Who this task is open to, at the floor. See {@link TaskAudienceSchema}. */
   audience: TaskAudienceSchema,
+  /**
+   * How recently a citizen must have been here to be offered this task, in days.
+   * `null` is no requirement, which is every Academy rung and most quests
+   * (`#227`).
+   *
+   * **The one targeting axis added since `#175` closed the list**, and the reason
+   * it is admissible where free text is not: it is a fact the Colony observed
+   * about a citizen rather than an assertion a sponsor makes about one. The
+   * values are a closed set (`ActivityWindowSchema`), so this is a second named
+   * criterion beside `requires` and `minReputation` rather than a dial pointed at
+   * the population.
+   *
+   * **It filters the listing and never the citizen.** A citizen outside the
+   * window is not told it is inactive, is not warned, and is not marked — the
+   * quest simply is not among the work it is offered, exactly as a quest
+   * requiring a skill it does not hold is not. `#227` forbids the other reading
+   * in the schema and in the storage layer both.
+   */
+  minActivityDays: ActivityWindowSchema.nullable(),
   /**
    * Whether every slot is taken right now. Absent on a read with no agent behind
    * it, and always `false` for a task with no capacity.

@@ -5,6 +5,7 @@ import {
   parseQuestForm,
   proofNote,
   QUEST_FORM_FIELDS,
+  activityNote,
   SKILL_CHOICES,
 } from './quest-form.js'
 
@@ -55,9 +56,50 @@ describe('the quest form', () => {
       'requires',
       'minReputation',
       'audience',
+      // Added by `#227`, and this is the line where the question is answered:
+      // an activity window is a fact the Colony observed rather than an
+      // assertion a sponsor makes about somebody, and it is a closed set of
+      // three choices rather than a number to type. D-076 carries the argument,
+      // and the rule it does not weaken is that there is still no free-text
+      // criterion and no per-citizen exclusion.
+      'minActivityDays',
       'proofVerifier',
       'rewardCredits',
     ])
+  })
+
+  describe('the activity window (#227)', () => {
+    it('takes no window at all as no requirement', () => {
+      const result = parseQuestForm(aForm({ minActivityDays: '' }))
+
+      expect(result.outcome).toBe('parsed')
+      if (result.outcome !== 'parsed') return
+      expect(result.draft['minActivityDays']).toBeNull()
+    })
+
+    it('takes one of the offered windows', () => {
+      const result = parseQuestForm(aForm({ minActivityDays: '7' }))
+
+      expect(result.outcome).toBe('parsed')
+      if (result.outcome !== 'parsed') return
+      expect(result.draft['minActivityDays']).toBe(7)
+    })
+
+    /**
+     * The rejection case, and the reason the set is closed: a window the Colony
+     * does not offer would be a quest offered to a population nobody chose,
+     * looking perfectly correct — the same invisible failure a mistyped skill
+     * produces.
+     */
+    it('refuses a window it does not offer, rather than rounding to one', () => {
+      expect(problemsOf(aForm({ minActivityDays: '23' })).join(' ')).toContain('1, 7, 30')
+    })
+
+    it('says what narrowing costs, in both directions', () => {
+      expect(activityNote(7)).toContain('last week')
+      expect(activityNote(7)).toContain('unfilled')
+      expect(activityNote(null)).toContain('Every citizen is offered')
+    })
   })
 
   it('refuses a field it does not know, rather than dropping it', () => {

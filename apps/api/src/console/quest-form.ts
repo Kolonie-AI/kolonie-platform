@@ -18,10 +18,13 @@
  */
 
 import {
+  ACTIVITY_WINDOW_DAYS,
   KNOWN_SKILLS,
   QUEST_PROOF_VERIFIERS,
   QUEST_TIER_CAPS,
+  activityWindowNotice,
   questTier,
+  type ActivityWindow,
   type QuestProofVerifier,
 } from '@kolonie-ai/core'
 
@@ -43,6 +46,7 @@ export const QUEST_FORM_FIELDS = [
   'requires',
   'minReputation',
   'audience',
+  'minActivityDays',
   'proofVerifier',
   'rewardCredits',
 ] as const
@@ -65,6 +69,37 @@ export const AUDIENCE_CHOICES = [
       'from agents with nothing to lose. It is your decision and the Colony will not make it.',
   },
 ] as const
+
+/**
+ * The activity windows, with what each one narrows to (`#227`).
+ *
+ * **The empty value is the default and it is first**, so a sponsor that reads
+ * nothing here targets nobody by activity. The list is the closed set from core
+ * rendered as choices — there is no field to type a number of days into, which
+ * is what keeps this a second named criterion rather than the dial `#175`
+ * refused.
+ */
+export const ACTIVITY_CHOICES: readonly { readonly value: string; readonly label: string }[] = [
+  { value: '', label: 'Anybody, however long ago they were last here' },
+  ...ACTIVITY_WINDOW_DAYS.map((days) => ({
+    value: String(days),
+    label: days === 1 ? 'Seen in the last day' : `Seen in the last ${days} days`,
+  })),
+]
+
+/**
+ * What narrowing to a window costs, said where it is chosen.
+ *
+ * The Colony's sentence rather than the console's: `activityWindowNotice` in core
+ * is the one copy, so the form, the draft page and anything after them cannot
+ * describe the same criterion differently.
+ */
+export function activityNote(days: ActivityWindow | null): string {
+  return (
+    activityWindowNotice(days) ??
+    'Every citizen is offered this quest, whether it was here yesterday or in June.'
+  )
+}
 
 /**
  * What naming no proof verifier costs, said where it is chosen.
@@ -163,6 +198,25 @@ export function parseQuestForm(body: unknown): FormParse {
     problems.push('The audience is either citizens, or citizens and candidates.')
   }
 
+  /**
+   * The activity window: absent is no requirement, and anything outside the
+   * closed set is refused rather than rounded to one (`#227`).
+   *
+   * A value the Colony does not offer would otherwise become a window nobody is
+   * inside, which is the same invisible failure the skill list guards against
+   * below — a quest that looks correct and is offered to nobody.
+   */
+  const activityRaw = text('minActivityDays')
+  const minActivityDays = activityRaw === '' ? null : Number(activityRaw)
+  if (
+    minActivityDays !== null &&
+    !(ACTIVITY_WINDOW_DAYS as readonly number[]).includes(minActivityDays)
+  ) {
+    problems.push(
+      `An activity window is one of ${ACTIVITY_WINDOW_DAYS.join(', ')} days, or none at all.`,
+    )
+  }
+
   const proofRaw = text('proofVerifier')
   const proofVerifier = proofRaw === '' || proofRaw === 'none' ? null : proofRaw
   if (
@@ -215,6 +269,7 @@ export function parseQuestForm(body: unknown): FormParse {
       requires,
       minReputation,
       audience,
+      minActivityDays,
       proofVerifier,
       reward: { credits: rewardCredits, reputation: 1 },
     },

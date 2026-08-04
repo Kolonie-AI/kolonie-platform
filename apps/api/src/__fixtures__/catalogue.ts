@@ -127,6 +127,9 @@ export function aTask(overrides: Partial<Task> = {}): Task {
     // that named one everywhere would make the resolution look mandatory (#151).
     requiresAccounts: [],
     minReputation: 0,
+    // No activity window: an Academy rung is for everybody whenever they arrive,
+    // and a quest that says nothing about activity narrows nothing (#227).
+    minActivityDays: null,
     recommendedOrder: 0,
     title: 'Complete your profile',
     description: 'Fill in the fields that make you a citizen rather than a row.',

@@ -12,10 +12,20 @@ import {
   type Task,
   type TaskId,
 } from '@kolonie-ai/core'
-import type { OwnQuest, QuestResult as AcceptedReport } from '@kolonie-ai/db'
+import type { AudienceCriteria, OwnQuest, QuestResult as AcceptedReport } from '@kolonie-ai/db'
 import type { QuestDesk } from '../quests.js'
 
+/**
+ * The audience a quest with no activity window reaches, in the fake (`#227`).
+ *
+ * A named number rather than a literal, so a test asserting the page carries the
+ * count says what it is asserting about.
+ */
+export const FAKE_AUDIENCE = 7
+
 export interface FakeQuestDesk extends QuestDesk {
+  /** Every criterion set the audience count was asked about (`#227`). */
+  readonly audienceAsked: readonly AudienceCriteria[]
   /**
    * Clear the moderation stage, which no route can do.
    *
@@ -61,6 +71,7 @@ export function fakeQuests(): FakeQuestDesk {
     { readonly own: OwnQuest; moderated: 'approved' | 'rejected' | null }
   >()
   const balances = new Map<string, number>()
+  const audienceAsked: AudienceCriteria[] = []
 
   const task = (input: {
     readonly id: TaskId
@@ -84,6 +95,7 @@ export function fakeQuests(): FakeQuestDesk {
     slots: input.draft.slots,
     expiresAt: input.draft.expiresAt,
     audience: input.draft.audience,
+    minActivityDays: input.draft.minActivityDays,
     rejectionReason: null,
     assistanceAllowed: input.draft.assistanceAllowed,
     prerequisiteTaskIds: [],
@@ -320,6 +332,23 @@ export function fakeQuests(): FakeQuestDesk {
         )
 
       return { balance, reserved, available: balance - reserved }
+    },
+
+    /**
+     * A fixed population rather than a modelled one (`#227`).
+     *
+     * The count is `packages/db`'s question — it reads statuses, currently held
+     * skills, a reputation sum and a timestamp, and `activity.test.ts` asserts
+     * all four against a real database. Reimplementing that here would be a
+     * second definition of the audience that agrees until one of them grows a
+     * condition; what these tests need is that the number reaches the page and
+     * that the criteria it is asked about are the quest's own.
+     */
+    audienceAsked,
+
+    async audience(criteria) {
+      audienceAsked.push(criteria)
+      return criteria.minActivityDays === null ? FAKE_AUDIENCE : 0
     },
 
     async listOwn(authorId) {

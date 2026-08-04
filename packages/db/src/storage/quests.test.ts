@@ -224,6 +224,8 @@ describe('the quest write path', () => {
     audience: 'citizens',
     requires: [],
     minReputation: 0,
+    // No activity window, which is what a sponsor that says nothing gets (#227).
+    minActivityDays: null,
     timeoutHours: 24,
     assistanceAllowed: true,
     ...overrides,

@@ -5,7 +5,7 @@ import {
   SubmissionIdSchema,
 } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
-import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony.js'
+import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
 import { aTicketRequest, someoneElse } from '../../__fixtures__/support.js'
 import { TICKET_LIMIT } from '../../support.js'

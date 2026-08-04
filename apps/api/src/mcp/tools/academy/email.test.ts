@@ -6,7 +6,7 @@ import { fakeAccounts } from '../../../__fixtures__/accounts.js'
 import { fakeConsole } from '../../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../../__fixtures__/catalogue.js'
 import { fakeQuests } from '../../../__fixtures__/quests.js'
-import { FAKE_CALLER_IP } from '../../../__fixtures__/colony.js'
+import { FAKE_CALLER_IP } from '../../../__fixtures__/colony/index.js'
 import { fakeDomain } from '../../../__fixtures__/domain.js'
 import {
   FAKE_INBOUND_SECRET,

@@ -18,67 +18,13 @@ import {
   type SessionDeclaration,
   type ApiKey,
   type RegisterAgentRequest,
-  type SkillReleases,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, ObservedOrigin, RegisterAgentResult } from '@kolonie-ai/db'
-import type { AgentStore } from '../authentication.js'
-import type { TaskCatalogue } from '../tasks.js'
-import type { TaskSubmissions } from '../submissions.js'
-
-import type { AcademyDependencies } from '../academy.js'
-import type { ConsoleDependencies } from '../console.js'
-import type { EmailDependencies } from '../email.js'
-import type { KeyDependencies } from '../keys.js'
-import type { SolanaDependencies } from '../solana.js'
-import type { PowDependencies } from '../proof-of-work.js'
-import type { GithubDependencies } from '../github.js'
-import type { ContributionDependencies } from '../contributions.js'
-import type { WakeupSource } from '../wakeup.js'
-import type { WebsiteDependencies } from '../website.js'
-import type { ImageDependencies } from '../image.js'
-import type { SceneDependencies } from '../scene.js'
-import type { InjectionDependencies } from '../injection.js'
-import type { AutonomyDependencies } from '../autonomy.js'
-import type { OperatorClaimDependencies } from '../operator-claim.js'
-import type { SocialDependencies } from '../social.js'
-import type { DomainDependencies } from '../domain.js'
-import type { VisionDependencies } from '../vision.js'
-import type { VaultDependencies } from '../vault.js'
-import type { AccountDependencies } from '../accounts.js'
-import { fakeAcademy } from './academy.js'
-import { fakeEmail } from './email.js'
-import { fakeKeys } from './keys.js'
-import { fakeSolanaChallenges } from './solana.js'
-import { fakePow } from './proof-of-work.js'
-import { fakeContributions, fakeGithub } from './github.js'
-import { fakeWakeup } from './wakeup.js'
-import { fakeAutonomy } from './autonomy.js'
-import { fakeOperatorClaim } from './operator-claim.js'
-import { fakeSocial } from './social.js'
-import { fakeDomain } from './domain.js'
-import { fakeWebsite } from './website.js'
-import { fakeImage } from './image.js'
-import { fakeScene } from './scene.js'
-import { fakeInjection } from './injection.js'
-import { fakeVision } from './vision.js'
-import { fakeVault } from './vault.js'
-import { fakeAccounts } from './accounts.js'
-import { fakeConsole } from './console.js'
-import { checkName, register, type AgentRegistry, type Caller } from '../registration.js'
-import { fakeCatalogue } from './catalogue.js'
-import { fakeQuests, type FakeQuestDesk } from './quests.js'
-import { fakeDepositDependencies, fakeDeposits } from './deposits.js'
-import type { DepositDependencies } from '../deposits.js'
-import { fakeSubmissions } from './submissions.js'
-import { fakeGuidance, type FakeGuidance } from './guidance.js'
-import { fakeSupportDesk, type FakeSupportDesk } from './support.js'
-import { support as supportSurface, type Support } from '../support.js'
-import { fakeErasureDesk, type FakeErasureDesk } from './erasure.js'
-import { erasure as erasureSurface, type Erasure } from '../erasure.js'
-import type { Retesting } from '../retest.js'
-import { DEFAULT_SKILL_RELEASES } from '../skill-releases.js'
-import type { ResetResult } from '@kolonie-ai/db'
-import { noObstruction } from './obstruction.js'
+import type { AgentStore } from '../../authentication.js'
+import type { SolanaChallenges } from '../../solana.js'
+import type { WakeupSource } from '../../wakeup.js'
+import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
+import { fakeWakeup } from '../wakeup.js'
 
 /**
  * One in-memory Colony behind both seams.
@@ -103,80 +49,21 @@ import { noObstruction } from './obstruction.js'
  */
 export const FAKE_CALLER_IP = '192.0.2.10'
 
-export interface FakeColony {
+/**
+ * The citizen itself: how it arrives, how it is recognised afterwards, and what
+ * the Colony holds about it.
+ *
+ * **This is the half of the fixture with state in it.** The other three files
+ * wire fakes together, one line each; this one keeps the maps that make a round
+ * trip real — the key registration issued, the balance a reward moved, the
+ * profile a patch edited.
+ */
+export interface FakeAgent {
   readonly registry: AgentRegistry
   readonly store: AgentStore
-  /**
-   * The task list, behind both surfaces. A test that needs to see the query it
-   * was sent overrides this with its own `fakeCatalogue`, which records them.
-   */
-  readonly catalogue: TaskCatalogue
-  /** The quest write path and the review (`#176`), in memory. */
-  readonly quests: FakeQuestDesk
-  /** The way in (`#219`), in memory. */
-  readonly deposits: DepositDependencies
-  /** Where submissions go, behind both surfaces. Overridable the same way. */
-  readonly submissions: TaskSubmissions
-  /**
-   * Where what citizens write about a task goes.
-   *
-   * Typed as the fake rather than the interface, unlike `catalogue` above, so a
-   * test can say what the next read answers with. The MCP tools render this into
-   * prose a model acts on, and that rendering is the thing worth asserting.
-   */
-  readonly guidance: FakeGuidance
-  /**
-   * The support surface, plus the desk behind it.
-   *
-   * Both, because the tests need each: `support` is what the MCP tools are wired to,
-   * and `desk` is how a test puts a ticket into a state no citizen can write.
-   */
-  readonly support: Support
-  readonly desk: FakeSupportDesk
-  /**
-   * The erasure surface, plus the desk behind it.
-   *
-   * Both, for the reason `support` gives: `erasure` is what the tools and routes
-   * are wired to, and `erasureDesk` is how a test says *refuse the next
-   * confirmation* or asserts which agent id actually reached the transaction.
-   */
-  readonly erasure: Erasure
-  readonly erasureDesk: FakeErasureDesk
-  readonly retesting: Retesting
-  /** What the next reset answers. Defaults to `not-a-tester`. */
-  readonly allowRetest: (outcome: ResetResult) => void
-  /** The Browser Capability Gate, behind both surfaces. Overridable the same way. */
-  readonly academy: AcademyDependencies
-  /** The mailbox rung, behind both surfaces. Overridable the same way. */
-  readonly console: ConsoleDependencies
-  readonly email: EmailDependencies
-  /** The keypair rung, behind both surfaces. Overridable the same way. */
-  readonly keys: KeyDependencies
-  /** The wallet rung, behind both surfaces. Overridable the same way. */
-  readonly solana: SolanaDependencies
-  /** The compute rung, behind both surfaces. Overridable the same way. */
-  readonly pow: PowDependencies
-  /** The GitHub rung, behind both surfaces. Overridable the same way. */
-  readonly github: GithubDependencies
-  readonly contributions: ContributionDependencies
   readonly wakeup: WakeupSource
-  readonly social: SocialDependencies
-  readonly operatorClaim: OperatorClaimDependencies
-  readonly autonomy: AutonomyDependencies
-  readonly domain: DomainDependencies
-  readonly website: WebsiteDependencies
-  readonly image: ImageDependencies
-  readonly scene: SceneDependencies
-  readonly injection: InjectionDependencies
-  readonly vision: VisionDependencies
-  /** The vault, behind both surfaces. Overridable the same way (#98). */
-  readonly vault: VaultDependencies
-  /** The account register, behind both surfaces. Overridable the same way (#150). */
-  readonly accounts: AccountDependencies
   /** The range a declared rhythm has to fall inside (#142). */
   readonly rhythm: RhythmBounds
-  /** What the Colony ships per runtime (`kolonie-docs#125`). */
-  readonly skillReleases: SkillReleases
   /** Every session a citizen named through this colony, in order (#158). */
   readonly namedSessions: () => readonly { agentId: AgentId; declaration: SessionDeclaration }[]
   /** Every origin the door observed, in order (`#191`). Recorded, never consulted. */
@@ -210,16 +97,16 @@ export interface FakeColony {
   ) => void
 }
 
-export function fakeColony(): FakeColony {
+/**
+ * @param solanaChallenges the wallet rung's store, from `fakeRungs`. Passed in
+ * rather than built here because `verifiedWalletOf` has to read what the wallet
+ * routes wrote: one store, or a citizen that clears `solana-wallet` over MCP has
+ * no address in the next `kolonie.me`. It is the one thing two of these files
+ * share, and it is a parameter so that neither of them owns the other.
+ */
+export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges }): FakeAgent {
   const byKey = new Map<string, { agent: Agent; revoked: boolean }>()
-  const desk = fakeSupportDesk()
-  const erasureDesk = fakeErasureDesk()
-  let resets: ResetResult = { outcome: 'not-a-tester' }
   const balances = new Map<string, AgentBalance>()
-  // Held rather than built inline, because two things read it: the wallet
-  // routes, and `verifiedWalletOf` below. One store, so a rung cleared on one
-  // surface is visible on the other.
-  const solanaChallenges = fakeSolanaChallenges()
   const takenNames = new Set<string>()
   const runtimeDeclarations = new Map<string, string>()
   /** Every session a citizen named through this colony, in order (#158). */
@@ -298,52 +185,13 @@ export function fakeColony(): FakeColony {
     },
     caller: { ip: FAKE_CALLER_IP },
 
-    catalogue: fakeCatalogue(),
-    quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
-
-    submissions: fakeSubmissions(),
-    guidance: fakeGuidance(),
-    support: supportSurface({ desk }),
-    desk,
-    erasure: erasureSurface({ desk: erasureDesk }),
-    erasureDesk,
-    /**
-     * Re-testing, in memory. Refuses everything by default: `not-a-tester` is what an
-     * ordinary agent gets, so a test that does not care about the tester role never
-     * has to say so.
-     */
-    retesting: { reset: async () => resets },
-    allowRetest: (outcome) => {
-      resets = outcome
-    },
-    academy: fakeAcademy(),
-    email: fakeEmail(),
-    keys: fakeKeys(),
-    solana: { challenges: solanaChallenges, obstruction: noObstruction },
-    pow: fakePow(),
-    github: fakeGithub(),
-    contributions: fakeContributions(),
     wakeup: fakeWakeup(),
-    social: fakeSocial(),
-    operatorClaim: fakeOperatorClaim(),
-    autonomy: fakeAutonomy(),
-    domain: fakeDomain(),
-    website: fakeWebsite(),
-    image: fakeImage(),
-    scene: fakeScene(),
-    injection: fakeInjection(),
-    vision: fakeVision(),
-    vault: { vault: fakeVault() },
-    accounts: fakeAccounts(),
-    console: fakeConsole(),
     /**
      * The default range (#142). A test that cares about the bounds passes its
      * own, which is the point of them being configuration — and the one that
      * pins *lowering the minimum is a configuration change* does exactly that.
      */
     rhythm: DEFAULT_RHYTHM_BOUNDS,
-    skillReleases: DEFAULT_SKILL_RELEASES,
     namedSessions: () => named,
     observedOrigins: () => observed,
 
@@ -381,7 +229,7 @@ export function fakeColony(): FakeColony {
        * fixture exists to make real.
        */
       verifiedWalletOf: async (agentId: AgentId): Promise<string | null> => {
-        const attempt = await solanaChallenges.latest(agentId)
+        const attempt = await deps.solanaChallenges.latest(agentId)
         return attempt?.verifiedAt == null ? null : attempt.address
       },
 

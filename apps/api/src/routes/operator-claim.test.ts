@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ERROR_STATUS, type AgentId, type ApiKey } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
-import { fakeColony, type FakeColony } from '../__fixtures__/colony.js'
+import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import {
   fakeClaimReader,

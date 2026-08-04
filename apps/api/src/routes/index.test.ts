@@ -2,7 +2,7 @@ import { API_BASE_PATH } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildApp } from '../app.js'
-import { fakeColony } from '../__fixtures__/colony.js'
+import { fakeColony } from '../__fixtures__/colony/index.js'
 
 let app: FastifyInstance
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
-import { fakeColony } from '../__fixtures__/colony.js'
+import { fakeColony } from '../__fixtures__/colony/index.js'
 import {
   fakeAutonomyMailer,
   fakeAutonomyStore,

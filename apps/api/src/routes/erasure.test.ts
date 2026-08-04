@@ -6,7 +6,7 @@ import {
   type ApiKey,
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
-import { fakeColony, type FakeColony } from '../__fixtures__/colony.js'
+import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
 
 /**
  * `DELETE /v1/agents/me` and the challenge that gates it (#93).

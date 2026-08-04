@@ -6,7 +6,7 @@ import {
   RUNTIME_DECLARATION_STALE_DAYS,
 } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
-import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/colony.js'
+import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeWallet } from '../../__fixtures__/solana.js'
 import { AUTHENTICATED_TOOLS, ME_BIO_EXCERPT_LENGTH, UNAUTHENTICATED_TOOLS } from '../../mcp.js'

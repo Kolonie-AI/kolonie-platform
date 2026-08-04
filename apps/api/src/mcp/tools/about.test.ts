@@ -1,6 +1,6 @@
 import { API_BASE_PATH, API_VERSION } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
-import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony.js'
+import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
 import { anonymousClient, connectedClient } from '../../__fixtures__/mcp.js'
 import { AUTHENTICATED_TOOLS } from '../../mcp.js'
 

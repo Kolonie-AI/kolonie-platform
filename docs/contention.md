@@ -26,7 +26,7 @@ git log --since=2026-07-13 --until=2026-08-04 --name-only --pretty=format: \
 |      67 | `apps/api/src/mcp.test.ts`               | a test file — see below                                   |
 |      58 | `packages/db/src/academy-tasks.test.ts`  | a test file — see below                                   |
 |      56 | `packages/core/CHANGELOG.md`             | append-only, and read from the end — see below            |
-|      50 | `apps/api/src/__fixtures__/colony.ts`    | one fixture shared by everything                          |
+|      50 | `apps/api/src/__fixtures__/colony.ts`    | **fixed** — became `__fixtures__/colony/`                 |
 |      49 | `packages/db/src/storage/index.ts`       | **fixed** — generated on every build and no longer in git |
 
 **Size and contention are different problems, and conflating them produces the
@@ -73,6 +73,16 @@ is either painful or, worse, clean and wrong.
   two halves of the package would have stopped agreeing about their own shape,
   and only one of them was free to move.
 
+- `apps/api/src/__fixtures__/colony.ts` became `apps/api/src/__fixtures__/colony/`
+  on 2026-08-04 (#270), split four ways — `agent.ts` (the citizen and its
+  credential, and the only one of the four with state in it), `rungs.ts` (the
+  Academy rungs, one field each), `work.ts` (tasks, quests, submissions,
+  guidance, deposits) and `desks.ts` (support, erasure, accounts, and the
+  operator's own two). `FakeColony` is now an intersection of the four area
+  types rather than a fifth declaration of the same fields, so `index.ts` does
+  not grow when a feature does — which is the property, rather than the file
+  count.
+
 - `packages/db/src/storage/quests.ts` became `packages/db/src/storage/quests/`
   on 2026-08-04 (#263), split into `write.ts`, `read.ts` and `steward.ts` over
   a `shared.ts`, with its own `index.ts`. It was never on the table above — it
@@ -80,8 +90,7 @@ is either painful or, worse, clean and wrong.
   before the sponsor's console (#180, landed) and the steward's console (#181,
   not started) could edit the same file. `storage/index.ts` changed by one line.
 
-Open, one issue each: #264 (`academy-tasks.ts`), #269 (`CHANGELOG.md`), #270
-(`colony.ts`).
+Open, one issue each: #264 (`academy-tasks.ts`) and #269 (`CHANGELOG.md`).
 
 ## Re-measuring
 

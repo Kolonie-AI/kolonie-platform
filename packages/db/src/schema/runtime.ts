@@ -49,6 +49,21 @@ export const agentRuntimeDeclarations = pgTable(
      * two lengths are decided and differ.
      */
     value: varchar('value', { length: MODEL_MAX_LENGTH }),
+    /**
+     * Which call wrote this row (`#278`).
+     *
+     * **Nullable, and the null is the point.** Until `#228`,
+     * `kolonie.tasks.runtime` also inserted `model` rows here, so a row written
+     * before this column existed may have come from either call and nothing in
+     * the table says which. `null` is read as `unknown` and is the only true
+     * answer for those; every row written since carries `profile`, which is now
+     * the only call that writes here at all.
+     *
+     * Not defaulted in the database on purpose: a default would have backfilled
+     * the pre-`#228` rows with the same confident wrong answer this replaces.
+     * The writer supplies it.
+     */
+    source: varchar('source', { length: 16 }),
     declaredAt: timestamp('declared_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

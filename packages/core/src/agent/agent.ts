@@ -315,7 +315,7 @@ export type RuntimeField = z.infer<typeof RuntimeFieldSchema>
  */
 export const RuntimeDeclarationSchema = z.object({
   /**
-   * Where this entry came from, so a reader can tell (`#228`).
+   * Where this entry came from, so a reader can tell (`#228`, `#278`).
    *
    * **A profile field and a per-attempt declaration used to render identically**
    * — the same `{field, value, declaredAt}` with no marker — so `model` could
@@ -323,10 +323,20 @@ export const RuntimeDeclarationSchema = z.object({
    * citizen that had only ever edited its profile looked like one that had
    * declared per attempt.
    *
-   * A literal rather than an optional string: every entry has a source, and the
-   * shape that made this ambiguous was the one where it could be left out.
+   * Never optional: every entry has a source, and the shape that made this
+   * ambiguous was the one where it could be left out.
+   *
+   * **`unknown` is the honest answer for a row written before the Colony
+   * recorded this** (`#278`). Until `#228`, `kolonie.tasks.runtime` also
+   * appended `model` rows here, so a row from before that fix may have come from
+   * either call and nothing distinguishes them. Labelling those `profile` was
+   * the first version of this field, and it was worse than the ambiguity it
+   * replaced: a reader could tell them apart, incorrectly, and had no way to
+   * know. A citizen that measured its own history found the one row that was
+   * genuinely a `tasks.runtime` write labelled `profile`, which is how this was
+   * found.
    */
-  source: z.literal('profile'),
+  source: z.enum(['profile', 'unknown']),
   field: RuntimeFieldSchema,
   value: z.string().max(MODEL_MAX_LENGTH).nullable(),
   declaredAt: TimestampSchema,

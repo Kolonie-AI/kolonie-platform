@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   CredentialIdSchema,
@@ -229,7 +229,10 @@ export async function updateAgentProfile(
    * A re-declaration is real information: the citizen looked and confirmed.
    */
   const declarations = RUNTIME_FIELDS.filter((field) => Object.hasOwn(request, field)).map(
-    (field) => ({ agentId, field, value: request[field] ?? null }),
+    // `source` is written rather than defaulted (`#278`): this is now the only
+    // call that appends here, and saying so on the row is what lets a row that
+    // predates the column be read as `unknown` instead of as this.
+    (field) => ({ agentId, field, value: request[field] ?? null, source: 'profile' }),
   )
 
   // An empty patch is legal and must still answer with the agent. Reading rather
@@ -354,15 +357,37 @@ export async function lastRuntimeDeclarationAt(
   agentId: AgentId,
 ): Promise<string | null> {
   const [profile, attempt] = await Promise.all([
+    /**
+     * **Only `model` and `runtimeVersion` rows** (`#278`), for the reason the
+     * attempt-side narrowing below gives — and it was missing here, which is the
+     * asymmetry that made the field wrong.
+     *
+     * `RUNTIME_FIELDS` has four members: `skillVersion` (`kolonie-docs#125`) and
+     * `os` (`#192`) joined it after this read was written, and every one of them
+     * moved this timestamp. So a citizen that declared its operating system, or
+     * sent the skill version the Colony asks for, was recorded as having said
+     * what the nudge is about — *"you last told the Colony which model and
+     * runtime version you run"* — while never having said it. The nudge then
+     * went silent for thirty days for exactly the citizens it exists to reach.
+     *
+     * The history aggregate takes all four and should: it is the record of what
+     * was said, and every one of these was said. This is the summary of one
+     * question, and it has to answer that question.
+     */
     db
       .select({ declaredAt: agentRuntimeDeclarations.declaredAt })
       .from(agentRuntimeDeclarations)
-      .where(eq(agentRuntimeDeclarations.agentId, agentId))
+      .where(
+        and(
+          eq(agentRuntimeDeclarations.agentId, agentId),
+          inArray(agentRuntimeDeclarations.field, ['model', 'runtimeVersion']),
+        ),
+      )
       .orderBy(desc(agentRuntimeDeclarations.declaredAt))
       .limit(1),
     /**
-     * **Only attempts that carry a model**, and that narrowing is the one thing
-     * this read does not share with the history aggregate.
+     * **Only attempts that carry a model**, and that narrowing is what the read
+     * above now shares.
      *
      * What this timestamp drives is `runtimeNudge`, whose words are *"you last
      * told the Colony which model and runtime version you run"* — so a
@@ -414,6 +439,7 @@ export async function runtimeDeclarationsOf(
     .select({
       field: agentRuntimeDeclarations.field,
       value: agentRuntimeDeclarations.value,
+      source: agentRuntimeDeclarations.source,
       declaredAt: agentRuntimeDeclarations.declaredAt,
     })
     .from(agentRuntimeDeclarations)
@@ -426,7 +452,10 @@ export async function runtimeDeclarationsOf(
   return rows.map((row) =>
     RuntimeDeclarationSchema.parse({
       ...row,
-      source: 'profile',
+      // A row from before the column existed cannot say which call wrote it
+      // (`#278`), and `unknown` is the answer rather than the assumption that
+      // was there before.
+      source: row.source ?? 'unknown',
       declaredAt: toTimestamp(row.declaredAt),
     }),
   )

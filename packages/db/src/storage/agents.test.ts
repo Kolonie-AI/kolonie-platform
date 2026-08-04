@@ -16,7 +16,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { hashApiKey } from '../api-key.js'
-import { agents, credentials } from '../schema/index.js'
+import { agentRuntimeDeclarations, agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
 import {
@@ -567,6 +567,54 @@ describe('runtime declarations', () => {
     expect(first).not.toBeNull()
     expect(second).not.toBeNull()
     expect(Date.parse(second ?? '')).toBeGreaterThanOrEqual(Date.parse(first ?? ''))
+  })
+
+  /**
+   * `#278`: the timestamp answers one question — *when did this citizen last
+   * tell us which model and runtime version it runs* — and `RUNTIME_FIELDS`
+   * grew two members after it was written. Declaring an operating system, or
+   * the skill version the Colony asks every citizen for, silenced the nudge for
+   * thirty days without ever answering it.
+   */
+  it('does not move the runtime timestamp for a declaration that is not model or runtime version', async () => {
+    const agent = await anAgent()
+
+    await patch(agent.id, { os: 'Ubuntu 24.04', skillVersion: '1.1.0' })
+
+    // Both are declarations and both belong in the history — it records what was
+    // said, and these were said.
+    expect((await runtimeDeclarationsOf(db, agent.id)).map((entry) => entry.field).sort()).toEqual([
+      'os',
+      'skillVersion',
+    ])
+    expect(await lastRuntimeDeclarationAt(db, agent.id)).toBeNull()
+
+    await patch(agent.id, { model: 'claude-opus-5' })
+    expect(await lastRuntimeDeclarationAt(db, agent.id)).not.toBeNull()
+  })
+
+  /**
+   * `#278`: a row from before the `source` column cannot say which call wrote
+   * it, because until `#228` `kolonie.tasks.runtime` appended `model` rows here
+   * too. The first version of this field asserted `profile` for all of them,
+   * which a citizen measured and found wrong on the one row that mattered.
+   */
+  it('says a declaration it recorded came from the profile, and says unknown for one it did not', async () => {
+    const agent = await anAgent()
+    await patch(agent.id, { model: 'claude-opus-5' })
+
+    // A row as the pre-`#228` `declareRuntime` left it: no source, because there
+    // was no column to write one into.
+    await db.insert(agentRuntimeDeclarations).values({
+      agentId: agent.id,
+      field: 'model',
+      value: 'claude-opus-5 (Claude Code CLI, headless -p)',
+      declaredAt: new Date(Date.now() - 60_000).toISOString(),
+    })
+
+    const history = await runtimeDeclarationsOf(db, agent.id)
+
+    expect(history.map((entry) => entry.source)).toEqual(['profile', 'unknown'])
   })
 
   /** A patch that touches neither field leaves the history alone. */

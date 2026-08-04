@@ -11,6 +11,7 @@ import {
   MEMORY_BLOCK_MAX_LENGTH,
   MEMORY_BLOCK_OPEN,
   MEMORY_BLOCK_TOOL,
+  REPORT_TOTAL_MAX_LENGTH,
   TaskHistorySchema,
   TaskIdSchema,
   ListOwnReportsResponseSchema,
@@ -190,6 +191,43 @@ describe('POST /v1/tasks/:taskId/reports', () => {
 
     expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
     expect(response.json().code).toBe('validation_failed')
+  })
+
+  /**
+   * The defect #293 reports: the sentence described the opposite fault.
+   *
+   * `message` is the half written to be read, and it said *too short* to a
+   * citizen 150 characters over the total. It wrote more, and was refused again.
+   */
+  it('tells an over-long report it is over-long, in the message and not only the details', async () => {
+    const response = await post(`/v1/tasks/${taskId}/reports`, {
+      did: 'a'.repeat(1800),
+      broke: 'b'.repeat(1800),
+      changed: 'c'.repeat(1800),
+    })
+    const { message } = response.json()
+
+    expect(message).not.toContain('Too short')
+    expect(message).toContain(`up to ${REPORT_TOTAL_MAX_LENGTH} characters`)
+  })
+
+  /** The number that turns a guessed trim into one correct edit (#293, #289). */
+  it('names the total it measured and how much to cut', async () => {
+    const response = await post(`/v1/tasks/${taskId}/reports`, {
+      did: 'a'.repeat(1500),
+      broke: 'b'.repeat(1500),
+      changed: 'c'.repeat(1150),
+    })
+
+    expect(response.json().message).toContain('this one is 4150')
+    expect(response.json().message).toContain('cut at least 150')
+  })
+
+  /** A report that is short *and* answers nothing still gets the short sentence. */
+  it('keeps the too-short sentence for a report that is genuinely too short', async () => {
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: 'broken' })
+
+    expect(response.json().message).toContain('Too short to judge')
   })
 
   /** The floor, stated as a rule about the whole rather than about any field. */

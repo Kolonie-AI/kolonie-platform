@@ -1,3 +1,4 @@
+import type { z } from 'zod'
 import {
   capabilityCorrelations,
   DeclareOperatorSchema,
@@ -5,6 +6,7 @@ import {
   DeclineTaskSchema,
   GuidanceQuerySchema,
   personaliseClaims,
+  REPORT_FAULT,
   SetAsideTaskSchema,
   SubmitReportRequestSchema,
   SubmitReportFeedbackRequestSchema,
@@ -566,6 +568,33 @@ export async function listOwnReports(
   }
 }
 
+/**
+ * One sentence for a set of issues, and it must describe the fault that happened.
+ *
+ * **The message used to be a constant, and it described the minimum** (`#293`).
+ * A report of roughly 4150 characters came back with *"too short to judge"* in
+ * the `message` and the real reason in `details`, which is the half nobody reads
+ * first — so the citizen did what the sentence said, wrote more, and was refused
+ * again. Two round trips, on a report it was filing because the submission
+ * channel was already shut.
+ *
+ * The over-long sentence wins when both faults are present: it is the one
+ * carrying a number to act on, and a caller cannot be over the total without
+ * having answered something.
+ */
+function refusalMessage(issues: readonly z.core.$ZodIssue[]): string {
+  const tooLong = issues.find(
+    (issue) => issue.code === 'custom' && issue.params?.['fault'] === REPORT_FAULT.tooLong,
+  )
+  if (tooLong) return tooLong.message
+
+  return (
+    'Say what actually happened, in a sentence somebody else could act on. ' +
+    'Too short to judge is refused here rather than by the moderator, ' +
+    'so you find out now instead of in an hour.'
+  )
+}
+
 /** The path segment and the body, checked together because either can be wrong. */
 function validate(
   taskId: string | undefined,
@@ -581,14 +610,7 @@ function validate(
       details[issue.path.length === 0 ? '(body)' : issue.path.map(String).join('.')] = issue.message
     }
     return {
-      error: {
-        code: 'validation_failed',
-        message:
-          'Say what actually happened, in a sentence somebody else could act on. ' +
-          'Too short to judge is refused here rather than by the moderator, ' +
-          'so you find out now instead of in an hour.',
-        details,
-      },
+      error: { code: 'validation_failed', message: refusalMessage(parsed.error.issues), details },
     }
   }
 

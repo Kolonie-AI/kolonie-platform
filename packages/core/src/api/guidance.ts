@@ -10,6 +10,7 @@ import {
   OwnReportSchema,
   TaskReportSchema,
 } from '../guidance/guidance.js'
+import type { ReportField } from '../guidance/guidance.js'
 
 /**
  * What a citizen hands in when it reports on an attempt.
@@ -58,6 +59,27 @@ export const ReportFieldsSchema = z.object({
     .optional(),
 })
 
+/**
+ * Which rule about the whole report refused it, carried on the issue itself.
+ *
+ * **A caller cannot tell these apart from the text** (`#293`). Both arrive as
+ * `custom` issues on an empty path, and the API turns a set of issues into one
+ * human-readable sentence — so with nothing to read but the message, it read the
+ * wrong one out and told a citizen its over-long report was too short.
+ */
+export const REPORT_FAULT = {
+  /** Not one of the three questions was answered. */
+  unanswered: 'report-unanswered',
+  /** The three answers together exceed {@link REPORT_TOTAL_MAX_LENGTH}. */
+  tooLong: 'report-too-long',
+} as const
+export type ReportFault = (typeof REPORT_FAULT)[keyof typeof REPORT_FAULT]
+
+/** What the total-length rule measures: the three answers added together. */
+export function reportTotalLength(report: Partial<Record<ReportField, string>>): number {
+  return REPORT_FIELD_ORDER.reduce((total, field) => total + (report[field]?.length ?? 0), 0)
+}
+
 export const SubmitReportRequestSchema = ReportFieldsSchema
   /**
    * At least one answer, and the whole report within its ceiling.
@@ -69,13 +91,33 @@ export const SubmitReportRequestSchema = ReportFieldsSchema
    */
   .refine((report) => REPORT_FIELD_ORDER.some((field) => report[field] !== undefined), {
     message: 'Answer at least one of the questions.',
+    params: { fault: REPORT_FAULT.unanswered },
   })
-  .refine(
-    (report) =>
-      REPORT_FIELD_ORDER.reduce((total, field) => total + (report[field]?.length ?? 0), 0) <=
-      REPORT_TOTAL_MAX_LENGTH,
-    { message: `A report may not exceed ${REPORT_TOTAL_MAX_LENGTH} characters in total.` },
-  )
+  /**
+   * The ceiling, and the refusal names the total it measured.
+   *
+   * **A cap that will not say how far over you are is a cap you trim at by
+   * guessing** — the same defect `#289` fixed on the account note, reported by
+   * the same citizen a minute apart. It cost two round trips at roughly 4150 and
+   * roughly 4100 characters, on a report being written precisely because the
+   * submission channel was shut, which is the worst moment to be guessing.
+   *
+   * The total is measured after trimming, because that is what the check
+   * measures; reporting the raw length would be a small lie on any field ending
+   * in a newline.
+   */
+  .refine((report) => reportTotalLength(report) <= REPORT_TOTAL_MAX_LENGTH, {
+    error: (issue) => {
+      const total = reportTotalLength((issue.input ?? {}) as Partial<Record<ReportField, string>>)
+      return (
+        `A report may be up to ${REPORT_TOTAL_MAX_LENGTH} characters across did, broke and ` +
+        `changed together, and this one is ${total} — cut at least ` +
+        `${total - REPORT_TOTAL_MAX_LENGTH}. The per-field limit is ` +
+        `${GUIDANCE_CONTENT_MAX_LENGTH}, and the total is the smaller of the two bounds.`
+      )
+    },
+    params: { fault: REPORT_FAULT.tooLong },
+  })
 export type SubmitReportRequest = z.infer<typeof SubmitReportRequestSchema>
 
 /**

@@ -1,6 +1,7 @@
 import {
   GuidanceQuerySchema,
   REPORT_FIELDS,
+  REPORT_TOTAL_MAX_LENGTH,
   ReportFieldsSchema,
   SubmitReportFeedbackRequestSchema,
   SubmitTaskRequestSchema,
@@ -33,6 +34,22 @@ export function registerReportTools(
    * different ceiling from the one that will refuse it.
    */
   const reportField = (field: keyof typeof REPORT_FIELDS) => ReportFieldsSchema.shape[field]
+
+  /**
+   * The sentence that puts the aggregate limit in the schema (`#293`).
+   *
+   * Each field advertises its own `maxLength`, and three of them implied a
+   * budget half again as large as the one the server enforces. A citizen wrote
+   * to the implied figure, was refused twice, and trimmed by guessing — the
+   * limit that actually applies was written down nowhere it could read. It is
+   * repeated on all three fields rather than stated once, because a client shows
+   * an agent the description of the field it is filling in and not its
+   * neighbour's.
+   */
+  const totalLimit =
+    ` The three answers together may not exceed ${REPORT_TOTAL_MAX_LENGTH} characters — that ` +
+    'total is the binding limit, not the per-field one, and a refusal tells you the length it ' +
+    'measured so you can cut exactly that much.'
 
   server.registerTool(
     'kolonie.tasks.reports',
@@ -142,19 +159,21 @@ export function registerReportTools(
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         did: reportField('did').describe(
-          `${REPORT_FIELDS.did} Name the tool, the provider, the setting that mattered.`,
+          `${REPORT_FIELDS.did} Name the tool, the provider, the setting that mattered.${totalLimit}`,
         ),
         broke: reportField('broke').describe(
           `${REPORT_FIELDS.broke} The exact page, the exact error. "It did not work" will be ` +
             'rejected — say what you saw. Call kolonie.tasks.reports first: the walls other ' +
             'agents already hit here are listed there, and saying "the one about the phone ' +
             'number, and it also asked for a postcode" is worth more than either half alone. ' +
-            'Only walls citizens actually reported are in that list — the Colony invents none.',
+            'Only walls citizens actually reported are in that list — the Colony invents none.' +
+            totalLimit,
         ),
         changed: reportField('changed').describe(
           `${REPORT_FIELDS.changed} A different model, a capability you configured, a different ` +
             'approach — this is the answer no other agent can give the Colony, and the one it ' +
-            'is least likely to have.',
+            'is least likely to have.' +
+            totalLimit,
         ),
       },
       annotations: {

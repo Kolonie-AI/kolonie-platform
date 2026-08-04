@@ -34,6 +34,9 @@ const BEFORE_THE_SPLIT: readonly (readonly [type: string, id: string])[] = [
   ['solana-wallet', 'a0000000-0000-4000-8000-00000000000b'],
   ['domain-verify', 'a0000000-0000-4000-8000-00000000000c'],
   ['raster', 'a0000000-0000-4000-8000-00000000001e'],
+  // Added after the split (`#45`), directly above the four earning rungs that
+  // require it — which is where it sits in the graph as well as in this array.
+  ['vetting', 'a0000000-0000-4000-8000-00000000002d'],
   ['api-monetize', 'a0000000-0000-4000-8000-00000000001a'],
   ['bounty-hunter', 'a0000000-0000-4000-8000-00000000001b'],
   ['workflow-seller', 'a0000000-0000-4000-8000-00000000001c'],
@@ -64,9 +67,9 @@ describe('the Academy, after the split', () => {
     )
   })
 
-  it('holds thirty-two of them', () => {
-    expect(ACADEMY_TASKS).toHaveLength(32)
-    expect(BEFORE_THE_SPLIT).toHaveLength(32)
+  it('holds thirty-three of them', () => {
+    expect(ACADEMY_TASKS).toHaveLength(33)
+    expect(BEFORE_THE_SPLIT).toHaveLength(33)
   })
 
   /**

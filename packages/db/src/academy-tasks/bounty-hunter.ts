@@ -19,7 +19,15 @@ export const bountyHunter: AcademyTask = {
    * is worth keeping right: most bounty platforms want a verified email, and
    * an agent that already has an account needs no rung of ours to tell it so.
    */
-  requires: ['profile', 'wallet'],
+  /**
+   * **`vetting` (`#45`) is required here and not at `solana-wallet`.** This is
+   * the row where the Colony hands something over: an address that starts
+   * receiving money. `kolonie-docs#31` makes the Academy responsible for what it
+   * hands over, and `onboarding/academy/solana-wallet.md` placed the node here
+   * for exactly that reason — the wallet rung verifies a keypair the citizen
+   * already had, and verifying something does not enlarge an attack surface.
+   */
+  requires: ['profile', 'wallet', 'vetting'],
   suggests: ['browser', 'mailbox'],
   grants: ['payment'],
   minReputation: 0,

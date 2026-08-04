@@ -20,6 +20,7 @@ import { fakeQuests } from './quests.js'
 import { fakeImage } from './image.js'
 import { fakeScene } from './scene.js'
 import { fakeInjection } from './injection.js'
+import { fakeVetting } from './vetting.js'
 import { fakeKeys } from './keys.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeMemory } from './memory.js'
@@ -122,6 +123,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),
+    vetting: fakeVetting(),
     caller: { ip: FAKE_CALLER_IP },
   })
 

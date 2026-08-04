@@ -16,6 +16,7 @@ import { SolanaTraderVerifier } from './solana-trader.js'
 import { RasterVerifier, type ImageChallenges, type VisionChecker } from './raster.js'
 import { ImageModelVerifier, type SceneChallenges, type SceneChecker } from './image-model.js'
 import { PromptInjectionVerifier, type InjectionChallenges } from './prompt-injection.js'
+import { VettingVerifier, type VettingChallenges } from './vetting.js'
 import { CodeContributionVerifier, type GithubGrants } from './code-contribution.js'
 import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
@@ -322,6 +323,12 @@ export {
   type InjectionChallengeState,
   type PromptInjectionDependencies,
 } from './prompt-injection.js'
+export {
+  VettingVerifier,
+  type VettingChallenges,
+  type VettingChallengeState,
+  type VettingDependencies,
+} from './vetting.js'
 export { readImage, type ImageFacts, type ImageFormat, type ImageRead } from './image.js'
 export {
   readVisionImage,
@@ -523,6 +530,15 @@ export interface VerifierDependencies {
    * dependency disables the badge and can never make it answer wrongly.
    */
   readonly injectionChallenges?: InjectionChallenges
+  /**
+   * The manifest the Colony planted properties in, for the vetting rung (`#45`).
+   *
+   * Its own port beside `injectionChallenges` rather than a shared *challenge*
+   * port: a wiring mistake that answered one of these two with the other's row
+   * would grade a citizen against an exercise it never saw, and the two are
+   * close enough in shape for that to compile.
+   */
+  readonly vettingChallenges?: VettingChallenges
   /**
    * Answers what the Colony recorded about an agent's proof-of-work challenge.
    *
@@ -744,6 +760,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.injectionChallenges !== undefined) {
     verifiers.push(new PromptInjectionVerifier({ challenges: deps.injectionChallenges }))
+  }
+
+  if (deps.vettingChallenges !== undefined) {
+    verifiers.push(new VettingVerifier({ challenges: deps.vettingChallenges }))
   }
 
   if (deps.work !== undefined) {

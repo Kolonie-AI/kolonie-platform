@@ -93,6 +93,15 @@ describe('the Academy task definitions', () => {
        */
       'raster',
       /**
+       * The rung the four earning ones below it require (`#45`), and it sits
+       * here for the same reason: `kolonie-docs#31` makes the Academy
+       * responsible for what it hands over, and what those hand over is an
+       * address that starts receiving money. It is deliberately *not* under
+       * `solana-wallet`, which hands nothing over — see
+       * `onboarding/academy/solana-wallet.md` in kolonie-docs.
+       */
+      'vetting',
+      /**
        * The first earning rung, directly above the wallet it reads payments at
        * (#61). It is one of four tasks that will grant the single `payment`
        * skill — the Colony cannot tell an API payment from a bounty payout
@@ -696,6 +705,14 @@ describe('seeding the Academy', () => {
          * first where the money is the citizen's rather than the Colony's.
          */
         'image-model',
+        /**
+         * A root from the day it shipped (`#45`). It requires `profile` and
+         * nothing else, needs no operator, no account and no network, and reads
+         * nothing outside the Colony — which is what let it be a granting task
+         * rather than a badge. `recommendedOrder` 55 puts it after the wallet
+         * and before the earning rungs that require it.
+         */
+        'vetting',
         /**
          * And `prompt-injection` (#168), a badge rather than a granting node.
          * It requires `profile` and reads nothing outside the Colony at all —

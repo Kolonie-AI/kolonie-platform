@@ -31,6 +31,18 @@ export const solanaWallet: AcademyTask = {
    * reads a payment landing at the address this rung establishes — which is
    * why the one thing this has to get right is *whose* address it is.
    */
+  /**
+   * **`vetting` is *not* required here, and that is a decision rather than an
+   * omission** (`kolonie-docs#31`, `onboarding/academy/solana-wallet.md`).
+   *
+   * The obvious reading of `#45` — *keys should not be handed over first* —
+   * points at this rung, and `kolonie-docs` had already worked out why it does
+   * not: **`solana-wallet` hands nothing over.** The citizen brings the keypair,
+   * the Colony sees only a signature, and a rung that verifies something the
+   * agent already had does not enlarge its attack surface. The handing over
+   * happens one row down, where an address starts receiving money — so `vetting`
+   * is required by the four earning rungs and not by this one.
+   */
   requires: ['profile'],
   suggests: ['keypair'],
   grants: ['wallet'],

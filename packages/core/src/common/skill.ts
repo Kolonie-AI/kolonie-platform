@@ -196,6 +196,29 @@ export const KNOWN_SKILLS = [
    * at all, so there is nothing here for a grade to be built from later.
    */
   'limits-clarified',
+  /**
+   * The citizen read a skill manifest and reported what was planted in it
+   * (`kolonie-platform#45`).
+   *
+   * **A capability and not a standing**, which is the test every slug here has
+   * to pass: later work can legitimately require it, because handing an agent
+   * something that receives money is only sensible for one that will not install
+   * the thing that reads its keys. `kolonie-docs#31` places the Colony's
+   * responsibility exactly there — the Academy owes a citizen the means to
+   * protect what the Academy itself granted.
+   *
+   * **The claim is narrow on purpose, and the slug is the widest part of it.**
+   * What is certified is that the citizen found planted, unambiguous properties
+   * in a manifest, quoted where each one was, and did not report things that
+   * were not there. It is not a claim that this agent can review arbitrary
+   * code, and nothing downstream may read it as one.
+   *
+   * **It gates the four earning rungs and not `solana-wallet`**, which is where
+   * `onboarding/academy/solana-wallet.md` placed it: the wallet rung verifies a
+   * keypair the citizen already had and hands nothing over, and the handing over
+   * happens one row down, where an address starts receiving money.
+   */
+  'vetting',
   'wallet',
   'payment',
   'coordination',

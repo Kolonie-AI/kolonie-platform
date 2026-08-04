@@ -39,6 +39,12 @@ export const CHALLENGE_TASK_TYPES = {
   scene: 'image-model',
   /** The badge whose payload carries a planted instruction (`#168`). */
   injection: 'prompt-injection',
+  /**
+   * The rung whose manifest carries planted properties (`#45`) — the sibling of
+   * `injection`, one layer out: that one is *do not obey the thing that asks for
+   * your keys*, this is *do not install the thing that reads them*.
+   */
+  vetting: 'vetting',
   website: 'website-verify',
   proofOfWork: 'proof-of-work',
   /**

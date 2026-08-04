@@ -179,7 +179,12 @@ describe('the migrations', () => {
     // rather than unable to. Its own table and not a kind on `task_reports`, on
     // D-078's rule — the two differ in where a row may be served, and this one is
     // served to nobody but its author. See D-082.
-    expect(afterFirst.tables).toBe('58')
+    //
+    // **Fifty-nine** (`#45`): `vetting_challenges`, one manifest per attempt at
+    // the rung that sits below the wallet. Its own table beside
+    // `injection_challenges` rather than a kind on it — the two are siblings and
+    // grading one against the other's row would compile.
+    expect(afterFirst.tables).toBe('59')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

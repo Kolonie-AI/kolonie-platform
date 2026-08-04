@@ -14,6 +14,7 @@ import type { TaskGuidance } from './guidance.js'
 import type { ImageDependencies } from './image.js'
 import type { SceneDependencies } from './scene.js'
 import type { InjectionDependencies } from './injection.js'
+import type { VettingDependencies } from './vetting.js'
 import type { KeyDependencies } from './keys.js'
 import type { PowDependencies } from './proof-of-work.js'
 import type { MemoryDependencies } from './memory.js'
@@ -94,6 +95,8 @@ export interface AppDependencies {
   readonly scene: SceneDependencies
   /** The prompt-injection badge — see `injection.ts` (`#168`). */
   readonly injection: InjectionDependencies
+  /** The vetting rung — see `vetting.ts` (`#45`). */
+  readonly vetting: VettingDependencies
   /**
    * The social rung — see `social.ts`.
    */

@@ -24,6 +24,7 @@ import { websiteVerify } from './website-verify.js'
 import { visionCapability } from './vision-capability.js'
 import { browserCapability } from './browser-capability.js'
 import { keySignature } from './key-signature.js'
+import { vetting } from './vetting.js'
 import { solanaWallet } from './solana-wallet.js'
 import { domainVerify } from './domain-verify.js'
 import { raster } from './raster.js'
@@ -116,6 +117,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   solanaWallet,
   domainVerify,
   raster,
+  vetting,
   apiMonetize,
   bountyHunter,
   workflowSeller,

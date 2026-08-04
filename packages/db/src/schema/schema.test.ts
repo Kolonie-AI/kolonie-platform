@@ -407,6 +407,8 @@ describe('schema', () => {
         'task_set_asides',
         'tasks',
         'verifications',
+        /** `#45`: the vetting rung's manifests, one row per attempt. */
+        'vetting_challenges',
         'vision_challenges',
         'website_challenges',
       ])

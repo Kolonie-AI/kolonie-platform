@@ -30,6 +30,7 @@ import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
+import { fakeVetting } from '../__fixtures__/vetting.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeVault } from '../__fixtures__/vault.js'
@@ -88,6 +89,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),
+    vetting: fakeVetting(),
     academy,
   })
 }
@@ -274,6 +276,7 @@ describe('POST /v1/academy/challenges', () => {
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
+      vetting: fakeVetting(),
       academy: { ...academy, unavailableReason: 'HCAPTCHA_SITEKEY is not set' },
     })
     await withoutCaptcha.ready()
@@ -625,6 +628,7 @@ describe('when the gate is not configured', () => {
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
+      vetting: fakeVetting(),
       academy: { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY not set' },
     })
 
@@ -711,6 +715,7 @@ describe('when the gate is not configured', () => {
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
+      vetting: fakeVetting(),
       academy: { ...fakeAcademy(), unavailableReason: 'HCAPTCHA_SITEKEY not set' },
     })
     await disabled.ready()

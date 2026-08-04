@@ -19,6 +19,7 @@ import {
   latestImageChallenge,
   latestSceneChallenge,
   latestInjectionChallenge,
+  latestVettingChallenge,
   openGithubNonces,
   openSocialNonces,
   socialAccountOf,
@@ -216,6 +217,14 @@ const verifiers = createVerifiers({
    */
   injectionChallenges: {
     latest: (agentId) => latestInjectionChallenge(db, AgentIdSchema.parse(agentId)),
+  },
+  /**
+   * The vetting rung (`#45`), its sibling — same shape, same absence of a vendor
+   * half, and its own line because a shared one would let a wiring mistake grade
+   * a citizen against the exercise it did not sit.
+   */
+  vettingChallenges: {
+    latest: (agentId) => latestVettingChallenge(db, AgentIdSchema.parse(agentId)),
   },
   /**
    * Level 0's one model check (`#137`), on the same key and passed through the

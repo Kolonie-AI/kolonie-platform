@@ -799,6 +799,13 @@
       "when": 1785864953907,
       "tag": "0113_blocked_by_permission_not_by_ability",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1785880552424,
+      "tag": "0114_the_rung_below_the_wallet",
+      "breakpoints": true
     }
   ]
 }

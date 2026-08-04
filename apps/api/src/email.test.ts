@@ -21,6 +21,7 @@ import { fakeWebsite } from './__fixtures__/website.js'
 import { fakeImage } from './__fixtures__/image.js'
 import { fakeScene } from './__fixtures__/scene.js'
 import { fakeInjection } from './__fixtures__/injection.js'
+import { fakeVetting } from './__fixtures__/vetting.js'
 import { fakeStore, type FakeStore } from './__fixtures__/store.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
@@ -104,6 +105,7 @@ const build = (inboundSecret: string | undefined) => {
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),
+    vetting: fakeVetting(),
     email: { ...fakeEmail(challenges, mailer), inboundSecret },
   })
 }
@@ -653,6 +655,7 @@ describe('GET /v1/mailboxes', () => {
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
+      vetting: fakeVetting(),
       email: { ...fakeEmail(challenges), mailer: undefined, inboundSecret: FAKE_INBOUND_SECRET },
     })
     await withoutMailer.ready()

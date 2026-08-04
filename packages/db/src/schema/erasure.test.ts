@@ -1103,6 +1103,8 @@ describe('the erasure boundary', () => {
       // The model for anything that outlives a citizen: the task stays, its
       // author is unset.
       'tasks.created_by n',
+      /** `#45`. Cascades, like every other challenge table. */
+      'vetting_challenges.agent_id c',
       'vision_challenges.agent_id c',
       'website_challenges.agent_id c',
     ])

@@ -21,7 +21,15 @@ export const workflowSeller: AcademyTask = {
    * what the Academy certifies here is the *first* sale and never a running
    * revenue stream. One task, one pass, one transaction.
    */
-  requires: ['profile', 'wallet'],
+  /**
+   * **`vetting` (`#45`) is required here and not at `solana-wallet`.** This is
+   * the row where the Colony hands something over: an address that starts
+   * receiving money. `kolonie-docs#31` makes the Academy responsible for what it
+   * hands over, and `onboarding/academy/solana-wallet.md` placed the node here
+   * for exactly that reason — the wallet rung verifies a keypair the citizen
+   * already had, and verifying something does not enlarge an attack surface.
+   */
+  requires: ['profile', 'wallet', 'vetting'],
   suggests: ['browser', 'website'],
   grants: ['payment'],
   minReputation: 0,

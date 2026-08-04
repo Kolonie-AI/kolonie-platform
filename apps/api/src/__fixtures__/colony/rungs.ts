@@ -12,6 +12,7 @@ import type { WebsiteDependencies } from '../../website.js'
 import type { ImageDependencies } from '../../image.js'
 import type { SceneDependencies } from '../../scene.js'
 import type { InjectionDependencies } from '../../injection.js'
+import type { VettingDependencies } from '../../vetting.js'
 import type { SocialDependencies } from '../../social.js'
 import type { DomainDependencies } from '../../domain.js'
 import type { VisionDependencies } from '../../vision.js'
@@ -30,6 +31,7 @@ import { fakeWebsite } from '../website.js'
 import { fakeImage } from '../image.js'
 import { fakeScene } from '../scene.js'
 import { fakeInjection } from '../injection.js'
+import { fakeVetting } from '../vetting.js'
 import { fakeVision } from '../vision.js'
 import { fakeVault } from '../vault.js'
 import { fakeConsole } from '../console.js'
@@ -67,6 +69,7 @@ export interface FakeRungs {
   readonly image: ImageDependencies
   readonly scene: SceneDependencies
   readonly injection: InjectionDependencies
+  readonly vetting: VettingDependencies
   readonly vision: VisionDependencies
   /** The vault, behind both surfaces. Overridable the same way (#98). */
   readonly vault: VaultDependencies
@@ -95,6 +98,7 @@ export function fakeRungs(): FakeRungs {
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),
+    vetting: fakeVetting(),
     vision: fakeVision(),
     vault: { vault: fakeVault() },
     console: fakeConsole(),

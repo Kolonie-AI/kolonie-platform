@@ -45,6 +45,7 @@ import { registerWebsiteRoute } from './routes/website.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
 import { registerInjectionRoute } from './routes/injection.js'
+import { registerVettingRoute } from './routes/vetting.js'
 import { registerBadgeRoutes } from './routes/badges.js'
 import { registerAutonomyPageRoutes } from './routes/autonomy-page.js'
 import { registerOperatorClaimRoutes } from './routes/operator-claim.js'
@@ -108,6 +109,7 @@ export function buildApp({
   image,
   scene,
   injection,
+  vetting,
   social,
   operatorClaim,
   autonomy,
@@ -314,6 +316,7 @@ export function buildApp({
     image,
     scene,
     injection,
+    vetting,
     social,
     operatorClaim,
     autonomy,
@@ -384,6 +387,7 @@ export function buildApp({
       registerImageRoute(v1, routes)
       registerSceneRoute(v1, routes)
       registerInjectionRoute(v1, routes)
+      registerVettingRoute(v1, routes)
       registerSocialRoute(v1, routes)
       registerOperatorClaimRoutes(v1, routes)
       registerDomainRoute(v1, routes)

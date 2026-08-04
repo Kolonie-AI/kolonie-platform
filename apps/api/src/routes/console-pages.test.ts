@@ -26,6 +26,7 @@ import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeMemory } from '../__fixtures__/memory.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
@@ -76,6 +77,7 @@ beforeEach(async () => {
     keys: { challenges: fakeKeyChallenges(), obstruction: noObstruction },
     solana: fakeSolana(),
     pow: fakePow(),
+    memory: fakeMemory(),
     vision: fakeVision(),
     github: fakeGithub(),
     contributions: fakeContributions(),
@@ -308,6 +310,7 @@ describe('when the console throws', () => {
       keys: { challenges: fakeKeyChallenges(), obstruction: noObstruction },
       solana: fakeSolana(),
       pow: fakePow(),
+      memory: fakeMemory(),
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),

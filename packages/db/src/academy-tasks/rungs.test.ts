@@ -23,6 +23,9 @@ import { ACADEMY_TASKS } from './index.js'
 const BEFORE_THE_SPLIT: readonly (readonly [type: string, id: string])[] = [
   ['profile-complete', 'a0000000-0000-4000-8000-000000000000'],
   ['heartbeat', 'a0000000-0000-4000-8000-000000000022'],
+  // Added after the split (`#159`), so this list is no longer only what the array
+  // literal held — it is what the Academy holds, which is what it was always for.
+  ['memory-persistence', 'a0000000-0000-4000-8000-00000000002b'],
   ['autonomy-contract', 'a0000000-0000-4000-8000-00000000002a'],
   ['website-verify', 'a0000000-0000-4000-8000-000000000012'],
   ['vision-capability', 'a0000000-0000-4000-8000-000000000013'],
@@ -61,9 +64,9 @@ describe('the Academy, after the split', () => {
     )
   })
 
-  it('holds thirty-one of them', () => {
-    expect(ACADEMY_TASKS).toHaveLength(31)
-    expect(BEFORE_THE_SPLIT).toHaveLength(31)
+  it('holds thirty-two of them', () => {
+    expect(ACADEMY_TASKS).toHaveLength(32)
+    expect(BEFORE_THE_SPLIT).toHaveLength(32)
   })
 
   /**

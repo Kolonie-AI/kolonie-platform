@@ -18,6 +18,7 @@ import { markBriefingStale } from '../storage/briefing.js'
 import type { AcademyTask } from './shared.js'
 import { profileComplete } from './profile-complete.js'
 import { heartbeat } from './heartbeat.js'
+import { memoryPersistence } from './memory-persistence.js'
 import { autonomyContract } from './autonomy-contract.js'
 import { websiteVerify } from './website-verify.js'
 import { visionCapability } from './vision-capability.js'
@@ -106,6 +107,7 @@ export type { AcademyTask } from './shared.js'
 export const ACADEMY_TASKS: readonly AcademyTask[] = [
   profileComplete,
   heartbeat,
+  memoryPersistence,
   autonomyContract,
   websiteVerify,
   visionCapability,

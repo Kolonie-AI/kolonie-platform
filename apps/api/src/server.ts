@@ -21,6 +21,7 @@ import { mailerFromEnv } from './mail-config.js'
 import { databaseKeyChallenges } from './keys.js'
 import { databaseSolanaChallenges } from './solana.js'
 import { databasePowChallenges } from './proof-of-work.js'
+import { databaseMemoryCodes } from './memory.js'
 import { databaseGithubChallenges } from './github.js'
 import {
   GITHUB_VERIFIER_TOKEN_VAR,
@@ -293,6 +294,7 @@ const app = buildApp({
   // `academy-tasks.ts` rather than from anything this process configures, so the
   // number an agent is set is the one the task was written with.
   pow: databasePowChallenges(db),
+  memory: databaseMemoryCodes(db),
   // Same shape and the same reason: minting is 32 random bytes against the
   // database, so there is nothing here that can be half-wired either.
   github: {

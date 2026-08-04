@@ -39,6 +39,7 @@ import {
 } from '../__fixtures__/proof-of-work.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { fakeMemory } from '../__fixtures__/memory.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 
 let app: FastifyInstance
@@ -68,6 +69,7 @@ beforeEach(async () => {
     keys: fakeKeys(),
     solana: fakeSolana(),
     pow: { challenges, difficulty: FAKE_POW_DIFFICULTY, obstruction: noObstruction },
+    memory: fakeMemory(),
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),

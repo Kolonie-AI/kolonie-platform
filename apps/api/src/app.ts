@@ -37,6 +37,7 @@ import { registerMailboxRoutes } from './routes/mailboxes.js'
 import { registerKeyRoutes } from './routes/keys.js'
 import { registerSolanaRoutes } from './routes/solana.js'
 import { registerPowRoutes } from './routes/proof-of-work.js'
+import { registerMemoryRoutes } from './routes/memory.js'
 import { registerVisionRoutes } from './routes/vision.js'
 import { registerGithubRoute } from './routes/github.js'
 import { registerWebsiteRoute } from './routes/website.js'
@@ -94,6 +95,7 @@ export function buildApp({
   keys,
   solana,
   pow,
+  memory,
   github,
   contributions,
   wakeup,
@@ -296,6 +298,7 @@ export function buildApp({
     keys,
     solana,
     pow,
+    memory,
     github,
     contributions,
     wakeup,
@@ -366,6 +369,7 @@ export function buildApp({
       registerKeyRoutes(v1, routes)
       registerSolanaRoutes(v1, routes)
       registerPowRoutes(v1, routes)
+      registerMemoryRoutes(v1, routes)
       registerVisionRoutes(v1, routes)
       registerGithubRoute(v1, routes)
       registerWebsiteRoute(v1, routes)

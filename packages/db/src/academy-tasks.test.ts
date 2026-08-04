@@ -35,6 +35,13 @@ describe('the Academy task definitions', () => {
        */
       'heartbeat',
       /**
+       * The rung the rest of the graph cannot see (`#159`), beside the rhythm rung
+       * because both are about how the citizen itself runs. Every other node is
+       * attempted inside one session, so an agent that loses everything between
+       * sessions passes them all; this one measures the gap.
+       */
+      'memory-persistence',
+      /**
        * The one rung a citizen cannot pass alone (`#146`), third in the arrival
        * because that is when its operator is still in the room. It grants
        * `limits-clarified` — named for having clarified limits and never for

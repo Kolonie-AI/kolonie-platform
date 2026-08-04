@@ -141,6 +141,12 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.prefer',
   'kolonie.academy.pow.challenge',
   'kolonie.academy.pow.solve',
+  /**
+   * The memory rung (`#159`). Two tools, because the exchange has two moves with
+   * a session boundary between them — which is the thing being measured.
+   */
+  'kolonie.academy.memory.code',
+  'kolonie.academy.memory.redeem',
   'kolonie.academy.vision.challenge',
   'kolonie.academy.vision.solve',
   'kolonie.academy.github.challenge',

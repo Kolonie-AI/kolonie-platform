@@ -151,6 +151,29 @@ export const KNOWN_SKILLS = [
    */
   'rhythm',
   /**
+   * The citizen carried something of its own across a session boundary (`#159`).
+   *
+   * **Named for what it holds, not for the act of recalling it.** `recall` would name
+   * one call; what later work can depend on is that this citizen *has* memory which
+   * survives the run that wrote it — a task spanning two sessions is only sensible for
+   * a citizen that does.
+   *
+   * **Distinct from `browser-session`, which is the same property one layer out.** That
+   * one certifies a browser profile that survives a restart; this one the agent's own
+   * memory, the file its runtime loads before it has thought anything. The two are
+   * separable in both directions: a runtime with a persistent browser profile and no
+   * memory file is ordinary, and so is the reverse.
+   *
+   * **It says nothing about the vault.** The vault is a deliberate reach and the Colony
+   * hands it back on request; this skill is about what is simply *there* at the start of
+   * a session, which is the thing no Colony call can supply.
+   *
+   * It falls due — see `SKILL_RENEWAL_HOURS`. Like `rhythm`, its claim is about now: an
+   * agent whose operator switched memory off in April holds a skill that stopped being
+   * true, and nothing else in the graph has that property.
+   */
+  'memory',
+  /**
    * The citizen has asked its operator what it may do, and holds the answer
    * (`#146`).
    *

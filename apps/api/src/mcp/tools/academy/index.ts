@@ -4,6 +4,7 @@ import { registerAcademyChallengeTool } from './challenge.js'
 import { registerEmailTools } from './email.js'
 import { registerExternalChallengeTools } from './external.js'
 import { registerKeyTools } from './keys.js'
+import { registerMemoryTools } from './memory.js'
 import { registerPowTools } from './proof-of-work.js'
 import { registerRetestTool } from './retest.js'
 import { registerSolanaTools } from './solana.js'
@@ -30,6 +31,7 @@ export function registerAcademyTools(
 ): void {
   registerAcademyChallengeTool(server, deps, credential)
   registerKeyTools(server, deps, credential)
+  registerMemoryTools(server, deps, credential)
   registerSolanaTools(server, deps, credential)
   registerPowTools(server, deps, credential)
   registerVisionTools(server, deps, credential)

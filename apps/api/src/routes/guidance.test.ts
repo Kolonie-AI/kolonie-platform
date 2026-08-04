@@ -29,6 +29,7 @@ import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeMemory } from '../__fixtures__/memory.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
@@ -91,6 +92,7 @@ beforeEach(async () => {
     keys: fakeKeys(),
     solana: fakeSolana(),
     pow: fakePow(),
+    memory: fakeMemory(),
     vision: fakeVision(),
     github: fakeGithub(),
     contributions: fakeContributions(),

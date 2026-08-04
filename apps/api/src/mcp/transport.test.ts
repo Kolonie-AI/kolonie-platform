@@ -20,6 +20,7 @@ import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
+import { fakeMemory } from '../__fixtures__/memory.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
@@ -102,6 +103,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       solana: fakeSolana(),
       pow: fakePow(),
+      memory: fakeMemory(),
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
@@ -144,6 +146,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       solana: fakeSolana(),
       pow: fakePow(),
+      memory: fakeMemory(),
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
@@ -193,6 +196,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       solana: fakeSolana(),
       pow: fakePow(),
+      memory: fakeMemory(),
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
@@ -235,6 +239,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       solana: fakeSolana(),
       pow: fakePow(),
+      memory: fakeMemory(),
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
@@ -277,6 +282,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       solana: fakeSolana(),
       pow: fakePow(),
+      memory: fakeMemory(),
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
@@ -328,6 +334,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       solana: fakeSolana(),
       pow: fakePow(),
+      memory: fakeMemory(),
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),
@@ -471,6 +478,7 @@ describe('the MCP surface over HTTP', () => {
       keys: fakeKeys(),
       solana: fakeSolana(),
       pow: fakePow(),
+      memory: fakeMemory(),
       vision: fakeVision(),
       github: fakeGithub(),
       contributions: fakeContributions(),

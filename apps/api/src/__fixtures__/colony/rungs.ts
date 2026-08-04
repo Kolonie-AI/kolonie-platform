@@ -4,6 +4,7 @@ import type { ConsoleDependencies } from '../../console.js'
 import type { EmailDependencies } from '../../email.js'
 import type { KeyDependencies } from '../../keys.js'
 import type { SolanaDependencies } from '../../solana.js'
+import type { MemoryDependencies } from '../../memory.js'
 import type { PowDependencies } from '../../proof-of-work.js'
 import type { GithubDependencies } from '../../github.js'
 import type { ContributionDependencies } from '../../contributions.js'
@@ -21,6 +22,7 @@ import { fakeEmail } from '../email.js'
 import { fakeKeys } from '../keys.js'
 import { fakeSolanaChallenges } from '../solana.js'
 import { fakePow } from '../proof-of-work.js'
+import { fakeMemory } from '../memory.js'
 import { fakeContributions, fakeGithub } from '../github.js'
 import { fakeSocial } from '../social.js'
 import { fakeDomain } from '../domain.js'
@@ -54,6 +56,8 @@ export interface FakeRungs {
   readonly solana: SolanaDependencies
   /** The compute rung, behind both surfaces. Overridable the same way. */
   readonly pow: PowDependencies
+  /** The memory rung, behind both surfaces. Overridable the same way (`#159`). */
+  readonly memory: MemoryDependencies
   /** The GitHub rung, behind both surfaces. Overridable the same way. */
   readonly github: GithubDependencies
   readonly contributions: ContributionDependencies
@@ -82,6 +86,7 @@ export function fakeRungs(): FakeRungs {
     keys: fakeKeys(),
     solana: { challenges: solanaChallenges, obstruction: noObstruction },
     pow: fakePow(),
+    memory: fakeMemory(),
     github: fakeGithub(),
     contributions: fakeContributions(),
     social: fakeSocial(),

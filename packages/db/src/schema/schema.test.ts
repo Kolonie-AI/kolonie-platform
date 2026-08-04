@@ -254,6 +254,12 @@ describe('schema', () => {
          * evidence was a status column and a timestamp, because the container that
          * decided them had been redeployed.
          */
+        /**
+         * The memory rung (`#159`): one code at a time, and whether it came
+         * back. The only rung whose evidence is the *gap* between two calls
+         * rather than anything either call contained.
+         */
+        'memory_codes',
         'moderations',
         // `pow_challenges` joined with the compute rung (#37): the third root,
         // and the only one whose evidence is a value the agent spent CPU to

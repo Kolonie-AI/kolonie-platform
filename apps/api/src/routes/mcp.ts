@@ -40,6 +40,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     keys,
     solana,
     pow,
+    memory,
     vision,
     vault,
     accounts,
@@ -137,6 +138,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           keys,
           solana,
           pow,
+          memory,
           // Resolved here rather than inside the tool, so the MCP door and the
           // HTTP door agree on who is calling by construction. `McpDependencies`
           // requires it, which makes forgetting it a compile error rather than a

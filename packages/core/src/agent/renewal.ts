@@ -21,6 +21,15 @@ import type { KNOWN_SKILLS } from '../common/skill.js'
  * skill asserting it comes back reliably, and that is the one statement in the
  * graph that stops being true on its own.
  *
+ * **`memory` is the second, and it is the same shape rather than a new one**
+ * (`#159`). What that rung certifies is that this citizen's memory survives a
+ * session boundary — and memory is configuration: an operator switches it off, a
+ * plugin stops loading, a memory file is rewritten by something else. A citizen
+ * that carried a code in March may hold nothing at all today, and no other rung's
+ * claim can lapse that quietly. Thirty days for the same reasons, and deliberately
+ * the same number: two intervals would be two numbers to defend and the arguments
+ * would be identical.
+ *
  * Thirty days, and the number is chosen against the two things it sits between:
  * comfortably longer than the widest declarable rhythm plus tolerance, so a
  * citizen keeping its promise never meets this at all, and short enough that a
@@ -30,6 +39,7 @@ import type { KNOWN_SKILLS } from '../common/skill.js'
  */
 export const SKILL_RENEWAL_HOURS: Partial<Record<(typeof KNOWN_SKILLS)[number], number>> = {
   rhythm: 30 * 24,
+  memory: 30 * 24,
 }
 
 /** The skills that can fall due, in a stable order. */

@@ -648,6 +648,26 @@ describe('nothing decides on a session', () => {
      */
     'activity.ts',
     'activity.test.ts',
+    /**
+     * **`memory-codes.ts`, which reads a session and decides nothing with it**
+     * (`#159`).
+     *
+     * The memory rung reports which run the citizen last named, twice: once in the
+     * timing context and once in the record a verdict quotes. Neither is read by
+     * anything that branches. The binding rule is time — a different contact bucket
+     * and one declared interval, floored — exactly as `#161` decided for the browser
+     * rung, and for the reason that applies here too: **the citizen supplies the
+     * session id itself**, so a rung that let it decide would be a rung a citizen
+     * could pass by naming a second session in the same run.
+     *
+     * That is the whole standard this list holds a file to, and this file passes it
+     * in the strongest direction: a citizen that manufactures session ids changes
+     * one line of corroborating text in a verdict and nothing else. If anything here
+     * ever lets a session shorten the gap or satisfy the rule, this entry is where
+     * the argument has to be revisited.
+     */
+    'memory-codes.ts',
+    'memory-codes.test.ts',
   ])
 
   it('is referenced by no storage module that decides anything', async () => {

@@ -16,6 +16,7 @@ import type { SceneDependencies } from './scene.js'
 import type { InjectionDependencies } from './injection.js'
 import type { KeyDependencies } from './keys.js'
 import type { PowDependencies } from './proof-of-work.js'
+import type { MemoryDependencies } from './memory.js'
 import type { RateLimiter } from './rate-limit.js'
 import type { AgentRegistry } from './registration.js'
 import type { Retesting } from './retest.js'
@@ -66,6 +67,8 @@ export interface AppDependencies {
   readonly solana: SolanaDependencies
   /** The compute rung — see `proof-of-work.ts`. */
   readonly pow: PowDependencies
+  /** The memory rung (`#159`). */
+  readonly memory: MemoryDependencies
   /**
    * The GitHub rung — see `github.ts`.
    *

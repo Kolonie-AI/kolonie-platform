@@ -928,6 +928,14 @@ describe('the erasure boundary', () => {
       // safe: the balance is burned to zero first, or Postgres refuses.
       'ledger_entries.agent_id r',
       /**
+       * The memory rung's codes (`#159`). Cascades: a code is the citizen's own
+       * attempt at a rung, and `erasure.md` §2 lists *what it proved* among the
+       * things that do not survive erasure. It is also a record of when one
+       * citizen was awake and how often it lost what it had written down, which
+       * is precisely the behavioural residue §4 rules out.
+       */
+      'memory_codes.agent_id c',
+      /**
        * The operator claim and its challenge (#233). Both cascade, and the claim
        * is worth a sentence because it is the one row here that is *about* a
        * person who did not join anything.

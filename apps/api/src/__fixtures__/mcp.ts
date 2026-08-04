@@ -21,6 +21,7 @@ import { fakeScene } from './scene.js'
 import { fakeInjection } from './injection.js'
 import { fakeKeys } from './keys.js'
 import { fakePow } from './proof-of-work.js'
+import { fakeMemory } from './memory.js'
 import { fakeRegistry } from './registry.js'
 import { fakeAutonomy } from './autonomy.js'
 import { fakeOperatorClaim } from './operator-claim.js'
@@ -86,6 +87,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     keys: fakeKeys(),
     solana: fakeSolana(),
     pow: fakePow(),
+    memory: fakeMemory(),
     vision: fakeVision(),
     github: fakeGithub(),
     contributions: fakeContributions(),

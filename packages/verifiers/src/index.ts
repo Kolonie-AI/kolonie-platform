@@ -47,12 +47,19 @@ import {
 } from './account-persistence.js'
 export { HeartbeatVerifier, type ContactHistory, type HeartbeatDependencies } from './heartbeat.js'
 export {
+  MemoryPersistenceVerifier,
+  type MemoryCarries,
+  type MemoryPersistenceDependencies,
+  type MemoryRungReading,
+} from './memory-persistence.js'
+export {
   AutonomyVerifier,
   type AutonomyContracts,
   type AutonomyDependencies as AutonomyVerifierDependencies,
 } from './autonomy.js'
 import { AutonomyVerifier, type AutonomyContracts } from './autonomy.js'
 import { HeartbeatVerifier, type ContactHistory } from './heartbeat.js'
+import { MemoryPersistenceVerifier, type MemoryCarries } from './memory-persistence.js'
 import type { GitHubReader } from './github.js'
 import type { SocialReader } from './social.js'
 import type { DnsReader } from './dns.js'
@@ -623,6 +630,17 @@ export interface VerifierDependencies {
    */
   readonly contacts?: ContactHistory
   /**
+   * What the Colony recorded about codes carried across a session boundary
+   * (`#159`).
+   *
+   * Its own port, reading nothing outside the Colony, and it deliberately cannot
+   * answer with an outstanding code — a verdict that could quote the value would
+   * be a read path, and the rung requires there to be none. Absent leaves
+   * `memory-persistence` submissions pending, like every other missing verifier
+   * here.
+   */
+  readonly memoryCarries?: MemoryCarries
+  /**
    * Whether a citizen's operator has recorded a contract (#146).
    *
    * A port answering `boolean` and never the contract, so this process could not
@@ -875,6 +893,15 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
    */
   if (deps.contacts !== undefined) {
     verifiers.push(new HeartbeatVerifier({ contacts: deps.contacts }))
+  }
+
+  /**
+   * The memory rung (#159). Like the heartbeat rung beside it, it reads the
+   * Colony's own record and nothing else — the judgement happened at redemption
+   * time, and this reads what that decided.
+   */
+  if (deps.memoryCarries !== undefined) {
+    verifiers.push(new MemoryPersistenceVerifier({ carries: deps.memoryCarries }))
   }
 
   /**

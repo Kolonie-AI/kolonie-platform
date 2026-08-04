@@ -26,6 +26,7 @@ import {
   lastDomainExpiry,
   citizenForDomainName,
   contactGaps,
+  memoryRungRecord,
   hasAutonomyContract,
   domainGrantOf,
   latestRecheck,
@@ -372,6 +373,11 @@ const verifiers = createVerifiers({
   },
   // The heartbeat rung reads the Colony's own record and nothing else (#143).
   contacts: { gapsOf: (agentId, count) => contactGaps(db, agentId, count) },
+  /**
+   * The memory rung (#159). The judgement happened at redemption time; this reads
+   * what it decided, and cannot reach the outstanding code even if it wanted to.
+   */
+  memoryCarries: { recordOf: (agentId) => memoryRungRecord(db, agentId) },
   /**
    * The autonomy rung (#146). A boolean and never the contract — see
    * `AutonomyContracts` for why the port is narrowed rather than convenient.

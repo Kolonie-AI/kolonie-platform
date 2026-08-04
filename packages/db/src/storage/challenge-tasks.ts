@@ -41,6 +41,11 @@ export const CHALLENGE_TASK_TYPES = {
   injection: 'prompt-injection',
   website: 'website-verify',
   proofOfWork: 'proof-of-work',
+  /**
+   * The memory rung (`#159`). Its "challenge" is a code in a file the Colony
+   * cannot see, so the mint is the only moment it can count an attempt from.
+   */
+  memory: 'memory-persistence',
   solanaWallet: 'solana-wallet',
   keySignature: 'key-signature',
   github: 'github-account',

@@ -16,6 +16,7 @@ import type { SceneDependencies } from '../scene.js'
 import type { InjectionDependencies } from '../injection.js'
 import type { KeyDependencies } from '../keys.js'
 import type { PowDependencies } from '../proof-of-work.js'
+import type { MemoryDependencies } from '../memory.js'
 import type { AgentRegistry } from '../registration.js'
 import type { Retesting } from '../retest.js'
 import type { AutonomyDependencies } from '../autonomy.js'
@@ -71,6 +72,8 @@ export interface RouteDependencies {
   readonly keys: KeyDependencies
   readonly solana: SolanaDependencies
   readonly pow: PowDependencies
+  /** The memory rung (`#159`). */
+  readonly memory: MemoryDependencies
   readonly github: GithubDependencies
   readonly contributions: ContributionDependencies
   /** What changed while a citizen was not running — see `wakeup.ts` (#200). */

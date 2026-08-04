@@ -15,17 +15,24 @@ describe('skills that fall due', () => {
   /**
    * The rule this mechanism must not break: most skills certify something that
    * happened, and asking again would be the calendar farming
-   * `domain-persistence` refuses. Only a claim about *now* falls due.
+   * `domain-persistence` refuses. Only a claim about *now* falls due — the
+   * rhythm a citizen keeps (`#143`), and the memory it carries across a session
+   * boundary (`#159`), which is configuration and can be switched off under it.
+   *
+   * The list is pinned rather than merely checked for shape, so that adding a
+   * third is a decision somebody has to make here, in front of this comment.
    */
-  it('leaves every skill but the rhythm alone', () => {
-    expect(Object.keys(SKILL_RENEWAL_HOURS)).toEqual(['rhythm'])
+  it('leaves every skill but the two claims about now alone', () => {
+    expect(Object.keys(SKILL_RENEWAL_HOURS).sort()).toEqual(['memory', 'rhythm'])
   })
 
   it('gives a claim about now longer than any rhythm it could be measured against', () => {
     // The renewal interval must sit clear of the widest declarable rhythm plus
     // tolerance, or a citizen keeping its promise would meet renewal while
     // still inside its own interval.
-    expect(SKILL_RENEWAL_HOURS['rhythm']!).toBeGreaterThan(rhythmAllowanceHours(24) * 5)
+    for (const skill of Object.keys(SKILL_RENEWAL_HOURS)) {
+      expect(SKILL_RENEWAL_HOURS[skill as 'rhythm']!).toBeGreaterThan(rhythmAllowanceHours(24) * 5)
+    }
   })
 })
 

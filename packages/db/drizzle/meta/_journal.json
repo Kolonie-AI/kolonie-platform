@@ -757,6 +757,13 @@
       "when": 1785847102723,
       "tag": "0107_a_provider_the_colony_can_count",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1785850424982,
+      "tag": "0108_old_spot",
+      "breakpoints": true
     }
   ]
 }

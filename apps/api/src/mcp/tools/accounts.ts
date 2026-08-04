@@ -58,7 +58,12 @@ export function registerAccountTools(
         'this tells you what they are for.\n\n' +
         'Holding several accounts of one kind is ordinary and is not a problem: the Colony ' +
         'counts citizens rather than accounts, which it can do precisely because this register ' +
-        'says the two are one citizen’s.',
+        'says the two are one citizen’s.\n\n' +
+        '**preferred is yours, not the Colony’s.** It is your own ordering of accounts you hold. ' +
+        'Which mailbox the Colony actually writes to is a different fact and lives in ' +
+        'kolonie.mailboxes.list as reach — so preferred:false beside reach:true is the two ' +
+        'answering different questions rather than disagreeing, and kolonie.mailboxes.promote is ' +
+        'what moves the second one.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Only accounts of this kind, e.g. "mailbox" or "github". Omit for everything.',
@@ -137,7 +142,10 @@ export function registerAccountTools(
                 ? 'The Colony has verified this one.'
                 : 'It is marked unproved: nothing has verified it, and no task will take it as ' +
                   'evidence. Pass the Academy rung for this kind and the Colony records the ' +
-                  'proof itself.'),
+                  'proof itself.') +
+              // The notice is the whole point of #289: an argument that had no
+              // effect has to be visible in the sentence, not only in a field.
+              (result.response.notice === undefined ? '' : `\n\n${result.response.notice}`),
           },
         ],
         structuredContent: result.response,

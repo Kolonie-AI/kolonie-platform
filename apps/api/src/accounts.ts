@@ -148,10 +148,39 @@ export const AccountKindArgumentSchema = z
   .max(32)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'a kind is a lowercase kebab-case slug')
 
+/**
+ * The note field, with a refusal that says how long the note actually was.
+ *
+ * **One schema for both surfaces, because the message is the point** (`#289`).
+ * The refusal used to name the limit and not the length, so every rejection was
+ * followed by a guess at how much to cut: a citizen reported trimming one note
+ * four times before it went through, then hitting the same wall on two more
+ * accounts. The received length turns each of those into a single correct edit,
+ * and there is nothing sensitive about it — it is a number the caller already
+ * knows, told back.
+ *
+ * It reads the length *after* trimming, which is the length the check measures.
+ * Reporting the raw input length would be its own small lie on any note that
+ * ends in a newline.
+ */
+const AccountNoteFieldSchema = z
+  .string()
+  .trim()
+  .max(ACCOUNT_NOTE_MAX_LENGTH, {
+    error: (issue) =>
+      `A note may be up to ${ACCOUNT_NOTE_MAX_LENGTH} characters and this one is ` +
+      `${typeof issue.input === 'string' ? issue.input.length : 'longer'} — ` +
+      `cut at least ${
+        typeof issue.input === 'string'
+          ? issue.input.length - ACCOUNT_NOTE_MAX_LENGTH
+          : 'the difference'
+      }. What does not fit belongs in the vault, which is sealed, and this is not.`,
+  })
+
 export const DeclareAccountSchema = z.object({
   kind: AccountKindArgumentSchema,
   identifier: z.string().trim().min(1).max(320),
-  note: z.string().trim().max(ACCOUNT_NOTE_MAX_LENGTH).optional(),
+  note: AccountNoteFieldSchema.optional(),
   vaultKey: z.string().trim().min(1).max(128).optional(),
 })
 
@@ -166,7 +195,7 @@ export const AccountStatusArgumentSchema = z.object({ status: AccountStatusSchem
  * meant the second.
  */
 export const AccountNoteSchema = z.object({
-  note: z.string().trim().max(ACCOUNT_NOTE_MAX_LENGTH).nullable(),
+  note: AccountNoteFieldSchema.nullable(),
 })
 
 export const AccountVaultKeySchema = z.object({
@@ -184,7 +213,21 @@ export type AccountsOutcome =
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 export type AccountWriteOutcome =
-  | { readonly outcome: 'written'; readonly response: { readonly account: Account } }
+  | {
+      readonly outcome: 'written'
+      readonly response: {
+        readonly account: Account
+        /**
+         * What the call accepted and did not do, when those differ (`#289`).
+         *
+         * Absent on the ordinary write. Present when an argument was taken and
+         * had no effect, so that a success carrying an object which visibly
+         * contradicts what was sent stops being indistinguishable from a
+         * success that did what was asked.
+         */
+        readonly notice?: string
+      }
+    }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /** Everything this citizen has recorded. No agent id anywhere: the subject is the key holder. */
@@ -273,7 +316,38 @@ export async function declareOwnAccount(
   // `already_recorded` is a success carrying the row that was already there:
   // an agent unsure whether an earlier session wrote this down must be able to
   // ask again, and a refusal would teach it not to.
-  return { outcome: 'written', response: { account: result.account } }
+  //
+  // **But it must say what it ignored** (`#289`). Declaring an account that
+  // exists is a no-op by design, and the no-op silently swallowed `note` and
+  // `vaultKey`. A citizen sent a vault key, got back success and the same row
+  // with `vaultKey: null`, and concluded the field could not be set after the
+  // fact — wrote that into its vault and two notes, told its operator, and had
+  // to unpick all of it when it found `kolonie.accounts.vault-key` one entry
+  // away in the same namespace. The tool that solves it was never hidden; the
+  // silent success is what stopped the citizen looking for it.
+  const ignored =
+    result.outcome !== 'already_recorded'
+      ? []
+      : [
+          parsed.data.vaultKey === undefined
+            ? undefined
+            : 'vaultKey — set it with kolonie.accounts.vault-key',
+          parsed.data.note === undefined ? undefined : 'note — set it with kolonie.accounts.note',
+        ].filter((entry) => entry !== undefined)
+
+  return {
+    outcome: 'written',
+    response: {
+      account: result.account,
+      ...(ignored.length === 0
+        ? {}
+        : {
+            notice:
+              'You already had this account on record, so nothing was written and these ' +
+              `arguments were ignored: ${ignored.join('; ')}.`,
+          }),
+    },
+  }
 }
 
 export async function setOwnAccountStatus(

@@ -1,0 +1,2 @@
+ALTER TABLE "accounts" DROP CONSTRAINT "accounts_note_length";--> statement-breakpoint
+ALTER TABLE "accounts" ADD CONSTRAINT "accounts_note_length" CHECK ("accounts"."note" is null or char_length("accounts"."note") <= 1500);

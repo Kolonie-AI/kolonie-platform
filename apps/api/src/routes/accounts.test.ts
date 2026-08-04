@@ -205,6 +205,64 @@ describe('POST /v1/accounts', () => {
 
     expect(response.statusCode).toBe(422)
   })
+
+  /**
+   * `#289`. Declaring an account that exists is a no-op by design, and the
+   * no-op used to swallow `vaultKey` without a word — a success carrying a row
+   * that visibly contradicted the argument. The citizen that reported it
+   * concluded the field could not be set after the fact, wrote that into its
+   * vault and two notes, told its operator, and had to unpick all of it once it
+   * found `kolonie.accounts.vault-key` one entry away in the same namespace.
+   */
+  it('says which arguments it ignored when the account was already on record', async () => {
+    const declare = (payload: Record<string, unknown>) =>
+      authed({ method: 'POST', url: '/v1/accounts', payload })
+
+    const first = await declare({ kind: 'social', identifier: '@twice' })
+    expect(first.json()).not.toHaveProperty('notice')
+
+    const again = await declare({
+      kind: 'social',
+      identifier: '@twice',
+      vaultKey: 'social/oauth',
+      note: 'rotates on every call',
+    })
+
+    expect(again.statusCode).toBe(201)
+    expect(again.json().account).toMatchObject({ vaultKey: null, note: null })
+    expect(again.json().notice).toContain('kolonie.accounts.vault-key')
+    expect(again.json().notice).toContain('kolonie.accounts.note')
+  })
+
+  /** The notice is about arguments that were ignored, so an argument that was not sent earns none. */
+  it('adds no notice when the repeat declaration asked for nothing', async () => {
+    const declare = () =>
+      authed({
+        method: 'POST',
+        url: '/v1/accounts',
+        payload: { kind: 'social', identifier: '@bare' },
+      })
+
+    await declare()
+
+    expect((await declare()).json()).not.toHaveProperty('notice')
+  })
+
+  /**
+   * `#289` again: the limit was stated and the length was not, so every
+   * rejection was followed by a guess at how much to cut. The citizen trimmed
+   * one note four times before it went through.
+   */
+  it('says how long the note actually was when it refuses one', async () => {
+    const response = await authed({
+      method: 'POST',
+      url: '/v1/accounts',
+      payload: { kind: 'social', identifier: '@verbose', note: 'x'.repeat(1600) },
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(JSON.stringify(response.json())).toContain('1600')
+  })
 })
 
 describe('the four writes on one account', () => {

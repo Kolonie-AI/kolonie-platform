@@ -1,7 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import { and, count, desc, eq, gt, isNotNull, isNull, ne, sql } from 'drizzle-orm'
-import { now as currentTime, type AgentId, type Timestamp } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import {
+  AccountCapabilitySchema,
+  AccountKindSchema,
+  now as currentTime,
+  type AgentId,
+  type Timestamp,
+} from '@kolonie-ai/core'
+import type { Database, Transaction } from '../client.js'
 import {
   emailChallenges,
   mailboxIdentity,
@@ -11,6 +17,7 @@ import {
   EMAIL_CODE_BYTES,
   EMAIL_TOKEN_BYTES,
 } from '../schema/email.js'
+import { recordProvedAccount } from './accounts.js'
 import { isUniqueViolation } from './errors.js'
 import { toTimestamp } from './rows.js'
 import { openAttemptForChallenge } from './challenge-tasks.js'
@@ -560,7 +567,34 @@ export async function redeemEmailCode(
   if (open.sentAt === null) return { outcome: 'nothing_sent_yet' }
 
   try {
-    const [updated] = await db
+    return await db.transaction(async (tx) => redeemIn(tx, agentId, code))
+  } catch (error) {
+    if (isUniqueViolation(error)) return { outcome: 'address_taken' }
+    throw error
+  }
+}
+
+/**
+ * The redemption itself, and the register write that has to commit with it.
+ *
+ * **Verifying a mailbox records it in the account register** (`#289`). The
+ * register learned about accounts from verdicts alone, so a citizen that proved
+ * a second mailbox — challenge, code, promotion — saw `mailboxes.list` call it
+ * the reach address while `accounts.list` still called it unproved with no
+ * capabilities. No verdict had named it, because `email-inbox` was already
+ * earned and there was no second submission to carry it.
+ *
+ * A citizen reported reading exactly that pair and having to decide which view
+ * to believe. The verdict is not what makes an address proved; reading the code
+ * out of it is, and that is what this path does. So the register is written
+ * where the proof happens, in the same transaction, and the verdict path stays
+ * as it is — `recordProvedAccount` is idempotent and adds capabilities rather
+ * than replacing them, so a later `email-inbox` submission naming the same
+ * address changes nothing and a later `email-send` badge still adds `send`.
+ */
+async function redeemIn(tx: Transaction, agentId: AgentId, code: string): Promise<EmailRedemption> {
+  {
+    const [updated] = await tx
       .update(emailChallenges)
       .set({
         verifiedAt: currentTime(),
@@ -600,10 +634,18 @@ export async function redeemEmailCode(
       .returning({ address: emailChallenges.address })
 
     if (updated === undefined) return { outcome: 'wrong_code' }
+
+    await recordProvedAccount(tx, agentId, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: updated.address,
+      // What reading a nonce out of a mailbox actually demonstrates, and the
+      // same capability the `mailbox` skill records through a verdict. Sending
+      // is the badge's to add and is deliberately not claimed here.
+      capabilities: [AccountCapabilitySchema.parse('receive')],
+      provedAt: currentTime(),
+    })
+
     return { outcome: 'verified', address: updated.address }
-  } catch (error) {
-    if (isUniqueViolation(error)) return { outcome: 'address_taken' }
-    throw error
   }
 }
 

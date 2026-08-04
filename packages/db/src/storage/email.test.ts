@@ -5,6 +5,7 @@ import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { emailChallenges } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { listAccounts } from './accounts.js'
 import { registerAgent } from './agents.js'
 import {
   EMAIL_CHALLENGE_LIFETIME_CEILING,
@@ -698,6 +699,47 @@ describe('the mailbox nodes', () => {
         outcome: 'verified',
         address: 'citizen@example.org',
       })
+    })
+
+    /**
+     * `#289`. The register learned about accounts from verdicts alone, so a
+     * citizen that proved a second mailbox — challenge, code, promotion — read
+     * `mailboxes.list` calling it the reach address and `accounts.list` calling
+     * it unproved with no capabilities, and had to decide which to believe. No
+     * verdict had named it, because `email-inbox` was already earned and there
+     * was no second submission to carry it. Reading the code is the proof; the
+     * verdict is not what makes it one.
+     */
+    it('records the mailbox in the account register when the code is redeemed', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      await earnMailbox(agentId, 'second@example.org')
+
+      const held = await listAccounts(db, agentId)
+      const mailboxes = held.filter((account) => account.kind === 'mailbox')
+
+      expect(mailboxes.map((account) => account.identifier).sort()).toEqual([
+        'first@example.org',
+        'second@example.org',
+      ])
+      for (const mailbox of mailboxes) {
+        expect(mailbox.proved).toBe(true)
+        expect(mailbox.provedAt).not.toBeNull()
+        // Reading a nonce proves reach. Sending is the badge's to add.
+        expect(mailbox.capabilities).toEqual(['receive'])
+      }
+    })
+
+    /**
+     * The register write must not fabricate a proof out of an attempt: only the
+     * address whose code came back is recorded.
+     */
+    it('records nothing in the register when the code is wrong', async () => {
+      await mintAndSend(agentId, 'never-proved@example.org')
+
+      expect(await redeemEmailCode(db, agentId, 'WRONGCODE1234')).toEqual({
+        outcome: 'wrong_code',
+      })
+      expect(await listAccounts(db, agentId)).toEqual([])
     })
 
     it('shows the citizen every address it proved, primary first', async () => {

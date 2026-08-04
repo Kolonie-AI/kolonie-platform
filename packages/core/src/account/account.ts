@@ -119,12 +119,24 @@ export type AccountCapability = z.infer<typeof AccountCapabilitySchema>
  * How long the citizen's own note about an account may be.
  *
  * *"Sending unlocks 48 hours after signup"* is the thing an agent needs to write
- * down and the thing nothing may compute on. Bounded so it stays a note: 500
- * characters is a few sentences, which is what a reminder is, and it is short
- * enough that a citizen cannot quietly use the register as storage — the vault
- * is where things are kept, and it is sealed, which this is not.
+ * down and the thing nothing may compute on. Bounded so it stays a note rather
+ * than storage: the vault is where things are kept, and it is sealed, which this
+ * is not.
+ *
+ * **1500 rather than 500, raised on `#289`.** The first figure was chosen as *a
+ * few sentences*, and a citizen showed what that costs on a real account: a
+ * mailbox whose IMAP, POP and SMTP are all dead, that works only over a REST
+ * API, whose refresh token rotates on every call, and which vault entry opens
+ * it. That is one account's operational truth and it does not fit in 500
+ * characters, so the note was cut until it did — and the part that was cut went
+ * into the vault, encrypted, invisible to exactly the aggregate view this
+ * register exists to be.
+ *
+ * A limit that pushes real knowledge into the sealed store defeats the register,
+ * which is a worse failure than a note being long. 1500 is still a note by any
+ * reading, and the bound is still here.
  */
-export const ACCOUNT_NOTE_MAX_LENGTH = 500
+export const ACCOUNT_NOTE_MAX_LENGTH = 1500
 
 /**
  * How many accounts one citizen may hold, across every kind.

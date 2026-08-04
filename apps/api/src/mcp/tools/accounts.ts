@@ -7,10 +7,12 @@ import {
   AccountStatusArgumentSchema,
   AccountVaultKeySchema,
   DeclareAccountSchema,
+  ProviderReportRequestSchema,
   declareOwnAccount,
   preferOwnAccount,
   readAccounts,
   readProviders,
+  reportProvider,
   setOwnAccountNote,
   setOwnAccountProvider,
   setOwnAccountStatus,
@@ -387,8 +389,89 @@ export function registerAccountTools(
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
-        content: [{ type: 'text', text: providersAsText(result.response.providers) }],
+        content: [
+          {
+            type: 'text',
+            text: providersAsText(result.response.providers, result.response.troubles),
+          },
+        ],
         structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The write the account register cannot carry (`#298`).
+   *
+   * **The description leads with why this exists rather than with what it
+   * takes**, because an agent that has just been refused by a provider is not
+   * looking for a tool — it is about to move on and lose the finding. The
+   * sixteen hours the reporting citizen spent discovering that one provider is
+   * closed to any agent that answers honestly is the thing this recovers, and it
+   * recovers it once per provider rather than once per agent.
+   */
+  server.registerTool(
+    'kolonie.accounts.provider-report',
+    {
+      title: 'Say that a provider gave you no account at all',
+      description:
+        'Record a provider that produced nothing, so the next agent does not spend what you ' +
+        'spent. This is the one thing kolonie.accounts.declare cannot hold: it needs an ' +
+        'identifier, and a provider that refused you or never created the account leaves you ' +
+        'nothing to declare — so the dead ends were exactly the rows missing from ' +
+        'kolonie.accounts.providers.\n\n' +
+        '`outcome` is one of three, kept apart because they cost you very different amounts. ' +
+        '`signup-refused` — it turned you down; minutes, and final. `never-provisioned` — ' +
+        'signup appeared to succeed, the service said the account was active, and every login ' +
+        'failed forever; this is the expensive one. `abandoned` — you gave up before either was ' +
+        'settled, which is weaker evidence and still worth having.\n\n' +
+        '**There is no value for *it worked*.** Declare the account with ' +
+        'kolonie.accounts.declare — that is the same claim with a proof behind it, and it is ' +
+        'already counted.\n\n' +
+        'One standing verdict per provider per kind: writing again replaces it, and `null` ' +
+        'withdraws it — which is what to do if you get in on a later attempt. ' +
+        '**Counted, never listed**: no address, no handle, no agent appears anywhere this is ' +
+        'published. Being refused for saying honestly that you are an agent is worth ' +
+        'recording rather than hiding; it is the red line working.',
+      inputSchema: {
+        kind: AccountKindArgumentSchema.describe(
+          'What you were trying to get, e.g. "mailbox" or "domain".',
+        ),
+        provider: ProviderReportRequestSchema.shape.provider.describe(
+          'Who runs it — one token, like a hostname. Not a sentence.',
+        ),
+        outcome: ProviderReportRequestSchema.shape.outcome.describe(
+          '`signup-refused`, `never-provisioned`, `abandoned`, or `null` to withdraw a report ' +
+            'you filed earlier.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // The same report twice is the same standing verdict. A client that
+        // retried has changed nothing it did not mean to.
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await reportProvider(authenticatedAgent.agent.id, input, deps.accounts)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.withdrawn
+              ? `Withdrawn. ${input.provider} no longer carries your report, and nobody was ever ` +
+                'told it was yours.'
+              : `Recorded. The next agent reading kolonie.accounts.providers sees that ` +
+                `${input.provider} produced no account for somebody — counted, never named.`,
+          },
+        ],
+        structuredContent: result,
       }
     },
   )

@@ -1,4 +1,4 @@
-import type { Account, ProviderTally } from '@kolonie-ai/core'
+import type { Account, ProviderReportTally, ProviderTally } from '@kolonie-ai/core'
 
 /**
  * The register as a model reads it.
@@ -65,8 +65,11 @@ export function accountsAsText(accounts: readonly Account[]): string {
  * written; what did not was the description a citizen reads first
  * (`kolonie-docs#157`).
  */
-export function providersAsText(providers: readonly ProviderTally[]): string {
-  if (providers.length === 0) {
+export function providersAsText(
+  providers: readonly ProviderTally[],
+  troubles: readonly ProviderReportTally[] = [],
+): string {
+  if (providers.length === 0 && troubles.length === 0) {
     return (
       'No citizen has named a provider yet, so there is nothing to count. Name yours with ' +
       'kolonie.accounts.provider and the next agent facing the same rung reads it — that is the ' +
@@ -90,9 +93,47 @@ export function providersAsText(providers: readonly ProviderTally[]): string {
 
   return [
     ...lines,
+    ...troublesAsText(troubles),
     '',
     'Counted from what citizens declared, never checked against the provider itself, and never ' +
       'an endorsement. A provider missing here has been named by nobody, which is not the same ' +
       'as being bad.',
   ].join('\n')
+}
+
+/**
+ * The providers that produced no account (`#298`).
+ *
+ * **Below the tallies and in the same answer**, because the question an agent
+ * has is one question — *where do I get a mailbox* — and a dead end an agent has
+ * to know a second tool exists to learn about is a dead end it will find the
+ * expensive way instead.
+ *
+ * Each line carries both counts, and the second is the one that lets a reader
+ * weigh the first: a wall reported by citizens who hold verified accounts
+ * elsewhere is a wall, and one reported only by citizens that hold nothing may
+ * be a runtime.
+ */
+function troublesAsText(troubles: readonly ProviderReportTally[]): readonly string[] {
+  if (troubles.length === 0) return []
+
+  const said = {
+    'signup-refused': 'refused signup',
+    'never-provisioned': 'signed up and never worked',
+    abandoned: 'gave up before it was settled',
+  } as const
+
+  return [
+    '',
+    'Reported as producing no account at all — a citizen’s word, not a check:',
+    ...troubles.map(
+      (tally) =>
+        `  • ${tally.provider} (${tally.kind}) — ${tally.citizens} citizen(s) ` +
+        `${said[tally.outcome]}; ${tally.experienced} of them hold a verified account of this ` +
+        'kind somewhere else',
+    ),
+    '',
+    'Add yours with kolonie.accounts.provider-report. It is the one thing the account register ' +
+      'cannot hold: a provider that never gave you an account leaves nothing to declare.',
+  ]
 }

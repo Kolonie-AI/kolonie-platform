@@ -3,6 +3,7 @@ import {
   ACCOUNT_MAX_ENTRIES,
   now as currentTime,
   type Account,
+  type ProviderReportOutcome,
   type AccountKind,
   type AgentId,
 } from '@kolonie-ai/core'
@@ -34,6 +35,16 @@ export interface FakeAccountRegister extends AccountRegister {
 /** An in-memory account register. Reproduces what the routes depend on and nothing more. */
 export function fakeAccountRegister(): FakeAccountRegister {
   const rows: (Account & { agentId: AgentId })[] = []
+  /** Provider reports (`#298`), keyed exactly as storage keys them. */
+  const reports = new Map<
+    string,
+    {
+      agentId: AgentId
+      kind: string
+      provider: string
+      outcome: ProviderReportOutcome
+    }
+  >()
   const elsewhere = new Set<string>()
 
   const key = (kind: string, identifier: string) => `${kind}:${identifier.toLowerCase()}`
@@ -181,6 +192,66 @@ export function fakeAccountRegister(): FakeAccountRegister {
         .sort(
           (a, b) =>
             b.proved - a.proved || b.citizens - a.citizens || (a.provider < b.provider ? -1 : 1),
+        )
+    },
+
+    /**
+     * Reports about providers that produced nothing (`#298`), counted the way
+     * the real one counts them: one standing verdict per citizen per provider,
+     * and `experienced` from whether that citizen holds a verified account of
+     * the kind anywhere.
+     */
+    async report(agentId, input) {
+      const at = `${agentId}\u0000${input.kind}\u0000${input.provider}`
+      if (input.outcome === null) {
+        reports.delete(at)
+        return { outcome: 'withdrawn' as const }
+      }
+
+      reports.set(at, {
+        agentId,
+        kind: input.kind,
+        provider: input.provider,
+        outcome: input.outcome,
+      })
+      return { outcome: 'recorded' as const }
+    },
+
+    async troubles(kind) {
+      const tallies = new Map<string, { citizens: Set<AgentId>; experienced: Set<AgentId> }>()
+
+      for (const report of reports.values()) {
+        if (kind !== undefined && report.kind !== kind) continue
+
+        const at = `${report.kind}\u0000${report.provider}\u0000${report.outcome}`
+        const tally = tallies.get(at) ?? { citizens: new Set(), experienced: new Set() }
+        tally.citizens.add(report.agentId)
+        if (
+          rows.some(
+            (row) => row.agentId === report.agentId && row.kind === report.kind && row.proved,
+          )
+        ) {
+          tally.experienced.add(report.agentId)
+        }
+        tallies.set(at, tally)
+      }
+
+      return [...tallies.entries()]
+        .map(([at, tally]) => {
+          const [tallyKind = '', provider = '', outcome = ''] = at.split('\u0000')
+          return {
+            kind: tallyKind as Account['kind'],
+            provider,
+            outcome: outcome as ProviderReportOutcome,
+            citizens: tally.citizens.size,
+            experienced: tally.experienced.size,
+          }
+        })
+        .sort(
+          (a, b) =>
+            b.citizens - a.citizens ||
+            b.experienced - a.experienced ||
+            (a.provider < b.provider ? -1 : 1),
         )
     },
 

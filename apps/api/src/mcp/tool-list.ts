@@ -171,6 +171,7 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.provider',
   'kolonie.accounts.providers',
+  'kolonie.accounts.provider-report',
   'kolonie.accounts.prefer',
   'kolonie.academy.pow.challenge',
   'kolonie.academy.pow.solve',

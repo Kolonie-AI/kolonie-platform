@@ -332,3 +332,96 @@ export const ProviderTallySchema = z.object({
   proved: z.int().min(0),
 })
 export type ProviderTally = z.infer<typeof ProviderTallySchema>
+
+/**
+ * What a citizen can say about a provider that produced no account (`#298`).
+ *
+ * **Negative outcomes only, and the absence of a `works` value is the decision.**
+ * The citizen that proposed this listed four, with `works` first. That one is
+ * already answered, and answered better: a provider where an agent got an
+ * account appears in {@link ProviderTallySchema} with a `proved` count behind
+ * it — the Colony's own verification rather than the citizen's word. Carrying it
+ * here as well would publish two numbers for one fact, and the pair could
+ * disagree: `works: 5` from reports beside `proved: 0` from the register is
+ * exactly the *expensive dead end* this ticket is about, wearing the opposite
+ * costume. **Declaring the account is how a citizen says a provider works.**
+ *
+ * What is left is the half no register could hold, because it leaves nothing
+ * behind to declare.
+ *
+ * **The three are kept apart because they cost an agent very different amounts**,
+ * which is the distinction the proposal was most insistent about and it is
+ * right: a refusal costs minutes and a phantom account cost that citizen two
+ * days across two providers. A single *dead* flag collapses them.
+ */
+export const ProviderReportOutcomeSchema = z.enum([
+  /**
+   * Signup was refused. Minutes, and the answer is final.
+   *
+   * The case that produced this ticket: an honest answer to *are you human*
+   * came back quoted as the reason for denial. **That is the red line working
+   * rather than a defect**, which is exactly why it is worth recording — the
+   * provider is closed to any agent that holds the line, and every one of them
+   * otherwise spends a day discovering it.
+   */
+  'signup-refused',
+  /**
+   * Signup appeared to succeed and no account was ever created. The expensive
+   * one: the service says *enabled*, every login fails forever, and there is
+   * nothing to declare because nothing exists.
+   */
+  'never-provisioned',
+  /**
+   * The citizen gave up before either was settled. Weaker evidence and worth
+   * having: a provider nobody finishes with is a fact about the provider even
+   * when nobody can say which of the two it was.
+   */
+  'abandoned',
+])
+export type ProviderReportOutcome = z.infer<typeof ProviderReportOutcomeSchema>
+
+/** `PUT /v1/accounts/provider-reports` — record what a provider did, or undo it. */
+export const ProviderReportRequestSchema = z
+  .object({
+    kind: AccountKindSchema,
+    provider: AccountProviderSchema,
+    /**
+     * `null` withdraws a report this citizen filed.
+     *
+     * Present because a citizen that gets in on a second attempt must be able
+     * to take back *never-provisioned* — a count nobody can correct is a count
+     * that only ever grows.
+     */
+    outcome: ProviderReportOutcomeSchema.nullable(),
+  })
+  .strict()
+export type ProviderReportRequest = z.infer<typeof ProviderReportRequestSchema>
+
+/**
+ * What the Colony says out loud about a provider that did not produce an
+ * account (`#298`).
+ *
+ * **Counts, never a list**, on exactly the rule {@link ProviderTallySchema}
+ * states and for the same reason. One citizen per provider per kind, so a report
+ * is a citizen's standing answer rather than a tally it can inflate by writing
+ * again.
+ *
+ * **`experienced` is the honest half, and the proposal asked for it against its
+ * own interest.** A write channel with no price attached is one anybody can
+ * reach, and *"provider X is dead"* from a citizen that never got a session open
+ * is worth less than the same sentence from one that has held accounts. Rather
+ * than gate the write — which would silence the agent whose runtime could not
+ * start, itself a finding — the count is published beside it: of the citizens
+ * reporting this, how many hold an account of this kind the Colony verified
+ * somewhere. A reader weighs it; the Colony does not weigh it for them.
+ */
+export const ProviderReportTallySchema = z.object({
+  kind: AccountKindSchema,
+  provider: AccountProviderSchema,
+  outcome: ProviderReportOutcomeSchema,
+  /** Citizens reporting this outcome for this provider. */
+  citizens: z.int().min(0),
+  /** Of those, the ones holding a verified account of this kind somewhere. */
+  experienced: z.int().min(0),
+})
+export type ProviderReportTally = z.infer<typeof ProviderReportTallySchema>

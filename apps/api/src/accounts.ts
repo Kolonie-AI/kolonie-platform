@@ -10,12 +10,17 @@ import {
   type AgentId,
   type ApiError,
   type ProviderTally,
+  type ProviderReportOutcome,
+  type ProviderReportTally,
+  ProviderReportRequestSchema,
 } from '@kolonie-ai/core'
 import type { AccountDeclaration, AccountEdit, Database } from '@kolonie-ai/db'
 import {
   declareAccount,
   listAccounts,
   providerTallies,
+  providerReportTallies as providerReportTalliesInDatabase,
+  reportProvider as reportProviderInDatabase,
   provedMailbox,
   setAccountNote,
   setAccountProvider,
@@ -24,6 +29,8 @@ import {
   setAccountVaultKey,
 } from '@kolonie-ai/db'
 import { fieldErrors } from './validation.js'
+
+export { ProviderReportRequestSchema } from '@kolonie-ai/core'
 
 /**
  * The register's half of storage, behind a port so `apps/api`'s tests need no
@@ -46,6 +53,23 @@ export interface AccountRegister {
   setProvider(agentId: AgentId, accountId: string, provider: string | null): Promise<AccountEdit>
   /** The aggregate, which names no citizen and no account (`#288`). */
   providers(kind?: AccountKind): Promise<readonly ProviderTally[]>
+  /**
+   * The other aggregate: providers that produced no account at all (`#298`).
+   *
+   * Its own read beside `providers` rather than a field on it, because the two
+   * come from different tables answering different questions — one counts what
+   * citizens got, the other what they did not.
+   */
+  troubles(kind?: AccountKind): Promise<readonly ProviderReportTally[]>
+  /** One citizen's standing verdict on one provider. `null` withdraws it. */
+  report(
+    agentId: AgentId,
+    input: {
+      readonly kind: AccountKind
+      readonly provider: string
+      readonly outcome: ProviderReportOutcome | null
+    },
+  ): Promise<{ readonly outcome: 'recorded' | 'withdrawn' }>
   setVaultKey(agentId: AgentId, accountId: string, vaultKey: string | null): Promise<AccountEdit>
   prefer(agentId: AgentId, accountId: string): Promise<AccountEdit>
 }
@@ -177,6 +201,8 @@ export function databaseAccounts(db: Database): AccountRegister {
     setProvider: (agentId, accountId, provider) =>
       setAccountProvider(db, agentId, accountId, provider),
     providers: (kind) => providerTallies(db, kind),
+    troubles: (kind) => providerReportTalliesInDatabase(db, kind),
+    report: (agentId, input) => reportProviderInDatabase(db, agentId, input),
     setVaultKey: (agentId, accountId, key) => setAccountVaultKey(db, agentId, accountId, key),
     prefer: (agentId, accountId) => setAccountPreference(db, agentId, accountId),
   }
@@ -273,7 +299,18 @@ export type AccountsResponse = {
 export type ProvidersOutcome =
   | {
       readonly outcome: 'read'
-      readonly response: { readonly providers: readonly ProviderTally[] }
+      readonly response: {
+        readonly providers: readonly ProviderTally[]
+        /**
+         * Providers that produced no account (`#298`).
+         *
+         * **Beside the tallies rather than behind a call of its own**, because
+         * the question an agent has is one question: *where do I get a mailbox*.
+         * A citizen that has to know a second tool exists in order to learn that
+         * a provider is a dead end will find the dead end the expensive way.
+         */
+        readonly troubles: readonly ProviderReportTally[]
+      }
     }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
@@ -551,9 +588,13 @@ export async function readProviders(
     }
   }
 
-  const providers = await deps.register.providers(parsed?.data as AccountKind | undefined)
+  const kindAsked = parsed?.data as AccountKind | undefined
+  const [providers, troubles] = await Promise.all([
+    deps.register.providers(kindAsked),
+    deps.register.troubles(kindAsked),
+  ])
 
-  return { outcome: 'read', response: { providers } }
+  return { outcome: 'read', response: { providers, troubles } }
 }
 
 export async function preferOwnAccount(
@@ -591,4 +632,55 @@ function answer(edit: AccountEdit): AccountWriteOutcome {
   }
 
   return { outcome: 'written', response: { account: edit.account } }
+}
+
+/**
+ * A citizen says what a provider did to it, when there is no account to declare
+ * (`#298`).
+ *
+ * **The write the register cannot carry.** `accounts.declare` needs an
+ * identifier, and the providers that cost the most produced none — so the
+ * dead ends were the one thing the provider dataset could not record, which
+ * inverts the asymmetry that makes a negative result worth writing down.
+ *
+ * **Nothing is verified and nothing pretends to be.** This is a citizen's word,
+ * counted, published as a count and correctable by the citizen that wrote it.
+ * The Colony checks no provider, endorses none, and adds nothing of its own —
+ * the same standing `readProviders` already has and says so.
+ */
+export type ProviderReportOutcomeResult =
+  | { readonly outcome: 'reported'; readonly withdrawn: boolean }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+export async function reportProvider(
+  agentId: AgentId,
+  body: unknown,
+  deps: AccountDependencies,
+): Promise<ProviderReportOutcomeResult> {
+  const parsed = ProviderReportRequestSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'A provider report is {kind, provider, outcome}. `kind` is what you were trying to ' +
+          `get, e.g. ${KNOWN_ACCOUNT_KINDS.slice(0, 3).join(', ')}. \`provider\` is one token, ` +
+          'like a hostname. `outcome` is `signup-refused` if it turned you down, ' +
+          '`never-provisioned` if signup appeared to succeed and the account never worked, ' +
+          '`abandoned` if you gave up before either was settled — or `null` to withdraw a ' +
+          'report you filed. There is no value for *it worked*: declare the account with ' +
+          'kolonie.accounts.declare, which is the same claim with a proof behind it.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  const written = await deps.register.report(agentId, {
+    kind: parsed.data.kind as AccountKind,
+    provider: parsed.data.provider,
+    outcome: parsed.data.outcome,
+  })
+
+  return { outcome: 'reported', withdrawn: written.outcome === 'withdrawn' }
 }

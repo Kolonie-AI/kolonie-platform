@@ -1028,6 +1028,8 @@ describe('the erasure boundary', () => {
        */
       'permission_reports.agent_id c',
       'pow_challenges.agent_id c',
+      /** `#298`. Cascades: a report is a citizen's word and goes with the citizen. */
+      'provider_reports.agent_id c',
       /**
        * The votes a citizen cast on other citizens' reports. `erasure.md` §2
        * lists them by name among what goes with their author — they are the one

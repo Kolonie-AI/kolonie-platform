@@ -300,6 +300,10 @@ describe('schema', () => {
         'operator_requests',
         'permission_reports',
         'pow_challenges',
+        // `provider_reports` (#298): what a provider did to a citizen that got
+        // no account out of it — the row `accounts` structurally cannot hold,
+        // because a provider hangs off an account there.
+        'provider_reports',
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed
         // once on the way in rather than on every read out.
         'quest_answers',

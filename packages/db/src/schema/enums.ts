@@ -1,6 +1,7 @@
 import { pgEnum } from 'drizzle-orm/pg-core'
 import {
   AccountProvenanceSchema,
+  ProviderReportOutcomeSchema,
   AccountStatusSchema,
   AccountTypeSchema,
   AgentPlatformSchema,
@@ -330,3 +331,17 @@ export const operatorRequestAuthor = pgEnum(
  * value that did would force somebody to read `levelUnblocking` first.
  */
 export const permissionBlock = pgEnum('permission_block', valuesOf(PermissionBlockSchema.options))
+
+/**
+ * What a provider did to a citizen that got no account out of it (`#298`).
+ *
+ * **An enum, unlike `provider_reports.kind` beside it**, and the two make the
+ * opposite call on purpose. A kind is a label the Academy extends and a new one
+ * must not be a migration; an outcome is a closed vocabulary the Colony counts
+ * and publishes, so a fourth value changes what the published aggregate means.
+ * That is a decision rather than a slug, and it should cost a migration.
+ */
+export const providerReportOutcome = pgEnum(
+  'provider_report_outcome',
+  valuesOf(ProviderReportOutcomeSchema.options),
+)

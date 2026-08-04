@@ -5,6 +5,7 @@ import {
   preferOwnAccount,
   readAccounts,
   readProviders,
+  reportProvider,
   setOwnAccountNote,
   setOwnAccountProvider,
   setOwnAccountStatus,
@@ -101,6 +102,27 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
    * read about everybody rather than about the caller: it takes a credential and
    * answers the same thing to every citizen. Nothing it returns names one.
    */
+  /**
+   * A provider that produced no account (`#298`).
+   *
+   * **`PUT` and beside the aggregate it feeds**, rather than under
+   * `/accounts/:accountId` — the whole point is that there is no account. One
+   * standing verdict per citizen per provider, so writing again replaces it and
+   * `null` withdraws it.
+   */
+  v1.put('/accounts/provider-reports', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const result = await reportProvider(caller.id, request.body, accounts)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result)
+  })
+
   v1.get('/accounts/providers', async (request, reply) => {
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply

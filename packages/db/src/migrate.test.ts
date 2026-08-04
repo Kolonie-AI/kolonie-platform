@@ -194,7 +194,12 @@ describe('the migrations', () => {
     // about whether a task is hidden, this one is about what its author knows,
     // and a citizen with a note and no set-aside is the ordinary case. The two
     // sixties arrived in the same hour from two agents; see D-089.
-    expect(afterFirst.tables).toBe('61')
+    //
+    // **Sixty-two** (`#298`): `provider_reports`, what a provider did to a
+    // citizen that got no account out of it. Its own table because that is the
+    // whole point — a provider hangs off an account in `accounts`, and the
+    // providers that cost the most leave no account to hang it on.
+    expect(afterFirst.tables).toBe('62')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -249,7 +254,12 @@ describe('the migrations', () => {
     // words rather than instead of them: a recommendation has to name a level, and
     // **no value in this enum maps to `free`**, which is how *never propose Free*
     // became a property of the vocabulary rather than a rule in a function.
-    expect(afterFirst.enums).toBe('36')
+    // And `provider_report_outcome` makes thirty-seven (`#298`) — what a provider
+    // did to a citizen that got nothing. An enum where `provider_reports.kind`
+    // beside it is free text, and the difference is what the value is for: a kind
+    // is a label the Academy extends, an outcome is a closed vocabulary the Colony
+    // counts and publishes, so a fourth value changes what the aggregate means.
+    expect(afterFirst.enums).toBe('37')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

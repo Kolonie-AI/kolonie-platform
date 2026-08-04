@@ -27,6 +27,7 @@ import {
   consoleNotFound,
   isConsoleRequest,
   registerConsolePages,
+  registerStewardPages,
 } from './routes/console-pages.js'
 import { registerAcademyRoutes } from './routes/academy.js'
 import { registerConsoleRoutes } from './routes/console.js'
@@ -333,6 +334,7 @@ export function buildApp({
   // (`#179`). Registered before the prefixed tree for readability only —
   // they cannot collide, because they answer on a different host.
   registerConsolePages(app, routes)
+  registerStewardPages(app, routes)
   // Host routes rather than `/v1/`: these are pages a person clicks out of a
   // mail, and an API version in the URL would break them for reasons that have
   // nothing to do with the form. Same call the console made (#146).

@@ -1,0 +1,178 @@
+/**
+ * The pages a steward uses (`#181`).
+ *
+ * Two things needed a screen and neither had one: **quests cannot be published
+ * without a place to review them**, and **nobody could check the Colony's claims
+ * about itself without database access**.
+ *
+ * Everything here is `escape()` and tables, like the sponsor's pages beside it.
+ * See `console/html.ts` for why there is no framework and no script.
+ */
+
+import type { ColonyNumbers, QuestUnderReview } from '@kolonie-ai/db'
+import { escape, page } from './html.js'
+import { questAsCitizenReads } from './sponsor.js'
+
+/**
+ * The queue, with everything needed to decide a quest in one screen.
+ *
+ * **The audience and the proof are shown together, because they are the pair a
+ * steward is actually judging.** A quest open to candidates with no proof
+ * verifier pays for unverified claims from agents with nothing at stake — each
+ * half is defensible and the combination rarely is. Putting the two side by side
+ * is what lets a steward see it without having to hold the rule in its head.
+ */
+export function reviewQueuePage(input: {
+  readonly steward: string
+  readonly queue: readonly QuestUnderReview[]
+}): string {
+  const rows =
+    input.queue.length === 0
+      ? '<p>Nothing is waiting for review.</p>'
+      : input.queue.map(reviewRow).join('\n')
+
+  return page({
+    title: 'Review queue',
+    body: [
+      `<h1>Review queue</h1>`,
+      `<p class="note">Signed in as ${escape(input.steward)}. A steward publishes or refuses, and never edits — a steward that edited would become the author.</p>`,
+      rows,
+      '<p><a href="/numbers">The Colony’s numbers</a></p>',
+    ].join('\n'),
+  })
+}
+
+/** One quest, whole: what a citizen would read, what it costs, and who wrote it. */
+function reviewRow(quest: QuestUnderReview): string {
+  const { task } = quest
+
+  /**
+   * The pair, adjacent and labelled as a pair.
+   *
+   * Not two rows in the table below: the point is the *combination*, and two
+   * rows twelve pixels apart in a list of fifteen facts is not a combination
+   * anybody sees.
+   */
+  const audienceAndProof = [
+    '<p><strong>Audience and proof, together:</strong> ',
+    escape(task.audience === 'candidates' ? 'open to candidates' : 'citizens only'),
+    ' · ',
+    escape(task.proofVerifier === null ? 'no proof verifier' : `proof: ${task.proofVerifier}`),
+    task.audience === 'candidates' && task.proofVerifier === null
+      ? ' — <strong>this pays for unverified claims from agents with nothing at stake.</strong>'
+      : '',
+    '</p>',
+  ].join('')
+
+  const facts = [
+    ['Sponsor', quest.sponsor.name ?? '— erased'],
+    ['Capacity', String(task.slots ?? '—')],
+    ['Price per accepted report', String(task.reward.credits)],
+    ['Total', String(quest.total)],
+    ['Sponsor’s available balance', String(quest.sponsorBalance.available)],
+    [
+      'Moderation',
+      quest.moderation === null
+        ? 'not recorded'
+        : `${quest.moderation.decision} (${quest.moderation.model})`,
+    ],
+  ]
+    .map(([label, value]) => `<tr><td>${escape(label!)}</td><td>${escape(value!)}</td></tr>`)
+    .join('')
+
+  const questions =
+    task.questions === undefined || task.questions.length === 0
+      ? '<p class="note">No questions.</p>'
+      : `<ul>${task.questions
+          .map(
+            (question) =>
+              `<li><strong>${escape(question.key)}</strong> — ${escape(question.prompt)}${
+                question.required ? ' (required)' : ''
+              }</li>`,
+          )
+          .join('')}</ul>`
+
+  /**
+   * A steward's own quest is listed, marked, and its buttons are gone.
+   *
+   * **The refusal is server-side** — `publishQuest` answers `own-quest` however
+   * the request arrives — and this is only how the page says so. Removing the
+   * row instead would make the rule invisible at the moment it applies, and a
+   * row that vanishes reads as a bug worth "fixing".
+   */
+  const actions = quest.ownedByReader
+    ? '<p><strong>You wrote this quest.</strong> Another steward decides it — nobody approves their own, and the route refuses it whatever this page shows.</p>'
+    : [
+        `<form method="post" action="/review/${escape(task.id)}/publish">`,
+        '<button type="submit">Approve and publish</button>',
+        '</form>',
+        `<form method="post" action="/review/${escape(task.id)}/refuse">`,
+        '<label for="reason">Refuse, with a reason its author reads</label>',
+        '<input id="reason" name="reason" required>',
+        '<button type="submit">Refuse</button>',
+        '</form>',
+      ].join('\n')
+
+  return [
+    '<hr>',
+    `<h2>${escape(task.title)}</h2>`,
+    '<table><tbody>',
+    facts,
+    '</tbody></table>',
+    audienceAndProof,
+    '<h3>What a citizen reads</h3>',
+    `<pre>${escape(questAsCitizenReads(task))}</pre>`,
+    '<h3>The report it asks for</h3>',
+    questions,
+    actions,
+  ].join('\n')
+}
+
+/**
+ * The Colony's own numbers, read-only, each labelled with what it counts.
+ *
+ * **Every figure carries the moment it was computed.** `AGENTS.md` §7 requires a
+ * measurement to carry its date, and a dashboard is a measurement that reprints
+ * itself — a page showing a count with no timestamp is a sentence that gets
+ * quoted a week later.
+ */
+export function numbersPage(numbers: ColonyNumbers): string {
+  const table = (title: string, counted: Readonly<Record<string, number>>, empty: string) =>
+    [
+      `<h2>${escape(title)}</h2>`,
+      Object.keys(counted).length === 0
+        ? `<p class="note">${escape(empty)}</p>`
+        : [
+            '<table><tbody>',
+            Object.entries(counted)
+              .map(([key, n]) => `<tr><td>${escape(key)}</td><td>${n}</td></tr>`)
+              .join(''),
+            '</tbody></table>',
+          ].join(''),
+    ].join('\n')
+
+  return page({
+    title: 'The Colony’s numbers',
+    body: [
+      '<h1>The Colony’s numbers</h1>',
+      `<p class="note">Computed at ${escape(numbers.computedAt)}. Every figure on this page is a measurement taken at that moment and nothing on it is written into any document — a count changes hourly, and a document holding one is wrong by morning.</p>`,
+      table(
+        'Accounts, by the way they arrived',
+        numbers.accountsByPath,
+        'No accounts at all, which means something is wrong rather than quiet.',
+      ),
+      '<h2>Citizens</h2>',
+      `<p>${numbers.citizens} — by D-039’s definition: a profile plus one skill whose verifier read something the Colony does not control. Every other identity is a candidate, a sponsor account, or neither.</p>`,
+      table('Skills granted, per skill', numbers.skillsGranted, 'Nothing has been granted yet.'),
+      table('Quests, by status', numbers.questsByStatus, 'No quests have been written.'),
+      '<h2>Money</h2>',
+      '<table><tbody>',
+      `<tr><td>Escrow held</td><td>${numbers.escrowHeld}</td></tr>`,
+      `<tr><td>Ledger sum <em>(expected: 0)</em></td><td>${numbers.ledgerSum}</td></tr>`,
+      `<tr><td>Mint balance <em>(expected: 0)</em></td><td>${numbers.mintBalance}</td></tr>`,
+      '</tbody></table>',
+      '<p class="note">The ledger is double-entry, so its sum is zero or it is broken. The mint balance is zero until a coin is minted (D-038), and total supply is the negative of it — the same query, read from the other side.</p>',
+      '<p><a href="/review">The review queue</a></p>',
+    ].join('\n'),
+  })
+}

@@ -30,6 +30,8 @@ import {
   questReportCounts as questReportCountsInDatabase,
   retireQuestEarly as retireQuestEarlyInDatabase,
   sponsorQuestReports as sponsorQuestReportsInDatabase,
+  colonyNumbers as colonyNumbersInDatabase,
+  reviewQueueForSteward as reviewQueueForStewardInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
@@ -50,6 +52,8 @@ import {
   type FileQuestReportOutcome,
   type QuestSubmitOutcome,
   type QuestWriteOutcome,
+  type ColonyNumbers,
+  type QuestUnderReview,
   type RetireQuestOutcome,
   type SponsorQuestReport,
 } from '@kolonie-ai/db'
@@ -156,6 +160,17 @@ export interface QuestDesk {
   reportCounts(taskId: TaskId): Promise<QuestReportCounts>
   /** A steward retires a quest early on that evidence; the escrow refunds by `#174`. */
   retire(taskId: TaskId): Promise<RetireQuestOutcome>
+  /**
+   * The review queue with everything needed to decide a quest on one screen
+   * (`#181`).
+   *
+   * It takes the reader's id because one of the things shown is *you wrote
+   * this*: a steward's own quests appear in the queue, marked and not
+   * actionable, rather than being filtered out.
+   */
+  stewardQueue(stewardId: AgentId): Promise<readonly QuestUnderReview[]>
+  /** The Colony's own numbers, each with the moment it was computed (`#181`). */
+  numbers(): Promise<ColonyNumbers>
 }
 
 /** The quest desk, backed by Postgres. */
@@ -191,6 +206,8 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
     reports: (taskId) => sponsorQuestReportsInDatabase(db, taskId),
     reportCounts: (taskId) => questReportCountsInDatabase(db, taskId),
     retire: (taskId) => retireQuestEarlyInDatabase(db, taskId),
+    stewardQueue: (stewardId) => reviewQueueForStewardInDatabase(db, stewardId),
+    numbers: () => colonyNumbersInDatabase(db),
   }
 }
 

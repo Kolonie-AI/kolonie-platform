@@ -17,6 +17,7 @@ import {
   signUp,
 } from '../console.js'
 import { CONSOLE_HEADERS, errorPage, signInPage } from '../console/html.js'
+import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
 import {
   AUDIENCE_CHOICES,
@@ -29,11 +30,14 @@ import {
 } from '../console/quest-form.js'
 import {
   exportQuestResults,
+  publishQuest,
   readQuest,
   readQuestResults,
+  refuseQuest,
   submitQuest,
   writeQuestDraft,
 } from '../quests.js'
+import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
 import { sessionCookie } from './authenticated.js'
 import { SESSION_COOKIE } from './console.js'
@@ -602,6 +606,116 @@ function affordabilityOf(quest: Task, available: number) {
  * the REST prefix and the MCP path, which is the wrong thing to say to a
  * browser.
  */
+/**
+ * The steward's two pages (`#181`).
+ *
+ * **Behind `stewardFor`, which is the same guard the `/v1/quests/review` route
+ * uses** — one definition of *who may do this*, and `#173` is explicit that the
+ * role is the only permission axis. A second check written here would be a
+ * second answer.
+ *
+ * **A browser that is not a steward gets the not-found handler**, exactly as a
+ * signed-out browser does on a sponsor's page and for the reason that file
+ * argues: answering `403` to a browser would tell a stranger which console paths
+ * are real. An agent, which holds a credential and can act on the answer, gets
+ * the ordinary `403` from `stewardFor`.
+ */
+export function registerStewardPages(app: FastifyInstance, deps: RouteDependencies): void {
+  const host = consoleHost(deps.console.consoleUrl)
+  if (host === undefined) return
+
+  const onConsoleHost = (request: FastifyRequest): boolean =>
+    (request.headers.host ?? '').split(':')[0]?.toLowerCase() === host
+
+  /** The steward reading this, or nothing — without sending a refusal to a browser. */
+  const steward = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!onConsoleHost(request)) {
+      reply.callNotFound()
+      return null
+    }
+
+    for (const [header, value] of Object.entries(CONSOLE_HEADERS)) reply.header(header, value)
+
+    if (wantsHtml(request)) {
+      const authenticated = await authenticate(
+        request.headers.authorization,
+        deps.store,
+        sessionCookie(request.headers.cookie),
+      )
+      if (authenticated.outcome === 'rejected' || !authenticated.agent.roles.includes('steward')) {
+        reply.callNotFound()
+        return null
+      }
+      return authenticated.agent
+    }
+
+    return await stewardFor(request, reply, deps.store)
+  }
+
+  app.get('/review', async (request, reply) => {
+    const caller = await steward(request, reply)
+    if (caller === null) return reply
+
+    const queue = await deps.quests.stewardQueue(caller.id)
+
+    return wantsHtml(request)
+      ? html(reply, reviewQueuePage({ steward: caller.profile.name, queue }))
+      : reply.send({ queue })
+  })
+
+  app.post('/review/:questId/publish', async (request, reply) => {
+    const caller = await steward(request, reply)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    const result = await publishQuest(
+      { stewardId: caller.id, questId, at: new Date().toISOString() as Timestamp },
+      deps.quests,
+    )
+
+    if (result.outcome === 'rejected') {
+      return wantsHtml(request)
+        ? html(reply.status(ERROR_STATUS[result.error.code]), errorPage(consoleErrorId()))
+        : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(result.response)
+  })
+
+  app.post('/review/:questId/refuse', async (request, reply) => {
+    const caller = await steward(request, reply)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    const result = await refuseQuest(
+      {
+        stewardId: caller.id,
+        questId,
+        body: request.body,
+        at: new Date().toISOString() as Timestamp,
+      },
+      deps.quests,
+    )
+
+    if (result.outcome === 'rejected') {
+      return wantsHtml(request)
+        ? html(reply.status(ERROR_STATUS[result.error.code]), errorPage(consoleErrorId()))
+        : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(result.response)
+  })
+
+  app.get('/numbers', async (request, reply) => {
+    const caller = await steward(request, reply)
+    if (caller === null) return reply
+
+    const numbers = await deps.quests.numbers()
+
+    return wantsHtml(request) ? html(reply, numbersPage(numbers)) : reply.send(numbers)
+  })
+}
+
 export function consoleNotFound(reply: FastifyReply, request: FastifyRequest): FastifyReply {
   for (const [header, value] of Object.entries(CONSOLE_HEADERS)) reply.header(header, value)
 

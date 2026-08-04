@@ -206,6 +206,40 @@ export function fakeQuests(): FakeQuestDesk {
       return { outcome: 'retired' as const }
     },
 
+    /**
+     * The queue as a steward reads it (`#181`).
+     *
+     * It reproduces the two rules the page depends on: a steward's **own** quest
+     * is listed and marked rather than filtered out, and the cost shown is
+     * capacity × price. Whether Postgres joins the sponsor and the moderation
+     * verdict correctly is `packages/db`'s question.
+     */
+    async stewardQueue(stewardId) {
+      return [...quests.values()]
+        .filter((held) => held.own.task.status === 'pending_review')
+        .map((held) => ({
+          task: held.own.task,
+          sponsor: { id: held.own.task.createdBy ?? null, name: 'a-sponsor' },
+          sponsorBalance: { balance: 0, reserved: 0, available: 0 },
+          total: held.own.task.reward.credits * (held.own.task.slots ?? 0),
+          moderation: { decision: 'approved', model: 'test-model' },
+          ownedByReader: held.own.task.createdBy === stewardId,
+        })) as never
+    },
+
+    async numbers() {
+      return {
+        accountsByPath: { mcp: 1 },
+        citizens: 0,
+        skillsGranted: {},
+        questsByStatus: {},
+        escrowHeld: 0,
+        ledgerSum: 0,
+        mintBalance: 0,
+        computedAt: new Date().toISOString(),
+      } as never
+    },
+
     async auditQueue() {
       return []
     },

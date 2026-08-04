@@ -39,6 +39,34 @@ export const QUEST_AUDIT_DEFAULT_RATE = 0.1
 export const QUEST_AUDIT_DISAGREEMENT_THRESHOLD = 0.2
 
 /**
+ * How many verdicts the rate has to be computed over before it may stop the
+ * programme (`#317`).
+ *
+ * **Ten, and the number is a judgement rather than a finding.** What is not a
+ * judgement is that a floor has to exist: without one the brake is live from the
+ * first audited verdict, and one steward disagreement out of three is 33 % —
+ * enough to refuse every paid quest for the rest of a thirty-day window, on the
+ * strength of a single reading.
+ *
+ * The argument is {@link QUEST_AUDIT_DISAGREEMENT_THRESHOLD}'s own, applied to
+ * the other axis. That constant is a fifth rather than a tenth *"because a
+ * steward's second reading is itself a judgement: two readers disagreeing
+ * occasionally is what two readers do"*. That reasoning is about the **rate**,
+ * and a rate over three samples is entirely noise floor whatever the threshold
+ * is set to.
+ *
+ * It bites hardest where the audit was meant to be safest: the pilot publishes
+ * small quests and audits them at a rate of 1.0 precisely because a tenth of
+ * five reports draws nothing — so the smallest quests produce the smallest
+ * samples and, without this, the most sensitive brake.
+ *
+ * **It softens the brake and never the precondition.** A deployment with the
+ * audit switched off still refuses every paid quest at every count; that refusal
+ * is `governance/quests.md`'s and is untouched.
+ */
+export const QUEST_AUDIT_MINIMUM_SAMPLE = 10
+
+/**
  * How far back the rate is measured.
  *
  * Rolling rather than all-time, because the question is *is the judge wrong
@@ -120,6 +148,8 @@ export interface QuestAuditPolicy {
   readonly rate: number
   readonly disagreementThreshold: number
   readonly windowDays: number
+  /** Below this many audited verdicts, the disagreement clause does not fire. */
+  readonly minimumSample: number
 }
 
 /** The policy a process gets when nothing configured one. */
@@ -128,6 +158,7 @@ export const QUEST_AUDIT_OFF: QuestAuditPolicy = {
   rate: QUEST_AUDIT_DEFAULT_RATE,
   disagreementThreshold: QUEST_AUDIT_DISAGREEMENT_THRESHOLD,
   windowDays: QUEST_AUDIT_WINDOW_DAYS,
+  minimumSample: QUEST_AUDIT_MINIMUM_SAMPLE,
 }
 
 /**
@@ -144,7 +175,19 @@ export const QUEST_AUDIT_OFF: QuestAuditPolicy = {
  */
 export function paidQuestRejection(
   policy: QuestAuditPolicy,
-  input: { readonly credits: number; readonly disagreement: number },
+  input: {
+    readonly credits: number
+    readonly disagreement: number
+    /**
+     * How many verdicts that rate was computed over.
+     *
+     * Required rather than optional: a caller that has the rate has the count
+     * beside it — `questDisagreementRate` returns both — and an optional field
+     * defaulting to something would let the one caller that forgot it re-create
+     * the brake this parameter exists to soften.
+     */
+    readonly audited: number
+  },
 ): string | undefined {
   if (input.credits === 0) return undefined
 
@@ -157,12 +200,24 @@ export function paidQuestRejection(
     )
   }
 
-  if (input.disagreement > policy.disagreementThreshold) {
+  /**
+   * **The brake needs a sample before it may stop anything** (`#317`).
+   *
+   * Under {@link QUEST_AUDIT_MINIMUM_SAMPLE} verdicts the rate is not a
+   * measurement of the judge, it is a measurement of one steward's afternoon —
+   * one disagreement out of three reads as 33 % and would refuse every paid
+   * quest until that single verdict aged out of a thirty-day window.
+   *
+   * The clause above is untouched by this and keeps firing at any count: the
+   * audit being switched off is a precondition, not a rate.
+   */
+  if (input.audited >= policy.minimumSample && input.disagreement > policy.disagreementThreshold) {
     return (
       `A steward has disagreed with ${percent(input.disagreement)} of the judge's audited ` +
-      `verdicts over the last ${policy.windowDays} days, against a threshold of ` +
-      `${percent(policy.disagreementThreshold)}. While the judge is being overruled that often ` +
-      'the Colony does not sell more work; a zero-reward quest is unaffected.'
+      `verdicts over the last ${policy.windowDays} days — ${input.audited} verdicts were ` +
+      `re-read — against a threshold of ${percent(policy.disagreementThreshold)}. While the ` +
+      'judge is being overruled that often the Colony does not sell more work; a zero-reward ' +
+      'quest is unaffected.'
     )
   }
 

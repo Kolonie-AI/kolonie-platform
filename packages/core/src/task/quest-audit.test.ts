@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   QUEST_AUDIT_DEFAULT_RATE,
+  QUEST_AUDIT_MINIMUM_SAMPLE,
   QUEST_AUDIT_OFF,
   isAuditable,
   isAudited,
@@ -19,29 +20,80 @@ const anId = (n: number): string => `00000000-0000-4000-8000-${String(n).padStar
  */
 describe('publishing a paid quest', () => {
   it('is refused while sampling is off, and says what is missing', () => {
-    const refusal = paidQuestRejection(QUEST_AUDIT_OFF, { credits: 10, disagreement: 0 })
+    const refusal = paidQuestRejection(QUEST_AUDIT_OFF, {
+      credits: 10,
+      disagreement: 0,
+      audited: 0,
+    })
 
     expect(refusal).toContain('sampling audit')
     expect(refusal).toContain('governance/quests.md')
   })
 
   it('leaves a zero-reward quest alone, which is the whole pilot', () => {
-    expect(paidQuestRejection(QUEST_AUDIT_OFF, { credits: 0, disagreement: 0.9 })).toBeUndefined()
+    expect(
+      paidQuestRejection(QUEST_AUDIT_OFF, { credits: 0, disagreement: 0.9, audited: 50 }),
+    ).toBeUndefined()
   })
 
   it('is allowed once sampling is on and the judge is holding up', () => {
     const on = { ...QUEST_AUDIT_OFF, enabled: true }
 
-    expect(paidQuestRejection(on, { credits: 10, disagreement: 0.1 })).toBeUndefined()
+    expect(paidQuestRejection(on, { credits: 10, disagreement: 0.1, audited: 50 })).toBeUndefined()
   })
 
   it('is refused again above the threshold, with the current rate named', () => {
     const on = { ...QUEST_AUDIT_OFF, enabled: true }
 
-    const refusal = paidQuestRejection(on, { credits: 10, disagreement: 0.34 })
+    const refusal = paidQuestRejection(on, { credits: 10, disagreement: 0.34, audited: 50 })
 
     expect(refusal).toContain('34%')
     expect(refusal).toContain('20%')
+    // How many verdicts the rate was computed over, so a steward reading the
+    // refusal can tell a brake from a small sample (`#317`).
+    expect(refusal).toContain('50 verdicts')
+  })
+})
+
+/**
+ * The floor under the brake (`#317`).
+ *
+ * Without it the rate is live from the first audited verdict, and one steward
+ * disagreement out of three stops the paid programme until that verdict ages out
+ * of a thirty-day window.
+ */
+describe('the minimum sample under the disagreement brake', () => {
+  const on = { ...QUEST_AUDIT_OFF, enabled: true }
+
+  it('does not stop publication on one disagreement out of three', () => {
+    expect(paidQuestRejection(on, { credits: 10, disagreement: 1 / 3, audited: 3 })).toBeUndefined()
+  })
+
+  /** Eleven verdicts, three of them overruled: a sample, and a rate above a fifth. */
+  it('stops it once the sample is there and the rate is still above the threshold', () => {
+    const refusal = paidQuestRejection(on, { credits: 10, disagreement: 3 / 11, audited: 11 })
+
+    expect(refusal).toContain('27%')
+  })
+
+  /** The boundary is stated, so a change to the constant fails here rather than quietly. */
+  it('fires at exactly the minimum and not one verdict below it', () => {
+    const above = { credits: 10, disagreement: 0.5, audited: QUEST_AUDIT_MINIMUM_SAMPLE }
+    const below = { credits: 10, disagreement: 0.5, audited: QUEST_AUDIT_MINIMUM_SAMPLE - 1 }
+
+    expect(paidQuestRejection(on, above)).toBeDefined()
+    expect(paidQuestRejection(on, below)).toBeUndefined()
+  })
+
+  /**
+   * **The precondition is not softened, only the brake.** A deployment with the
+   * audit switched off refuses every paid quest at any count, including zero —
+   * that refusal is `governance/quests.md`'s and has nothing to do with a rate.
+   */
+  it('still refuses every paid quest while the audit is switched off, at zero samples', () => {
+    expect(
+      paidQuestRejection(QUEST_AUDIT_OFF, { credits: 10, disagreement: 0, audited: 0 }),
+    ).toContain('sampling audit')
   })
 })
 

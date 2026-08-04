@@ -1177,22 +1177,33 @@ describe('the quest write path', () => {
       expect(result.outcome).toBe('published')
     })
 
-    it('refuses to publish once the judge is being overruled too often', async () => {
-      const { steward, taskId } = await aPaidQuest()
-
-      // Five audits, four of them disagreements: 80%, against a 20% threshold.
-      for (let index = 0; index < 5; index++) {
-        const submissionId = await aPassedQuestSubmission(`overruled-${index}`)
+    /** Audit `count` verdicts, of which `disagreements` overrule the judge. */
+    const audited = async (
+      steward: AgentId,
+      count: number,
+      disagreements: number,
+    ): Promise<void> => {
+      for (let index = 0; index < count; index++) {
+        const submissionId = await aPassedQuestSubmission(`audited-${index}`)
         await recordAuditDecision(db, {
           submissionId,
           stewardId: steward,
-          agrees: index === 0,
+          agrees: index >= disagreements,
           reason: 'The report does not answer the question that was asked.',
         })
       }
+    }
+
+    it('refuses to publish once the judge is being overruled too often', async () => {
+      const { steward, taskId } = await aPaidQuest()
+
+      // Ten audits, eight of them disagreements: 80%, against a 20% threshold —
+      // and a sample at the floor `#317` put under the brake.
+      await audited(steward, 10, 8)
 
       const rate = await questDisagreementRate(db, { windowDays: 30 })
       expect(rate.rate).toBeCloseTo(0.8)
+      expect(rate.audited).toBe(10)
 
       const result = await publishQuest(db, {
         stewardId: steward,
@@ -1205,6 +1216,54 @@ describe('the quest write path', () => {
       if (result.outcome !== 'audit-missing') return
       // The current rate is in the message, so a steward knows why and by how much.
       expect(result.reason).toContain('80%')
+      // And the count, so a steward can tell a brake from a small sample.
+      expect(result.reason).toContain('10 verdicts')
+    })
+
+    /**
+     * `#317`: the brake needs a sample before it may stop anything.
+     *
+     * One disagreement out of three is 33 % and used to refuse every paid quest
+     * until that single verdict aged out of a thirty-day window — which bit
+     * hardest on the smallest quests, the ones audited at a rate of 1.0 because
+     * a tenth of five reports draws nothing.
+     */
+    it('publishes anyway when one disagreement out of three is the whole sample', async () => {
+      const { steward, taskId } = await aPaidQuest()
+
+      await audited(steward, 3, 1)
+
+      const rate = await questDisagreementRate(db, { windowDays: 30 })
+      expect(rate.rate).toBeCloseTo(1 / 3)
+
+      const result = await publishQuest(db, {
+        stewardId: steward,
+        taskId,
+        at: now(),
+        audit: AUDIT_ON,
+      })
+
+      expect(result.outcome).toBe('published')
+    })
+
+    /**
+     * The precondition is untouched by the floor: a deployment with the audit
+     * switched off refuses every paid quest at any count, including zero. That
+     * refusal is `governance/quests.md`'s, and it is not a rate.
+     */
+    it('still refuses a paid quest with the audit off and no sample at all', async () => {
+      const { steward, taskId } = await aPaidQuest()
+
+      const result = await publishQuest(db, {
+        stewardId: steward,
+        taskId,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
+
+      expect(result.outcome).toBe('audit-missing')
+      if (result.outcome !== 'audit-missing') return
+      expect(result.reason).toContain('sampling audit')
     })
 
     it('draws the same submissions in SQL as core draws in TypeScript', async () => {

@@ -154,6 +154,9 @@ export async function publishQuest(
     const refusal = paidQuestRejection(command.audit, {
       credits: row.rewardCredits,
       disagreement: disagreement.rate,
+      // The count the rate was computed over, which this call used to discard
+      // (`#317`). Without it the brake fires on a sample of one.
+      audited: disagreement.audited,
     })
     if (refusal !== undefined) return { outcome: 'audit-missing', reason: refusal }
 

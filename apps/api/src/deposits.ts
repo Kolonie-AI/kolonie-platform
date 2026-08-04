@@ -7,6 +7,7 @@ import {
   type ApiError,
   type Deposit,
   type ObservedTransfer,
+  type TransferClaim,
 } from '@kolonie-ai/core'
 import {
   depositAddressFor as depositAddressInDatabase,
@@ -48,6 +49,16 @@ export interface DepositDesk {
 export interface DepositWatcher {
   /** Recent transfers at this address, finalized ones included. */
   transfersAt(address: string): Promise<readonly ObservedTransfer[]>
+  /**
+   * What this one signature moved into this address, read from the chain.
+   *
+   * The webhook's half of the port (`#321`). A Helius delivery names a
+   * signature and a wallet and carries neither the token program nor a
+   * commitment, so the delivery is a *trigger* and this is the answer: the same
+   * finalized read the reconciliation makes, aimed at one signature instead of
+   * an address's recent history.
+   */
+  transfersIn(signature: string, address: string): Promise<readonly ObservedTransfer[]>
 }
 
 export interface DepositDependencies {
@@ -170,6 +181,100 @@ export function webhookAuthorised(presented: string | undefined, secret: string)
 export const WEBHOOK_REFUSED: ApiError = {
   code: 'unauthorized',
   message: 'This endpoint is not for you.',
+}
+
+/**
+ * What one delivery did, for whoever is reading the logs.
+ *
+ * Counted rather than listed: a webhook's answer is read by a machine that
+ * retries and by a human looking for whether the live path works at all, and
+ * neither needs the signatures back.
+ */
+export interface DeliveryOutcome {
+  /** Signature-and-address pairs the delivery named. */
+  readonly claims: number
+  /** Pairs naming an address the Colony did not generate. Not read, not written. */
+  readonly ignored: number
+  /** Transfers the chain confirmed and the ledger credited. */
+  readonly credited: number
+  /** Transfers recorded and refused — the wrong mint, the wrong program, under a cent. */
+  readonly rejected: number
+  /** Claims the chain could not be asked about. The reconciliation gets these. */
+  readonly unverified: number
+}
+
+/**
+ * A Helius delivery, verified against the chain and credited (`#321`).
+ *
+ * **The delivery decides nothing.** It names a signature and a wallet; every
+ * fact the credit rests on — the mint, the token program, the amount in base
+ * units, the commitment — is re-read through {@link DepositWatcher} and judged
+ * by the same `depositRejection` the reconciliation goes through. That is what
+ * makes a forged delivery harmless: at worst it costs one RPC call that finds
+ * nothing.
+ *
+ * **A claim that cannot be verified is left to the reconciliation rather than
+ * failed.** No RPC endpoint configured, an endpoint that is down, a signature
+ * the cluster has not finalized yet — all three mean *not yet*, and
+ * kolonie-infra#72's hourly pass credits them within the hour. Answering the
+ * sender an error would teach it to retry a body that is not the problem.
+ *
+ * **Unwatched addresses are dropped before anything is written.** Whoever holds
+ * the webhook secret chooses which addresses a delivery names, and a row per
+ * named stranger would let the sender fill the deposits table. `unknown-address`
+ * stays reachable through `record` for an address erased between the two reads.
+ */
+export async function recordDelivery(
+  deps: DepositDependencies,
+  claims: readonly TransferClaim[],
+): Promise<DeliveryOutcome> {
+  const { desk, watcher } = deps
+
+  if (watcher === undefined) {
+    return {
+      claims: claims.length,
+      ignored: 0,
+      credited: 0,
+      rejected: 0,
+      unverified: claims.length,
+    }
+  }
+
+  const watched = new Set(await desk.watched())
+  let ignored = 0
+  let credited = 0
+  let rejected = 0
+  let unverified = 0
+
+  for (const claim of claims) {
+    if (!watched.has(claim.address)) {
+      ignored++
+      continue
+    }
+
+    let transfers: readonly ObservedTransfer[]
+    try {
+      transfers = await watcher.transfersIn(claim.signature, claim.address)
+    } catch {
+      unverified++
+      continue
+    }
+
+    // The chain holding nothing finalized under that signature yet is the
+    // ordinary case for a webhook that fires the moment a transaction lands.
+    if (transfers.length === 0) {
+      unverified++
+      continue
+    }
+
+    for (const transfer of transfers) {
+      const outcome = await desk.record(transfer)
+      if (outcome.outcome === 'credited') credited++
+      if (outcome.outcome === 'refused') rejected++
+    }
+  }
+
+  return { claims: claims.length, ignored, credited, rejected, unverified }
 }
 
 /**

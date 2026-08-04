@@ -6,7 +6,7 @@ import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeQuests } from '../__fixtures__/quests.js'
-import { aTransfer, fakeDeposits } from '../__fixtures__/deposits.js'
+import { aTransfer, fakeChain, fakeDeposits, fakeWatcher } from '../__fixtures__/deposits.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
@@ -126,26 +126,6 @@ const askForAddress = (key = apiKey) =>
     headers: { authorization: `Bearer ${key}` },
   })
 
-/** A delivery with no `Authorization` at all, which is its own case. */
-const deliverWithoutSecret = (body: unknown) =>
-  app.inject({
-    method: 'POST',
-    url: '/v1/deposits/webhook',
-    headers: { 'content-type': 'application/json' },
-    payload: body as never,
-  })
-
-const deliver = (body: unknown, secret: string = SECRET) =>
-  app.inject({
-    method: 'POST',
-    url: '/v1/deposits/webhook',
-    headers: {
-      'content-type': 'application/json',
-      authorization: secret,
-    },
-    payload: body as never,
-  })
-
 describe('POST /v1/deposits/address', () => {
   it('hands back one address, with the asset it credits and the notice', async () => {
     const first = await askForAddress()
@@ -184,32 +164,191 @@ describe('POST /v1/deposits/address', () => {
   })
 })
 
+/**
+ * The webhook, against what Helius actually sends (`#321`).
+ *
+ * These tests are built rather than reusing the app `beforeEach` made, because
+ * the route now needs a chain to ask and the watcher is wired at build time.
+ * The delivery names a signature; what is credited is what the chain says that
+ * signature moved.
+ */
 describe('POST /v1/deposits/webhook', () => {
-  it('credits a finalized USDC transfer to the address it landed at', async () => {
-    const { address } = (await askForAddress()).json()
+  let chain: ReturnType<typeof fakeChain>
+  let configured: FastifyInstance
+  let address: string
 
-    const delivered = await deliver(aTransfer({ address }))
+  /** An enhanced Helius delivery, in the shape the sender posts it. */
+  const aDelivery = (signature: string, toUserAccount: string): unknown => [
+    {
+      signature,
+      slot: 300_000_000,
+      timestamp: 1_770_000_000,
+      type: 'TRANSFER',
+      tokenTransfers: [
+        {
+          fromUserAccount: 'a-payer',
+          toUserAccount,
+          mint: USDC_MINT,
+          tokenAmount: 10,
+          tokenStandard: 'Fungible',
+        },
+      ],
+    },
+  ]
+
+  const post = (body: unknown, secret: string | null = SECRET) =>
+    configured.inject({
+      method: 'POST',
+      url: '/v1/deposits/webhook',
+      headers: {
+        'content-type': 'application/json',
+        ...(secret !== null && { authorization: secret }),
+      },
+      payload: body as never,
+    })
+
+  beforeEach(async () => {
+    chain = fakeChain()
+    configured = build(SECRET, chain)
+    await configured.ready()
+
+    const key = String(store.issue({}).apiKey)
+    address = (
+      await configured.inject({
+        method: 'POST',
+        url: '/v1/deposits/address',
+        headers: { authorization: `Bearer ${key}` },
+      })
+    ).json().address
+  })
+
+  afterEach(async () => {
+    await configured.close()
+  })
+
+  it('credits what the chain says the delivered signature moved', async () => {
+    chain.put(aTransfer({ address, signature: 'a-signature' }))
+
+    const delivered = await post(aDelivery('a-signature', address))
 
     expect(delivered.statusCode).toBe(200)
-    expect(delivered.json()).toEqual({ outcome: 'credited' })
+    expect(delivered.json()).toEqual({
+      claims: 1,
+      ignored: 0,
+      credited: 1,
+      rejected: 0,
+      unverified: 0,
+    })
+  })
+
+  /**
+   * The defect this issue records: `#219` validated the body against
+   * `ObservedTransferSchema`, and no observer emits that shape. A Helius
+   * webhook pointed at this route answered `422` forever.
+   */
+  it('refuses the flat six-field shape nothing ever sent', async () => {
+    expect((await post(aTransfer({ address }))).statusCode).toBe(422)
+  })
+
+  it('refuses a body that is not a delivery at all', async () => {
+    expect((await post({ signature: 'only-this' })).statusCode).toBe(422)
+  })
+
+  /**
+   * The delivery carries neither a token program nor a commitment, so this is
+   * the case that could not be reached at all before: the chain is asked, and
+   * it answers with some other mint.
+   */
+  it('records a transfer of some other SPL token, and credits nothing', async () => {
+    chain.put(aTransfer({ address, signature: 'a-signature', mint: 'some-other-mint' }))
+
+    const delivered = await post(aDelivery('a-signature', address))
+
+    expect(delivered.json()).toMatchObject({ credited: 0, rejected: 1 })
+    expect(desk.seen()[0]).toMatchObject({ rejection: 'wrong-mint', credits: 0 })
   })
 
   it('answers 200 to a redelivery rather than teaching the sender to retry', async () => {
-    const { address } = (await askForAddress()).json()
-    const transfer = aTransfer({ address })
+    chain.put(aTransfer({ address, signature: 'a-signature' }))
 
-    await deliver(transfer)
-    const again = await deliver(transfer)
+    expect((await post(aDelivery('a-signature', address))).json()).toMatchObject({ credited: 1 })
+    const again = await post(aDelivery('a-signature', address))
 
     expect(again.statusCode).toBe(200)
-    expect(again.json()).toEqual({ outcome: 'already-recorded' })
+    expect(again.json()).toMatchObject({ credited: 0, rejected: 0, unverified: 0 })
+    expect(desk.seen()).toHaveLength(1)
+  })
+
+  /**
+   * Whoever holds the secret chooses which addresses a delivery names. A row
+   * per named stranger would let the sender fill the deposits table.
+   */
+  it('ignores an address the Colony never generated, without asking the chain', async () => {
+    const delivered = await post(aDelivery('a-signature', 'an-address-of-somebody-elses'))
+
+    expect(delivered.json()).toMatchObject({ claims: 1, ignored: 1, credited: 0 })
+    expect(chain.asked()).toEqual([])
+    expect(desk.seen()).toEqual([])
+  })
+
+  /** A webhook fires the moment a transaction lands; finalization comes later. */
+  it('leaves a signature the chain has not finalized to the reconciliation', async () => {
+    const delivered = await post(aDelivery('not-final-yet', address))
+
+    expect(delivered.statusCode).toBe(200)
+    expect(delivered.json()).toMatchObject({ unverified: 1, credited: 0 })
+    expect(desk.seen()).toEqual([])
+  })
+
+  it('counts a delivery it cannot verify rather than failing the sender', async () => {
+    chain.put(aTransfer({ address, signature: 'a-signature' }))
+    chain.breakAt('a-signature')
+
+    const delivered = await post(aDelivery('a-signature', address))
+
+    expect(delivered.statusCode).toBe(200)
+    expect(delivered.json()).toMatchObject({ unverified: 1, credited: 0 })
+  })
+
+  /**
+   * A deployment with a webhook and no RPC endpoint credits nothing promptly
+   * and loses nothing: kolonie-infra#72's hourly pass is what catches these.
+   */
+  it('verifies nothing when no chain is configured, and writes nothing', async () => {
+    const noChain = build(SECRET)
+    await noChain.ready()
+
+    const delivered = await noChain.inject({
+      method: 'POST',
+      url: '/v1/deposits/webhook',
+      headers: { 'content-type': 'application/json', authorization: SECRET },
+      payload: aDelivery('a-signature', address) as never,
+    })
+
+    expect(delivered.statusCode).toBe(200)
+    expect(delivered.json()).toMatchObject({ claims: 1, unverified: 1, credited: 0 })
+
+    await noChain.close()
+  })
+
+  it('reads one signature once, however many hops it names', async () => {
+    chain.put(aTransfer({ address, signature: 'a-signature' }))
+
+    await post([
+      {
+        signature: 'a-signature',
+        tokenTransfers: [{ toUserAccount: address }, { toUserAccount: address }],
+      },
+    ])
+
+    expect(chain.asked()).toEqual(['a-signature'])
   })
 
   it('refuses a delivery with the wrong secret, or none', async () => {
-    const { address } = (await askForAddress()).json()
+    chain.put(aTransfer({ address, signature: 'a-signature' }))
 
-    expect((await deliver(aTransfer({ address }), 'wrong')).statusCode).toBe(401)
-    expect((await deliverWithoutSecret(aTransfer({ address }))).statusCode).toBe(401)
+    expect((await post(aDelivery('a-signature', address), 'wrong')).statusCode).toBe(401)
+    expect((await post(aDelivery('a-signature', address), null)).statusCode).toBe(401)
     expect(desk.seen()).toEqual([])
   })
 
@@ -221,15 +360,11 @@ describe('POST /v1/deposits/webhook', () => {
       method: 'POST',
       url: '/v1/deposits/webhook',
       headers: { 'content-type': 'application/json' },
-      payload: aTransfer() as never,
+      payload: aDelivery('a-signature', address) as never,
     })
 
     expect(response.statusCode).toBe(404)
     await unconfigured.close()
-  })
-
-  it('refuses a body that is not a transfer', async () => {
-    expect((await deliver({ signature: 'only-this' })).statusCode).toBe(422)
   })
 
   it('compares the secret in constant time', () => {
@@ -252,12 +387,15 @@ describe('POST /v1/deposits/reconcile', () => {
     // reusing the one `beforeEach` made — and its address is asked for on
     // itself, because the desk is the app's own.
     const watched: string[] = []
-    const configured = build(SECRET, {
-      transfersAt: async (address) => {
-        watched.push(address)
-        return [aTransfer({ address })]
-      },
-    })
+    const configured = build(
+      SECRET,
+      fakeWatcher({
+        transfersAt: async (address) => {
+          watched.push(address)
+          return [aTransfer({ address })]
+        },
+      }),
+    )
     await configured.ready()
 
     const key = String(store.issue({}).apiKey)
@@ -281,9 +419,12 @@ describe('POST /v1/deposits/reconcile', () => {
   })
 
   it('credits nothing twice when it is run again', async () => {
-    const configured = build(SECRET, {
-      transfersAt: async (address) => [aTransfer({ address, signature: 'the-same-one' })],
-    })
+    const configured = build(
+      SECRET,
+      fakeWatcher({
+        transfersAt: async (address) => [aTransfer({ address, signature: 'the-same-one' })],
+      }),
+    )
     await configured.ready()
 
     const key = String(store.issue({}).apiKey)
@@ -340,7 +481,7 @@ describe('the reconciliation', () => {
 
     const outcome = await reconcileDeposits({
       desk,
-      watcher: { transfersAt: async () => [missed] },
+      watcher: fakeWatcher({ transfersAt: async () => [missed] }),
     })
 
     expect(outcome.recovered).toBe(1)
@@ -348,18 +489,42 @@ describe('the reconciliation', () => {
   })
 
   it('credits nothing twice when the webhook did not miss it', async () => {
-    const { address } = (await askForAddress()).json()
-    const delivered = aTransfer({ address })
-    await deliver(delivered)
+    // Through the route rather than through the desk, because the claim being
+    // made is that the two paths share their idempotency.
+    const chain = fakeChain()
+    const configured = build(SECRET, chain)
+    await configured.ready()
+
+    const key = String(store.issue({}).apiKey)
+    const address = (
+      await configured.inject({
+        method: 'POST',
+        url: '/v1/deposits/address',
+        headers: { authorization: `Bearer ${key}` },
+      })
+    ).json().address
+
+    const delivered = aTransfer({ address, signature: 'a-signature' })
+    chain.put(delivered)
+    await configured.inject({
+      method: 'POST',
+      url: '/v1/deposits/webhook',
+      headers: { 'content-type': 'application/json', authorization: SECRET },
+      payload: [
+        { signature: 'a-signature', tokenTransfers: [{ toUserAccount: address }] },
+      ] as never,
+    })
 
     const outcome = await reconcileDeposits({
       desk,
-      watcher: { transfersAt: async () => [delivered] },
+      watcher: fakeWatcher({ transfersAt: async () => [delivered] }),
     })
 
     // Seen, not recovered: the same idempotency the webhook relies on.
     expect(outcome.recovered).toBe(0)
     expect(desk.seen()).toHaveLength(1)
+
+    await configured.close()
   })
 
   it('does not run at all without a watcher, rather than throwing on a schedule', async () => {
@@ -377,12 +542,12 @@ describe('the reconciliation', () => {
 
     const outcome = await reconcileDeposits({
       desk: failing,
-      watcher: {
+      watcher: fakeWatcher({
         transfersAt: async (address) => {
           if (address === 'one') throw new Error('the endpoint is down')
           return []
         },
-      },
+      }),
     })
 
     expect(outcome.addresses).toBe(2)

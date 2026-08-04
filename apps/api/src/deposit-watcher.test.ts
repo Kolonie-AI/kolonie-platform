@@ -195,3 +195,85 @@ describe('httpDepositWatcher', () => {
     )
   })
 })
+
+/**
+ * The webhook's half of the port (`#321`).
+ *
+ * A Helius delivery names a signature and carries neither a token program nor a
+ * commitment, so the delivery is a trigger and this is what answers it.
+ */
+describe('httpDepositWatcher, asked about one signature', () => {
+  it('reads that signature at finalized, with no history call at all', async () => {
+    const { fetchImpl, calls } = endpoint({
+      getTransaction: transaction([balance('0')], [balance('2500000')]),
+    })
+
+    const [transfer] = await httpDepositWatcher('http://rpc', fetchImpl).transfersIn(
+      'sig-1',
+      ADDRESS,
+    )
+
+    expect(transfer).toEqual({
+      signature: 'sig-1',
+      address: ADDRESS,
+      mint: USDC_MINT,
+      tokenProgram: SPL_TOKEN_PROGRAM,
+      baseUnits: 2_500_000,
+      commitment: 'finalized',
+    })
+    expect(calls.map((call) => call.method)).toEqual(['getTransaction'])
+    expect(calls[0]?.params[1]).toMatchObject({ commitment: 'finalized' })
+  })
+
+  /**
+   * The ordinary case for a webhook, which fires when a transaction lands
+   * rather than when the cluster finalizes it. Empty and not an error: the
+   * hourly reconciliation is what credits these.
+   */
+  it('answers with nothing when the cluster has not finalized it yet', async () => {
+    const { fetchImpl } = endpoint({ getTransaction: null })
+
+    expect(await httpDepositWatcher('http://rpc', fetchImpl).transfersIn('sig-1', ADDRESS)).toEqual(
+      [],
+    )
+  })
+
+  /** A delivery may name a wallet this signature did not pay. */
+  it('reports nothing for an address whose balance did not rise', async () => {
+    const { fetchImpl } = endpoint({
+      getTransaction: transaction(
+        [balance('0', { owner: 'somebody-else' })],
+        [balance('2500000', { owner: 'somebody-else' })],
+      ),
+    })
+
+    expect(await httpDepositWatcher('http://rpc', fetchImpl).transfersIn('sig-1', ADDRESS)).toEqual(
+      [],
+    )
+  })
+
+  it('reports some other mint rather than filtering it out', async () => {
+    const { fetchImpl } = endpoint({
+      getTransaction: transaction(
+        [],
+        [balance('2500000', { mint: 'SomeOtherMint1111111111111111111111111111111' })],
+      ),
+    })
+
+    const [transfer] = await httpDepositWatcher('http://rpc', fetchImpl).transfersIn(
+      'sig-1',
+      ADDRESS,
+    )
+
+    // The decision about what may be credited stays in `packages/core`.
+    expect(depositRejection(transfer!)).toBe('wrong-mint')
+  })
+
+  it('throws when the endpoint cannot be reached, rather than reporting nothing', async () => {
+    const down = (async () => new Response('', { status: 503 })) as unknown as typeof fetch
+
+    await expect(
+      httpDepositWatcher('http://rpc', down).transfersIn('sig-1', ADDRESS),
+    ).rejects.toThrow('answered 503')
+  })
+})

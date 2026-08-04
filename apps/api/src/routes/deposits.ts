@@ -1,10 +1,11 @@
-import { ERROR_STATUS, ObservedTransferSchema } from '@kolonie-ai/core'
+import { ERROR_STATUS, HeliusDeliverySchema, claimsInDelivery } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import {
   WEBHOOK_REFUSED,
   readDepositAddress,
   readDepositHistory,
   reconcileDeposits,
+  recordDelivery,
   webhookAuthorised,
 } from '../deposits.js'
 import { callerFor } from './authenticated.js'
@@ -57,10 +58,12 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
    * balance, and a version that answered without checking would let anyone on
    * the internet credit any account.
    *
-   * The body is validated as a transfer and never trusted as one: what the
-   * Colony credits is decided by `depositRejection` against the mint, the
-   * program and the commitment, all of which arrive in this payload and all of
-   * which are checked.
+   * **The body is a trigger and not a source** (`#321`). It is read for a
+   * signature and a receiving wallet, and every fact the credit rests on — the
+   * mint, the token program, the amount, the commitment — is re-read from the
+   * chain and judged by the same `depositRejection` the reconciliation goes
+   * through. `#219` shipped this route against a shape no observer emits, so
+   * until now a real Helius webhook was answered `422` forever.
    */
   const secret = deps.deposits.webhookSecret
   if (secret === undefined || secret.trim() === '') return
@@ -70,17 +73,16 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
       return reply.status(ERROR_STATUS[WEBHOOK_REFUSED.code]).send(WEBHOOK_REFUSED)
     }
 
-    const parsed = ObservedTransferSchema.safeParse(request.body)
+    const parsed = HeliusDeliverySchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(ERROR_STATUS.validation_failed).send({
         code: 'validation_failed',
         message:
-          'A delivery carries a signature, the address it landed at, the mint, the token ' +
-          'program, the amount in base units, and the commitment it was observed at.',
+          'A delivery is an array of transactions, each carrying a signature and, where a ' +
+          'token moved, a tokenTransfers entry naming the wallet that received it. This is ' +
+          'the shape an enhanced Helius webhook posts.',
       })
     }
-
-    const outcome = await deposits.desk.record(parsed.data)
 
     /**
      * Always `200`, whatever the Colony decided.
@@ -88,9 +90,9 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
      * A webhook that answers 4xx to a delivery it understood teaches the sender
      * to retry something that will never change — and a redelivery of a
      * signature already recorded is normal operation rather than an error. The
-     * outcome is in the body for whoever is reading the logs.
+     * counts are in the body for whoever is reading the logs.
      */
-    return reply.send({ outcome: outcome.outcome })
+    return reply.send(await recordDelivery(deposits, claimsInDelivery(parsed.data)))
   })
 
   /**

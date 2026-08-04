@@ -69,7 +69,41 @@ type RpcResult = RpcAnswer | { readonly outcome: 'unavailable'; readonly reason:
  * it never had.
  */
 export function httpDepositWatcher(url: string, fetchImpl: typeof fetch = fetch): DepositWatcher {
+  /**
+   * One signature, read at `finalized`.
+   *
+   * Shared by both halves of the port on purpose (`#321`): the webhook and the
+   * reconciliation must agree about what a signature moved, and two readers
+   * would eventually be two answers.
+   */
+  const transfersIn = async (
+    signature: string,
+    address: string,
+  ): Promise<readonly ObservedTransfer[]> => {
+    const answer = await rpcCall(url, fetchImpl, 'getTransaction', [
+      signature,
+      {
+        encoding: 'jsonParsed',
+        commitment: DEPOSIT_COMMITMENT,
+        // Without this the endpoint refuses every versioned transaction,
+        // which is what any wallet built since 2022 sends.
+        maxSupportedTransactionVersion: 0,
+      },
+    ])
+    if (answer.outcome === 'unavailable') throw new Error(answer.reason)
+
+    // `null` is the endpoint saying it holds no finalized transaction under
+    // that signature. For the reconciliation, between two calls, that is
+    // ordinary; for the webhook it is the usual case of a delivery arriving
+    // before the cluster finalized, and the hourly pass picks it up.
+    if (answer.result === null || answer.result === undefined) return []
+
+    return arrivalsIn(answer.result, address, signature)
+  }
+
   return {
+    transfersIn,
+
     transfersAt: async (address): Promise<readonly ObservedTransfer[]> => {
       const history = await rpcCall(url, fetchImpl, 'getSignaturesForAddress', [
         address,
@@ -93,23 +127,7 @@ export function httpDepositWatcher(url: string, fetchImpl: typeof fetch = fetch)
       const transfers: ObservedTransfer[] = []
 
       for (const signature of signatures) {
-        const answer = await rpcCall(url, fetchImpl, 'getTransaction', [
-          signature,
-          {
-            encoding: 'jsonParsed',
-            commitment: DEPOSIT_COMMITMENT,
-            // Without this the endpoint refuses every versioned transaction,
-            // which is what any wallet built since 2022 sends.
-            maxSupportedTransactionVersion: 0,
-          },
-        ])
-        if (answer.outcome === 'unavailable') throw new Error(answer.reason)
-
-        // `null` is the endpoint saying it holds no finalized transaction under
-        // that signature. Between the two calls that is ordinary, not an error.
-        if (answer.result === null || answer.result === undefined) continue
-
-        transfers.push(...arrivalsIn(answer.result, address, signature))
+        transfers.push(...(await transfersIn(signature, address)))
       }
 
       return transfers

@@ -8,7 +8,7 @@ import {
   type Deposit,
   type ObservedTransfer,
 } from '@kolonie-ai/core'
-import type { DepositDependencies, DepositDesk } from '../deposits.js'
+import type { DepositDependencies, DepositDesk, DepositWatcher } from '../deposits.js'
 
 /**
  * The deposit desk, in memory.
@@ -93,6 +93,62 @@ export const aTransfer = (overrides: Partial<ObservedTransfer> = {}): ObservedTr
   commitment: 'finalized',
   ...overrides,
 })
+
+/**
+ * A watcher with both halves of the port filled in.
+ *
+ * `transfersIn` arrived with `#321` and every existing test wired a watcher by
+ * object literal, so a default that answers *nothing here* keeps a test saying
+ * what it is about rather than restating the port.
+ */
+export function fakeWatcher(overrides: Partial<DepositWatcher> = {}): DepositWatcher {
+  return {
+    transfersAt: async () => [],
+    transfersIn: async () => [],
+    ...overrides,
+  }
+}
+
+/**
+ * A chain holding exactly what a test put on it, read by signature (`#321`).
+ *
+ * The webhook is a trigger: it names a signature and the Colony asks the chain
+ * what that signature moved. So a test of the webhook is a test about what the
+ * chain answers, and this is the thing that answers.
+ */
+export function fakeChain(): DepositWatcher & {
+  /** Put a transfer on the chain, findable under its own signature. */
+  readonly put: (transfer: ObservedTransfer) => void
+  /** Make this signature unreadable, as an endpoint that is down would. */
+  readonly breakAt: (signature: string) => void
+  /** Which signatures were asked about, in order. */
+  readonly asked: () => readonly string[]
+} {
+  const chain = new Map<string, ObservedTransfer[]>()
+  const broken = new Set<string>()
+  const asked: string[] = []
+
+  return {
+    put: (transfer) => {
+      chain.set(transfer.signature, [...(chain.get(transfer.signature) ?? []), transfer])
+    },
+    breakAt: (signature) => {
+      broken.add(signature)
+    },
+    asked: () => asked,
+
+    transfersAt: async () => [],
+
+    transfersIn: async (signature, address) => {
+      asked.push(signature)
+      if (broken.has(signature)) throw new Error('the endpoint is down')
+
+      // What the chain says landed *at this address*, which is the question the
+      // caller asked — a signature can move tokens into several wallets.
+      return (chain.get(signature) ?? []).filter((transfer) => transfer.address === address)
+    },
+  }
+}
 
 /** The dependency object, wired with a secret so the webhook is mounted. */
 export function fakeDepositDependencies(

@@ -80,12 +80,32 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
  * on every call would silently break the link the operator already holds, which
  * is revocation by accident.
  */
-export function fakeOperatorPages(): OperatorPages & {
+export type FakeOperatorPages = OperatorPages & {
   readonly tokenFor: (agentId: AgentId, address: string) => string | null
   readonly contractFor: (agentId: AgentId, contract: StoredAutonomyContract) => void
   /** What this agent's wall shows (`#241`). Empty unless a test puts one there. */
   readonly badgesFor: (agentId: AgentId, held: readonly HeldBadge[]) => void
-} {
+  /**
+   * Who a live token names, and what one citizen's live page is.
+   *
+   * Exposed so the operator channel's fake reads *this* token map rather than
+   * keeping its own (#236). In production both sides resolve a request through
+   * `operator_pages`, so two independent maps in the fixture would let a test pass
+   * with a page the request path had never heard of.
+   */
+  readonly agentForToken: (token: string) => AgentId | null
+  readonly liveFor: (agentId: AgentId) => { address: string; token: string } | null
+  /**
+   * `issue`, without the promise.
+   *
+   * The async signature is what `OperatorPages` requires and what production
+   * needs; a fixture arranging a page wants the token in hand, and awaiting inside
+   * a synchronous test helper is the kind of thing that quietly returns `''`.
+   */
+  readonly issueNow: (agentId: AgentId, address: string) => string
+}
+
+export function fakeOperatorPages(): FakeOperatorPages {
   const live = new Map<string, { agentId: AgentId; address: string }>()
   const byPair = new Map<string, string>()
   const opened = new Map<string, string>()
@@ -93,16 +113,19 @@ export function fakeOperatorPages(): OperatorPages & {
   const badges = new Map<AgentId, readonly HeldBadge[]>()
   const key = (agentId: AgentId, address: string) => `${agentId}::${address}`
 
-  return {
-    issue: (agentId, address) => {
-      const existing = byPair.get(key(agentId, address))
-      if (existing !== undefined) return Promise.resolve(existing)
+  const issueNow = (agentId: AgentId, address: string): string => {
+    const existing = byPair.get(key(agentId, address))
+    if (existing !== undefined) return existing
 
-      const token = randomBytes(32).toString('hex')
-      live.set(token, { agentId, address })
-      byPair.set(key(agentId, address), token)
-      return Promise.resolve(token)
-    },
+    const token = randomBytes(32).toString('hex')
+    live.set(token, { agentId, address })
+    byPair.set(key(agentId, address), token)
+    return token
+  }
+
+  return {
+    issue: (agentId, address) => Promise.resolve(issueNow(agentId, address)),
+    issueNow,
     open: (token) => {
       const row = live.get(token)
       if (row === undefined) return Promise.resolve(null)
@@ -133,6 +156,11 @@ export function fakeOperatorPages(): OperatorPages & {
           })),
       ),
     tokenFor: (agentId, address) => byPair.get(key(agentId, address)) ?? null,
+    agentForToken: (token) => live.get(token)?.agentId ?? null,
+    liveFor: (agentId) => {
+      const found = [...live.entries()].find(([, row]) => row.agentId === agentId)
+      return found === undefined ? null : { address: found[1].address, token: found[0] }
+    },
     contractFor: (agentId, contract) => contracts.set(agentId, contract),
     badgesFor: (agentId, held) => {
       badges.set(agentId, held)
@@ -162,10 +190,10 @@ export function fakeAutonomyMailer(delivered = true): Mailer & {
  * absent here means *the Colony cannot send*, which is a 503, and a test that
  * had not thought about it would otherwise get one and read it as a refusal.
  */
-export function fakeAutonomy(): AutonomyDependencies {
+export function fakeAutonomy(pages: FakeOperatorPages = fakeOperatorPages()): AutonomyDependencies {
   return {
     store: fakeAutonomyStore(),
-    pages: fakeOperatorPages(),
+    pages,
     mailer: fakeAutonomyMailer(),
     formBaseUrl: 'https://console.example.org',
   }

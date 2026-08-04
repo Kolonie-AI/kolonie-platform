@@ -168,6 +168,18 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.domain.challenge',
   'kolonie.support.open',
   'kolonie.support.read',
+  /**
+   * The operator channel (#236) — asking the human who answers for you for
+   * something only a person can do, and reading the answer.
+   *
+   * Four, and the pairing with the two above is not a coincidence: they share one
+   * outbound allowance, because both turn a citizen's writing into something that
+   * lands in front of a person.
+   */
+  'kolonie.operator.request.open',
+  'kolonie.operator.request.read',
+  'kolonie.operator.request.reply',
+  'kolonie.operator.request.close',
   'kolonie.academy.retest',
   'kolonie.vault.set',
   'kolonie.vault.get',

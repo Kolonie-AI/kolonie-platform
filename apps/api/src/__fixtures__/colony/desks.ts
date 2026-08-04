@@ -3,10 +3,12 @@ import type { OperatorClaimDependencies } from '../../operator-claim.js'
 import type { AccountDependencies } from '../../accounts.js'
 import { support as supportSurface, type Support } from '../../support.js'
 import { erasure as erasureSurface, type Erasure } from '../../erasure.js'
-import { fakeAutonomy } from '../autonomy.js'
+import { fakeAutonomy, fakeOperatorPages } from '../autonomy.js'
 import { fakeOperatorClaim } from '../operator-claim.js'
 import { fakeAccounts } from '../accounts.js'
 import { fakeSupportDesk, type FakeSupportDesk } from '../support.js'
+import { fakeOperatorRequests, type FakeOperatorRequestStore } from '../operator-requests.js'
+import type { OperatorRequestDependencies } from '../../operator-requests.js'
 import { fakeErasureDesk, type FakeErasureDesk } from '../erasure.js'
 
 /**
@@ -39,19 +41,45 @@ export interface FakeDesks {
   readonly accounts: AccountDependencies
   readonly operatorClaim: OperatorClaimDependencies
   readonly autonomy: AutonomyDependencies
+  /**
+   * The operator channel (#236), and the store behind it.
+   *
+   * Both, for the reason `support` gives: the surface is what the tools are wired
+   * to, and the store is how a test gives a citizen a page, a task, or a
+   * `needs-operator` shelving to be cleared.
+   *
+   * **Its allowance is the same `support` surface above**, not a second limiter —
+   * which is what `#236` requires and what `server.ts` wires. A test that exhausts
+   * the ticket allowance therefore sees a request refused, and that is a property
+   * of the fixture rather than a thing each test has to arrange.
+   */
+  readonly operatorRequests: OperatorRequestDependencies
+  readonly operatorRequestStore: FakeOperatorRequestStore
 }
 
 export function fakeDesks(): FakeDesks {
   const desk = fakeSupportDesk()
   const erasureDesk = fakeErasureDesk()
 
+  const support = supportSurface({ desk })
+  /**
+   * One page store, read by both the autonomy module and the operator channel —
+   * which is what production does, where both resolve a token through
+   * `operator_pages`. Two independent stores here would let a test answer through
+   * a page the request path had never heard of.
+   */
+  const pages = fakeOperatorPages()
+  const operatorRequests = fakeOperatorRequests({ allowance: support, pages })
+
   return {
-    support: supportSurface({ desk }),
+    support,
     desk,
+    operatorRequests,
+    operatorRequestStore: operatorRequests.store,
     erasure: erasureSurface({ desk: erasureDesk }),
     erasureDesk,
     accounts: fakeAccounts(),
     operatorClaim: fakeOperatorClaim(),
-    autonomy: fakeAutonomy(),
+    autonomy: fakeAutonomy(pages),
   }
 }

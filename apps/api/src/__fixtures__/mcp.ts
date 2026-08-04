@@ -31,6 +31,7 @@ import { fakeSolana } from './solana.js'
 import { fakeStore } from './store.js'
 import { fakeSubmissions } from './submissions.js'
 import { fakeSupportDesk } from './support.js'
+import { fakeOperatorRequests } from './operator-requests.js'
 import { fakeVault } from './vault.js'
 import { fakeVision } from './vision.js'
 import { fakeWebsite } from './website.js'
@@ -82,6 +83,9 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     guidance: fakeGuidance(),
     quests: fakeQuests(),
     support: support({ desk: fakeSupportDesk() }),
+    // The operator channel (#236). This tier has no credential, so nothing here
+    // is reachable — it is present because `McpDependencies` is total.
+    operatorRequests: fakeOperatorRequests(),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),

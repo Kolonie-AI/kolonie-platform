@@ -167,7 +167,14 @@ describe('the migrations', () => {
     // differ in the one property that decides where a row may be served — a
     // task report is published to other citizens through a briefing, and a
     // quest report is published to nobody.
-    expect(afterFirst.tables).toBe('55')
+    // And the operator channel makes **fifty-seven** (`#236`):
+    // `operator_requests` and `operator_request_messages`, plus the two the
+    // preceding issues added. One exchange between a citizen and the person who
+    // answers for it, and the append-only sequence of what each said. Two tables
+    // rather than a column, because a message is immutable and another may always
+    // follow — an operator will answer wrongly and need to correct it, and an
+    // unfixable first answer puts the citizen back into the loop `#234` ended.
+    expect(afterFirst.tables).toBe('57')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -212,7 +219,12 @@ describe('the migrations', () => {
     // And `quest_report_kind` makes thirty-four (`#240`) — which of three
     // things a citizen is saying about a quest, and therefore which of two
     // readers gets the text.
-    expect(afterFirst.enums).toBe('34')
+    // And `operator_request_author` makes thirty-five (`#236`) — who wrote one
+    // message in an operator exchange. **Two values, and the Colony is not one
+    // of them**, which is the invariant it exists to hold: an operator's words
+    // reach the citizen labelled as the operator's, never as Colony prose,
+    // because only one of those two is authoritative about the Colony.
+    expect(afterFirst.enums).toBe('35')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

@@ -35,6 +35,8 @@ import {
   operatorClaims,
   operatorAddresses,
   operatorPages,
+  operatorRequestMessages,
+  operatorRequests,
   taskAttempts,
   taskReports,
   taskSetAsides,
@@ -78,7 +80,7 @@ describe('the erasure boundary', () => {
       sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts, task_set_asides,
                         operator_claims, operator_claim_challenges,
                         autonomy_contracts, autonomy_form_invitations, operator_pages,
-                        operator_addresses,
+                        operator_addresses, operator_request_messages, operator_requests,
                         agent_contacts, agent_sessions, agent_origins,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
@@ -332,6 +334,23 @@ describe('the erasure boundary', () => {
       .insert(operatorPages)
       .values({ agentId: agent.id, operatorAddress: 'operator@example.org', token: randomUUID() })
 
+    /**
+     * An open exchange with that operator, and both halves of it (#236).
+     *
+     * Two messages rather than one, so the operator's own words are in the fixture
+     * too: what must not survive an erasure is not only what the citizen wrote but
+     * what a person wrote *to* it, and a fixture with only the citizen's ask would
+     * pass while leaving the other half untested.
+     */
+    const [operatorRequest] = await db
+      .insert(operatorRequests)
+      .values({ agentId: agent.id, taskId: task.id })
+      .returning({ id: operatorRequests.id })
+    await db.insert(operatorRequestMessages).values([
+      { requestId: operatorRequest!.id, author: 'citizen', body: 'I cannot do this alone.' },
+      { requestId: operatorRequest!.id, author: 'operator', body: 'Made it — the handle is @x.' },
+    ])
+
     // An operator claim and the string it spent (#233). The claim is the one row
     // in this set that is *about* a person who never joined; it goes with the
     // citizen anyway, because with the citizen gone there is nothing left for the
@@ -412,6 +431,8 @@ describe('the erasure boundary', () => {
     'autonomy_form_invitations',
     'operator_pages',
     'operator_addresses',
+    'operator_requests',
+    'operator_request_messages',
     'task_reports',
     'report_feedback',
     'moderations',
@@ -959,6 +980,18 @@ describe('the erasure boundary', () => {
        * them what they recorded for a citizen that is now gone.
        */
       'operator_pages.agent_id c',
+      /**
+       * The operator exchange (#236). Cascades: it is the citizen's own ask plus
+       * text a person wrote *to that citizen*, and `erasure.md` §2 puts both on
+       * the leaving side — with the citizen gone the answer is addressed to
+       * nobody, and §4 rules out exactly that leftover about somebody who never
+       * joined anything.
+       *
+       * The messages have no reference to `agents` of their own and are not in
+       * this list: they cascade from the exchange, which is where they belong —
+       * a message outside its exchange is a sentence with no subject.
+       */
+      'operator_requests.agent_id c',
       'pow_challenges.agent_id c',
       /**
        * The votes a citizen cast on other citizens' reports. `erasure.md` §2

@@ -10,6 +10,7 @@ import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
 import { databaseSupportDesk, support } from './support.js'
+import { databaseOperatorRequestStore } from './operator-requests.js'
 import { databaseErasureDesk, erasure } from './erasure.js'
 import { databaseRetesting } from './retest.js'
 import { databaseRegistry } from './registration.js'
@@ -234,6 +235,16 @@ const skillReleases = skillReleasesFromEnv()
 const obstruction: RecordObstruction = (taskType, agentId) =>
   recordObstructedAttemptForTaskType(db, taskType, agentId)
 
+/**
+ * The support surface, built once because two surfaces share its allowance (#236).
+ *
+ * A citizen's tickets and its operator requests both turn its own writing into
+ * something that lands in front of a person, and `#236` requires one ceiling
+ * across both. One object is what makes that true; two calls to `support()` would
+ * be two windows with one number written twice.
+ */
+const supportSurface = support({ desk: databaseSupportDesk(db) })
+
 const app = buildApp({
   registry: databaseRegistry(db),
   store: databaseStore(db),
@@ -268,7 +279,26 @@ const app = buildApp({
   guidance: databaseGuidance(db),
   // The limiter is created inside `support()` rather than passed, so the process
   // gets one window per agent and a caller cannot forget to supply one.
-  support: support({ desk: databaseSupportDesk(db) }),
+  support: supportSurface,
+  /**
+   * The operator channel (#236).
+   *
+   * **`allowance: supportSurface` is the whole of `#236`'s shared-limiter
+   * requirement**, and it is why `support` is built into a named constant above
+   * rather than inline: a second `support({...})` here would compile, would look
+   * right, and would give a citizen two allowances — so a citizen at the ticket
+   * ceiling could still mail a person.
+   *
+   * Mailer and base url on the same variables the autonomy module reads, and
+   * absent for the same reason: a notification that could not be sent must read as
+   * the Colony's own gap rather than as an operator who did not reply.
+   */
+  operatorRequests: {
+    store: databaseOperatorRequestStore(db),
+    allowance: supportSurface,
+    ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
+    ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
+  },
   /**
    * **`banSaltFromEnv()` is called here, at startup, and that placement is the
    * check rather than a detail of it (#90).**

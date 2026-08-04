@@ -34,6 +34,7 @@ import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalo
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
+import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { support } from '../support.js'
@@ -70,6 +71,8 @@ beforeEach(async () => {
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    // The operator channel (#236), which this test does not exercise.
+    operatorRequests: fakeOperatorRequests(),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),

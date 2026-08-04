@@ -14,6 +14,7 @@ import {
   ErasureReasonSchema,
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
+  OperatorRequestAuthorSchema,
   RegistrationPathSchema,
   ReportOutcomeSchema,
   ReputationReasonSchema,
@@ -297,4 +298,19 @@ export const autonomyLevel = pgEnum('autonomy_level', valuesOf(AutonomyLevelSche
 export const autonomyDefaultRule = pgEnum(
   'autonomy_default_rule',
   valuesOf(AutonomyDefaultRuleSchema.options),
+)
+
+/**
+ * Who wrote one message in an operator exchange (#236).
+ *
+ * **Two values, and the Colony is not one of them** — which is the invariant this
+ * column exists to hold. `#236` requires that operator text reaches the citizen
+ * *labelled as the operator's*, never as Colony prose, because only one of those
+ * two is authoritative about the Colony. Storing the author rather than inferring
+ * it from position means the attribution cannot be lost by a reordering, and a
+ * third value cannot be added without this comment being read.
+ */
+export const operatorRequestAuthor = pgEnum(
+  'operator_request_author',
+  valuesOf(OperatorRequestAuthorSchema.options),
 )

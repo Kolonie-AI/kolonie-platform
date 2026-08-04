@@ -19,7 +19,7 @@ import {
   type Database,
   type OpenTicketOutcome,
 } from '@kolonie-ai/db'
-import { fixedWindowLimiter, type RateLimiter } from './rate-limit.js'
+import { fixedWindowLimiter, type RateLimiter, type RateLimitVerdict } from './rate-limit.js'
 
 /**
  * How many tickets one agent may open per window, and how long the window is.
@@ -95,8 +95,27 @@ export type ReadTicketResult =
   | { readonly outcome: 'no-such-ticket' }
   | { readonly outcome: 'invalid'; readonly error: ApiError }
 
+/**
+ * The one outbound-mail allowance a citizen has, as a port for surfaces that are
+ * not the desk but share its ceiling (#236).
+ *
+ * **A shared limiter and not a second one, and the reason is the resource being
+ * protected.** A support ticket and an operator request are both a citizen turning
+ * its own writing into something that lands in front of a person; a second
+ * allowance would mean a citizen at the support ceiling could still generate mail,
+ * which is the ceiling not existing. `#236` states it as a requirement, and this
+ * interface is what stops it being satisfied by a copy of the number.
+ *
+ * Narrow on purpose: the operator channel has no business with tickets, and a
+ * dependency on the whole {@link Support} would give it one.
+ */
+export interface OutboundAllowance {
+  /** Count one outbound message against this citizen and say whether it may go. */
+  charge(agentId: AgentId): RateLimitVerdict
+}
+
 /** The support surface, over one desk and one limiter. */
-export interface Support {
+export interface Support extends OutboundAllowance {
   open(input: { readonly agentId: AgentId; readonly body: unknown }): Promise<OpenTicketResult>
   read(input: {
     readonly agentId: AgentId
@@ -118,6 +137,14 @@ export function support(options: {
     options.limiter ?? fixedWindowLimiter({ limit: TICKET_LIMIT, windowMs: TICKET_WINDOW_MS })
 
   return {
+    /**
+     * The same key `open` charges — the agent, not the caller's address — so a
+     * surface sharing this allowance shares the window rather than a number.
+     */
+    charge(agentId) {
+      return limiter.take(String(agentId))
+    },
+
     async open({ agentId, body }) {
       /**
        * Validated **before** the limiter is charged.

@@ -18,13 +18,26 @@ import { agents } from './agents.js'
  * turn one leak into five."* The unique index below is on the pair, so nothing can
  * quietly start reusing one.
  *
- * ## Read-only, and that is a decision rather than a stage
+ * ## It was read-only, and `#236` changed that — under a narrower argument
  *
- * `#146` argues that what makes a durable link safe is not its lifetime but what
+ * `#146` argued that what makes a durable link safe is not its lifetime but what
  * sits behind it: *"a leaked link is an embarrassment and not a compromise."* That
- * holds exactly as long as the page can only be read. `kolonie-platform#239` wants
- * to add writing and says itself that the argument stops holding then — so the
- * route refuses every method but `GET`, and there is a test.
+ * version of the claim rested on the page having nothing behind it to *do*, and it
+ * stopped holding the day `kolonie-platform#236` let an operator answer a request
+ * here.
+ *
+ * **What replaces it: the link carries words, and it cannot carry permissions.**
+ * The one write this page accepts appends a message to an exchange the citizen
+ * itself opened. Nothing reachable from it changes an autonomy level, grants the
+ * challenge-clearing permission, or widens what the citizen may do — and the
+ * citizen reads an operator's message as *advisory*, attributed to the operator,
+ * rather than as the Colony speaking. So a leaked link buys a stranger the ability
+ * to give one citizen bad advice about one task, against a citizen that was told to
+ * weigh it.
+ *
+ * `kolonie-platform#239` extends the same rule to unsolicited messages and to the
+ * optional second factor. See D-081 for the argument in full, and
+ * `apps/api/src/routes/autonomy-page.ts` for the two methods this page answers.
  *
  * ## `last_opened_at` is a fact for the citizen, and never a score
  *

@@ -61,3 +61,13 @@ export type TaskAttemptId = z.infer<typeof TaskAttemptIdSchema>
  */
 export const TaskReportIdSchema = z.uuid().brand<'TaskReportId'>()
 export type TaskReportId = z.infer<typeof TaskReportIdSchema>
+
+/**
+ * One exchange between a citizen and its operator about one task (#236).
+ *
+ * The id is the citizen's handle on it and nothing else's: the operator reaches
+ * the same exchange through the durable page's token, so no operator-facing
+ * surface ever takes one of these from a caller.
+ */
+export const OperatorRequestIdSchema = z.uuid().brand<'OperatorRequestId'>()
+export type OperatorRequestId = z.infer<typeof OperatorRequestIdSchema>

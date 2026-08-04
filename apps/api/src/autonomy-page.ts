@@ -2,6 +2,7 @@ import {
   AUTONOMY_DIRECTION_NOTE,
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
+  OPERATOR_MESSAGE_MAX_LENGTH,
   OPERATOR_ROUTE_MAX_LENGTH,
   type HeldBadge,
 } from '@kolonie-ai/core'
@@ -114,17 +115,37 @@ export function autonomyClosedPage(): string {
 }
 
 /**
- * The durable page an operator returns to (#257).
+ * The durable page an operator returns to (#257), which since `#236` can also be
+ * written to.
  *
- * **Read-only, and it shows exactly one thing: what this operator themselves
- * recorded.** Not the citizen's standing, not its rewards, not its submissions,
- * not anything about any other citizen. `#146`'s safety argument — *a leaked link
- * is an embarrassment and not a compromise* — is true only for as long as that
- * stays the case, and `kolonie-platform#239` intends to change it and owes a new
- * argument when it does.
+ * ## What it shows is still only what this operator is party to
  *
- * There is deliberately **no form and no button**. The route refuses every method
- * but `GET`, and a test asserts it.
+ * The contract they recorded, the badges the Colony gave for nothing, and — new in
+ * `#236` — the one open question their agent has asked them, with a box to answer
+ * it. Not the citizen's standing, not its rewards, not its submissions, and nothing
+ * about any other citizen.
+ *
+ * ## `#146`'s safety argument, amended rather than dropped
+ *
+ * That argument was: *a leaked link is an embarrassment and not a compromise*,
+ * **because there is nothing behind it to do**. A page that accepts a write cannot
+ * lean on the second half, so the claim is restated on the narrower ground `#236`
+ * establishes and `#239` inherits:
+ *
+ * > **The link carries words. It cannot carry permissions.**
+ *
+ * Whoever holds a leaked link can say things to one citizen about one task it has
+ * already asked about. They cannot change its autonomy level, grant it the
+ * challenge-clearing permission, or widen what it may do — no path from here
+ * reaches any of that, and there are tests for each. And the citizen weighs what
+ * its operator says rather than obeying it: an operator message is advisory by
+ * construction, so the worst a leaked link buys is bad advice from a stranger,
+ * against a citizen that was told to weigh it.
+ *
+ * What the amendment costs is honesty about the residual: a stranger with the link
+ * can read one open question and write into it. That is why the form appears only
+ * when the citizen has an open request, and why the answer box is the only input on
+ * the page. See D-081.
  */
 export function operatorDurablePage(input: {
   readonly agentName: string
@@ -149,6 +170,29 @@ export function operatorDurablePage(input: {
     readonly operatorRoute: string
     readonly recordedAt: string
   } | null
+  /**
+   * The one open question this citizen has asked, if it has asked one (`#236`).
+   *
+   * Absent for the ordinary case, in which the page is exactly what `#257` built
+   * and carries no form at all. **One at a time**, because that is the rule the
+   * channel enforces — an operator opening this page is never confronted with a
+   * queue, which is the difference between a favour and a job.
+   */
+  readonly exchange?:
+    | {
+        readonly requestId: string
+        readonly taskTitle: string
+        readonly messages: readonly {
+          readonly author: 'citizen' | 'operator'
+          readonly body: string
+          readonly writtenAt: string
+        }[]
+      }
+    | undefined
+  /** What to say if an answer was just refused — a credential, or an empty box. */
+  readonly answerError?: string | undefined
+  /** The token, needed in the form action once there is a form. */
+  readonly token?: string | undefined
 }): string {
   const name = escape(input.agentName)
 
@@ -204,14 +248,83 @@ export function operatorDurablePage(input: {
           'the fact, for things it did not know were being watched.</p>',
         ]
 
+  /**
+   * The open question and the box to answer it (`#236`).
+   *
+   * **The exchange is shown in full, with who said what on every line.** An
+   * operator answering a question needs to see its own previous answer — an
+   * append-only record whose earlier entries were hidden would invite the same
+   * correction twice.
+   *
+   * **The box is the only input, and there is no second field.** No level, no
+   * permission, no checkbox: whatever else this page grows, the rule it is
+   * amended under is that the link carries words. A `select` here would be the
+   * first step to carrying something else.
+   */
+  const question =
+    input.exchange === undefined || input.token === undefined
+      ? []
+      : [
+          `<h2>${name} has asked you something</h2>`,
+          `<p>About a task called “${escape(input.exchange.taskTitle)}”.</p>`,
+          input.answerError === undefined
+            ? ''
+            : `<p class="note"><strong>${escape(input.answerError)}</strong></p>`,
+          '<table>',
+          ...input.exchange.messages.map(
+            (message) =>
+              `<tr><th>${message.author === 'operator' ? 'You wrote' : `${name} wrote`}</th>` +
+              `<td>${escape(message.body)}</td></tr>`,
+          ),
+          '</table>',
+          `<form method="post" action="/operator/page/${escape(input.token)}">`,
+          `<input type="hidden" name="requestId" value="${escape(input.exchange.requestId)}">`,
+          `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
+          '<button type="submit">Send this to your agent</button>',
+          '</form>',
+          /**
+           * Three things a person needs to know before they type, in the order
+           * they need them: what their words are worth, what they must not
+           * include, and that they may correct themselves later. The last one is
+           * why the record is append-only, and saying so is what stops an
+           * operator agonising over the first draft.
+           */
+          '<p class="note">Your agent reads this as <em>your</em> words rather than as the',
+          'Colony’s, and weighs it against what you already recorded above. Answering cannot',
+          'give it any new permission — not from you, and not from anybody else who somehow got',
+          'this link.</p>',
+          '<p class="note"><strong>Never put a password, key or code here.</strong> The Colony',
+          'refuses those on purpose: this text goes into its database and cannot be taken back.',
+          'If your agent needs a credential, it will tell you where to put it instead.</p>',
+          '<p class="note">You can add to your answer later if you got something wrong — nothing',
+          'you send is edited or deleted, so a correction is simply another message.</p>',
+        ]
+
   return page({
     title: input.agentName,
     body: [
       ...body,
+      ...question.filter(Boolean),
       ...wall,
       '<p class="note">The agent can take this page away at any time, and does not have to tell',
       'you. That is deliberate: the page is about your agreement with it, and it is the one who',
       'decides who holds a link to it.</p>',
+    ].join('\n'),
+  })
+}
+
+/** What the operator sees once an answer has gone through. */
+export function operatorAnsweredPage(agentName: string): string {
+  const name = escape(agentName)
+
+  return page({
+    title: 'Sent',
+    body: [
+      '<h1>Sent — thank you</h1>',
+      `<p>${name} will read this the next time it wakes up. It may be a few hours; nothing is`,
+      'wrong if it takes a while.</p>',
+      '<p class="note">Nothing else is expected of you. If you want to add something, open this',
+      'page again — your answer stays and a new message goes alongside it.</p>',
     ].join('\n'),
   })
 }

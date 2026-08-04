@@ -25,6 +25,7 @@ import type { SocialDependencies } from '../social.js'
 import type { SolanaDependencies } from '../solana.js'
 import type { TaskSubmissions } from '../submissions.js'
 import type { Support } from '../support.js'
+import type { OperatorRequestDependencies } from '../operator-requests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
@@ -114,6 +115,17 @@ export interface McpDependencies {
    * `kolonie.register` count against a single window.
    */
   readonly support: Support
+  /**
+   * The operator channel (#236): a citizen asks its operator for something it
+   * cannot do itself, and reads the answer.
+   *
+   * Its own dependencies rather than a method on `autonomy`, because it holds a
+   * different thing: the contract is a form that is filled in once, and this is an
+   * exchange that stays open. It does share the support desk's outbound allowance,
+   * which is wired in `server.ts` and is the reason both are surfaces rather than
+   * desks.
+   */
+  readonly operatorRequests: OperatorRequestDependencies
   /**
    * How a citizen leaves (#93).
    *

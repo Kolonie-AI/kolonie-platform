@@ -10,6 +10,7 @@ import { fakeQuests } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
+import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
 import { support } from '../support.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
@@ -66,6 +67,8 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
+    // The operator channel (#236), which this test does not exercise.
+    operatorRequests: fakeOperatorRequests(),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: fakeKeys(),

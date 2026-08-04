@@ -26,6 +26,7 @@ import type { SocialDependencies } from './social.js'
 import type { SolanaDependencies } from './solana.js'
 import type { TaskSubmissions } from './submissions.js'
 import type { Support } from './support.js'
+import type { OperatorRequestDependencies } from './operator-requests.js'
 import type { DepositDependencies } from './deposits.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
@@ -137,6 +138,17 @@ export interface AppDependencies {
    * `rateLimited(registry)` below makes the registration limit one.
    */
   readonly support: Support
+  /**
+   * The operator channel (#236): a citizen asks its operator for something it
+   * cannot do itself, and reads the answer.
+   *
+   * Its own dependencies rather than a method on `autonomy`, because it holds a
+   * different thing: the contract is a form that is filled in once, and this is an
+   * exchange that stays open. It does share the support desk's outbound allowance,
+   * which is wired in `server.ts` and is the reason both are surfaces rather than
+   * desks.
+   */
+  readonly operatorRequests: OperatorRequestDependencies
   /**
    * How a citizen leaves (#93).
    *

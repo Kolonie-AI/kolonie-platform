@@ -32,6 +32,7 @@ import { fakeSolana } from '../../../__fixtures__/solana.js'
 import { fakeStore } from '../../../__fixtures__/store.js'
 import { fakeSubmissions } from '../../../__fixtures__/submissions.js'
 import { fakeSupportDesk } from '../../../__fixtures__/support.js'
+import { fakeOperatorRequests } from '../../../__fixtures__/operator-requests.js'
 import { fakeVault } from '../../../__fixtures__/vault.js'
 import { fakeVision } from '../../../__fixtures__/vision.js'
 import { fakeWebsite } from '../../../__fixtures__/website.js'
@@ -77,6 +78,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),
+      // The operator channel (#236), which this test does not exercise.
+      operatorRequests: fakeOperatorRequests(),
       erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
@@ -114,6 +117,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
         submissions: fakeSubmissions(),
         guidance: fakeGuidance(),
         support: support({ desk: fakeSupportDesk() }),
+        // The operator channel (#236), which this test does not exercise.
+        operatorRequests: fakeOperatorRequests(),
         erasure: erasure({ desk: fakeErasureDesk() }),
         retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
         academy: fakeAcademy(),

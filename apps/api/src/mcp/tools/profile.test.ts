@@ -74,6 +74,45 @@ describe('kolonie.profile.update', () => {
     await close()
   })
 
+  /**
+   * The round trip `#280` is about, end to end: the citizen declares a version
+   * behind what the Colony ships, and the very next `kolonie.me` says so. Every
+   * piece of this existed on the day the field shipped except the assignment in
+   * storage, and no test crossed both tools — so the mechanism was dead for two
+   * days while each half looked right on its own.
+   */
+  it('declares a skill version, and kolonie.me says it is behind', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const updated = await client.callTool({
+      name: 'kolonie.profile.update',
+      // The fixture ships `1.1.0` for `openclaw`, which is what this citizen
+      // registered on.
+      arguments: { skillVersion: '1.0.0' },
+    })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(updated.isError).toBeFalsy()
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.skillVersion).toBe('1.0.0')
+    expect(JSON.stringify(standing)).toContain('1.1.0')
+    await close()
+  })
+
+  it('says nothing to a citizen running what the Colony ships', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({ name: 'kolonie.profile.update', arguments: { skillVersion: '1.1.0' } })
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.skillVersion).toBe('1.1.0')
+    expect(JSON.stringify(standing)).not.toContain('behind')
+    await close()
+  })
+
   // The rejection case, and the refusal has to name the range: a citizen that
   // has just been refused is about to choose again.
   it('refuses a rhythm below the minimum, naming the current limits', async () => {

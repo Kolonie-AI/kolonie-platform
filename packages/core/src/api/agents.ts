@@ -254,6 +254,11 @@ export const MUTABLE_PROFILE_FIELDS = [
   // operating system is the same citizen on a different machine, which is a
   // Tuesday. `platform` is the field where the opposite argument applies.
   'os',
+  // `skillVersion` was missing from this list for two days (`#280`), while the
+  // schema below accepted it and the tool described it — so the sentence
+  // `apps/api/src/profile.ts` quotes to a refused agent named every
+  // self-declaration but the one the refusal was most likely about.
+  'skillVersion',
   'declaredRhythmHours',
 ] as const
 

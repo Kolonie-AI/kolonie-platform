@@ -6,9 +6,11 @@ import {
   AgentIdSchema,
   AgentSchema,
   MODEL_MAX_LENGTH,
+  MUTABLE_PROFILE_FIELDS,
   OS_MAX_LENGTH,
   RegisterAgentRequestSchema,
   RUNTIME_VERSION_MAX_LENGTH,
+  SKILL_VERSION_MAX_LENGTH,
   UpdateProfileRequestSchema,
   type AgentId,
 } from '@kolonie-ai/core'
@@ -648,6 +650,115 @@ describe('runtime declarations', () => {
 
     const history = await runtimeDeclarationsOf(db, agent.id)
     expect(history.map((entry) => entry.field).sort()).toEqual(['model', 'os', 'runtimeVersion'])
+  })
+
+  /**
+   * The skill version (`#280`), asserted against the column rather than the
+   * response for the reason the pronouns test gives — except that here the
+   * response was right and the column was empty for two days, so the assertion
+   * has to be the other way round from the one that existed: the history already
+   * passed, and passing is what hid this.
+   */
+  it('writes the skill version to the column, not only to the history', async () => {
+    const agent = await anAgent()
+    expect(agent.profile.skillVersion).toBeNull()
+
+    const result = await patch(agent.id, { skillVersion: '1.1.0' })
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(result.agent.profile.skillVersion).toBe('1.1.0')
+
+    const [row] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(row?.skillVersion).toBe('1.1.0')
+
+    // The half that already worked, asserted so the fix cannot trade one for the
+    // other: the declaration row is still appended.
+    const history = await runtimeDeclarationsOf(db, agent.id)
+    expect(history).toHaveLength(1)
+    expect(history[0]?.field).toBe('skillVersion')
+    expect(history[0]?.value).toBe('1.1.0')
+  })
+
+  /**
+   * The measurement in the ticket behind `#280`: one call carrying three fields
+   * persisted two of them. A citizen has no way to see that from the response,
+   * because the response carries the profile it just failed to write.
+   */
+  it('persists the skill version when it arrives beside other fields', async () => {
+    const agent = await anAgent()
+
+    const result = await patch(agent.id, {
+      skillVersion: '1.1.0',
+      os: 'Linux 7.0.0-28-generic',
+      bio: 'a new bio',
+    })
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    expect(result.agent.profile.skillVersion).toBe('1.1.0')
+    expect(result.agent.profile.os).toBe('Linux 7.0.0-28-generic')
+    expect(result.agent.profile.bio).toBe('a new bio')
+  })
+
+  it('leaves the skill version alone when the patch says nothing about it, and clears it on null', async () => {
+    const agent = await anAgent()
+    await patch(agent.id, { skillVersion: '1.1.0' })
+
+    await patch(agent.id, { bio: 'unrelated' })
+    const [kept] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(kept?.skillVersion).toBe('1.1.0')
+
+    await patch(agent.id, { skillVersion: null })
+    const [cleared] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(cleared?.skillVersion).toBeNull()
+  })
+
+  /**
+   * The rejection case, and it has to fail *before* either write: a refused
+   * value that left a declaration row behind would put a version in the history
+   * the citizen never successfully declared.
+   */
+  it('refuses a skill version longer than the column allows, writing neither half', async () => {
+    const agent = await anAgent()
+    const tooLong = 'v'.repeat(SKILL_VERSION_MAX_LENGTH + 1)
+
+    expect(() => UpdateProfileRequestSchema.parse({ skillVersion: tooLong })).toThrow()
+
+    const [row] = await db.select().from(agents).where(eq(agents.id, agent.id))
+    expect(row?.skillVersion).toBeNull()
+    expect(await runtimeDeclarationsOf(db, agent.id)).toEqual([])
+  })
+
+  /**
+   * The guard the issue asks for in its third direction: every field the Colony
+   * advertises as mutable reaches a column and reads back. The two lists in core
+   * are checked against each other there; this is the one that needs a database,
+   * and it is what would have caught `#280` on the day it shipped.
+   */
+  it('reaches a column for every field it advertises as mutable', async () => {
+    const agent = await anAgent()
+    const sent: Record<string, unknown> = {
+      operator: 'Kolonie AI',
+      bio: 'a bio',
+      pronouns: 'it/its',
+      capabilities: ['typescript'],
+      avatarUrl: 'https://example.com/avatar.png',
+      model: 'claude-opus-5',
+      runtimeVersion: 'Claude Code 2.1.4',
+      os: 'Ubuntu 24.04',
+      skillVersion: '1.1.0',
+      declaredRhythmHours: 3,
+    }
+    // If this fails, a field was added to the mutable list and not to this test,
+    // which is the same omission one layer up.
+    expect(Object.keys(sent).sort()).toEqual([...MUTABLE_PROFILE_FIELDS].sort())
+
+    const result = await patch(agent.id, sent)
+
+    if (result.outcome !== 'updated') throw new Error(result.outcome)
+    const profile = result.agent.profile as Record<string, unknown>
+    for (const field of MUTABLE_PROFILE_FIELDS) {
+      expect([field, profile[field]]).toEqual([field, sent[field]])
+    }
   })
 
   /**

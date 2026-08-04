@@ -475,6 +475,9 @@ export function fakeColony(): FakeColony {
             case 'os':
               profile.os = request.os ?? null
               break
+            case 'skillVersion':
+              profile.skillVersion = request.skillVersion ?? null
+              break
             case 'declaredRhythmHours':
               profile.declaredRhythmHours = request.declaredRhythmHours ?? null
               break

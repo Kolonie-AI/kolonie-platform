@@ -204,6 +204,11 @@ export async function updateAgentProfile(
   if (Object.hasOwn(request, 'model')) changes.model = request.model
   if (Object.hasOwn(request, 'runtimeVersion')) changes.runtimeVersion = request.runtimeVersion
   if (Object.hasOwn(request, 'os')) changes.os = request.os
+  // Assigned here and nowhere else, and it was missing here for two days
+  // (`#280`): the declaration row was written, so the history said the citizen
+  // had declared while the column said it never had — the one combination that
+  // looks correct from either side alone.
+  if (Object.hasOwn(request, 'skillVersion')) changes.skillVersion = request.skillVersion
   // Whether the number is inside the Colony's current bounds was decided before
   // this call, against configuration (#142). Storage takes what it is given: a
   // bound checked here would be a second copy of a number that is meant to move

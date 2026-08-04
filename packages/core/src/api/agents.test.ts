@@ -66,4 +66,20 @@ describe('UpdateProfileRequestSchema', () => {
     expect(MUTABLE_PROFILE_FIELDS).not.toContain('name')
     expect(MUTABLE_PROFILE_FIELDS).not.toContain('platform')
   })
+
+  /**
+   * The other direction, and the one whose absence let `#280` ship: the test
+   * above walks the list and checks the schema, so a field added to the schema
+   * and forgotten in the list passes it. `skillVersion` was exactly that for two
+   * days — accepted by the parser, described at length by the tool, and named by
+   * neither the mutable list nor the storage assignment.
+   *
+   * Read off `.shape` rather than from a second hand-written list, because a
+   * hand-written list is the thing that went wrong.
+   */
+  it('advertises exactly the fields it accepts', () => {
+    expect([...Object.keys(UpdateProfileRequestSchema.shape)].sort()).toEqual(
+      [...MUTABLE_PROFILE_FIELDS].sort(),
+    )
+  })
 })

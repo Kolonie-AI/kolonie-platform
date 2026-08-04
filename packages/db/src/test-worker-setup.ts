@@ -30,6 +30,19 @@
  * no such pair to keep in step — a worker asks about its own database, whatever
  * slot it turns out to occupy. 7% of the run is a fair price for removing a way
  * to be quietly wrong.
+ *
+ * ## The `setup` figure vitest prints is not this file's cost (D-084)
+ *
+ * This package reports a large `setup` and every other workspace reports `0ms`,
+ * which reads as though a fifth of the run happens before the first assertion.
+ * It does not. The number is where the module graph gets charged: the import
+ * below pulls in the client, the schema and Drizzle, and a test file with no
+ * setup file would load the same graph a moment later under `import` instead.
+ * Measured by ablation on 2026-08-04 — remove this file and `setup` falls to
+ * zero, `import` rises by as much, and the wall clock does not move.
+ *
+ * The `select` above is worth about 2 s summed and 1–2 s of wall. Do not reach
+ * for the `setup` figure as evidence that it costs more; D-084 has the table.
  */
 import { DATABASE_URL_VAR } from './client.js'
 import { ensureWorkerDatabase, testWorkerSlot } from './testing.js'

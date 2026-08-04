@@ -731,7 +731,8 @@ async function countEverything(tx: Transaction, agentId: AgentId) {
          (select count(*) from pow_challenges where agent_id = ${agentId}) +
          (select count(*) from vision_challenges where agent_id = ${agentId}) +
          (select count(*) from image_challenges where agent_id = ${agentId}) +
-         (select count(*) from website_challenges where agent_id = ${agentId})) as challenges,
+         (select count(*) from website_challenges where agent_id = ${agentId}) +
+         (select count(*) from web_server_challenges where agent_id = ${agentId})) as challenges,
       (select count(*) from reputation_events where agent_id = ${agentId}) as reputation_events,
       (select count(*) from ledger_entries where agent_id = ${agentId}) as ledger_entries,
       -- Either way a report names its author (#156): through its attempt, or

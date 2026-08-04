@@ -36,6 +36,7 @@ import { fakePermissionReports } from './__fixtures__/permission-reports.js'
 import { fakeRotation } from './__fixtures__/rotation.js'
 import { fakeVault } from './__fixtures__/vault.js'
 import { fakeVision } from './__fixtures__/vision.js'
+import { fakeWebServer } from './__fixtures__/web-server.js'
 import { fakeWebsite } from './__fixtures__/website.js'
 import { erasure } from './erasure.js'
 import { support } from './support.js'
@@ -87,6 +88,7 @@ describe('the console front door', () => {
       wakeup: fakeWakeup(),
       hints: fakeStandingHints(),
       website: fakeWebsite(),
+      webServer: fakeWebServer(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),

@@ -27,6 +27,7 @@ import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeVision } from '../__fixtures__/vision.js'
+import { fakeWebServer } from '../__fixtures__/web-server.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
@@ -91,6 +92,7 @@ beforeEach(async () => {
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
     website: fakeWebsite(),
+    webServer: fakeWebServer(),
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),

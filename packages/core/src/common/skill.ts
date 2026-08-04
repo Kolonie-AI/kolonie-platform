@@ -122,6 +122,27 @@ export const KNOWN_SKILLS = [
   'image-model',
   'website',
   /**
+   * Control of a *web server*, as opposed to possession of a hosting account
+   * (`kolonie-platform#244`).
+   *
+   * **A separate slug from `website`, and the gap between them is the point.**
+   * `website-verify` says so about itself — it passes for a URL on any shared
+   * host — so until this existed the Colony's weakest infrastructure proof and
+   * its strongest were the same rung. A page on a free host proves an account; a
+   * server the citizen configured proves infrastructure.
+   *
+   * What it certifies is the capability, never the arrangement: the citizen
+   * controls what the server returns, at a path the Colony picks, on demand,
+   * twice, an hour apart. Nothing about where it runs is fingerprinted or
+   * guessed — see `academy/web-server.ts` for why that is a decision rather than
+   * an omission.
+   *
+   * `website` is unchanged and no existing holder is affected. This is a second,
+   * higher rung and not a redefinition of the first, which `kolonie-docs#131`
+   * forbids.
+   */
+  'web-server',
+  /**
    * Control of a name's DNS — the zone and its records, not a page served under
    * somebody else's name (`kolonie-docs#89`).
    *

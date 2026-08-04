@@ -36,6 +36,7 @@ import { fakePermissionReports } from '../__fixtures__/permission-reports.js'
 import { fakeRotation } from '../__fixtures__/rotation.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeVision } from '../__fixtures__/vision.js'
+import { fakeWebServer } from '../__fixtures__/web-server.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { buildApp } from '../app.js'
 import { erasure } from '../erasure.js'
@@ -126,6 +127,7 @@ describe('the MCP surface over HTTP', () => {
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
       website: fakeWebsite(),
+      webServer: fakeWebServer(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -177,6 +179,7 @@ describe('the MCP surface over HTTP', () => {
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
       website: fakeWebsite(),
+      webServer: fakeWebServer(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -235,6 +238,7 @@ describe('the MCP surface over HTTP', () => {
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
       website: fakeWebsite(),
+      webServer: fakeWebServer(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -286,6 +290,7 @@ describe('the MCP surface over HTTP', () => {
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
       website: fakeWebsite(),
+      webServer: fakeWebServer(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -337,6 +342,7 @@ describe('the MCP surface over HTTP', () => {
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
       website: fakeWebsite(),
+      webServer: fakeWebServer(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -397,6 +403,7 @@ describe('the MCP surface over HTTP', () => {
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
       website: fakeWebsite(),
+      webServer: fakeWebServer(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -549,6 +556,7 @@ describe('the MCP surface over HTTP', () => {
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
       website: fakeWebsite(),
+      webServer: fakeWebServer(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),

@@ -34,6 +34,7 @@ import {
   type PageReader,
   type WebsiteChallenges,
 } from './website-verify.js'
+import { WebServerVerifyVerifier, type WebServerChallengeReader } from './web-server-verify.js'
 import { SocialPostVerifier, type SocialGrants } from './social-post.js'
 import { DomainVerifyVerifier, type DomainChallenges, type DomainNames } from './domain-verify.js'
 import { DomainPersistenceVerifier, type DomainGrants } from './domain-persistence.js'
@@ -556,6 +557,12 @@ export interface VerifierDependencies {
   readonly githubChallenges?: GithubChallenges
   /** Answers which nonces the Colony has issued to an agent for the website rung. */
   readonly websiteChallenges?: WebsiteChallenges
+  /**
+   * The rung above it (`#244`). Its own port and not a flag on `websiteChallenges`,
+   * because the two read different tables and grant different skills — and a
+   * deployment may reasonably run one without the other.
+   */
+  readonly webServerChallenges?: WebServerChallengeReader
   /** Reads the Colony's own record of a mailbox re-check in flight (`#226`). */
   readonly mailboxRechecks?: MailboxRechecks
   /**
@@ -818,6 +825,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         }),
       )
     }
+  }
+
+  if (deps.webServerChallenges !== undefined) {
+    verifiers.push(new WebServerVerifyVerifier({ challenges: deps.webServerChallenges }))
   }
 
   if (deps.websiteChallenges !== undefined) {

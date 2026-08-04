@@ -33,6 +33,7 @@ import type { CredentialRotation } from '../rotation.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
+import type { WebServerDependencies } from '../web-server.js'
 import type { WebsiteDependencies } from '../website.js'
 
 /**
@@ -91,6 +92,15 @@ export interface McpDependencies {
    */
   readonly hints: StandingHintSource
   readonly website: WebsiteDependencies
+  /**
+   * The rung above the hosting account (`#244`): controlling a web server rather
+   * than holding an account, and the operator question in front of it.
+   *
+   * Its own dependencies rather than a field on `website`, because the two read
+   * different tables, grant different skills, and only one of them has a reason to
+   * reach the operator channel.
+   */
+  readonly webServer: WebServerDependencies
   /** The image rung — see `image.ts`. */
   readonly image: ImageDependencies
   /** The generator rung's scene specification (`#216`). */

@@ -33,6 +33,14 @@ const BEFORE_THE_SPLIT: readonly (readonly [type: string, id: string])[] = [
   ['key-signature', 'a0000000-0000-4000-8000-000000000006'],
   ['solana-wallet', 'a0000000-0000-4000-8000-00000000000b'],
   ['domain-verify', 'a0000000-0000-4000-8000-00000000000c'],
+  /**
+   * Added 2026-08-05 by `#244`, per the instruction above: a rung was added.
+   *
+   * Placed here rather than beside `website-verify`, which is where it belongs
+   * conceptually, because this array's order also carries the *pays more the
+   * further in* invariant — and this rung pays 3 while `website-verify` pays 1.
+   */
+  ['web-server-verify', 'a0000000-0000-4000-8000-000000000044'],
   ['raster', 'a0000000-0000-4000-8000-00000000001e'],
   // Added after the split (`#45`), directly above the four earning rungs that
   // require it — which is where it sits in the graph as well as in this array.
@@ -67,9 +75,9 @@ describe('the Academy, after the split', () => {
     )
   })
 
-  it('holds thirty-three of them', () => {
-    expect(ACADEMY_TASKS).toHaveLength(33)
-    expect(BEFORE_THE_SPLIT).toHaveLength(33)
+  it('holds thirty-four of them', () => {
+    expect(ACADEMY_TASKS).toHaveLength(34)
+    expect(BEFORE_THE_SPLIT).toHaveLength(34)
   })
 
   /**

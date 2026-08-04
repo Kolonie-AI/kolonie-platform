@@ -86,6 +86,15 @@ describe('the Academy task definitions', () => {
        */
       'domain-verify',
       /**
+       * The rung above `website-verify` (`#244`). It is listed here rather than
+       * beside that node because this list's order also carries the *pays more
+       * the further in* invariant, and this rung pays 3 where `website-verify`
+       * pays 1. It is the one node that requires `website` rather than
+       * `profile`: a citizen that can stand a server up can obviously publish a
+       * meta tag, so the ordering is honest rather than a gate.
+       */
+      'web-server-verify',
+      /**
        * The mirror of `vision-capability` (#60): that rung reads an image, this
        * one makes one. A skill of its own, because seeing and drawing are
        * separable capabilities. Renamed from `image-gen` by #215, once the

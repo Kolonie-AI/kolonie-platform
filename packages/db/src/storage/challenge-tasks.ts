@@ -46,6 +46,12 @@ export const CHALLENGE_TASK_TYPES = {
    */
   vetting: 'vetting',
   website: 'website-verify',
+  /**
+   * The rung above it (`#244`): controlling a server rather than holding an
+   * account. Its own entry and not a variant of `website`, because the two grant
+   * different skills and a shared key would open the wrong attempt.
+   */
+  'web-server': 'web-server-verify',
   proofOfWork: 'proof-of-work',
   /**
    * The memory rung (`#159`). Its "challenge" is a code in a file the Colony
@@ -225,4 +231,27 @@ export async function recordObstructedAttemptForTaskType(
     // replace a diagnosable fault with a mysterious one.
     return false
   }
+}
+
+/**
+ * The active task row for a type, or `null`.
+ *
+ * **Extracted because two callers now need the id rather than the attempt.**
+ * `#244`'s rung has to name its own task in an operator request and in a
+ * `needs-operator` shelving, and both of those are the same lookup the two
+ * functions above already do privately. A third private copy would be a third
+ * place for the `status <> 'draft'` filter to be forgotten — and forgetting it
+ * would let a rung ask an operator about a task nobody can attempt.
+ */
+export async function taskIdForType(
+  db: Database | Transaction,
+  taskType: string,
+): Promise<TaskId | null> {
+  const [task] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.type, taskType), sql`${tasks.status} <> 'draft'`))
+    .limit(1)
+
+  return task === undefined ? null : (task.id as TaskId)
 }

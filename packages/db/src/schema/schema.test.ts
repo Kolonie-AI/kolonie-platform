@@ -422,6 +422,12 @@ describe('schema', () => {
         /** `#45`: the vetting rung's manifests, one row per attempt. */
         'vetting_challenges',
         'vision_challenges',
+        /**
+         * `#244`. The rung above `website_challenges`: two probes, at two paths
+         * the Colony names, separated in time. Sorted after it, which is also
+         * where it belongs conceptually.
+         */
+        'web_server_challenges',
         'website_challenges',
       ])
     })

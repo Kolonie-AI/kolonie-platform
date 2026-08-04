@@ -32,7 +32,9 @@ import {
   domainGrantOf,
   latestRecheck,
   recheckableAccounts,
+  openWebServerChallenges,
   openWebsiteTokens,
+  probeFor,
   verifiedSolanaAddress,
   questDefinition,
   scrubbedAnswers,
@@ -265,6 +267,41 @@ const verifiers = createVerifiers({
   },
   websiteChallenges: {
     openWebsiteTokens: (agentId) => openWebsiteTokens(db, agentId),
+  },
+  /**
+   * The rung above it (`#244`).
+   *
+   * **Both methods go through `probeFor`**, which is the single place that
+   * decides what a citizen may be told. A port that computed *which probe is
+   * live* here would be a second chance to disclose the one the citizen has not
+   * earned the right to see.
+   */
+  webServerChallenges: {
+    liveProbe: async (agentId) => {
+      const [row] = (await openWebServerChallenges(db, agentId)).filter(
+        (candidate) => candidate.secondServedAt === null,
+      )
+      if (row === undefined) return undefined
+
+      const probe = probeFor(row)
+      if (probe === null) return undefined
+
+      return {
+        challengeId: row.id,
+        origin: row.origin,
+        which: probe.which,
+        path: probe.path,
+        nonce: probe.nonce,
+        firstServedAt: row.firstServedAt,
+      }
+    },
+    openChallenge: async (agentId) => {
+      const [row] = (await openWebServerChallenges(db, agentId)).filter(
+        (candidate) => candidate.secondServedAt === null,
+      )
+      if (row === undefined) return undefined
+      return { firstServedAt: row.firstServedAt, secondServedAt: row.secondServedAt }
+    },
   },
   /**
    * The social rung, and the only outward read path in the Academy that carries

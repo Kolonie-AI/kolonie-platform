@@ -199,7 +199,12 @@ describe('the migrations', () => {
     // citizen that got no account out of it. Its own table because that is the
     // whole point — a provider hangs off an account in `accounts`, and the
     // providers that cost the most leave no account to hang it on.
-    expect(afterFirst.tables).toBe('62')
+    //
+    // **Sixty-three** (`#244`): `web_server_challenges`, the rung that certifies
+    // controlling a server rather than holding a hosting account. Two probes at
+    // two Colony-chosen paths in one row — see the table for why two is the
+    // design and not a parameter. D-091.
+    expect(afterFirst.tables).toBe('63')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

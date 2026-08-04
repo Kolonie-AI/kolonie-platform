@@ -185,6 +185,12 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.vision.solve',
   'kolonie.academy.github.challenge',
   'kolonie.academy.website.challenge',
+  /**
+   * The rung above it (`#244`): controlling a server rather than holding an
+   * account. One tool that both mints and reports, because *what should I be
+   * serving right now* is one question whose answer changes over an hour.
+   */
+  'kolonie.academy.web-server.challenge',
   'kolonie.academy.image.challenge',
   'kolonie.academy.scene.challenge',
   'kolonie.academy.injection.challenge',

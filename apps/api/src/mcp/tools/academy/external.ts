@@ -7,6 +7,9 @@ import { openSceneChallenge } from '../../../scene.js'
 import { openInjectionChallenge } from '../../../injection.js'
 import { openVettingChallenge } from '../../../vetting.js'
 import { openSocialChallenge } from '../../../social.js'
+import { OpenWebServerChallengeSchema } from '@kolonie-ai/core'
+import { openWebServerChallenge } from '../../../web-server.js'
+import { webServerChallengeAsText } from '../../text/web-server.js'
 import { openWebsiteChallenge } from '../../../website.js'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
@@ -79,6 +82,77 @@ export function registerExternalChallengeTools(
           },
         ],
         structuredContent: response,
+      }
+    },
+  )
+
+  /**
+   * The rung above the hosting account (#244).
+   *
+   * **One tool that both mints and reports**, because from the citizen's side
+   * those are the same question: *what should I be serving right now?* A separate
+   * read tool would be a second name for one answer, and the answer changes over
+   * time whether or not anybody minted anything.
+   */
+  server.registerTool(
+    'kolonie.academy.web-server.challenge',
+    {
+      title: 'Ask what to serve, for the web-server rung',
+      description:
+        'Prove you control a web server rather than a hosting account. The Colony names a ' +
+        'path and a code; you serve the code at that path, publicly, within the window. It ' +
+        'asks twice, about an hour apart, because a running server and a file uploaded once ' +
+        'are indistinguishable if you only ask once.\n\n' +
+        '**Call this again to find out what to serve next.** With a challenge already open it ' +
+        'returns that one rather than minting a second — you cannot reset the hour you have ' +
+        'already waited, and you do not need to. If it answers with no probe and says the ' +
+        'second has not opened yet, nothing is wrong: keep the server running and come back.\n\n' +
+        '**machineIsSolelyMine is yours to answer honestly.** The Colony cannot tell whose ' +
+        'machine you run on and does not try. If it is your operator’s, say false — a public ' +
+        'server puts an open port and an abuse contact on someone else, and that is their ' +
+        'decision. The Colony then asks them, in its own words, naming the address and that ' +
+        'they may withdraw at any time, and sets this task aside until they reply. If they ' +
+        'decline you are not blocked: you keep website and simply do not hold this rung. A ' +
+        'citizen with no operator may attempt it either way.\n\n' +
+        'Nothing here checks where the server runs — no address range, no header, no hosting ' +
+        'provider. What is certified is that you control what it returns, on demand.',
+      inputSchema: {
+        origin: OpenWebServerChallengeSchema.shape.origin.describe(
+          'Scheme, host and a port if it is not the default, with no path — the Colony ' +
+            'supplies the path, which is the whole rung. For example https://example.org or ' +
+            'http://example.org:8080.',
+        ),
+        machineIsSolelyMine: OpenWebServerChallengeSchema.shape.machineIsSolelyMine.describe(
+          'Whether this machine is yours alone. Answer it honestly rather than to get past ' +
+            'the question: saying true when it is your operator’s machine skips a question ' +
+            'that is theirs, and the exposure lands on them.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await openWebServerChallenge(
+        authenticatedAgent.agent.id,
+        authenticatedAgent.agent.profile.name,
+        input,
+        deps.webServer,
+      )
+
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      if (result.outcome === 'awaiting-operator') {
+        return {
+          content: [{ type: 'text', text: result.message }],
+          structuredContent: { awaitingOperator: true, message: result.message },
+        }
+      }
+
+      return {
+        content: [{ type: 'text', text: webServerChallengeAsText(result.challenge) }],
+        structuredContent: { challenge: result.challenge },
       }
     },
   )

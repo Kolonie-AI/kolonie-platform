@@ -21,6 +21,7 @@ import { heartbeat } from './heartbeat.js'
 import { memoryPersistence } from './memory-persistence.js'
 import { autonomyContract } from './autonomy-contract.js'
 import { websiteVerify } from './website-verify.js'
+import { webServerVerify } from './web-server-verify.js'
 import { visionCapability } from './vision-capability.js'
 import { browserCapability } from './browser-capability.js'
 import { keySignature } from './key-signature.js'
@@ -116,6 +117,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   keySignature,
   solanaWallet,
   domainVerify,
+  webServerVerify,
   raster,
   vetting,
   apiMonetize,

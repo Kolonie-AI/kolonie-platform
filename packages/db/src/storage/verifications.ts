@@ -22,6 +22,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { recordAccountRecheck, resolveAccount } from './accounts.js'
+import { recordWebServerProbe } from './web-server.js'
 import { closeAttempt } from './attempts.js'
 import { DISTINCT_OPERATORS_REFUSED, operatorPlaceTaken } from './distinct-operators.js'
 import { extendImageChallenge } from './image.js'
@@ -420,6 +421,37 @@ export async function recordVerdict(
       (recheck.recheck === 'held' || recheck.recheck === 'gone')
     ) {
       await recordAccountRecheck(tx, recheck.accountId, recheck.recheck, decidedAt)
+    }
+
+    /**
+     * Which probe of the `web-server` rung was answered (`#244`), recorded in the
+     * verdict's own transaction for the same reason the re-check above is.
+     *
+     * **The only case where a `pending` verdict records something durable, and it
+     * has to.** The first probe passing *is* the pending verdict — the rung's
+     * whole design is that the second question cannot be asked for an hour — so a
+     * transaction that recorded nothing on `pending` would throw away the half the
+     * citizen had done and ask for it again forever. The re-check's rule above
+     * ("a resolver that timed out is not evidence about a citizen") is untouched:
+     * a timeout carries no `webServer` metadata, and only a probe the verifier
+     * actually saw answered produces one.
+     *
+     * `recordWebServerProbe` is idempotent per probe, so a redelivered verdict
+     * cannot move `first_served_at` forward and silently restart the separation
+     * the citizen has already waited out.
+     */
+    const webServer = (result.metadata as { webServer?: unknown } | null)?.webServer as
+      { challengeId?: unknown; which?: unknown; servedAt?: unknown } | undefined
+    if (
+      typeof webServer?.challengeId === 'string' &&
+      (webServer.which === 'first' || webServer.which === 'second') &&
+      typeof webServer.servedAt === 'string'
+    ) {
+      await recordWebServerProbe(tx, {
+        challengeId: webServer.challengeId,
+        which: webServer.which,
+        at: webServer.servedAt,
+      })
     }
 
     /**

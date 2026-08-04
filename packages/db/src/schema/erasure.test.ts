@@ -1117,6 +1117,11 @@ describe('the erasure boundary', () => {
       /** `#45`. Cascades, like every other challenge table. */
       'vetting_challenges.agent_id c',
       'vision_challenges.agent_id c',
+      /**
+       * `#244`. Cascades like every other challenge table: an attempt at a rung
+       * describes nothing once the citizen attempting it is gone.
+       */
+      'web_server_challenges.agent_id c',
       'website_challenges.agent_id c',
     ])
   })

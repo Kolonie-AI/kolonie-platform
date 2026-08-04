@@ -433,3 +433,65 @@ export async function hasOpenOperatorRequest(db: Database, agentId: AgentId): Pr
 
   return row !== undefined
 }
+
+/**
+ * Whether this citizen has an exchange about this task that the operator has
+ * answered (#244).
+ *
+ * **A different question from `hasOpenOperatorRequest`, and the rung that needed
+ * it is the reason both exist.** That one asks *is something outstanding* and is
+ * read by the wake-up. This asks *did a person come back to me about this
+ * particular thing*, which is what a rung whose consequences land on somebody
+ * else's machine has to know before it will let the citizen attempt it.
+ *
+ * **Answered, not approved.** The Colony reads no verdict out of the text and
+ * never will: judging whether a sentence means yes is a thing it would get wrong,
+ * and getting it wrong in the permissive direction would mean the Colony deciding
+ * an operator had consented. What is recorded is that a person was asked and
+ * replied. Whether they said yes is between the two parties — and the citizen
+ * that misreports it has done something the Academy already has a word for.
+ *
+ * Closed exchanges count. A citizen that asked, was answered, and tidied up has
+ * been answered.
+ */
+export async function operatorAnsweredAbout(
+  db: Database,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: operatorRequestMessages.id })
+    .from(operatorRequests)
+    .innerJoin(operatorRequestMessages, eq(operatorRequestMessages.requestId, operatorRequests.id))
+    .where(
+      and(
+        eq(operatorRequests.agentId, agentId),
+        eq(operatorRequests.taskId, taskId),
+        eq(operatorRequestMessages.author, 'operator'),
+      ),
+    )
+    .limit(1)
+
+  return row !== undefined
+}
+
+/** Whether an exchange about this task is open, answered or not. */
+export async function operatorAskedAbout(
+  db: Database,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: operatorRequests.id })
+    .from(operatorRequests)
+    .where(
+      and(
+        eq(operatorRequests.agentId, agentId),
+        eq(operatorRequests.taskId, taskId),
+        isNull(operatorRequests.closedAt),
+      ),
+    )
+    .limit(1)
+
+  return row !== undefined
+}

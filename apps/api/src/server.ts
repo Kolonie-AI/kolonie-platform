@@ -33,6 +33,7 @@ import {
   httpContributionReader,
 } from '@kolonie-ai/verifiers'
 import { githubAccountOf, recordObstructedAttemptForTaskType } from '@kolonie-ai/db'
+import { databaseWebServerChallenges } from './web-server.js'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSceneChallenges } from './scene.js'
@@ -415,6 +416,24 @@ const app = buildApp({
   // that never asks.
   hints: databaseStandingHints(db, skillReleases),
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
+  /**
+   * The rung above it (`#244`).
+   *
+   * It is handed the operator channel because it is the one rung that asks a
+   * person for something before it will run — a public server on the operator's
+   * machine changes the operator's exposure, and `#236` was built for exactly
+   * this case.
+   */
+  webServer: {
+    challenges: databaseWebServerChallenges(db),
+    operatorRequests: {
+      store: databaseOperatorRequestStore(db),
+      allowance: supportSurface,
+      ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
+      ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
+    },
+    obstruction,
+  },
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same
   // absence of a Colony credential at this layer: minting draws from a

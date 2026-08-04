@@ -38,6 +38,7 @@ import { fakePermissionReports } from './permission-reports.js'
 import { fakeRotation } from './rotation.js'
 import { fakeVault } from './vault.js'
 import { fakeVision } from './vision.js'
+import { fakeWebServer } from './web-server.js'
 import { fakeWebsite } from './website.js'
 
 // How every MCP test reaches the surface it is testing.
@@ -122,6 +123,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
     website: fakeWebsite(),
+    webServer: fakeWebServer(),
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),

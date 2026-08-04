@@ -24,9 +24,18 @@ describe('the tools the Academy tells a citizen to call', () => {
 
     for (const task of ACADEMY_TASKS) {
       const text = `${task.description}\n${task.instructions}`
-      // Trailing punctuation is not part of a name: the texts write
-      // "`kolonie.about`." and "call kolonie.tasks.list to see what is open."
-      for (const match of text.matchAll(/kolonie(?:\.[a-z]+)+/g)) {
+      /**
+       * Trailing punctuation is not part of a name: the texts write
+       * "`kolonie.about`." and "call kolonie.tasks.list to see what is open."
+       *
+       * **A segment may contain a hyphen**, which this missed until `#244`.
+       * `kolonie.tasks.set-aside` has been on the surface since `#234` and would
+       * have been read as `kolonie.tasks.set` — an unregistered name — the first
+       * time any task text mentioned it. None did, so the parser was wrong and
+       * green at the same time, which is the failure mode this whole file exists
+       * to catch. Trailing hyphens are excluded, so prose does not extend a name.
+       */
+      for (const match of text.matchAll(/kolonie(?:\.[a-z]+(?:-[a-z]+)*)+/g)) {
         const tool = match[0].replace(/\.$/, '')
         named.set(tool, [...(named.get(tool) ?? []), task.type])
       }

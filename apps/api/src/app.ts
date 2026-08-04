@@ -42,6 +42,7 @@ import { registerMemoryRoutes } from './routes/memory.js'
 import { registerVisionRoutes } from './routes/vision.js'
 import { registerGithubRoute } from './routes/github.js'
 import { registerWebsiteRoute } from './routes/website.js'
+import { registerWebServerRoute } from './routes/web-server.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
 import { registerInjectionRoute } from './routes/injection.js'
@@ -107,6 +108,7 @@ export function buildApp({
   wakeup,
   hints,
   website,
+  webServer,
   image,
   scene,
   injection,
@@ -315,6 +317,7 @@ export function buildApp({
     wakeup,
     hints,
     website,
+    webServer,
     image,
     scene,
     injection,
@@ -386,6 +389,7 @@ export function buildApp({
       registerVisionRoutes(v1, routes)
       registerGithubRoute(v1, routes)
       registerWebsiteRoute(v1, routes)
+      registerWebServerRoute(v1, routes)
       registerImageRoute(v1, routes)
       registerSceneRoute(v1, routes)
       registerInjectionRoute(v1, routes)

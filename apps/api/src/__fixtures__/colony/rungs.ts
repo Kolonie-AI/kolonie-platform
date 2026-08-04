@@ -9,6 +9,7 @@ import type { PowDependencies } from '../../proof-of-work.js'
 import type { GithubDependencies } from '../../github.js'
 import type { ContributionDependencies } from '../../contributions.js'
 import type { WebsiteDependencies } from '../../website.js'
+import type { WebServerDependencies } from '../../web-server.js'
 import type { ImageDependencies } from '../../image.js'
 import type { SceneDependencies } from '../../scene.js'
 import type { InjectionDependencies } from '../../injection.js'
@@ -27,6 +28,7 @@ import { fakeMemory } from '../memory.js'
 import { fakeContributions, fakeGithub } from '../github.js'
 import { fakeSocial } from '../social.js'
 import { fakeDomain } from '../domain.js'
+import { fakeWebServer, type FakeWebServerChallenges } from '../web-server.js'
 import { fakeWebsite } from '../website.js'
 import { fakeImage } from '../image.js'
 import { fakeScene } from '../scene.js'
@@ -66,6 +68,8 @@ export interface FakeRungs {
   readonly social: SocialDependencies
   readonly domain: DomainDependencies
   readonly website: WebsiteDependencies
+  /** The rung above it (`#244`), with its own store so a test can drive the probes. */
+  readonly webServer: WebServerDependencies & { readonly challenges: FakeWebServerChallenges }
   readonly image: ImageDependencies
   readonly scene: SceneDependencies
   readonly injection: InjectionDependencies
@@ -95,6 +99,7 @@ export function fakeRungs(): FakeRungs {
     social: fakeSocial(),
     domain: fakeDomain(),
     website: fakeWebsite(),
+    webServer: fakeWebServer(),
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),

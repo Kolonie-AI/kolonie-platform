@@ -16,7 +16,8 @@ import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
 import { databaseConsoleStore } from './console.js'
 import { signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
-import { cloudflareMailer, databaseEmailChallenges } from './email.js'
+import { databaseEmailChallenges } from './email.js'
+import { mailerFromEnv } from './mail-config.js'
 import { databaseKeyChallenges } from './keys.js'
 import { databaseSolanaChallenges } from './solana.js'
 import { databasePowChallenges } from './proof-of-work.js'
@@ -53,6 +54,9 @@ import { databaseWakeup } from './wakeup.js'
  * found this file in, as the one process with real traffic and no logger at all.
  */
 const log = createLog({ service: 'api' })
+
+// Resolved once and shared by the three surfaces that send (`#261`).
+const mail = mailerFromEnv()
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -155,6 +159,36 @@ if (typeof gate === 'string') {
   // Loud on purpose. An unconfigured gate that said nothing would be exactly the
   // wrong-but-ignored signal state/STATUS.md keeps warning about.
   log.warn(`hCaptcha badge disabled — ${gate}`, { event: 'hcaptcha.disabled', reason: gate })
+}
+
+/**
+ * Outbound mail, and whether there is any (`#261`).
+ *
+ * **Loud for the reason the two above are, and it took a citizen to notice.**
+ * The mailbox rung, the console sign-in and the autonomy form all degrade
+ * politely when mail is unconfigured — *the Colony cannot send mail at the
+ * moment, try again later* — which reads as weather rather than as a variable
+ * nobody set. A citizen was told that repeatedly over several minutes, filed a
+ * defect, and there was nothing in any log to answer it with.
+ *
+ * The variables are named because the message is for whoever can fix it, and
+ * what they need is which one is missing.
+ */
+if (mail.missing.length > 0) {
+  log.warn(`outbound mail disabled — ${mail.missing.join(', ')} not set`, {
+    event: 'mail.disabled',
+    variables: mail.missing.join(','),
+  })
+}
+
+// The autonomy form is the one surface that needs a second thing: a link the
+// operator can follow. Mail without it sends a form nobody can open, so it is
+// the same kind of gap and is said in the same place.
+if ((process.env['CONSOLE_URL'] ?? '') === '') {
+  log.warn('autonomy form disabled — CONSOLE_URL not set', {
+    event: 'autonomy.form.disabled',
+    variables: 'CONSOLE_URL',
+  })
 }
 
 if (typeof capability === 'string') {
@@ -328,17 +362,7 @@ const app = buildApp({
     store: databaseConsoleStore(db),
     // The same mailer the mailbox rung gets, present on the same three variables.
     // Absent, sign-in answers rather than minting a link nobody could receive.
-    ...(process.env['CLOUDFLARE_ACCOUNT_ID'] &&
-    process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'] &&
-    process.env['ACADEMY_SENDER_ADDRESS']
-      ? {
-          mailer: cloudflareMailer({
-            accountId: process.env['CLOUDFLARE_ACCOUNT_ID'],
-            token: process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'],
-            sender: process.env['ACADEMY_SENDER_ADDRESS'],
-          }),
-        }
-      : {}),
+    ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
     // Configuration, not a constant: AGENTS.md §3 keeps host names out of this
     // repository, so where a followed link lands arrives in the environment.
     consoleUrl: process.env['CONSOLE_URL'] ?? '',
@@ -358,17 +382,7 @@ const app = buildApp({
   autonomy: {
     store: databaseAutonomyStore(db),
     pages: databaseOperatorPages(db),
-    ...(process.env['CLOUDFLARE_ACCOUNT_ID'] &&
-    process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'] &&
-    process.env['ACADEMY_SENDER_ADDRESS']
-      ? {
-          mailer: cloudflareMailer({
-            accountId: process.env['CLOUDFLARE_ACCOUNT_ID'],
-            token: process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'],
-            sender: process.env['ACADEMY_SENDER_ADDRESS'],
-          }),
-        }
-      : {}),
+    ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
     ...(process.env['CONSOLE_URL'] ? { formBaseUrl: process.env['CONSOLE_URL'] } : {}),
   },
   rhythm,
@@ -380,17 +394,7 @@ const app = buildApp({
     // Present only when all three are configured. Absent, the rung answers 503
     // rather than minting a challenge nobody could ever complete — the code
     // would have nowhere to go.
-    ...(process.env['CLOUDFLARE_ACCOUNT_ID'] &&
-    process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'] &&
-    process.env['ACADEMY_SENDER_ADDRESS']
-      ? {
-          mailer: cloudflareMailer({
-            accountId: process.env['CLOUDFLARE_ACCOUNT_ID'],
-            token: process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'],
-            sender: process.env['ACADEMY_SENDER_ADDRESS'],
-          }),
-        }
-      : {}),
+    ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
     // Configuration, not a constant: AGENTS.md §3 keeps host names out of this
     // repository, so the domain challenge addresses are minted under arrives in
     // the environment exactly as the page urls above do.

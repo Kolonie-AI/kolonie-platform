@@ -736,6 +736,13 @@
       "when": 1785840723426,
       "tag": "0104_the_declarations_that_predate_their_own_stamp",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1785841228611,
+      "tag": "0105_a_retirement_that_knows_when_it_happened",
+      "breakpoints": true
     }
   ]
 }

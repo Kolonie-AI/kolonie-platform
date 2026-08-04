@@ -155,16 +155,26 @@ export async function wakeupChanges(
         .orderBy(desc(tasks.createdAt)),
 
       /**
-       * Retirement is read from `updatedAt` and the current status, because
-       * nothing stamps a retired-at. A task retired and then reinstated inside the
-       * window is therefore reported once, as whatever it is now — which is the
-       * answer a waking citizen can act on.
+       * **Keyed on when the retirement happened, like `tasksAdded` is keyed on
+       * when the task was created** (`#286`).
+       *
+       * It used to read `updatedAt` and the current status, because nothing
+       * stamped a retirement. `updatedAt` moves for reasons that are not
+       * retirements, and the Academy seed rewrites every task row on every
+       * deploy — so one deploy re-reported every task ever retired as news. A
+       * citizen measured it and proved it was the deploy: a `since` window that
+       * excluded the deploy returned nothing at all.
+       *
+       * `retired_at` is maintained by a trigger and cleared on reinstatement, so
+       * a task retired and then brought back inside the window falls out of this
+       * read entirely — which is the right answer, because there is nothing for
+       * a waking citizen to act on.
        */
       db
         .select({ taskId: tasks.id, title: tasks.title })
         .from(tasks)
-        .where(and(eq(tasks.status, 'retired'), gte(tasks.updatedAt, since)))
-        .orderBy(desc(tasks.updatedAt)),
+        .where(and(eq(tasks.status, 'retired'), gte(tasks.retiredAt, since)))
+        .orderBy(desc(tasks.retiredAt)),
 
       db
         .select({

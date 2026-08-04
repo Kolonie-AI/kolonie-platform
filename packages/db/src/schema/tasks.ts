@@ -303,6 +303,31 @@ export const tasks = pgTable(
     textRevisedAt: timestamp('text_revised_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
+
+    /**
+     * When this task was retired, or `null` while it is not (`#286`).
+     *
+     * **The third timestamp on this table, for the reason there is a second
+     * one.** The wake-up digest's `tasksRetired` had no column recording *when*
+     * a retirement happened, so it filtered on `updated_at` and the current
+     * status — and `updated_at` moves for reasons that are not retirements. The
+     * Academy seed rewrites every row on every deploy, so one deploy re-reported
+     * every task ever retired as news. A citizen measured it: a task retired
+     * days earlier arrived in the digest after a deploy touched all task rows at
+     * the same millisecond, and an explicit `since` window that excluded the
+     * deploy returned nothing.
+     *
+     * `tasksAdded` never had this problem because it keys on `created_at`, which
+     * describes an event rather than a row. This is the same column for the
+     * other end of a task's life.
+     *
+     * **Maintained by a trigger rather than by its writers**, which is what makes
+     * it a fact about the row rather than a convention. The seed is the only
+     * production writer of `status` today; a trigger means the next one is
+     * correct without knowing this column exists. Cleared on the way back, so a
+     * reinstated task does not carry a retirement date it no longer has.
+     */
+    retiredAt: timestamp('retired_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     check('tasks_type_slug', sql`${table.type} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
@@ -443,7 +468,18 @@ export const tasks = pgTable(
      * index. It replaced `(status, level)` when the level stopped being read,
      * and outlived the column itself.
      */
+    /**
+     * The column and the status cannot disagree (`#286`). A retired task has a
+     * retirement date and a live one has none — otherwise the digest is back to
+     * inferring the fact from two columns, which is what it was doing.
+     */
+    check(
+      'tasks_retired_at_matches_status',
+      sql`(${table.status} = 'retired') = (${table.retiredAt} is not null)`,
+    ),
     index('tasks_status_order_idx').on(table.status, table.recommendedOrder),
     index('tasks_type_idx').on(table.type),
+    /** The digest's read: which tasks were retired since this citizen last woke. */
+    index('tasks_retired_at_idx').on(table.retiredAt.desc()),
   ],
 )

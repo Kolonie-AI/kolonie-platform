@@ -212,7 +212,14 @@ describe('the migrations', () => {
     // another table. And `tasks_published_quest_frozen` (#175) makes three —
     // an active quest's terms cannot change, because two cohorts that answered
     // two different questions are indistinguishable from one cohort afterwards.
-    expect(afterFirst.triggers).toBe('3')
+    //
+    // `tasks_stamp_retirement` (#286) makes four: it records *when* a task was
+    // retired, so the wake-up digest can key on the event rather than inferring
+    // it from `updated_at` and the current status — which made every deploy
+    // re-report every retirement the Colony ever made. A trigger rather than a
+    // clause in the seed's upsert, so that the next writer of `tasks.status` is
+    // correct without knowing the column is there.
+    expect(afterFirst.triggers).toBe('4')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

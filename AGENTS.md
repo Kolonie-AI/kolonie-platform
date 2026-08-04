@@ -169,6 +169,16 @@ npm run test  -w @kolonie-ai/api
 npm run build -w @kolonie-ai/core
 ```
 
+**A scoped test run does not build first, and the root one does** (`#309`). Every
+workspace resolves its siblings through their emitted `dist/`, so a scoped run
+against a `dist/` older than the source fails with whatever the missing export
+happens to break — `TypeError: … is not a function`, `Cannot read properties of
+undefined`, a route answering 500 — and none of it names the build. Four minutes
+went into reading somebody else's diff for that on 2026-08-04. `npm test` from the
+root now runs the incremental build first, which costs 1.4 s warm and makes the
+stale state stop existing; if a **scoped** run fails in that shape, run
+`npm run build` before believing it.
+
 ## 5. The build order is not npm's
 
 `npm run build` is `tsc -b`, driven by the project references in the root

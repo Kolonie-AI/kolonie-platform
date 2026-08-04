@@ -65,6 +65,20 @@
         anything. The rung records that a citizen can drive a browser and read what a page
         drew. It is a capability signal, not a boundary, and nothing here pretends to be
         one.
+
+        **`#274` asked whether it should be otherwise, and closed with no.** The option
+        was a packed 1-bit bitmap painted with `putImageData`, so that reading the value
+        required reading pixels. It was declined, and the reasoning is in
+        `kolonie-docs/state/decisions/interstitials-serve-data-not-pixels.md` rather than
+        here so that it is not rediscovered from scratch. The short form: a packed array
+        is a second encoding and not rendering — decoding it needs no browser, only the
+        same glyph table the server used — so it relocates the gap by one parsing step
+        while breaking any runtime that cannot rasterise and making this page look
+        defended when it is not.
+
+        What would reverse it is a kind whose value **the server does not know**, derived
+        the way `perception` derives its code from the challenge id in its own URL. That
+        is a different design, not a re-run of `#274`.
       -->
       <p class="muted">
         This page is given the values it draws, so they can be read from it without rendering

@@ -110,6 +110,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         registry: fakeRegistry(),
         store,
         catalogue: fakeCatalogue(),
+        quests: fakeQuests(),
         submissions: fakeSubmissions(),
         guidance: fakeGuidance(),
         support: support({ desk: fakeSupportDesk() }),

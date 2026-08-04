@@ -16,6 +16,7 @@ import { fakeContributions, fakeGithub } from './github.js'
 import { fakeStandingHints } from './hints.js'
 import { fakeWakeup } from './wakeup.js'
 import { fakeGuidance } from './guidance.js'
+import { fakeQuests } from './quests.js'
 import { fakeImage } from './image.js'
 import { fakeScene } from './scene.js'
 import { fakeInjection } from './injection.js'
@@ -79,6 +80,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     catalogue: fakeCatalogue(),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
+    quests: fakeQuests(),
     support: support({ desk: fakeSupportDesk() }),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },

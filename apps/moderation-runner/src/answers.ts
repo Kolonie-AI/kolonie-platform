@@ -149,7 +149,11 @@ export async function moderateAnswers(
  */
 export const REDACTION = '[removed]'
 
-function redact(text: string, spans: readonly string[]): string {
+/**
+ * Exported since `#240`, so the quest-report pass redacts the same way rather
+ * than growing a second implementation of *replace these strings*.
+ */
+export function redact(text: string, spans: readonly string[]): string {
   return spans.reduce((carried, span) => carried.split(span).join(REDACTION), text)
 }
 

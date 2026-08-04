@@ -16,6 +16,7 @@ import { registerSubmissionTools } from './tools/submissions.js'
 import { registerWakeupTool } from './tools/wakeup.js'
 import { registerSupportTools } from './tools/support.js'
 import { registerAttemptTools } from './tools/tasks-attempts.js'
+import { registerQuestReportTools } from './tools/quest-reports.js'
 import { registerReportTools } from './tools/tasks-reports.js'
 import { registerTaskTools } from './tools/tasks.js'
 import { registerAutonomyTools } from './tools/autonomy.js'
@@ -141,6 +142,7 @@ export function createMcpServer(
   registerTaskTools(server, deps, credential)
   registerAttemptTools(server, deps, credential)
   registerReportTools(server, deps, credential)
+  registerQuestReportTools(server, deps, credential)
   registerHistoryTools(server, deps, credential)
   registerSubmissionTools(server, deps, credential)
   registerWakeupTool(server, deps, credential)

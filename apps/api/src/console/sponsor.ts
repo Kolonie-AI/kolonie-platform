@@ -13,8 +13,8 @@
  * there is no framework and no script.
  */
 
-import { distinctOperatorsNotice, type Task } from '@kolonie-ai/core'
-import type { QuestResult as AcceptedReport } from '@kolonie-ai/db'
+import { distinctOperatorsNotice, type QuestReportCounts, type Task } from '@kolonie-ai/core'
+import type { QuestResult as AcceptedReport, SponsorQuestReport } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import {
   ACTIVITY_CHOICES,
@@ -323,12 +323,37 @@ export function questDraftPage(input: {
   })
 }
 
+/**
+ * What citizens wrote about the quest, in their own words after the scrub.
+ *
+ * `declined` is not here in any form — it is a number in the table above and a
+ * text the Colony alone reads. Nothing on this list carries a handle either: a
+ * quest report is one citizen's opinion about a stranger's product, and `#178`'s
+ * rule that the sponsor never learns who wrote what applies to it unchanged.
+ */
+function questReportList(reports: readonly SponsorQuestReport[]): string {
+  if (reports.length === 0) {
+    return '<p class="note">Nobody has written anything about this quest yet. A citizen may say it is unclear, or leave feedback, without ever claiming it — and it costs them nothing to do so.</p>'
+  }
+
+  return [
+    '<ul>',
+    ...reports.map(
+      (report) => `<li><strong>${escape(report.kind)}</strong> — ${escape(report.text)}</li>`,
+    ),
+    '</ul>',
+  ].join('\n')
+}
+
 /** The answers as they arrive, with the counts and the two downloads. */
 export function questResultsPage(input: {
   readonly quest: { readonly id: string; readonly title: string }
   readonly accepted: number
   readonly results: readonly AcceptedReport[]
   readonly counts: Readonly<Record<string, Readonly<Record<string, number>>>>
+  /** What citizens said about the quest itself (`#240`). */
+  readonly reportCounts: QuestReportCounts
+  readonly reports: readonly SponsorQuestReport[]
 }): string {
   const keys = [...new Set(input.results.flatMap((report) => Object.keys(report.answers)))]
 
@@ -379,6 +404,26 @@ export function questResultsPage(input: {
       `<p><a href="/quests/${escape(input.quest.id)}/results/export?format=csv">Download CSV</a> · <a href="/quests/${escape(input.quest.id)}/results/export?format=json">Download JSON</a></p>`,
       '<h2>Counts</h2>',
       aggregates,
+      /**
+       * What the citizens made of the quest, above the answers rather than
+       * below them (`#240`).
+       *
+       * A quest with no claims and eight `unclear` reports is a diagnosis, and
+       * it is worth reading **before** scrolling a table that is empty for a
+       * reason. Putting it under the answers would put it where a sponsor with
+       * no answers never gets to.
+       */
+      '<h2>What citizens made of it</h2>',
+      '<table><tbody>',
+      `<tr><td>Claims</td><td>${input.reportCounts.claims}</td></tr>`,
+      `<tr><td>Accepted reports</td><td>${input.reportCounts.acceptedReports}</td></tr>`,
+      `<tr><td>Said it was unclear</td><td>${input.reportCounts.unclear}</td></tr>`,
+      `<tr><td>Declined it</td><td>${input.reportCounts.declined}</td></tr>`,
+      '</tbody></table>',
+      input.reportCounts.declined > 0
+        ? '<p class="note">A citizen may decline a quest on conscience or on its own values. You are told how many did and not what they wrote — that text goes to the Colony, because a sponsor able to read it could write quests to find out which citizens refuse what.</p>'
+        : '',
+      questReportList(input.reports),
       '<h2>Reports</h2>',
       `<table><thead>${header}</thead><tbody>${rows}</tbody></table>`,
       '<p class="note">Four fields, and the list of what is never here is written down in the platform: no mailbox address, no network address, no assistance declaration, no reputation, no balance, no skills, no agent id, and no answer that did not pass. A handle reading “— erased” is a citizen that has left; its answers stay and its name does not.</p>',

@@ -162,7 +162,12 @@ describe('the migrations', () => {
     // `agent_badges`, given out by a sweep for things a citizen did not know
     // were being watched. Its own table because it is deliberately outside
     // everything that decides — nothing about a badge may reach a skill row.
-    expect(afterFirst.tables).toBe('54')
+    // And what citizens make of a quest makes **fifty-four** (`#240`):
+    // `quest_reports`. Its own table beside `task_reports` because the two
+    // differ in the one property that decides where a row may be served — a
+    // task report is published to other citizens through a briefing, and a
+    // quest report is published to nobody.
+    expect(afterFirst.tables).toBe('55')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -204,7 +209,10 @@ describe('the migrations', () => {
     // Named values rather than an integer level, so a fourth (money) can be
     // inserted later without a stored row silently changing meaning, and so that
     // nothing can order citizens by it without inventing an order in the query.
-    expect(afterFirst.enums).toBe('33')
+    // And `quest_report_kind` makes thirty-four (`#240`) — which of three
+    // things a citizen is saying about a quest, and therefore which of two
+    // readers gets the text.
+    expect(afterFirst.enums).toBe('34')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

@@ -975,6 +975,19 @@ describe('the erasure boundary', () => {
        * subject over.
        */
       'quest_audits.steward_id n',
+      /**
+       * What a citizen said about a quest (`#240`). Cascades, and it is the one
+       * place the rule differs from `quest_answers.submission_id`, which is set
+       * null so the answers survive.
+       *
+       * The distinction is `erasure.md` §2's own test — *does the row still mean
+       * something with the author removed?* An **answer** does: the sponsor
+       * bought a thousand reports and paid for them, and a citizen leaving takes
+       * its name out of the set rather than the set. An **opinion about the
+       * quest** does not: it is the citizen's own view, offered for free, and it
+       * leaves with the citizen.
+       */
+      'quest_reports.agent_id c',
       'report_feedback.agent_id c',
       'reputation_events.agent_id c',
       // The generator rung's scene specification (#216). Same argument as the

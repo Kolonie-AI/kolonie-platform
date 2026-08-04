@@ -388,3 +388,60 @@ export function questSubmissionRejection(
 export function questCommitment(quest: Pick<QuestDraft, 'reward' | 'slots'>): number {
   return quest.reward.credits * quest.slots
 }
+
+/**
+ * What a citizen may say about a quest without completing it (`#240`).
+ *
+ * **Three kinds, and one of them goes somewhere different.** `unclear` and
+ * `feedback` reach the sponsor verbatim after moderation; `declined` reaches the
+ * Colony, and the sponsor gets a count and no text.
+ *
+ * **The split on `declined` is the load-bearing decision.** A sponsor that could
+ * read *why* citizens refuse could write quests to find out **which** citizens
+ * refuse what — and the Colony would have hosted, moderated and billed for the
+ * probe. A count tells an honest sponsor everything it needs (*"eight citizens
+ * declined on conscience grounds"* is unambiguous), and the text tells a
+ * dishonest one something it should not be able to buy.
+ */
+export const QuestReportKindSchema = z.enum(['unclear', 'feedback', 'declined'])
+export type QuestReportKind = z.infer<typeof QuestReportKindSchema>
+
+/** The kinds a sponsor reads in full, as opposed to as a number. */
+export const QUEST_REPORT_KINDS_THE_SPONSOR_READS: readonly QuestReportKind[] = [
+  'unclear',
+  'feedback',
+]
+
+/**
+ * How long a quest report may be.
+ *
+ * The same ceiling one `REPORT_FIELDS` answer carries: this is one paragraph
+ * about a quest rather than a report on an attempt, and a citizen with more to
+ * say about the Colony's own machinery has the struggle channel for it.
+ */
+export const QUEST_REPORT_MAX_LENGTH = 2000
+
+export const QuestReportSchema = z
+  .object({
+    taskId: z.uuid(),
+    kind: QuestReportKindSchema,
+    text: z.string().trim().min(1).max(QUEST_REPORT_MAX_LENGTH),
+  })
+  .strict()
+export type QuestReportRequest = z.infer<typeof QuestReportSchema>
+
+/**
+ * What a sponsor and a steward see about the reports on one quest (`#240`).
+ *
+ * **The counts are visible while the quest is still running**, which is the
+ * point: a quest with no claims and eight `unclear` reports is a diagnosis, and
+ * it is worth having before the refund rather than in a post-mortem after it.
+ *
+ * `declined` is a number here and nowhere a text. See {@link QuestReportKindSchema}.
+ */
+export interface QuestReportCounts {
+  readonly claims: number
+  readonly acceptedReports: number
+  readonly unclear: number
+  readonly declined: number
+}

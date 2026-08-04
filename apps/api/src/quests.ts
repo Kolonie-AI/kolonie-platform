@@ -4,12 +4,15 @@ import {
   QuestDraftSchema,
   QuestPatchSchema,
   QuestRefusalSchema,
+  QuestReportSchema,
   SubmissionIdSchema,
   TaskIdSchema,
   questSubmissionRejection,
   type AgentId,
   type ApiError,
   type QuestAuditPolicy,
+  type QuestReportCounts,
+  type QuestReportKind,
   type SubmissionId,
   type Task,
   type TaskId,
@@ -23,6 +26,10 @@ import {
   questAuditQueue as questAuditQueueInDatabase,
   questDisagreementRate as questDisagreementRateInDatabase,
   questResults as questResultsInDatabase,
+  fileQuestReport as fileQuestReportInDatabase,
+  questReportCounts as questReportCountsInDatabase,
+  retireQuestEarly as retireQuestEarlyInDatabase,
+  sponsorQuestReports as sponsorQuestReportsInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
@@ -40,8 +47,11 @@ import {
   type AuditCandidate,
   type AuditRecordOutcome,
   type QuestResult as AcceptedReport,
+  type FileQuestReportOutcome,
   type QuestSubmitOutcome,
   type QuestWriteOutcome,
+  type RetireQuestOutcome,
+  type SponsorQuestReport,
 } from '@kolonie-ai/db'
 
 /**
@@ -126,6 +136,26 @@ export interface QuestDesk {
   }): Promise<AuditRecordOutcome>
   /** How often the judge has been overruled lately. */
   disagreement(): Promise<{ readonly rate: number; readonly audited: number }>
+  /**
+   * A citizen says something about a quest without completing it (`#240`).
+   *
+   * On this desk rather than on the guidance desk, deliberately: a task report
+   * is published to other citizens through a briefing and a quest report is
+   * published to nobody, and putting them behind one port is the first step
+   * towards one of them being served where the other belongs.
+   */
+  report(input: {
+    readonly taskId: TaskId
+    readonly agentId: AgentId
+    readonly kind: QuestReportKind
+    readonly text: string
+  }): Promise<FileQuestReportOutcome>
+  /** The scrubbed `unclear` and `feedback` text, for the sponsor and the steward. */
+  reports(taskId: TaskId): Promise<readonly SponsorQuestReport[]>
+  /** Claims, accepted reports, and the two counts — visible while the quest runs. */
+  reportCounts(taskId: TaskId): Promise<QuestReportCounts>
+  /** A steward retires a quest early on that evidence; the escrow refunds by `#174`. */
+  retire(taskId: TaskId): Promise<RetireQuestOutcome>
 }
 
 /** The quest desk, backed by Postgres. */
@@ -157,7 +187,59 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
     auditQueue: () => questAuditQueueInDatabase(db, audit),
     audit: (input) => recordAuditDecisionInDatabase(db, input),
     disagreement: () => questDisagreementRateInDatabase(db, audit),
+    report: (input) => fileQuestReportInDatabase(db, input),
+    reports: (taskId) => sponsorQuestReportsInDatabase(db, taskId),
+    reportCounts: (taskId) => questReportCountsInDatabase(db, taskId),
+    retire: (taskId) => retireQuestEarlyInDatabase(db, taskId),
   }
+}
+
+/**
+ * File a quest report, and say what happened in the citizen's own terms
+ * (`#240`).
+ *
+ * **The refusals are two and both are about the request.** An unknown quest, and
+ * a body that is not one of the three kinds — the second is the schema's, so it
+ * never reaches here. There is no refusal about the citizen: any of the three
+ * may be filed by somebody that only read the quest, and `unclear` in particular
+ * is most valuable from a citizen that never claimed.
+ */
+export async function fileQuestReport(
+  agentId: AgentId,
+  input: unknown,
+  desk: QuestDesk,
+): Promise<{ readonly filed: true; readonly replaced: boolean } | { readonly error: ApiError }> {
+  const parsed = QuestReportSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          'A quest report carries a `taskId`, a `kind` of `unclear`, `feedback` or `declined`, ' +
+          'and the text you want to say.',
+      },
+    }
+  }
+
+  const result = await desk.report({
+    taskId: TaskIdSchema.parse(parsed.data.taskId),
+    agentId,
+    kind: parsed.data.kind,
+    text: parsed.data.text,
+  })
+
+  if (result.outcome === 'unknown-quest') {
+    return {
+      error: {
+        code: 'not_found',
+        message:
+          'No quest with that id. This channel is for quests — an Academy rung takes ' +
+          '`kolonie.tasks.report` instead.',
+      },
+    }
+  }
+
+  return { filed: true, replaced: result.replaced }
 }
 
 /**
@@ -572,6 +654,23 @@ export interface QuestResultsResponse {
   readonly results: readonly AcceptedReport[]
   /** Counts per option, for closed questions. Empty when the quest asks none. */
   readonly counts: Readonly<Record<string, Readonly<Record<string, number>>>>
+  /**
+   * What citizens said about the quest itself (`#240`).
+   *
+   * **The counts are here on the results page rather than behind a second call**,
+   * because a sponsor reading fifty accepted answers and eight `unclear` reports
+   * on the same screen is the diagnosis; a sponsor that has to go looking for the
+   * second number never does.
+   */
+  readonly reportCounts: QuestReportCounts
+  /**
+   * The `unclear` and `feedback` text, scrubbed and attributed to nobody.
+   *
+   * **`declined` is in `reportCounts` and is not here, in any form.** See
+   * `sponsorQuestReports` in `packages/db` for the three separate defences that
+   * make that true rather than remembered.
+   */
+  readonly reports: readonly SponsorQuestReport[]
 }
 
 /**
@@ -600,6 +699,8 @@ export async function readQuestResults(
       accepted: results.length,
       results,
       counts: await desk.counts(taskId),
+      reportCounts: await desk.reportCounts(taskId),
+      reports: await desk.reports(taskId),
     },
   }
 }

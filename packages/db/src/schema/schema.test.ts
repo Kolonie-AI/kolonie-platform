@@ -302,6 +302,7 @@ describe('schema', () => {
         // verdict on a sponsor's brief, which a steward must not have to read
         // unjudged.
         'quest_moderations',
+        'quest_reports',
         /**
          * `report_feedback` joined with #110, carrying the votes that used to
          * live in `tip_feedback`. What widened is what may be voted on: with one

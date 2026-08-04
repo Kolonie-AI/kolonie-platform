@@ -137,6 +137,20 @@ export function fakeQuests(): FakeQuestDesk {
 
   const audits = new Map<string, { agrees: boolean }>()
 
+  /**
+   * What citizens said about the quests themselves (`#240`), keyed the way the
+   * unique index keys it: one per citizen per quest.
+   *
+   * The fixture reproduces the one rule the routes rely on — **a `declined` row
+   * never reaches `reports()`** — because a fake that served it would let an API
+   * test pass while the sponsor read text it must never see. Whether Postgres
+   * also refuses it is asserted in `packages/db` against a real one.
+   */
+  const reports = new Map<
+    string,
+    { taskId: string; kind: string; text: string; scrubbed: string | null }
+  >()
+
   return {
     /**
      * The audit surface, in memory (`#221`).
@@ -145,6 +159,53 @@ export function fakeQuests(): FakeQuestDesk {
      * there against a real Postgres; what this reproduces is the one rule the
      * routes rely on — a verdict is audited once.
      */
+    async report(input) {
+      const key = `${input.taskId}:${input.agentId}`
+      const replaced = reports.has(key)
+      reports.set(key, {
+        taskId: input.taskId,
+        kind: input.kind,
+        text: input.text,
+        // Approved immediately here, because the scrub is the moderation
+        // runner's and these tests are about the route. `declined` gets none,
+        // which is the rule being reproduced.
+        scrubbed: input.kind === 'declined' ? null : input.text,
+      })
+      return { outcome: 'filed' as const, replaced }
+    },
+
+    async reports(taskId) {
+      return [...reports.values()]
+        .filter((row) => row.taskId === taskId && row.scrubbed !== null && row.kind !== 'declined')
+        .map((row) => ({
+          kind: row.kind as 'unclear' | 'feedback',
+          text: row.scrubbed!,
+          filedAt: new Date().toISOString() as never,
+        }))
+    },
+
+    async reportCounts(taskId) {
+      const own = [...reports.values()].filter((row) => row.taskId === taskId)
+      return {
+        claims: 0,
+        acceptedReports: accepted.get(taskId)?.length ?? 0,
+        unclear: own.filter((row) => row.kind === 'unclear').length,
+        declined: own.filter((row) => row.kind === 'declined').length,
+      }
+    },
+
+    async retire(taskId) {
+      const held = quests.get(taskId)
+      if (held === undefined || held.own.task.status !== 'active') {
+        return { outcome: 'not-active' as const }
+      }
+      quests.set(taskId, {
+        ...held,
+        own: { ...held.own, task: { ...held.own.task, status: 'retired' } },
+      })
+      return { outcome: 'retired' as const }
+    },
+
     async auditQueue() {
       return []
     },

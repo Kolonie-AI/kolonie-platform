@@ -6,6 +6,8 @@ import {
   detectProviderChange,
   failReportOnRedLine,
   pendingAnswerModerations,
+  unmoderatedQuestReports,
+  recordQuestReportModeration,
   pendingQuestModerations,
   pendingReports,
   readTaskText,
@@ -27,6 +29,7 @@ import {
 } from './loop.js'
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
+import type { QuestReportModerationStore } from './quest-reports.js'
 import { createLog, type TaskId } from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
@@ -170,6 +173,19 @@ const answerStore: AnswerModerationStore = {
   fail: (input) => failReportOnRedLine(db, input),
 }
 
+/**
+ * The scrub between what a citizen said about a quest and the sponsor that
+ * wrote it (`#240`).
+ *
+ * Fourth pass in the same process, on the same poll, for the reason the third
+ * one is here.
+ */
+const questReportStore: QuestReportModerationStore = {
+  pending: (limit) => unmoderatedQuestReports(db, limit),
+  write: (input) => recordQuestReportModeration(db, { ...input, decision: 'approved' }),
+  refuse: (input) => recordQuestReportModeration(db, { ...input, decision: 'rejected' }),
+}
+
 const runner = startRunner(
   {
     store,
@@ -178,6 +194,7 @@ const runner = startRunner(
     tripwire,
     quests: { store: questStore, model, log },
     answers: { store: answerStore, model, log },
+    questReports: { store: questReportStore, model, log },
   },
   { pollIntervalMs: POLL_INTERVAL_MS },
 )

@@ -23,6 +23,7 @@ import {
   AutonomyLevelSchema,
   SetAsideReasonSchema,
   SubmissionStatusSchema,
+  QuestReportKindSchema,
   SupportTicketKindSchema,
   SupportTicketStatusSchema,
   SystemAccountSchema,
@@ -205,6 +206,16 @@ export const moderationStatus = pgEnum(
   'moderation_status',
   valuesOf(ModerationStatusSchema.options),
 )
+
+/**
+ * What a citizen is telling the Colony about a quest (`#238`... `#240`).
+ *
+ * Three values and not a boolean pair, because the third goes to a different
+ * reader: `unclear` and `feedback` reach the sponsor after moderation, and
+ * `declined` reaches the Colony alone. See `quest_reports.scrubbed` for how that
+ * is enforced rather than remembered.
+ */
+export const questReportKind = pgEnum('quest_report_kind', valuesOf(QuestReportKindSchema.options))
 
 /** What a citizen's ticket is about: a defect, a question, an objection or a proposal (#11, #202). */
 export const supportTicketKind = pgEnum(

@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import {
   LedgerTransactionIdSchema,
   questFundingReference,
@@ -321,7 +321,22 @@ export async function canCommit(
 /** The statuses a reservation is computed over, exported so a test can pin them. */
 export const RESERVED_IN_STATUSES = RESERVING_STATUSES
 
-/** Every quest whose expiry has passed and whose escrow still holds something. */
+/**
+ * Every quest that has finished and whose escrow still holds something.
+ *
+ * **Finished means one of two things, and only one of them is a date.** An
+ * `active` quest finishes when its expiry passes. A **`retired`** one has
+ * finished by decision — a steward retiring it early on the evidence of `#240`'s
+ * counts — and waiting for its original expiry would hold a sponsor's money for
+ * a fortnight after the quest stopped existing.
+ *
+ * This used to require the expiry in both cases, and `#240` is what made the
+ * difference visible: retiring cannot bring the expiry forward, because
+ * `tasks_published_quest_frozen` refuses any change to a live quest's terms and
+ * the expiry is one of them. That trigger is right and stays; what changes is
+ * this query, which was asking *has the clock run out* where it meant *is this
+ * quest over*.
+ */
 export async function questsAwaitingRefund(db: Database): Promise<readonly TaskId[]> {
   const rows = await db
     .select({ id: tasks.id })
@@ -329,8 +344,11 @@ export async function questsAwaitingRefund(db: Database): Promise<readonly TaskI
     .where(
       and(
         eq(tasks.kind, 'quest'),
-        inArray(tasks.status, ['active', 'retired']),
-        sql`${tasks.expiresAt} is not null and ${tasks.expiresAt} <= now()`,
+        sql`(
+          ${tasks.status} = 'retired'
+          or (${tasks.status} = 'active'
+              and ${tasks.expiresAt} is not null and ${tasks.expiresAt} <= now())
+        )`,
       ),
     )
 

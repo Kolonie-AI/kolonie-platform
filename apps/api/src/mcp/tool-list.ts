@@ -32,6 +32,16 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.tasks.reports',
   'kolonie.tasks.report',
   /**
+   * What a citizen makes of a **quest**, which is a different act from reporting
+   * on an attempt at a rung (`#240`).
+   *
+   * A separate tool rather than a `kind` on the one above, because the two are
+   * published to different readers: a task report reaches other citizens through
+   * a briefing, and a quest report reaches the sponsor or the Colony and no
+   * citizen at all. One tool with a flag would put that rule inside a parameter.
+   */
+  'kolonie.quests.report',
+  /**
    * The write surface for the runtime snapshot (#109), added by #114 because it
    * had none — the storage existed and was reachable from nothing, so every
    * attempt in production carried an empty configuration and the briefing had

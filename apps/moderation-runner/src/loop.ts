@@ -24,6 +24,7 @@ import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { questTick, type QuestLoopDependencies } from './quests.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
+import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
 import type { Model } from './llm.js'
@@ -90,6 +91,14 @@ export interface LoopDependencies {
    * (`#177`), or nothing. Optional for the reason the other two are.
    */
   readonly answers?: AnswerLoopDependencies
+  /**
+   * What citizens said about the quests themselves (`#240`).
+   *
+   * A fourth pass on the same poll, for the reason the third one is here: a
+   * handful of rows a day and one model call each, against a container, a health
+   * check and a deploy step.
+   */
+  readonly questReports?: QuestReportLoopDependencies
 }
 
 /** The tripwire as this loop needs it: detect, then respond. */
@@ -391,6 +400,7 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await checkTripwire(touched, deps, log)
   await moderateQuests(deps, batchSize, log)
   await scrubAnswers(deps, batchSize, log)
+  await scrubQuestReports(deps, batchSize, log)
 
   return outcome
 }
@@ -423,6 +433,41 @@ async function scrubAnswers(deps: LoopDependencies, batchSize: number, log: Log)
     }
   } catch (error) {
     log.error('the quest report scrub failed', error, { event: 'answers.pass.failed' })
+  }
+}
+
+/**
+ * Scrub what citizens said about the quests themselves, on the same poll
+ * (`#240`).
+ *
+ * Its failure is swallowed like the other passes': they share a process and a
+ * schedule and nothing else, and a queue that throws must not stop the rest.
+ */
+async function scrubQuestReports(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { questReports } = deps
+  if (questReports === undefined) return
+
+  try {
+    const outcome = await questReportTick({ log, ...questReports }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `quest reports about quests: ${outcome.judged} read, ${outcome.scrubbed} scrubbed, ` +
+          `${outcome.refused} refused, ${outcome.failed} deferred`,
+        {
+          event: 'quest-report.pass.done',
+          judged: outcome.judged,
+          scrubbed: outcome.scrubbed,
+          refused: outcome.refused,
+          failed: outcome.failed,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the quest report scrub failed', error, { event: 'quest-report.pass.failed' })
   }
 }
 

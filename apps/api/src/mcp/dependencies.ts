@@ -10,6 +10,7 @@ import type { Erasure } from '../erasure.js'
 import type { GithubDependencies } from '../github.js'
 import type { StandingHintSource } from '../hints.js'
 import type { TaskGuidance } from '../guidance.js'
+import type { QuestDesk } from '../quests.js'
 import type { ImageDependencies } from '../image.js'
 import type { SceneDependencies } from '../scene.js'
 import type { InjectionDependencies } from '../injection.js'
@@ -51,6 +52,15 @@ export interface McpDependencies {
   readonly catalogue: TaskCatalogue
   readonly submissions: TaskSubmissions
   readonly guidance: TaskGuidance
+  /**
+   * Quests, for the one tool a citizen has about them (`#240`).
+   *
+   * The whole desk rather than a narrower port, because it is the same object
+   * the HTTP routes hold — a second, smaller interface over the same functions
+   * would be a second place the *which kinds are the sponsor's* rule could be
+   * written down differently.
+   */
+  readonly quests: QuestDesk
   readonly academy: AcademyDependencies
   readonly email: EmailDependencies
   /** The account register (#150). */

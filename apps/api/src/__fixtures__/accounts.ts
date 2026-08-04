@@ -230,10 +230,12 @@ export function fakeAccounts(
  * account through the fixture sees it in the listing without saying so twice —
  * which is what the real wiring does too.
  *
- * **Mail's preference is the register's flag here**, where production reads the
- * reach address from the mail model. That is the one thing this fake cannot
- * mirror without owning a mailbox model, and the property it would be asserting
- * is D-047's, which is tested against a real database in `packages/db`.
+ * **`reach` is always false here, and it is a fake rather than a claim**
+ * (`#299`). Production reads it from the mail model; owning one would make this
+ * fixture a second mailbox implementation, and the property it would assert is
+ * D-047's, which is tested against a real database in `packages/db`. What this
+ * fixture is good for is the half that is not mail: `preferred` is the
+ * register's flag, unconditionally, on every kind.
  */
 export function resolutionOver(register: AccountRegister): AccountResolution {
   return {
@@ -250,6 +252,7 @@ export function resolutionOver(register: AccountRegister): AccountResolution {
               identifier: account.identifier,
               proved: account.proved,
               preferred: account.preferred,
+              reach: false,
             }))
             .sort((left, right) => Number(right.preferred) - Number(left.preferred)),
         )

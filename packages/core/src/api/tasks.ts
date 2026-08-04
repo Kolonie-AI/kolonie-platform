@@ -138,7 +138,8 @@ export const TaskAccountsSchema = z.object({
   taskId: TaskIdSchema,
   kind: AccountKindSchema,
   /**
-   * The accounts the citizen holds of this kind, its preference first.
+   * The accounts the citizen holds of this kind, the reach address first and
+   * then its own preference.
    *
    * Retired and lost ones are omitted — the citizen said so, and offering one
    * back would be the Colony overriding the one field it does not own. Unproved
@@ -150,8 +151,24 @@ export const TaskAccountsSchema = z.object({
     z.object({
       identifier: z.string(),
       proved: z.boolean(),
-      /** The citizen's preference, or — for mail — the address the Colony writes to. */
+      /**
+       * The citizen's own ordering, and only ever that.
+       *
+       * **It carried the reach address for mailboxes until `#299`**, which made
+       * one field mean the citizen's preference on six kinds and the Colony's
+       * obligation on the seventh — the merge D-050 separates, and the opposite
+       * of what `kolonie.accounts.list` promises the field is. A citizen
+       * comparing the two surfaces for the same mailbox is what found it.
+       */
       preferred: z.boolean(),
+      /**
+       * The one address the Colony writes to, for a mailbox.
+       *
+       * False on every other kind: *primary* is a preference there and there is
+       * nothing on the other end of a reach address (D-050). Moved by
+       * `kolonie.mailboxes.promote` and by nothing else.
+       */
+      reach: z.boolean(),
     }),
   ),
   /**

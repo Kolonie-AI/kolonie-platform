@@ -82,7 +82,13 @@ export interface AccountResolution {
 export interface HeldAccount {
   readonly identifier: string
   readonly proved: boolean
+  /** The citizen's own ordering, and only ever that (`#299`). */
   readonly preferred: boolean
+  /**
+   * The one address the Colony writes to, for a mailbox — false for every other
+   * kind, because there is nothing on the other end of one (D-050).
+   */
+  readonly reach: boolean
 }
 
 /**
@@ -94,6 +100,17 @@ export interface HeldAccount {
  * on `email_challenges.primary_at`. Reading the register's flag for a mailbox
  * would return `false` on every row, because the check constraint refuses to let
  * one be set.
+ *
+ * **The reach address is its own field rather than the preference's value**
+ * (`#299`). It was written into `preferred` for mailboxes, which made one field
+ * name mean the citizen's ordering on six kinds and the Colony's obligation on
+ * the seventh — the exact merge D-050 exists to prevent, and a direct
+ * contradiction of what `kolonie.accounts.list` tells the citizen `preferred`
+ * is. A citizen comparing the two surfaces for one mailbox got `preferred:false`
+ * from the register and `preferred:true` here, which is how this was reported.
+ *
+ * The ordering the substitution bought is kept and now says what it is: reach
+ * first, then the citizen's preference. Nothing gates on either.
  */
 export function databaseAccountResolution(db: Database): AccountResolution {
   return {
@@ -105,28 +122,49 @@ export function databaseAccountResolution(db: Database): AccountResolution {
         const reach =
           kind === 'mailbox' ? ((await provedMailbox(db, agentId))?.address ?? null) : null
 
-        resolved.set(
-          kind,
-          held
-            // Retired and lost are omitted: the citizen said so, and offering
-            // one back would be the Colony overriding the one field it does not
-            // own.
-            .filter((account) => account.status === 'in-use')
-            .map((account) => ({
-              identifier: account.identifier,
-              proved: account.proved,
-              preferred:
-                kind === 'mailbox'
-                  ? reach !== null && reach.toLowerCase() === account.identifier.toLowerCase()
-                  : account.preferred,
-            }))
-            .sort((left, right) => Number(right.preferred) - Number(left.preferred)),
-        )
+        resolved.set(kind, heldAccountsOf(held, reach))
       }
 
       return resolved
     },
   }
+}
+
+/**
+ * The register's rows and the reach address, as a task listing shows them.
+ *
+ * **Separated from the read so it can be tested without a database**, which is
+ * the whole reason `#299` reached a citizen: `apps/api` runs against fakes, the
+ * fake resolution built `held` from the register alone, and the one line that
+ * differed between the fake and production — mail's `preferred` — was the line
+ * with the defect in it. A pure function is the part both can be held to.
+ *
+ * The `reach` argument is null for every kind that is not `mailbox`, and that is
+ * the caller's business rather than this function's: *primary* is a preference
+ * on the other kinds and there is nothing on the other end of a reach address
+ * (D-050).
+ */
+export function heldAccountsOf(
+  accounts: readonly Account[],
+  reach: string | null,
+): readonly HeldAccount[] {
+  return (
+    accounts
+      // Retired and lost are omitted: the citizen said so, and offering one back
+      // would be the Colony overriding the one field it does not own.
+      .filter((account) => account.status === 'in-use')
+      .map((account) => ({
+        identifier: account.identifier,
+        proved: account.proved,
+        preferred: account.preferred,
+        reach: reach !== null && reach.toLowerCase() === account.identifier.toLowerCase(),
+      }))
+      .sort(
+        (left, right) =>
+          Number(right.reach) - Number(left.reach) ||
+          Number(right.preferred) - Number(left.preferred),
+      )
+  )
 }
 
 /** Storage wired to a real database. The only place these two meet. */

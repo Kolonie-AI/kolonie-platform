@@ -12,3 +12,9 @@ coverage/
 npm-debug.log*
 .vitest/
 .eslintcache
+
+# Generated on every build by packages/db/scripts/generate-storage-barrel.mjs.
+# It is not in git on purpose (#271): a barrel with one line per storage module
+# is an append point two agents collide in, and a file nobody commits cannot be
+# merged at all.
+packages/db/src/storage/index.ts

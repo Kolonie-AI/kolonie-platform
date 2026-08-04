@@ -17,7 +17,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "barrel": "node packages/db/scripts/generate-storage-barrel.mjs",
+    "prepare": "npm run barrel",
+    "build": "npm run barrel && tsc -b",
     "clean": "tsc -b --clean && npm run clean --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

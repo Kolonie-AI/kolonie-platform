@@ -4,7 +4,13 @@ import tseslint from 'typescript-eslint'
 export default tseslint.config(
   {
     // Globbed with **/ so they match inside every workspace, not just the root.
-    ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**'],
+    ignores: [
+      '**/dist/**',
+      '**/coverage/**',
+      '**/node_modules/**',
+      // Generated on every build and not in git (#271).
+      'packages/db/src/storage/index.ts',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

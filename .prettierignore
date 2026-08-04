@@ -8,3 +8,6 @@ CHANGELOG.md
 # by a human, and reformatting them only guarantees a diff the next time the
 # tool writes them. The migrations themselves are .sql and are reviewed by hand.
 packages/db/drizzle/meta
+
+# The generated storage barrel (#271). See .gitignore.
+packages/db/src/storage/index.ts

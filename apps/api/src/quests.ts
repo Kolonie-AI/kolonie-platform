@@ -130,7 +130,7 @@ export interface QuestDesk {
     readonly agentId: AgentId
   }): Promise<AcceptedReport | undefined>
   /** The verdicts drawn for a second reading (`#221`). */
-  auditQueue(): Promise<readonly AuditCandidate[]>
+  auditQueue(stewardId: AgentId): Promise<readonly AuditCandidate[]>
   /** What a steward found. It changes nothing else. */
   audit(input: {
     readonly submissionId: SubmissionId
@@ -199,7 +199,7 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
     results: (taskId) => questResultsInDatabase(db, taskId),
     counts: (taskId) => questAnswerCountsInDatabase(db, taskId),
     ownAnswer: (input) => ownQuestAnswerInDatabase(db, input),
-    auditQueue: () => questAuditQueueInDatabase(db, audit),
+    auditQueue: (stewardId) => questAuditQueueInDatabase(db, audit, undefined, stewardId),
     audit: (input) => recordAuditDecisionInDatabase(db, input),
     disagreement: () => questDisagreementRateInDatabase(db, audit),
     report: (input) => fileQuestReportInDatabase(db, input),
@@ -543,8 +543,17 @@ export async function publishQuest(
   }
 }
 
-/** The audit queue, for a steward. */
-export async function readAuditQueue(desk: QuestDesk): Promise<
+/**
+ * The audit queue, for a steward.
+ *
+ * **Drawn for the steward asking, and never from its own quests** (`#318`). The
+ * refusal that matters is at the write, in `recordAuditDecision`; this is what
+ * keeps a steward from being handed work it is not allowed to do.
+ */
+export async function readAuditQueue(
+  stewardId: AgentId,
+  desk: QuestDesk,
+): Promise<
   QuestResult<{
     readonly disagreement: { readonly rate: number; readonly audited: number }
     readonly verdicts: readonly AuditCandidate[]
@@ -552,7 +561,10 @@ export async function readAuditQueue(desk: QuestDesk): Promise<
 > {
   return {
     outcome: 'ok',
-    response: { disagreement: await desk.disagreement(), verdicts: await desk.auditQueue() },
+    response: {
+      disagreement: await desk.disagreement(),
+      verdicts: await desk.auditQueue(stewardId),
+    },
   }
 }
 
@@ -599,6 +611,18 @@ export async function recordAudit(
         error: {
           code: 'conflict',
           message: 'Another steward has already read this one.',
+        },
+      }
+    case 'own-quest':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'forbidden',
+          message:
+            'This verdict is on a quest you sponsored, and a steward does not audit its own ' +
+            'quest. The audit changes no payout — what it produces is the number deciding ' +
+            'whether the Colony keeps selling work, and its sponsor is the one party with an ' +
+            'interest in that answer (kolonie-platform#318, and #173 one route earlier).',
         },
       }
   }

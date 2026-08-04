@@ -97,7 +97,12 @@ describe('the quest write path', () => {
    */
   const aPassedQuestSubmission = async (
     name: string,
-    options: { readonly proofVerifier?: string; readonly drawn?: boolean } = {},
+    options: {
+      readonly proofVerifier?: string
+      readonly drawn?: boolean
+      /** Who sponsored the quest, when a test cares who that is (`#318`). */
+      readonly authorId?: AgentId
+    } = {},
   ) => {
     const citizen = await anAgent(`citizen-${name}`)
     const [quest] = await db
@@ -113,7 +118,7 @@ describe('the quest write path', () => {
         slots: 10,
         timeoutHours: 24,
         status: 'active' as const,
-        createdBy: await anAgent(`author-${name}`),
+        createdBy: options.authorId ?? (await anAgent(`author-${name}`)),
         questions: [
           {
             key: 'what-happened',
@@ -1354,6 +1359,83 @@ describe('the quest write path', () => {
 
       expect(await questAuditQueue(db, { rate: 1 })).toEqual([])
     })
+
+    /**
+     * `#318`: a steward that also sponsors does not read the verdicts on its own
+     * quest.
+     *
+     * The payout is untouched — an audit counts and never reverses one (D-061) —
+     * so what a self-audit corrupts is the number that decides whether the
+     * Colony keeps selling work, and its sponsor is the one party with an
+     * interest in that answer.
+     */
+    describe('a steward that is also a sponsor', () => {
+      it('is not drawn a verdict on the quest it sponsored', async () => {
+        const steward = await anAgent('sponsoring-steward', ['steward'])
+        const own = await aPassedQuestSubmission('own-quest', {
+          drawn: true,
+          authorId: steward,
+        })
+        const other = await aPassedQuestSubmission('someone-elses', { drawn: true })
+
+        const queue = await questAuditQueue(db, { rate: 1 }, 50, steward)
+
+        expect(queue.map((entry) => entry.submissionId)).toContain(other)
+        expect(queue.map((entry) => entry.submissionId)).not.toContain(own)
+      })
+
+      /**
+       * Hiding is not refusing. A submission id is guessable, the queue is a
+       * suggestion, and `#173` put its ban at the write for the same reason.
+       */
+      it('is refused when it posts that submission id anyway, and writes no row', async () => {
+        const steward = await anAgent('determined-steward', ['steward'])
+        const submissionId = await aPassedQuestSubmission('posted-anyway', { authorId: steward })
+
+        expect(
+          await recordAuditDecision(db, {
+            submissionId,
+            stewardId: steward,
+            agrees: true,
+            reason: 'I read my own quest’s verdict and I agree with it.',
+          }),
+        ).toEqual({ outcome: 'own-quest' })
+
+        expect((await questDisagreementRate(db, { windowDays: 30 })).audited).toBe(0)
+      })
+
+      it('audits anybody else’s quest exactly as before', async () => {
+        const steward = await anAgent('ordinary-steward', ['steward'])
+        const submissionId = await aPassedQuestSubmission('not-mine')
+
+        expect(
+          await recordAuditDecision(db, {
+            submissionId,
+            stewardId: steward,
+            agrees: false,
+            reason: 'The report answers a question that was not asked.',
+          }),
+        ).toEqual({ outcome: 'recorded' })
+      })
+
+      /**
+       * An ownerless quest — its sponsor erased itself, leaving `created_by`
+       * null — stays auditable. `null <> id` is null in SQL, so a plain
+       * inequality would have dropped every such quest out of every queue.
+       */
+      it('still draws a quest whose sponsor has erased itself', async () => {
+        const steward = await anAgent('steward-of-orphans', ['steward'])
+        const orphaned = await aPassedQuestSubmission('orphaned', { drawn: true })
+        await db
+          .update(tasks)
+          .set({ createdBy: null })
+          .where(eq(tasks.id, (await taskOf(db, orphaned))!))
+
+        const queue = await questAuditQueue(db, { rate: 1 }, 50, steward)
+
+        expect(queue.map((entry) => entry.submissionId)).toContain(orphaned)
+      })
+    })
   })
 
   it('never writes a quest the Colony itself authored', async () => {
@@ -1370,4 +1452,13 @@ const textRevisedAt = async (db: Database, taskId: TaskId): Promise<string> => {
     .from(tasks)
     .where(eq(tasks.id, taskId))
   return row!.at
+}
+
+/** The quest a submission was made against. */
+const taskOf = async (db: Database, submissionId: SubmissionId): Promise<TaskId | undefined> => {
+  const [row] = await db
+    .select({ taskId: submissions.taskId })
+    .from(submissions)
+    .where(eq(submissions.id, submissionId))
+  return row?.taskId as TaskId | undefined
 }

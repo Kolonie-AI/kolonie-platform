@@ -190,7 +190,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
     const steward = await stewardFor(request, reply, store)
     if (steward === null) return reply
 
-    return send(reply, await readAuditQueue(quests))
+    return send(reply, await readAuditQueue(steward.id, quests))
   })
 
   /** What the steward found. It is counted; it is never applied. */

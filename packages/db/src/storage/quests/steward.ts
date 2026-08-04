@@ -565,6 +565,17 @@ export async function questAuditQueue(
   db: Database,
   policy: { readonly rate: number },
   limit = 50,
+  /**
+   * Who is asking, so it is never drawn its own quest (`#318`).
+   *
+   * Optional, because a caller that wants the queue as the Colony sees it —
+   * a count, a report, a test — is asking a different question from a steward
+   * about to read one. What is *not* optional is the guard: `recordAuditDecision`
+   * refuses the write whether or not this was passed, because a queue is a
+   * suggestion and the write is where a rule lives (`#173`'s lesson, one route
+   * later).
+   */
+  stewardId?: AgentId,
 ): Promise<readonly AuditCandidate[]> {
   const rows = await db
     .select({
@@ -589,6 +600,11 @@ export async function questAuditQueue(
         sql`not exists (
           select 1 from ${questAudits} where ${questAudits.submissionId} = ${submissions.id}
         )`,
+        // A steward is never shown a verdict on a quest it wrote itself. The
+        // `is distinct from` rather than `<>` is for the ownerless quest: a
+        // sponsor that erased itself leaves `created_by` null, and `null <> id`
+        // is null, which would drop every such quest out of every queue.
+        ...(stewardId === undefined ? [] : [sql`${tasks.createdBy} is distinct from ${stewardId}`]),
       ),
     )
     .orderBy(asc(submissions.verifiedAt))
@@ -622,6 +638,8 @@ export type AuditRecordOutcome =
   | { readonly outcome: 'unknown-submission' }
   /** Somebody read it first. Two stewards opening the queue at once is ordinary. */
   | { readonly outcome: 'already-audited' }
+  /** The verdict is on a quest this steward sponsored (`#318`). */
+  | { readonly outcome: 'own-quest' }
 
 /**
  * Record what a steward found. It changes nothing else, by construction.
@@ -629,6 +647,16 @@ export type AuditRecordOutcome =
  * There is no update to the submission, the verification or the ledger anywhere
  * in this function, and there is a test asserting the citizen's balance is
  * unchanged after a disagreement. **A disagreement is counted, never applied.**
+ *
+ * **Except its own quest's** (`#318`). `#173` bans a steward from publishing a
+ * quest it wrote; the audit added by `#221` had no equivalent, so a steward that
+ * also sponsors could record whether it agreed with the verdicts on its own
+ * work. The payout is untouched either way — the audit *"counts and never
+ * reverses a payout"* (D-061) — so what a self-audit corrupts is the **number**:
+ * `questDisagreementRate` is the Colony's own measurement of whether its judge
+ * can be trusted with money, and a sponsor is the one party with an interest in
+ * the answer. Agreeing keeps its quests publishable; disagreeing stops the
+ * programme it is buying from. Both directions are an interested reading.
  */
 export async function recordAuditDecision(
   db: Database,
@@ -640,12 +668,18 @@ export async function recordAuditDecision(
   },
 ): Promise<AuditRecordOutcome> {
   const [submission] = await db
-    .select({ id: submissions.id })
+    .select({ id: submissions.id, sponsorId: tasks.createdBy })
     .from(submissions)
+    .innerJoin(tasks, eq(tasks.id, submissions.taskId))
     .where(eq(submissions.id, command.submissionId))
     .limit(1)
 
   if (submission === undefined) return { outcome: 'unknown-submission' }
+
+  // The guard, at the write. The queue above already hides these, and hiding is
+  // not refusing: a submission id is guessable, the queue is a suggestion, and
+  // `#173` put its ban here for the same reason.
+  if (submission.sponsorId === command.stewardId) return { outcome: 'own-quest' }
 
   const rows = await db
     .insert(questAudits)

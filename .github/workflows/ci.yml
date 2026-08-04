@@ -125,6 +125,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The service container above cannot be given command arguments — `services:`
+      # takes an image, environment and a health check, and nothing else — so the
+      # three durability settings are applied to it once it is up (#283). They are
+      # worth roughly half the wall clock of packages/db, which was 90% of the
+      # suite when measured.
+      #
+      # This step fails the job if the settings do not take. That is deliberate and
+      # it is the whole reason it is a step rather than a line in another script: a
+      # server that quietly stayed at full durability produces a *slow green run*,
+      # and nothing downstream can tell that from a fast one.
+      - name: Relax the test database's durability
+        run: npm run test:db:relax
+
       # Deliberately the same single command contributors run locally, so a
       # green local run means a green CI run. See AGENTS.md §9.
       #

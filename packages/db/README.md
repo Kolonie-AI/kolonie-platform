@@ -21,17 +21,39 @@ the Compose stack in `kolonie-infra`, a server installed from `apt`, a CI servic
 container, a throwaway database. That is D-009, and it is the reason the tests
 have no opinion about Docker.
 
-If you have Docker and no preference:
+If you have no preference, this starts one and prints the line to export:
 
 ```bash
-docker run -d --name kolonie-pg -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=kolonie_test -p 5432:5432 postgres:16
-export DATABASE_URL=postgres://postgres:postgres@localhost:5432/kolonie_test
+npm run test:db:up
 ```
 
-Without the variable, the database tests **skip locally and fail on CI**. The
-asymmetry is deliberate: a suite that skips silently on CI reports green while
-covering nothing.
+If you already have a server, point the variable at it and then run:
+
+```bash
+npm run test:db:relax
+```
+
+**That second step is not bookkeeping.** It turns off `fsync`,
+`synchronous_commit` and `full_page_writes` — three guarantees about surviving a
+crash, which this database cannot use because every test file drops its schema and
+migrates it again. Measured on 2026-08-04, they cost this package 501 s against
+235 s: `npm run test:db:up` does it for you, and CI does it to its own service
+container. See `scripts/relax-test-durability.mjs` for why that is safe here and
+nowhere else.
+
+**What the role needs, which is more than it used to.** `CREATEDB`, because each
+test worker gets a database of its own and creates it if it is absent (`#284`);
+and superuser for `test:db:relax`, because `ALTER SYSTEM` is a superuser
+operation. Both are free on a throwaway server and neither is a reasonable ask of
+a shared one — which is the same sentence as "point this at nothing you care
+about", arriving from the other direction. The database named in `DATABASE_URL` is
+only ever connected to as a place to stand; the tests run in `<name>_w<slot>`
+beside it.
+
+Without the variable, the database tests **fail, everywhere**. They do not skip:
+a suite that skips silently reports green while covering nothing, and on
+2026-08-02 that hid a third of it behind an exit code of 0 (`#224`). A change that
+genuinely needs no database has `npm run check:fast`.
 
 ## Changing the schema
 

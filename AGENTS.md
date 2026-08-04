@@ -144,18 +144,23 @@ what an unreviewed commit reaching the host costs. Force-pushing and deleting
 
 **One environment variable.** `packages/db` talks to PostgreSQL 16 through
 `DATABASE_URL` and knows nothing else about where the database came from — see
-D-009. Set it and the database tests run; leave it unset and they skip locally
-with an explanation, and fail the build on CI. Skipping them silently on CI is
-the one thing this arrangement must never do, so it is asserted rather than
-assumed.
+D-009. Set it and the database tests run; leave it unset and they **fail, in
+every environment**. They do not skip: a suite that skips silently reports green
+while covering nothing, which is the one thing this arrangement must never do, so
+it is asserted rather than assumed (`#224`).
 
 ```bash
-export DATABASE_URL=postgres://user:password@host:5432/database
+npm run test:db:up      # no server yet: starts one, prints the line to export
+npm run test:db:relax   # already have one: makes it fit to test against
 ```
 
-Any PostgreSQL 16 will do. `docker-compose.dev.yml` in `kolonie-infra` is one way
-to get one; `packages/db/README.md` gives a one-line alternative. Do not write a
-tool into an acceptance criterion where you mean a capability.
+The second command turns off three durability guarantees a throwaway test
+database cannot use, and is worth roughly half this package's wall clock
+(`#283`). CI does the same to its own service container.
+
+Any PostgreSQL 16 will do — `docker-compose.dev.yml` in `kolonie-infra` is
+another way, and so is a server from `apt`. Do not write a tool into an
+acceptance criterion where you mean a capability.
 
 Scoped to one workspace:
 

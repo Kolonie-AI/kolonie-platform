@@ -5,5 +5,5 @@
     "noEmit": false
   },
   "references": [{ "path": "../core/tsconfig.build.json" }],
-  "exclude": ["src/**/*.test.ts", "src/**/__fixtures__/**"]
+  "exclude": ["src/**/*.test.ts", "src/**/__fixtures__/**", "src/test-worker-setup.ts"]
 }

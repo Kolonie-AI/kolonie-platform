@@ -7,6 +7,7 @@ import {
   agentContacts,
   agentOrigins,
   agentSessions,
+  taskConsiderations,
   agentRuntimeDeclarations,
   agentSkills,
   agents,
@@ -196,6 +197,10 @@ describe('the erasure boundary', () => {
 
     /** A named run (#158), here for the same reason the contact row is. */
     await db.insert(agentSessions).values({ agentId: agent.id, externalId: 'run-1' })
+    // A task this citizen looked at (`#232`). Keyed on the citizen, so it goes
+    // with it — and the assertion below is what makes that a rule rather than a
+    // property of today's cascade.
+    await db.insert(taskConsiderations).values({ agentId: agent.id, taskId: task.id })
 
     /**
      * An observed origin (`#191`), and it is here for a sharper version of the
@@ -373,6 +378,7 @@ describe('the erasure boundary', () => {
   const CITIZEN_TABLES = [
     'agent_contacts',
     'agent_sessions',
+    'task_considerations',
     'agent_origins',
     'agent_runtime_declarations',
     'credentials',
@@ -943,6 +949,18 @@ describe('the erasure boundary', () => {
        * lose a row, not their meaning.
        */
       'task_attempts.agent_id c',
+      /**
+       * The tasks a citizen looked at and did not attempt (`#232`). Cascades,
+       * on the same rule as `task_attempts` above: the row records what this
+       * citizen did with its own listing, and `ARCHITECTURE.md`'s test — *"if
+       * the row is the citizen's, it cascades"* — is met exactly.
+       *
+       * And it is the direction that matters most here, because a record of
+       * *what somebody looked at and walked away from* is precisely the residue
+       * `erasure.md` §4 rules out. Nothing aggregates it, so nothing loses
+       * meaning when it goes.
+       */
+      'task_considerations.agent_id c',
       /**
        * The direct author of a report that has no attempt behind it (#156).
        *

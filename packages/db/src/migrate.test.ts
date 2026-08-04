@@ -153,7 +153,12 @@ describe('the migrations', () => {
     // per citizen. Its own table rather than columns on the declaration
     // history, because those are claims a citizen made and these are
     // observations it did not.
-    expect(afterFirst.tables).toBe('51')
+    // And the task a citizen read and walked away from makes **fifty-two**
+    // (`#232`): `task_considerations`, one row per pair with the first fetch and
+    // whether the Colony has asked about it. Its own table because
+    // `task_attempts` cannot hold it — a citizen that opened no attempt has no
+    // row there, which is exactly the case being made visible.
+    expect(afterFirst.tables).toBe('52')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -708,6 +708,13 @@
       "when": 1785831846338,
       "tag": "0100_the_one_line_a_citizen_did_not_ask_for",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1785833396173,
+      "tag": "0101_the_task_a_citizen_read_and_walked_away_from",
+      "breakpoints": true
     }
   ]
 }

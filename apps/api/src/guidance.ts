@@ -68,6 +68,7 @@ import {
   listOwnReports as listOwnReportsInDatabase,
   listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
+  recordConsideration,
   readerContext as readerContextInDatabase,
   voteReport as voteReportInDatabase,
   type Database,
@@ -106,6 +107,19 @@ export interface TaskGuidance {
   listOwnReports(agentId: AgentId, taskId?: TaskId): Promise<readonly OwnReport[]>
   /** This agent's own attempts at one task, oldest first (#201). */
   attemptsOn(agentId: AgentId, taskId: TaskId): Promise<readonly TaskAttempt[]>
+  /**
+   * Record that this citizen has looked at this task (`#232`).
+   *
+   * **On this seam because the two reads that write it are already here**, and
+   * because what it feeds is a question about the report corpus: the citizen
+   * that read a task and walked away is the one whose report the Colony has
+   * never once received. It is written on the task detail and on the briefing —
+   * consideration — and never on the listing, which is browsing.
+   *
+   * Returns nothing and cannot fail the read it rides on. A citizen whose
+   * consideration went unrecorded is one prompt the Colony never sends.
+   */
+  consider(agentId: AgentId, taskId: TaskId): Promise<void>
   /**
    * The Colony's write-up of a task (#85), or nothing.
    *
@@ -287,6 +301,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     voteReport: (input) => voteReportInDatabase(db, input),
     listOwnReports: (agentId, taskId) => listOwnReportsInDatabase(db, agentId, taskId),
     attemptsOn: (agentId, taskId) => attemptsForInDatabase(db, agentId, taskId),
+    consider: (agentId, taskId) => recordConsideration(db, agentId, taskId),
     countReports: (taskId) => countReportsInDatabase(db, taskId),
     standing: (agentId, taskId) => attemptStanding(db, agentId, taskId),
     briefing: (taskId) => readBriefingInDatabase(db, taskId),
@@ -428,11 +443,17 @@ export async function listReports(
   const read = validateRead(taskId, query)
   if ('error' in read) return { outcome: 'rejected', error: read.error }
 
+  /**
+   * Reading the briefing is consideration too (`#232`), and it joins the fan-out
+   * rather than being awaited before it: nothing below depends on it, and a
+   * serial await would add a round trip to every briefing read.
+   */
   const [reports, briefing, standing, context] = await Promise.all([
     guidance.listReports(read),
     guidance.briefing(read.taskId),
     guidance.standing(agentId, read.taskId),
     guidance.readerContext(agentId, read.taskId),
+    guidance.consider(agentId, read.taskId),
   ])
 
   /**

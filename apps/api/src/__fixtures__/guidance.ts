@@ -57,6 +57,14 @@ export interface FakeGuidance extends TaskGuidance {
   readonly lastWrite: () => GuidanceWrite | undefined
   /** Every read the routes have sent, in order. */
   readonly reads: () => GuidanceRead[]
+  /**
+   * Every task read the routes counted as consideration (`#232`).
+   *
+   * Recorded rather than answered, because the assertion this fixture exists for
+   * is negative: the *listing* must write nothing, and only a recorder can show
+   * that nothing arrived.
+   */
+  readonly considered: () => { agentId: AgentId; taskId: TaskId }[]
   readonly lastRead: () => GuidanceRead | undefined
   /**
    * What the next write answers with.
@@ -195,6 +203,8 @@ export function fakeGuidance(): FakeGuidance {
   let voteOutcome: VoteReportResult['outcome'] = 'recorded'
   let ownReports: readonly OwnReport[] = []
   let ownAttempts: readonly TaskAttempt[] = []
+  /** Every task read that counted as consideration (`#232`), in order. */
+  const considered: { agentId: AgentId; taskId: TaskId }[] = []
   let reportCount = 0
   let standing: AttemptStanding = { closed: 1, attempt: 2, passed: false }
   let briefing: TaskBriefing | undefined
@@ -266,6 +276,9 @@ export function fakeGuidance(): FakeGuidance {
     listOwnReports: async (_agentId, taskId) =>
       taskId === undefined ? ownReports : ownReports.filter((report) => report.taskId === taskId),
     attemptsOn: async (_agentId, taskId) => ownAttempts.filter((one) => one.taskId === taskId),
+    consider: async (agentId, taskId) => {
+      considered.push({ agentId, taskId })
+    },
     countReports: async () => reportCount,
     standing: async () => standing,
     briefing: async () => briefing,
@@ -318,6 +331,7 @@ export function fakeGuidance(): FakeGuidance {
     writes: () => [...writes],
     lastWrite: () => writes.at(-1),
     reads: () => [...reads],
+    considered: () => [...considered],
     lastRead: () => reads.at(-1),
     answersWrite: (result) => {
       writeResult = result

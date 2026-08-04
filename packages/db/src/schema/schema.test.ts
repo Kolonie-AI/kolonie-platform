@@ -359,6 +359,15 @@ describe('schema', () => {
          */
         'task_attempts',
         'task_briefings',
+        /**
+         * The task a citizen read and never attempted (`#232`).
+         *
+         * Beside `task_attempts` rather than inside it, because it is the case
+         * that table structurally cannot hold: a citizen that opened no attempt
+         * has no row there, so *read the instructions and left* was recorded as
+         * silence and looked identical to *never came*.
+         */
+        'task_considerations',
         // The four that carry what is known about a task beyond its
         // instructions. `task_hints` and `task_briefings` are the Colony's own
         // voice; `task_reports` and `report_feedback` are citizens', and nothing

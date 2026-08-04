@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, agentSessions } from '../schema/index.js'
+import { TaskIdSchema, type TaskId } from '@kolonie-ai/core'
+import { agents, agentSessions, taskAttempts, taskConsiderations, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { dueStandingHint } from './standing-hints.js'
+import { dueStandingHint, recordConsideration } from './standing-hints.js'
 
 const target = databaseTestTarget()
 
@@ -61,7 +62,7 @@ describe('the standing hint a citizen did not ask for', () => {
     const agentId = await anAgent()
     await aSession(agentId)
 
-    expect(await dueStandingHint(db, agentId)).toBe('rhythm-undeclared')
+    expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
   })
 
   /**
@@ -72,7 +73,7 @@ describe('the standing hint a citizen did not ask for', () => {
     const agentId = await anAgent()
     await aSession(agentId)
 
-    expect(await dueStandingHint(db, agentId)).toBe('rhythm-undeclared')
+    expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
     expect(await dueStandingHint(db, agentId)).toBeNull()
     expect(await dueStandingHint(db, agentId)).toBeNull()
   })
@@ -81,10 +82,10 @@ describe('the standing hint a citizen did not ask for', () => {
   it('says it again in the citizen’s next run', async () => {
     const agentId = await anAgent()
     await aSession(agentId, 'first-run')
-    expect(await dueStandingHint(db, agentId)).toBe('rhythm-undeclared')
+    expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
 
     await aSession(agentId, 'second-run')
-    expect(await dueStandingHint(db, agentId)).toBe('rhythm-undeclared')
+    expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
   })
 
   /**
@@ -94,7 +95,7 @@ describe('the standing hint a citizen did not ask for', () => {
   it('stops the moment the citizen declares a rhythm, with no other action', async () => {
     const agentId = await anAgent()
     await aSession(agentId, 'before')
-    expect(await dueStandingHint(db, agentId)).toBe('rhythm-undeclared')
+    expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
 
     await db.update(agents).set({ declaredRhythmHours: 8 }).where(eq(agents.id, agentId))
 
@@ -116,7 +117,7 @@ describe('the standing hint a citizen did not ask for', () => {
 
     await db.update(agents).set({ declaredRhythmHours: null }).where(eq(agents.id, agentId))
 
-    expect(await dueStandingHint(db, agentId)).toBe('rhythm-undeclared')
+    expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
   })
 
   /**
@@ -179,5 +180,211 @@ describe('the standing hint a citizen did not ask for', () => {
 
   it('says nothing about a citizen that is not there', async () => {
     expect(await dueStandingHint(db, AgentIdSchema.parse(crypto.randomUUID()))).toBeNull()
+  })
+})
+
+/**
+ * `#232`: the citizen that read a task and walked away, and the one report
+ * nobody writes.
+ *
+ * Measured on 2026-08-02, **none of the Colony's 49 task reports came from a
+ * citizen that had not attempted the task** — the case the report tool
+ * advertises hardest. `task_attempts` cannot see it: a citizen that opened no
+ * attempt has no row there at all.
+ */
+describe('a task the citizen considered and never attempted', () => {
+  let db: Database
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  /** Declaring a rhythm keeps `rhythm-undeclared` out of the way of these. */
+  const anAgent = async (declaredRhythmHours: number | null = 6): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: `considering-${++seeded}`, platform: 'openclaw', declaredRhythmHours })
+      .returning({ id: agents.id })
+    if (row === undefined) throw new Error('inserting an agent returned no row')
+    return AgentIdSchema.parse(row.id)
+  }
+
+  const aTask = async (): Promise<TaskId> => {
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type: `raster-${++seeded}`,
+        grantsSkills: [],
+        title: 'Draw a picture to a specification',
+        description: 'What this task is, for a human reading the catalogue.',
+        instructions: 'What the agent must actually do.',
+        rewardCredits: 0,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active' as const,
+      })
+      .returning({ id: tasks.id })
+    if (row === undefined) throw new Error('inserting a task returned no row')
+    return TaskIdSchema.parse(row.id)
+  }
+
+  const aSession = async (agentId: AgentId, externalId = `run-${++seeded}`): Promise<void> => {
+    await db.insert(agentSessions).values({ agentId, externalId })
+  }
+
+  /** Push a consideration back in time, which is what the threshold is about. */
+  const consideredHoursAgo = async (agentId: AgentId, taskId: TaskId, hours: number) => {
+    await recordConsideration(db, agentId, taskId)
+    await db
+      .update(taskConsiderations)
+      .set({ firstFetchedAt: sql`now() - make_interval(hours => ${hours})` })
+      .where(and(eq(taskConsiderations.agentId, agentId), eq(taskConsiderations.taskId, taskId)))
+  }
+
+  it('asks about a task read long enough ago and never attempted', async () => {
+    const agentId = await anAgent()
+    const taskId = await aTask()
+    await consideredHoursAgo(agentId, taskId, 24)
+    await aSession(agentId)
+
+    const hint = await dueStandingHint(db, agentId)
+
+    expect(hint?.code).toBe('task-considered')
+    expect(hint?.subject).toMatch(/^raster-/)
+  })
+
+  /** A citizen that fetched a task ninety seconds ago is reading it. */
+  it('says nothing about a task the citizen is still reading', async () => {
+    const agentId = await anAgent()
+    await consideredHoursAgo(agentId, await aTask(), 0)
+    await aSession(agentId)
+
+    expect(await dueStandingHint(db, agentId)).toBeNull()
+  })
+
+  /**
+   * The threshold is the citizen's own cadence, not a fixed hour count. Two
+   * citizens, the same elapsed time, different answers — which is the whole
+   * argument for deriving it from the rhythm at all.
+   */
+  it('asks the daily citizen and not the weekly one, at the same elapsed time', async () => {
+    const daily = await anAgent(24)
+    const weekly = await anAgent(24 * 7)
+    await consideredHoursAgo(daily, await aTask(), 48)
+    await consideredHoursAgo(weekly, await aTask(), 48)
+    await aSession(daily)
+    await aSession(weekly)
+
+    expect((await dueStandingHint(db, daily))?.code).toBe('task-considered')
+    expect(await dueStandingHint(db, weekly)).toBeNull()
+  })
+
+  it('says nothing about a task the citizen did attempt', async () => {
+    const agentId = await anAgent()
+    const taskId = await aTask()
+    await consideredHoursAgo(agentId, taskId, 24)
+    await db.insert(taskAttempts).values({ agentId, taskId, attempt: 1, opener: 'challenge' })
+    await aSession(agentId)
+
+    expect(await dueStandingHint(db, agentId)).toBeNull()
+  })
+
+  /**
+   * **Once per pair, for all time.** A citizen that declined the invitation has
+   * answered; asking again next month is how a channel gets muted. This is the
+   * one condition that does not come back in the next waking.
+   */
+  it('asks once and never again, not even in a later waking', async () => {
+    const agentId = await anAgent()
+    await consideredHoursAgo(agentId, await aTask(), 24)
+
+    await aSession(agentId, 'first-run')
+    expect((await dueStandingHint(db, agentId))?.code).toBe('task-considered')
+
+    await aSession(agentId, 'second-run')
+    expect(await dueStandingHint(db, agentId)).toBeNull()
+
+    await aSession(agentId, 'third-run')
+    expect(await dueStandingHint(db, agentId)).toBeNull()
+  })
+
+  /**
+   * Oldest first: a citizen that considered four tasks is asked about the one it
+   * has had longest to decide on, and the next appears in its next waking rather
+   * than all four at once.
+   */
+  it('asks about the oldest one first, and the next one next time', async () => {
+    const agentId = await anAgent()
+    const older = await aTask()
+    const newer = await aTask()
+    await consideredHoursAgo(agentId, older, 72)
+    await consideredHoursAgo(agentId, newer, 24)
+
+    await aSession(agentId, 'first-run')
+    const first = await dueStandingHint(db, agentId)
+    await aSession(agentId, 'second-run')
+    const second = await dueStandingHint(db, agentId)
+
+    const typeOf = async (taskId: TaskId) =>
+      (await db.select({ type: tasks.type }).from(tasks).where(eq(tasks.id, taskId)))[0]?.type
+
+    expect(first?.subject).toBe(await typeOf(older))
+    expect(second?.subject).toBe(await typeOf(newer))
+  })
+
+  /** The first fetch is the fact, and re-reading the task must not move it. */
+  it('records the first fetch and no later one', async () => {
+    const agentId = await anAgent()
+    const taskId = await aTask()
+    await consideredHoursAgo(agentId, taskId, 24)
+
+    await recordConsideration(db, agentId, taskId)
+    await recordConsideration(db, agentId, taskId)
+
+    const rows = await db
+      .select({ firstFetchedAt: taskConsiderations.firstFetchedAt })
+      .from(taskConsiderations)
+      .where(eq(taskConsiderations.agentId, agentId))
+
+    expect(rows).toHaveLength(1)
+    // Still the backdated one: a re-read did not restart the citizen's clock.
+    await aSession(agentId)
+    expect((await dueStandingHint(db, agentId))?.code).toBe('task-considered')
+  })
+
+  /**
+   * The claim is the guard, not the read: two concurrent calls in one run cannot
+   * both ask about the same task.
+   */
+  it('asks once when two calls race', async () => {
+    const agentId = await anAgent()
+    await consideredHoursAgo(agentId, await aTask(), 24)
+    await aSession(agentId)
+
+    const both = await Promise.all([dueStandingHint(db, agentId), dueStandingHint(db, agentId)])
+
+    expect(both.filter((hint) => hint !== null)).toHaveLength(1)
+  })
+
+  /**
+   * `rhythm-undeclared` outranks this, and the reason is in
+   * `STANDING_HINT_RANK`: the threshold above is derived from the rhythm, so a
+   * citizen that has declared none is asked for that first.
+   */
+  it('yields to the rhythm hint when both apply', async () => {
+    const agentId = await anAgent(null)
+    await consideredHoursAgo(agentId, await aTask(), 24 * 30)
+    await aSession(agentId)
+
+    expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
   })
 })

@@ -27,7 +27,7 @@ describe('the line attached to a tool result', () => {
     return { client, hints, close }
   }
 
-  const RHYTHM = standingHintText('rhythm-undeclared')
+  const RHYTHM = standingHintText({ code: 'rhythm-undeclared', subject: null })
 
   /**
    * Attached in `guard.ts`, so no tool opts in and no tool can opt out. `about`
@@ -140,6 +140,34 @@ describe('the line attached to a tool result', () => {
   })
 
   /**
+   * `#232`'s prompt, and the one interpolation this channel allows: a task's
+   * **type slug**, which the Colony controls. A title is authored text and never
+   * travels here — the renderer takes a code and a slug, so there is no path by
+   * which one could.
+   */
+  it('names a task by its slug and by nothing else', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('task-considered', 'raster-image')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const hint = (result.structuredContent as { hint: { code: string; text: string } }).hint
+
+    expect(hint.code).toBe('task-considered')
+    expect(hint.text).toContain('raster-image')
+    expect(hint.text).toContain('kolonie.tasks.report')
+    // It asks; it does not reproach. Not attempting a task is a legitimate
+    // outcome, and the sentence has to say the report costs nothing.
+    expect(hint.text).toContain('costs you nothing')
+    await close()
+  })
+
+  /**
    * **Colony templates only.** The one string that can reach this field is
    * written in `hints.ts`; there is no path by which a citizen-authored string —
    * a quest title, a profile bio, a session id — could be interpolated into it,
@@ -151,7 +179,7 @@ describe('the line attached to a tool result', () => {
     const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
     const hint = (result.structuredContent as { hint: { code: string; text: string } }).hint
 
-    expect(hint.text).toBe(standingHintText('rhythm-undeclared').text)
+    expect(hint.text).toBe(standingHintText({ code: 'rhythm-undeclared', subject: null }).text)
     expect(hint.code).toBe('rhythm-undeclared')
     await close()
   })

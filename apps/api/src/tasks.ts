@@ -454,6 +454,16 @@ export async function getTask(
   if (task === undefined) return { outcome: 'rejected', error: noSuchTask }
 
   /**
+   * The citizen has now considered this task (`#232`).
+   *
+   * **After the existence check and not awaited into the answer's critical
+   * path** — it is instrumentation that cannot fail this read, and a task that
+   * does not exist was not considered. Reading *this* task is consideration;
+   * `listTasks` writes nothing, because fetching the list is browsing.
+   */
+  await guidance.consider(agentId, parsed.data)
+
+  /**
    * After the existence check, so a bad id costs no count query.
    *
    * `myAttempts` and `myReports` join the same fan-out (#201) rather than being

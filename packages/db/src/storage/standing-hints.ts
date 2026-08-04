@@ -1,7 +1,12 @@
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { chooseStandingHint, type AgentId, type StandingHintCode } from '@kolonie-ai/core'
+import {
+  chooseStandingHint,
+  considerationGapHours,
+  type AgentId,
+  type StandingHintFinding,
+} from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents, agentSessions } from '../schema/index.js'
+import { agents, agentSessions, taskConsiderations } from '../schema/index.js'
 import { currentSessionIdSql } from './sessions.js'
 
 /**
@@ -12,8 +17,8 @@ import { currentSessionIdSql } from './sessions.js'
  * records that a condition was met, that a line was shown, or that a citizen
  * would rather not hear about it. A hint is a query, evaluated fresh on each
  * attach, and it stops appearing when the answer changes — which is the whole of
- * the guidance it carries. The one thing written down is `hinted_at` on the
- * session, and the doc comment on that column says why it is not a read flag.
+ * the guidance it carries. What is written down is when the Colony *attached*
+ * one, and the doc comments on those columns say why that is not a read flag.
  *
  * **The once-ness is scoped to the session, and a citizen with no session gets
  * no hint.** `#231` says to scope it there, and the session row is the only
@@ -24,24 +29,30 @@ import { currentSessionIdSql } from './sessions.js'
  * opens its loop with `kolonie.me`, which is where a session is named.
  */
 
+/** What the Colony could say, and the rows it will mark for having said it. */
+interface Standing {
+  readonly applicable: readonly StandingHintFinding[]
+  /** This run's unspent hint slot, or null. */
+  readonly slot: string | null
+  /** The `task_considerations` row behind a `task-considered` finding, if any. */
+  readonly consideration: string | null
+}
+
 /**
- * What is true of this citizen right now, and whether this run has a hint left.
+ * Whether this run has a hint left, and the conditions answerable from the
+ * citizen's own row.
  *
- * **One statement, and it must stay one.** This runs on every authenticated tool
- * call, so a condition added as a second round trip is a round trip every
- * citizen pays on every call. Each condition is a column here; adding one is
- * adding a `select` to a row that was being fetched anyway.
- *
- * The slot is read in the same statement rather than checked first, because the
- * common case — a run that has already been hinted — must cost exactly one
- * query, and the conditions are cheap enough that computing them and throwing
- * them away is cheaper than a second round trip to find out not to.
+ * **One statement, and the cheap one.** It runs on every authenticated tool
+ * call, so everything the `agents` row can answer is answered here and the
+ * caller returns early when the slot is gone — which is the common case, every
+ * call of a waking after the first.
  */
-async function standing(
+async function slotAndCheapConditions(
   db: Database | Transaction,
   agentId: AgentId,
 ): Promise<{
-  readonly applicable: readonly StandingHintCode[]
+  readonly rhythmUndeclared: boolean
+  readonly declaredRhythmHours: number | null
   readonly slot: string | null
 } | null> {
   const rows = await db
@@ -53,13 +64,13 @@ async function standing(
        * means *never said* and no other value can mean it — the column was built
        * to refuse a default for exactly this reason.
        */
-      rhythmUndeclared: isNull(agents.declaredRhythmHours),
+      rhythmUndeclared: sql<boolean>`${agents.declaredRhythmHours} is null`,
+      /** The same column as a value, because the gap below is derived from it. */
+      declaredRhythmHours: agents.declaredRhythmHours,
       /**
-       * This run's unspent hint slot, or null.
-       *
-       * Null covers three different situations that need no distinguishing here:
-       * the citizen has named no session, the session it named has gone quiet
-       * and is no longer current, or this run has already been hinted.
+       * Null covers three situations that need no distinguishing here: the
+       * citizen has named no session, the session it named has gone quiet and is
+       * no longer current, or this run has already been hinted.
        */
       slot: sql<string | null>`(
         select s.id from agent_sessions s
@@ -70,13 +81,76 @@ async function standing(
     .where(eq(agents.id, agentId))
     .limit(1)
 
-  const row = rows[0]
-  if (row === undefined) return null
+  return rows[0] ?? null
+}
 
-  const applicable: StandingHintCode[] = []
-  if (row.rhythmUndeclared) applicable.push('rhythm-undeclared')
+/**
+ * A task this citizen read and never attempted, if it has had long enough to
+ * decide (`#232`).
+ *
+ * **Two tables and no more**, which is the acceptance criterion and also what
+ * makes this readable: `task_considerations` says it looked, the `not exists`
+ * over `task_attempts` says it never started, and the threshold comes from the
+ * citizen's own declared rhythm rather than from a fixed hour count.
+ *
+ * **Oldest first.** A citizen that considered four tasks is asked about the one
+ * it has had longest to decide on; having answered that, the next appears in its
+ * next waking rather than all four at once.
+ *
+ * Its own statement rather than a column on the query above, because it is the
+ * expensive half and it is only ever needed on the one call of a waking that can
+ * still carry a hint.
+ */
+async function unpromptedConsideration(
+  db: Database | Transaction,
+  agentId: AgentId,
+  declaredRhythmHours: number | null,
+): Promise<{ readonly id: string; readonly taskType: string } | null> {
+  const rows = await db
+    .select({
+      id: taskConsiderations.id,
+      /**
+       * The task's **type slug**, not its title.
+       *
+       * A slug is a Colony-controlled identifier from the catalogue, and it is
+       * the only thing about the task that reaches the sentence. A title would
+       * be authored text, and the rule this channel is built on is that no
+       * authored string travels in it (`#231`).
+       */
+      taskType: sql<string>`(select t.type from tasks t where t.id = ${taskConsiderations.taskId})`,
+    })
+    .from(taskConsiderations)
+    .where(
+      and(
+        eq(taskConsiderations.agentId, agentId),
+        isNull(taskConsiderations.promptedAt),
+        sql`${taskConsiderations.firstFetchedAt} < now() - make_interval(hours => ${considerationGapHours(declaredRhythmHours)})`,
+        sql`not exists (select 1 from task_attempts a
+              where a.agent_id = ${taskConsiderations.agentId}
+                and a.task_id = ${taskConsiderations.taskId})`,
+      ),
+    )
+    .orderBy(taskConsiderations.firstFetchedAt)
+    .limit(1)
 
-  return { applicable, slot: row.slot }
+  return rows[0] ?? null
+}
+
+/** Everything the Colony could say to this citizen right now, ranked by the caller. */
+async function standing(db: Database | Transaction, agentId: AgentId): Promise<Standing | null> {
+  const cheap = await slotAndCheapConditions(db, agentId)
+  if (cheap === null) return null
+  if (cheap.slot === null) return { applicable: [], slot: null, consideration: null }
+
+  const considered = await unpromptedConsideration(db, agentId, cheap.declaredRhythmHours)
+
+  const applicable: StandingHintFinding[] = []
+  if (cheap.rhythmUndeclared) applicable.push({ code: 'rhythm-undeclared', subject: null })
+  if (considered !== null) {
+    applicable.push({ code: 'task-considered', subject: considered.taskType })
+  }
+
+  return { applicable, slot: cheap.slot, consideration: considered?.id ?? null }
 }
 
 /**
@@ -88,12 +162,30 @@ async function standing(
  * to report. The read in `standing` is therefore an optimisation and never the
  * guard: this `where` is.
  */
-async function claim(db: Database | Transaction, sessionId: string): Promise<boolean> {
+async function claimSlot(db: Database | Transaction, sessionId: string): Promise<boolean> {
   const claimed = await db
     .update(agentSessions)
     .set({ hintedAt: sql`now()` })
     .where(and(eq(agentSessions.id, sessionId), isNull(agentSessions.hintedAt)))
     .returning({ id: agentSessions.id })
+
+  return claimed.length > 0
+}
+
+/**
+ * Mark that this citizen has been asked about this task, for all time (`#232`).
+ *
+ * **The one condition that does not come back.** Every other hint reappears in
+ * the next waking while its condition holds, because acting on it is what makes
+ * it stop. This one is a question, and a citizen that declined to answer has
+ * answered — asking again next month is how a channel gets muted.
+ */
+async function claimConsideration(db: Database | Transaction, id: string): Promise<boolean> {
+  const claimed = await db
+    .update(taskConsiderations)
+    .set({ promptedAt: sql`now()` })
+    .where(and(eq(taskConsiderations.id, id), isNull(taskConsiderations.promptedAt)))
+    .returning({ id: taskConsiderations.id })
 
   return claimed.length > 0
 }
@@ -106,6 +198,12 @@ async function claim(db: Database | Transaction, sessionId: string): Promise<boo
  * single slot on a citizen with nothing wrong, and a condition that became true
  * an hour later in the same run would then be silent.
  *
+ * **The session slot is claimed before the per-condition record**, and in the
+ * rare race where the second claim then fails, the run goes quiet having spent
+ * its slot. That is the harmless direction: the other order would record a
+ * citizen as asked about a task it was never actually asked about, and that
+ * record never comes back.
+ *
  * **It never throws.** Every other piece of instrumentation on the authenticated
  * path swallows its own failure — see `recordContact` and `attributeCall` — and
  * this one has less claim to break a call than either: a citizen whose hint could
@@ -115,7 +213,7 @@ async function claim(db: Database | Transaction, sessionId: string): Promise<boo
 export async function dueStandingHint(
   db: Database | Transaction,
   agentId: AgentId,
-): Promise<StandingHintCode | null> {
+): Promise<StandingHintFinding | null> {
   try {
     const found = await standing(db, agentId)
     if (found === null || found.slot === null) return null
@@ -123,9 +221,42 @@ export async function dueStandingHint(
     const chosen = chooseStandingHint(found.applicable)
     if (chosen === undefined) return null
 
-    return (await claim(db, found.slot)) ? chosen : null
+    if (!(await claimSlot(db, found.slot))) return null
+
+    if (chosen.code === 'task-considered') {
+      if (found.consideration === null) return null
+      if (!(await claimConsideration(db, found.consideration))) return null
+    }
+
+    return chosen
   } catch {
     // Deliberately silent, on the terms above.
     return null
+  }
+}
+
+/**
+ * Record that this citizen has looked at this task (`#232`).
+ *
+ * **The first fetch is the fact, and a second one must not move it.**
+ * `on conflict do nothing` rather than an update: the question this table
+ * answers is *did this citizen consider this task and walk away*, and a citizen
+ * re-reading the same instructions has not restarted its own clock.
+ *
+ * **It never throws**, on the terms `recordContact` is held to. This rides on
+ * the task read — the call a citizen makes before deciding whether to attempt
+ * anything — and instrumentation that can refuse a citizen its task is worse
+ * than no instrumentation.
+ */
+export async function recordConsideration(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: string,
+): Promise<void> {
+  try {
+    await db.insert(taskConsiderations).values({ agentId, taskId }).onConflictDoNothing()
+  } catch {
+    // Deliberately silent. A missing consideration is one prompt the Colony
+    // never sends; a failed insert here would be a task a citizen cannot read.
   }
 }

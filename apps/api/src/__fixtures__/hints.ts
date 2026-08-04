@@ -1,4 +1,4 @@
-import type { AgentId, StandingHintCode } from '@kolonie-ai/core'
+import type { AgentId, StandingHintCode, StandingHintFinding } from '@kolonie-ai/core'
 import type { StandingHintSource } from '../hints.js'
 
 export interface FakeStandingHints extends StandingHintSource {
@@ -10,14 +10,14 @@ export interface FakeStandingHints extends StandingHintSource {
    * fake that kept answering the same code would let a guard that asks on every
    * call pass the test that exists to catch it.
    */
-  readonly answers: (code: StandingHintCode) => void
+  readonly answers: (code: StandingHintCode, subject?: string) => void
   /** Who was asked, in order — including the asks that answered nothing. */
   readonly asked: () => readonly AgentId[]
 }
 
 /** A hint source that answers once with whatever a test put in it. */
 export function fakeStandingHints(): FakeStandingHints {
-  let pending: StandingHintCode | null = null
+  let pending: StandingHintFinding | null = null
   const asked: AgentId[] = []
 
   return {
@@ -27,8 +27,8 @@ export function fakeStandingHints(): FakeStandingHints {
       pending = null
       return answer
     },
-    answers: (code) => {
-      pending = code
+    answers: (code, subject) => {
+      pending = { code, subject: subject ?? null }
     },
     asked: () => [...asked],
   }

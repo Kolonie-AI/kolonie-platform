@@ -230,6 +230,27 @@ export function questPayoutReference(taskId: TaskId, submissionId: SubmissionId)
 export const FundingSourceSchema = z.enum(['bootstrap', 'external', 'unclassified'])
 export type FundingSource = z.infer<typeof FundingSourceSchema>
 
+/**
+ * What a credit booked by an operator at the command line is referenced by
+ * (`#316`).
+ *
+ * A deposit carries its signature and a quest carries its task, because both
+ * have something outside the ledger to point at. A hand credit has nothing —
+ * so it carries an id of its own, and the prefix is what makes *which credits
+ * were typed in by a person* a prefix scan rather than a `like` over prose.
+ *
+ * That question is not the same as `funding_source = 'bootstrap'`, which is
+ * about **whose money** it was. Once the deposit path is the ordinary way in,
+ * bootstrap money will arrive by it too, and the distinction stops being
+ * academic.
+ */
+export const HAND_CREDIT_REFERENCE_PREFIX = 'hand-credit:'
+
+/** The `reference` a credit booked by hand carries. */
+export function handCreditReference(id: string): string {
+  return `${HAND_CREDIT_REFERENCE_PREFIX}${id}`
+}
+
 /** Balance of a single account, given the entries that belong to it. */
 export function balanceOf(entries: readonly Pick<LedgerEntry, 'amount'>[]): CreditAmount {
   return sumEntries(entries)

@@ -300,6 +300,14 @@ describe('whose money it was', () => {
        */
       'deposits.ts',
       'deposits.test.ts',
+      /**
+       * The operator's CLI **writes** it and nothing more (`#316`), which is the
+       * same exemption `deposits.ts` holds one door along. The value is the
+       * operator's own `--source`, passed straight to `creditBalance`: nothing
+       * here branches on it, and the command refuses to run without one rather
+       * than choosing a value of its own.
+       */
+      'admin.ts',
     ])
     const found: string[] = []
 

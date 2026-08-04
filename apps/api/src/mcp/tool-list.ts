@@ -180,6 +180,18 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.operator.request.read',
   'kolonie.operator.request.reply',
   'kolonie.operator.request.close',
+  /**
+   * Blocked by permission rather than by ability (#147) — saying so, reading the case
+   * it makes, and taking one back.
+   *
+   * Filed under `autonomy` rather than under `tasks.report`, and the naming is the
+   * decision: a struggle is evidence about a *task* and is published, while this is a
+   * fact about one citizen's *contract* and is published to nobody. A citizen picking
+   * between two tools named alike would pick wrongly.
+   */
+  'kolonie.autonomy.blocked',
+  'kolonie.autonomy.recommendation',
+  'kolonie.autonomy.blocked.withdraw',
   'kolonie.academy.retest',
   'kolonie.vault.set',
   'kolonie.vault.get',

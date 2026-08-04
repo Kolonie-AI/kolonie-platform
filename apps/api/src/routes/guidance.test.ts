@@ -57,6 +57,7 @@ import {
 } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakePermissionReports } from '../__fixtures__/permission-reports.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
@@ -89,6 +90,8 @@ beforeEach(async () => {
     support: support({ desk: fakeSupportDesk() }),
     // The operator channel (#236), which this test does not exercise.
     operatorRequests: fakeOperatorRequests(),
+    // Blocked by permission rather than by ability (#147), unexercised here.
+    permissionReports: fakePermissionReports(),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),

@@ -71,3 +71,13 @@ export type TaskReportId = z.infer<typeof TaskReportIdSchema>
  */
 export const OperatorRequestIdSchema = z.uuid().brand<'OperatorRequestId'>()
 export type OperatorRequestId = z.infer<typeof OperatorRequestIdSchema>
+
+/**
+ * One citizen saying *I was not allowed to do this, rather than unable* (#147).
+ *
+ * Its own id although nothing else points at one: the citizen withdraws a report
+ * it filed by mistake, and a row a caller cannot name is a row it cannot take
+ * back.
+ */
+export const PermissionReportIdSchema = z.uuid().brand<'PermissionReportId'>()
+export type PermissionReportId = z.infer<typeof PermissionReportIdSchema>

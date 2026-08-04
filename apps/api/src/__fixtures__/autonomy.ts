@@ -190,9 +190,17 @@ export function fakeAutonomyMailer(delivered = true): Mailer & {
  * absent here means *the Colony cannot send*, which is a 503, and a test that
  * had not thought about it would otherwise get one and read it as a refusal.
  */
-export function fakeAutonomy(pages: FakeOperatorPages = fakeOperatorPages()): AutonomyDependencies {
+export function fakeAutonomy(
+  pages: FakeOperatorPages = fakeOperatorPages(),
+  /**
+   * The contract store, passed in when something else reads the same contracts —
+   * `#147`'s recommendation does. Two stores would let a test grant a contract the
+   * other reader never sees.
+   */
+  store: FakeAutonomyStore = fakeAutonomyStore(),
+): AutonomyDependencies {
   return {
-    store: fakeAutonomyStore(),
+    store,
     pages,
     mailer: fakeAutonomyMailer(),
     formBaseUrl: 'https://console.example.org',

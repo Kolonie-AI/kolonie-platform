@@ -11,6 +11,7 @@ import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
 import { databaseSupportDesk, support } from './support.js'
 import { databaseOperatorRequestStore } from './operator-requests.js'
+import { databasePermissionReportStore } from './permission-reports.js'
 import { databaseErasureDesk, erasure } from './erasure.js'
 import { databaseRetesting } from './retest.js'
 import { databaseRegistry } from './registration.js'
@@ -245,6 +246,16 @@ const obstruction: RecordObstruction = (taskType, agentId) =>
  */
 const supportSurface = support({ desk: databaseSupportDesk(db) })
 
+/**
+ * The autonomy store, built once because two modules read the same contract (#147).
+ *
+ * The autonomy module records it; the recommendation compares it with what a
+ * citizen's blocked work needs. One object, for the reason `supportSurface` above is
+ * one: a second construction here would compile and would be a second answer to
+ * *what does this citizen hold*.
+ */
+const autonomyStore = databaseAutonomyStore(db)
+
 const app = buildApp({
   registry: databaseRegistry(db),
   store: databaseStore(db),
@@ -293,6 +304,17 @@ const app = buildApp({
    * absent for the same reason: a notification that could not be sent must read as
    * the Colony's own gap rather than as an operator who did not reply.
    */
+  /**
+   * Blocked by permission rather than by ability (#147).
+   *
+   * `contracts` is the **same** autonomy store the module above holds, not a second
+   * one: the recommendation's whole job is comparing what the citizen holds with what
+   * its blocked work needs, and two readers of one contract would be two answers.
+   */
+  permissionReports: {
+    store: databasePermissionReportStore(db),
+    contracts: autonomyStore,
+  },
   operatorRequests: {
     store: databaseOperatorRequestStore(db),
     allowance: supportSurface,
@@ -418,7 +440,7 @@ const app = buildApp({
    * second variable naming the same host is a second thing to get wrong.
    */
   autonomy: {
-    store: databaseAutonomyStore(db),
+    store: autonomyStore,
     pages: databaseOperatorPages(db),
     ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
     ...(process.env['CONSOLE_URL'] ? { formBaseUrl: process.env['CONSOLE_URL'] } : {}),

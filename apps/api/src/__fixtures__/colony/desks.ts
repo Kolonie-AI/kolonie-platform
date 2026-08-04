@@ -3,12 +3,19 @@ import type { OperatorClaimDependencies } from '../../operator-claim.js'
 import type { AccountDependencies } from '../../accounts.js'
 import { support as supportSurface, type Support } from '../../support.js'
 import { erasure as erasureSurface, type Erasure } from '../../erasure.js'
-import { fakeAutonomy, fakeOperatorPages } from '../autonomy.js'
+import {
+  fakeAutonomy,
+  fakeAutonomyStore,
+  fakeOperatorPages,
+  type FakeAutonomyStore,
+} from '../autonomy.js'
+import { fakePermissionReports, type FakePermissionReportStore } from '../permission-reports.js'
 import { fakeOperatorClaim } from '../operator-claim.js'
 import { fakeAccounts } from '../accounts.js'
 import { fakeSupportDesk, type FakeSupportDesk } from '../support.js'
 import { fakeOperatorRequests, type FakeOperatorRequestStore } from '../operator-requests.js'
 import type { OperatorRequestDependencies } from '../../operator-requests.js'
+import type { PermissionReportDependencies } from '../../permission-reports.js'
 import { fakeErasureDesk, type FakeErasureDesk } from '../erasure.js'
 
 /**
@@ -55,6 +62,24 @@ export interface FakeDesks {
    */
   readonly operatorRequests: OperatorRequestDependencies
   readonly operatorRequestStore: FakeOperatorRequestStore
+  /**
+   * Blocked by permission rather than by ability (#147), and the store behind it.
+   *
+   * **Its contract store is the autonomy module's own**, not a second one: the
+   * recommendation compares what a citizen holds with what its blocked work needs, and
+   * a test that granted a contract through `autonomy` would otherwise find the
+   * recommendation had never heard of it.
+   */
+  readonly permissionReports: PermissionReportDependencies
+  readonly permissionReportStore: FakePermissionReportStore
+  /**
+   * The contract store, exposed for the same reason `desk` is: `autonomy` is what the
+   * tools are wired to, and this is how a test says *this citizen already holds
+   * `independent`* without walking an operator through a form.
+   *
+   * It is the object **both** `autonomy` and `permissionReports` hold.
+   */
+  readonly autonomyStore: FakeAutonomyStore
 }
 
 export function fakeDesks(): FakeDesks {
@@ -69,6 +94,8 @@ export function fakeDesks(): FakeDesks {
    * a page the request path had never heard of.
    */
   const pages = fakeOperatorPages()
+  const autonomyStore = fakeAutonomyStore()
+  const permissionReports = fakePermissionReports(autonomyStore)
   const operatorRequests = fakeOperatorRequests({ allowance: support, pages })
 
   return {
@@ -76,10 +103,13 @@ export function fakeDesks(): FakeDesks {
     desk,
     operatorRequests,
     operatorRequestStore: operatorRequests.store,
+    permissionReports,
+    permissionReportStore: permissionReports.store,
     erasure: erasureSurface({ desk: erasureDesk }),
     erasureDesk,
     accounts: fakeAccounts(),
     operatorClaim: fakeOperatorClaim(),
-    autonomy: fakeAutonomy(pages),
+    autonomy: fakeAutonomy(pages, autonomyStore),
+    autonomyStore,
   }
 }

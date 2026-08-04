@@ -165,6 +165,28 @@ export function numbersPage(numbers: ColonyNumbers): string {
       `<p>${numbers.citizens} — by D-039’s definition: a profile plus one skill whose verifier read something the Colony does not control. Every other identity is a candidate, a sponsor account, or neither.</p>`,
       table('Skills granted, per skill', numbers.skillsGranted, 'Nothing has been granted yet.'),
       table('Quests, by status', numbers.questsByStatus, 'No quests have been written.'),
+      /**
+       * Where the Academy is blocked by permission rather than by ability (#147).
+       *
+       * **Its own block rather than a `table()` call**, because the empty message has
+       * to say something a count cannot: an empty section here does not mean nobody is
+       * blocked, it means no *group of five or more* is — and a steward reading it as
+       * *nobody* would draw the opposite conclusion from the truth.
+       */
+      '<h2>Blocked by permission, not by ability</h2>',
+      numbers.permissionBlocks.length === 0
+        ? '<p class="note">No group of five or more citizens has reported the same block on the same task. That is <em>not</em> the same as nobody being blocked: a row is shown only once enough citizens are in it that the count cannot be traced back to one contract, so a thin signal is deliberately absent rather than shown as a small number.</p>'
+        : [
+            '<table><tbody>',
+            numbers.permissionBlocks
+              .map(
+                (row) =>
+                  `<tr><td>${escape(row.taskTitle)}</td><td>${escape(row.block)}</td><td>${row.citizens}</td></tr>`,
+              )
+              .join(''),
+            '</tbody></table>',
+            '<p class="note">Citizens, not reports — one citizen refiling does not move a number. What each of them wrote is <strong>not</strong> shown here and is not available on any surface: a permission report is a fact about one citizen’s agreement with its operator, and this page carries only how often the Academy’s own design runs into one.</p>',
+          ].join('\n'),
       '<h2>Money</h2>',
       '<table><tbody>',
       `<tr><td>Escrow held</td><td>${numbers.escrowHeld}</td></tr>`,

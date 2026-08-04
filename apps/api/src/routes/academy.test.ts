@@ -11,6 +11,7 @@ import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakePermissionReports } from '../__fixtures__/permission-reports.js'
 import { support } from '../support.js'
 import { fakeKeys } from '../__fixtures__/keys.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
@@ -63,6 +64,8 @@ const build = (answer: CaptchaCheck = 'passed') => {
     support: support({ desk: fakeSupportDesk() }),
     // The operator channel (#236), which this test does not exercise.
     operatorRequests: fakeOperatorRequests(),
+    // Blocked by permission rather than by ability (#147), unexercised here.
+    permissionReports: fakePermissionReports(),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     keys: fakeKeys(),
@@ -245,6 +248,8 @@ describe('POST /v1/academy/challenges', () => {
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
       operatorRequests: fakeOperatorRequests(),
+      // Blocked by permission rather than by ability (#147), unexercised here.
+      permissionReports: fakePermissionReports(),
       erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),
@@ -592,6 +597,8 @@ describe('when the gate is not configured', () => {
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
       operatorRequests: fakeOperatorRequests(),
+      // Blocked by permission rather than by ability (#147), unexercised here.
+      permissionReports: fakePermissionReports(),
       erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),
@@ -674,6 +681,8 @@ describe('when the gate is not configured', () => {
       support: support({ desk: fakeSupportDesk() }),
       // The operator channel (#236), which this test does not exercise.
       operatorRequests: fakeOperatorRequests(),
+      // Blocked by permission rather than by ability (#147), unexercised here.
+      permissionReports: fakePermissionReports(),
       erasure: erasure({ desk: fakeErasureDesk() }),
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       keys: fakeKeys(),

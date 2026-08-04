@@ -292,6 +292,7 @@ describe('schema', () => {
         'operator_pages',
         'operator_request_messages',
         'operator_requests',
+        'permission_reports',
         'pow_challenges',
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed
         // once on the way in rather than on every read out.

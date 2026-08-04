@@ -15,6 +15,7 @@ import {
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
   OperatorRequestAuthorSchema,
+  PermissionBlockSchema,
   RegistrationPathSchema,
   ReportOutcomeSchema,
   ReputationReasonSchema,
@@ -314,3 +315,18 @@ export const operatorRequestAuthor = pgEnum(
   'operator_request_author',
   valuesOf(OperatorRequestAuthorSchema.options),
 )
+
+/**
+ * What was in the citizen's way, when the obstacle was permission (#147).
+ *
+ * **An enum and not free text, beside free text rather than instead of it.** The
+ * citizen writes what it needed in its own words, because only it knows; this
+ * column is what a recommendation can be *derived* from, and a recommendation
+ * derived from prose would need a model in the path deciding which permission a
+ * citizen is asking for.
+ *
+ * **No value here maps to `free`**, which is how `#147`'s *never propose Free*
+ * becomes a property of the vocabulary rather than a rule in a function. Adding a
+ * value that did would force somebody to read `levelUnblocking` first.
+ */
+export const permissionBlock = pgEnum('permission_block', valuesOf(PermissionBlockSchema.options))

@@ -174,7 +174,12 @@ describe('the migrations', () => {
     // rather than a column, because a message is immutable and another may always
     // follow — an operator will answer wrongly and need to correct it, and an
     // unfixable first answer puts the citizen back into the loop `#234` ended.
-    expect(afterFirst.tables).toBe('57')
+    // And the other kind of report makes **fifty-eight** (`#147`):
+    // `permission_reports`, a citizen saying it was not *allowed* to do a task
+    // rather than unable to. Its own table and not a kind on `task_reports`, on
+    // D-078's rule — the two differ in where a row may be served, and this one is
+    // served to nobody but its author. See D-082.
+    expect(afterFirst.tables).toBe('58')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -224,7 +229,12 @@ describe('the migrations', () => {
     // of them**, which is the invariant it exists to hold: an operator's words
     // reach the citizen labelled as the operator's, never as Colony prose,
     // because only one of those two is authoritative about the Colony.
-    expect(afterFirst.enums).toBe('35')
+    // And `permission_block` makes thirty-six (`#147`) — what was in the citizen's
+    // way when the obstacle was permission. A closed list beside the citizen's own
+    // words rather than instead of them: a recommendation has to name a level, and
+    // **no value in this enum maps to `free`**, which is how *never propose Free*
+    // became a property of the vocabulary rather than a rule in a function.
+    expect(afterFirst.enums).toBe('36')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

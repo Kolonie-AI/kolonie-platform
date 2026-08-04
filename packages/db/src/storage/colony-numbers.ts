@@ -3,6 +3,7 @@ import { now as currentTime, type AgentId, type TaskId, type Timestamp } from '@
 import type { Database } from '../client.js'
 import { availableBalance } from './escrow.js'
 import { questReviewQueue } from './quests/index.js'
+import { permissionBlockCounts, type PermissionBlockCount } from './permission-reports.js'
 import { type toTask } from './rows.js'
 import { questModerations, tasks } from '../schema/index.js'
 
@@ -150,6 +151,21 @@ export interface ColonyNumbers {
   readonly ledgerSum: number
   /** Expected to be zero (D-038). Total supply is the negative of this. */
   readonly mintBalance: number
+  /**
+   * Where the Academy's own design is blocked by permission rather than by ability
+   * (#147), by task and by what was in the way.
+   *
+   * **Anonymous, and thin rows are absent rather than shown as small numbers.**
+   * `permissionBlockCounts` counts distinct citizens and drops anything below
+   * `PERMISSION_AGGREGATE_FLOOR` in SQL — *"fourteen citizens were blocked on this
+   * rung by permission"* is a fact worth knowing about the Academy's design, and
+   * *which* citizens is nobody's business.
+   *
+   * It is here rather than on a page of its own because this is the object the
+   * Colony's own numbers already arrive in, and a second surface would be a second
+   * place the suppression could be forgotten.
+   */
+  readonly permissionBlocks: readonly PermissionBlockCount[]
   /** When these were computed — `AGENTS.md` §7, applied to a page that reprints itself. */
   readonly computedAt: Timestamp
 }
@@ -191,6 +207,7 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
     Object.fromEntries(rows.map((row) => [key(row as never), Number(row.count)]))
 
   return {
+    permissionBlocks: await permissionBlockCounts(db),
     accountsByPath: toRecord(paths, (row: { registration_path: string }) => row.registration_path),
     citizens: Number(totals?.citizens ?? 0),
     skillsGranted: toRecord(skills, (row: { skill: string }) => row.skill),

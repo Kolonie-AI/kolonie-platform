@@ -37,6 +37,7 @@ import {
   operatorPages,
   operatorRequestMessages,
   operatorRequests,
+  permissionReports,
   taskAttempts,
   taskReports,
   taskSetAsides,
@@ -81,6 +82,7 @@ describe('the erasure boundary', () => {
                         operator_claims, operator_claim_challenges,
                         autonomy_contracts, autonomy_form_invitations, operator_pages,
                         operator_addresses, operator_request_messages, operator_requests,
+                        permission_reports,
                         agent_contacts, agent_sessions, agent_origins,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
@@ -351,6 +353,19 @@ describe('the erasure boundary', () => {
       { requestId: operatorRequest!.id, author: 'operator', body: 'Made it — the handle is @x.' },
     ])
 
+    /**
+     * *I was not allowed to, rather than unable* (#147). In the fixture because
+     * the catalogue checks the rule the constraint declares and this checks that a
+     * row actually goes — and a statement about one citizen's contract surviving
+     * that citizen is the leftover `erasure.md` §4 rules out most squarely.
+     */
+    await db.insert(permissionReports).values({
+      agentId: agent.id,
+      taskId: task.id,
+      block: 'hold-an-account',
+      needed: 'My operator has not allowed me to hold accounts under my own name yet.',
+    })
+
     // An operator claim and the string it spent (#233). The claim is the one row
     // in this set that is *about* a person who never joined; it goes with the
     // citizen anyway, because with the citizen gone there is nothing left for the
@@ -433,6 +448,7 @@ describe('the erasure boundary', () => {
     'operator_addresses',
     'operator_requests',
     'operator_request_messages',
+    'permission_reports',
     'task_reports',
     'report_feedback',
     'moderations',
@@ -992,6 +1008,18 @@ describe('the erasure boundary', () => {
        * a message outside its exchange is a sentence with no subject.
        */
       'operator_requests.agent_id c',
+      /**
+       * What a citizen said about being blocked by permission (#147). Cascades:
+       * it is the citizen's own writing about its own contract, and `erasure.md`
+       * §2 lists what a citizen wrote among what leaves with it. There is also
+       * nothing left for the row to mean — it describes an agreement between a
+       * departed citizen and a person who never joined.
+       *
+       * The Colony's aggregate is counted over live rows rather than cached, so
+       * unlike a canonical report's `confirmations` there is nothing to rebuild
+       * inside this transaction.
+       */
+      'permission_reports.agent_id c',
       'pow_challenges.agent_id c',
       /**
        * The votes a citizen cast on other citizens' reports. `erasure.md` §2

@@ -26,6 +26,7 @@ import type { SolanaDependencies } from '../solana.js'
 import type { TaskSubmissions } from '../submissions.js'
 import type { Support } from '../support.js'
 import type { OperatorRequestDependencies } from '../operator-requests.js'
+import type { PermissionReportDependencies } from '../permission-reports.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
@@ -126,6 +127,17 @@ export interface McpDependencies {
    * desks.
    */
   readonly operatorRequests: OperatorRequestDependencies
+  /**
+   * Blocked by permission rather than by ability, and the case it can take to its
+   * operator (#147).
+   *
+   * Its own dependencies rather than a method on `autonomy`, because the two answer
+   * different questions: the autonomy module is how a contract gets *recorded*, and
+   * this is what a citizen does when the contract it has is the obstacle. It does read
+   * the contract, through the same store, so there is one answer to *what does this
+   * citizen hold*.
+   */
+  readonly permissionReports: PermissionReportDependencies
   /**
    * How a citizen leaves (#93).
    *

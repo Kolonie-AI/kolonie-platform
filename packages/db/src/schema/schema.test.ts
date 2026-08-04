@@ -401,6 +401,8 @@ describe('schema', () => {
          * reset* instead of *ever*, so nothing about the earlier pass, the skill it
          * granted or the reputation it paid has to be rewritten.
          */
+        /** `#199`: one private note per citizen per rung. */
+        'task_notes',
         'task_reports',
         'task_resets',
         /**

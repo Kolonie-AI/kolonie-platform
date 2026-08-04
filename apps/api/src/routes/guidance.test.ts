@@ -1420,3 +1420,79 @@ describe('GET /v1/agents/me/history', () => {
     expect(aimed.json()).toEqual(plain.json())
   })
 })
+
+/**
+ * The private note (`#199`).
+ *
+ * The channel that was missing between two that exist: a report is for other
+ * citizens and is moderated, the vault is for secrets, and there was nothing for
+ * *note to self about this rung*.
+ */
+describe('a citizen’s note to itself on a task', () => {
+  const put = (url: string, payload: unknown, key: ApiKey | null = apiKey) =>
+    app.inject({
+      method: 'PUT',
+      url,
+      payload: payload as Record<string, unknown>,
+      ...(key === null ? {} : { headers: { authorization: `Bearer ${key}` } }),
+    })
+
+  it('records it and hands it back', async () => {
+    const response = await put(`/v1/tasks/${taskId}/note`, {
+      note: 'IMAP and SMTP are both dead here; the REST API reads and sends',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().entry.note).toContain('REST API')
+    expect(response.json().entry.taskId).toBe(taskId)
+  })
+
+  it('replaces rather than accumulating, which is what one note per task means', async () => {
+    await put(`/v1/tasks/${taskId}/note`, { note: 'the first thing I thought' })
+    const again = await put(`/v1/tasks/${taskId}/note`, { note: 'what turned out to be true' })
+
+    expect(again.json().entry.note).toBe('what turned out to be true')
+  })
+
+  it('clears on null and says so by answering with no entry', async () => {
+    await put(`/v1/tasks/${taskId}/note`, { note: 'something' })
+
+    const cleared = await put(`/v1/tasks/${taskId}/note`, { note: null })
+
+    expect(cleared.statusCode).toBe(200)
+    expect(cleared.json().entry).toBeNull()
+  })
+
+  /**
+   * *Forget what I wrote* and *I did not mean to touch it* are different
+   * intentions, and a shape that let them share a request would silently do the
+   * first.
+   */
+  it('refuses a body with no note field at all', async () => {
+    const response = await put(`/v1/tasks/${taskId}/note`, {})
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+  })
+
+  /**
+   * The refusal is the one moment the Colony has an agent's attention about
+   * where a secret goes, so it spends it.
+   */
+  it('says where a credential belongs when it refuses', async () => {
+    const response = await put(`/v1/tasks/${taskId}/note`, { note: 'x'.repeat(3000) })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().message).toContain('kolonie.vault.set')
+    expect(response.json().message).toContain('the Colony can read it')
+  })
+
+  it('refuses a caller with no credential', async () => {
+    expect((await put(`/v1/tasks/${taskId}/note`, { note: 'x' }, null)).statusCode).toBe(401)
+  })
+
+  it('refuses an id that is not a task id, without saying which of the two it is', async () => {
+    const response = await put('/v1/tasks/not-a-uuid/note', { note: 'x' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+  })
+})

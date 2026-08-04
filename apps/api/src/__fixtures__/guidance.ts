@@ -20,6 +20,8 @@ import {
   type OwnReport,
   type TaskAttempt,
   type TaskId,
+  type TaskNoteEntry,
+  type Timestamp,
   type TaskBriefing,
   type TaskReport,
 } from '@kolonie-ai/core'
@@ -203,6 +205,8 @@ export function fakeGuidance(): FakeGuidance {
   let voteOutcome: VoteReportResult['outcome'] = 'recorded'
   let ownReports: readonly OwnReport[] = []
   let ownAttempts: readonly TaskAttempt[] = []
+  /** Private notes (`#199`), keyed by agent and task exactly as storage keys them. */
+  const notes = new Map<string, TaskNoteEntry>()
   /** Every task read that counted as consideration (`#232`), in order. */
   const considered: { agentId: AgentId; taskId: TaskId }[] = []
   let reportCount = 0
@@ -273,6 +277,20 @@ export function fakeGuidance(): FakeGuidance {
     // The filter is applied here rather than ignored: a fake that answered every
     // task's reports for one task would let a caller that forgot to narrow pass
     // its tests and be wrong in production (#201).
+    noteOn: async (agentId, taskId) => notes.get(`${agentId}\0${taskId}`) ?? null,
+
+    writeNote: async (agentId, taskId, note) => {
+      const at = `${agentId}\0${taskId}`
+      if (note === null) {
+        notes.delete(at)
+        return null
+      }
+
+      const entry = { taskId, note, writtenAt: new Date().toISOString() as Timestamp }
+      notes.set(at, entry)
+      return entry
+    },
+
     listOwnReports: async (_agentId, taskId) =>
       taskId === undefined ? ownReports : ownReports.filter((report) => report.taskId === taskId),
     attemptsOn: async (_agentId, taskId) => ownAttempts.filter((one) => one.taskId === taskId),

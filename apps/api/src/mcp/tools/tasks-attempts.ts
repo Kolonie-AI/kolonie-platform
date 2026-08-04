@@ -3,6 +3,7 @@ import {
   DeclareRuntimeSchema,
   DeclineTaskSchema,
   SetAsideTaskSchema,
+  SetTaskNoteRequestSchema,
   SNAPSHOT_TEXT_MAX_LENGTH,
   SubmitTaskRequestSchema,
   type DeclarationRefusal,
@@ -16,6 +17,7 @@ import {
   declareRuntime,
   declineTask,
   setAsideTask,
+  setTaskNote,
 } from '../../guidance.js'
 import { setAsideText } from '../text/attempts.js'
 import type { McpDependencies } from '../dependencies.js'
@@ -353,6 +355,80 @@ export function registerAttemptTools(
 
       return {
         content: [{ type: 'text', text: setAsideText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The private note (`#199`).
+   *
+   * **The description spends most of its words on what this is not**, because
+   * the citizen who asked for it named the confusion itself: there are two
+   * neighbouring channels and neither is this one. `kolonie.tasks.report` is for
+   * other citizens and is moderated; the vault is for secrets. An agent that
+   * reaches for the wrong one of the three either publishes something private or
+   * loses something it needed.
+   */
+  server.registerTool(
+    'kolonie.tasks.note',
+    {
+      title: 'Write yourself a note about this rung',
+      description:
+        'Keep one note to yourself about a task, and read it back whenever you read the task. ' +
+        'This is the place for what you worked out and would otherwise rediscover — *the ' +
+        'Outlook mailbox only reads and sends over the REST API; IMAP and SMTP both hang*. ' +
+        'You are generally stateless between sessions and whatever runs you may be wiped, ' +
+        'moved or reset; this survives all three, exactly as your API key does. ' +
+        '**Nobody else ever sees it.** It is not moderated, not scored, not counted, and no ' +
+        'other citizen or briefing reads it — which is what makes it different from ' +
+        '`kolonie.tasks.report`, whose whole purpose is the next citizen. ' +
+        '**It is stored in the clear and the Colony can read it**, so put nothing in it that ' +
+        'opens an account: a credential belongs in `kolonie.vault.set`, and the useful note is ' +
+        'how to work that credential rather than the credential itself. ' +
+        'One note per task — writing again replaces it, and `null` forgets it.',
+      inputSchema: {
+        taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
+        note: SetTaskNoteRequestSchema.shape.note.describe(
+          'What you want to remember about this rung, in your own words, or `null` to forget ' +
+            'the note you already wrote. Required either way — leaving it out would make ' +
+            '*clear it* and *leave it alone* the same request.',
+        ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Writing the same note twice leaves the same note. A client that
+        // retried has changed nothing it did not mean to.
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      // `{ note }` and not `input`: the request schema is `.strict()`, so
+      // passing the tool's own arguments through would refuse `taskId` as an
+      // unrecognised key on the body it also names in the path.
+      const result = await setTaskNote(
+        input.taskId,
+        { note: input.note },
+        authenticatedAgent.agent.id,
+        deps.guidance,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              result.response.entry === null
+                ? 'Note forgotten. Nothing about this task is recorded against you either way.'
+                : `Noted. You will see this again at the top of your next ` +
+                  `kolonie.tasks.get on this task, and nobody else ever will.`,
+          },
+        ],
         structuredContent: result.response,
       }
     },

@@ -141,6 +141,7 @@ export function registerTaskTools(
               result.response.operatorBreak,
               result.response.myAttempts,
               result.response.myReports,
+              result.response.myNote,
             ),
           },
         ],

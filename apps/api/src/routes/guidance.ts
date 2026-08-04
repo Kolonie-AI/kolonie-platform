@@ -6,6 +6,7 @@ import {
   clearSetAsideOnTask,
   declineTask,
   setAsideTask,
+  setTaskNote,
   listOwnReports,
   listReports,
   readHistory,
@@ -259,6 +260,29 @@ export function registerGuidanceRoutes(v1: FastifyInstance, deps: RouteDependenc
 
     const { taskId } = request.params as { taskId?: string }
     const result = await setAsideTask(taskId, request.body, caller.id, guidance)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.send(result.response)
+  })
+
+  /**
+   * The citizen writes to itself about this rung (`#199`).
+   *
+   * **`PUT` and not `POST`, because there is one note per citizen per task.** A
+   * second write replaces the first rather than adding to it, which is what the
+   * citizen asked for and what the primary key enforces. Clearing is the same
+   * route with `null` rather than a `DELETE`, so *replace* and *forget* go
+   * through one shape and neither can be reached by accident.
+   */
+  v1.put('/tasks/:taskId/note', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { taskId } = request.params as { taskId?: string }
+    const result = await setTaskNote(taskId, request.body, caller.id, guidance)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

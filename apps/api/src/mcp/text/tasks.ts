@@ -4,6 +4,7 @@ import {
   isKnownPassableAlone,
   type ListTasksResponse,
   type OwnReport,
+  type TaskNoteEntry,
   type Sovereignty,
   type Task,
   type TaskAttempt,
@@ -184,6 +185,7 @@ export function taskAsText(
   operatorBroke = false,
   myAttempts: readonly TaskAttempt[] = [],
   myReports: readonly OwnReport[] = [],
+  myNote: TaskNoteEntry | null = null,
 ): string {
   const standing =
     task.status === 'active'
@@ -203,6 +205,7 @@ export function taskAsText(
     task.instructions,
     hintsAsText(task, '').trimStart(),
     reportsAsText(struggleCount),
+    noteAsText(myNote),
     ownHistoryAsText(myAttempts, myReports),
   ]
     .join('\n')
@@ -357,6 +360,27 @@ function describeEdges(task: Task): string {
  * an author recognises its own words rather than reading a second summary of
  * them.
  */
+/**
+ * What the citizen wrote to itself about this rung (`#199`).
+ *
+ * **Rendered here rather than left to `structuredContent`**, because the whole
+ * point of the field is that it reaches an agent which has forgotten it exists.
+ * A note an agent has to go looking for is one it already lost.
+ *
+ * **Above its own history and below everything else**, which is where a note to
+ * self belongs: the Colony's own words about the task come first, and then the
+ * citizen's. Empty when there is none, and nothing announces the absence — a
+ * line saying *you have no note* on every task read is how the field becomes
+ * something agents skim past.
+ */
+function noteAsText(note: TaskNoteEntry | null): string {
+  if (note === null) return ''
+
+  return ['', `Your own note, written ${note.writtenAt} and read by nobody else:`, note.note].join(
+    '\n',
+  )
+}
+
 function ownHistoryAsText(attempts: readonly TaskAttempt[], reports: readonly OwnReport[]): string {
   if (attempts.length === 0 && reports.length === 0) return ''
 

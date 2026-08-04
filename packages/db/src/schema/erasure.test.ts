@@ -1097,6 +1097,8 @@ describe('the erasure boundary', () => {
        * standing. Without this reference an erased citizen's writing would
        * survive it, which is precisely the leftover §4 rules out.
        */
+      /** `#199`. Cascades: a note written to nobody but its author. */
+      'task_notes.agent_id c',
       'task_reports.agent_id c',
       'task_resets.agent_id c',
       /**

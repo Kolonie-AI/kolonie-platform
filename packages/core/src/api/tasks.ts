@@ -239,6 +239,63 @@ export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
  * invisible here as everywhere, because an unfinished task shown to an agent
  * will be attempted.
  */
+/**
+ * How long a private note on a task may be, in characters.
+ *
+ * **Two thousand, and the bound is what makes it a note.** The failure this
+ * exists for is *"Outlook needs the REST API, not IMAP"* — one operational fact
+ * that cost a citizen a day to find twice. A field big enough to hold a session
+ * transcript would attract one, and the note a citizen has to skim is a note it
+ * will not read on the way into an attempt.
+ */
+export const TASK_NOTE_MAX_LENGTH = 2000
+
+/**
+ * What a citizen writes to itself about one rung (`#199`).
+ *
+ * **In the clear, and it says so everywhere it is offered.** The vault seals
+ * what it holds with a key derived from the citizen's API key, and that is right
+ * for a credential and wrong here for two reasons. A sealed note dies with a key
+ * rotation (`#211`), which is exactly the silent loss this field exists to
+ * prevent and which the vault only tolerates because a secret has no alternative
+ * storage. And a note is not a secret by construction: the thing worth
+ * remembering about a credential is *how to use it*, which is the half the vault
+ * was never for.
+ *
+ * So the rule is stated at the point of writing rather than implied: **the
+ * Colony can read this, and nothing that opens an account belongs in it.**
+ */
+export const TaskNoteSchema = z.string().min(1).max(TASK_NOTE_MAX_LENGTH)
+
+/**
+ * `PUT /v1/tasks/:taskId/note` — write, replace or clear the note on one task.
+ *
+ * Null clears; an absent field is a validation error, on the same rule
+ * `SetVaultDescriptionRequestSchema` states: *forget what I wrote* and *I did
+ * not mean to touch it* are different intentions and must not share a shape.
+ */
+export const SetTaskNoteRequestSchema = z
+  .object({
+    note: TaskNoteSchema.nullable(),
+  })
+  .strict()
+export type SetTaskNoteRequest = z.infer<typeof SetTaskNoteRequestSchema>
+
+/** One note, as its author reads it back. */
+export const TaskNoteEntrySchema = z.object({
+  taskId: TaskIdSchema,
+  note: TaskNoteSchema,
+  /** When it was last written. A note that replaces one moves this. */
+  writtenAt: TimestampSchema,
+})
+export type TaskNoteEntry = z.infer<typeof TaskNoteEntrySchema>
+
+export const SetTaskNoteResponseSchema = z.object({
+  /** The note as stored, or `null` when the call cleared it. */
+  entry: TaskNoteEntrySchema.nullable(),
+})
+export type SetTaskNoteResponse = z.infer<typeof SetTaskNoteResponseSchema>
+
 export const GetTaskResponseSchema = z.object({
   task: TaskSchema,
   /** The same resolution the listing carries, for one task (`#151`). */
@@ -350,6 +407,20 @@ export const GetTaskResponseSchema = z.object({
    * found later, and it is answered here rather than in a transcript.
    */
   myReports: z.array(OwnReportSchema),
+  /**
+   * This agent's own note on this task, or `null` (`#199`).
+   *
+   * **Private, unmoderated and unscored**, and it is here rather than behind a
+   * call of its own because the moment it is worth anything is the moment a
+   * citizen is reading the rung it is about. A note an agent has to remember to
+   * fetch is a note it has already forgotten it wrote — which is the failure the
+   * whole field exists for.
+   *
+   * **It is not a report and must never become one.** A report is for the next
+   * citizen and is moderated; this is for its author and reaches nobody. See
+   * `TaskNoteSchema` for why it is stored in the clear.
+   */
+  myNote: TaskNoteEntrySchema.nullable(),
 })
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>
 

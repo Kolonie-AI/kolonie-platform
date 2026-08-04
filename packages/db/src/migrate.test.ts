@@ -188,7 +188,13 @@ describe('the migrations', () => {
     // **Sixty** (`#239`): `operator_notes`, the operator's own direction. Its own
     // table and not a nullable `task_id` on `operator_requests` — a note shares
     // none of an exchange's four defining properties. See D-088.
-    expect(afterFirst.tables).toBe('60')
+    //
+    // **Sixty-one** (`#199`): `task_notes`, a citizen's own note on one rung.
+    // Its own table rather than a column on `task_set_asides` — that row is
+    // about whether a task is hidden, this one is about what its author knows,
+    // and a citizen with a note and no set-aside is the ordinary case. The two
+    // sixties arrived in the same hour from two agents; see D-089.
+    expect(afterFirst.tables).toBe('61')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -471,7 +471,7 @@ export async function getTask(
    * later in this function depends on them and a serial await would add a round
    * trip to every read of every task.
    */
-  const [reportCount, declared, sovereignty, operatorBreak, myAttempts, myReports] =
+  const [reportCount, declared, sovereignty, operatorBreak, myAttempts, myReports, myNote] =
     await Promise.all([
       guidance.countReports(parsed.data),
       guidance.declaredCapabilities(agentId),
@@ -479,6 +479,10 @@ export async function getTask(
       guidance.operatorBreak(agentId, parsed.data),
       guidance.attemptsOn(agentId, parsed.data),
       guidance.listOwnReports(agentId, parsed.data),
+      // The reader's own note (`#199`), in the same fan-out for the same reason:
+      // it is one row keyed by the reader and this task, and a serial await
+      // would add a round trip to every read of every task.
+      guidance.noteOn(agentId, parsed.data),
     ])
 
   /**
@@ -532,6 +536,15 @@ export async function getTask(
        */
       myAttempts: [...myAttempts],
       myReports: [...myReports],
+      /**
+       * What this citizen wrote to itself about this rung (`#199`).
+       *
+       * **Not gated on `withheld` either, and for a stronger version of the
+       * reason above.** #111 withholds what *other* citizens found; a note has
+       * exactly one reader and one author and they are the same agent. A first
+       * attempt has no note to show, so the rules never meet here either.
+       */
+      myNote,
     },
   }
 }

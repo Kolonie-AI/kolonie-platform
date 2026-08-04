@@ -93,6 +93,7 @@ export const AUTHENTICATED_TOOLS = [
    * set-aside it meant to change.
    */
   'kolonie.tasks.set-aside',
+  'kolonie.tasks.note',
   'kolonie.tasks.take-up',
   'kolonie.tasks.report.feedback',
   // Both registered by `tools/history.ts` rather than with the tasks, and it

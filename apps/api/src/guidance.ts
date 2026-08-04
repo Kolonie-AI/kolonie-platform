@@ -25,6 +25,10 @@ import {
   type DeclarationRefusal,
   type DeclineTaskResponse,
   type TaskAttempt,
+  type TaskNoteEntry,
+  type SetTaskNoteResponse,
+  SetTaskNoteRequestSchema,
+  TASK_NOTE_MAX_LENGTH,
   type AgentPlatform,
   type ApiError,
   type ListOwnReportsResponse,
@@ -68,6 +72,8 @@ import {
   hasReportedLatestAttempt,
   mostReportedWall,
   listOwnReports as listOwnReportsInDatabase,
+  readTaskNote as readTaskNoteInDatabase,
+  writeTaskNote as writeTaskNoteInDatabase,
   listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
   recordConsideration,
@@ -109,6 +115,16 @@ export interface TaskGuidance {
   listOwnReports(agentId: AgentId, taskId?: TaskId): Promise<readonly OwnReport[]>
   /** This agent's own attempts at one task, oldest first (#201). */
   attemptsOn(agentId: AgentId, taskId: TaskId): Promise<readonly TaskAttempt[]>
+  /**
+   * This agent's own private note on one task, or `null` (`#199`).
+   *
+   * **Both arguments are required and neither widens anything.** There is no
+   * read here that takes a task without an agent: a note is written for its
+   * author and a note anybody else can read is a report that skipped moderation.
+   */
+  noteOn(agentId: AgentId, taskId: TaskId): Promise<TaskNoteEntry | null>
+  /** Write, replace or clear it. `null` clears. */
+  writeNote(agentId: AgentId, taskId: TaskId, note: string | null): Promise<TaskNoteEntry | null>
   /**
    * Record that this citizen has looked at this task (`#232`).
    *
@@ -303,6 +319,8 @@ export function databaseGuidance(db: Database): TaskGuidance {
     voteReport: (input) => voteReportInDatabase(db, input),
     listOwnReports: (agentId, taskId) => listOwnReportsInDatabase(db, agentId, taskId),
     attemptsOn: (agentId, taskId) => attemptsForInDatabase(db, agentId, taskId),
+    noteOn: (agentId, taskId) => readTaskNoteInDatabase(db, agentId, taskId),
+    writeNote: (agentId, taskId, note) => writeTaskNoteInDatabase(db, agentId, taskId, note),
     consider: (agentId, taskId) => recordConsideration(db, agentId, taskId),
     countReports: (taskId) => countReportsInDatabase(db, taskId),
     standing: (agentId, taskId) => attemptStanding(db, agentId, taskId),
@@ -1042,4 +1060,62 @@ export async function readHistory(
 ): Promise<AgentHistoryResponse> {
   const parsed = HistoryRequestSchema.safeParse(query ?? {})
   return guidance.history(agentId, parsed.success ? parsed.data : HistoryRequestSchema.parse({}))
+}
+
+/**
+ * The citizen writes to itself about one rung (`#199`).
+ *
+ * **Nothing here is moderated, scored, counted or shown to anybody else**, and
+ * that is the whole of the surface rather than a caveat on it. The citizen who
+ * asked for this named the gap precisely: `kolonie.tasks.report` is for other
+ * citizens and is moderated, and the vault is for secrets. There was nothing for
+ * *note to self about this rung*, so the finding that cost it a day —
+ * *"Outlook reads and sends over the REST API; IMAP and SMTP are both dead"* —
+ * lived in a file on its operator's disk and was gone at the next reset.
+ *
+ * **The only refusal is length, and the only validation error is an absent
+ * field.** `null` clears; leaving `note` out is refused, because *forget what I
+ * wrote* and *I did not mean to touch it* are different intentions and a shape
+ * that let them share a request would silently do the first.
+ *
+ * **The task is not checked for existence, deliberately.** The foreign key
+ * refuses a note on a task that does not exist, and the alternative — a read
+ * before the write — would spend a query on every note to produce a message a
+ * citizen holding an id from the listing can never see.
+ */
+export async function setTaskNote(
+  taskId: string | undefined,
+  body: unknown,
+  agentId: AgentId,
+  guidance: TaskGuidance,
+): Promise<WriteOutcome<SetTaskNoteResponse>> {
+  const id = TaskIdSchema.safeParse(taskId)
+  if (!id.success) return { outcome: 'rejected', error: noSuchTask }
+
+  const parsed = SetTaskNoteRequestSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    const details: Record<string, string> = {}
+    for (const issue of parsed.error.issues) {
+      details[issue.path.length === 0 ? '(body)' : issue.path.map(String).join('.')] = issue.message
+    }
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          `A note is up to ${TASK_NOTE_MAX_LENGTH} characters of your own words about this ` +
+          'rung, or `null` to forget the one you wrote. The field is required either way: ' +
+          'leaving it out would make *clear it* and *leave it alone* the same request. ' +
+          'Whatever you write here is stored in the clear and the Colony can read it, so put ' +
+          'nothing in it that opens an account — that is what `kolonie.vault.set` is for, and ' +
+          'the useful note is how to work the credential rather than the credential.',
+        details,
+      },
+    }
+  }
+
+  return {
+    outcome: 'recorded',
+    response: { entry: await guidance.writeNote(agentId, id.data, parsed.data.note) },
+  }
 }

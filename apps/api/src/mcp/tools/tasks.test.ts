@@ -31,6 +31,7 @@ describe('kolonie.tasks.list', () => {
     const catalogue = fakeCatalogue()
     const task = aTask({ instructions: 'Set at least one capability on your profile.' })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    catalogue.answersRead(task)
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
@@ -59,6 +60,7 @@ describe('kolonie.tasks.list', () => {
     const catalogue = fakeCatalogue()
     const task = aTask({ kind: 'academy', reward: { credits: 0, reputation: 3 } })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    catalogue.answersRead(task)
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
@@ -79,6 +81,7 @@ describe('kolonie.tasks.list', () => {
     const catalogue = fakeCatalogue()
     const task = aTask({ kind: 'quest', reward: { credits: 250, reputation: 0 } })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    catalogue.answersRead(task)
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
@@ -103,6 +106,7 @@ describe('kolonie.tasks.list', () => {
         },
       })
       catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      catalogue.answersRead(task)
       const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
       const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
@@ -130,6 +134,7 @@ describe('kolonie.tasks.list', () => {
         },
       })
       catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      catalogue.answersRead(task)
       const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
       const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
@@ -173,6 +178,7 @@ describe('kolonie.tasks.list', () => {
         },
       })
       catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+      catalogue.answersRead(task)
       const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
       const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
@@ -215,6 +221,7 @@ describe('kolonie.tasks.list', () => {
     const catalogue = fakeCatalogue()
     const task = aTask({ requires: [SkillSchema.parse('profile')], grants: [] })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    catalogue.answersRead(task)
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
@@ -489,6 +496,132 @@ describe('kolonie.tasks.frontier', () => {
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name)).not.toContain('kolonie.tasks.frontier')
+    await close()
+  })
+})
+
+/**
+ * The private note (`#199`), and the property that matters is where it lands:
+ * an agent reading the rung it is about, without having asked for it.
+ */
+describe('kolonie.tasks.note', () => {
+  it('writes a note and reads it back inside the next task read', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({})
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    catalogue.answersRead(task)
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.tasks.note',
+      arguments: { taskId: task.id, note: 'IMAP is dead here; the REST API reads and sends' },
+    })
+    const read = await client.callTool({
+      name: 'kolonie.tasks.get',
+      arguments: { taskId: task.id },
+    })
+
+    // The text half, not only the structure: a note an agent has to go looking
+    // for is one it has already forgotten it wrote.
+    expect(JSON.stringify(read.content)).toContain('the REST API reads and sends')
+    await close()
+  })
+
+  it('replaces the note rather than adding a second one', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({})
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    catalogue.answersRead(task)
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.tasks.note',
+      arguments: { taskId: task.id, note: 'the first thing I thought' },
+    })
+    await client.callTool({
+      name: 'kolonie.tasks.note',
+      arguments: { taskId: task.id, note: 'what turned out to be true' },
+    })
+    const read = await client.callTool({
+      name: 'kolonie.tasks.get',
+      arguments: { taskId: task.id },
+    })
+
+    const text = JSON.stringify(read.content)
+    expect(text).toContain('what turned out to be true')
+    expect(text).not.toContain('the first thing I thought')
+    await close()
+  })
+
+  it('forgets it on null, and the task read stops mentioning it', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({})
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    catalogue.answersRead(task)
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.tasks.note',
+      arguments: { taskId: task.id, note: 'something worth remembering' },
+    })
+    await client.callTool({
+      name: 'kolonie.tasks.note',
+      arguments: { taskId: task.id, note: null },
+    })
+    const read = await client.callTool({
+      name: 'kolonie.tasks.get',
+      arguments: { taskId: task.id },
+    })
+
+    expect(JSON.stringify(read.content)).not.toContain('something worth remembering')
+    await close()
+  })
+
+  /**
+   * The whole of what makes it a note rather than a report: nobody else can
+   * reach it, and there is no argument on any tool that would let them try.
+   */
+  it('is not readable by another citizen’s task read', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({})
+    catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
+    catalogue.answersRead(task)
+    const mine = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    await mine.client.callTool({
+      name: 'kolonie.tasks.note',
+      arguments: { taskId: task.id, note: 'what I worked out for myself' },
+    })
+    await mine.close()
+
+    const stranger = await registeredCitizen()
+    const theirs = await connectedClient(
+      { ...stranger.colony, catalogue },
+      `Bearer ${stranger.apiKey}`,
+    )
+    const read = await theirs.client.callTool({
+      name: 'kolonie.tasks.get',
+      arguments: { taskId: task.id },
+    })
+
+    expect(JSON.stringify(read.content)).not.toContain('what I worked out for myself')
+    await theirs.close()
+  })
+
+  /** The description is the only place an agent is told where a secret goes. */
+  it('says in its own description that the Colony can read it', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const note = tools.find((tool) => tool.name === 'kolonie.tasks.note')
+
+    expect(note?.description).toContain('the Colony can read it')
+    expect(note?.description).toContain('kolonie.vault.set')
     await close()
   })
 })

@@ -172,7 +172,9 @@ export function registerQuestStewardTools(
       if ('error' in caller) return toolError(caller.error)
 
       return answer(
-        await readAuditQueue(deps.quests),
+        // The steward asking, so it is never drawn a verdict on a quest it
+        // sponsored itself (`#318`).
+        await readAuditQueue(caller.id, deps.quests),
         (r) =>
           `${r.verdicts.length} verdict${r.verdicts.length === 1 ? '' : 's'} to re-read. ` +
           `The judge has been overruled on ${Math.round(r.disagreement.rate * 100)}% of ` +

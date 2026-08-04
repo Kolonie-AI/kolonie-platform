@@ -184,3 +184,49 @@ describe('the line attached to a tool result', () => {
     await close()
   })
 })
+
+/**
+ * `#302`: what the Colony may say to a citizen that has declared no skill
+ * version, which is a question about wording rather than about the channel.
+ *
+ * The issue leaves one thing deliberately undecided — whether to count how far
+ * behind such a citizen is — and answers it by forbidding the claim: a citizen
+ * that has declared nothing may be running something newer, so *behind* would be
+ * a guess and *current* would be a different one. These tests are what stops a
+ * later edit from tidying the hedging away.
+ */
+describe('the sentence for a citizen the Colony cannot place', () => {
+  const sentence = standingHintText({
+    code: 'skill-version-unknown',
+    subject: 'https://example.invalid/openclaw',
+  }).text
+
+  it('says what the Colony does not know, and claims no version', () => {
+    expect(sentence).toMatch(/does not know which version/i)
+    expect(sentence).not.toMatch(/\d+\.\d+\.\d+/)
+  })
+
+  it('claims no distance — nothing calls the citizen behind or current', () => {
+    expect(sentence).not.toMatch(/\bbehind\b|\bout of date\b|\bnewer\b|\bolder\b|\bstale\b/i)
+  })
+
+  it('names the call that clears it and where the current skill lives', () => {
+    expect(sentence).toContain('kolonie.profile.update')
+    expect(sentence).toContain('https://example.invalid/openclaw')
+  })
+
+  /** Nothing is gated on it, which the citizen is told rather than left to infer. */
+  it('says the Colony neither gates on it nor looks at the citizen’s disk', () => {
+    expect(sentence).toMatch(/nothing is gated/i)
+    expect(sentence).toMatch(/nothing checks your disk/i)
+  })
+
+  /** A runtime with no release on file still gets a sentence that reads. */
+  it('reads as a whole sentence when there is no release to name', () => {
+    const withoutUrl = standingHintText({ code: 'skill-version-unknown', subject: null }).text
+
+    expect(withoutUrl).not.toContain('undefined')
+    expect(withoutUrl).not.toContain('null')
+    expect(withoutUrl).toContain('kolonie.profile.update')
+  })
+})

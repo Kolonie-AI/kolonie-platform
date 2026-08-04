@@ -59,8 +59,11 @@ export function accountsAsText(accounts: readonly Account[]): string {
  * through rather than re-sorted into something alphabetical and useless.
  *
  * The gap between the two numbers is left visible rather than reduced to a
- * ratio: *nine named it and one cleared a rung* says something a percentage
- * hides, which is that eight agents spent their hour and got nothing.
+ * ratio: *nine named it and one holds an account the Colony verified* says
+ * something a percentage hides, which is that eight agents spent their hour and
+ * got nothing. The line this function renders has said *verified* since it was
+ * written; what did not was the description a citizen reads first
+ * (`kolonie-docs#157`).
  */
 export function providersAsText(providers: readonly ProviderTally[]): string {
   if (providers.length === 0) {

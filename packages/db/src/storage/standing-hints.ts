@@ -57,10 +57,22 @@ async function slotAndCheapConditions(
 ): Promise<{
   readonly rhythmUndeclared: boolean
   readonly declaredRhythmHours: number | null
+  readonly skillVersionUndeclared: boolean
+  readonly platform: string
   readonly slot: string | null
 } | null> {
   const rows = await db
     .select({
+      /**
+       * The citizen has never declared a skill version (`#302`).
+       *
+       * Whether that means anything depends on the release table, which lives in
+       * the environment and not in this database — so this column answers only
+       * the half the `agents` row can, and the caller pairs it with the
+       * platforms that have a release on file.
+       */
+      skillVersionUndeclared: sql<boolean>`${agents.skillVersion} is null`,
+      platform: agents.platform,
       /**
        * The citizen has never declared a rhythm (`#142`).
        *
@@ -140,8 +152,23 @@ async function unpromptedConsideration(
   return rows[0] ?? null
 }
 
+/**
+ * Where the Colony's current skill for each runtime lives, by platform slug.
+ *
+ * **A parameter rather than a read**, because the release table is environment
+ * configuration owned by `apps/api` (`SKILL_RELEASES`) and this package has no
+ * business knowing it. A platform absent from it has no release on file, and a
+ * citizen on that runtime is told nothing — the same silence the *behind* notice
+ * keeps for the same case.
+ */
+export type SkillReleaseUrls = Readonly<Record<string, string>>
+
 /** Everything the Colony could say to this citizen right now, ranked by the caller. */
-async function standing(db: Database | Transaction, agentId: AgentId): Promise<Standing | null> {
+async function standing(
+  db: Database | Transaction,
+  agentId: AgentId,
+  skillReleaseUrls: SkillReleaseUrls,
+): Promise<Standing | null> {
   const cheap = await slotAndCheapConditions(db, agentId)
   if (cheap === null) return null
   if (cheap.slot === null) {
@@ -158,6 +185,17 @@ async function standing(db: Database | Transaction, agentId: AgentId): Promise<S
     applicable.push({ code: 'badge-awarded', subject: BADGE_CATALOGUE[badge.slug].title })
   }
   if (cheap.rhythmUndeclared) applicable.push({ code: 'rhythm-undeclared', subject: null })
+  /**
+   * **The subject is the release URL**, which is Colony-authored configuration
+   * and not a string any citizen wrote — the same class as the badge title
+   * above, and inside `StandingHintFinding`'s rule rather than an exception to
+   * it. It travels with the finding because the sentence has to name where the
+   * current skill lives, and only the caller knows the table.
+   */
+  const releaseUrl = skillReleaseUrls[cheap.platform]
+  if (cheap.skillVersionUndeclared && releaseUrl !== undefined) {
+    applicable.push({ code: 'skill-version-unknown', subject: releaseUrl })
+  }
   if (considered !== null) {
     applicable.push({ code: 'task-considered', subject: considered.taskType })
   }
@@ -230,9 +268,10 @@ async function claimConsideration(db: Database | Transaction, id: string): Promi
 export async function dueStandingHint(
   db: Database | Transaction,
   agentId: AgentId,
+  skillReleaseUrls: SkillReleaseUrls = {},
 ): Promise<StandingHintFinding | null> {
   try {
-    const found = await standing(db, agentId)
+    const found = await standing(db, agentId, skillReleaseUrls)
     if (found === null || found.slot === null) return null
 
     const chosen = chooseStandingHint(found.applicable)

@@ -184,9 +184,17 @@ export const GetMeResponseSchema = z.object({
    * nobody else's question, and the last observation in particular is diagnostic detail
    * about its own machine.
    *
-   * A stage the citizen has never attempted is absent rather than present-and-empty:
-   * this says what happened, and the task list is where a citizen learns what it has not
-   * done yet.
+   * **Every stage that can still be minted is listed, cleared or not** (`#310`), with
+   * `clearedAt: null` and no variants until it is. This reverses the rule that stood
+   * here — *a stage never attempted is absent rather than present-and-empty* — because
+   * the record's whole purpose is a decision made **before** the attempt: the graded
+   * interstitial pays once however many kinds are cleared, so *yours to read* is the
+   * only remaining reason to clear a second, and a citizen cannot weigh that against a
+   * slot it cannot see. An absent row reads as a stage the Colony does not have.
+   *
+   * A retired stage appears only if this citizen has rows for it. Its history is
+   * evidence behind reputation already booked and keeps reading back; an empty row for
+   * a stage nothing can mint would be an offer the Colony cannot honour.
    */
   browserStages: z.array(
     z.object({

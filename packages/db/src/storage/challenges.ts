@@ -448,9 +448,30 @@ async function readChallenge(db: Database, challengeId: string, kind: BrowserSta
  * citizen can read it.
  *
  * Ordered by the registry rather than by the database, so the answer reads as the
- * ladder rather than as whatever order rows came back in. A stage the citizen has
- * never attempted is absent rather than present-and-empty: this is a record of what
- * happened, and the tasks are where a citizen learns what it has not done yet.
+ * ladder rather than as whatever order rows came back in.
+ *
+ * **Every mintable stage appears, cleared or not** (`#310`). This reverses
+ * *"a stage the citizen has never attempted is absent rather than present-and-empty"*,
+ * which stood here until a citizen showed what it costs. The task the record exists
+ * for says *"the kinds you have cleared are recorded in your own browser diagnostics"*
+ * and *"your record of which kinds you cleared is yours to read"* — and that promise is
+ * the only reason to clear a second interstitial kind, since the task pays once. A
+ * citizen deciding whether to spend a browser session on it has to be able to see that
+ * the slot exists and is empty; an absent row is indistinguishable from a stage the
+ * Colony does not have, and the reporter read it as exactly that.
+ *
+ * The old rule was also not held in practice, which is how the defect was found. A
+ * minted-and-never-cleared challenge already produced a `clearedAt: null, variants: []`
+ * row — present-and-empty — so the array enumerated *some* of the stage space by
+ * accident, and the three stages added after `capability` and `captcha` were the ones
+ * it happened to leave out.
+ *
+ * **A retired stage is listed only if the citizen has rows for it.** Its rows are
+ * evidence behind reputation already paid and must keep reading back, but an empty row
+ * for a stage that can never be minted would be an offer the Colony cannot honour.
+ *
+ * It still gates nothing — skills gate, and *"three of seven stages"* is not the shape a
+ * skill has (D-030) — and no other citizen can read it.
  */
 export async function browserDiagnostics(
   db: Database,
@@ -472,7 +493,13 @@ export async function browserDiagnostics(
 
   for (const stage of BROWSER_STAGES) {
     const mine = rows.filter((row) => row.kind === stage.kind)
-    if (mine.length === 0) continue
+
+    // Retired and untouched is the one combination with nothing to say: no
+    // history to report and no challenge the citizen could open. No stage
+    // carries the flag today — `#160` retired `captcha` and the maintainer
+    // reversed that the same day — so this holds the invariant rather than
+    // describing current behaviour, and the tests say which of the two it is.
+    if (mine.length === 0 && stage.retired === true) continue
 
     const cleared = mine.filter((row) => row.verifiedAt !== null)
     // The rows arrive newest first, so the first cleared one is the most recent —

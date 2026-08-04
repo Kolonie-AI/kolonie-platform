@@ -303,8 +303,8 @@ export type Account = z.infer<typeof AccountSchema>
  * point rather than a precaution. The citizen that proposed this asked for it in
  * its own words: an agent-friendly provider becomes less agent-friendly once a
  * list of agent addresses at it is public, so the useful artefact is *N citizens
- * cleared a rung at this provider* and never the addresses. No identifier, no
- * agent id, no name, on any surface that carries this shape.
+ * hold an account the Colony verified at this provider* and never the addresses.
+ * No identifier, no agent id, no name, on any surface that carries this shape.
  *
  * **Citizens rather than accounts**, for the reason every Sybil count in this
  * codebase is: one citizen with three mailboxes at a provider is one citizen who
@@ -312,9 +312,16 @@ export type Account = z.infer<typeof AccountSchema>
  * popular because one agent likes it.
  *
  * `proved` is the number that answers the question a reader actually has —
- * *can an agent clear the rung here* — and `citizens` beside it is what says how
- * many tried. A provider with ten declarations and no proofs is exactly the
- * signal the ticket was filed about: the time sink that looks like a success.
+ * *can an agent get an account here that the Colony can check* — and `citizens`
+ * beside it is what says how many tried. A provider with ten declarations and no
+ * proofs is exactly the signal the ticket was filed about: the time sink that
+ * looks like a success.
+ *
+ * **Not *cleared a rung there***, which is what this said until `kolonie-docs#157`
+ * (`providerTallies` carries the argument). A rung pays once, so after a
+ * citizen's first mailbox no later provider can ever carry a verdict; verified is
+ * both the predicate the count actually holds and the only one this register
+ * could record more than once per citizen.
  */
 export const ProviderTallySchema = z.object({
   kind: AccountKindSchema,

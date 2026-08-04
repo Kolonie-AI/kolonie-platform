@@ -74,7 +74,20 @@ export interface MintedEmailChallenge {
  * is.
  */
 export type EmailMintOutcome =
-  | { readonly outcome: 'minted'; readonly challenge: MintedEmailChallenge }
+  | {
+      readonly outcome: 'minted'
+      readonly challenge: MintedEmailChallenge
+      /**
+       * Whether minting this one closed an earlier challenge that named an
+       * address the badge is no longer about (`#307`).
+       *
+       * Only the send half sets it, and only to be said out loud: a citizen that
+       * wrote the old address into its notes has to learn that the one it is
+       * holding has been replaced, or it reads the new answer as the same stale
+       * one and waits out an expiry that has already happened.
+       */
+      readonly reissued?: boolean
+    }
   | {
       readonly outcome: 'open'
       readonly challenge: MintedEmailChallenge
@@ -411,12 +424,65 @@ export async function markEmailSent(db: Database, challengeId: string): Promise<
  * the Colony reaches it at.
  *
  * Refused once the badge is held: it pays once, like every other badge.
+ *
+ * **An open challenge against some other address is closed here and reissued**
+ * (`#307`). `promoteMailbox` already closes one as it moves the reach address,
+ * and that is the earlier and better moment — but it only ever fires while a
+ * promotion is running. A row minted before that fix shipped stays open against
+ * the address it was minted against, and the citizen that reported this was
+ * holding exactly one: promoted, told by `kolonie.me` that the Colony now writes
+ * to the new mailbox, and still handed the old receive-only address by this
+ * call, with no way to reach the badge before the challenge expired.
+ *
+ * So the invariant is asserted where it is read rather than only where it is
+ * broken: what is open must name the mailbox the badge is currently about, and
+ * anything else is expired and minted afresh. That covers the rows that predate
+ * `#287` and any future path that moves the grant without coming through
+ * `promoteMailbox` — the reason the check is worth having twice.
+ *
+ * **One transaction**, so there is no window in which the stale challenge has
+ * been closed and no new one exists: a concurrent reader sees one or the other.
  */
 export async function mintEmailSendChallenge(
   db: Database,
   agentId: AgentId,
   address: string,
 ): Promise<EmailMintOutcome> {
+  return db.transaction((tx) => mintSendChallengeIn(tx, agentId, address))
+}
+
+async function mintSendChallengeIn(
+  db: Transaction,
+  agentId: AgentId,
+  address: string,
+): Promise<EmailMintOutcome> {
+  /**
+   * **Closed by expiry rather than deletion, and the comparison is in SQL** —
+   * both for the reasons `promoteMailbox` gives. The row is the record that the
+   * citizen asked, and `mailboxIdentity` is what *the same inbox* means
+   * everywhere else, so a `+tag` or a capital letter must not read as a move.
+   *
+   * **The stamp is the database's `now()` and not the process's**, which
+   * `promoteMailbox` can afford and this cannot: `now()` is fixed at the start
+   * of a transaction, so a JS timestamp taken mid-transaction is *after* it, and
+   * the read two statements down — `expires_at > now()` — would find the row it
+   * had just closed still open. Promotion gets away with it because nothing
+   * reads the row again before it commits.
+   */
+  const reissued = await db
+    .update(emailChallenges)
+    .set({ expiresAt: sql`now()` })
+    .where(
+      and(
+        eq(emailChallenges.agentId, agentId),
+        eq(emailChallenges.purpose, 'send'),
+        isNull(emailChallenges.verifiedAt),
+        gt(emailChallenges.expiresAt, sql`now()`),
+        sql`${mailboxIdentity(emailChallenges.address)} <> ${mailboxIdentity(sql`${address}`)}`,
+      ),
+    )
+    .returning({ id: emailChallenges.id })
+
   const open = await openSendChallenge(db, agentId)
 
   if (open !== undefined) {
@@ -427,9 +493,12 @@ export async function mintEmailSendChallenge(
       // it against. Carried rather than blanked, so the field means the same
       // thing in both variants.
       address: open.address,
-      // True because there is no other answer available: this node reads the
-      // address from the grant, so what was asked for and what is open cannot
-      // differ. See `mintEmailSendChallenge`'s own comment on D-018.
+      // True because anything else has just been expired above: what survives
+      // that update names the mailbox the caller was granted, so what was asked
+      // for and what is open cannot differ. It was previously true because the
+      // caller cannot name an address — which was the weaker claim `#307` found
+      // a counterexample to, since the grant can move under a challenge that
+      // nobody named at all.
       matchesRequested: true,
       challenge: {
         id: open.id,
@@ -461,6 +530,7 @@ export async function mintEmailSendChallenge(
   return {
     outcome: 'minted',
     challenge: { id: row.id, token: row.token, expiresAt: toTimestamp(row.expiresAt), code: '' },
+    reissued: reissued.length > 0,
   }
 }
 
@@ -1009,7 +1079,7 @@ async function openInboxChallenge(db: Database, agentId: AgentId, requested?: st
 }
 
 /** The same, for the badge. A second claim while one is open returns the first. */
-async function openSendChallenge(db: Database, agentId: AgentId) {
+async function openSendChallenge(db: Database | Transaction, agentId: AgentId) {
   const [row] = await db
     .select({
       id: emailChallenges.id,

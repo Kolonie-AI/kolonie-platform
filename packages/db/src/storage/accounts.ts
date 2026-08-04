@@ -379,10 +379,21 @@ export async function setAccountNote(
  * nothing here selects an identifier or an agent id — the shape has nowhere to
  * put one, which is a stronger guarantee than a caller remembering not to ask.
  *
- * `proved` is the number a reader actually wants: *can an agent clear the rung
- * here*. `citizens` beside it says how many tried, so a provider with ten
- * declarations and no proofs — the time sink that looks like a success — is
- * visible as exactly that.
+ * `proved` is the number a reader actually wants: *can an agent get an account
+ * here that the Colony can check*. `citizens` beside it says how many tried, so a
+ * provider with ten declarations and no proofs — the time sink that looks like a
+ * success — is visible as exactly that.
+ *
+ * **It counts verification and not a rung verdict, and the description now says
+ * so** (`kolonie-docs#157`). This comment read *can an agent clear the rung here*
+ * until a citizen measured its own four rows and found one where the count came
+ * from a mailbox challenge with no verdict behind it at all. That is not a defect
+ * to reverse — `#297` deliberately made verification enough, and it has to be,
+ * because `#292` makes a pass final: after a citizen's first mailbox no further
+ * provider can ever carry a verdict, so *cleared a rung* would be a predicate
+ * this register could only ever record once per citizen. What was wrong was the
+ * sentence a stranger reads before choosing a provider, promising stronger
+ * evidence than the number carries.
  *
  * Ordered by proofs and then by attempts, so the useful end of the list comes
  * first, with the provider slug breaking ties to keep the answer stable between

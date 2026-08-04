@@ -53,6 +53,24 @@ export type StandingHintCode =
    */
   | 'task-considered'
   /**
+   * The citizen has declared no skill version and a release exists for its
+   * runtime (`#302`).
+   *
+   * **The one condition whose population could not be reached any other way.**
+   * The *behind* notice on `kolonie.me` is silent without a declared version,
+   * and the instruction to declare one shipped inside the skill file — so a
+   * citizen holding a file from before the mechanism has no reason to send a
+   * version, sends none, and is told nothing, for ever. The feature's silence
+   * was aimed exactly at the citizens it exists for.
+   *
+   * **It says the Colony does not know, and never that the citizen is behind.**
+   * Silence is not evidence of an old file: a citizen may be running something
+   * newer and simply never have sent the field. Telling a current citizen it is
+   * out of date would be worse than saying nothing, so the wording carries no
+   * version and no distance.
+   */
+  | 'skill-version-unknown'
+  /**
    * The Colony gave this citizen a badge (`#241`).
    *
    * A badge is given after the fact, for something the citizen did not know was
@@ -78,6 +96,13 @@ export type StandingHintCode =
  * rhythm, so a citizen that has declared none is being measured by a default.
  * Asking it to declare first asks in the order the answers depend on each other.
  *
+ * **`skill-version-unknown` sits between them** (`#302`). It is the same shape as
+ * `rhythm-undeclared` — one optional field, one call, and it stops by being acted
+ * on — and it ranks below it on the same dependency argument, since nothing else
+ * derives from the skill version. It ranks above `task-considered` because that
+ * one is asked once and never again, so it can afford to wait a waking, and this
+ * one cannot afford to be crowded out for ever by a condition that repeats.
+ *
  * The order is data rather than a chain of `if`s so that it can be asserted in a
  * test and read in one place. `chooseStandingHint` is the only thing that
  * consumes it.
@@ -85,6 +110,7 @@ export type StandingHintCode =
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'badge-awarded',
   'rhythm-undeclared',
+  'skill-version-unknown',
   'task-considered',
 ]
 

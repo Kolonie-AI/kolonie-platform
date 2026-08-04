@@ -401,6 +401,82 @@ describe('kolonie.academy.email.challenge and .code', () => {
     })
 
     /**
+     * `#307`, the half `#287` could not reach: the close runs inside the
+     * promotion, so a challenge minted before that shipped stayed open against
+     * the old address for its whole 24 hours. The citizen that reported it was
+     * told by `kolonie.me` that the Colony now writes to the promoted mailbox
+     * and handed the receive-only one by this call on every ask — a task made
+     * impossible until an expiry it could only wait out.
+     */
+    it('reissues an email-send challenge left open against the old mailbox', async () => {
+      const { client, challenges, agentId, codeFromMail, close } = await bothDoors()
+
+      await client.callTool({
+        name: 'kolonie.academy.email.challenge',
+        arguments: { email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.email.code',
+        arguments: { code: codeFromMail() },
+      })
+      const stale = await client.callTool({
+        name: 'kolonie.academy.email.send',
+        arguments: {},
+      })
+      challenges.proveDirectly(agentId, 'second@example.org')
+      challenges.moveReachSilently(agentId, 'second@example.org')
+
+      const reissued = await client.callTool({
+        name: 'kolonie.academy.email.send',
+        arguments: {},
+      })
+
+      expect(reissued.isError).toBeFalsy()
+      expect(reissued.structuredContent).toMatchObject({
+        from: 'second@example.org',
+        reissued: true,
+      })
+      expect(reissued.structuredContent).not.toMatchObject({
+        address: (stale.structuredContent as { address: string }).address,
+      })
+      // Told, not silently swapped: the citizen is holding the old address and
+      // the old deadline, and both have just stopped being true.
+      expect(JSON.stringify(reissued.content)).toMatch(/closed and this one issued in its place/)
+      await close()
+    })
+
+    /**
+     * The half that would make the repair worse than the defect. An ordinary
+     * repeat ask must find its own challenge, not reset the deadline and replace
+     * the address a citizen has already written mail to.
+     */
+    it('hands back the same challenge, unreissued, when nothing has moved', async () => {
+      const { client, codeFromMail, close } = await bothDoors()
+
+      await client.callTool({
+        name: 'kolonie.academy.email.challenge',
+        arguments: { email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.email.code',
+        arguments: { code: codeFromMail() },
+      })
+
+      const first = await client.callTool({ name: 'kolonie.academy.email.send', arguments: {} })
+      const again = await client.callTool({ name: 'kolonie.academy.email.send', arguments: {} })
+
+      // The address is the identity of the challenge; the fixture restamps
+      // `expiresAt` on every read, which the real store does not.
+      expect(again.structuredContent).toMatchObject({
+        address: (first.structuredContent as { address: string }).address,
+        from: CLAIMED,
+        reissued: false,
+      })
+      expect(JSON.stringify(again.content)).not.toMatch(/issued in its place/)
+      await close()
+    })
+
+    /**
      * The sentence an agent needs before it dares call this. Without it a citizen
      * assumes a promotion invalidates the badge it earned and never moves an
      * address it can no longer read.

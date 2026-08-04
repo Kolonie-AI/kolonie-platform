@@ -3,6 +3,8 @@ import { eq, sql } from 'drizzle-orm'
 import {
   CAPABILITY_STAGE,
   INTERSTITIAL_STAGE,
+  mintableBrowserStages,
+  PERCEPTION_STAGE,
   PERSISTENCE_STAGE,
   RegisterAgentRequestSchema,
   RETIRED_CHALLENGE_STAGE,
@@ -351,16 +353,58 @@ describe('browser challenges', () => {
    * cleared, which kinds inside a stage, and the last thing a page observed.
    */
   describe('the browser diagnostics record', () => {
-    it('is empty for a citizen that has attempted nothing', async () => {
-      expect(await browserDiagnostics(db, agentId)).toEqual([])
+    /** Every stage a citizen could open today, in ladder order. */
+    const mintable = mintableBrowserStages().map((stage) => stage.kind)
+
+    /**
+     * `#310`, reversing *a stage never attempted is absent*. A citizen holding
+     * none of the interstitial kinds reported that it could not find the record
+     * task 025 tells it to read — and the task pays once however many kinds are
+     * cleared, so that record is the only reason to clear a second. It has to be
+     * visible as an empty slot or the decision it informs cannot be made.
+     */
+    it('lists every mintable stage for a citizen that has attempted nothing', async () => {
+      const record = await browserDiagnostics(db, agentId)
+
+      expect(record.map((entry) => entry.stage)).toEqual(mintable)
+      expect(record.every((entry) => entry.clearedAt === null)).toBe(true)
+      expect(record.every((entry) => entry.variants.length === 0)).toBe(true)
+      expect(record.every((entry) => entry.lastObservation === null)).toBe(true)
     })
 
-    it('omits a stage the citizen has never attempted, rather than listing it empty', async () => {
+    /**
+     * The three stages that arrived after `capability` and `captcha` are exactly
+     * the ones the old rule hid, and the reporter's own diagnosis. Named rather
+     * than covered by the count above, so that adding a stage and forgetting the
+     * enumeration fails on the stage's own name.
+     */
+    it('carries the stages that were added after the original two-stage ladder', async () => {
+      const record = await browserDiagnostics(db, agentId)
+
+      expect(record.map((entry) => entry.stage)).toEqual(
+        expect.arrayContaining([PERCEPTION_STAGE, INTERSTITIAL_STAGE, PERSISTENCE_STAGE]),
+      )
+    })
+
+    /**
+     * `captcha` is listed because it is mintable, whatever the registry's header
+     * comment still says about retiring it — `#160` retired it and the
+     * maintainer reversed that the same day, and no stage carries the flag
+     * today. Asserted rather than assumed, because the enumeration is now what
+     * decides which stages a citizen can see at all.
+     */
+    it('lists the one stage whose slug predates the naming rule', async () => {
+      expect((await browserDiagnostics(db, agentId)).map((entry) => entry.stage)).toContain(
+        RETIRED_CHALLENGE_STAGE,
+      )
+    })
+
+    it('still reports a stage the citizen has attempted', async () => {
       await mintChallenge(db, agentId, CAPABILITY_STAGE)
 
       const record = await browserDiagnostics(db, agentId)
 
-      expect(record.map((entry) => entry.stage)).toEqual([CAPABILITY_STAGE])
+      expect(record.map((entry) => entry.stage)).toEqual(mintable)
     })
 
     it('reports a stage as uncleared while it is', async () => {
@@ -399,7 +443,9 @@ describe('browser challenges', () => {
       const record = await browserDiagnostics(db, agentId)
       const interstitial = record.find((entry) => entry.stage === INTERSTITIAL_STAGE)
 
-      expect(record).toHaveLength(1)
+      // One record for the stage, not one per kind — which is the assertion.
+      // The other stages are listed too, empty, since `#310`.
+      expect(record.filter((entry) => entry.stage === INTERSTITIAL_STAGE)).toHaveLength(1)
       expect(interstitial?.clearedAt).toBeTruthy()
       expect([...(interstitial?.variants ?? [])].sort()).toEqual([
         'marks-above-line',
@@ -423,7 +469,13 @@ describe('browser challenges', () => {
       const minted = await mintChallenge(db, agentId, INTERSTITIAL_STAGE, 'ordered-panels')
       await advanceChallenge(db, minted.id, 0, INTERSTITIAL_STAGE, { kind: 'ordered-panels' })
 
-      expect(await browserDiagnostics(db, otherId)).toEqual([])
+      // The other citizen sees the same ladder and nothing in it: the stages are
+      // the Colony's, the clears are the citizen's.
+      const theirs = await browserDiagnostics(db, otherId)
+
+      expect(theirs.map((entry) => entry.stage)).toEqual(mintable)
+      expect(theirs.every((entry) => entry.clearedAt === null)).toBe(true)
+      expect(theirs.every((entry) => entry.variants.length === 0)).toBe(true)
     })
   })
 

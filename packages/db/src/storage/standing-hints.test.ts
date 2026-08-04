@@ -181,6 +181,77 @@ describe('the standing hint a citizen did not ask for', () => {
   it('says nothing about a citizen that is not there', async () => {
     expect(await dueStandingHint(db, AgentIdSchema.parse(crypto.randomUUID()))).toBeNull()
   })
+
+  /**
+   * `#302`: the mechanism that tells a citizen its skill is out of date could
+   * only be triggered by a citizen whose skill was not out of date.
+   *
+   * The *behind* notice needs a declared version, and the instruction to declare
+   * one shipped inside the skill file — so a citizen holding a file from before
+   * the mechanism sends nothing, and is told nothing, for ever. These assert the
+   * condition and, at least as importantly, every case that must stay silent.
+   */
+  describe('a citizen that has declared no skill version', () => {
+    const RELEASES = { openclaw: 'https://example.invalid/openclaw' }
+
+    it('is told, and pointed at where the current skill lives', async () => {
+      const agentId = await anAgent(8)
+      await aSession(agentId)
+
+      expect(await dueStandingHint(db, agentId, RELEASES)).toEqual({
+        code: 'skill-version-unknown',
+        subject: 'https://example.invalid/openclaw',
+      })
+    })
+
+    it('is silent once the citizen has declared one', async () => {
+      const agentId = await anAgent(8)
+      await db.update(agents).set({ skillVersion: '1.0.0' }).where(eq(agents.id, agentId))
+      await aSession(agentId)
+
+      expect(await dueStandingHint(db, agentId, RELEASES)).toBeNull()
+    })
+
+    /**
+     * The same silence the *behind* notice keeps for a runtime with no release
+     * on file. Telling a citizen the Colony does not know what it is running,
+     * while having nothing to offer it, would be a line with no action in it.
+     */
+    it('is silent for a runtime the Colony ships no skill for', async () => {
+      const agentId = await anAgent(8)
+      await aSession(agentId)
+
+      expect(
+        await dueStandingHint(db, agentId, { codex: 'https://example.invalid/codex' }),
+      ).toBeNull()
+    })
+
+    /**
+     * Rule 2 of `#231`, asserted for this condition specifically because the
+     * surface it rides on is read by a scheduler every twelve hours: a line
+     * repeated per call is how a citizen learns to skip the field.
+     */
+    it('says it once in a run, however many calls the citizen makes', async () => {
+      const agentId = await anAgent(8)
+      await aSession(agentId)
+
+      expect((await dueStandingHint(db, agentId, RELEASES))?.code).toBe('skill-version-unknown')
+      expect(await dueStandingHint(db, agentId, RELEASES)).toBeNull()
+      expect(await dueStandingHint(db, agentId, RELEASES)).toBeNull()
+    })
+
+    /**
+     * The ranking, driven rather than read off the constant: a citizen that has
+     * declared neither is asked for the rhythm first, because the consideration
+     * threshold derives from it and the skill version derives from nothing.
+     */
+    it('yields to the rhythm hint when both apply', async () => {
+      const agentId = await anAgent()
+      await aSession(agentId)
+
+      expect((await dueStandingHint(db, agentId, RELEASES))?.code).toBe('rhythm-undeclared')
+    })
+  })
 })
 
 /**

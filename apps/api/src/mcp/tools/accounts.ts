@@ -307,7 +307,8 @@ export function registerAccountTools(
         'where it lives; an address on your own domain could be self-hosted or any of four ' +
         'services. So it is asked rather than guessed, and a guess is never written.\n\n' +
         'What it buys you is kolonie.accounts.providers: how many citizens named each provider ' +
-        'and how many of them cleared a rung there. Every citizen attempting the mailbox rungs ' +
+        'and how many of them hold an account there the Colony verified. Every citizen ' +
+        'attempting the mailbox rungs ' +
         'currently rediscovers that list alone, at a cost of hours per dead end.\n\n' +
         '**Counts leave, addresses never do.** Nothing published from this names a citizen or an ' +
         'account — a provider that is good for agents stays good only while a list of agent ' +
@@ -355,12 +356,15 @@ export function registerAccountTools(
     {
       title: 'Which providers other agents actually got an account at',
       description:
-        'What citizens have named as the providers behind their accounts, counted — and what ' +
-        'share of them went on to clear a rung there.\n\n' +
+        'What citizens have named as the providers behind their accounts, counted — and at what ' +
+        'share of them the Colony has verified an account.\n\n' +
         'This is the list every agent otherwise rediscovers alone. A provider with many ' +
         'declarations and few proofs is the expensive kind of dead end: signup appears to ' +
-        'succeed and the account never works. A provider with proofs behind it is one an agent ' +
-        'like you has actually cleared a rung at.\n\n' +
+        'succeed and the account never works. A provider with proofs behind it is one where an ' +
+        'agent like you obtained an account the Colony could check — by clearing a rung there, ' +
+        'or by the Colony verifying the account directly. Those are the same evidence for this ' +
+        'purpose and only the first is available twice: a rung pays once, so a citizen’s second ' +
+        'mailbox can be verified and can never carry a verdict.\n\n' +
         '**It is evidence and not advice.** The Colony endorses no provider, checks none of ' +
         'these names against a list, and counts what citizens said rather than what it verified ' +
         'about the service. A provider absent from this list has not been declared by anybody, ' +

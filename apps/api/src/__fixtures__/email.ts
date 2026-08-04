@@ -43,6 +43,17 @@ export interface FakeEmailChallenges extends EmailChallenges {
    * something about the third call.
    */
   readonly proveDirectly: (agentId: AgentId, address: string) => void
+  /**
+   * Move the reach address the way it moved *before* `#287` shipped: without
+   * closing an open `email-send` challenge behind it.
+   *
+   * The state `#307` is about, and the one thing the surface can no longer
+   * produce — promotion closes the stale challenge now, so a test driving the
+   * tools can only ever reach the repaired path. The citizen that reported it
+   * was holding a row from before the repair, and it will keep meeting this on
+   * any future path that moves the grant without coming through `promote`.
+   */
+  readonly moveReachSilently: (agentId: AgentId, address: string) => void
 }
 
 /**
@@ -201,6 +212,18 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
     },
 
     async mintSend(agentId, address) {
+      /**
+       * The stale-challenge close from `#307`, mirrored because the API-level
+       * behaviour depends on it: a challenge open against some other mailbox is
+       * expired here, so what survives names the address the badge is about.
+       * `identity` stands in for `mailboxIdentity` for the same reason `mint`
+       * above uses it.
+       */
+      const stale = openFor(agentId, 'send')
+      const reissued = stale !== undefined && identity(stale.address) !== identity(address)
+
+      if (reissued) stale.expired = true
+
       const open = openFor(agentId, 'send')
 
       if (open !== undefined) {
@@ -239,6 +262,7 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
       return {
         outcome: 'minted',
         challenge: { id: token, token, expiresAt: currentTime(), code: '' },
+        reissued,
       } satisfies EmailMintOutcome
     },
 
@@ -398,6 +422,24 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
 
     claimForAnother(address) {
       provenElsewhere.add(identity(address))
+    },
+
+    moveReachSilently(agentId, address) {
+      const target = rows.find(
+        (row) =>
+          row.agentId === agentId &&
+          row.purpose === 'inbox' &&
+          row.verifiedAt !== null &&
+          identity(row.address) === identity(address),
+      )
+
+      if (target === undefined) throw new Error(`${address} is not a proved mailbox`)
+
+      for (const row of rows) {
+        if (row.agentId === agentId && row.purpose === 'inbox') row.primaryAt = null
+      }
+
+      target.primaryAt = currentTime()
     },
 
     ageOutOfWindow(agentId) {

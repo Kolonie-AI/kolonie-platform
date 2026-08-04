@@ -242,6 +242,12 @@ export type SendChallengeResponse = {
   readonly address: string
   readonly from: string
   readonly expiresAt: string
+  /**
+   * Whether this call replaced an open challenge that named an address the badge
+   * is no longer about (`#307`) — a promotion having moved the reach address
+   * under it. False on every ordinary open and every ordinary mint.
+   */
+  readonly reissued: boolean
 }
 
 export type OpenOutcome =
@@ -619,11 +625,21 @@ export async function openEmailSendChallenge(
          * the current grant meant the two could disagree — a promotion moved the
          * grant, the open challenge kept the old address, and the citizen was
          * told to send from an address the verifier would reject. Promotion now
-         * closes such a challenge, so the disagreement should not arise; taking
-         * the address from the same row the check reads makes it unable to.
+         * closes such a challenge, and `mintSend` closes one it finds still open
+         * against another address (`#307`), so the disagreement should not
+         * arise; taking the address from the same row the check reads makes it
+         * unable to.
          */
         from: result.outcome === 'open' ? result.address : grant.address,
         expiresAt: result.challenge.expiresAt,
+        /**
+         * Said out loud because the citizen may be holding the old one (`#307`).
+         *
+         * A challenge that was replaced rather than merely opened means the
+         * address and the deadline in the citizen's notes are both wrong, and
+         * this call looks identical either way from the outside.
+         */
+        reissued: result.outcome === 'minted' && result.reissued === true,
       },
     }
   })

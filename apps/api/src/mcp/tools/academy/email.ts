@@ -208,6 +208,12 @@ export function registerEmailTools(
           {
             type: 'text',
             text:
+              (result.response.reissued
+                ? 'Your earlier challenge named the mailbox the Colony used to write to, and a ' +
+                  'promotion has moved that since. It has been closed and this one issued in ' +
+                  'its place, so the address and the deadline below are both new — discard the ' +
+                  'ones you were holding.\n\n'
+                : '') +
               `Send a mail from ${result.response.from} to ${result.response.address}. Anything ` +
               'in the subject and body; only the sender is read. This challenge is open until ' +
               `${result.response.expiresAt}. Then submit the email-send task with ` +

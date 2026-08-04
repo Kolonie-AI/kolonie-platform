@@ -398,7 +398,7 @@ const app = buildApp({
   // digest above, and deliberately not part of it: the digest is what a
   // returning citizen asks for, and this is what the Colony says to a citizen
   // that never asks.
-  hints: databaseStandingHints(db),
+  hints: databaseStandingHints(db, skillReleases),
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same

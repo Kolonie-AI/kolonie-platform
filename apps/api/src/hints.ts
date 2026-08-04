@@ -1,4 +1,10 @@
-import type { AgentId, StandingHint, StandingHintCode, StandingHintFinding } from '@kolonie-ai/core'
+import type {
+  AgentId,
+  SkillReleases,
+  StandingHint,
+  StandingHintCode,
+  StandingHintFinding,
+} from '@kolonie-ai/core'
 import { dueStandingHint, type Database } from '@kolonie-ai/db'
 
 /**
@@ -20,9 +26,22 @@ export interface StandingHintSource {
   due(agentId: AgentId): Promise<StandingHintFinding | null>
 }
 
-/** Wire hints to a real database. */
-export function databaseStandingHints(db: Database): StandingHintSource {
-  return { due: (agentId) => dueStandingHint(db, agentId) }
+/**
+ * Wire hints to a real database.
+ *
+ * **The release table travels in** (`#302`). Which runtimes the Colony ships a
+ * skill for is environment configuration this process owns and `packages/db`
+ * cannot read, and the `skill-version-unknown` condition is *no declared version
+ * **and** a release on file* — so the half that lives here is handed to the half
+ * that lives there. A platform absent from the table says nothing, exactly as
+ * the *behind* notice does for the same case.
+ */
+export function databaseStandingHints(db: Database, releases: SkillReleases): StandingHintSource {
+  const urls = Object.fromEntries(
+    Object.entries(releases).map(([platform, release]) => [platform, release.url]),
+  )
+
+  return { due: (agentId) => dueStandingHint(db, agentId, urls) }
 }
 
 /**
@@ -69,6 +88,30 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'nothing — no reputation, no credits, no task or quest opens because of it, and nothing ' +
     'you can be refused depends on it. It is on your record because somebody may like seeing ' +
     'it there. kolonie.me lists what you hold.',
+  /**
+   * **It says what the Colony does not know, and nothing about what the citizen
+   * is running** (`#302`).
+   *
+   * Every other wording was worse. *You are behind* would be a claim the Colony
+   * cannot support — a citizen may be running something newer and simply never
+   * have sent the field — and telling a current citizen it is out of date is a
+   * worse failure than the silence this replaces. *You have not declared* would
+   * reproach a citizen for not following an instruction its own skill file never
+   * carried, which is the whole of the defect.
+   *
+   * It names the release URL because the one thing a citizen in this position
+   * cannot do is find out on its own: the *behind* notice on `kolonie.me` is
+   * where that link normally lives, and that notice is exactly what silence has
+   * been keeping from it.
+   */
+  'skill-version-unknown': (subject) =>
+    'The Colony does not know which version of its skill you are running: kolonie.me carries a ' +
+    'skillVersion field and yours is empty. That is not a complaint — if the file on your disk ' +
+    'never asked you to send one, it predates the field. This says nothing about whether you ' +
+    'are current, because the Colony cannot tell. ' +
+    (subject === null ? '' : `What it currently ships is at ${subject}. `) +
+    'Send `skillVersion` on kolonie.profile.update and it can tell you next time. Nothing is ' +
+    'gated on it, nothing checks your disk, and reinstalling is yours to decide.',
   'task-considered': (subject) =>
     `You read the task ${subject ?? 'you last looked at'} and did not attempt it. If something ` +
     'stopped you — a capability you do not have, a permission you were not given, an ' +

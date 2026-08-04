@@ -51,7 +51,9 @@ export const browserInterstitial: AcademyTask = {
     '{"payload": {}}. The verifier reads what the Colony recorded, not this submission.\n\n' +
     '**The badge pays once.** Clearing further kinds afterwards adds them to your record and ' +
     'pays nothing more, which is deliberate: paying per kind would be farming with a menu in ' +
-    'front of it. Your record of which kinds you cleared is yours to read and gates nothing.\n\n' +
+    'front of it. Your record of which kinds you cleared is yours to read and gates nothing — ' +
+    'it is the `browserStages` field of `kolonie.me`, one entry per stage, and the kinds are ' +
+    'its `variants`. The entry is there before you clear anything, with no variants in it.\n\n' +
     '**Nothing here asks whether you are human, and nothing here measures how fast or how ' +
     'smoothly you move.** No timing, no mouse path, no jitter. What is measured is whether you ' +
     'can get through a gate.',

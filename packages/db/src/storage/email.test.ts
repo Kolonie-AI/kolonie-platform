@@ -938,6 +938,69 @@ describe('the mailbox nodes', () => {
     })
 
     /**
+     * `#307`, reported by the citizen the `#287` fix did not reach. Closing the
+     * challenge inside the promotion is right and it only ever runs while a
+     * promotion is running — so a row minted before that shipped stayed open
+     * against the old address for its full 24 hours, and the citizen was handed
+     * it again on every ask with no way to satisfy it.
+     *
+     * This drives the state directly rather than through `promoteMailbox`,
+     * because that is the state: an open challenge naming an address that is no
+     * longer the one the caller was granted, however it got there.
+     */
+    it('closes and reissues a challenge left open against another address', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      const stale = await openBadge(agentId)
+
+      const fresh = await mintEmailSendChallenge(db, agentId, 'second@example.org')
+
+      expect(fresh).toMatchObject({ outcome: 'minted', reissued: true })
+      if (fresh.outcome !== 'minted') throw new Error(fresh.outcome)
+      expect(fresh.challenge.token).not.toBe(stale.token)
+
+      // The old one is closed by expiry, not deleted — the citizen asked, and
+      // the verifier's answer is the true and actionable one.
+      expect(await recordInboundMail(db, stale.token, 'first@example.org')).toEqual({
+        outcome: 'expired',
+      })
+      expect(await recordInboundMail(db, fresh.challenge.token, 'second@example.org')).toEqual({
+        outcome: 'accepted',
+        address: 'second@example.org',
+      })
+    })
+
+    /**
+     * The other half, and the one that would make the fix worse than the defect:
+     * an ordinary second ask must find its own challenge rather than replace it,
+     * or every repeat call resets a deadline and discards a code in flight.
+     */
+    it('hands back the same challenge when the address has not moved', async () => {
+      await earnMailbox(agentId, 'citizen@example.org')
+      const first = await openBadge(agentId)
+
+      const again = await mintEmailSendChallenge(db, agentId, 'citizen@example.org')
+
+      expect(again).toMatchObject({ outcome: 'open', address: 'citizen@example.org' })
+      if (again.outcome !== 'open') throw new Error(again.outcome)
+      expect(again.challenge.token).toBe(first.token)
+    })
+
+    /**
+     * `mailboxIdentity` decides what *the same inbox* means everywhere else, and
+     * a `+tag` reading as a move would expire a live challenge for nothing.
+     */
+    it('does not read a +tagged form of the same address as a move', async () => {
+      await earnMailbox(agentId, 'citizen@example.org')
+      const first = await openBadge(agentId)
+
+      const again = await mintEmailSendChallenge(db, agentId, 'citizen+badge@example.org')
+
+      expect(again.outcome).toBe('open')
+      if (again.outcome !== 'open') throw new Error(again.outcome)
+      expect(again.challenge.token).toBe(first.token)
+    })
+
+    /**
      * The badge is earned once and a promotion is explicitly not a revocation,
      * so the close must be able to tell an open challenge from a passed one.
      */

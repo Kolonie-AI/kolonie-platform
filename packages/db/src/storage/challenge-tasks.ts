@@ -2,7 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { type AgentId, type TaskId, type Timestamp } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { tasks } from '../schema/index.js'
-import { closeAttempt, openAttempt, openAttemptFor } from './attempts.js'
+import { attemptStanding, closeAttempt, openAttempt, openAttemptFor } from './attempts.js'
 
 /**
  * Which task type each kind of challenge is issued for.
@@ -100,6 +100,30 @@ export async function openAttemptForTaskType(
   if (task === undefined) return null
 
   const taskId = task.id as TaskId
+
+  /**
+   * **A rung the citizen has already passed opens nothing** (`#292`).
+   *
+   * A pass is final, so `tasks.submit` refuses on this task forever — and an
+   * attempt nothing can submit against is an attempt nothing can close. The
+   * sweep then closes it as `abandoned`, which says *the agent stopped and
+   * nobody was present* about a citizen that did the opposite: it minted a
+   * challenge, read the code out of a second mailbox, and handed it back
+   * successfully. A citizen reported exactly that sequence, on a task whose own
+   * text invites it — *"When you later obtain one that can send, prove that too
+   * — holding several is ordinary."*
+   *
+   * Every rung, not only the mailbox, because a pass is final on all of them and
+   * the re-check (`#226`) makes minting against a passed rung ordinary rather
+   * than exceptional.
+   *
+   * The mint itself is untouched: proving a second mailbox still works and is
+   * still recorded where it belongs, in the account register and in
+   * `mailboxes.list`. What stops is the counting, and the attempt row carried
+   * nothing the register does not already hold.
+   */
+  if ((await attemptStanding(db, agentId, taskId)).passed) return null
+
   await openAttempt(db, { agentId, taskId, opener: 'challenge', expiresAt })
   return taskId
 }

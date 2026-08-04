@@ -213,6 +213,40 @@ describe('task attempts', () => {
       expect(await countAttempts()).toBe(0)
     })
 
+    /**
+     * The defect #292 reports, from the citizen's side.
+     *
+     * A pass is final, so `createSubmission` refuses on this task forever — an
+     * attempt opened after it can never be closed by anything the citizen does,
+     * and the sweep books it as `abandoned`. That word describes a citizen that
+     * stopped and was not present, and it lands on one that proved a second
+     * mailbox successfully.
+     */
+    it('opens nothing when a challenge is minted on a rung already passed', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'browser-capability' })
+
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
+      await passWith(agentId, taskId, 'browser-capability', 'none')
+      expect(await countAttempts()).toBe(1)
+
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
+
+      expect(await countAttempts()).toBe(1)
+      expect((await attemptStanding(db, agentId, taskId)).passed).toBe(true)
+    })
+
+    /** The mint itself is untouched: only the counting stops. */
+    it('still mints the challenge on a passed rung', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ type: 'browser-capability' })
+
+      await mintChallenge(db, agentId, CAPABILITY_STAGE)
+      await passWith(agentId, taskId, 'browser-capability', 'none')
+
+      await expect(mintChallenge(db, agentId, CAPABILITY_STAGE)).resolves.toBeDefined()
+    })
+
     it('does not open a second attempt while one is still open', async () => {
       const agentId = await anAgent()
       await aTask({ type: 'browser-capability' })

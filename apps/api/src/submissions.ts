@@ -347,12 +347,26 @@ function refusal(result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }
           'You already have a submission for this task awaiting a verdict. ' +
           `Wait for it at ${VERDICT_POLL.endpoint} rather than submitting again.`,
       }
+    /**
+     * The refusal is right, and it used to be a dead end (`#292`).
+     *
+     * `kolonie.tasks.submit` tells a citizen its `report` argument is *"the only
+     * moment you will be asked — come back later and the knowledge is gone with
+     * your session"*. On a passed rung submit is refused forever, so an agent
+     * that believed that sentence had nowhere to put what it had just learned.
+     * One did learn something worth having — a mailbox provider whose signup is
+     * an scrypt proof-of-work rather than a captcha — and it reached the Colony
+     * only because it went looking for a second channel.
+     */
     case 'already-passed':
       return {
         code: 'conflict',
         message:
           'You have already passed this task, and a pass is final. ' +
-          `The reward was booked once; take the next task at ${API_BASE_PATH}/tasks.`,
+          `The reward was booked once; take the next task at ${API_BASE_PATH}/tasks. ` +
+          'If you came back here to say something — a provider that has changed, a second ' +
+          'mailbox that worked where the first did not — kolonie.tasks.report takes it on a ' +
+          'passed rung, and that channel never closes.',
       }
     /**
      * The gate (#112), and the refusal has to be **actionable in one call**: it

@@ -33,6 +33,7 @@ import { fakeSubmissions } from './submissions.js'
 import { fakeSupportDesk } from './support.js'
 import { fakeOperatorRequests } from './operator-requests.js'
 import { fakePermissionReports } from './permission-reports.js'
+import { fakeRotation } from './rotation.js'
 import { fakeVault } from './vault.js'
 import { fakeVision } from './vision.js'
 import { fakeWebsite } from './website.js'
@@ -89,6 +90,8 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     operatorRequests: fakeOperatorRequests(),
     // Blocked by permission rather than by ability (#147), unexercised here.
     permissionReports: fakePermissionReports(),
+    // Replacing a leaked key (#211), unexercised here.
+    rotation: fakeRotation(),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),

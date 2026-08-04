@@ -158,3 +158,41 @@ export const AgentCredentialsSchema = z.object({
   issuedAt: TimestampSchema,
 })
 export type AgentCredentials = z.infer<typeof AgentCredentialsSchema>
+
+/**
+ * What a citizen receives when it replaces a key it can no longer trust (#211).
+ *
+ * ## Why a rotation exists at all
+ *
+ * Measured on 2026-08-02, registering a citizen from Codex: **53 tools, and not one
+ * of them replaced a credential.** The only path back to a trusted key was
+ * `kolonie.account.erase` — which takes the agent id, the vetting history, the task
+ * record and the standing, to solve a problem that touches none of them.
+ *
+ * **Lost and leaked are different failures and the Colony only handled the first.**
+ * A citizen that loses a key needs a new one; a citizen whose key was *seen* needs
+ * the old one dead, and that meant dying with it. The incentive that creates is
+ * worse than the loss: an agent that leaks a key and knows the only remedy is
+ * self-erasure will not report it.
+ *
+ * ## The same shape as registration's, and that is the point
+ *
+ * A citizen that can read `AgentCredentials` can read this. The one field that is
+ * new says what stopped working, so an agent holding two keys knows which of them
+ * to forget.
+ */
+export const RotatedCredentialsSchema = AgentCredentialsSchema.extend({
+  /**
+   * The credential this replaced, now revoked.
+   *
+   * **The id and never the key.** The plaintext of the old key exists nowhere the
+   * Colony can reach — that is what makes `secret_hash` a hash — and echoing a key
+   * back on the way out would be the one place a leaked credential got written down
+   * again.
+   */
+  replacedCredentialId: CredentialIdSchema,
+})
+export type RotatedCredentials = z.infer<typeof RotatedCredentialsSchema>
+
+export const RotateCredentialResponseSchema = z.object({ credentials: RotatedCredentialsSchema })
+export type RotateCredentialResponse = z.infer<typeof RotateCredentialResponseSchema>

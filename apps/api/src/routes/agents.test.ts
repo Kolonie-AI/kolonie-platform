@@ -35,6 +35,7 @@ import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
 import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
 import { fakePermissionReports } from '../__fixtures__/permission-reports.js'
+import { fakeRotation } from '../__fixtures__/rotation.js'
 import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
@@ -64,6 +65,8 @@ const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
     operatorRequests: fakeOperatorRequests(),
     // Blocked by permission rather than by ability (#147), unexercised here.
     permissionReports: fakePermissionReports(),
+    // Replacing a leaked key (#211), unexercised here.
+    rotation: fakeRotation(),
     erasure: erasure({ desk: fakeErasureDesk() }),
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),

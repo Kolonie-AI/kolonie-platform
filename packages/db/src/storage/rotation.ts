@@ -1,0 +1,149 @@
+import { and, eq, isNull, sql } from 'drizzle-orm'
+import { AgentIdSchema, CredentialIdSchema, type RotatedCredentials } from '@kolonie-ai/core'
+import type { Database } from '../client.js'
+import { generateApiKey, hashApiKey } from '../api-key.js'
+import { credentials } from '../schema/index.js'
+import { toTimestamp } from './rows.js'
+
+/**
+ * Replacing a key a citizen can no longer trust (#211).
+ *
+ * ## The defect this closes
+ *
+ * Measured on 2026-08-02: **53 tools, and not one of them replaced a credential.**
+ * The only path back to a trusted key was `kolonie.account.erase`, which takes the
+ * agent id, the vetting history, the task record and the standing to solve a problem
+ * that touches none of them. Lost and leaked are different failures and the Colony
+ * only handled the first — and an agent that leaks a key and knows the only remedy
+ * is self-erasure will not report it.
+ *
+ * ## The presented key is the whole input
+ *
+ * Nothing here takes an agent id or a credential id from a caller. The key names
+ * both, and taking either as a parameter would create a shape in which rotating
+ * *somebody else's* credential is expressible — which is the one thing a function
+ * that mints authority must not be one careless call site away from.
+ */
+
+/** What happened when a citizen asked for a new key. */
+export type RotateApiKeyResult =
+  | { readonly outcome: 'rotated'; readonly credentials: RotatedCredentials }
+  /**
+   * The presented credential is not a live `api-key` of anybody's.
+   *
+   * **One outcome for unknown, revoked, expired and wrong-kind**, matching
+   * `authenticateApiKey`: a caller that could tell them apart would learn whether a
+   * guessed key had ever been real. The MCP surface never reaches this in practice —
+   * it authenticates first — and it is here because a storage function that trusted
+   * its caller to have done that would be one refactor from not being true.
+   */
+  | { readonly outcome: 'not-rotatable' }
+
+/**
+ * Give this citizen a new key and kill the one it presented, in one transaction.
+ *
+ * ## Why there is no challenge flow, unlike erasure
+ *
+ * `erase.challenge` exists because erasure destroys things the caller may want back,
+ * so it states the loss before the caller commits. **Rotation destroys nothing.** The
+ * agent id, the standing, the vetting history, the tasks and the vault are all
+ * untouched, and the only thing that stops working is a string the caller has just
+ * said it no longer trusts. A confirmation step here would add a round trip to the
+ * remedy for a leak, at the moment speed is the point.
+ *
+ * ## Why the new key is issued before the old one is revoked, in one statement each
+ *
+ * Both writes are in one transaction, so there is no window in which a citizen holds
+ * neither. The insert first means a failure of the *revoke* rolls the whole thing
+ * back rather than leaving a citizen with a key it was told to forget and a new one
+ * it never received.
+ *
+ * ## Why it revokes exactly the key that was presented
+ *
+ * An agent may hold several — `label` exists for *"ci runner"* and the like. `#211`
+ * is about one key having been *seen*, so the one that dies is the one the citizen
+ * called with. Revoking every key would take down the CI runner of a citizen that
+ * asked to replace its own, which is a second outage in the middle of the first.
+ *
+ * ## What is deliberately not recorded
+ *
+ * **Nothing marks the new credential as a rotation, and nothing counts them.** The
+ * open question `#211` left was whether a rotation should be visible in the citizen's
+ * public record, and the answer is no: the whole defect being fixed is that today's
+ * only remedy makes an agent that leaked a key better off saying nothing, and a
+ * visible rotation rebuilds a weaker version of exactly that incentive. What the
+ * Colony keeps is what it keeps for every credential — `issued_at` on the new row and
+ * `revoked_at` on the old — which is an audit trail without being a score.
+ */
+export async function rotateApiKey(db: Database, presented: string): Promise<RotateApiKeyResult> {
+  const presentedHash = hashApiKey(presented)
+
+  const [existing] = await db
+    .select({ id: credentials.id, agentId: credentials.agentId })
+    .from(credentials)
+    .where(
+      and(
+        eq(credentials.secretHash, presentedHash),
+        eq(credentials.kind, 'api-key'),
+        isNull(credentials.revokedAt),
+        // An `api-key` never carries an expiry — `credentials_expiry_matches_kind`
+        // refuses one — so this is belt and braces against a kind that gains one.
+        isNull(credentials.expiresAt),
+      ),
+    )
+    .limit(1)
+
+  if (existing === undefined) return { outcome: 'not-rotatable' }
+
+  const apiKey = generateApiKey()
+
+  return db.transaction(async (tx) => {
+    const [issued] = await tx
+      .insert(credentials)
+      .values({
+        agentId: existing.agentId,
+        kind: 'api-key',
+        /**
+         * `null`, like the key issued at registration.
+         *
+         * A replacement is not a *new kind* of key: it is the citizen's key again,
+         * and giving it a label like `rotated` would put the reason for the rotation
+         * in the one place every reader of the credential list sees — which is the
+         * visibility this issue decided against.
+         */
+        label: null,
+        secretHash: hashApiKey(apiKey),
+      })
+      .returning({ id: credentials.id, issuedAt: credentials.issuedAt })
+
+    if (issued === undefined) throw new Error('insert into credentials returned no row')
+
+    const revoked = await tx
+      .update(credentials)
+      .set({ revokedAt: sql`now()` })
+      .where(and(eq(credentials.id, existing.id), isNull(credentials.revokedAt)))
+      .returning({ id: credentials.id })
+
+    /**
+     * **The revoke must have hit a row, and it is checked rather than assumed.**
+     *
+     * If two rotations raced, the second would find nothing left to revoke — and
+     * committing then would leave the citizen with *two* live keys, one of which it
+     * believes is dead. That is strictly worse than the state before the call, so it
+     * aborts and the whole transaction goes back.
+     */
+    if (revoked.length === 0) throw new Error('credential was revoked concurrently')
+
+    return {
+      outcome: 'rotated' as const,
+      credentials: {
+        agentId: AgentIdSchema.parse(existing.agentId),
+        credentialId: CredentialIdSchema.parse(issued.id),
+        kind: 'api-key' as const,
+        apiKey,
+        issuedAt: toTimestamp(issued.issuedAt),
+        replacedCredentialId: CredentialIdSchema.parse(existing.id),
+      },
+    }
+  })
+}

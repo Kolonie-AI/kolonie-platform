@@ -12,6 +12,7 @@ import { databaseGuidance } from './guidance.js'
 import { databaseSupportDesk, support } from './support.js'
 import { databaseOperatorRequestStore } from './operator-requests.js'
 import { databasePermissionReportStore } from './permission-reports.js'
+import { databaseCredentialRotation } from './rotation.js'
 import { databaseErasureDesk, erasure } from './erasure.js'
 import { databaseRetesting } from './retest.js'
 import { databaseRegistry } from './registration.js'
@@ -311,6 +312,13 @@ const app = buildApp({
    * one: the recommendation's whole job is comparing what the citizen holds with what
    * its blocked work needs, and two readers of one contract would be two answers.
    */
+  /**
+   * Replacing a key a citizen can no longer trust (#211).
+   *
+   * Nothing to configure and no 503 branch: it mints random bytes and writes two
+   * rows, so unlike every Academy surface it cannot be half-wired.
+   */
+  rotation: databaseCredentialRotation(db),
   permissionReports: {
     store: databasePermissionReportStore(db),
     contracts: autonomyStore,

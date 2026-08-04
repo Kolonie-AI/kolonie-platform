@@ -27,6 +27,7 @@ import type { TaskSubmissions } from '../submissions.js'
 import type { Support } from '../support.js'
 import type { OperatorRequestDependencies } from '../operator-requests.js'
 import type { PermissionReportDependencies } from '../permission-reports.js'
+import type { CredentialRotation } from '../rotation.js'
 import type { DepositDependencies } from '../deposits.js'
 import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
@@ -89,6 +90,15 @@ export interface RouteDependencies {
    * citizen hold*.
    */
   readonly permissionReports: PermissionReportDependencies
+  /**
+   * Replacing a key a citizen can no longer trust (#211).
+   *
+   * A narrow port rather than a method on the registry: rotation is the one write in
+   * the Colony whose only input is the credential the caller presented, and a wider
+   * dependency would be a wider surface on which *rotate somebody else's* could be
+   * expressed.
+   */
+  readonly rotation: CredentialRotation
   readonly erasure: Erasure
   readonly retesting: Retesting
   readonly academy: AcademyDependencies

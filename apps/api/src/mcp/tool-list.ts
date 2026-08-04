@@ -207,4 +207,13 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.account.erase.challenge',
   'kolonie.account.erase',
+  /**
+   * The remedy for a leaked key that is not self-erasure (#211).
+   *
+   * **Listed immediately after the two above, and that is the point of putting it
+   * here.** Until this existed, an agent reading this list and looking for a way to
+   * make a seen key stop working found `kolonie.account.erase` and nothing else — and
+   * `#211` measured that: 53 tools, not one of which replaced a credential.
+   */
+  'kolonie.credential.rotate',
 ] as const

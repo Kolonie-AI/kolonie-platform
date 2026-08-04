@@ -21,6 +21,7 @@ import {
   type StoredAutonomyContract,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, ObservedOrigin, RegisterAgentResult } from '@kolonie-ai/db'
+import type { CredentialRotation } from '../../rotation.js'
 import type { AgentStore } from '../../authentication.js'
 import type { SolanaChallenges } from '../../solana.js'
 import type { StandingHintSource } from '../../hints.js'
@@ -64,6 +65,15 @@ export const FAKE_CALLER_IP = '192.0.2.10'
 export interface FakeAgent {
   readonly registry: AgentRegistry
   readonly store: AgentStore
+  /**
+   * Replacing a key a citizen can no longer trust (#211).
+   *
+   * **Over the same `byKey` map `store.authenticate` reads**, which is what makes the
+   * round trip real: after a rotation the old key answers `revoked` here for the same
+   * reason it would in the database, so a test can assert the leak stopped working
+   * rather than assert that a function returned a new string.
+   */
+  readonly rotation: CredentialRotation
   readonly wakeup: WakeupSource
   /** The one line a citizen did not ask for (`#231`). */
   readonly hints: StandingHintSource
@@ -221,6 +231,31 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
 
     returnAfter: (agentId: AgentId, hours: number) => {
       absences.set(String(agentId), hours)
+    },
+
+    rotation: {
+      rotate: async (presented: string) => {
+        const held = byKey.get(presented)
+        // Unknown, revoked or a session: one answer, matching the storage function.
+        if (held === undefined || held.revoked) return undefined
+
+        held.revoked = true
+        const apiKey = ApiKeySchema.parse(
+          `${API_KEY_PREFIX}${randomUUID().replaceAll('-', '')}${randomUUID().replaceAll('-', '')}`,
+        )
+        byKey.set(String(apiKey), { agent: held.agent, revoked: false })
+
+        return {
+          credentials: {
+            agentId: held.agent.id,
+            credentialId: CredentialIdSchema.parse(randomUUID()),
+            kind: 'api-key' as const,
+            apiKey,
+            issuedAt: new Date().toISOString(),
+            replacedCredentialId: CredentialIdSchema.parse(randomUUID()),
+          },
+        }
+      },
     },
 
     store: {

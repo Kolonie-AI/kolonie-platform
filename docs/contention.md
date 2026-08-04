@@ -63,7 +63,7 @@ makes it constant, not expensive: see the judgement below.
   (#271, 2026-08-04). Re-measured on the day: **54 commits** in the 21 days to
   2026-08-04, up from the 49 that opened the issue, so it was getting worse
   rather than settling. `packages/db/scripts/generate-storage-barrel.mjs` writes
-  it from the contents of the directory, root `build` and `prepare` run it, and
+  it from the contents of the directory, root `build` runs it, and
   `storage/barrel.test.ts` asserts what is on disk is what the generator writes.
   Adding a storage module is now a change to one file — the module — and a file
   nobody commits cannot be merged at all.

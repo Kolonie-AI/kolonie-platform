@@ -184,7 +184,11 @@ describe('the migrations', () => {
     // the rung that sits below the wallet. Its own table beside
     // `injection_challenges` rather than a kind on it — the two are siblings and
     // grading one against the other's row would compile.
-    expect(afterFirst.tables).toBe('59')
+    //
+    // **Sixty** (`#239`): `operator_notes`, the operator's own direction. Its own
+    // table and not a nullable `task_id` on `operator_requests` — a note shares
+    // none of an exchange's four defining properties. See D-088.
+    expect(afterFirst.tables).toBe('60')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

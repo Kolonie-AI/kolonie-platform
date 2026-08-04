@@ -27,6 +27,7 @@ import type { SocialDependencies } from './social.js'
 import type { SolanaDependencies } from './solana.js'
 import type { TaskSubmissions } from './submissions.js'
 import type { Support } from './support.js'
+import type { OperatorNoteDependencies } from './operator-notes.js'
 import type { OperatorRequestDependencies } from './operator-requests.js'
 import type { PermissionReportDependencies } from './permission-reports.js'
 import type { CredentialRotation } from './rotation.js'
@@ -154,6 +155,14 @@ export interface AppDependencies {
    * desks.
    */
   readonly operatorRequests: OperatorRequestDependencies
+  /**
+   * What the operator says unasked, and the ceilings on it (#239).
+   *
+   * Separate from `operatorRequests` although a reader sees one channel, because
+   * the two share no state and deliberately no ceiling — see the note on
+   * `OperatorNoteDependencies.limiter`.
+   */
+  readonly operatorNotes: OperatorNoteDependencies
   /**
    * Blocked by permission rather than by ability, and the case it can take to its
    * operator (#147).

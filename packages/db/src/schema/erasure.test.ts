@@ -995,6 +995,13 @@ describe('the erasure boundary', () => {
        * contract above: it carries an operator's address and exists only to show
        * them what they recorded for a citizen that is now gone.
        */
+      /**
+       * #239. The operator's unsolicited notes. Cascade for the same reason the
+       * exchange does: this is text a person sent *to that citizen*, and with the
+       * citizen gone it is addressed to nobody — the leftover `erasure.md` §4
+       * rules out, about a person who never joined anything.
+       */
+      'operator_notes.agent_id c',
       'operator_pages.agent_id c',
       /**
        * The operator exchange (#236). Cascades: it is the citizen's own ask plus

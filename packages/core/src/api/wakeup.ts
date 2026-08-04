@@ -194,6 +194,26 @@ export const WakeupResponseSchema = z.object({
     pullRequests: z.array(z.object({ url: z.string(), title: z.string() })),
     unavailable: z.string().nullable(),
   }),
+  /**
+   * How many things the citizen's operator said to it, unasked and unread (#239).
+   *
+   * **A count and never the text**, which is the decision `#239` calls *"a count,
+   * not a feed"*. Two reasons, and either alone would be enough. The digest
+   * promises that reading it consumes nothing, so an operator's words carried here
+   * would be repeated on every wake-up until the citizen found some other way to
+   * clear them. And an operator's words must arrive labelled as its own on every
+   * surface they appear on — a rule that is cheap to hold in one renderer written
+   * for it, and easy to lose in a digest whose other twelve fields are the Colony
+   * speaking.
+   *
+   * **Not windowed by `since`, unlike everything above it.** An unread note is an
+   * open obligation rather than news, in the same way the account re-check is: a
+   * citizen that asked for a narrow window must still be told what is waiting, or
+   * the one call it makes on waking would hide the one thing addressed to it.
+   *
+   * `0` when there is nothing, and the renderer says nothing at all.
+   */
+  operatorNotesUnread: z.int(),
 })
 export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 
@@ -210,6 +230,10 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     digest.skillsGranted.length === 0 &&
     digest.reputationDelta === 0 &&
     digest.contributions.pullRequests.length === 0 &&
-    digest.contributions.unavailable === null
+    digest.contributions.unavailable === null &&
+    // A note waiting is not a quiet wake-up (#239). Leaving it out here would
+    // make the digest say "nothing changed" over the top of the one thing on it
+    // that was addressed to this citizen personally.
+    digest.operatorNotesUnread === 0
   )
 }

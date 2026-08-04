@@ -13,6 +13,8 @@ import { fakePermissionReports, type FakePermissionReportStore } from '../permis
 import { fakeOperatorClaim } from '../operator-claim.js'
 import { fakeAccounts } from '../accounts.js'
 import { fakeSupportDesk, type FakeSupportDesk } from '../support.js'
+import type { OperatorNoteDependencies } from '../../operator-notes.js'
+import { fakeOperatorNotes, type FakeOperatorNoteStore } from '../operator-notes.js'
 import { fakeOperatorRequests, type FakeOperatorRequestStore } from '../operator-requests.js'
 import type { OperatorRequestDependencies } from '../../operator-requests.js'
 import type { PermissionReportDependencies } from '../../permission-reports.js'
@@ -62,6 +64,9 @@ export interface FakeDesks {
    */
   readonly operatorRequests: OperatorRequestDependencies
   readonly operatorRequestStore: FakeOperatorRequestStore
+  /** The unsolicited direction (#239), over the same page store. */
+  readonly operatorNotes: OperatorNoteDependencies & { readonly store: FakeOperatorNoteStore }
+  readonly operatorNoteStore: FakeOperatorNoteStore
   /**
    * Blocked by permission rather than by ability (#147), and the store behind it.
    *
@@ -97,12 +102,25 @@ export function fakeDesks(): FakeDesks {
   const autonomyStore = fakeAutonomyStore()
   const permissionReports = fakePermissionReports(autonomyStore)
   const operatorRequests = fakeOperatorRequests({ allowance: support, pages })
+  /**
+   * The same page store again (#239). A note is resolved through `operator_pages`
+   * by token exactly as an answer is, so a third independent token map here would
+   * let a test write a note through a page the revoke path had never heard of.
+   *
+   * **Its own limiter, not `support`.** Production wires it that way for the
+   * reason the dependency split exists: the exchange's ceiling is the citizen's
+   * budget for making a person read something, and this one is the page's budget
+   * for making a citizen read something.
+   */
+  const operatorNotes = fakeOperatorNotes({ pages })
 
   return {
     support,
     desk,
     operatorRequests,
     operatorRequestStore: operatorRequests.store,
+    operatorNotes,
+    operatorNoteStore: operatorNotes.store,
     permissionReports,
     permissionReportStore: permissionReports.store,
     erasure: erasureSurface({ desk: erasureDesk }),

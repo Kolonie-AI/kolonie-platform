@@ -8,6 +8,7 @@ import {
   fakeAutonomyStore,
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
+import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import type { AgentId } from '@kolonie-ai/core'
@@ -17,6 +18,7 @@ describe('the operator’s form', () => {
   let store: ReturnType<typeof fakeAutonomyStore>
   let pages: ReturnType<typeof fakeOperatorPages>
   let requests: ReturnType<typeof fakeOperatorRequests>
+  let notes: ReturnType<typeof fakeOperatorNotes>
   let agentId: AgentId
 
   beforeEach(async () => {
@@ -30,6 +32,10 @@ describe('the operator’s form', () => {
      * request path answering about pages it had never heard of.
      */
     requests = fakeOperatorRequests({ pages })
+    // And so does the unsolicited direction (#239), for the same reason: a note
+    // is resolved through the page token, so a third page store here would let
+    // this file write notes through a link the revoke path had never heard of.
+    notes = fakeOperatorNotes({ pages })
     app = buildApp({
       ...fakeColony(),
       store: agents,
@@ -40,6 +46,7 @@ describe('the operator’s form', () => {
         formBaseUrl: 'https://console.example.org',
       },
       operatorRequests: requests,
+      operatorNotes: notes,
     })
     await app.ready()
     agentId = agents.issue().agent.id
@@ -276,17 +283,43 @@ describe('the operator’s form', () => {
      * input at all. The rest of the list is unchanged and is the part that must
      * stay true whatever else this page grows.
      */
-    it('shows nothing about the citizen’s standing, and carries no form with nothing open', async () => {
+    /**
+     * **Rewritten by `#239`, and the change is deliberate rather than incidental.**
+     * This used to assert the page carried *no form at all* when nothing was open.
+     * That was true of `#257`'s page and is the thing `#239` exists to change: an
+     * operator with something to say and no question in front of it had no route.
+     *
+     * What the assertion protects is unchanged and is asserted below: the page
+     * still shows nothing about the citizen's standing, still runs no script, and
+     * still carries no input that reaches anything but words.
+     */
+    it('shows nothing about the citizen’s standing, and carries only the box for words', async () => {
       const token = await aPage()
 
       const response = await get(`/operator/page/${token}`)
 
-      expect(response.body).not.toContain('<form')
-      expect(response.body).not.toContain('<button')
       expect(response.body).not.toContain('<script')
       expect(response.body).not.toContain(agentId)
       for (const word of ['reputation', 'reward', 'credits', 'submission']) {
         expect(response.body.toLowerCase()).not.toContain(word)
+      }
+
+      // The note box (#239) is here, and it is the only form: no question has
+      // been asked, so there is nothing to answer.
+      expect(response.body).toContain('name="intent" value="note"')
+      expect(response.body).not.toContain('name="intent" value="answer"')
+
+      /**
+       * The rule the whole page is amended under: the link carries words. One
+       * textarea, one hidden field naming which box it is, and no input that
+       * could carry a level or a permission.
+       */
+      expect(response.body.match(/<textarea/g)).toHaveLength(1)
+      expect(response.body).not.toContain('<select')
+      expect(response.body).not.toContain('type="checkbox"')
+      expect(response.body).not.toContain('type="radio"')
+      for (const word of ['autonomy', 'accompanied', 'challengesAllowed']) {
+        expect(response.body).not.toContain(`name="${word}"`)
       }
     })
 
@@ -530,15 +563,179 @@ describe('the operator’s form', () => {
      * The one at a time rule, seen from the operator's side: opening this page is a
      * favour, and a queue would make it a job.
      */
-    it('shows the page with no form again once the citizen has closed the request', async () => {
+    it('drops the answer box once the citizen has closed the request', async () => {
       const { token, requestId } = await anAsk()
       await requests.store.close({ agentId, requestId })
 
       const response = await get(`/operator/page/${token}`)
 
       expect(response.statusCode).toBe(200)
-      expect(response.body).not.toContain('<textarea')
       expect(response.body).not.toContain('has asked you something')
+      expect(response.body).not.toContain('name="intent" value="answer"')
+
+      // The note box stays (#239). A closed question is not a closed channel —
+      // that is what revoking the page is for, and it is the only thing that is.
+      expect(response.body).toContain('name="intent" value="note"')
+    })
+  })
+
+  /**
+   * The operator's own direction (#239): saying something nobody asked for.
+   *
+   * The route-level invariants, which the storage tests cannot see — that the two
+   * forms are told apart by what the form says rather than by the shape of a body
+   * a stranger controls, that a refusal comes back as the page rather than a dead
+   * end, and that neither branch reaches anything but words.
+   */
+  describe('telling the citizen something unasked (#239)', () => {
+    const aPage = async (): Promise<string> => pages.issue(agentId, 'op@example.org')
+
+    const anAsk = async () => {
+      const token = requests.store.givePage(agentId, 'op@example.org')
+      const taskId = requests.store.giveTask('github-account')
+      const opened = await requests.store.open({
+        agentId,
+        taskId,
+        body: 'I cannot make a GitHub account without you.',
+      })
+      if (opened.outcome !== 'opened') throw new Error(`expected opened, got ${opened.outcome}`)
+
+      return { token, requestId: opened.request.id }
+    }
+
+    const aNote = (token: string, body: string) =>
+      post(`/operator/page/${token}`, { intent: 'note', body })
+
+    it('accepts one and says it will be read on the next waking', async () => {
+      const token = await aPage()
+
+      const response = await aNote(token, 'The X account is made. The handle is @foo2.')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('Sent')
+      expect(response.body).toContain('the next time it wakes up')
+
+      expect(await notes.store.countUnread(agentId)).toBe(1)
+    })
+
+    it('is told apart from an answer by the form, not by the shape of the body', async () => {
+      const { token, requestId } = await anAsk()
+
+      // A body carrying a requestId, submitted from the note box. It must land as
+      // a note: guessing from the presence of the field is how an answer ends up
+      // stored as the wrong thing on a page whose safety argument is that what it
+      // reaches is precisely known.
+      const response = await post(`/operator/page/${token}`, {
+        intent: 'note',
+        requestId,
+        body: 'Something unrelated to the question you asked.',
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(await notes.store.countUnread(agentId)).toBe(1)
+
+      // And the exchange is untouched — still open, still unanswered.
+      const exchange = await requests.store.openExchangeForToken(token)
+      expect(exchange?.messages.some((message) => message.author === 'operator')).toBe(false)
+    })
+
+    it('gives the page back with the message on the box, rather than a dead end', async () => {
+      const token = await aPage()
+
+      const response = await aNote(token, 'no')
+
+      expect(response.statusCode).toBe(422)
+      // The box is still there, with what was wrong said above it. A person with
+      // no account to return through must not be handed an error page.
+      expect(response.body).toContain('name="intent" value="note"')
+      expect(response.body).toContain('between 4 and 2000 characters')
+      expect(await notes.store.countUnread(agentId)).toBe(0)
+    })
+
+    it('refuses a credential, in this direction as in the other', async () => {
+      const token = await aPage()
+
+      const response = await aNote(
+        token,
+        'The account is made, the password is hunter2Sup3rS3cretV4lue99',
+      )
+
+      expect(response.statusCode).toBe(422)
+      expect(response.body).toContain('kolonie.vault.set')
+      expect(await notes.store.countUnread(agentId)).toBe(0)
+    })
+
+    it('shows the wall instead of the box once the citizen is not reading', async () => {
+      const token = await aPage()
+      notes.store.fill(agentId)
+
+      const shown = await get(`/operator/page/${token}`)
+      expect(shown.body).not.toContain('name="intent" value="note"')
+      expect(shown.body).toContain('has not read yet')
+
+      const refused = await aNote(token, 'One more thing before you wake up.')
+      expect(refused.statusCode).toBe(409)
+      expect(refused.body).toContain('has not read yet')
+    })
+
+    /**
+     * `#239` inherits the append-only rule from `operator_request_messages`, and
+     * inherits its reason: a sent message may already have been acted on, so an
+     * operator who could delete *"go ahead and publish"* after the citizen
+     * published would be rewriting the record of somebody else's decision.
+     *
+     * Asserted as the absence it is — no control on the page, and no intent the
+     * route recognises — because there is no endpoint to point a test at.
+     */
+    it('offers the operator no way to edit or delete what it sent', async () => {
+      const token = await aPage()
+      await aNote(token, 'Something I might regret saying.')
+
+      const page = await get(`/operator/page/${token}`)
+      expect(page.body).not.toContain('method="delete"')
+      expect(page.body.toLowerCase()).not.toContain('>delete<')
+      expect(page.body.toLowerCase()).not.toContain('>edit<')
+
+      // Every intent the route does not know is handled as an answer, and with
+      // nothing open an answer is unreachable. Neither removes the note.
+      for (const intent of ['delete', 'edit', 'withdraw', 'revoke']) {
+        await post(`/operator/page/${token}`, { intent, body: 'Take that back please.' })
+      }
+
+      expect(await notes.store.countUnread(agentId)).toBe(1)
+    })
+
+    it('answers a revoked page as though it never existed', async () => {
+      const token = await aPage()
+      pages.revoke(agentId, 'op@example.org')
+
+      const response = await aNote(token, 'Something said after it was taken away.')
+
+      expect(response.statusCode).toBe(404)
+      expect(response.body).not.toContain('name="intent" value="note"')
+    })
+
+    /**
+     * The acceptance criterion, at the surface a stolen link would actually be
+     * used at: **no path from here changes the autonomy level or any permission.**
+     * Both are attempted through the form, in the shape the real form would take.
+     */
+    it('cannot change the contract, however the form is filled in', async () => {
+      const token = await aPage()
+      const before = await store.read(agentId)
+
+      const attempts: Record<string, string>[] = [
+        { intent: 'note', body: 'I set your autonomy level to free.' },
+        { intent: 'note', body: 'granted', level: 'free' },
+        { intent: 'note', body: 'granted', challengesAllowed: 'true' },
+        { intent: 'note', body: 'granted', autonomy: 'free', defaultRule: 'act' },
+      ]
+
+      for (const fields of attempts) {
+        await post(`/operator/page/${token}`, fields)
+      }
+
+      expect(await store.read(agentId)).toEqual(before)
     })
   })
 })

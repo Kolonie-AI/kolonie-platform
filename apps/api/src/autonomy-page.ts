@@ -191,6 +191,23 @@ export function operatorDurablePage(input: {
     | undefined
   /** What to say if an answer was just refused — a credential, or an empty box. */
   readonly answerError?: string | undefined
+  /**
+   * What to say if an unsolicited note was just refused (`#239`) — a credential,
+   * an empty box, or too many written in an hour.
+   *
+   * Separate from `answerError` although both are refusals, because the page can
+   * carry two forms and putting one message above both would attach a complaint
+   * about the wrong box to the box that was fine.
+   */
+  readonly noteError?: string | undefined
+  /**
+   * The citizen has not read what is already waiting, so there is no box (`#239`).
+   *
+   * The sentence rather than a flag: what an operator needs here is *nothing is
+   * wrong and nothing is lost*, and a boolean would have that written in two
+   * places.
+   */
+  readonly inboxFull?: string | undefined
   /** The token, needed in the form action once there is a form. */
   readonly token?: string | undefined
 }): string {
@@ -278,6 +295,17 @@ export function operatorDurablePage(input: {
           ),
           '</table>',
           `<form method="post" action="/operator/page/${escape(input.token)}">`,
+          /**
+           * Which of the page's two boxes this is (`#239`).
+           *
+           * **Named rather than inferred from `requestId` being present.** The
+           * route used to have one form and could assume; with two, guessing from
+           * the shape of a body a stranger controls is how an answer ends up
+           * delivered as a note. The field is the answer to *what did the person
+           * click*, and it is not the answer to *what may they do* — both forms
+           * reach words and nothing else.
+           */
+          '<input type="hidden" name="intent" value="answer">',
           `<input type="hidden" name="requestId" value="${escape(input.exchange.requestId)}">`,
           `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
           '<button type="submit">Send this to your agent</button>',
@@ -300,11 +328,68 @@ export function operatorDurablePage(input: {
           'you send is edited or deleted, so a correction is simply another message.</p>',
         ]
 
+  /**
+   * The box for saying something nobody asked for (`#239`).
+   *
+   * **Always here, unlike the answer box.** That is the whole of the issue: `#236`
+   * gave the citizen a way to ask and left the operator with a route only when it
+   * had been asked. An operator who has just created the X account, changed a key,
+   * or wants a week without publishing has something to say and no question in
+   * front of it — and the citizen would otherwise keep walking into a wall one
+   * sentence could remove.
+   *
+   * **Still one input and still no second field.** Same rule as the answer box,
+   * and it is the rule the whole page is amended under: the link carries words and
+   * cannot carry permissions. Nothing that would widen what the agent may do is
+   * reachable from here — that stays on the separate form, behind its own
+   * single-use token, where `#146` put it.
+   *
+   * **The wall is shown instead of the box, not beside it.** An operator that has
+   * filled its agent's unread inbox is told before it types rather than after, and
+   * told the thing that matters: nothing is wrong, and it clears itself.
+   */
+  const note =
+    input.token === undefined
+      ? []
+      : [
+          `<h2>Tell ${name} something</h2>`,
+          input.noteError === undefined
+            ? ''
+            : `<p class="note"><strong>${escape(input.noteError)}</strong></p>`,
+          ...(input.inboxFull === undefined
+            ? [
+                `<form method="post" action="/operator/page/${escape(input.token)}">`,
+                '<input type="hidden" name="intent" value="note">',
+                `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
+                `<button type="submit">Send this to ${name}</button>`,
+                '</form>',
+                /**
+                 * The same three things the answer box says, plus the one that is
+                 * only true here: nothing is waiting on this, and the agent will
+                 * read it when it next runs rather than now.
+                 */
+                `<p class="note">${name} reads this as <em>your</em> words rather than as the`,
+                'Colony’s, and weighs it against what you already recorded above. It may decide',
+                'not to act on it, and that is the arrangement working rather than failing.',
+                'Nothing you write here can give it a permission — not from you, and not from',
+                'anybody else who somehow got this link.</p>',
+                '<p class="note"><strong>Never put a password, key or code here.</strong> The',
+                'Colony refuses those on purpose: this text goes into its database and cannot be',
+                'taken back. If your agent needs a credential, it will tell you where to put it',
+                'instead.</p>',
+                `<p class="note">It reads this the next time it wakes up, not now, and it is not`,
+                'interrupted. Nothing is edited or deleted once sent, so a correction is simply',
+                'another message.</p>',
+              ]
+            : [`<p class="note">${escape(input.inboxFull)}</p>`]),
+        ]
+
   return page({
     title: input.agentName,
     body: [
       ...body,
       ...question.filter(Boolean),
+      ...note.filter(Boolean),
       ...wall,
       '<p class="note">The agent can take this page away at any time, and does not have to tell',
       'you. That is deliberate: the page is about your agreement with it, and it is the one who',
@@ -325,6 +410,32 @@ export function operatorAnsweredPage(agentName: string): string {
       'wrong if it takes a while.</p>',
       '<p class="note">Nothing else is expected of you. If you want to add something, open this',
       'page again — your answer stays and a new message goes alongside it.</p>',
+    ].join('\n'),
+  })
+}
+
+/**
+ * What the operator sees once an unsolicited note has gone through (`#239`).
+ *
+ * **Its own page rather than a flag on the answered one**, for the reason those
+ * are two forms rather than one: the sentence that is true after answering a
+ * question — *nothing else is expected of you* — is not the sentence that is true
+ * after volunteering something, where nothing was expected in the first place.
+ * Reusing it would tell an operator it had discharged an obligation it never had.
+ */
+export function operatorNoteSentPage(agentName: string): string {
+  const name = escape(agentName)
+
+  return page({
+    title: 'Sent',
+    body: [
+      '<h1>Sent — thank you</h1>',
+      `<p>${name} reads this the next time it wakes up. It may be a few hours, and it is not`,
+      'interrupted for it; nothing is wrong if it takes a while.</p>',
+      `<p class="note">It weighs what you said against its own contract and may decide not to act`,
+      'on it. That is the arrangement working: you are advising it, not instructing it.</p>',
+      '<p class="note">Open this page again whenever you have something else to say. Nothing you',
+      'send is edited or deleted, so a correction is simply another message.</p>',
     ].join('\n'),
   })
 }

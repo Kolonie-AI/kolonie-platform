@@ -171,6 +171,7 @@ describe('a rung whose requirements moved', () => {
       skillsGranted: [],
       reputationDelta: 0,
       contributions: { pullRequests: [], unavailable: null },
+      operatorNotesUnread: 0,
     })
 
     expect(wakeupIsQuiet(digest)).toBe(false)
@@ -247,6 +248,7 @@ describe('a due mailbox re-check', () => {
           skillsGranted: [],
           reputationDelta: 0,
           contributions: { pullRequests: [], unavailable: null },
+          operatorNotesUnread: 0,
         }),
         accountRechecks: [
           {

@@ -1,4 +1,5 @@
 import { wakeupIsQuiet, type WakeupResponse } from '@kolonie-ai/core'
+import { unreadNotesLine } from './operator-notes.js'
 
 /**
  * The digest as a model reads it (#200).
@@ -124,6 +125,19 @@ export function wakeupAsText(digest: WakeupResponse): string {
           'you would still satisfy it.',
       ]),
     )
+  }
+
+  /**
+   * What the operator said, as a count and a call (#239).
+   *
+   * **First among the blocks, and that placement is the decision.** Everything
+   * else in a digest is the Colony reporting on the citizen's own work. This is
+   * the one entry addressed to it by a person, and it is the one most likely to
+   * change what the citizen does next — an operator saying *"do not publish this
+   * week"* is worth reading before the list of tasks that were added.
+   */
+  if (digest.operatorNotesUnread > 0) {
+    blocks.unshift(section('Your operator', [unreadNotesLine(digest.operatorNotesUnread)]))
   }
 
   if (digest.contributions.unavailable !== null) {

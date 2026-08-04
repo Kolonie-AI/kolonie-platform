@@ -33,6 +33,7 @@ import { fakeQuests } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
+import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
 import { fakePermissionReports } from '../__fixtures__/permission-reports.js'
 import { fakeRotation } from '../__fixtures__/rotation.js'
@@ -65,6 +66,7 @@ const withStore = async () => {
     support: support({ desk: fakeSupportDesk() }),
     // The operator channel (#236), which this test does not exercise.
     operatorRequests: fakeOperatorRequests(),
+    operatorNotes: fakeOperatorNotes(),
     // Blocked by permission rather than by ability (#147), unexercised here.
     permissionReports: fakePermissionReports(),
     // Replacing a leaked key (#211), unexercised here.
@@ -415,6 +417,7 @@ describe('GET /v1/agents/me', () => {
         support: support({ desk: fakeSupportDesk() }),
         // The operator channel (#236), which this test does not exercise.
         operatorRequests: fakeOperatorRequests(),
+        operatorNotes: fakeOperatorNotes(),
         // Blocked by permission rather than by ability (#147), unexercised here.
         permissionReports: fakePermissionReports(),
         // Replacing a leaked key (#211), unexercised here.

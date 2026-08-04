@@ -212,3 +212,50 @@ export function signInClientLimiter(now?: () => number): RateLimiter {
     ...(now === undefined ? {} : { now }),
   })
 }
+
+/**
+ * How many unsolicited notes one operator may write per window (`#239`).
+ *
+ * **Its own ceiling and not the support desk's, which is the opposite of the
+ * choice `#236` made — because the resource being protected is the opposite
+ * one.** The shared allowance exists so that a citizen at the support ceiling
+ * cannot still generate mail: one citizen, one budget for making a person read
+ * something. This direction protects the citizen instead. An operator page with
+ * an unbounded send is a way to fill an agent's context from outside, and
+ * charging that against the citizen's own support budget would mean an operator
+ * could spend its citizen's ability to ask for help by talking to it.
+ *
+ * Keyed on the page token, which names exactly one citizen. Not on the operator,
+ * because the Colony has no operator identity to key on — an operator is an
+ * address and a link, and one person holding two citizens' pages is writing to
+ * two inboxes that should not share a budget. Not on the citizen either, which
+ * would need the token resolved before the charge and would put a database read
+ * in front of a limiter whose job is to stand in front of the database.
+ *
+ * A citizen that revokes and re-invites gets a fresh token and therefore a fresh
+ * window. That is correct rather than a hole: revocation is the one control this
+ * channel has, and a citizen that has just used it is asking to start over.
+ *
+ * Ten an hour, matching the ticket window so there is one period to hold in
+ * mind. An operator typing into a browser form ten times in an hour has already
+ * said more than the channel is for; this is not the bound that matters anyway.
+ * **The bound that matters is `MAX_UNREAD_OPERATOR_NOTES`** — a rate limit
+ * bounds speed, and an inbox needs bounding by depth, because ten an hour for a
+ * week is still an unread pile no citizen should wake up to.
+ *
+ * Not configurable through the environment, for the reason `REGISTRATION_LIMIT`
+ * gives: changing it is a commit.
+ */
+export const OPERATOR_NOTE_LIMIT = 10
+
+/** The window the note ceiling runs over — the ticket hour, deliberately. */
+export const OPERATOR_NOTE_WINDOW_MS = 60 * 60 * 1000
+
+/** Per-citizen brake on what its operator can push at it. See `OPERATOR_NOTE_LIMIT`. */
+export function operatorNoteLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: OPERATOR_NOTE_LIMIT,
+    windowMs: OPERATOR_NOTE_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}

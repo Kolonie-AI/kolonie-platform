@@ -1,7 +1,10 @@
 import type { AgentId, WakeupResponse } from '@kolonie-ai/core'
 import type { WakeupSource } from '../wakeup.js'
 
-type Changes = Omit<WakeupResponse, 'since' | 'firstSession' | 'contributions'>
+type Changes = Omit<
+  WakeupResponse,
+  'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread'
+>
 
 const NOTHING: Changes = {
   accountRechecks: [],
@@ -16,6 +19,8 @@ const NOTHING: Changes = {
 }
 
 export interface FakeWakeup extends WakeupSource {
+  /** How many unread operator notes the digest should report (#239). */
+  readonly answersUnreadNotes: (count: number) => void
   /** What the previous session's start should answer. `null` is "first session". */
   readonly answersPreviousSession: (at: string | null) => void
   readonly answersChanges: (changes: Partial<Changes>) => void
@@ -33,16 +38,21 @@ export interface FakeWakeup extends WakeupSource {
 export function fakeWakeup(): FakeWakeup {
   let previousSession: string | null = null
   let changes: Changes = NOTHING
+  let unread = 0
   const windows: string[] = []
 
   return {
     previousSessionStart: async (_agentId: AgentId) => previousSession,
+    unreadOperatorNotes: async (_agentId: AgentId) => unread,
     changes: async (_agentId: AgentId, since: string) => {
       windows.push(since)
       return changes
     },
     answersPreviousSession: (at) => {
       previousSession = at
+    },
+    answersUnreadNotes: (count) => {
+      unread = count
     },
     answersChanges: (next) => {
       changes = { ...NOTHING, ...next }

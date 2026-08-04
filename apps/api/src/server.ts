@@ -10,6 +10,7 @@ import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
 import { databaseSupportDesk, support } from './support.js'
+import { databaseOperatorNoteStore } from './operator-notes.js'
 import { databaseOperatorRequestStore } from './operator-requests.js'
 import { databasePermissionReportStore } from './permission-reports.js'
 import { databaseCredentialRotation } from './rotation.js'
@@ -18,7 +19,7 @@ import { databaseRetesting } from './retest.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
 import { databaseConsoleStore } from './console.js'
-import { signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
+import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { mailerFromEnv } from './mail-config.js'
 import { databaseKeyChallenges } from './keys.js'
@@ -323,6 +324,19 @@ const app = buildApp({
   permissionReports: {
     store: databasePermissionReportStore(db),
     contracts: autonomyStore,
+  },
+  /**
+   * The operator's own direction (#239).
+   *
+   * **Its own limiter, built here and shared with nothing.** `operatorRequests`
+   * takes `supportSurface` because a citizen's writing to a person and its writing
+   * to the desk are one budget; this ceiling protects the citizen instead, and
+   * handing it `supportSurface` would let an operator spend its citizen's ability
+   * to ask for help by talking to it.
+   */
+  operatorNotes: {
+    store: databaseOperatorNoteStore(db),
+    limiter: operatorNoteLimiter(),
   },
   operatorRequests: {
     store: databaseOperatorRequestStore(db),

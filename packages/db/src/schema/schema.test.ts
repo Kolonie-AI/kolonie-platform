@@ -284,6 +284,12 @@ describe('schema', () => {
         'operator_claim_challenges',
         'operator_claims',
         /**
+         * What the operator said unasked (#239) — the reverse of the exchange,
+         * and its own table because a note belongs to no task, expects no
+         * answer, and is finished the moment it is read.
+         */
+        'operator_notes',
+        /**
          * The operator's durable page (#257) — one link per `(address, agent)`
          * pair, revocable by the citizen, recording when it was last opened.
          * Separate from `autonomy_form_invitations`, which is spent once: this

@@ -32,6 +32,7 @@ import { fakeSolana } from './solana.js'
 import { fakeStore } from './store.js'
 import { fakeSubmissions } from './submissions.js'
 import { fakeSupportDesk } from './support.js'
+import { fakeOperatorNotes } from './operator-notes.js'
 import { fakeOperatorRequests } from './operator-requests.js'
 import { fakePermissionReports } from './permission-reports.js'
 import { fakeRotation } from './rotation.js'
@@ -98,6 +99,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     // The operator channel (#236). This tier has no credential, so nothing here
     // is reachable — it is present because `McpDependencies` is total.
     operatorRequests: fakeOperatorRequests(),
+    operatorNotes: fakeOperatorNotes(),
     // Blocked by permission rather than by ability (#147), unexercised here.
     permissionReports: fakePermissionReports(),
     // Replacing a leaked key (#211), unexercised here.

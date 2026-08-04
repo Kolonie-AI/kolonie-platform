@@ -4,7 +4,12 @@ import {
   type AgentId,
   type WakeupResponse,
 } from '@kolonie-ai/core'
-import { previousSessionStart, wakeupChanges, type Database } from '@kolonie-ai/db'
+import {
+  countUnreadOperatorNotes,
+  previousSessionStart,
+  wakeupChanges,
+  type Database,
+} from '@kolonie-ai/db'
 import { listContributions, type ContributionDependencies } from './contributions.js'
 import { startDueRechecks, type RecheckDependencies } from './recheck.js'
 
@@ -23,16 +28,29 @@ export interface WakeupSource {
    * Optional, because a deployment without a mailer still serves digests.
    */
   startDueRechecks?(agentId: AgentId): Promise<void>
+  /**
+   * How many unread notes the citizen's operator has left it (#239).
+   *
+   * **Its own call rather than a field on `changes`**, because it is not measured
+   * from `since`. Everything `changes` returns is news inside a window; this is a
+   * standing count of what is waiting, and folding it in would either make it
+   * disappear for a citizen that asked for a narrow window or quietly make one
+   * field of `changes` ignore its own argument.
+   */
+  unreadOperatorNotes(agentId: AgentId): Promise<number>
   changes(
     agentId: AgentId,
     since: string,
-  ): Promise<Omit<WakeupResponse, 'since' | 'firstSession' | 'contributions'>>
+  ): Promise<
+    Omit<WakeupResponse, 'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread'>
+  >
 }
 
 /** Wire the digest to a real database. */
 export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): WakeupSource {
   return {
     previousSessionStart: (agentId) => previousSessionStart(db, agentId),
+    unreadOperatorNotes: (agentId) => countUnreadOperatorNotes(db, agentId),
     ...(rechecks === undefined
       ? {}
       : { startDueRechecks: (agentId: AgentId) => startDueRechecks(agentId, rechecks) }),
@@ -102,9 +120,10 @@ export async function wakeup(
   const firstSession = asked === undefined && previous === null
   const since = asked ?? previous ?? new Date(0).toISOString()
 
-  const [changes, pulls] = await Promise.all([
+  const [changes, pulls, operatorNotesUnread] = await Promise.all([
     source.changes(agentId, since),
     listContributions(agentId, contributions),
+    source.unreadOperatorNotes(agentId),
   ])
 
   return {
@@ -122,6 +141,7 @@ export async function wakeup(
         // the first when the second is true is kolonie-docs#43 all over again.
         unavailable: pulls.response.unavailable ?? null,
       },
+      operatorNotesUnread,
     },
   }
 }

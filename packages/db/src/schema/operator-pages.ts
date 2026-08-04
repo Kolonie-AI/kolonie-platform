@@ -35,9 +35,22 @@ import { agents } from './agents.js'
  * to give one citizen bad advice about one task, against a citizen that was told to
  * weigh it.
  *
- * `kolonie-platform#239` extends the same rule to unsolicited messages and to the
- * optional second factor. See D-081 for the argument in full, and
- * `apps/api/src/routes/autonomy-page.ts` for the two methods this page answers.
+ * **`kolonie-platform#239` extended it, and the claim needed no restating — which
+ * is the test of whether it was drawn narrowly enough.** The page now accepts a
+ * second write: an unsolicited note (`operator_notes`), from an operator with
+ * something to say and no question in front of it. That widens how often the link
+ * is used and not what it reaches. Both forms reach words, neither touches
+ * `autonomy_contracts`, and the two are told apart by a hidden `intent` field
+ * rather than by inferring from the shape of a body the caller controls.
+ *
+ * What a leaked link now buys a stranger is the ability to give one citizen bad
+ * advice, unprompted, up to `OPERATOR_NOTE_LIMIT` an hour and
+ * `MAX_UNREAD_OPERATOR_NOTES` deep — against a citizen that was told to weigh it,
+ * and that can end the whole channel by revoking. **The optional second factor
+ * `#239` specifies is not built yet**: it is `kolonie-platform#206`, and when it
+ * lands it gates writing rather than reading. See D-081 and D-088 for the
+ * argument in full, and `apps/api/src/routes/autonomy-page.ts` for the two
+ * methods this page answers.
  *
  * ## `last_opened_at` is a fact for the citizen, and never a score
  *

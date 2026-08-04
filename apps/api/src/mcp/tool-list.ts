@@ -204,6 +204,20 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.operator.request.reply',
   'kolonie.operator.request.close',
   /**
+   * The other direction: what the operator said without being asked (#239).
+   *
+   * **One, against the exchange's four, and the asymmetry is the design.** A citizen
+   * needs to open, read, add to and close an exchange it started. It needs exactly one
+   * thing from a note: to be handed what is waiting. There is no reply tool because a
+   * note is not a thread, and no delete tool because a note the citizen has read is
+   * already gone.
+   *
+   * It does **not** share the exchange's outbound allowance. That ceiling stops a
+   * citizen making a person read too much; this direction is bounded to stop a person
+   * filling a citizen's context, which is the opposite party and the opposite budget.
+   */
+  'kolonie.operator.notes',
+  /**
    * Blocked by permission rather than by ability (#147) — saying so, reading the case
    * it makes, and taking one back.
    *

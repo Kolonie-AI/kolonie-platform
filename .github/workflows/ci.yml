@@ -144,6 +144,12 @@ jobs:
       # Note that this cannot silently skip the database tests: with CI set and
       # DATABASE_URL missing, packages/db fails the run rather than reporting
       # green over a suite that covered nothing.
+      #
+      # `CI` is also what turns off the lint and format caches (#304). A runner
+      # installs from scratch, so its cache is cold whatever it does — and this is
+      # the one run whose answer nobody re-checks, which makes it the wrong place
+      # to hold a cache at all. The same variable GitHub sets for every step is
+      # what decides it, so there is nothing here to keep in sync.
       - name: Check
         run: npm run check
 

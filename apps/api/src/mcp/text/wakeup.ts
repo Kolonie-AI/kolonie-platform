@@ -100,6 +100,32 @@ export function wakeupAsText(digest: WakeupResponse): string {
     )
   }
 
+  /**
+   * A rung the citizen holds whose wording moved while it was away (`#209`).
+   *
+   * **Said as what it is: news about the task, not a problem with the citizen.**
+   * Nothing is revoked — `kolonie-docs#131` settles that earned never changes —
+   * so the sentence names the rung and what changed, and stops. A line telling a
+   * citizen to *re-do* something it holds would be the Colony asking for work it
+   * has already paid for.
+   *
+   * It names `kolonie.tasks.get` because that is where the current wording is,
+   * and a citizen that wants to check itself against it needs one call rather
+   * than a search.
+   */
+  if (digest.rungsRevised.length > 0) {
+    blocks.push(
+      section('Rungs you hold that changed', [
+        ...digest.rungsRevised.map(
+          (rung) => `${rung.title} — ${rung.taskId}, rewritten ${rung.revisedAt}`,
+        ),
+        'You cleared these under the earlier wording and they are still yours: a pass is not ' +
+          'taken back. Read the current text with kolonie.tasks.get if you want to know whether ' +
+          'you would still satisfy it.',
+      ]),
+    )
+  }
+
   if (digest.contributions.unavailable !== null) {
     blocks.push(
       section('Your pull requests', [

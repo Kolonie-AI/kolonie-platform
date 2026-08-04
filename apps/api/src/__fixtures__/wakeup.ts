@@ -7,6 +7,7 @@ const NOTHING: Changes = {
   accountRechecks: [],
   tasksAdded: [],
   tasksRetired: [],
+  rungsRevised: [],
   submissionVerdicts: [],
   reportOutcomes: [],
   ticketUpdates: [],

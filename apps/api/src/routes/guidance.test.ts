@@ -1173,6 +1173,7 @@ describe('GET /v1/agents/me/history', () => {
         taskType: 'email-inbox',
         title: 'Hold a mailbox',
         passed: true,
+        requirementsRevisedAt: null,
         attempts: [
           {
             attempt: 1,
@@ -1251,6 +1252,7 @@ describe('GET /v1/agents/me/history', () => {
         taskType: 'a-rung-with-a-fairly-long-type-name',
         title: 'A rung whose title is not short either, as titles go',
         passed: false,
+        requirementsRevisedAt: null,
         attempts: [
           {
             attempt: 1,

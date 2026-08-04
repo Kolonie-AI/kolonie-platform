@@ -574,6 +574,9 @@ function historyFromReports(reports: readonly OwnReport[]): AgentHistoryResponse
             taskType: 'example-task',
             title: 'An example rung',
             passed: attempt.outcome === 'passed',
+            // Nothing has moved under this citizen: the fixture's tasks have one
+            // wording, which is the ordinary case (#209).
+            requirementsRevisedAt: null,
             attempts: [attempt],
           }
         : {

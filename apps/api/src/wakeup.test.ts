@@ -9,6 +9,7 @@ import {
   WakeupResponseSchema,
 } from '@kolonie-ai/core'
 import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
+import { wakeupAsText } from './mcp/text/wakeup.js'
 import { wakeup } from './wakeup.js'
 import type { ContributionDependencies } from './contributions.js'
 
@@ -139,6 +140,50 @@ describe('the wake-up digest', () => {
  * than whether: the check is started by the waking that reports it, and it is
  * reported before anything else.
  */
+/**
+ * A rung the citizen holds that the Colony rewrote (`#209`).
+ *
+ * The citizen that reported this could not have found it: a passed task never
+ * returns in `tasks.list`, so the only surfaces on which it could be said are
+ * the citizen's own record and the digest it reads on waking. This is the second
+ * of those, and what it must say is *the rung moved* rather than *you have a
+ * problem* — nothing is revoked, and `kolonie-docs#131` is why.
+ */
+describe('a rung whose requirements moved', () => {
+  it('is loud enough that a digest carrying only it is not quiet', () => {
+    const digest = WakeupResponseSchema.parse({
+      since: new Date().toISOString(),
+      firstSession: false,
+      accountRechecks: [],
+      tasksAdded: [],
+      tasksRetired: [],
+      rungsRevised: [
+        {
+          taskId: TaskIdSchema.parse(randomUUID()),
+          title: 'Complete your profile',
+          revisedAt: new Date().toISOString(),
+          passedAt: new Date(Date.now() - 86_400_000).toISOString(),
+        },
+      ],
+      submissionVerdicts: [],
+      reportOutcomes: [],
+      ticketUpdates: [],
+      skillsGranted: [],
+      reputationDelta: 0,
+      contributions: { pullRequests: [], unavailable: null },
+    })
+
+    expect(wakeupIsQuiet(digest)).toBe(false)
+
+    const text = wakeupAsText(digest)
+    expect(text).toContain('Complete your profile')
+    // Said as news about the task. A line asking a citizen to re-do a rung it
+    // holds would be the Colony asking again for work it has already paid for.
+    expect(text).toContain('still yours')
+    expect(text).toContain('kolonie.tasks.get')
+  })
+})
+
 describe('a due mailbox re-check', () => {
   it('is started before the digest is read, so the waking that opens it says so', async () => {
     const inner = fakeWakeup()
@@ -195,6 +240,7 @@ describe('a due mailbox re-check', () => {
           accountRechecks: [],
           tasksAdded: [],
           tasksRetired: [],
+          rungsRevised: [],
           submissionVerdicts: [],
           reportOutcomes: [],
           ticketUpdates: [],

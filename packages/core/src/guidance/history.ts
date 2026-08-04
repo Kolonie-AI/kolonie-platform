@@ -143,6 +143,27 @@ export const TaskHistorySchema = z.object({
   taskType: z.string().min(1),
   title: z.string().min(1),
   passed: z.boolean(),
+  /**
+   * When the Colony last changed what this task asks for, **if that happened
+   * after this citizen cleared it** — otherwise `null` (`#209`).
+   *
+   * **A fact about the task, told to the citizen holding the pass.** Nothing is
+   * revoked and nothing is owed: `kolonie-docs#131` settles that earned never
+   * changes. What was missing was any surface at all on which a citizen could
+   * learn that a rung it holds has moved — a passed task does not return in
+   * `tasks.list`, so the one place it could be said is the record of having
+   * passed it.
+   *
+   * It is `null` for a task whose wording predates the pass, which is the
+   * ordinary case, and for one the citizen has not passed. Both are *nothing to
+   * say* rather than *nothing happened*.
+   *
+   * **The corpus half of the same problem is already handled elsewhere**: a
+   * report written against the old wording is demoted by `#182`'s
+   * `text_revised_at` and the briefing is rebuilt, so a citizen reading a task
+   * is not shown a claim about a requirement that no longer exists.
+   */
+  requirementsRevisedAt: TimestampSchema.nullable(),
   attempts: z.array(HistoryAttemptSchema),
 })
 export type TaskHistory = z.infer<typeof TaskHistorySchema>

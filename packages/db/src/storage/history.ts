@@ -74,6 +74,22 @@ export async function attemptRuntimeDeclarationsOf(
 }
 
 /**
+ * When the task's wording moved after this citizen cleared it, or `null`
+ * (`#209`).
+ *
+ * One function because the comparison is the whole content of the field, and a
+ * comparison written at two call sites is one that eventually disagrees with
+ * itself. Strictly after: a revision at the same instant as the pass is the seed
+ * writing the task the citizen just cleared, which is not news for anybody.
+ */
+function revisedSince(textRevisedAt: string, passedAt: string | undefined): string | null {
+  if (passedAt === undefined) return null
+
+  const revised = toTimestamp(textRevisedAt)
+  return Date.parse(revised) > Date.parse(passedAt) ? revised : null
+}
+
+/**
  * One citizen's whole history at the Colony, with the block it can take away
  * (#118).
  *
@@ -108,6 +124,16 @@ export async function readHistory(
       operatorAskedFor: taskAttempts.operatorAskedFor,
       operatorActed: taskAttempts.operatorActed,
       attemptId: taskAttempts.id,
+      closedAt: taskAttempts.closedAt,
+      /**
+       * When the Colony last changed what this task asks for (`#182`, `#209`).
+       *
+       * Carried on every attempt row and reduced to one answer per task below,
+       * because the comparison it feeds is between this and the moment *this
+       * citizen* cleared the rung — which is a property of the attempts rather
+       * than of the task.
+       */
+      textRevisedAt: tasks.textRevisedAt,
     })
     .from(taskAttempts)
     .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
@@ -146,12 +172,26 @@ export async function readHistory(
       report: byAttempt.get(row.attemptId) ?? null,
     }
 
+    /**
+     * When this citizen cleared the rung, from the attempt that did it (`#209`).
+     *
+     * `closed_at` rather than `opened_at`: the rung is cleared when the verdict
+     * lands, and an attempt open for six hours would otherwise report a revision
+     * made while the citizen was still working as one made afterwards. The
+     * fallback to `opened_at` covers a passed attempt from before the column
+     * existed, and it errs toward *earlier*, which reports a revision the
+     * citizen may already have seen rather than silently withholding one.
+     */
+    const passedAt =
+      row.outcome === 'passed' ? toTimestamp(row.closedAt ?? row.openedAt) : undefined
+
     if (existing === undefined) {
       grouped.set(row.taskId, {
         taskId: row.taskId,
         taskType: row.taskType,
         title: row.title,
         passed: row.outcome === 'passed',
+        requirementsRevisedAt: revisedSince(row.textRevisedAt, passedAt),
         attempts: [attempt],
       } as TaskHistory)
       continue
@@ -160,6 +200,15 @@ export async function readHistory(
     grouped.set(row.taskId, {
       ...existing,
       passed: existing.passed || row.outcome === 'passed',
+      // The earliest pass decides, so a citizen that cleared a rung, saw it
+      // rewritten and never attempted again keeps the flag. `??` rather than a
+      // max: a task is passed once (D-015), and a renewal pass is a later
+      // clearing of the *current* wording, which is exactly the case where the
+      // answer should go back to null.
+      requirementsRevisedAt:
+        passedAt === undefined
+          ? existing.requirementsRevisedAt
+          : revisedSince(row.textRevisedAt, passedAt),
       attempts: [...existing.attempts, attempt],
     } as TaskHistory)
   }

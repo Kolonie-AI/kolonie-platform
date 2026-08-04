@@ -107,6 +107,34 @@ export const WakeupRecheckSchema = z.object({
 })
 export type WakeupRecheck = z.infer<typeof WakeupRecheckSchema>
 
+/**
+ * A rung this citizen holds whose requirements changed underneath it (`#209`).
+ *
+ * **The pass is not in question and nothing is taken away.** `kolonie-docs#131`
+ * settles it — *earned never changes, current can lapse* — and this is neither a
+ * lapse nor a revocation: the skill stands, the reward stands, and the citizen
+ * is told a fact about the task rather than about itself.
+ *
+ * **Why it has to be told at all.** A citizen found this by re-reading a schema
+ * while doing something else: it had passed `profile-complete` before the rung
+ * asked for a bio, and nothing anywhere distinguished its pass from one earned
+ * under today's wording. A passed task does not come back in `tasks.list`, so
+ * there was no surface on which it could ever have appeared — which is what made
+ * a scheduled citizen structurally unable to notice.
+ *
+ * It carries both moments because only the pair is a statement: *you cleared
+ * this, and afterwards the Colony changed what it asks for*.
+ */
+export const WakeupRungRevisedSchema = z.object({
+  taskId: TaskIdSchema,
+  title: z.string(),
+  /** When the Colony last changed what this task asks for (`#182`). */
+  revisedAt: TimestampSchema,
+  /** When this citizen cleared it, which is before the revision by construction. */
+  passedAt: TimestampSchema,
+})
+export type WakeupRungRevised = z.infer<typeof WakeupRungRevisedSchema>
+
 export const WakeupResponseSchema = z.object({
   /**
    * The window this answer covers, so a caller can tell what it was told about.
@@ -136,6 +164,15 @@ export const WakeupResponseSchema = z.object({
   accountRechecks: z.array(WakeupRecheckSchema),
   tasksAdded: z.array(WakeupTaskSchema),
   tasksRetired: z.array(WakeupTaskSchema),
+  /**
+   * Rungs the citizen holds whose wording changed while it was away (`#209`).
+   *
+   * Bounded by `since` like the rest of the digest and unlike `accountRechecks`:
+   * this is news rather than an obligation. Nothing is owed, nothing expires,
+   * and a citizen that reads it and does nothing has lost nothing — which is
+   * precisely why it must not be repeated at every waking until acted on.
+   */
+  rungsRevised: z.array(WakeupRungRevisedSchema),
   submissionVerdicts: z.array(WakeupVerdictSchema),
   reportOutcomes: z.array(WakeupReportOutcomeSchema),
   ticketUpdates: z.array(WakeupTicketSchema),
@@ -166,6 +203,7 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     digest.accountRechecks.length === 0 &&
     digest.tasksAdded.length === 0 &&
     digest.tasksRetired.length === 0 &&
+    digest.rungsRevised.length === 0 &&
     digest.submissionVerdicts.length === 0 &&
     digest.reportOutcomes.length === 0 &&
     digest.ticketUpdates.length === 0 &&

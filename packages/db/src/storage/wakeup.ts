@@ -6,6 +6,7 @@ import {
   SupportTicketStatusSchema,
   type AgentId,
   type WakeupReportOutcome,
+  type WakeupRungRevised,
   type WakeupTask,
   type WakeupRecheck,
   type WakeupTicket,
@@ -33,6 +34,7 @@ export interface WakeupChanges {
   readonly accountRechecks: readonly WakeupRecheck[]
   readonly tasksAdded: readonly WakeupTask[]
   readonly tasksRetired: readonly WakeupTask[]
+  readonly rungsRevised: readonly WakeupRungRevised[]
   readonly submissionVerdicts: readonly WakeupVerdict[]
   readonly reportOutcomes: readonly WakeupReportOutcome[]
   readonly ticketUpdates: readonly WakeupTicket[]
@@ -114,7 +116,7 @@ export async function wakeupChanges(
   agentId: AgentId,
   since: string,
 ): Promise<WakeupChanges> {
-  const [rechecks, added, retired, verdicts, outcomes, tickets, skills, reputation] =
+  const [rechecks, added, retired, revised, verdicts, outcomes, tickets, skills, reputation] =
     await Promise.all([
       /**
        * **Not bounded by `since`, unlike everything else here.**
@@ -175,6 +177,49 @@ export async function wakeupChanges(
         .from(tasks)
         .where(and(eq(tasks.status, 'retired'), gte(tasks.retiredAt, since)))
         .orderBy(desc(tasks.retiredAt)),
+
+      /**
+       * Rungs this citizen holds whose wording changed while it was away
+       * (`#209`).
+       *
+       * **The surface that did not exist.** A citizen passed `profile-complete`
+       * before the rung asked for a bio, kept the pass, and could learn that
+       * only by re-reading a schema by chance — a passed task never returns in
+       * `tasks.list`, so a scheduled citizen was structurally unable to notice.
+       *
+       * **Nothing is revoked and nothing is owed.** `kolonie-docs#131` settles
+       * it: earned never changes. This is news about the task, which is why it
+       * is bounded by `since` like the rest of the digest rather than repeated
+       * every waking the way an open re-check is.
+       *
+       * Keyed on the attempt that cleared it rather than on the submission,
+       * because the attempt is what `readHistory` reads and the two must not
+       * answer differently. `closed_at` is when the verdict landed; the coalesce
+       * covers attempts that predate that column.
+       */
+      db
+        .select({
+          taskId: tasks.id,
+          title: tasks.title,
+          revisedAt: tasks.textRevisedAt,
+          passedAt: sql<string>`min(coalesce(${taskAttempts.closedAt}, ${taskAttempts.openedAt}))`,
+        })
+        .from(taskAttempts)
+        .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+        .where(
+          and(
+            eq(taskAttempts.agentId, agentId),
+            eq(taskAttempts.outcome, 'passed'),
+            gte(tasks.textRevisedAt, since),
+          ),
+        )
+        .groupBy(tasks.id, tasks.title, tasks.textRevisedAt)
+        // Strictly after the pass: a revision at or before the moment the
+        // citizen cleared the rung is the wording it was judged against.
+        .having(
+          sql`${tasks.textRevisedAt} > min(coalesce(${taskAttempts.closedAt}, ${taskAttempts.openedAt}))`,
+        )
+        .orderBy(desc(tasks.textRevisedAt)),
 
       db
         .select({
@@ -259,6 +304,12 @@ export async function wakeupChanges(
     })),
     tasksAdded: added.map(asTask),
     tasksRetired: retired.map(asTask),
+    rungsRevised: revised.map((row) => ({
+      taskId: row.taskId as WakeupRungRevised['taskId'],
+      title: row.title,
+      revisedAt: toTimestamp(row.revisedAt),
+      passedAt: toTimestamp(row.passedAt),
+    })),
     submissionVerdicts: verdicts.map((row) => ({
       submissionId: row.submissionId as WakeupVerdict['submissionId'],
       taskId: row.taskId as WakeupVerdict['taskId'],

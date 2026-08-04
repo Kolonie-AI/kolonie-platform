@@ -538,6 +538,17 @@ describe('nothing decides on a session', () => {
      */
     'challenges.ts',
     /**
+     * **`challenges.test.ts`, which names sessions in order to assert that
+     * `challenges.ts` still does not decide on one** (`#301`).
+     *
+     * It calls `nameSession` for two citizens and asserts each one's persistence
+     * context carries its own — the guard against the fragment being rewritten
+     * back into a form that correlates on a bare identifier. A test of the
+     * exemption above belongs on the same list as the exemption, the way
+     * `wakeup.test.ts` and `recheck.test.ts` already are.
+     */
+    'challenges.test.ts',
+    /**
      * **`wakeup.ts`, and only to pick a window** (`#200`).
      *
      * `previousSessionStart` reads when the caller's previous session began, so the digest

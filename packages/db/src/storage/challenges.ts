@@ -521,9 +521,28 @@ export async function persistenceContext(
     .select({
       startedAt: browserChallenges.createdAt,
       declaredRhythmHours: agents.declaredRhythmHours,
+      // **The outer reference is written out, and this fragment requires
+      // `browser_challenges` in scope** (`#301`).
+      //
+      // It was `${browserChallenges.agentId}`, and that was **not** broken:
+      // measured 2026-08-04, this query renders `s.agent_id =
+      // "browser_challenges"."agent_id"`, because Drizzle omits the table name
+      // only when the statement has one table in scope and this one joins
+      // `agents`. Drop that join — it is here for `declared_rhythm_hours` and
+      // for nothing to do with sessions — and the same line renders a bare
+      // `"agent_id"`, which resolves against `agent_sessions s`, makes the
+      // predicate `s.agent_id = s.agent_id`, and hands every citizen the most
+      // recently named session in the Colony.
+      //
+      // So the identifier is written out for the reason `heldSkillsSql` gives:
+      // an expression that names no table variable cannot be qualified wrongly,
+      // whatever the query around it does next. The cost is that a rename of
+      // either table stops being a compile error here, and that is the right way
+      // round — a rename breaks loudly at the first query, and this would not
+      // break at all.
       sessionId: sql<string | null>`(
         select s.external_id from agent_sessions s
-         where s.agent_id = ${browserChallenges.agentId}
+         where s.agent_id = browser_challenges.agent_id
          order by s.named_at desc
          limit 1
       )`,

@@ -45,6 +45,14 @@ import { agentSkills } from '../schema/index.js'
  * is not one. The alias makes the expression mean the same thing wherever it is
  * embedded, which is the remedy `currentSessionIdSql` already uses.
  *
+ * **Position is half the condition and the query's shape is the other half**
+ * (`#301`, measured 2026-08-04): Drizzle omits the table name only when the
+ * statement has one table in scope, so the same fragment in the same select
+ * field comes out qualified as soon as anything joins. The rendering above is
+ * this fragment's, in this fragment's callers, and it is not a general rule
+ * about select fields — `bare-identifiers.test.ts` carries the correction and
+ * the measurement.
+ *
  * **The outer reference is written out too, and that is the half that matters.**
  * Aliasing the inner table alone still left `= "id"`, which resolves outward
  * only because nothing nearer declares it — the same luck in a smaller place.

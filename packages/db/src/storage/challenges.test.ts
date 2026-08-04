@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm'
 import {
   CAPABILITY_STAGE,
   INTERSTITIAL_STAGE,
+  PERSISTENCE_STAGE,
   RegisterAgentRequestSchema,
   RETIRED_CHALLENGE_STAGE,
   type AgentId,
@@ -17,9 +18,11 @@ import {
   challengeProgress,
   hasClearedGate,
   mintChallenge,
+  persistenceContext,
   recordObservation,
   redeemChallenge,
 } from './challenges.js'
+import { nameSession } from './sessions.js'
 
 const target = databaseTestTarget()
 
@@ -421,6 +424,63 @@ describe('browser challenges', () => {
       await advanceChallenge(db, minted.id, 0, INTERSTITIAL_STAGE, { kind: 'ordered-panels' })
 
       expect(await browserDiagnostics(db, otherId)).toEqual([])
+    })
+  })
+
+  /**
+   * **The correlation, which holds — and these pass against the version before
+   * `#301` too, deliberately** (`#301`).
+   *
+   * That issue read `persistenceContext`'s scalar subquery as correlating on a
+   * bare `"agent_id"` and therefore handing every citizen the newest session in
+   * the Colony. It does not: the query joins `agents`, Drizzle omits a table name
+   * only for a single-table statement, and it renders
+   * `"browser_challenges"."agent_id"`. These tests were written to fail against
+   * that diagnosis and did not, which is how the diagnosis was found to be wrong.
+   *
+   * **They are kept because the query's correctness rested on that join**, which
+   * is there to read `declared_rhythm_hours` and has nothing to do with sessions.
+   * The fragment now names its outer table outright, and the second session below
+   * is named last on purpose: it is the row a single-table version of this query
+   * would reach for, so removing the join or re-interpolating the column fails
+   * here rather than in a citizen's evidence.
+   */
+  describe('the persistence context', () => {
+    const aPersistenceChallenge = async (owner: AgentId): Promise<string> =>
+      (await mintChallenge(db, owner, PERSISTENCE_STAGE)).id
+
+    it('carries the session named by the citizen it belongs to, not the newest in the Colony', async () => {
+      const mine = await aPersistenceChallenge(agentId)
+      const theirs = await aPersistenceChallenge(otherId)
+
+      expect(await nameSession(db, agentId, { sessionId: 'run-of-the-gatekeeper' })).toBe('opened')
+      expect(await nameSession(db, otherId, { sessionId: 'run-of-the-bystander' })).toBe('opened')
+
+      expect((await persistenceContext(db, mine, PERSISTENCE_STAGE))?.sessionId).toBe(
+        'run-of-the-gatekeeper',
+      )
+      expect((await persistenceContext(db, theirs, PERSISTENCE_STAGE))?.sessionId).toBe(
+        'run-of-the-bystander',
+      )
+    })
+
+    /**
+     * A citizen that has named nothing has no session, even while another citizen
+     * has one — the same defect read from the other end, and the answer the
+     * evidence needs: *this return came from a run the citizen never named*.
+     */
+    it('is null for a citizen that has named no session, whoever else has', async () => {
+      const mine = await aPersistenceChallenge(agentId)
+      await nameSession(db, otherId, { sessionId: 'run-of-the-bystander' })
+
+      expect((await persistenceContext(db, mine, PERSISTENCE_STAGE))?.sessionId).toBeNull()
+    })
+
+    it('answers nothing for a challenge of another stage, or one that does not exist', async () => {
+      const capability = (await mintChallenge(db, agentId, CAPABILITY_STAGE)).id
+
+      expect(await persistenceContext(db, capability, PERSISTENCE_STAGE)).toBeUndefined()
+      expect(await persistenceContext(db, 'not-a-uuid', PERSISTENCE_STAGE)).toBeUndefined()
     })
   })
 })

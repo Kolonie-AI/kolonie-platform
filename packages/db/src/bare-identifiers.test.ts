@@ -36,6 +36,38 @@ import { fileURLToPath } from 'node:url'
  * render. Listing them is the point: one line and an argument, against a defect
  * whose whole cost is a wrong answer nobody sees.
  *
+ * ## Select-field position is half the condition, and `#301` is what showed it
+ *
+ * **The other half is whether the query joins.** Measured 2026-08-04 through this
+ * dialect, the same fragment in the same select-field position, twice:
+ *
+ * ```
+ * .from(browserChallenges)                    where s.agent_id = "agent_id"
+ * .from(browserChallenges).innerJoin(agents)  where s.agent_id = "browser_challenges"."agent_id"
+ * ```
+ *
+ * Drizzle omits the table only when the statement has exactly one table in
+ * scope. Add any join and every column is qualified, in a select field as
+ * anywhere else — so a fragment is bare when it is **in a select field of a
+ * single-table query**, and both examples at the top of this file were the
+ * single-table case without saying so.
+ *
+ * **This matters because it is not a refinement, it is the difference between a
+ * defect and a false alarm.** `#301` read the `persistenceContext` fragment
+ * against *select-field position* alone, concluded that every citizen was being
+ * handed the newest session in the Colony, and filed it as a leak. The query
+ * joins `agents`, renders qualified, and had always been right. **The correlated
+ * half of that condition lives at the call site rather than in the fragment**,
+ * which is precisely why the check below reads text and cannot decide.
+ *
+ * **It also cuts the other way, and that is the direction worth fearing.** A
+ * fragment that is safe today because its query joins becomes wrong the moment
+ * somebody removes the join for an unrelated reason — and the join is often
+ * there for an unrelated reason. That is the argument for writing the outer
+ * identifier out, which `#301` reached by a wrong road: an expression naming no
+ * table variable cannot be qualified wrongly, whatever the query around it does
+ * next.
+ *
  * Same technique as `required-env.test.ts` and the session check in
  * `storage/sessions.test.ts`, and for the same reason: the failure is invisible
  * from any single file, so no test that exercises a code path can find it.

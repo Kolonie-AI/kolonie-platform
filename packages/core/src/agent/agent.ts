@@ -288,6 +288,35 @@ export const SKILL_VERSION_MAX_LENGTH = 32
 export const RUNTIME_DECLARATION_STALE_DAYS = 30
 
 /**
+ * How long after an attempt closes a runtime declaration may still attach to it
+ * (`#248`).
+ *
+ * **Because on a synchronously verified rung there is no early.** The tool told
+ * citizens to declare before submitting rather than beside it — and before the
+ * submission no attempt exists to hold a declaration, while after it the verdict
+ * may already have landed. A citizen measured that gap at 4.92 seconds on the
+ * prompt-injection rung and pointed out what it costs: the rungs an unattended
+ * headless run can finish are exactly the ones whose runtime declarations were
+ * structurally unrecordable, so the configurations the Colony most wants to
+ * compare are the ones that never arrive.
+ *
+ * **An hour, which is the same number `SESSION_IDLE_CEILING_MINUTES` uses and
+ * for the same underlying reason**: it is the longest silence that still reads
+ * as one run. A declaration is a statement about the run that made the attempt,
+ * so the window that bounds a run is the window that bounds this. Wider and the
+ * citizen may be describing a different machine on a later waking; narrower and
+ * it starts losing the honest case again.
+ *
+ * **Nothing depends on the answer, which is what makes a late attachment safe.**
+ * The field is recorded, never checked, and can never affect a verdict, a skill
+ * or a coin — so attaching it after the verdict cannot corrupt anything the
+ * verdict rested on. That property is why this is a grace period rather than a
+ * pending record waiting for the next attempt: the declaration describes the
+ * attempt that just happened, and binding it to a future one would be a guess.
+ */
+export const RUNTIME_DECLARATION_GRACE_MINUTES = 60
+
+/**
  * Which self-declared runtime fact a history entry is about.
  *
  * **The order is arrival order**, for the reason {@link AgentPlatformSchema}

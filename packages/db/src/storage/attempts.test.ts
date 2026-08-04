@@ -785,7 +785,7 @@ describe('task attempts', () => {
           model: 'some-model-v3',
           capabilities: { vision: false, browser: true },
         }),
-      ).toEqual({ outcome: 'recorded' })
+      ).toEqual({ outcome: 'recorded', attachedTo: 'open' })
 
       const [attempt] = await attemptsFor(db, agentId, taskId)
       expect(attempt?.runtime.model).toBe('some-model-v3')
@@ -933,22 +933,68 @@ describe('task attempts', () => {
     })
 
     /**
-     * The case #198 was filed about, and the reason the two are distinguished.
-     *
-     * `openAttemptFor` answers `null` here exactly as it does above, so before
-     * this the citizen got one answer for two situations — and the one it was
-     * given told it to start the task, which is the one thing that cannot
-     * attach a declaration to the attempt that just closed.
+     * The case `#248` was filed about: on a synchronously verified rung the
+     * verdict lands seconds after the submission, so the honest sequence —
+     * submit, then declare — met a closed attempt and recorded nothing. A
+     * citizen measured the window at 4.92 seconds and pointed out that no amount
+     * of care wins it.
      */
-    it('separates an attempt that has closed from one never started', async () => {
+    it('attaches to the attempt that just closed', async () => {
       const agentId = await anAgent()
       const taskId = await aTask()
       const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
       await closeAttempt(db, attempt.id, 'passed')
 
+      expect(
+        await declareRuntime(db, agentId, taskId, {
+          model: 'some-model-v3',
+          capabilities: { vision: true },
+        }),
+      ).toEqual({ outcome: 'recorded', attachedTo: 'settled' })
+
+      const [declaration] = await attemptRuntimeDeclarationsOf(db, agentId)
+      expect(declaration?.runtime.model).toBe('some-model-v3')
+      expect(declaration?.runtime.capabilities).toEqual({ vision: true })
+    })
+
+    /**
+     * The other end of the grace period. An attempt from a previous waking is a
+     * different run on a possibly different machine, and a declaration is a
+     * statement about the run that made the attempt it lands on.
+     */
+    it('records nothing against an attempt that closed hours ago, and says which case that is', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+      await closeAttempt(db, attempt.id, 'passed')
+      // Both timestamps move: a row closed before it opened is refused by
+      // `task_attempts_closed_after_opened`, and rightly.
+      await db
+        .update(taskAttempts)
+        .set({
+          openedAt: sql`now() - make_interval(hours => 4)`,
+          closedAt: sql`now() - make_interval(hours => 3)`,
+        })
+        .where(eq(taskAttempts.id, attempt.id))
+
       expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toEqual({
         outcome: 'no-open-attempt',
         reason: 'already-settled',
+      })
+    })
+
+    /**
+     * The case #198 was filed about, and the reason the two are distinguished.
+     * Still `not-started` rather than `already-settled`: a citizen that never
+     * began has nothing to attach to at any distance.
+     */
+    it('separates never started from settled, when nothing was ever opened', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toEqual({
+        outcome: 'no-open-attempt',
+        reason: 'not-started',
       })
     })
 

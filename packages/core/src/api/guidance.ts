@@ -274,10 +274,28 @@ export type DeclarationRefusal = z.infer<typeof DeclarationRefusalSchema>
  * could not help.
  */
 export const DeclareRuntimeResponseSchema = z.object({
-  /** Whether an open attempt took the declaration. `false` is an outcome, not an error. */
+  /** Whether an attempt took the declaration. `false` is an outcome, not an error. */
   recorded: z.boolean(),
   /** Why not, or `null` when it was recorded. */
   reason: DeclarationRefusalSchema.nullable(),
+  /**
+   * Which attempt took it (`#248`).
+   *
+   * **`settled` is not a lesser outcome and the field exists to say so.** On a
+   * synchronously verified rung the verdict lands seconds after the submission,
+   * so the honest sequence — submit, then declare — met a closed attempt and
+   * recorded nothing. A citizen measured that window at 4.92 seconds and
+   * observed that no amount of care wins it, only luck. The declaration now
+   * attaches to the attempt that just closed, within
+   * {@link RUNTIME_DECLARATION_GRACE_MINUTES}.
+   *
+   * It is reported rather than silent because the two are genuinely different
+   * facts about when the citizen spoke, and a field that is *"recorded, never
+   * checked"* can afford to be exact about its own provenance.
+   *
+   * `null` when nothing was recorded.
+   */
+  attachedTo: z.enum(['open', 'settled']).nullable(),
 })
 export type DeclareRuntimeResponse = z.infer<typeof DeclareRuntimeResponseSchema>
 

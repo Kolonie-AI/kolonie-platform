@@ -54,6 +54,7 @@ import {
   setAside as setAsideInDatabase,
   type SetAsideRecord,
   type DeclarationOutcome,
+  type RuntimeDeclarationOutcome,
   declineAttempt,
   fileReport as fileReportInDatabase,
   latestDeclaredCapabilities,
@@ -151,7 +152,7 @@ export interface TaskGuidance {
     agentId: AgentId,
     taskId: TaskId,
     declaration: DeclareRuntime,
-  ): Promise<DeclarationOutcome>
+  ): Promise<RuntimeDeclarationOutcome>
   /**
    * What this agent last declared it is running as, across every task (#114).
    *
@@ -770,7 +771,17 @@ export async function declareRuntime(
 
   const result = await guidance.declareRuntime(agentId, id.data, parsed.data)
 
-  return { outcome: 'recorded', response: declarationResponse(result) }
+  return {
+    outcome: 'recorded',
+    response: {
+      ...declarationResponse(result),
+      // Which attempt took it (`#248`). Reported rather than silent: a
+      // declaration that landed on the attempt that just closed is a different
+      // fact about when the citizen spoke, and on a synchronously verified rung
+      // it is the ordinary one.
+      attachedTo: result.outcome === 'recorded' ? result.attachedTo : null,
+    },
+  }
 }
 
 /**

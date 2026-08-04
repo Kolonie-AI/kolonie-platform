@@ -26,6 +26,7 @@ import {
 import type {
   AttemptStanding,
   DeclarationOutcome,
+  RuntimeDeclarationOutcome,
   ReaderContext,
   VoteReportResult,
   WriteReportResult,
@@ -108,7 +109,16 @@ export interface FakeGuidance extends TaskGuidance {
    * `true` by default. The `false` case is #109's *declared before starting*,
    * which is an outcome rather than an error and has its own test.
    */
-  readonly answersDeclareRuntime: (result: DeclarationOutcome) => void
+  readonly answersDeclareRuntime: (result: RuntimeDeclarationOutcome) => void
+  /**
+   * The operator declaration's outcome, set apart from the runtime one (`#248`).
+   *
+   * They stopped being the same shape when the runtime declaration gained a
+   * grace period: it may attach to a settled attempt and says which it found,
+   * while an operator declaration describes what happened during a try and has
+   * nothing to attach to once the try is over.
+   */
+  readonly answersDeclareOperator: (result: DeclarationOutcome) => void
   /** Every operator declaration the routes have sent, in order. */
   readonly operatorDeclarations: () => {
     agentId: AgentId
@@ -191,6 +201,9 @@ export function fakeGuidance(): FakeGuidance {
   let context: ReaderContext = { divides: [], declared: null, movesMoney: false }
   const declarations: { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[] = []
   let declarationRecorded: DeclarationOutcome = { outcome: 'recorded' }
+  // The runtime declaration has its own outcome since `#248`: it says which
+  // attempt took it, and `settled` is the ordinary answer on a fast rung.
+  let runtimeRecorded: RuntimeDeclarationOutcome = { outcome: 'recorded', attachedTo: 'open' }
   const operatorDeclarations: {
     agentId: AgentId
     taskId: TaskId
@@ -272,7 +285,7 @@ export function fakeGuidance(): FakeGuidance {
     },
     declareRuntime: async (agentId, taskId, declaration) => {
       declarations.push({ agentId, taskId, declaration })
-      return declarationRecorded
+      return runtimeRecorded
     },
     decline: async (agentId, taskId, reason) => {
       declines.push({ agentId, taskId, reason })
@@ -335,6 +348,9 @@ export function fakeGuidance(): FakeGuidance {
     },
     declarations: () => [...declarations],
     answersDeclareRuntime: (result) => {
+      runtimeRecorded = result
+    },
+    answersDeclareOperator: (result) => {
       declarationRecorded = result
     },
     operatorDeclarations: () => [...operatorDeclarations],

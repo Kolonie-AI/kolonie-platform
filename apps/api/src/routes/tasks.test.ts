@@ -815,7 +815,7 @@ describe('declaring an operator', () => {
   })
 
   it('answers 200 and recorded false when no attempt is open', async () => {
-    guidance.answersDeclareRuntime({ outcome: 'no-open-attempt', reason: 'not-started' })
+    guidance.answersDeclareOperator({ outcome: 'no-open-attempt', reason: 'not-started' })
 
     const response = await post({ asked: true })
 

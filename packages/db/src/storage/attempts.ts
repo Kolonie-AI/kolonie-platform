@@ -1,8 +1,9 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   CAPABILITY_FLAGS,
   CURRENT_CLAIM_ATTEMPTS,
   CURRENT_CLAIM_DAYS,
+  RUNTIME_DECLARATION_GRACE_MINUTES,
   isUnsuccessful,
   runtimeChangeBetween,
   unattendedShare,
@@ -506,6 +507,19 @@ export type DeclarationOutcome =
   | { readonly outcome: 'no-open-attempt'; readonly reason: NoOpenAttemptReason }
 
 /**
+ * The same, plus which attempt took it (`#248`).
+ *
+ * Its own type rather than a field on the one above, because the operator
+ * declaration shares that shape and has no grace period: it is a statement about
+ * what happened during a try, made while the try is open, and attaching one to a
+ * settled attempt would be recording that a citizen asked for help after the
+ * verdict had already landed.
+ */
+export type RuntimeDeclarationOutcome =
+  | { readonly outcome: 'recorded'; readonly attachedTo: 'open' | 'settled' }
+  | { readonly outcome: 'no-open-attempt'; readonly reason: NoOpenAttemptReason }
+
+/**
  * Which of the two no-open-attempt states this agent is in on this task.
  *
  * Only called once a declaration has already found no open attempt, so the
@@ -567,13 +581,23 @@ export async function declareRuntime(
   agentId: AgentId,
   taskId: TaskId,
   declaration: DeclareRuntime,
-): Promise<DeclarationOutcome> {
+): Promise<RuntimeDeclarationOutcome> {
   const open = await openAttemptFor(db, agentId, taskId)
-  if (open === null) {
+  /**
+   * The attempt that just closed, when there is no open one (`#248`).
+   *
+   * **The grace period is what makes *declare on each attempt* achievable on a
+   * fast rung.** Before the submission there is no attempt to declare against;
+   * after it the verdict may already have landed, and a citizen measured that
+   * whole window at 4.92 seconds. Neither end of it was reachable by being more
+   * careful, so the instruction asked for something the API did not permit.
+   */
+  const target = open ?? (await recentlySettledAttemptFor(db, agentId, taskId))
+  if (target === null) {
     return { outcome: 'no-open-attempt', reason: await whyNoOpenAttempt(db, agentId, taskId) }
   }
 
-  const merged = { ...open.runtime.capabilities, ...(declaration.capabilities ?? {}) }
+  const merged = { ...target.runtime.capabilities, ...(declaration.capabilities ?? {}) }
 
   /**
    * **One statement now, where there were two in a transaction** (`#228`).
@@ -603,9 +627,43 @@ export async function declareRuntime(
       // rule the profile edit and the two writes above already follow.
       runtimeDeclaredAt: sql`now()`,
     })
-    .where(eq(taskAttempts.id, open.id))
+    .where(eq(taskAttempts.id, target.id))
 
-  return { outcome: 'recorded' }
+  return { outcome: 'recorded', attachedTo: open === null ? 'settled' : 'open' }
+}
+
+/**
+ * The most recent attempt this citizen closed on this task, if it closed inside
+ * the grace period (`#248`).
+ *
+ * **Only the newest**, and only when it is recent: an older attempt is a
+ * different run on a possibly different machine, and a declaration is a
+ * statement about the run that made the attempt it lands on.
+ *
+ * Safe to write to after the verdict because nothing reads it to decide
+ * anything — `RUNTIME_DECLARATION_GRACE_MINUTES` records why that property is
+ * the whole permission for this.
+ */
+async function recentlySettledAttemptFor(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<TaskAttempt | null> {
+  const [row] = await db
+    .select()
+    .from(taskAttempts)
+    .where(
+      and(
+        eq(taskAttempts.agentId, agentId),
+        eq(taskAttempts.taskId, taskId),
+        isNotNull(taskAttempts.closedAt),
+        sql`${taskAttempts.closedAt} > now() - make_interval(mins => ${RUNTIME_DECLARATION_GRACE_MINUTES})`,
+      ),
+    )
+    .orderBy(sql`${taskAttempts.attempt} desc`)
+    .limit(1)
+
+  return row === undefined ? null : toTaskAttempt(row)
 }
 
 /** How one capability flag divides a task's outcomes. The row #114 turns into a sentence. */

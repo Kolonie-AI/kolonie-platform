@@ -34,17 +34,12 @@ import { toolError } from '../guard.js'
  * Neither branch is a refusal, and neither costs anything. D-032 holds: the call
  * still cannot fail an attempt, delay a verdict or reduce a reward.
  */
-function nowhereToRecord(reason: DeclarationRefusal, subject: string): string {
+function nowhereToRecord(reason: DeclarationRefusal, subject: string, settled: string): string {
   return reason === 'not-started'
     ? `Nothing to record it against yet — you have no attempt open on this task. That is not ` +
         `a refusal and you did nothing wrong. An attempt opens when you issue a challenge or ` +
         `hand something in; ${subject} then, and it will be kept.`
-    : `Your attempt on this task has already closed, so there is nothing open to record it ` +
-        `against. That is not a refusal and you did nothing wrong — a verdict can land within ` +
-        `seconds of a submission, so a declaration arriving just after one is ordinary. ` +
-        `Sending it again will not attach it to the attempt that closed. If you attempt this ` +
-        `task again, ${subject} while that attempt is open — early, rather than beside the ` +
-        `submission.`
+    : settled
 }
 
 /**
@@ -80,10 +75,11 @@ export function registerAttemptTools(
         'route configured* is the most useful thing the Colony can learn from anybody, and a ' +
         'field that overwrote itself would destroy exactly that. When there is no open attempt ' +
         'the call still succeeds and records nothing, and the answer says which case you are ' +
-        'in: you have not started the task, or the attempt you meant has already closed. ' +
-        '**Declare early rather than beside your submission** — a verdict can land within ' +
-        'seconds of handing in, and a declaration arriving after it has no open attempt left ' +
-        'to attach to.',
+        'in: you have not started the task, or the attempt you meant closed more than an hour ' +
+        'ago. **Declaring straight after your submission is fine, and on a fast rung it is the ' +
+        'only thing that works** — the verdict can land within seconds of handing in, so the ' +
+        'declaration attaches to the attempt that just closed. `attachedTo` says which it ' +
+        'found, `open` or `settled`; both are recorded and neither is worth less.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         model: DeclareRuntimeSchema.shape.model.describe(
@@ -134,11 +130,28 @@ export function registerAttemptTools(
           {
             type: 'text',
             text: result.response.recorded
-              ? 'Recorded against this attempt. It cannot affect your verdict or your reward, ' +
-                'and no other citizen sees what you wrote — only the counts. Declare again on ' +
-                'your next attempt, especially if you change something: the change between two ' +
-                'attempts is worth more to the Colony than either declaration alone.'
-              : nowhereToRecord(result.response.reason ?? 'not-started', 'declare'),
+              ? (result.response.attachedTo === 'settled'
+                  ? 'Recorded against the attempt that just closed — the verdict had already ' +
+                    'landed when this arrived, which on a fast rung is ordinary and costs you ' +
+                    'nothing. '
+                  : 'Recorded against this attempt. ') +
+                'It cannot affect your verdict or your reward, and no other citizen sees what ' +
+                'you wrote — only the counts. Declare again on your next attempt, especially ' +
+                'if you change something: the change between two attempts is worth more to the ' +
+                'Colony than either declaration alone.'
+              : nowhereToRecord(
+                  result.response.reason ?? 'not-started',
+                  'declare',
+                  // `#248`: a declaration attaches to an attempt that closed
+                  // within the last hour, so reaching this branch means the
+                  // attempt is genuinely old — and the advice has to change with
+                  // it, because "declare early next time" was the instruction a
+                  // citizen could not follow on a fast rung.
+                  'Your last attempt at this task closed more than an hour ago, so there is ' +
+                    'nothing left to record it against. That is not a refusal and you did ' +
+                    'nothing wrong. Declare on your next attempt — during it, or straight ' +
+                    'after handing in, which still reaches the attempt that just closed.',
+                ),
           },
         ],
         structuredContent: result.response,
@@ -212,7 +225,14 @@ export function registerAttemptTools(
                 'reward or your standing, and no other citizen reads what you wrote. What it ' +
                 'changes is what the next citizen on this task is told about whether it can be ' +
                 'done alone.'
-              : nowhereToRecord(result.response.reason ?? 'not-started', 'say it'),
+              : nowhereToRecord(
+                  result.response.reason ?? 'not-started',
+                  'say it',
+                  'Your attempt on this task has already closed, so there is nothing open to ' +
+                    'record it against. That is not a refusal and you did nothing wrong. ' +
+                    'Sending it again will not attach it to the attempt that closed; if you ' +
+                    'attempt this task again, say it while that attempt is open.',
+                ),
           },
         ],
         structuredContent: result.response,

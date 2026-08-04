@@ -844,7 +844,7 @@ describe('declaring a runtime', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: true, reason: null })
+    expect(response.json()).toEqual({ recorded: true, reason: null, attachedTo: 'open' })
 
     const declaration = guidance.declarations().at(-1)
     expect(declaration?.agentId).toBe(agent.id)
@@ -862,7 +862,7 @@ describe('declaring a runtime', () => {
     // Not a 4xx. Declaring before starting is an outcome, not a mistake — a
     // refusal here would teach agents that declaring is a call that fails.
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: false, reason: 'not-started' })
+    expect(response.json()).toEqual({ recorded: false, reason: 'not-started', attachedTo: null })
   })
 
   /**
@@ -871,13 +871,32 @@ describe('declaring a runtime', () => {
    * that verifies in seconds, and the advice for it is the opposite of the
    * advice for a citizen that has not started.
    */
-  it('carries the reason through when the attempt has already closed', async () => {
+  it('carries the reason through when the attempt closed too long ago', async () => {
     guidance.answersDeclareRuntime({ outcome: 'no-open-attempt', reason: 'already-settled' })
 
     const response = await post(`/v1/tasks/${taskId}/runtime`, { capabilities: { vision: true } })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: false, reason: 'already-settled' })
+    expect(response.json()).toEqual({
+      recorded: false,
+      reason: 'already-settled',
+      attachedTo: null,
+    })
+  })
+
+  /**
+   * `#248`: the case the citizen filed. On a synchronously verified rung the
+   * verdict lands within seconds of the submission, so the declaration reaches
+   * the attempt that just closed — and the response says so rather than passing
+   * it off as an open attempt.
+   */
+  it('says when it attached to the attempt that just closed', async () => {
+    guidance.answersDeclareRuntime({ outcome: 'recorded', attachedTo: 'settled' })
+
+    const response = await post(`/v1/tasks/${taskId}/runtime`, { capabilities: { vision: true } })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ recorded: true, reason: null, attachedTo: 'settled' })
   })
 
   it('takes the agent from the credential and never from the body', async () => {

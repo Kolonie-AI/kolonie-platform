@@ -526,6 +526,46 @@ const DEFAULTS = {
 } as const
 
 /**
+ * What a poll that threw during shutdown is, as opposed to one that failed.
+ *
+ * **Every full deploy left one `error` behind, and both of its claims were
+ * wrong** (`#291`). `stop()` sets `running` to false and awaits the entry in
+ * flight, which is right — but an `all` deploy takes Postgres down in the same
+ * window, so the query in flight dies with its database and `tick()` throws. The
+ * `catch` then said `poll failed … retrying in 120s` at `error`, about a process
+ * that was exiting and would retry nothing.
+ *
+ * It cost nothing operationally and something else entirely to
+ * `kolonie-docs#133`'s Watch Agent, which counts errors per service per day: a
+ * standing false positive in the one signal that means *look at this* is a
+ * monitor being taught to shrug.
+ *
+ * `running` is the whole difference and it is already in scope at both call
+ * sites. Interrupted work is logged at `warn`, under its own event, promising
+ * nothing — and it does not count towards `consecutiveFailures`, which exists to
+ * drive backoff on a loop that has a next iteration.
+ */
+function reportPollThrow(
+  log: Log,
+  running: boolean,
+  interrupted: { readonly event: string; readonly message: string },
+  failed: { readonly event: string; readonly message: string; readonly retryInMs: number },
+  error: unknown,
+  consecutiveFailures: number,
+): void {
+  if (!running) {
+    log.warn(interrupted.message, { event: interrupted.event })
+    return
+  }
+
+  log.error(failed.message, error, {
+    event: failed.event,
+    consecutiveFailures,
+    retryInMs: failed.retryInMs,
+  })
+}
+
+/**
  * Run until stopped.
  *
  * The same shape as the verifier runner's loop, including why: backoff is on the
@@ -582,12 +622,22 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)
       } catch (error) {
-        consecutiveFailures++
+        if (running) consecutiveFailures++
         const wait = Math.min(pollIntervalMs * 2 ** consecutiveFailures, maxBackoffMs)
-        log.error(
-          `poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
+        reportPollThrow(
+          log,
+          running,
+          {
+            event: 'poll.interrupted',
+            message: 'poll interrupted by shutdown; the runner is stopping',
+          },
+          {
+            event: 'poll.failed',
+            message: `poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
+            retryInMs: wait,
+          },
           error,
-          { event: 'poll.failed', consecutiveFailures, retryInMs: wait },
+          consecutiveFailures,
         )
         if (running) await pause(wait)
       }
@@ -747,12 +797,22 @@ export function startBriefingRunner(
         consecutiveFailures = 0
         if (running) await pause(pollIntervalMs)
       } catch (error) {
-        consecutiveFailures++
+        if (running) consecutiveFailures++
         const wait = Math.min(pollIntervalMs * 2 ** consecutiveFailures, maxBackoffMs)
-        log.error(
-          `briefing poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
+        reportPollThrow(
+          log,
+          running,
+          {
+            event: 'briefing.poll.interrupted',
+            message: 'briefing poll interrupted by shutdown; the runner is stopping',
+          },
+          {
+            event: 'briefing.poll.failed',
+            message: `briefing poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
+            retryInMs: wait,
+          },
           error,
-          { event: 'briefing.poll.failed', consecutiveFailures, retryInMs: wait },
+          consecutiveFailures,
         )
         if (running) await pause(wait)
       }

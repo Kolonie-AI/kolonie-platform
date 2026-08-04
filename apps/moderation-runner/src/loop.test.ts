@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import type {
   ApprovedEntry,
@@ -8,12 +8,21 @@ import type {
 } from '@kolonie-ai/db'
 import type {
   BriefingClaim,
+  Log,
   ConfidentialSpan,
   ModerationStages,
   ReportNarrative,
   TaskId,
 } from '@kolonie-ai/core'
-import { briefingTick, judge, tick, type BriefingStore, type ModerationStore } from './loop.js'
+import {
+  briefingTick,
+  judge,
+  startBriefingRunner,
+  startRunner,
+  tick,
+  type BriefingStore,
+  type ModerationStore,
+} from './loop.js'
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 import {
@@ -854,5 +863,116 @@ describe('writing briefings', () => {
     expect(outcome.written).toBe(1)
     expect(written[0]?.claims).toEqual([])
     expect(model.calls()).toHaveLength(0)
+  })
+})
+
+/**
+ * What a poll that threw says about itself (`#291`).
+ *
+ * Every full deploy left one `poll.failed` at `error` claiming a retry in 120
+ * seconds, from a process that was exiting: `stop()` lets the entry in flight
+ * finish, and on an `all` deploy Postgres goes down inside that window, so the
+ * query in flight dies with its database. The difference between that and a real
+ * failure is `running`, and nothing was reading it.
+ */
+describe('a poll that throws', () => {
+  interface Line {
+    readonly level: 'info' | 'warn' | 'error'
+    readonly message: string
+    readonly event: unknown
+  }
+
+  const recordingLog = (lines: Line[]): Log => ({
+    info: (message, fields) => lines.push({ level: 'info', message, event: fields?.['event'] }),
+    warn: (message, fields) => lines.push({ level: 'warn', message, event: fields?.['event'] }),
+    error: (message, _error, fields) =>
+      lines.push({ level: 'error', message, event: fields?.['event'] }),
+  })
+
+  /** Yields to the macrotask queue, so a loop with no real wait cannot starve it. */
+  const immediately = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+  it('is an error promising a retry while the runner is running', async () => {
+    const lines: Line[] = []
+    const runner = startRunner(
+      {
+        store: { ...store, pending: async () => Promise.reject(new Error('the model is down')) },
+        model,
+        log: recordingLog(lines),
+      },
+      { sleep: immediately },
+    )
+
+    await vi.waitFor(() => expect(lines.some((line) => line.event === 'poll.failed')).toBe(true))
+    await runner.stop()
+
+    const failure = lines.find((line) => line.event === 'poll.failed')
+    expect(failure?.level).toBe('error')
+    expect(failure?.message).toContain('retrying in')
+  })
+
+  /**
+   * The shutdown case, in the order it actually happens: the query is in flight,
+   * `stop()` asks the loop to end, and only then does the database go away.
+   */
+  it('is a warning promising nothing when the runner is stopping', async () => {
+    const lines: Line[] = []
+    let killTheQuery: ((error: Error) => void) | undefined
+    const runner = startRunner(
+      {
+        store: {
+          ...store,
+          pending: () =>
+            new Promise((_resolve, reject) => {
+              killTheQuery = reject
+            }),
+        },
+        model,
+        log: recordingLog(lines),
+      },
+      { sleep: immediately },
+    )
+
+    await vi.waitFor(() => expect(killTheQuery).toBeDefined())
+    const stopping = runner.stop()
+    killTheQuery?.(new Error('write CONNECTION_CLOSED'))
+    await stopping
+
+    expect(lines.map((line) => line.event)).toContain('poll.interrupted')
+    expect(lines.some((line) => line.level === 'error')).toBe(false)
+    expect(lines.some((line) => line.message.includes('retrying'))).toBe(false)
+    // The counter drives backoff on a loop that has a next iteration. This one
+    // does not, and an interruption is not a failure of the poll.
+    expect(runner.health().consecutiveFailures).toBe(0)
+  })
+
+  /** The same on the synthesis loop, which had the same line (`loop.ts:750`). */
+  it('says the same thing about the briefing loop', async () => {
+    const lines: Line[] = []
+    let killTheQuery: ((error: Error) => void) | undefined
+    const runner = startBriefingRunner(
+      {
+        store: {
+          stale: () =>
+            new Promise((_resolve, reject) => {
+              killTheQuery = reject
+            }),
+          taskText: async () => undefined,
+          corpus: async () => [],
+          write: async () => {},
+        },
+        model,
+        log: recordingLog(lines),
+      },
+      { sleep: immediately },
+    )
+
+    await vi.waitFor(() => expect(killTheQuery).toBeDefined())
+    const stopping = runner.stop()
+    killTheQuery?.(new Error('write CONNECTION_CLOSED'))
+    await stopping
+
+    expect(lines.map((line) => line.event)).toContain('briefing.poll.interrupted')
+    expect(lines.some((line) => line.level === 'error')).toBe(false)
   })
 })

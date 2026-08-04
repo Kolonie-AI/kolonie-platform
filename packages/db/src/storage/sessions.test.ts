@@ -310,6 +310,43 @@ describe('sessions', () => {
         expect(row?.calls).toBe(1)
       })
 
+      /**
+       * `#277` asked for a migration to close the rows that were open when the
+       * `#272` fix deployed, on the reading that they would otherwise stay open
+       * forever. They do not, and this is the property that makes that true:
+       * nothing marks a row open, so there is no state for a migration to
+       * clear — a row is current exactly while its `last_seen_at` is recent,
+       * and one inherited from the old behaviour goes quiet at the citizen's
+       * first gap like any other.
+       *
+       * Shaped as the row a citizen measured in production on 2026-08-03: named
+       * six hours before, still being written to at the moment of the fix, 2056
+       * calls of which most belong to runs that had ended.
+       */
+      it('lets a run inherited from the old behaviour close on its own', async () => {
+        const registered = await anAgentWithAKey()
+        await nameSession(db, registered.agent.id, { sessionId: 'wake-2026-08-03T1617Z' })
+        await db
+          .update(agentSessions)
+          .set({ firstSeenAt: sql`now() - make_interval(hours => 6)`, calls: 2056 })
+          .where(eq(agentSessions.agentId, registered.agent.id))
+
+        // The citizen's next run, after a gap no scheduled citizen goes without.
+        await silentFor(registered.agent.id, 90)
+        await authenticateApiKey(db, registered.credentials.apiKey)
+        await nameSession(db, registered.agent.id, { sessionId: 'wake-2026-08-03T2217Z' })
+        await authenticateApiKey(db, registered.credentials.apiKey)
+
+        const rows = await sessionRows(registered.agent.id)
+        const inherited = rows.find((row) => row.externalId === 'wake-2026-08-03T1617Z')
+        const current = rows.find((row) => row.externalId === 'wake-2026-08-03T2217Z')
+        // The wrong number it already carries is not corrected — the calls it
+        // absorbed cannot be told apart from the ones it earned — but it takes
+        // no more.
+        expect(inherited?.calls).toBe(2056)
+        expect(current?.calls).toBe(1)
+      })
+
       it('keeps counting while the run is still making calls', async () => {
         const registered = await anAgentWithAKey()
         await nameSession(db, registered.agent.id, { sessionId: 'run-1' })

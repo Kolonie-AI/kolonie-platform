@@ -17,10 +17,33 @@ import { defineConfig } from 'vitest/config'
  */
 const WORKERS = Math.max(1, Math.min(6, cpus().length - 2))
 
+/**
+ * The files that keep per-file isolation.
+ *
+ * **Empty today, and it exists so that it can stop being** (`#295`). A file that
+ * calls `vi.mock` or `vi.stubGlobal` at module scope belongs here: both depend
+ * on starting from a clean slate, and with a shared module registry the mocked
+ * module may already be resolved from an earlier file in the same worker, so the
+ * mock never takes.
+ *
+ * That failure is the quiet kind. A file that needs isolation and is left out of
+ * this list does not fail cleanly — it fails depending on which file loaded the
+ * module first, so it can be green on the machine that wrote it and red on the
+ * next one. The list is empty as of 2026-08-04 and this is the command that says
+ * so, which is worth re-running rather than trusting:
+ *
+ * ```
+ * grep -rl 'vi\.mock(\|vi\.stubGlobal(' packages/db/src --include='*.test.ts'
+ * ```
+ */
+const ISOLATED: string[] = []
+
+const EVERY_TEST = ['src/**/*.test.ts']
+
 export default defineConfig({
   test: {
     // Tests live next to the code they cover: `foo.ts` -> `foo.test.ts`.
-    include: ['src/**/*.test.ts'],
+    include: EVERY_TEST,
     /**
      * **Each worker owns a database, so files no longer share one** (`#284`).
      *
@@ -71,5 +94,58 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/index.ts'],
     },
+    /**
+     * **Two projects, so this package stops paying for isolation it does not
+     * use** (`#295`). The same arrangement `#290` made for `apps/api`, and worth
+     * more here because this package is the long pole of every `npm test`.
+     *
+     * Vitest gives every test file its own module registry and its own globals,
+     * bought per file — a fresh worker and the module graph loaded again. What
+     * that protects is not the database: every file here already drops `public`
+     * and re-migrates it, and `#284` gave each worker slot a database of its
+     * own. It protects module state, and nothing in this package has any that
+     * matters — see {@link ISOLATED}.
+     *
+     * Measured on CLAUDE002 on 2026-08-04 at `fbbb8b6`, against a relaxed
+     * server, all 1540 tests green in every row:
+     *
+     * | Arrangement | Wall |
+     * |---|---|
+     * | isolated | 106.5 s |
+     * | not isolated | 54.3 s |
+     * | not isolated, again | 55.7 s |
+     * | not isolated, `--sequence.shuffle.files` | 60.6 s |
+     *
+     * Most of it is not the tests: aggregated setup time falls from 149 s to
+     * 18 s, which is seventy-six module graphs that no longer get built.
+     *
+     * `extends: true` because everything above this — the worker count, the
+     * setup file that creates each slot's database, the timeout, the console
+     * rule — applies to both projects and must not be restated. A project that
+     * silently lost `setupFiles` would connect to a database nobody created.
+     */
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'shared',
+          include: EVERY_TEST,
+          ...(ISOLATED.length > 0 && { exclude: ISOLATED }),
+          isolate: false,
+        },
+      },
+      /**
+       * **The second project exists only when something is in the list.**
+       *
+       * A project whose `include` is empty does not match nothing — it falls
+       * back to Vitest's default include and matches everything, which ran all
+       * seventy-seven files a second time: 154 files and 3138 tests, green and
+       * meaningless, in 142 s. Measured rather than reasoned about, on the first
+       * run of this config.
+       */
+      ...(ISOLATED.length > 0
+        ? [{ extends: true as const, test: { name: 'isolated', include: ISOLATED } }]
+        : []),
+    ],
   },
 })

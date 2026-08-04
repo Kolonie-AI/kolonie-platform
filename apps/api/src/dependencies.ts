@@ -15,6 +15,7 @@ import type { ImageDependencies } from './image.js'
 import type { SceneDependencies } from './scene.js'
 import type { InjectionDependencies } from './injection.js'
 import type { VettingDependencies } from './vetting.js'
+import type { AuthenticatorDependencies } from './authenticator.js'
 import type { KeyDependencies } from './keys.js'
 import type { PowDependencies } from './proof-of-work.js'
 import type { MemoryDependencies } from './memory.js'
@@ -108,6 +109,8 @@ export interface AppDependencies {
   readonly injection: InjectionDependencies
   /** The vetting rung — see `vetting.ts` (`#45`). */
   readonly vetting: VettingDependencies
+  /** The second-factor rung — see `authenticator.ts` (`#206`). */
+  readonly authenticator: AuthenticatorDependencies
   /**
    * The social rung — see `social.ts`.
    */

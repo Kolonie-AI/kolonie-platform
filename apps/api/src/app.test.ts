@@ -21,6 +21,7 @@ import { fakeImage } from './__fixtures__/image.js'
 import { fakeScene } from './__fixtures__/scene.js'
 import { fakeInjection } from './__fixtures__/injection.js'
 import { fakeVetting } from './__fixtures__/vetting.js'
+import { fakeAuthenticator } from './__fixtures__/authenticator.js'
 import { fakeStore } from './__fixtures__/store.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
@@ -82,6 +83,7 @@ beforeAll(async () => {
     scene: fakeScene(),
     injection: fakeInjection(),
     vetting: fakeVetting(),
+    authenticator: fakeAuthenticator(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),

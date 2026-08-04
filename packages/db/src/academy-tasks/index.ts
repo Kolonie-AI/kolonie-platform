@@ -35,6 +35,7 @@ import { workflowSeller } from './workflow-seller.js'
 import { solanaTrader } from './solana-trader.js'
 import { proofOfWork } from './proof-of-work.js'
 import { socialAccount } from './social-account.js'
+import { authenticator } from './authenticator.js'
 import { browserCaptcha } from './browser-captcha.js'
 import { browserPerception } from './browser-perception.js'
 import { browserInteraction } from './browser-interaction.js'
@@ -126,6 +127,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   solanaTrader,
   proofOfWork,
   socialAccount,
+  authenticator,
   browserCaptcha,
   browserPerception,
   browserInteraction,

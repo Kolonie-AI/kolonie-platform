@@ -33,6 +33,7 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeVetting } from '../__fixtures__/vetting.js'
+import { fakeAuthenticator } from '../__fixtures__/authenticator.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeVault } from '../__fixtures__/vault.js'
@@ -100,6 +101,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     scene: fakeScene(),
     injection: fakeInjection(),
     vetting: fakeVetting(),
+    authenticator: fakeAuthenticator(),
     academy,
   })
 }

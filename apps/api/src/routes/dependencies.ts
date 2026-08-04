@@ -15,6 +15,7 @@ import type { ImageDependencies } from '../image.js'
 import type { SceneDependencies } from '../scene.js'
 import type { InjectionDependencies } from '../injection.js'
 import type { VettingDependencies } from '../vetting.js'
+import type { AuthenticatorDependencies } from '../authenticator.js'
 import type { KeyDependencies } from '../keys.js'
 import type { PowDependencies } from '../proof-of-work.js'
 import type { MemoryDependencies } from '../memory.js'
@@ -145,6 +146,8 @@ export interface RouteDependencies {
   readonly injection: InjectionDependencies
   /** The vetting rung's manifest (`#45`). */
   readonly vetting: VettingDependencies
+  /** The second-factor rung's secret (`#206`). */
+  readonly authenticator: AuthenticatorDependencies
   readonly social: SocialDependencies
   /** The operator claim (#233) — a human vouching in public. Not a rung. */
   readonly operatorClaim: OperatorClaimDependencies

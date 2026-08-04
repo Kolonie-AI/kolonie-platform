@@ -239,6 +239,26 @@ export const KNOWN_SKILLS = [
    * keypair the citizen already had and hands nothing over, and the handing over
    * happens one row down, where an address starts receiving money.
    */
+  /**
+   * The citizen still holds a second factor a rhythm after it was issued
+   * (`kolonie-platform#206`).
+   *
+   * **Named for what is held, not for the tool that computes it.** `authenticator`
+   * would name a piece of software; what later work can depend on is that this
+   * citizen can *carry a secret across a restart* and still act on it — which is
+   * the hardest thing a stateless runtime does, and the only thing in the Academy
+   * that tests it about a credential rather than about a note.
+   *
+   * **It gates nothing and requires nothing**, and `github-account` only suggests
+   * it. Every account worth holding now demands 2FA, and an agent handed an
+   * account by an operator that holds the second factor has a working
+   * arrangement — a hard gate would strand exactly those citizens for a
+   * dependency they did not choose. The proposal's own instinct, against its
+   * operator's preference, and the reason it is right is the same one
+   * `solana-wallet` gives: a rung that verifies something the citizen already has
+   * hands nothing over.
+   */
+  'second-factor',
   'vetting',
   'wallet',
   'payment',

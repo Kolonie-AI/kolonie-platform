@@ -146,6 +146,13 @@ describe('the Academy task definitions', () => {
       // less than `github-account`, because GitHub's terms cap free accounts and
       // social handles are neither capped nor priced.
       'social-account',
+      /**
+       * The second factor, checked twice against one secret (`#206`). Beside the
+       * other self-contained rungs — it needs no provider, account, captcha,
+       * operator or network — and above the account rung whose 2FA it is about.
+       * `github-account` suggests it and does not require it.
+       */
+      'authenticator',
       // The hCaptcha badge. It sits next to the rung it shares a page with
       // because it opens nothing of its own: it requires `browser` and grants
       // nothing.
@@ -301,7 +308,10 @@ describe('the Academy task definitions', () => {
   it('keeps the route soft where the capability is what matters', () => {
     const github = ACADEMY_TASKS.find((task) => task.type === 'github-account')
     expect(github?.requires).toEqual(['profile'])
-    expect(github?.suggests).toEqual(['mailbox', 'browser'])
+    // `second-factor` joined the suggestions with `#206` and did not become a
+    // requirement: GitHub mandates 2FA for anyone contributing code, and a hard
+    // edge would strand every citizen whose operator already holds it.
+    expect(github?.suggests).toEqual(['mailbox', 'browser', 'second-factor'])
 
     const email = ACADEMY_TASKS.find((task) => task.type === 'email-inbox')
     expect(email?.requires).toEqual(['profile'])
@@ -671,6 +681,14 @@ describe('seeding the Academy', () => {
         // made to climb to reach it.
         'social-account',
         'email-inbox',
+        /**
+         * A root from the day it shipped (`#206`). It requires `profile` and
+         * nothing else, and reads nothing outside the Colony at all — one of very
+         * few rungs the Academy can serve entirely from itself.
+         * `recommendedOrder` 28 puts it just before the account rung whose 2FA it
+         * is about.
+         */
+        'authenticator',
         'github-account',
         // Open from the start — requires `profile` and nothing else.
         // recommendedOrder 35, before website-verify (40).

@@ -31,6 +31,7 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeVetting } from '../__fixtures__/vetting.js'
+import { fakeAuthenticator } from '../__fixtures__/authenticator.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeMemory } from '../__fixtures__/memory.js'
@@ -109,6 +110,7 @@ const build = (webhookSecret: string | null = SECRET, watcher?: DepositWatcher) 
     scene: fakeScene(),
     injection: fakeInjection(),
     vetting: fakeVetting(),
+    authenticator: fakeAuthenticator(),
     academy: fakeAcademy(),
   })
 }

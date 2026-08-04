@@ -29,6 +29,7 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeVetting } from '../__fixtures__/vetting.js'
+import { fakeAuthenticator } from '../__fixtures__/authenticator.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
@@ -97,6 +98,7 @@ beforeEach(async () => {
     scene: fakeScene(),
     injection: fakeInjection(),
     vetting: fakeVetting(),
+    authenticator: fakeAuthenticator(),
   })
   await app.ready()
   apiKey = store.issue().apiKey

@@ -418,6 +418,8 @@ describe('schema', () => {
          */
         'task_set_asides',
         'tasks',
+        /** `#206`: one TOTP secret per citizen, checked twice. */
+        'totp_secrets',
         'verifications',
         /** `#45`: the vetting rung's manifests, one row per attempt. */
         'vetting_challenges',

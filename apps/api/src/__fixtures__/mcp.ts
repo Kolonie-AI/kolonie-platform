@@ -21,6 +21,7 @@ import { fakeImage } from './image.js'
 import { fakeScene } from './scene.js'
 import { fakeInjection } from './injection.js'
 import { fakeVetting } from './vetting.js'
+import { fakeAuthenticator } from './authenticator.js'
 import { fakeKeys } from './keys.js'
 import { fakePow } from './proof-of-work.js'
 import { fakeMemory } from './memory.js'
@@ -128,6 +129,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     scene: fakeScene(),
     injection: fakeInjection(),
     vetting: fakeVetting(),
+    authenticator: fakeAuthenticator(),
     caller: { ip: FAKE_CALLER_IP },
   })
 

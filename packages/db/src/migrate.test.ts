@@ -204,7 +204,13 @@ describe('the migrations', () => {
     // controlling a server rather than holding a hosting account. Two probes at
     // two Colony-chosen paths in one row — see the table for why two is the
     // design and not a parameter. D-091.
-    expect(afterFirst.tables).toBe('63')
+    //
+    // **Sixty-four** (`#206`): `totp_secrets`, the second factor checked twice
+    // against one secret. Its own table beside `memory_codes` rather than a kind
+    // on it — that rung carries one value across a gap, this one carries
+    // something the citizen must still be able to *act on* afterwards. Two
+    // sixty-threes arrived in the same hour from two agents; see D-092.
+    expect(afterFirst.tables).toBe('64')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

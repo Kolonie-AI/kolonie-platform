@@ -195,6 +195,8 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.academy.scene.challenge',
   'kolonie.academy.injection.challenge',
   'kolonie.academy.vetting.challenge',
+  'kolonie.academy.authenticator.secret',
+  'kolonie.academy.authenticator.check',
   'kolonie.academy.social.challenge',
   'kolonie.academy.domain.challenge',
   'kolonie.support.open',

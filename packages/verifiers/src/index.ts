@@ -17,6 +17,7 @@ import { RasterVerifier, type ImageChallenges, type VisionChecker } from './rast
 import { ImageModelVerifier, type SceneChallenges, type SceneChecker } from './image-model.js'
 import { PromptInjectionVerifier, type InjectionChallenges } from './prompt-injection.js'
 import { VettingVerifier, type VettingChallenges } from './vetting.js'
+import { AuthenticatorVerifier, type TotpSecrets } from './authenticator.js'
 import { CodeContributionVerifier, type GithubGrants } from './code-contribution.js'
 import type { PaymentClaims, SolanaAddresses, SolanaHistory, SolanaRpc } from './solana-payment.js'
 import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
@@ -330,6 +331,12 @@ export {
   type VettingChallengeState,
   type VettingDependencies,
 } from './vetting.js'
+export {
+  AuthenticatorVerifier,
+  type AuthenticatorDependencies,
+  type TotpSecrets,
+  type TotpStanding,
+} from './authenticator.js'
 export { readImage, type ImageFacts, type ImageFormat, type ImageRead } from './image.js'
 export {
   readVisionImage,
@@ -540,6 +547,11 @@ export interface VerifierDependencies {
    * close enough in shape for that to compile.
    */
   readonly vettingChallenges?: VettingChallenges
+  /**
+   * What the Colony recorded about a citizen's TOTP secret (`#206`) — never the
+   * secret, and never a code. Its own port, like every other challenge read.
+   */
+  readonly totpSecrets?: TotpSecrets
   /**
    * Answers what the Colony recorded about an agent's proof-of-work challenge.
    *
@@ -771,6 +783,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.vettingChallenges !== undefined) {
     verifiers.push(new VettingVerifier({ challenges: deps.vettingChallenges }))
+  }
+
+  if (deps.totpSecrets !== undefined) {
+    verifiers.push(new AuthenticatorVerifier({ secrets: deps.totpSecrets }))
   }
 
   if (deps.work !== undefined) {

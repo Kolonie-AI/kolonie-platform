@@ -39,6 +39,7 @@ import { databaseImageChallenges } from './image.js'
 import { databaseSceneChallenges } from './scene.js'
 import { databaseInjectionChallenges } from './injection.js'
 import { databaseVettingChallenges } from './vetting.js'
+import { databaseTotpChallenges } from './authenticator.js'
 import { databaseAutonomyStore, databaseOperatorPages } from './autonomy.js'
 import { databaseConfirmedOperators } from './operators.js'
 import { databaseOperatorClaims } from './operator-claim.js'
@@ -443,6 +444,7 @@ const app = buildApp({
   // payload is drawn from a vocabulary and graded against a row.
   injection: { challenges: databaseInjectionChallenges(db), obstruction },
   vetting: { challenges: databaseVettingChallenges(db), obstruction },
+  authenticator: { challenges: databaseTotpChallenges(db), obstruction },
   // Same again. This is the one rung where the *verifier* needs no credential
   // either, so nothing about it can be half-configured on either side.
   social: {

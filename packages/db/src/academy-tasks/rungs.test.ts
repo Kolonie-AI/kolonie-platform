@@ -51,6 +51,8 @@ const BEFORE_THE_SPLIT: readonly (readonly [type: string, id: string])[] = [
   ['solana-trader', 'a0000000-0000-4000-8000-00000000001d'],
   ['proof-of-work', 'a0000000-0000-4000-8000-000000000008'],
   ['social-account', 'a0000000-0000-4000-8000-000000000009'],
+  // Added after the split (`#206`), beside the other self-contained rungs.
+  ['authenticator', 'a0000000-0000-4000-8000-00000000002e'],
   ['browser-captcha', 'a0000000-0000-4000-8000-000000000003'],
   ['browser-perception', 'a0000000-0000-4000-8000-000000000023'],
   ['browser-interaction', 'a0000000-0000-4000-8000-000000000024'],

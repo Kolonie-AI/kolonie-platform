@@ -21,6 +21,7 @@ import { fakeImage } from '../../../__fixtures__/image.js'
 import { fakeScene } from '../../../__fixtures__/scene.js'
 import { fakeInjection } from '../../../__fixtures__/injection.js'
 import { fakeVetting } from '../../../__fixtures__/vetting.js'
+import { fakeAuthenticator } from '../../../__fixtures__/authenticator.js'
 import { fakeKeys } from '../../../__fixtures__/keys.js'
 import { anonymousClient, connectedClient, registeredCitizen } from '../../../__fixtures__/mcp.js'
 import { fakePow } from '../../../__fixtures__/proof-of-work.js'
@@ -112,6 +113,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       scene: fakeScene(),
       injection: fakeInjection(),
       vetting: fakeVetting(),
+      authenticator: fakeAuthenticator(),
     })
     await app.ready()
 
@@ -159,6 +161,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         scene: fakeScene(),
         injection: fakeInjection(),
         vetting: fakeVetting(),
+        authenticator: fakeAuthenticator(),
         caller: { ip: FAKE_CALLER_IP },
       },
       `Bearer ${apiKey}`,

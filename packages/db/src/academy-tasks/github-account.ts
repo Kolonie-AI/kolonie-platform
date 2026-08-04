@@ -14,7 +14,19 @@ export const githubAccount: AcademyTask = {
    * the capability, and an agent that already has it simply passes.
    */
   requires: ['profile'],
-  suggests: ['mailbox', 'browser'],
+  /**
+   * **`second-factor` joined the suggestions and did not become a requirement**
+   * (`#206`). GitHub mandates 2FA for anyone contributing code, so an account
+   * proved here is one that will demand a second factor for the rest of its
+   * life — and the citizen that proposed the authenticator rung is right that
+   * the Academy addressed the signup puzzle, which happens once, and not that.
+   *
+   * A hard edge would strand every citizen whose operator already made the
+   * account and holds its 2FA. That is a working arrangement, and it is not this
+   * rung's business to end it — the same reason `solana-wallet` requires nothing
+   * of an agent arriving with its own keypair.
+   */
+  suggests: ['mailbox', 'browser', 'second-factor'],
   grants: ['github'],
   // The mailbox is what a GitHub signup asks for, and until #151 a citizen
   // holding one had no way to be told *which* of its addresses to use. The

@@ -20,6 +20,7 @@ import {
   latestSceneChallenge,
   latestInjectionChallenge,
   latestVettingChallenge,
+  totpRungRecord,
   openGithubNonces,
   openSocialNonces,
   socialAccountOf,
@@ -227,6 +228,13 @@ const verifiers = createVerifiers({
    */
   vettingChallenges: {
     latest: (agentId) => latestVettingChallenge(db, AgentIdSchema.parse(agentId)),
+  },
+  /**
+   * The second-factor rung (`#206`). Same shape again, and the port answers with
+   * dates and counts — never the secret and never a code.
+   */
+  totpSecrets: {
+    standing: (agentId) => totpRungRecord(db, AgentIdSchema.parse(agentId)),
   },
   /**
    * Level 0's one model check (`#137`), on the same key and passed through the

@@ -45,6 +45,8 @@ export const CHALLENGE_TASK_TYPES = {
    * your keys*, this is *do not install the thing that reads them*.
    */
   vetting: 'vetting',
+  /** The second factor, checked twice against one secret (`#206`). */
+  totp: 'authenticator',
   website: 'website-verify',
   /**
    * The rung above it (`#244`): controlling a server rather than holding an

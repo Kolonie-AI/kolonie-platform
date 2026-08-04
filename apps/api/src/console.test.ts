@@ -19,6 +19,7 @@ import { fakeImage } from './__fixtures__/image.js'
 import { fakeScene } from './__fixtures__/scene.js'
 import { fakeInjection } from './__fixtures__/injection.js'
 import { fakeVetting } from './__fixtures__/vetting.js'
+import { fakeAuthenticator } from './__fixtures__/authenticator.js'
 import { fakeKeys } from './__fixtures__/keys.js'
 import { fakePow } from './__fixtures__/proof-of-work.js'
 import { fakeMemory } from './__fixtures__/memory.js'
@@ -93,6 +94,7 @@ describe('the console front door', () => {
       scene: fakeScene(),
       injection: fakeInjection(),
       vetting: fakeVetting(),
+      authenticator: fakeAuthenticator(),
       social: fakeSocial(),
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),

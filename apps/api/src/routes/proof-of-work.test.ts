@@ -33,6 +33,7 @@ import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
 import { fakeInjection } from '../__fixtures__/injection.js'
 import { fakeVetting } from '../__fixtures__/vetting.js'
+import { fakeAuthenticator } from '../__fixtures__/authenticator.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
@@ -97,6 +98,7 @@ beforeEach(async () => {
     scene: fakeScene(),
     injection: fakeInjection(),
     vetting: fakeVetting(),
+    authenticator: fakeAuthenticator(),
     academy: fakeAcademy(),
     vision: fakeVision(),
   })

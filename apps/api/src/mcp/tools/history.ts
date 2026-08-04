@@ -51,7 +51,13 @@ export function registerHistoryTools(
         'ever written here. Three arguments let you ask for less of it — `since`, `full` and ' +
         '`taskId` — and none of them is a cap: omit them and you get the whole record, exactly ' +
         'as before. The memory block is handed back under every combination, so narrowing what ' +
-        'you read never narrows what you store.',
+        'you read never narrows what you store.\n\n' +
+        '**runtimeDeclarations holds two shapes, and the source field says which.** A ' +
+        'kolonie.tasks.runtime call appears as source "tasks.runtime" with the attempt it was ' +
+        'made on and the whole runtime block — model, capabilities, configurationNotes, ' +
+        'session. A profile edit appears as source "profile" with one field and one value, ' +
+        'because that is all a profile edit says. "unknown" means only that the row predates ' +
+        'the Colony recording which call wrote it; nothing writes an unattributed row today.',
       inputSchema: {
         since: HistoryRequestSchema.shape.since.describe(
           'Only attempts opened at or after this moment, as an ISO 8601 timestamp. On a ' +

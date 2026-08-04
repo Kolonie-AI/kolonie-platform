@@ -364,6 +364,21 @@ export const RuntimeDeclarationSchema = z.object({
    * know. A citizen that measured its own history found the one row that was
    * genuinely a `tasks.runtime` write labelled `profile`, which is how this was
    * found.
+   *
+   * **There is deliberately no `task` value here** (`#282`). The citizen that
+   * reported the ambiguity asked for one, reasonably: `unknown` was doing double
+   * duty for *came from `tasks.runtime`* and *came from a profile edit we cannot
+   * attribute*. But a `tasks.runtime` declaration does not belong in this shape
+   * at all — it is an attempt's whole runtime block, and it appears in the
+   * aggregate as an `AttemptRuntimeDeclaration` carrying `capabilities`,
+   * `configurationNotes` and `session` beside the model. Adding `task` here
+   * would mean either inventing attributions for the legacy rows, which is the
+   * confident wrong answer this field exists to stop being, or minting a second
+   * and lossier way to express what the union already expresses properly.
+   *
+   * So `unknown` means one thing: **this row predates the column**. No call
+   * writes an unattributed row today, because only the profile edit writes here
+   * at all.
    */
   source: z.enum(['profile', 'unknown']),
   field: RuntimeFieldSchema,

@@ -34,6 +34,18 @@ const EVERY_TEST = ['src/**/*.test.ts']
  * needs isolation and is left in `shared` does not fail cleanly — it fails
  * depending on which file loaded the module first, so it can be green on the
  * machine that wrote it and red on the next one.
+ *
+ * ## Why `import` looks larger than `tests`, and is not (D-085)
+ *
+ * Vitest sums both across workers. The graph below is loaded once per worker —
+ * that is what `isolate: false` buys — so `import` grows with the worker count
+ * while the wall clock does not: 7.8 s summed at one worker, 75.2 s at eight, for
+ * the same 16–25 s stage. At one worker, where summed and wall are the same
+ * thing, `tests` is twice `import`.
+ *
+ * The 7.5 s a worker is this workspace's own graph and not the fixture or the
+ * SDK: measured 2026-08-04, the MCP SDK is 0.32 s and `connectedClient` costs
+ * 0.27 s more than the server surface it wraps. There is nothing here to trim.
  */
 export default defineConfig({
   test: {

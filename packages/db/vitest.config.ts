@@ -67,6 +67,14 @@ export default defineConfig({
     maxWorkers: WORKERS,
     setupFiles: ['./src/test-worker-setup.ts'],
     /**
+     * The migrated template every test file's database is copied from (`#296`).
+     *
+     * Once per run in the main process, where `setupFiles` is once per file in a
+     * worker. The two are a pair: this builds the thing, and the per-file path in
+     * `connectForTests` copies it.
+     */
+    globalSetup: ['./src/test-template-setup.ts'],
+    /**
      * **Vitest's default is five seconds, and that is a unit-test default.**
      * Every test in this package makes real round trips to a real Postgres, and
      * the ones that build a corpus make dozens: `briefing.test.ts`'s bounded-corpus

@@ -1,6 +1,6 @@
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { sql } from 'drizzle-orm'
-import { createDatabase, DATABASE_URL_VAR, type Database } from './client.js'
+import { createDatabase, databaseUrlFromEnv, DATABASE_URL_VAR, type Database } from './client.js'
 import { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA } from './migrations.js'
 
 // Re-exported so test files keep importing everything they need from one place.
@@ -158,6 +158,115 @@ export function workerDatabaseUrl(baseUrl: string, slot: number): string {
 }
 
 /**
+ * The URL of the one database every worker's is copied from (`#296`).
+ *
+ * Derived from the same base URL the worker databases are, so the caller still
+ * supplies one server through one variable. `_template` rather than a slot
+ * number because there is exactly one of it, which is the property that let this
+ * live in `globalSetup` where `#284` could not put the per-worker databases:
+ * that decision turned on a count in one file having to match a count in
+ * another, and a fixed name has nothing to keep in step with.
+ */
+export function templateDatabaseUrl(baseUrl: string): string {
+  const url = new URL(baseUrl)
+  const name = url.pathname.replace(/^\//, '')
+
+  if (name === '') {
+    throw new Error(
+      `${DATABASE_URL_VAR} names no database (${baseUrl}), so there is nothing to derive ` +
+        `a template name from. It should end in a database name, e.g. .../kolonie_test`,
+    )
+  }
+
+  url.pathname = `/${name}_template`
+  return url.toString()
+}
+
+/** The database name out of a URL, which is what DDL needs and a URL is not. */
+function databaseNameOf(url: string): string {
+  return new URL(url).pathname.replace(/^\//, '')
+}
+
+/**
+ * Somewhere to stand while dropping or creating a database.
+ *
+ * `postgres` rather than the base database from `DATABASE_URL`: a `create
+ * database` cannot run from inside the database it is replacing, and the one
+ * database guaranteed to exist on any server is the one every client connects to
+ * before it knows anything else.
+ */
+function adminUrl(url: string): string {
+  const admin = new URL(url)
+  admin.pathname = '/postgres'
+  return admin.toString()
+}
+
+/**
+ * Build the template: one database, migrated once, that every test file's is
+ * copied from (`#296`).
+ *
+ * **Dropped and rebuilt on every run rather than reused.** A template that
+ * survived a run would be a second, invisible answer to *what does the schema
+ * look like* — and the failure would be a suite passing against migrations that
+ * are no longer what the repository says. Rebuilding costs 656 ms once, measured
+ * on CLAUDE002 on 2026-08-04, against the 811 ms per file it replaces.
+ *
+ * **It is sealed when it is finished, and that is not tidiness.** PostgreSQL
+ * refuses `create database … template t` while *any* session is connected to
+ * `t` — one stray connection anywhere breaks every copy in every worker for as
+ * long as it is held. This was not a hypothesis: the first version of
+ * `template-database.test.ts` opened the template to assert nothing had been
+ * written to it, and two other tests failed with *source database is being
+ * accessed by other users*.
+ *
+ * A comment asking future readers not to connect would not have survived. So the
+ * database says it instead: `allow_connections false` makes connecting
+ * impossible rather than inadvisable, and `is_template true` says what it is.
+ * That is how `template0` is protected, and it is copied from here for the same
+ * reason.
+ */
+export async function buildTemplateDatabase(baseUrl: string): Promise<void> {
+  const template = templateDatabaseUrl(baseUrl)
+  const name = databaseNameOf(template)
+  const admin = createDatabase(adminUrl(baseUrl), { max: 1, onnotice: () => {} })
+
+  try {
+    // A database marked `is_template` cannot be dropped while it says so, and
+    // the previous run left it marked. Unmarking a database that is not there is
+    // an error, so this asks first.
+    const [existing] = await admin.execute(sql`select 1 from pg_database where datname = ${name}`)
+    if (existing !== undefined) {
+      await admin.execute(sql.raw(`alter database "${name}" is_template false`))
+    }
+
+    // `with (force)` because a worker that died mid-run leaves a connection
+    // behind, and a template nobody can drop would fail every run afterwards
+    // until somebody restarted the server by hand.
+    await admin.execute(sql.raw(`drop database if exists "${name}" with (force)`))
+    await admin.execute(sql.raw(`create database "${name}"`))
+  } finally {
+    await admin.close()
+  }
+
+  const db = createDatabase(template, { max: 1, onnotice: () => {} })
+  try {
+    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
+  } finally {
+    // Closed before it is sealed: the seal is refused while anybody, including
+    // this process, is still connected.
+    await db.close()
+  }
+
+  const seal = createDatabase(adminUrl(baseUrl), { max: 1, onnotice: () => {} })
+  try {
+    await seal.execute(sql.raw(`alter database "${name}" is_template true`))
+    await seal.execute(sql.raw(`alter database "${name}" allow_connections false`))
+  } finally {
+    await seal.close()
+  }
+}
+
+/**
  * Create this worker's database if it is not there yet.
  *
  * Connects to the database the caller named — which is used as a place to stand
@@ -220,11 +329,68 @@ export async function ensureWorkerDatabase(baseUrl: string, slot: number): Promi
  * one file are in one slot, in one database, and pull the schema out from under
  * each other exactly as before.
  */
-export async function connectForTests(url: string): Promise<Database> {
+export async function connectForTests(
+  url: string,
+  /**
+   * Where the template's name is derived from. The environment, in every real
+   * call — a parameter only so that the test proving a missing template is a
+   * *failure* can point at a server where there is none, without dropping the
+   * one seventy-seven other files are copying from at that moment.
+   */
+  baseUrl: string = databaseUrlFromEnv(),
+): Promise<Database> {
+  await recreateFromTemplate(url, baseUrl)
+
   const db = createDatabase(url, { max: 1, onnotice: () => {} })
-  await resetDatabase(db)
-  await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
+  poolsByDatabase.set(databaseNameOf(url), db)
   return db
+}
+
+/**
+ * The pool this module last handed out for a database, so it can be closed
+ * before that database is dropped.
+ *
+ * **Module state, which is only durable because `#295` turned off per-file
+ * isolation.** With a registry that resets between files, the previous file's
+ * pool would be invisible here and would be terminated by `with (force)`
+ * instead — correct, and noisy: the driver reports the termination the way it
+ * reports a server that went away. Closing our own connection first keeps a
+ * green run quiet, and `with (force)` stays for the connections this module did
+ * not open.
+ */
+const poolsByDatabase = new Map<string, Database>()
+
+/**
+ * Replace one worker's database with a copy of the template (`#296`).
+ *
+ * Measured on CLAUDE002 on 2026-08-04, five rounds, median: 811 ms to drop the
+ * schemas and replay all 107 migrations, 63 ms to copy the template. Six workers
+ * copying from one template at the same moment took 136–159 ms for all six, so
+ * the source is not a queue.
+ *
+ * **A copy and not a truncation, though the two measured the same.** A database
+ * created from a template is indistinguishable from one that was just migrated —
+ * same sequences, same constraints, same bookkeeping — while truncation leaves
+ * whatever the file before it did to the schema, and this package contains tests
+ * that change schemas.
+ */
+async function recreateFromTemplate(url: string, baseUrl: string): Promise<void> {
+  const name = databaseNameOf(url)
+  const template = databaseNameOf(templateDatabaseUrl(baseUrl))
+
+  const ours = poolsByDatabase.get(name)
+  if (ours !== undefined) {
+    poolsByDatabase.delete(name)
+    await ours.close()
+  }
+
+  const admin = createDatabase(adminUrl(url), { max: 1, onnotice: () => {} })
+  try {
+    await admin.execute(sql.raw(`drop database if exists "${name}" with (force)`))
+    await admin.execute(sql.raw(`create database "${name}" template "${template}"`))
+  } finally {
+    await admin.close()
+  }
 }
 
 /**

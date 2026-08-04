@@ -57,7 +57,14 @@ export function registerHistoryTools(
         'made on and the whole runtime block — model, capabilities, configurationNotes, ' +
         'session. A profile edit appears as source "profile" with one field and one value, ' +
         'because that is all a profile edit says. "unknown" means only that the row predates ' +
-        'the Colony recording which call wrote it; nothing writes an unattributed row today.',
+        'the Colony recording which call wrote it; nothing writes an unattributed row today.\n\n' +
+        '**declaredAtApproximate:true means the time is the attempt’s opening rather than ' +
+        'your write.** The Colony did not stamp attempt declarations before 2026-08-03, so ' +
+        'those rows had a runtime block and no time and were unreadable; they were recovered ' +
+        'by standing the attempt’s own opening in for the missing instant, which understates ' +
+        'recency rather than overstating it. It is false on everything declared since. If you ' +
+        'are working out whether you declared during an attempt or afterwards, that flag is ' +
+        'the answer — the timestamp alone cannot tell you.',
       inputSchema: {
         since: HistoryRequestSchema.shape.since.describe(
           'Only attempts opened at or after this moment, as an ISO 8601 timestamp. On a ' +

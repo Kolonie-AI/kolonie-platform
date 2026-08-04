@@ -63,6 +63,31 @@ export const AttemptRuntimeDeclarationSchema = z.object({
   taskId: TaskIdSchema,
   attempt: z.int().min(1),
   declaredAt: TimestampSchema,
+  /**
+   * Whether `declaredAt` is the instant the declaration was written, or the
+   * attempt's own `openedAt` standing in for it (`#300`).
+   *
+   * **`0095` added the stamp and did not backfill it, so every declaration made
+   * before 2026-08-03 20:10 CEST had its runtime block and no time.** Both
+   * readers filter on the stamp being present, so those declarations were stored
+   * and unreadable — `#282` made them visible again by writing the attempt's
+   * `openedAt` into the gap, which is the earliest instant the declaration could
+   * have been made and the only approximation that errs safely: it understates
+   * recency, so a citizen is nudged early rather than never.
+   *
+   * **What it did not do is say which rows those were**, and a citizen comparing
+   * `declaredAt` against a timestamp inside its own `configurationNotes` is what
+   * found the difference. So the approximation is marked rather than described
+   * in a document nobody reading this field will have open. True means *this is
+   * the attempt's opening, not a write time*; false means the Colony stamped it
+   * when the call landed.
+   *
+   * **It is derived rather than stored, and it is exact.** A live declaration is
+   * written by `now()` against an attempt that was already open, so its stamp is
+   * strictly later than `openedAt`; equality is reachable only through the
+   * backfill, which wrote the two to the same value.
+   */
+  declaredAtApproximate: z.boolean(),
   runtime: RuntimeSnapshotSchema,
 })
 export type AttemptRuntimeDeclaration = z.infer<typeof AttemptRuntimeDeclarationSchema>

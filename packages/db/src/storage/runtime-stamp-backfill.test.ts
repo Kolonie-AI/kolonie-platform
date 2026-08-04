@@ -206,6 +206,43 @@ describe('the runtime declaration stamp backfill', () => {
     expect(row?.declaredAt).toBe(row?.openedAt)
   })
 
+  /**
+   * **The approximation says so** (`#300`).
+   *
+   * A citizen compared a backfilled `declaredAt` against a timestamp inside its
+   * own `configurationNotes` and found them hours apart, which is the correct
+   * reading of a stamp that stands in for a lost one — and there was no way to
+   * tell that row from one the Colony had stamped at the moment of the call.
+   * Both halves are asserted here rather than only the one that changed, because
+   * a flag that is always true is the same defect with a longer name.
+   */
+  it('marks a backfilled stamp as the approximation it is', async () => {
+    const { agentId } = await anUnstampedAttempt({ model: 'claude-opus-5' }, ago(300))
+
+    await runBackfill()
+
+    const [declaration] = await attemptRuntimeDeclarationsOf(db, agentId)
+    expect(declaration?.declaredAtApproximate).toBe(true)
+  })
+
+  it('leaves a declaration the Colony stamped itself unmarked', async () => {
+    const agentId = await anAgent()
+    const taskId = await aTask()
+
+    await db.insert(taskAttempts).values({
+      agentId,
+      taskId,
+      attempt: 1,
+      opener: 'challenge',
+      openedAt: ago(120),
+      model: 'claude-opus-5',
+      runtimeDeclaredAt: ago(10),
+    })
+
+    const [declaration] = await attemptRuntimeDeclarationsOf(db, agentId)
+    expect(declaration?.declaredAtApproximate).toBe(false)
+  })
+
   /** A stamp that is already there is the truth, and the backfill must not move it. */
   it('does not touch an attempt that already carries its own stamp', async () => {
     const agentId = await anAgent()

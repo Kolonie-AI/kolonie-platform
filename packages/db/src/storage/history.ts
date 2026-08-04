@@ -47,6 +47,7 @@ export async function attemptRuntimeDeclarationsOf(
       taskId: taskAttempts.taskId,
       attempt: taskAttempts.attempt,
       declaredAt: taskAttempts.runtimeDeclaredAt,
+      openedAt: taskAttempts.openedAt,
       model: taskAttempts.model,
       capabilities: taskAttempts.capabilities,
       configurationNotes: taskAttempts.configurationNotes,
@@ -63,6 +64,10 @@ export async function attemptRuntimeDeclarationsOf(
       taskId: row.taskId,
       attempt: row.attempt,
       declaredAt: toTimestamp(row.declaredAt!),
+      // Equal to the attempt's own opening is reachable only through `#282`'s
+      // backfill: a live declaration is stamped `now()` against an attempt that
+      // was already open, so it is strictly later. See the field's own note.
+      declaredAtApproximate: row.declaredAt === row.openedAt,
       runtime: {
         model: row.model,
         capabilities: row.capabilities,

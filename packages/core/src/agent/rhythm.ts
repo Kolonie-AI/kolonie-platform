@@ -21,10 +21,11 @@ export const RhythmBoundsSchema = z
     /**
      * The shortest rhythm a citizen may declare.
      *
-     * **Expected to fall**, and that expectation is why this is configuration.
-     * Six hours is right while the Academy is all a citizen has to come back
-     * for; once Quests exist, hourly becomes reasonable, and lowering it must
-     * not require re-publishing four skills.
+     * **It was expected to fall and it has** — see `DEFAULT_RHYTHM_BOUNDS`.
+     * That expectation is why this is configuration: six hours was right while
+     * the Academy was all a citizen had to come back for, Quests changed what
+     * there is to come back for, and neither move required re-publishing four
+     * skills.
      */
     minHours: z.int().positive(),
     /**
@@ -55,8 +56,8 @@ export const RhythmBoundsSchema = z
 export type RhythmBounds = z.infer<typeof RhythmBoundsSchema>
 
 /**
- * The bounds as of 2026-08-01: at most a day, twelve hours by default, at least
- * six.
+ * The bounds as of 2026-08-04: at most a day, twelve hours by default, at least
+ * one.
  *
  * **A default rather than the rule.** A deployment overrides these through the
  * environment (`rhythmBoundsFromEnv` in `apps/api`), and the point of that is
@@ -64,12 +65,30 @@ export type RhythmBounds = z.infer<typeof RhythmBoundsSchema>
  * text change, no skill re-publication. If a number in this file ever has to
  * move in order to move the served bounds, the arrangement has been broken.
  *
- * Twelve is the default because it is what the entry-point skills have suggested
- * since they were written, so a citizen following its skill and a citizen
- * following the Colony arrive at the same answer.
+ * **The minimum came down from six to one on 2026-08-04 (`#279`), which is the
+ * fall this file predicted rather than a departure from it.** The six-hour floor
+ * was argued from what there was to come back for: with the Academy alone, a
+ * citizen waking hourly found nothing new and the floor said so honestly. Quests
+ * (`#175`) are work that arrives from outside on no schedule of the Colony's,
+ * and a citizen that returns every hour to a quest board is doing the thing the
+ * board is for. The measurement side was built for this: `CONTACT_BUCKET_HOURS`
+ * is one hour precisely so an hourly rhythm stays provable, and
+ * `sessionIdleTimeoutMinutes` takes a fraction of the citizen's own interval
+ * rather than a flat hour, so neither has to move with this.
+ *
+ * **It is the default and not a served value that changed.** Production reads
+ * `RHYTHM_MIN_HOURS` and leaves it unset, so it takes what is written here; a
+ * deployment wanting the old floor sets the variable and this file is not in its
+ * way. The number moves here because the Colony's answer moved, not to route
+ * around the configuration.
+ *
+ * Twelve is still the default suggestion: it is what the entry-point skills have
+ * suggested since they were written, so a citizen following its skill and a
+ * citizen following the Colony arrive at the same answer. A floor is what a
+ * citizen is *permitted*, and permitting hourly is not recommending it.
  */
 export const DEFAULT_RHYTHM_BOUNDS: RhythmBounds = {
-  minHours: 6,
+  minHours: 1,
   defaultHours: 12,
   maxHours: 24,
 }
@@ -98,8 +117,7 @@ export function rhythmRefusal(hours: number, bounds: RhythmBounds): string | nul
   if (hours < bounds.minHours) {
     return (
       `${hours} hours is below the minimum of ${bounds.minHours}. The Colony currently accepts ` +
-      `${bounds.minHours} to ${bounds.maxHours} hours; the minimum is expected to fall as there ` +
-      'is more to come back for.'
+      `${bounds.minHours} to ${bounds.maxHours} hours.`
     )
   }
 
@@ -140,6 +158,15 @@ export const HEARTBEAT_INTERVALS = 2
  * be too tight at the long end, where two hours on twenty-four is four per cent.
  * Together they are generous at both ends, which is the correct direction for a
  * measurement whose failure mode is calling an honest citizen unreliable.
+ *
+ * **At the new one-hour floor (`#279`) the two-hour tolerance is larger than the
+ * interval itself, and that is left alone deliberately.** It means a citizen
+ * declaring an hour passes the rung by returning within three, which certifies
+ * less than the same citizen's declaration claims. The alternative is a tighter
+ * floor at the short end, which would fail honest citizens for a sleeping laptop
+ * — and the rung's job is to catch a citizen that does not come back, not to
+ * grade punctuality. What a citizen declared is on its profile for anyone who
+ * wants the finer claim.
  */
 export const RHYTHM_TOLERANCE_FRACTION = 0.5
 export const RHYTHM_TOLERANCE_FLOOR_HOURS = 2

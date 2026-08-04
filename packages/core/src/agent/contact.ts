@@ -12,11 +12,13 @@ import { TimestampSchema } from '../common/time.js'
  * one row, so a citizen declaring a one-hour rhythm cannot be shown to have kept
  * it any more precisely than this constant allows.
  *
- * One hour is chosen because the declared rhythm has a six-hour floor as of
- * 2026-08-01 (`#142`) and is expected to fall toward hourly once Quests exist.
- * A bucket at one hour leaves room for that fall without a migration; a bucket
- * at six would have to be re-argued the day the minimum moves, and the rows it
- * saved would be the rows the heartbeat rung needed.
+ * One hour was chosen because the declared rhythm had a six-hour floor as of
+ * 2026-08-01 (`#142`) and was expected to fall toward hourly once Quests exist.
+ * It did, on 2026-08-04 (`#279`), and this constant did not have to move with
+ * it — which is the whole of what leaving room for the fall bought. A bucket at
+ * six would have had to be re-argued that day, and the rows it saved would be
+ * the rows the heartbeat rung needed. An hourly rhythm now sits exactly at the
+ * resolution: it can be shown kept, and nothing shorter can be.
  *
  * Raising it is the direction that costs something and lowering it is not, so a
  * later reader wanting a coarser bucket is arguing that a rhythm shorter than

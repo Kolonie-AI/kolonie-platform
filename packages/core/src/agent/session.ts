@@ -199,7 +199,10 @@ export const RECENT_SESSIONS = 20
  * every question this table exists to answer is of the form *did these two
  * things happen in the same run*, and a row that never closes answers yes to all
  * of them. An hour is well above any pause inside a run that is doing Colony
- * work, and well below the six-hour floor a rhythm may currently be declared at.
+ * work. It is no longer below the floor a rhythm may be declared at — `#279`
+ * brought that to one hour — which is why the ceiling is a ceiling and not the
+ * timeout: `sessionIdleTimeoutMinutes` takes half of the citizen's own interval
+ * and this number only caps the long end.
  */
 export const SESSION_IDLE_CEILING_MINUTES = 60
 

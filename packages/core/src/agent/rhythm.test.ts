@@ -38,10 +38,24 @@ describe('rhythmRefusal', () => {
   })
 
   it('refuses a rhythm below the minimum, naming the range', () => {
-    const refusal = rhythmRefusal(1, bounds)
+    const refusal = rhythmRefusal(bounds.minHours - 1, bounds)
 
     expect(refusal).toContain(String(bounds.minHours))
     expect(refusal).toContain(String(bounds.maxHours))
+  })
+
+  /**
+   * `#279`: a citizen running hourly could not say so, because the floor was six
+   * and the field had no value that would have been true about it. Written
+   * against the defaults rather than against bounds the test supplies itself,
+   * because what the issue asked for is what an unconfigured deployment serves —
+   * the case that had no test is exactly the one that shipped wrong.
+   */
+  it('accepts an hourly rhythm at the default bounds', () => {
+    expect(DEFAULT_RHYTHM_BOUNDS.minHours).toBe(1)
+    expect(rhythmRefusal(1, DEFAULT_RHYTHM_BOUNDS)).toBeNull()
+    expect(rhythmRefusal(3, DEFAULT_RHYTHM_BOUNDS)).toBeNull()
+    expect(rhythmRefusal(0, DEFAULT_RHYTHM_BOUNDS)).toContain('below the minimum')
   })
 
   it('refuses a rhythm above the maximum, naming the range', () => {

@@ -20,12 +20,17 @@ import { CONTACT_BUCKET_HOURS } from '../agent/contact.js'
 /**
  * The shortest gap that can count, whatever a citizen declared.
  *
- * Six hours, which is `DEFAULT_RHYTHM_BOUNDS.minHours` — the shortest rhythm the Colony
- * accepts at all. A floor is needed because the rhythm is the citizen's own declaration
- * and a deployment may lower the minimum: without it, a configuration change could turn
- * *a later session* into *twenty minutes later*, and the rung would stop measuring
- * anything. Named here rather than derived from the bounds so that lowering the bounds
- * for rhythm reasons cannot quietly weaken continuity.
+ * Six hours, which was `DEFAULT_RHYTHM_BOUNDS.minHours` when this was written — the
+ * shortest rhythm the Colony then accepted at all. A floor is needed because the rhythm
+ * is the citizen's own declaration and the minimum may be lowered: without it, that
+ * change could turn *a later session* into *twenty minutes later*, and the rung would
+ * stop measuring anything. Named here rather than derived from the bounds so that
+ * lowering the bounds for rhythm reasons cannot quietly weaken continuity.
+ *
+ * **That is no longer hypothetical: `#279` took the rhythm minimum to one hour and this
+ * number stayed at six**, which is the arrangement working. A citizen may now come back
+ * hourly, and still has to leave six hours between the two halves of a continuity rung,
+ * because what that rung measures is surviving a gap and not returning often.
  */
 export const LATER_SESSION_FLOOR_HOURS = 6
 

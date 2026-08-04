@@ -20,6 +20,8 @@ import { registerPermissionReportTools } from './tools/permission-reports.js'
 import { registerRotationTools } from './tools/rotation.js'
 import { registerAttemptTools } from './tools/tasks-attempts.js'
 import { registerQuestReportTools } from './tools/quest-reports.js'
+import { registerQuestTools } from './tools/quests.js'
+import { registerQuestStewardTools } from './tools/quests-steward.js'
 import { registerReportTools } from './tools/tasks-reports.js'
 import { registerTaskTools } from './tools/tasks.js'
 import { registerAutonomyTools } from './tools/autonomy.js'
@@ -72,6 +74,22 @@ export function createMcpServer(
    * this decides who a sentence would be addressed to.
    */
   agentId?: AgentId,
+  /**
+   * Whether the caller holds `steward`, and therefore whether the steward tools
+   * are registered at all (`#320`).
+   *
+   * **A third tier, built the way D-013 builds the first two** — by registering
+   * fewer tools rather than by refusing more. A sponsor shown
+   * `kolonie.quests.publish` spends context on a tool whose only possible answer
+   * is a refusal, which is the same argument that keeps `kolonie.me` out of a
+   * stranger's list.
+   *
+   * Resolved by the route, like `agentId` and for the same reason: the
+   * credential lookup has already happened there and the roles came back with
+   * it. **Absent means no**, so a caller that forgets it serves fewer tools
+   * rather than more.
+   */
+  steward?: boolean,
 ): McpServer {
   const authenticated = credential !== undefined
 
@@ -146,6 +164,8 @@ export function createMcpServer(
   registerAttemptTools(server, deps, credential)
   registerReportTools(server, deps, credential)
   registerQuestReportTools(server, deps, credential)
+  registerQuestTools(server, deps, credential)
+  if (steward === true) registerQuestStewardTools(server, deps, credential)
   registerHistoryTools(server, deps, credential)
   registerSubmissionTools(server, deps, credential)
   registerWakeupTool(server, deps, credential)

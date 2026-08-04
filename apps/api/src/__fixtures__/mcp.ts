@@ -62,8 +62,17 @@ export const connectedClient = async (
    * results predate hints and keep meaning what they meant.
    */
   agentId?: AgentId,
+  /**
+   * Whether the caller holds `steward`, which decides whether the third tier is
+   * registered at all (`#320`).
+   *
+   * Omitted by every test that predates it, and the default is *no* for the same
+   * reason the parameter's is: a fixture that forgot it should serve fewer tools
+   * rather than more.
+   */
+  steward?: boolean,
 ) => {
-  const server = createMcpServer(deps, credential, agentId)
+  const server = createMcpServer(deps, credential, agentId, steward)
   const client = new Client({ name: 'test', version: '0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
 

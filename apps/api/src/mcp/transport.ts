@@ -29,11 +29,18 @@ export async function handleMcpRequest(
    * carried here rather than looked up again — see `createMcpServer`.
    */
   agentId: AgentId | undefined,
+  /**
+   * Whether that caller holds `steward` (`#320`), carried for the same reason
+   * `agentId` is: the route resolved the credential and the roles came back with
+   * it, and looking them up again here would be a query per call bought for
+   * nothing.
+   */
+  steward: boolean,
   request: IncomingMessage,
   response: ServerResponse,
   body: unknown,
 ): Promise<void> {
-  const server = createMcpServer(deps, credential, agentId)
+  const server = createMcpServer(deps, credential, agentId, steward)
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
 
   // Close the pair when the response ends, whichever way it ends. Without this,

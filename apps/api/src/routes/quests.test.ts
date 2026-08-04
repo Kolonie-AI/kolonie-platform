@@ -311,6 +311,40 @@ describe('GET /v1/quests', () => {
   })
 })
 
+describe('GET /v1/quests/balance', () => {
+  /**
+   * The route `#320` added, and the reason it is a route at all: the number was
+   * on the desk from `#180` and reachable only from a console page, so a sponsor
+   * that is not driving a browser learned what it could afford by being refused.
+   */
+  it('answers what the caller may still commit', async () => {
+    quests.credit(sponsorId as never, 100)
+
+    const response = await get('/v1/quests/balance', sponsorKey)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ balance: 100, reserved: 0, available: 100 })
+  })
+
+  it('counts what a submitted quest has spoken for', async () => {
+    quests.credit(sponsorId as never, 100)
+    const written = await write(aDraft({ reward: { credits: 1, reputation: 0 }, slots: 5 }))
+    await post(`/v1/quests/${written.json().quest.id}/submit`, sponsorKey)
+
+    const response = await get('/v1/quests/balance', sponsorKey)
+
+    expect(response.json()).toMatchObject({ balance: 100, reserved: 5, available: 95 })
+  })
+
+  /** Static before parametric: the id route must not swallow it. */
+  it('is not read as a quest id', async () => {
+    const response = await get('/v1/quests/balance', sponsorKey)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().quest).toBeUndefined()
+  })
+})
+
 describe('GET /v1/quests/review', () => {
   it('is a steward’s, and reaches the queue rather than the read-one route', async () => {
     const id = await awaitingReview()

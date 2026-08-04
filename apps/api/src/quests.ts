@@ -462,6 +462,31 @@ export async function readQuest(
   return { outcome: 'ok', response: respond(quest) }
 }
 
+/**
+ * What this account may still commit (`#320`).
+ *
+ * **The number existed and had no route.** `QuestDesk.balance` has been on the
+ * desk since `#180`, read by six console pages and by nothing else — so a
+ * sponsor that is not driving a browser could not find out what it could afford
+ * until a submission was refused for want of it. That is the failure `#180`
+ * named, arriving one surface along.
+ *
+ * `available` is the one to price a quest against: `balance` counts the money,
+ * and `reserved` is what quests already in the queue have spoken for.
+ */
+export async function readBalance(
+  authorId: AgentId,
+  desk: QuestDesk,
+): Promise<
+  QuestResult<{
+    readonly balance: number
+    readonly reserved: number
+    readonly available: number
+  }>
+> {
+  return { outcome: 'ok', response: await desk.balance(authorId) }
+}
+
 /** The steward's queue: moderated quests awaiting a human decision. */
 export async function readReviewQueue(
   desk: QuestDesk,

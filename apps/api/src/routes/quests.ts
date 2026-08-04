@@ -9,6 +9,7 @@ import {
   recordAudit,
   listQuests,
   publishQuest,
+  readBalance,
   readQuest,
   readReviewQueue,
   refuseQuest,
@@ -52,6 +53,21 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
     if (caller === null) return reply
 
     return send(reply, await listQuests(caller.id, quests))
+  })
+
+  /**
+   * What the caller may still commit (`#320`).
+   *
+   * On the quest prefix because that is the only question it answers — *can I
+   * afford this quest* — and `QuestDesk` puts it there for the same reason. It
+   * is also where a citizen finds what a quest paid it, which is the same
+   * number read from the other end.
+   */
+  v1.get('/quests/balance', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    return send(reply, await readBalance(caller.id, quests))
   })
 
   /**

@@ -42,6 +42,28 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.quests.report',
   /**
+   * The sponsor's side of the quest surface (`#320`).
+   *
+   * **In the ordinary authenticated tier, deliberately.** Sponsoring is not a
+   * privilege and no role gates it: `#176` gives the write path to *any
+   * authenticated identity*, and a citizen that wants something asked of the
+   * Colony is a sponsor the moment it has the credits. Putting these behind a
+   * role would invent a gate the decision does not have.
+   *
+   * They were missing until `#320` because `#176` reasoned about the
+   * **credential** — *session or API key, indifferently* — and not about the
+   * **surface**. D-026 had already settled the surface question in July: a
+   * capability the REST surface has and this one lacks is a capability foreign
+   * agents do not have.
+   */
+  'kolonie.quests.balance',
+  'kolonie.quests.write',
+  'kolonie.quests.update',
+  'kolonie.quests.submit',
+  'kolonie.quests.list',
+  'kolonie.quests.read',
+  'kolonie.quests.results',
+  /**
    * The write surface for the runtime snapshot (#109), added by #114 because it
    * had none — the storage existed and was reachable from nothing, so every
    * attempt in production carried an empty configuration and the briefing had
@@ -216,4 +238,28 @@ export const AUTHENTICATED_TOOLS = [
    * `#211` measured that: 53 tools, not one of which replaced a credential.
    */
   'kolonie.credential.rotate',
+] as const
+
+/**
+ * The tools a caller holding `steward` is offered on top of the tier above
+ * (`#320`).
+ *
+ * **A third tier, built the way D-013 builds the first two** — by registering
+ * fewer tools rather than by refusing more. Its argument is unchanged one role
+ * along: a sponsor shown `kolonie.quests.publish` spends context on a tool whose
+ * only possible answer is a refusal, and a list that names it invites a call
+ * that cannot succeed.
+ *
+ * **Unlisted is not unreachable, and the handlers know it.** Every tool here
+ * re-checks the role when it runs, because the tier decides what is *offered*
+ * and the check decides what is *allowed* — an agent that learned the name from
+ * a document rather than from a listing is exactly the caller the second one is
+ * for.
+ */
+export const STEWARD_TOOLS = [
+  'kolonie.quests.review',
+  'kolonie.quests.publish',
+  'kolonie.quests.refuse',
+  'kolonie.quests.audit',
+  'kolonie.quests.audit.record',
 ] as const

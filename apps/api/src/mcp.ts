@@ -14,7 +14,7 @@
  * holding the implementation, under the same names.
  */
 export { MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from './mcp/paths.js'
-export { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS } from './mcp/tool-list.js'
+export { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from './mcp/tool-list.js'
 export { createMcpServer } from './mcp/create-server.js'
 export { handleMcpRequest } from './mcp/transport.js'
 export { ME_BIO_EXCERPT_LENGTH } from './mcp/text/me.js'

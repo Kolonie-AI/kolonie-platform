@@ -363,7 +363,7 @@ export function questTextDigest(
   text: Pick<PendingQuest, 'title' | 'description' | 'instructions'>,
 ): string {
   return createHash('sha256')
-    .update([text.title, text.description, text.instructions].join(' '))
+    .update([text.title, text.description, text.instructions].join('\0'))
     .digest('hex')
 }
 

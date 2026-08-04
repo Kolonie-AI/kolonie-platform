@@ -3,6 +3,7 @@ import { and, count, desc, eq, gt, isNotNull, isNull, ne, sql } from 'drizzle-or
 import {
   AccountCapabilitySchema,
   AccountKindSchema,
+  AgentIdSchema,
   now as currentTime,
   type AgentId,
   type Timestamp,
@@ -486,19 +487,48 @@ export async function recordInboundMail(
   token: string,
   from: string,
 ): Promise<InboundOutcome> {
-  const [updated] = await db
-    .update(emailChallenges)
-    .set({ inboundAt: currentTime(), verifiedAt: currentTime() })
-    .where(
-      and(
-        eq(emailChallenges.token, token),
-        eq(emailChallenges.purpose, 'send'),
-        isNull(emailChallenges.inboundAt),
-        gt(emailChallenges.expiresAt, sql`now()`),
-        sql`${mailboxIdentity(emailChallenges.address)} = ${mailboxIdentity(sql`${from}`)}`,
-      ),
-    )
-    .returning({ address: emailChallenges.address })
+  /**
+   * **The send half writes the register too, in the same transaction** (`#297`).
+   *
+   * `#289` did this for the inbox half and left this one to the `email-send`
+   * badge's verdict, which is the same gap one capability over: a citizen
+   * proving `send` for a *second* mailbox has already passed that badge, and
+   * `#292` refuses a passed rung permanently — so nothing would ever record what
+   * the Colony had just watched happen. Mail arriving from the address is the
+   * proof; the verdict is a consequence of it.
+   *
+   * `recordProvedAccount` adds capabilities rather than replacing them, so a
+   * later badge naming the same mailbox changes nothing and the `receive` this
+   * address may already hold survives.
+   */
+  const updated = await db.transaction(async (tx) => {
+    const [verified] = await tx
+      .update(emailChallenges)
+      .set({ inboundAt: currentTime(), verifiedAt: currentTime() })
+      .where(
+        and(
+          eq(emailChallenges.token, token),
+          eq(emailChallenges.purpose, 'send'),
+          isNull(emailChallenges.inboundAt),
+          gt(emailChallenges.expiresAt, sql`now()`),
+          sql`${mailboxIdentity(emailChallenges.address)} = ${mailboxIdentity(sql`${from}`)}`,
+        ),
+      )
+      .returning({ agentId: emailChallenges.agentId, address: emailChallenges.address })
+
+    if (verified === undefined) return undefined
+
+    await recordProvedAccount(tx, AgentIdSchema.parse(verified.agentId), {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: verified.address,
+      // What mail arriving from the address demonstrates, and only that.
+      // Receiving is the inbox half's to add and is deliberately not claimed.
+      capabilities: [AccountCapabilitySchema.parse('send')],
+      provedAt: currentTime(),
+    })
+
+    return verified
+  })
 
   if (updated !== undefined) {
     return { outcome: 'accepted', address: updated.address }

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
-import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
+import { AccountKindSchema, RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { emailChallenges } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -849,6 +849,41 @@ describe('the mailbox nodes', () => {
         address: 'citizen@example.org',
       })
       expect((await latestEmailSendChallenge(db, agentId))?.verifiedAt).not.toBeNull()
+    })
+
+    /**
+     * **The register learns `send` from the mail, not from the verdict**
+     * (`#297`).
+     *
+     * `#289` did this for the inbox half and left this one to the badge's
+     * verdict, which is the same gap one capability over: a citizen proving
+     * `send` for a *second* mailbox has already passed that badge, and `#292`
+     * refuses a passed rung permanently — so nothing would record what the
+     * Colony had just watched happen. A citizen read `proved: false,
+     * capabilities: []` for the address the Colony itself writes to, and that is
+     * how this was found.
+     */
+    it('records the send capability when the mail arrives, without waiting for a verdict', async () => {
+      await earnMailbox(agentId, 'citizen@example.org')
+      const badge = await openBadge(agentId)
+
+      await recordInboundMail(db, badge.token, 'citizen@example.org')
+
+      const [mailbox] = await listAccounts(db, agentId, AccountKindSchema.parse('mailbox'))
+      expect(mailbox).toMatchObject({ identifier: 'citizen@example.org', proved: true })
+      // Receiving came from the inbox half; sending is what this call proved.
+      // Neither implies the other, and both are on record.
+      expect([...(mailbox?.capabilities ?? [])].sort()).toEqual(['receive', 'send'])
+    })
+
+    it('records nothing when the mail is refused', async () => {
+      await earnMailbox(agentId, 'citizen@example.org')
+      const badge = await openBadge(agentId)
+
+      await recordInboundMail(db, badge.token, 'somewhere-else@example.org')
+
+      const [mailbox] = await listAccounts(db, agentId, AccountKindSchema.parse('mailbox'))
+      expect(mailbox?.capabilities).toEqual(['receive'])
     })
 
     /**

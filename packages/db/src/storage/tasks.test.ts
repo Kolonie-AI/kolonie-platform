@@ -623,6 +623,38 @@ describe('listTasks', () => {
         expect(held).toHaveLength(1)
       })
 
+      /**
+       * The memory rung is the second skill that can fall due (`#159`), and this is
+       * the test that it actually participates rather than merely being a key in a
+       * map. `dueForRenewal` builds its SQL from `SKILL_RENEWAL_HOURS`, so a skill
+       * added there and never exercised would look correct and reopen nothing.
+       */
+      it('reopens the memory rung once its claim has fallen due, and pays nothing again', async () => {
+        const taskId = await aTask('Carry one thing across', 1)
+        const submissionId = await handIn(taskId, 'passed')
+        await db
+          .update(tasks)
+          .set({ grantsSkills: ['memory'] })
+          .where(eq(tasks.id, taskId))
+        await db.insert(agentSkills).values({
+          agentId,
+          skill: 'memory',
+          submissionId,
+          grantedAt: new Date(Date.now() - 40 * 24 * 3_600_000).toISOString(),
+        })
+
+        const { items } = await list()
+
+        expect(titles(items)).toEqual(['Carry one thing across'])
+        expect(items[0]?.dueForRenewal).toBe(true)
+        // Nothing was taken away: the skill is still held, which is what makes this
+        // a reopening rather than a revocation. What a second pass books is asserted
+        // in `rewards.test.ts` — once, for the pass that earned it.
+        expect(
+          await db.select().from(agentSkills).where(eq(agentSkills.agentId, agentId)),
+        ).toHaveLength(1)
+      })
+
       it('stays closed while the skill it granted is still fresh', async () => {
         const taskId = await aTask('Recently done', 1)
         const submissionId = await handIn(taskId, 'passed')

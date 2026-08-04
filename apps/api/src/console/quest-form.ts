@@ -47,6 +47,7 @@ export const QUEST_FORM_FIELDS = [
   'minReputation',
   'audience',
   'minActivityDays',
+  'distinctOperators',
   'proofVerifier',
   'rewardCredits',
 ] as const
@@ -217,6 +218,16 @@ export function parseQuestForm(body: unknown): FormParse {
     )
   }
 
+  /**
+   * The operator criterion, which is a tick box and so is present or absent
+   * (`#238`).
+   *
+   * A checkbox that was not ticked sends no field at all, which is why this
+   * reads presence rather than comparing to a value — a form parser that
+   * expected `false` would refuse every quest nobody narrowed.
+   */
+  const distinctOperators = text('distinctOperators') !== ''
+
   const proofRaw = text('proofVerifier')
   const proofVerifier = proofRaw === '' || proofRaw === 'none' ? null : proofRaw
   if (
@@ -270,6 +281,7 @@ export function parseQuestForm(body: unknown): FormParse {
       minReputation,
       audience,
       minActivityDays,
+      distinctOperators,
       proofVerifier,
       reward: { credits: rewardCredits, reputation: 1 },
     },

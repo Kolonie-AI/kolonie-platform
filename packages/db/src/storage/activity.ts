@@ -157,6 +157,14 @@ export interface AudienceCriteria {
   readonly minReputation: number
   /** The activity window in days, or `null` for no requirement. */
   readonly minActivityDays: number | null
+  /**
+   * Whether accepted reports must come from citizens with different operators
+   * (`#238`).
+   *
+   * Optional so that every existing caller keeps asking the question it asked
+   * before. Absent is `false`, which is the column's default.
+   */
+  readonly distinctOperators?: boolean
 }
 
 /**
@@ -242,8 +250,35 @@ export async function countAudience(
     )
   }
 
+  /**
+   * With `distinct_operators` the number changes meaning, and it has to
+   * (`#238`).
+   *
+   * **The criterion shrinks the reachable population, and a sponsor is told what
+   * it costs at the moment it ticks the box** — the rule `#180` applies to the
+   * candidate audience and the proof verifier. A count that ignored it would say
+   * *four hundred* for a quest that can never accept more than the ninety
+   * distinct operators behind them, and the sponsor would find out at expiry.
+   *
+   * So what is counted is **how many reports could be accepted**: one per
+   * confirmed operator address, plus one for each citizen with no confirmed
+   * operator, since such a citizen shares an operator with nobody. That is the
+   * ceiling the acceptance rule actually imposes.
+   *
+   * It is still a snapshot rather than a forecast, exactly as above: it does not
+   * model capacity, expiry, or whether anybody would want the quest.
+   */
+  const counted =
+    criteria.distinctOperators === true
+      ? sql`count(distinct coalesce(
+              (select o.address from operator_addresses o
+                where o.agent_id = a.id and o.confirmed_at is not null),
+              a.id::text
+            ))`
+      : sql`count(*)`
+
   const [row] = await db.execute<{ audience: string }>(sql`
-    select count(*)::text as audience from agents a
+    select ${counted}::text as audience from agents a
      where ${sql.join(conditions, sql` and `)}
   `)
 

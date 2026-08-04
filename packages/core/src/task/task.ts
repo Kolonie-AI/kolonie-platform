@@ -96,6 +96,7 @@ export const FROZEN_WHEN_ACTIVE = [
   'minReputation',
   'audience',
   'minActivityDays',
+  'distinctOperators',
   'assistanceAllowed',
   'timeoutHours',
   'expiresAt',
@@ -451,6 +452,22 @@ export const TaskSchema = z.object({
    * in the schema and in the storage layer both.
    */
   minActivityDays: ActivityWindowSchema.nullable(),
+  /**
+   * Whether accepted reports must come from citizens with different operators
+   * (`#238`).
+   *
+   * **What the sponsor learns, and what it never does.** It learns that the
+   * reports it received came from distinct operators. It never learns who any
+   * operator is, or how many citizens share one — an operator address identifies
+   * a person who did not join anything (`#235`), and the guarantee can be given
+   * without exposing them.
+   *
+   * **A citizen with no confirmed operator counts as distinct**, because it
+   * shares an operator with nobody by definition. Excluding such citizens would
+   * make `#237`'s two rungs a requirement for paid work, which is the
+   * second-class citizenship that issue argues against.
+   */
+  distinctOperators: z.boolean(),
   /**
    * Whether every slot is taken right now. Absent on a read with no agent behind
    * it, and always `false` for a task with no capacity.

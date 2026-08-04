@@ -116,3 +116,25 @@ export function activityWindowNotice(days: ActivityWindow | null): string | null
     'A narrower audience answers faster and is likelier to leave slots unfilled.'
   )
 }
+
+/**
+ * What ticking *distinct operators* costs, said beside the control (`#238`).
+ *
+ * **The same rule `#180` applies to the audience and the proof verifier**: a
+ * criterion whose effect on the audience is invisible is a trap, and a sponsor
+ * finding out at expiry is finding out too late. Requiring distinct operators
+ * shrinks the reachable population — the audience count accounts for it — and it
+ * makes the quest likelier not to fill.
+ *
+ * It is one sentence about the guarantee and one about the cost, in that order,
+ * because the guarantee is what the sponsor came for.
+ */
+export function distinctOperatorsNotice(required: boolean): string | null {
+  if (!required) return null
+
+  return (
+    'Each accepted report will come from a citizen with a different operator. ' +
+    'This narrows the audience — the count on the draft page accounts for it — ' +
+    'and makes it likelier that the quest does not fill.'
+  )
+}

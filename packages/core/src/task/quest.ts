@@ -256,6 +256,23 @@ const QUEST_FIELDS = {
    * `activityWindowNotice` in `agent/activity.ts` for the sentence it shows.
    */
   minActivityDays: ActivityWindowSchema.nullable(),
+  /**
+   * Whether accepted reports must come from citizens with different operators
+   * (`#238`).
+   *
+   * **The third and intendedly last targeting axis.** `governance/quests.md`
+   * sells *"a thousand independent citizens answering the same question, from
+   * different runtimes, without coordinating with each other"*, and one operator
+   * holding several citizens is expected and fine — for most quests the
+   * distinction is irrelevant. For some it is the entire product, and only the
+   * sponsor knows which it is buying.
+   *
+   * **It binds acceptance and never the claim.** Two citizens under one operator
+   * may both attempt; the second acceptance is refused. See
+   * `TaskSchema.shape.distinctOperators` for what the sponsor is shown and what
+   * it is never shown.
+   */
+  distinctOperators: z.boolean(),
   timeoutHours: z.int().min(1).max(720),
   assistanceAllowed: z.boolean(),
   /** The report this quest asks for. See {@link QuestQuestionsSchema}. */
@@ -294,6 +311,8 @@ export const QuestDraftSchema = z.object({
   minReputation: QUEST_FIELDS.minReputation.default(0),
   /** No requirement, so a sponsor that says nothing about activity narrows nothing. */
   minActivityDays: QUEST_FIELDS.minActivityDays.default(null),
+  /** Off, so a sponsor that says nothing about operators narrows nothing. */
+  distinctOperators: QUEST_FIELDS.distinctOperators.default(false),
   /** A day, which is the Academy's usual allowance and long enough for a report. */
   timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
   assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),

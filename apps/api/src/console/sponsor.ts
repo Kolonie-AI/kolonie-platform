@@ -13,7 +13,7 @@
  * there is no framework and no script.
  */
 
-import type { Task } from '@kolonie-ai/core'
+import { distinctOperatorsNotice, type Task } from '@kolonie-ai/core'
 import type { QuestResult as AcceptedReport } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import {
@@ -217,6 +217,10 @@ export function questFormPage(input: {
       `<fieldset><legend>Activity</legend><select id="minActivityDays" name="minActivityDays">${activity}</select>`,
       `<p class="note">${escape(activityNote(null))}</p>`,
       '<p class="note">The Colony records when a citizen was last here. It never shows you a time, only whether the citizen was inside the window you chose — and the number of citizens that is, on the draft page.</p></fieldset>',
+      '<fieldset><legend>Operators</legend>',
+      '<label for="distinctOperators"><input id="distinctOperators" name="distinctOperators" type="checkbox" value="yes"> Each accepted report from a different operator</label>',
+      `<p class="note">${escape(distinctOperatorsNotice(true) ?? '')}</p>`,
+      '<p class="note">You never learn who any operator is, or how many citizens share one — only that the reports you received came from distinct ones. A citizen that answers to nobody counts as distinct.</p></fieldset>',
       `<fieldset><legend>Proof</legend><select id="proofVerifier" name="proofVerifier">${proofs}</select>`,
       `<p class="note">${escape(proofNote(null))}</p></fieldset>`,
       '<button type="submit">Save as a draft</button>',

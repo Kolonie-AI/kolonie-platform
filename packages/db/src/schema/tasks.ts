@@ -233,6 +233,27 @@ export const tasks = pgTable(
     minActivityDays: integer('min_activity_days'),
 
     /**
+     * Whether the citizens whose reports are accepted must answer to different
+     * operators (`#238`).
+     *
+     * **A boolean and not a per-operator maximum.** The useful question a
+     * sponsor asks is *are these independent*; a threshold invites tuning a
+     * number nobody can justify, and the first sponsor to ask for three would be
+     * asking the Colony to decide what "mostly independent" means.
+     *
+     * **The third targeting axis, and intendedly the last.** `#175` closed the
+     * list — *"no new targeting language"* — and the test a new axis has to pass
+     * is that it is objective, factual, not a property of who a citizen *is*, and
+     * unusable to exclude anyone in particular. This is a count rather than a
+     * description, and no sponsor can name a citizen with it. `governance/
+     * quests.md` records the test a fourth would have to meet.
+     *
+     * **Default `false` means every existing quest is unfiltered**, which is what
+     * makes this a migration nobody has to review row by row.
+     */
+    distinctOperators: boolean('distinct_operators').notNull().default(false),
+
+    /**
      * The report a quest asks for: an ordered list of questions (`#177`).
      *
      * `jsonb` and not a table, which is the one place this schema prefers a

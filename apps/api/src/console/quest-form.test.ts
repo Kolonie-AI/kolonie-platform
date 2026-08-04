@@ -63,6 +63,11 @@ describe('the quest form', () => {
       // and the rule it does not weaken is that there is still no free-text
       // criterion and no per-citizen exclusion.
       'minActivityDays',
+      // Added by `#238`, the third and intendedly last targeting axis. Same
+      // test as the line above: operator distinctness is a count rather than a
+      // description, it is objective and factual, and no sponsor can name a
+      // citizen with it. A fourth needs an argument at least this good.
+      'distinctOperators',
       'proofVerifier',
       'rewardCredits',
     ])

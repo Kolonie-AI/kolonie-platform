@@ -226,6 +226,8 @@ describe('the quest write path', () => {
     minReputation: 0,
     // No activity window, which is what a sponsor that says nothing gets (#227).
     minActivityDays: null,
+    // And no operator criterion, for the same reason (#238).
+    distinctOperators: false,
     timeoutHours: 24,
     assistanceAllowed: true,
     ...overrides,

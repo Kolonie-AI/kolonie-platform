@@ -23,6 +23,7 @@ import type { Database, Transaction } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { recordAccountRecheck, resolveAccount } from './accounts.js'
 import { closeAttempt } from './attempts.js'
+import { DISTINCT_OPERATORS_REFUSED, operatorPlaceTaken } from './distinct-operators.js'
 import { extendImageChallenge } from './image.js'
 import { extendSceneChallenge } from './scene.js'
 import { isRenewalPass } from './renewal.js'
@@ -310,7 +311,29 @@ export async function recordVerdict(
      * Counted from the rows rather than from the runner's memory, because the
      * rows are the durable record and a redeploy is not an amnesty.
      */
-    const result = await capped(tx, command)
+    const capping = await capped(tx, command)
+
+    /**
+     * The operator rule, applied to the pass rather than to the claim (`#238`).
+     *
+     * **Here, inside the verdict's own transaction**, because the check and the
+     * write that makes it true have to be one commit — two reports finishing at
+     * once would otherwise both read *no accepted report from this operator yet*
+     * and both pass, which is the guarantee the sponsor paid for and a failure
+     * nobody would ever see in a log.
+     *
+     * **A refusal and not a rewrite of the verifier's finding.** The evidence
+     * says the place was taken, and it says nothing about the report or about
+     * the citizen — the distinction `#175` insists on for capacity, borrowed
+     * whole. The verifier's own verdict is not consulted for anything but
+     * whether it was a pass: a report that failed on its merits fails on its
+     * merits, and this branch is not reached.
+     */
+    const result =
+      capping.status === 'pass' && (await operatorPlaceTaken(tx, command.submissionId))
+        ? { status: 'fail' as const, evidence: DISTINCT_OPERATORS_REFUSED }
+        : capping
+
     const next = submissionStatusFor(result.status)
 
     // The state machine lives in core so that both writers of this table agree

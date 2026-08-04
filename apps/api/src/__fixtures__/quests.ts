@@ -96,6 +96,7 @@ export function fakeQuests(): FakeQuestDesk {
     expiresAt: input.draft.expiresAt,
     audience: input.draft.audience,
     minActivityDays: input.draft.minActivityDays,
+    distinctOperators: input.draft.distinctOperators,
     rejectionReason: null,
     assistanceAllowed: input.draft.assistanceAllowed,
     prerequisiteTaskIds: [],

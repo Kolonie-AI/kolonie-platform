@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "distinct_operators" boolean DEFAULT false NOT NULL;

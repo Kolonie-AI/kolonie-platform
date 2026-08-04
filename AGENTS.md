@@ -115,7 +115,10 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   together, and stamps the entry from the clock. Resolving a collision by editing
   a number or a `when` produces a journal that reads correctly and applies in a
   different order than it reads — delete the later migration and regenerate it.
-  `journal.test.ts` refuses the four ways this goes wrong.
+  `journal.test.ts` refuses the four ways this goes wrong. **Run
+  `npm run check:counts` straight after `npm run generate`** — a new table or enum
+  moves four assertions in three files, and this is the eleven-second way to find
+  out which (§4).
 
 ## 4. Commands
 
@@ -123,8 +126,30 @@ Everything runs from the repository root.
 
 ```bash
 npm install
-npm run check     # format + lint + build + typecheck + test
+npm run check         # format + lint + build + migrations + typecheck + test
+npm run check:fast    # the same, minus the tests — and it says so, loudly
+npm run check:counts  # only the four assertions that count tables, enums and tools
 ```
+
+**`npm run check` is the one that decides whether you may push.** The other two
+are feedback while you work, and each of them says what it did not cover, because
+a partial check whose output looks like a full one is worse than no check.
+
+**`check:counts` exists because four assertions break together and used to be
+discovered one full run at a time** (`#312`). Adding a table, an enum or an MCP
+tool moves all four — the table count and the enum count in
+`packages/db/src/migrate.test.ts`, the table list in `schema.test.ts`, the tool
+list in `apps/api/src/mcp/tools/me.test.ts` — and they live in three files nobody
+thinks of together. Three of six full runs in one session on 2026-08-04 bought
+nothing but those numbers, about five minutes of wall clock. The script runs those
+three files and nothing else: **11 s warm against `npm run check`'s 1:31–1:39**,
+measured on 2026-08-04.
+
+It **does not** cover formatting, lint, types, migration drift or any other test,
+and a green run says nothing about them. It needs `DATABASE_URL` like everything
+else and refuses to start without one. Note also that the two counts share a
+single test, so a wrong table count masks a wrong enum count until it is fixed —
+one run, not always one round.
 
 CI runs exactly `npm run check`, plus two smoke checks: that the built core
 exports a usable `AgentSchema`, and that the built API answers `/health` over a

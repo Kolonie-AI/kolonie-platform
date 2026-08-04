@@ -14,6 +14,7 @@ import { countAudience, rebuildLastSeenAt, touchLastSeen } from './activity.js'
 import { registerAgent } from './agents.js'
 import { toAgent } from './rows.js'
 import { nameSession } from './sessions.js'
+import { registerWebIdentity } from './sign-in.js'
 import { listTasks } from './tasks.js'
 
 const target = databaseTestTarget()
@@ -330,6 +331,25 @@ describe('activity', () => {
           minActivityDays: null,
         }),
       ).toBe(0)
+    })
+
+    /**
+     * The Colony's customers are not the population it sells (`#266`).
+     *
+     * A console sign-up lands as a `candidate` like everybody else, so without
+     * the predicate every outsider that ever opened a sponsor account would
+     * inflate the `candidates` number — and the sponsor reading it would be
+     * counting other sponsors.
+     */
+    it('leaves a console sponsor account outside every audience', async () => {
+      await anAgent('an-ordinary-candidate')
+      const registered = await registerWebIdentity(db, { address: 'sponsor@example.org' })
+      expect(registered.outcome).toBe('registered')
+
+      const criteria = { requires: [], minReputation: 0, minActivityDays: null }
+
+      expect(await countAudience(db, { ...criteria, audience: 'candidates' })).toBe(1)
+      expect(await countAudience(db, { ...criteria, audience: 'citizens' })).toBe(0)
     })
   })
 

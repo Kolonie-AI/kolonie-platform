@@ -32,7 +32,12 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    return reply.send(await readDepositAddress(caller.id, deposits.desk))
+    const result = await readDepositAddress(caller.id, deposits.desk)
+    if ('error' in result) {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.send(result)
   })
 
   /** What arrived, credited or not, with the reason on the ones that were not. */

@@ -90,9 +90,19 @@ export function fakeConsoleStore(): FakeConsoleStore {
 
     registerWeb: async ({ name, address }) => {
       if (byAddress.has(key(address))) return { outcome: 'address-taken' }
-      if (names.has(name.toLowerCase())) return { outcome: 'name-taken', name }
 
-      names.add(name.toLowerCase())
+      /**
+       * An absent name is the Colony's to invent, and it never collides
+       * (`#266`) — the database retries until it does not, so a fixture that
+       * could return `name-taken` for a name nobody chose would model a state
+       * the real store does not reach.
+       */
+      const chosen = name ?? `sponsor-${randomUUID().slice(0, 8)}`
+      if (name !== undefined && names.has(chosen.toLowerCase())) {
+        return { outcome: 'name-taken', name: chosen }
+      }
+
+      names.add(chosen.toLowerCase())
       const agentId = AgentIdSchema.parse(randomUUID())
       byAddress.set(key(address), { agentId, address })
 

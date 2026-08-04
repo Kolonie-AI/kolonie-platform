@@ -8,7 +8,14 @@ import {
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate } from '../authentication.js'
-import { CHECK_YOUR_MAIL, RequestLinkSchema, redeemSignIn, requestSignIn } from '../console.js'
+import {
+  CHECK_YOUR_MAIL,
+  RequestLinkSchema,
+  SignUpSchema,
+  redeemSignIn,
+  requestSignIn,
+  signUp,
+} from '../console.js'
 import { CONSOLE_HEADERS, errorPage, signInPage } from '../console/html.js'
 import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
 import {
@@ -164,6 +171,61 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       clientIp(request.headers, request.socket.remoteAddress ?? ''),
       deps.console,
     )
+
+    if (result.outcome === 'rejected') {
+      return wantsHtml(request)
+        ? html(reply.status(ERROR_STATUS[result.error.code]), signInPage())
+        : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return wantsHtml(request)
+      ? html(reply.status(200), signInPage({ sent: true }))
+      : reply.status(202).send(CHECK_YOUR_MAIL)
+  })
+
+  /**
+   * Open an account, from an address alone (`#266`).
+   *
+   * **The same `signUp` the JSON route calls**, for the reason the sign-in route
+   * above gives: a second implementation of the front door is a second place its
+   * brake could be missing, and this one is a step *earlier* on the surface those
+   * two limiters protect.
+   *
+   * **It answers exactly as `/sign-in` does, and that is the whole shape of it.**
+   * A taken address renders *check your mail* and creates nothing, a fresh one
+   * renders *check your mail* and creates an identity — so a stranger cannot use
+   * this form to learn whether an address is registered here. The `name-taken`
+   * branch is unreachable from a browser, because the browser sends no name and
+   * the Colony generates one it retries on collision; it is answered all the same,
+   * because the route is the same route to an agent posting JSON.
+   */
+  app.post('/sign-up', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const parsed = SignUpSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return wantsHtml(request)
+        ? html(reply.status(ERROR_STATUS.validation_failed), signInPage())
+        : reply.status(ERROR_STATUS.validation_failed).send({
+            code: 'validation_failed',
+            message: 'A sign-up carries one field, `email`, and may carry a `name`.',
+          })
+    }
+
+    const result = await signUp(
+      parsed.data,
+      clientIp(request.headers, request.socket.remoteAddress ?? ''),
+      deps.console,
+    )
+
+    if (result.outcome === 'name-taken') {
+      return wantsHtml(request)
+        ? html(reply.status(ERROR_STATUS.conflict), signInPage())
+        : reply.status(ERROR_STATUS.conflict).send({
+            code: 'conflict',
+            message: `The name "${result.name}" is taken.`,
+          })
+    }
 
     if (result.outcome === 'rejected') {
       return wantsHtml(request)

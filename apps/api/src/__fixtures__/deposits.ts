@@ -20,17 +20,28 @@ import type { DepositDependencies, DepositDesk } from '../deposits.js'
  */
 export function fakeDeposits(): DepositDesk & {
   readonly seen: () => readonly Deposit[]
+  /** Make this identity one whose sign-up address nobody has confirmed (`#266`). */
+  readonly leaveUnconfirmed: (agentId: AgentId) => void
 } {
   const addresses = new Map<string, string>()
   const recorded = new Map<string, Deposit>()
+  const unconfirmed = new Set<string>()
 
   return {
     seen: () => [...recorded.values()],
 
+    leaveUnconfirmed: (agentId) => {
+      unconfirmed.add(agentId)
+    },
+
     async address(agentId: AgentId) {
+      // `#266`: no address at all before the link is followed, which is where
+      // the on-chain half of *confirmed before funded* is enforced.
+      if (unconfirmed.has(agentId)) return { outcome: 'address-unconfirmed' as const }
+
       const held = addresses.get(agentId) ?? `address-${randomUUID().slice(0, 8)}`
       addresses.set(agentId, held)
-      return { address: held }
+      return { outcome: 'issued' as const, address: held }
     },
 
     async history(agentId: AgentId) {

@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { LedgerTransactionIdSchema, type AgentId, type FundingSource } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agents, authorityEvents, ledgerEntries } from '../schema/index.js'
+import { sponsorAddressUnconfirmedSql } from './console-identity.js'
 
 /**
  * Whose money it was, recorded at the moment of the credit (`#220`).
@@ -20,6 +21,12 @@ import { agents, authorityEvents, ledgerEntries } from '../schema/index.js'
 export const FUNDING_SOURCE_REQUIRED =
   'a balance credit must record whose money it was: bootstrap, external, or unclassified'
 
+/** Whether the money went in, or why it did not. */
+export type CreditOutcome =
+  | { readonly outcome: 'credited' }
+  /** The account was opened from the console and nobody has followed the link yet (`#266`). */
+  | { readonly outcome: 'address-unconfirmed' }
+
 /**
  * Credit a sponsor's balance by hand, which is the only way in that exists today.
  *
@@ -30,6 +37,13 @@ export const FUNDING_SOURCE_REQUIRED =
  *
  * Audited, because it is the single most abusable action in the system while
  * there is no payment rail behind it, and it should look like it.
+ *
+ * **It refuses an account whose address is not confirmed yet** (`#266`). Since
+ * the console opens an account from an address alone, the address on a fresh
+ * sponsor account is a string somebody typed and may be a stranger's. A refusal
+ * rather than a throw, because this is a fact about the account and not a fault:
+ * a steward can read it, and the remedy — follow the link — belongs to the
+ * person who holds the mailbox.
  */
 export async function creditBalance(
   tx: Transaction,
@@ -41,12 +55,17 @@ export async function creditBalance(
     readonly reference: string
     readonly memo?: string | null
   },
-): Promise<void> {
+): Promise<CreditOutcome> {
   if (command.amount <= 0) {
     throw new Error(
       `a balance credit moves money in, so it must be positive: got ${command.amount}`,
     )
   }
+
+  const [unconfirmed] = await tx.execute<{ unconfirmed: boolean }>(
+    sql`select ${sponsorAddressUnconfirmedSql(command.agentId)} as unconfirmed`,
+  )
+  if (unconfirmed?.unconfirmed === true) return { outcome: 'address-unconfirmed' }
 
   const transactionId = LedgerTransactionIdSchema.parse(crypto.randomUUID())
   const shared = {
@@ -68,6 +87,8 @@ export async function creditBalance(
     },
     { ...shared, accountKind: 'agent' as const, agentId: command.agentId, amount: command.amount },
   ])
+
+  return { outcome: 'credited' }
 }
 
 /**

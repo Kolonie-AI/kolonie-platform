@@ -48,6 +48,7 @@ let app: FastifyInstance
 let store: FakeStore
 let desk: ReturnType<typeof fakeDeposits>
 let apiKey: string
+let agentId: string
 
 /**
  * `null` and not `undefined` for *no secret*: an explicit `undefined` argument
@@ -100,7 +101,9 @@ const build = (webhookSecret: string | null = SECRET, watcher?: DepositWatcher) 
 beforeEach(async () => {
   app = build()
   await app.ready()
-  apiKey = String(store.issue({}).apiKey)
+  const issued = store.issue({})
+  apiKey = String(issued.apiKey)
+  agentId = String(issued.agent.id)
 })
 
 afterEach(async () => {
@@ -152,6 +155,23 @@ describe('POST /v1/deposits/address', () => {
     const response = await app.inject({ method: 'POST', url: '/v1/deposits/address' })
 
     expect(response.statusCode).toBe(401)
+  })
+
+  /**
+   * `#266`: an account opened from the console gets no funding channel until
+   * somebody has read the mail sent to its address. This is the on-chain half —
+   * no address means no transfer can arrive, which is the only point at which
+   * refusing costs nothing.
+   */
+  it('hands out no address before the sign-up address is confirmed', async () => {
+    desk.leaveUnconfirmed(agentId as never)
+
+    const response = await askForAddress()
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().message).toContain('confirmed')
+    // Authenticated and refused: this is a fact about the account, not the key.
+    expect(response.json().code).toBe('conflict')
   })
 })
 

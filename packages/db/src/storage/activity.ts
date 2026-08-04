@@ -2,6 +2,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { LAST_SEEN_TOUCH_MINUTES, type AgentId } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agents } from '../schema/index.js'
+import { arrivedAsSponsorSql } from './console-identity.js'
 import { currentSkillsHeldBy } from './currency.js'
 import { currentSessionIdSql } from './sessions.js'
 
@@ -195,6 +196,20 @@ export async function countAudience(
     criteria.audience === 'citizens'
       ? sql`a.status = 'citizen'`
       : sql`a.status in ('candidate', 'citizen')`,
+    /**
+     * A sponsor account is not a population a sponsor can buy (`#266`).
+     *
+     * An identity that arrived through the console's sign-up form starts as a
+     * `candidate` like everybody else, which would put every outsider who ever
+     * opened an account into the `candidates` audience — a number made larger by
+     * the Colony's own customers. Suspended and banned citizens are excluded a
+     * few lines above for the same reason, and this is the third such
+     * population: present in the table, never reachable by a quest.
+     *
+     * It lifts by itself the moment the account climbs anything. See
+     * {@link arrivedAsSponsorSql}.
+     */
+    sql`not ${arrivedAsSponsorSql(sql`a.id`)}`,
   ]
 
   if (criteria.requires.length > 0) {

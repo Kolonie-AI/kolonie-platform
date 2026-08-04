@@ -4,6 +4,7 @@ import type { AgentId, TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, agentSkills, submissions, taskAttempts, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
+import { registerWebIdentity } from './sign-in.js'
 import { createSubmission } from './submissions.js'
 import { listTasks } from './tasks.js'
 import { seedAcademyTasks } from '../academy-tasks.js'
@@ -360,6 +361,24 @@ describe('a task for a thousand citizens', () => {
       const taskId = await aQuest({ audience: 'citizens', rewardCredits: 0 })
 
       expect((await submit(taskId, await anAgent('established'))).outcome).toBe('accepted')
+    })
+
+    /**
+     * `candidates` admits everybody, and after the console's sign-up form that
+     * would include every outsider that ever opened a sponsor account (`#266`).
+     *
+     * **The gate and the audience count read one predicate**, so this refusal is
+     * the same fact `countAudience` reports — a sponsor cannot be quoted a
+     * population the gate would then admit, or the reverse.
+     */
+    it('refuses a console sponsor account even on a quest open to candidates', async () => {
+      const taskId = await aQuest({ audience: 'candidates' })
+      const registered = await registerWebIdentity(db, { address: 'sponsor@example.org' })
+      if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+
+      const result = await submit(taskId, registered.identity.agentId)
+
+      expect(result.outcome).toBe('sponsor-account')
     })
 
     /**

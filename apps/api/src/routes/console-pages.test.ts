@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ERROR_STATUS } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
@@ -55,14 +56,16 @@ let quests: FakeQuestDesk
 let apiKey: string
 let session: string
 let agentId: string
+let console_: ReturnType<typeof fakeConsole>
 
 beforeEach(async () => {
   store = fakeStore()
   quests = fakeQuests()
+  console_ = { ...fakeConsole(), consoleUrl: CONSOLE_URL }
   app = buildApp({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
-    console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
+    console: console_,
     email: fakeEmail(),
     registry: fakeRegistry(),
     store,
@@ -275,6 +278,84 @@ describe('signing in through the console', () => {
 
     expect(unknown.statusCode).toBe(200)
     expect(unknown.body).toContain('Check your mail')
+  })
+})
+
+/**
+ * The door `#180` left unbuilt, and the criterion it carried into `#266`: an
+ * address alone opens an account, and the page says an agent may hold one.
+ */
+describe('opening a sponsor account', () => {
+  const signUp = async (payload: string) =>
+    await app.inject({
+      method: 'POST',
+      url: '/sign-up',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload,
+    })
+
+  it('takes an address and nothing else', async () => {
+    const response = await signUp('email=stranger%40example.org')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('Check your mail')
+    expect(console_.store.tokens()).toHaveLength(1)
+    expect(console_.mailer.sent()[0]?.to).toBe('stranger@example.org')
+  })
+
+  /**
+   * **The form must not become an oracle.** A taken address creates nothing and
+   * mails nothing, and a stranger cannot tell the two cases apart — which is
+   * `signUp`'s own rule, asserted at the surface a stranger actually reaches.
+   */
+  it('answers a taken address exactly as it answers a fresh one', async () => {
+    console_.store.hold('known@example.org')
+
+    const response = await signUp('email=known%40example.org')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('Check your mail')
+    expect(console_.mailer.sent()).toHaveLength(0)
+  })
+
+  it('answers an agent with JSON on the same route', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/sign-up',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      payload: { email: 'an-agent@example.org' },
+    })
+
+    expect(response.statusCode).toBe(202)
+  })
+
+  it('refuses a body with no address', async () => {
+    const response = await signUp('name=just-a-name')
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+  })
+
+  it('states on the page that an agent may hold a sponsor account, and how it signs in', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/',
+      headers: { host: CONSOLE_HOST, accept: 'text/html' },
+    })
+
+    expect(response.body).toContain('action="/sign-up"')
+    expect(response.body).toContain('An agent may hold a sponsor account')
+    expect(response.body).toContain('API key')
+    // The one field, and no second one asking for a name.
+    expect(response.body).toContain('id="sign-up-email"')
+    expect(response.body).not.toContain('id="sign-up-name"')
   })
 })
 

@@ -66,35 +66,44 @@ describe('a USDC deposit', () => {
     return Number(row?.total ?? 0)
   }
 
+  /**
+   * The address, insisting it was issued.
+   *
+   * Every sponsor in this file registers over MCP, so `address-unconfirmed`
+   * (`#266`) is unreachable here — narrowing it once keeps that fact in one
+   * place instead of at thirteen call sites, and the `expect` is what makes it a
+   * claim rather than a cast.
+   */
+  const addressFor = async (agentId: AgentId): Promise<string> => {
+    const result = await depositAddressFor(db, { agentId, sealingKey: SEALING_KEY })
+    expect(result.outcome).toBe('issued')
+    if (result.outcome !== 'issued') throw new Error('unreachable')
+    return result.address
+  }
+
   describe('the address', () => {
     it('is generated once and handed back on every ask', async () => {
       const sponsor = await anAgent('sponsor')
 
-      const first = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
-      const second = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
+      const first = await addressFor(sponsor)
+      const second = await addressFor(sponsor)
 
-      expect(first.address).toBe(second.address)
-      expect(await watchedDepositAddresses(db)).toEqual([first.address])
+      expect(first).toBe(second)
+      expect(await watchedDepositAddresses(db)).toEqual([first])
     })
 
     it('is a different address for a different identity', async () => {
-      const first = await depositAddressFor(db, {
-        agentId: await anAgent('first'),
-        sealingKey: SEALING_KEY,
-      })
-      const second = await depositAddressFor(db, {
-        agentId: await anAgent('second'),
-        sealingKey: SEALING_KEY,
-      })
+      const first = await addressFor(await anAgent('first'))
+      const second = await addressFor(await anAgent('second'))
 
-      expect(first.address).not.toBe(second.address)
+      expect(first).not.toBe(second)
     })
 
     it('never stores the secret in the clear', async () => {
       const sponsor = await anAgent('sponsor')
       const keypair = generateDepositKeypair()
 
-      await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
+      await addressFor(sponsor)
       const rows = await db.execute<{ secret_sealed: string }>(
         sql`select secret_sealed from deposit_addresses`,
       )
@@ -116,7 +125,7 @@ describe('a USDC deposit', () => {
   describe('crediting', () => {
     it('credits whole cents and records the remainder', async () => {
       const sponsor = await anAgent('sponsor')
-      const { address } = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
+      const address = await addressFor(sponsor)
 
       // 5.000005 USDC: five hundred credits and five base units left over.
       const outcome = await recordDeposit(db, aTransfer({ address, baseUnits: 5_000_005 }))
@@ -132,7 +141,7 @@ describe('a USDC deposit', () => {
 
     it('records the origin of the money, because nothing can reconstruct it later', async () => {
       const sponsor = await anAgent('sponsor')
-      const { address } = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
+      const address = await addressFor(sponsor)
 
       await recordDeposit(db, aTransfer({ address }))
 
@@ -147,7 +156,7 @@ describe('a USDC deposit', () => {
 
     it('credits one transfer once, however many times it is delivered', async () => {
       const sponsor = await anAgent('sponsor')
-      const { address } = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
+      const address = await addressFor(sponsor)
       const transfer = aTransfer({ address })
 
       const first = await recordDeposit(db, transfer)
@@ -162,7 +171,7 @@ describe('a USDC deposit', () => {
 
     it('writes nothing at all for a transfer that is not finalized', async () => {
       const sponsor = await anAgent('sponsor')
-      const { address } = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
+      const address = await addressFor(sponsor)
 
       const outcome = await recordDeposit(db, aTransfer({ address, commitment: 'confirmed' }))
 
@@ -177,7 +186,7 @@ describe('a USDC deposit', () => {
       ['less than a cent', { baseUnits: 9_999 }, 'below-one-cent'],
     ])('records %s and credits nothing', async (_name, overrides, rejection) => {
       const sponsor = await anAgent('sponsor')
-      const { address } = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
+      const address = await addressFor(sponsor)
 
       const outcome = await recordDeposit(db, aTransfer({ address, ...overrides }))
 
@@ -203,7 +212,7 @@ describe('a USDC deposit', () => {
 
     it('keeps the deposit row and the credit in one transaction', async () => {
       const sponsor = await anAgent('sponsor')
-      const { address } = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
+      const address = await addressFor(sponsor)
 
       /**
        * The booking is forced to fail by pre-writing the credit this deposit
@@ -242,11 +251,11 @@ describe('a USDC deposit', () => {
     it('lists this sponsor’s arrivals and nobody else’s', async () => {
       const mine = await anAgent('mine')
       const theirs = await anAgent('theirs')
-      const forMe = await depositAddressFor(db, { agentId: mine, sealingKey: SEALING_KEY })
-      const forThem = await depositAddressFor(db, { agentId: theirs, sealingKey: SEALING_KEY })
+      const forMe = await addressFor(mine)
+      const forThem = await addressFor(theirs)
 
-      await recordDeposit(db, aTransfer({ address: forMe.address }))
-      await recordDeposit(db, aTransfer({ address: forThem.address }))
+      await recordDeposit(db, aTransfer({ address: forMe }))
+      await recordDeposit(db, aTransfer({ address: forThem }))
 
       expect(await depositHistory(db, mine)).toHaveLength(1)
       expect(await depositHistory(db, theirs)).toHaveLength(1)

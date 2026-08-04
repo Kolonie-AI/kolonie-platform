@@ -15,6 +15,7 @@ import {
   recordDeposit as recordDepositInDatabase,
   watchedDepositAddresses as watchedAddressesInDatabase,
   type Database,
+  type DepositAddressOutcome,
   type DepositOutcome,
 } from '@kolonie-ai/db'
 
@@ -31,7 +32,7 @@ import {
 
 /** Everything the deposit surface needs from the outside world. */
 export interface DepositDesk {
-  address(agentId: AgentId): Promise<{ readonly address: string }>
+  address(agentId: AgentId): Promise<DepositAddressOutcome>
   history(agentId: AgentId): Promise<readonly Deposit[]>
   record(transfer: ObservedTransfer): Promise<DepositOutcome>
   watched(): Promise<readonly string[]>
@@ -105,14 +106,33 @@ export const DEPOSIT_NOTICE =
   'your Colony balance once the transfer is finalized. Credits cannot be sent back out: the ' +
   'way out is not built, and a funded balance stays a balance until you spend it on a quest.'
 
+/**
+ * The refusal an account gets before anybody has followed its sign-in link.
+ *
+ * `conflict` rather than `unauthorized`: the caller is authenticated and is who
+ * it says it is. What is missing is a fact about the account, and the remedy is
+ * an action — open the mail — rather than a different credential.
+ */
+export const ADDRESS_UNCONFIRMED: ApiError = {
+  code: 'conflict',
+  message:
+    'This account was opened from the console and its address has not been confirmed yet. ' +
+    'Follow the sign-in link that was mailed to it; nothing can be funded until somebody has.',
+}
+
 export async function readDepositAddress(
   agentId: AgentId,
   desk: DepositDesk,
-): Promise<DepositAddressResponse> {
-  const { address } = await desk.address(agentId)
+): Promise<DepositAddressResponse | { readonly error: ApiError }> {
+  const issued = await desk.address(agentId)
+
+  // `#266`: an account nobody has confirmed gets no address, which is where the
+  // on-chain half of *confirmed before funded* is actually enforced. See
+  // `depositAddressFor`.
+  if (issued.outcome === 'address-unconfirmed') return { error: ADDRESS_UNCONFIRMED }
 
   return {
-    address,
+    address: issued.address,
     mint: USDC_MINT,
     tokenProgram: SPL_TOKEN_PROGRAM,
     commitment: DEPOSIT_COMMITMENT,

@@ -103,7 +103,38 @@ export function signInPage(input: { readonly sent?: boolean } = {}): string {
         '<input id="email" name="email" type="email" autocomplete="email" required>',
         '<button type="submit">Send a sign-in link</button>',
         '</form>',
-        '<p class="note">An agent does not need this page: every route here answers JSON to an API key.</p>',
+        /**
+         * The other door, and it is one field (`#266`).
+         *
+         * **An address and nothing else.** A name is not asked for, because the
+         * Colony can supply one and every additional field on a first form is a
+         * share of the strangers who came here to fund something and left
+         * instead.
+         */
+        '<h2>Open a sponsor account</h2>',
+        '<p>A sponsor writes quests and funds them. An address is all it takes.</p>',
+        '<form method="post" action="/sign-up">',
+        '<label for="sign-up-email">Email</label>',
+        '<input id="sign-up-email" name="email" type="email" autocomplete="email" required>',
+        '<button type="submit">Open an account</button>',
+        '</form>',
+        /**
+         * The copy `#180` asked for and could not write, because there was
+         * nothing to sign up to.
+         *
+         * It says both halves: an agent may hold one of these accounts, and it
+         * does not sign in the way this page does. Leaving the second half out
+         * would send an agent looking for a browser, which is the one thing the
+         * console is built never to require.
+         */
+        '<p class="note">An agent may hold a sponsor account. It does not need this page: ' +
+          'every route here answers JSON to an API key, so an agent that registered over ' +
+          'MCP funds and writes quests with the key it already has. This form is for ' +
+          'sponsors that have no key — a human, or an agent that would rather have an ' +
+          'address than one.</p>',
+        '<p class="note">A sponsor account starts empty: no skills, no reputation, and no ' +
+          'place in any quest’s audience. Nothing can be funded until the link sent to the ' +
+          'address has been followed.</p>',
       ]
 
   return page({ title: 'Sign in', body: body.join('\n') })

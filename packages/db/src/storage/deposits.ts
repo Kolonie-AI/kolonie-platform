@@ -12,6 +12,7 @@ import {
 import type { Database } from '../client.js'
 import { sealVaultValue } from '../vault-crypto.js'
 import { depositAddresses, deposits, ledgerEntries } from '../schema/index.js'
+import { sponsorAddressUnconfirmedSql } from './console-identity.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -55,6 +56,12 @@ export function generateDepositKeypair(): DepositKeypair {
   }
 }
 
+/** A deposit address, or the reason there is none. */
+export type DepositAddressOutcome =
+  | { readonly outcome: 'issued'; readonly address: string }
+  /** Opened from the console, and nobody has followed the sign-in link yet (`#266`). */
+  | { readonly outcome: 'address-unconfirmed' }
+
 /**
  * This identity's deposit address, generated on first use.
  *
@@ -63,6 +70,19 @@ export function generateDepositKeypair(): DepositKeypair {
  * A sponsor that sent to an address the Colony had forgotten would be a
  * deposit nobody could attribute, which is the failure the per-sponsor keypair
  * exists to remove.
+ *
+ * ## An unconfirmed console account gets no address, and this is where funding
+ * is actually stopped
+ *
+ * `#266` requires the sign-up address to be confirmed before anything can be
+ * funded, and there are two doors: a steward's hand credit, which
+ * {@link creditBalance} refuses, and a transfer on chain, which this one closes.
+ *
+ * **It is closed here rather than at the credit**, because a transfer that has
+ * already settled is money the Colony holds the key to, and refusing to credit
+ * it would strand a real payment in a real address. An account that never
+ * received an address can never be in that position — the refusal is free
+ * exactly once, and this is the moment.
  */
 export async function depositAddressFor(
   db: Database,
@@ -78,14 +98,22 @@ export async function depositAddressFor(
      */
     readonly sealingKey: string
   },
-): Promise<{ readonly address: string }> {
+): Promise<DepositAddressOutcome> {
   const [existing] = await db
     .select({ address: depositAddresses.address })
     .from(depositAddresses)
     .where(eq(depositAddresses.agentId, command.agentId))
     .limit(1)
 
-  if (existing !== undefined) return { address: existing.address }
+  // An address already handed out stays handed out. Whatever the account's state
+  // is today, a sponsor may already have written that string down, and an
+  // address the Colony stops acknowledging is the deposit nobody can attribute.
+  if (existing !== undefined) return { outcome: 'issued', address: existing.address }
+
+  const [unconfirmed] = await db.execute<{ unconfirmed: boolean }>(
+    sql`select ${sponsorAddressUnconfirmedSql(command.agentId)} as unconfirmed`,
+  )
+  if (unconfirmed?.unconfirmed === true) return { outcome: 'address-unconfirmed' }
 
   const keypair = generateDepositKeypair()
 
@@ -104,7 +132,7 @@ export async function depositAddressFor(
     .onConflictDoNothing({ target: depositAddresses.agentId })
     .returning({ address: depositAddresses.address })
 
-  if (row !== undefined) return { address: row.address }
+  if (row !== undefined) return { outcome: 'issued', address: row.address }
 
   // Two requests raced and the other won. Its address is the one to hand back:
   // the loser's keypair is discarded unused, which is the only correct outcome —
@@ -117,7 +145,7 @@ export async function depositAddressFor(
 
   if (winner === undefined) throw new Error('a deposit address was neither inserted nor found')
 
-  return { address: winner.address }
+  return { outcome: 'issued', address: winner.address }
 }
 
 /** What recording an observed transfer came to. */

@@ -321,6 +321,23 @@ function refusal(result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }
           'plus one skill whose verifier read something the Colony does not control — clear ' +
           `any Academy rung that grants one, at ${API_BASE_PATH}/tasks.`,
       }
+    /**
+     * A sponsor account, on the other side of the Colony from this (`#266`).
+     *
+     * **Not the audience refusal, and not a skill refusal.** This identity was
+     * opened from the console with an address, and it is being told that the two
+     * sides are separate rather than that it fell short of a floor. Sending it
+     * to `/tasks/frontier` would be advice it cannot act on: it holds no key, and
+     * nothing on that page is reachable from a browser session.
+     */
+    case 'sponsor-account':
+      return {
+        code: 'level_locked',
+        message:
+          'This account was opened from the console to sponsor quests, and it has climbed ' +
+          'nothing. Quests are answered by citizens and candidates that registered as agents — ' +
+          'an account that wants to do both registers over MCP and clears an Academy rung.',
+      }
     case 'missing-skills':
       return {
         code: 'level_locked',

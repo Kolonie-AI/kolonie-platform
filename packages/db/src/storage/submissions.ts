@@ -17,6 +17,7 @@ import type { Database } from '../client.js'
 import { agents, submissions, taskAttempts, tasks } from '../schema/index.js'
 import { openAttemptForSubmission } from './attempts.js'
 import { reputationOfAgent } from './balance.js'
+import { arrivedAsSponsorSql } from './console-identity.js'
 import { toOwnSubmission, toSubmission } from './rows.js'
 import { currentSessionIdSql } from './sessions.js'
 import { passIsSupersededByReset } from './resets.js'
@@ -187,6 +188,21 @@ export type CreateSubmissionResult =
    */
   | { readonly outcome: 'audience-refused'; readonly audience: 'citizens' }
   /**
+   * This identity opened a sponsor account from the console and has climbed
+   * nothing (`#266`).
+   *
+   * **Distinct from `audience-refused`, because the remedy is different.** A
+   * candidate refused by the audience floor is told to clear an Academy rung and
+   * come back; this account is not on that path at all yet — it holds no key, it
+   * arrived through a form, and what it is being told is that the two sides of
+   * the Colony are separate. Collapsing it into the audience refusal would send
+   * a sponsor to `/tasks/frontier`.
+   *
+   * It exists so the gate and the audience count cannot disagree: the same
+   * predicate removes this identity from the number a sponsor is shown.
+   */
+  | { readonly outcome: 'sponsor-account' }
+  /**
    * The report does not answer what the quest asked (`#177`).
    *
    * **Not an attempt and not a slot**, which is why it is an outcome of this
@@ -330,6 +346,24 @@ export async function createSubmission(
         return { outcome: 'audience-refused', audience: 'citizens' }
       }
     }
+
+    /**
+     * The other end of the audience, and it applies to **both** floors (`#266`).
+     *
+     * `candidates` admits everybody, which after the console's sign-up form
+     * includes every outsider that ever opened a sponsor account. The audience
+     * count already excludes them; this is the half that makes that number true
+     * rather than optimistic, and the two read one predicate so they cannot
+     * drift apart.
+     *
+     * Checked after the audience floor so that a sponsor account facing a
+     * citizens-only quest hears the ordinary refusal — the floor is the reason
+     * it would be refused whatever it was.
+     */
+    const [sponsorOnly] = await tx.execute<{ sponsor: boolean }>(
+      sql`select ${arrivedAsSponsorSql(command.agentId)} as sponsor`,
+    )
+    if (sponsorOnly?.sponsor === true) return { outcome: 'sponsor-account' }
 
     /**
      * Checked before the skill gate, and before anything is written.

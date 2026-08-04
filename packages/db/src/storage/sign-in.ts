@@ -334,13 +334,82 @@ export type WebRegistrationOutcome =
  * corruption that enum's own comment warns about. The pair is unambiguous:
  * `other` + `web` is the console, and `other` + `mcp` is a runtime the Colony
  * does not have a name for.
+ *
+ * ## The name is optional, and an address alone is enough (`#266`)
+ *
+ * `#180` left one criterion unmet — *sign-up with an address alone* — and this
+ * is it. A stranger arriving at the console has one thing to give, and a second
+ * required field on the first form is a share of them lost for a value the
+ * Colony can supply itself.
+ *
+ * **A generated name says nothing about the address.** The obvious derivation —
+ * the local part — would publish a piece of a private address through
+ * `POST /v1/agents/name-check`, which answers without a credential. So the
+ * generated name carries no information at all, and a sponsor that wants to be
+ * called something changes it afterwards like anybody else.
  */
 export async function registerWebIdentity(
   db: Database,
-  request: { readonly name: string; readonly address: string },
+  request: { readonly name?: string | undefined; readonly address: string },
 ): Promise<WebRegistrationOutcome> {
   const existing = await resolveSignInAddress(db, request.address)
   if (existing !== undefined) return { outcome: 'address-taken' }
+
+  if (request.name === undefined) {
+    /**
+     * A generated name races against nothing but chance, so it is retried
+     * rather than reported.
+     *
+     * `name-taken` is an answer about something the caller chose, and it asks
+     * them to choose again. Handing it back for a name the Colony invented
+     * would ask a sponsor to fix a collision it did not cause and cannot see —
+     * so the collision is absorbed here, and only an implausible run of them
+     * surfaces at all.
+     */
+    for (let attempt = 0; attempt < GENERATED_NAME_ATTEMPTS; attempt += 1) {
+      const result = await insertWebIdentity(db, generatedSponsorName(), request.address)
+      if (result.outcome !== 'name-taken') return result
+    }
+
+    throw new Error(`could not find a free generated name in ${GENERATED_NAME_ATTEMPTS} attempts`)
+  }
+
+  return await insertWebIdentity(db, request.name, request.address)
+}
+
+/**
+ * How many times a generated name is retried before this is a fault rather than
+ * a collision.
+ *
+ * Three, because the second one failing is already evidence that something other
+ * than chance is happening — at this alphabet and length a collision is rare
+ * enough that a run of three means the generator or the table is wrong, and a
+ * loop that hid that would turn a broken generator into a slow one.
+ */
+const GENERATED_NAME_ATTEMPTS = 3
+
+/**
+ * A name for an identity that gave only an address.
+ *
+ * Prefixed so that a name nobody chose is legible as one, and drawn from an
+ * alphabet without `o`, `l` or the digits they are confused with — the same
+ * reasoning the memory code's alphabet uses, and for the same reason: this
+ * string is read aloud and typed by hand more often than it is copied.
+ */
+function generatedSponsorName(): string {
+  const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789'
+  let suffix = ''
+  for (const byte of randomBytes(8)) suffix += alphabet[byte % alphabet.length]
+  return `sponsor-${suffix}`
+}
+
+/** One attempt at the insert, so the generated-name retry has something to repeat. */
+async function insertWebIdentity(
+  db: Database,
+  name: string,
+  address: string,
+): Promise<WebRegistrationOutcome> {
+  const request = { name, address }
 
   try {
     return await db.transaction(async (tx) => {

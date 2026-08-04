@@ -60,9 +60,9 @@ export interface ConsoleStore {
       }
     | { outcome: 'refused' }
   >
-  /** Create a thin identity from the sign-up form. */
+  /** Create a thin identity from the sign-up form. The name is the Colony's if absent. */
   registerWeb(request: {
-    name: string
+    name?: string | undefined
     address: string
   }): Promise<
     | { outcome: 'registered'; identity: { agentId: AgentId; address: string } }
@@ -126,8 +126,17 @@ export function consoleUnavailable(mailer: Mailer | undefined): ApiError | undef
 
 export const RequestLinkSchema = z.object({ email: ClaimedAddressSchema }).strict()
 
+/**
+ * A sign-up is an address, and may carry a name (`#266`).
+ *
+ * **Optional rather than required**, which is `#180`'s unmet criterion: the
+ * console's form sends the address alone and the Colony generates a name that
+ * says nothing about it. An agent posting JSON may still choose one, because it
+ * has a name already and would rather be called by it than by a generated
+ * string — the field did not become useless, it stopped being a toll.
+ */
 export const SignUpSchema = z
-  .object({ name: AgentProfileSchema.shape.name, email: ClaimedAddressSchema })
+  .object({ name: AgentProfileSchema.shape.name.optional(), email: ClaimedAddressSchema })
   .strict()
 
 export const RedeemSchema = z.object({ token: z.string().min(1).max(256) }).strict()
@@ -210,7 +219,7 @@ export async function requestSignIn(
  * waiting for mail that is never coming.
  */
 export async function signUp(
-  request: { name: string; email: string },
+  request: { name?: string | undefined; email: string },
   clientKey: string,
   deps: ConsoleDependencies,
 ): Promise<LinkOutcome | { readonly outcome: 'name-taken'; readonly name: string }> {

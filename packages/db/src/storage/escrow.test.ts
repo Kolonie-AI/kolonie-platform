@@ -11,6 +11,7 @@ import {
   fundQuestEscrow,
   payQuestReport,
   refundQuestRemainder,
+  sweepQuestRefunds,
 } from './escrow.js'
 
 const target = databaseTestTarget()
@@ -468,5 +469,120 @@ describe('the sponsor’s balance and the escrow', () => {
         }),
       /balanced|sum/i,
     )
+  })
+
+  /**
+   * The sweep that gives the fourth leg a caller (`#315`).
+   *
+   * `refundQuestRemainder` was exported, tested and reachable from nothing in
+   * `apps/` for as long as the escrow existed, which meant a quest could expire
+   * with a sponsor's money in escrow and no path anywhere that returned it.
+   * These assert the properties a loop needs rather than the booking, which the
+   * cases above already cover.
+   */
+  describe('sweeping the quests that have finished', () => {
+    /**
+     * The expiry is written *before* the quest goes live, because
+     * `tasks_published_quest_frozen` refuses any change to an active quest's
+     * terms — the trigger `questsAwaitingRefund`'s own comment is about. A test
+     * that brought the expiry forward on a live quest would be testing a write
+     * production cannot make.
+     */
+    const anExpiredQuest = async (sponsorId: AgentId | null): Promise<TaskId> => {
+      const taskId = await aQuest({ sponsorId, price: 10, capacity: 10 })
+      await db
+        .update(tasks)
+        .set({ expiresAt: new Date(Date.now() - 60_000).toISOString(), status: 'active' })
+        .where(eq(tasks.id, taskId))
+      return taskId
+    }
+
+    it('returns unspent capacity to the sponsor without anybody running SQL', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 500)
+      const taskId = await anExpiredQuest(sponsor)
+      await db.transaction((tx) =>
+        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+      )
+
+      const outcome = await sweepQuestRefunds(db)
+
+      expect(outcome.refunded).toEqual([{ taskId, credits: 100 }])
+      expect(outcome.failed).toEqual([])
+      expect(await escrowHeldFor(db, taskId)).toBe(0)
+      expect((await availableBalance(db, sponsor)).balance).toBe(500)
+    })
+
+    /** A steward retiring a quest early finishes it, and waiting for the original
+     * expiry would hold the money for a fortnight after the quest stopped. */
+    it('refunds a retired quest by the same path', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 500)
+      const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 10, status: 'active' })
+      await db.transaction((tx) =>
+        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+      )
+      await db.update(tasks).set({ status: 'retired' }).where(eq(tasks.id, taskId))
+
+      expect((await sweepQuestRefunds(db)).refunded).toEqual([{ taskId, credits: 100 }])
+    })
+
+    /**
+     * **Idempotence is the property the loop is built on.** A second tick over a
+     * quest already refunded reads an empty escrow, books nothing, and is not an
+     * error — which is what lets the sweep be crude, restartable and safe to run
+     * in two containers at once.
+     */
+    it('books nothing on a second pass, and does not call it a failure', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 500)
+      const taskId = await anExpiredQuest(sponsor)
+      await db.transaction((tx) =>
+        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+      )
+      await sweepQuestRefunds(db)
+
+      const second = await sweepQuestRefunds(db)
+
+      expect(second).toEqual({ refunded: [], failed: [] })
+      expect((await availableBalance(db, sponsor)).balance).toBe(500)
+    })
+
+    /** A quest still running is not finished, whatever its escrow holds. */
+    it('leaves a live quest alone', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 500)
+      const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 10, status: 'active' })
+      await db.transaction((tx) =>
+        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+      )
+
+      expect((await sweepQuestRefunds(db)).refunded).toEqual([])
+      expect(await escrowHeldFor(db, taskId)).toBe(100)
+    })
+
+    /**
+     * One quest's failure is not the pass's. The ownerless quest below refunds to
+     * the treasury and the sweep goes on to the next one — the property that
+     * matters is that a hundred expired quests are a hundred transactions, so the
+     * hundredth cannot undo the ninety-nine.
+     */
+    it('refunds every finished quest in one pass, ownerless ones included', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 500)
+      const mine = await anExpiredQuest(sponsor)
+      const orphan = await anExpiredQuest(null)
+      for (const taskId of [mine, orphan]) {
+        await db.transaction((tx) =>
+          fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 5 }),
+        )
+      }
+
+      const outcome = await sweepQuestRefunds(db)
+
+      expect(outcome.refunded.map((one) => one.taskId).sort()).toEqual([mine, orphan].sort())
+      expect(await escrowHeldFor(db, mine)).toBe(0)
+      expect(await escrowHeldFor(db, orphan)).toBe(0)
+    })
   })
 })

@@ -84,10 +84,58 @@ export function queueReport(
   }
 }
 
+/** One loop this process runs, and how long its silence may last. */
+export interface LoopUnderWatch {
+  /** The key it appears under in the report. */
+  readonly name: string
+  readonly health: () => RunnerHealth
+  /**
+   * Its own window, not a shared one.
+   *
+   * The two loops here run six hours apart in interval, so a single window would
+   * have to be the slower one's — and a refund sweep that died would then have
+   * most of a day to look healthy. Each loop is asked about on its own terms.
+   */
+  readonly staleAfterMs: number
+}
+
+/**
+ * What the endpoint answers when the process runs more than one loop (`#315`).
+ *
+ * **Any stalled loop stalls the container.** The alternative — reporting the
+ * badge loop's health and mentioning the refund loop underneath — is the same
+ * class of lie `process.exit(0)` was: a probe that passes while something inside
+ * has been dead since its first poll. If the refund sweep is not turning, this
+ * container is not doing its job, whatever the badges are doing.
+ */
+export interface ProcessHealthReport {
+  readonly status: 'ok' | 'stalled'
+  readonly reason?: string
+  readonly loops: Readonly<Record<string, HealthReport>>
+}
+
+export function healthOfLoops(
+  loops: readonly LoopUnderWatch[],
+  at = Date.now(),
+): ProcessHealthReport {
+  const reports = loops.map(
+    (loop) => [loop.name, healthOf(loop.health(), loop.staleAfterMs, at)] as const,
+  )
+  const stalled = reports.filter(([, report]) => report.status === 'stalled')
+
+  return {
+    status: stalled.length === 0 ? 'ok' : 'stalled',
+    ...(stalled.length > 0 && {
+      reason: stalled.map(([name, report]) => `${name}: ${report.reason ?? 'stalled'}`).join(' '),
+    }),
+    loops: Object.fromEntries(reports),
+  }
+}
+
 export interface HealthServerOptions {
   readonly port: number
-  readonly staleAfterMs: number
-  readonly health: () => RunnerHealth
+  /** Every loop the process runs. All of them decide the status code. */
+  readonly loops: readonly LoopUnderWatch[]
   /**
    * How deep the queue is, reported beside the loop's liveness and **never
    * folded into it**.
@@ -119,7 +167,7 @@ export function createHealthServer(options: HealthServerOptions): Server {
       return
     }
 
-    const report = healthOf(options.health(), options.staleAfterMs)
+    const report = healthOfLoops(options.loops)
 
     const finish = (queue?: QueueReport): void => {
       response.writeHead(report.status === 'ok' ? 200 : 503, {

@@ -1,19 +1,26 @@
 import { createLog } from '@kolonie-ai/core'
-import { createDatabase, databaseUrlFromEnv, sweepBadges } from '@kolonie-ai/db'
+import { createDatabase, databaseUrlFromEnv, sweepBadges, sweepQuestRefunds } from '@kolonie-ai/db'
 import { startRunner, type Log, type RunnerHealth } from './loop.js'
+import { badgeSweep, refundSweep } from './sweeps.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
 /**
- * Entry point of the badge runner (`#241`).
+ * Entry point of the sweep runner (`#241`, `#315`).
  *
- * Wiring only, like the other three runners: the loop is in `loop.ts`, the
- * criteria are in `packages/db`. Nothing here decides anything, which is why
- * nothing here is tested — everything with behaviour is reachable without
- * starting a process.
+ * Wiring only, like the other three runners: the loops are in `loop.ts`, what a
+ * pass is worth saying is in `sweeps.ts`, the criteria and the bookings are in
+ * `packages/db`. Nothing here decides anything, which is why nothing here is
+ * tested — everything with behaviour is reachable without starting a process.
+ *
+ * **It is still called `badge-runner`** — in this package, in its image and in
+ * its compose service. Renaming it would mean a new image name, a new build job
+ * and a deploy in which the old container is not the new one: churn across two
+ * repositories to make a directory name match its second occupant. The name is
+ * where it entered the world; this comment is where it says what it does.
  */
 
 /**
- * Six hours, which is deliberately slow.
+ * Six hours for badges, which is deliberately slow.
  *
  * Nothing waits on a badge. A citizen that qualified an hour ago and hears about
  * it this evening has lost nothing, and the *"that was nice"* this exists for
@@ -22,6 +29,22 @@ import { createHealthServer, STALE_POLLS } from './health.js'
  * the wrong trade in the one direction that is easy to get wrong.
  */
 const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 21_600_000)
+
+/**
+ * Fifteen minutes for refunds, and the distance from the badge interval is the
+ * whole point of there being two.
+ *
+ * A refund is a sponsor's own money coming back out of an escrow it can neither
+ * spend nor reclaim — `availableBalance` counts escrowed capacity as gone, so
+ * every hour of delay is an hour a sponsor cannot fund its next quest with money
+ * that is already its. Fifteen minutes is not measured against a deadline; there
+ * is none. It is short enough that nobody notices, against a query that reads a
+ * handful of quest rows.
+ *
+ * It is not shorter because there would be nothing to gain: a quest expires on a
+ * timestamp, and no sponsor is watching a screen for the remainder to land.
+ */
+const REFUND_INTERVAL_MS = Number(process.env['REFUND_INTERVAL_MS'] ?? 900_000)
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3004)
 
 const log: Log = createLog({ service: 'badge-runner' })
@@ -30,16 +53,35 @@ const log: Log = createLog({ service: 'badge-runner' })
 // other process here.
 const db = createDatabase(databaseUrlFromEnv())
 
-const health: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
+const badges: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
+const refunds: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
 
-startRunner({ sweep: () => sweepBadges(db) }, log, health, POLL_INTERVAL_MS)
+startRunner(
+  badgeSweep(() => sweepBadges(db)),
+  log,
+  badges,
+  POLL_INTERVAL_MS,
+)
+startRunner(
+  refundSweep(() => sweepQuestRefunds(db)),
+  log,
+  refunds,
+  REFUND_INTERVAL_MS,
+)
 
-// No queue report: this loop has no backlog to be behind on. It sweeps
-// everything every time, so *how far behind* is not a question it can be asked.
+// No queue report: neither loop has a backlog to be behind on. Each sweeps
+// everything every time, so *how far behind* is not a question either can be
+// asked.
 createHealthServer({
   port: HEALTH_PORT,
-  health: () => health,
-  staleAfterMs: POLL_INTERVAL_MS * STALE_POLLS,
+  loops: [
+    { name: 'badges', health: () => badges, staleAfterMs: POLL_INTERVAL_MS * STALE_POLLS },
+    {
+      name: 'quest-refunds',
+      health: () => refunds,
+      staleAfterMs: REFUND_INTERVAL_MS * STALE_POLLS,
+    },
+  ],
 }).listen(HEALTH_PORT, () => {
   log.info(`badge-runner health on :${HEALTH_PORT}`, { event: 'runner.started' })
 })

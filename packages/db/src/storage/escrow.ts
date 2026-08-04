@@ -354,3 +354,54 @@ export async function questsAwaitingRefund(db: Database): Promise<readonly TaskI
 
   return rows.map((row) => row.id as TaskId)
 }
+
+/** What one refund pass returned, per quest that still held something. */
+export interface QuestRefund {
+  readonly taskId: TaskId
+  readonly credits: number
+}
+
+/**
+ * Refund every quest that has finished and whose escrow still holds something.
+ *
+ * **One transaction per quest, deliberately.** A pass over a hundred expired
+ * quests in one transaction would make the hundredth quest's failure undo the
+ * ninety-nine refunds that worked, and there is nothing about two sponsors'
+ * money that has to commit together. The unit of atomicity here is a quest,
+ * which is the unit `refundQuestRemainder` already books.
+ *
+ * **Idempotent, and by the same mechanism the other three legs are.** A second
+ * pass over a quest already refunded reads an escrow of zero and books nothing;
+ * a pass that raced another one is refused by
+ * `ledger_entries_quest_funding_unique`, which is the index rather than a check
+ * here for the reason `fundQuestEscrow` records — the thing that would book
+ * twice is two passes in the same millisecond, and both would pass a `select`.
+ * That refusal is caught per quest and reported as a failure of that quest
+ * alone, because it is the loser of a race and not an outage.
+ *
+ * The caller is a sweep on a timer (`#315`), and what it does with the result is
+ * log it. Nothing waits on a refund the way a citizen waits on a verdict: the
+ * money is the sponsor's either way, and the only thing an interval costs is how
+ * soon its balance says so.
+ */
+export async function sweepQuestRefunds(db: Database): Promise<{
+  readonly refunded: readonly QuestRefund[]
+  readonly failed: readonly { readonly taskId: TaskId; readonly error: unknown }[]
+}> {
+  const refunded: QuestRefund[] = []
+  const failed: { readonly taskId: TaskId; readonly error: unknown }[] = []
+
+  for (const taskId of await questsAwaitingRefund(db)) {
+    try {
+      const credits = await db.transaction((tx) => refundQuestRemainder(tx, { taskId }))
+      if (credits > 0) refunded.push({ taskId, credits })
+    } catch (thrown) {
+      // One quest's failure is not the pass's. The next tick tries it again, and
+      // a quest that cannot be refunded at all will say so once an interval
+      // rather than stopping every other sponsor's money from coming back.
+      failed.push({ taskId, error: thrown })
+    }
+  }
+
+  return { refunded, failed }
+}

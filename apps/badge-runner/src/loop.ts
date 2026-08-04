@@ -1,7 +1,5 @@
-import type { BadgesAwarded } from '@kolonie-ai/db'
-
 /**
- * The loop that gives out badges (`#241`).
+ * The sweeps this process runs on a timer.
  *
  * **A sweep and not event hooks**, which is the decision this file exists to
  * carry. Ten hooks in ten call sites is ten places to forget the eleventh, and
@@ -11,16 +9,39 @@ import type { BadgesAwarded } from '@kolonie-ai/db'
  * and **adding a badge is a query and a graphic** rather than a change scattered
  * across the codebase.
  *
- * **The sweep is idempotent, which is what lets this be crude.** Every criterion
- * is an `insert … on conflict do nothing`, so a poll that overlaps the previous
- * one, a restart mid-pass, or two containers running at once all award each
- * badge exactly once. There is no cursor to keep, nothing to resume, and a
- * failure costs one interval.
+ * **The sweeps are idempotent, which is what lets this be crude.** Every badge
+ * criterion is an `insert … on conflict do nothing`, and a refund reads an
+ * escrow that has already been returned and books nothing — so a poll that
+ * overlaps the previous one, a restart mid-pass, or two containers running at
+ * once all do each piece of work exactly once. There is no cursor to keep,
+ * nothing to resume, and a failure costs one interval.
+ *
+ * **Two sweeps, two timers, one process (`#315`).** Refunding an expired quest
+ * is the same *shape* of work as awarding a badge — something that becomes true
+ * on a date nobody is watching — and this is the only process the Colony has
+ * built around that shape. It is emphatically not the same *importance*, which
+ * is why each sweep keeps its own interval and its own health record: badges may
+ * be six hours late and a sponsor's money may not, and one shared tick would
+ * have meant choosing which of the two to be wrong about.
  */
 
-/** What the loop needs from the outside world. */
-export interface BadgeSweep {
-  sweep(): Promise<BadgesAwarded>
+/** What a sweep needs to be run on a timer and reported on honestly. */
+export interface SweepSpec<T> {
+  /** Named in the log line and in the health report, so two loops are tellable apart. */
+  readonly name: string
+  sweep(): Promise<T>
+  /**
+   * What this pass is worth saying, or `undefined` for silence.
+   *
+   * Quiet when nothing happened, which is most passes once the population has
+   * caught up. A line per empty sweep is a log nobody reads — and `#230` made
+   * these logs queryable, which raises the cost of noise rather than lowering it.
+   */
+  report(
+    result: T,
+  ): { readonly message: string; readonly fields: Record<string, unknown> } | undefined
+  /** What a failed pass returns, so no caller has to handle `undefined`. */
+  readonly empty: T
 }
 
 /** The narrow log shape, matching the other runners'. */
@@ -38,53 +59,49 @@ export interface RunnerHealth {
 }
 
 /**
- * Run one pass, and say what it gave out.
+ * Run one pass, and say what it did.
  *
  * Separated from the timer so it is reachable in a test without starting a
  * process — the same arrangement the other three runners use.
  */
-export async function pollOnce(
-  sweep: BadgeSweep,
-  log: Log,
-  health: RunnerHealth,
-): Promise<BadgesAwarded> {
+export async function pollOnce<T>(spec: SweepSpec<T>, log: Log, health: RunnerHealth): Promise<T> {
   try {
-    const awarded = await sweep.sweep()
+    const result = await spec.sweep()
 
     health.lastPollAt = new Date().toISOString()
     health.consecutiveFailures = 0
 
-    // Quiet when nothing was given out, which is most passes once the population
-    // has caught up. A line per empty sweep is a log nobody reads.
-    if (Object.keys(awarded).length > 0) {
-      log.info('badges awarded', { event: 'badges.awarded', awarded })
-    }
+    const line = spec.report(result)
+    if (line !== undefined) log.info(line.message, line.fields)
 
-    return awarded
+    return result
   } catch (thrown) {
     health.consecutiveFailures += 1
-    log.error('badge sweep failed', thrown, { event: 'badges.sweep.failed' })
-    return {}
+    log.error(`${spec.name} sweep failed`, thrown, { event: `${spec.name}.sweep.failed` })
+    return spec.empty
   }
 }
 
 /**
  * Poll forever.
  *
- * **It never throws out of the loop**, because a badge sweep is the least
- * important process the Colony runs and must not be the one that pages anybody.
- * `pollOnce` swallows its own failure and the count of consecutive ones is what
- * the health endpoint reports.
+ * **It never throws out of the loop.** `pollOnce` swallows its own failure and
+ * the count of consecutive ones is what the health endpoint reports, so a
+ * database that went away slows this process down instead of taking the
+ * container with it. That was first argued for badges, which must not be the
+ * thing that pages anybody. It holds for the refund sweep for the opposite
+ * reason: a refund that failed is a sponsor's money still sitting in escrow, and
+ * the way anybody finds out is a health endpoint that keeps answering.
  */
-export function startRunner(
-  sweep: BadgeSweep,
+export function startRunner<T>(
+  spec: SweepSpec<T>,
   log: Log,
   health: RunnerHealth,
   intervalMs: number,
 ): NodeJS.Timeout {
   health.running = true
-  void pollOnce(sweep, log, health)
-  const timer = setInterval(() => void pollOnce(sweep, log, health), intervalMs)
+  void pollOnce(spec, log, health)
+  const timer = setInterval(() => void pollOnce(spec, log, health), intervalMs)
   timer.unref?.()
   return timer
 }

@@ -1,7 +1,16 @@
 /**
- * Run every workspace's tests at once instead of one after another.
+ * Run one npm script across every workspace that has it, at once instead of one
+ * after another.
  *
- * **`npm run test --workspaces` is serial** (`#285`). Seven vitest processes
+ * **Two callers, and the second is why this file is named for a script rather than
+ * for the tests** (`#303`). `npm run test --workspaces` was serial and `#285` fixed
+ * it here; `npm run typecheck --workspaces --if-present` was serial for the same
+ * reason, one line further down `npm run check`, and had become the largest
+ * non-test stage of it at 46.2 s. Writing a second runner would have meant two
+ * copies of the one property either of them must have — see *The thing that must
+ * not regress* below — and the copies would have drifted.
+ *
+ * **`npm run <script> --workspaces` is serial.** For the tests (`#285`): seven vitest processes
  * started, ran and exited in the order the workspaces happen to be listed, and
  * six of the seven need no database at all — they waited behind the one that does
  * for no reason but that ordering. Measured on CLAUDE002 (8 vCPU, 7.2 GiB RAM) on
@@ -48,13 +57,18 @@ import { fileURLToPath, URL } from 'node:url'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 /**
- * How many workspaces run at once.
+ * How many workspaces run at once, per script — **and the two numbers differ
+ * because the work below them has a different shape.**
  *
- * **A quarter of the cores, and that is not conservatism — it is the measurement.**
- * These processes are not the leaves: each spawns a vitest that fans out to
- * workers of its own, so the real concurrency is this number multiplied by
- * something like the core count again. On CLAUDE002 (8 vCPU, 7.2 GiB RAM), whole
- * suite, 2026-08-04:
+ * These processes are not the leaves. A `test` process spawns a vitest that fans
+ * out to workers of its own, so the real concurrency is the number here
+ * multiplied by something like the core count again; a `typecheck` process is one
+ * `tsc`, which is single-threaded per project and fans out to nothing. A single
+ * shared constant would therefore be wrong for one of them whichever value it
+ * held, and the two are kept apart rather than averaged.
+ *
+ * **`test` — a quarter of the cores.** On CLAUDE002 (8 vCPU, 7.2 GiB RAM), whole
+ * suite, 2026-08-04 (`#285`):
  *
  * | at once | wall | peak memory |
  * |---------|------|-------------|
@@ -62,25 +76,58 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
  * | 3       | 102.9 s | 4.8 GiB  |
  * | 4       | 103.0 s | 4.8 GiB, and swap touched |
  *
- * Going wider was slower *and* hungrier, which is the signature of oversubscription
- * rather than of a bad cap. `packages/db` alone finishes in 72 s; the extra 26 s
- * here is what it pays for sharing the machine, and widening the runner makes that
- * worse rather than better.
+ * **`typecheck` — half of them.** Same machine, eight workspaces, 2026-08-04,
+ * two rounds, warm build state (`#303`). Serial, which is what this replaced:
+ * **46.2 s**.
  *
- * The ceiling is memory, not cores. A machine that swaps during a test run is
- * slower than the serial version this replaced and much harder to reason about.
+ * | at once | wall | peak memory used |
+ * |---------|------|------------------|
+ * | 2       | 24.2 s, 23.9 s | 2.8 GiB |
+ * | 4       | **18.4 s, 18.9 s** | 3.3 GiB |
+ * | 8       | 20.2 s, 20.2 s | 3.8 GiB |
+ *
+ * Eight was slower *and* hungrier than four in both rounds, which is the same
+ * signature `#285` found one table up and the reason neither number is simply
+ * *all of them*. Swap was untouched at every setting.
+ *
+ * A script with no entry here runs one at a time. That is the safe direction for
+ * an unmeasured caller: slow is recoverable, and a machine that swaps during a
+ * check is slower than the serial version this replaced and much harder to reason
+ * about.
  */
-const CONCURRENCY = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 4)))
+const CONCURRENCY = {
+  test: Math.max(1, Math.min(4, Math.floor(availableParallelism() / 4))),
+  typecheck: Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2))),
+}
 
-/** Every unit of work that has tests, in the order declared. */
-const workspacesWithTests = async () => {
-  const manifest = JSON.parse(await readFile(path.join(ROOT, 'package.json'), 'utf8'))
+/** How many to run at once for a script nobody has measured: one. */
+const concurrencyFor = (script) => CONCURRENCY[script] ?? 1
+
+/**
+ * Every unit of work that has this script, in the order declared.
+ *
+ * **A workspace without the script is dropped rather than failed**, which is what
+ * `--if-present` did and is not the same as passing it: `packages/core` has no
+ * `typecheck:integration` and never will, and a runner that treated that as a
+ * failure would make adding a script to one workspace a change to all of them.
+ */
+export const workspacesWithScript = async (script, root = ROOT) => {
+  const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
   const found = []
 
-  // The root's own tests — the tests of the scripts in this directory, including
-  // this file's. A different script name, because `test` at the root is what runs
-  // this runner and asking it to run itself is a fork bomb with a summary table.
-  if (manifest.scripts?.['test:scripts'] !== undefined) {
+  /**
+   * The root's own tests, which are the tests of the scripts in this directory,
+   * including this file's. A different script name, because `test` at the root is
+   * what runs this runner and asking it to run itself is a fork bomb with a
+   * summary table.
+   *
+   * **Only for `test`.** The root has no `typecheck` of its own — `scripts/` is
+   * deliberately outside the TypeScript project, which is why this file is `.mjs`
+   * and its test says `@ts-expect-error` over the import. A rule that pulled the
+   * root in for every script would have this runner typecheck a directory that has
+   * no `tsconfig.json`.
+   */
+  if (script === 'test' && manifest.scripts?.['test:scripts'] !== undefined) {
     found.push({ name: `${manifest.name} (scripts)`, directory: '.', script: 'test:scripts' })
   }
 
@@ -94,19 +141,18 @@ const workspacesWithTests = async () => {
     }
 
     const prefix = pattern.slice(0, -2)
-    const entries = await readdir(path.join(ROOT, prefix), { withFileTypes: true })
+    const entries = await readdir(path.join(root, prefix), { withFileTypes: true })
 
     for (const entry of entries.filter((candidate) => candidate.isDirectory()).sort()) {
       const directory = path.join(prefix, entry.name)
-      const own = await readFile(path.join(ROOT, directory, 'package.json'), 'utf8').catch(
+      const own = await readFile(path.join(root, directory, 'package.json'), 'utf8').catch(
         () => undefined,
       )
       if (own === undefined) continue
 
       const parsed = JSON.parse(own)
-      // `--if-present` is what the serial command used to do, and dropping a
-      // workspace that has no tests is not the same as failing on it.
-      if (parsed.scripts?.test !== undefined) found.push({ name: parsed.name, directory })
+      if (parsed.scripts?.[script] !== undefined)
+        found.push({ name: parsed.name, directory, script })
     }
   }
 
@@ -114,7 +160,7 @@ const workspacesWithTests = async () => {
 }
 
 /** Run one workspace to completion, keeping its output to itself until it is done. */
-const runWorkspace = ({ name, directory, script = 'test' }) =>
+const runWorkspace = ({ name, directory, script }) =>
   new Promise((resolve) => {
     const started = Date.now()
     const child = spawn('npm', ['run', script], {
@@ -173,17 +219,38 @@ const inBatches = async (items, limit, run) => {
   return results
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const workspaces = await workspacesWithTests()
+/**
+ * Which script to run, from the command line.
+ *
+ * **Required rather than defaulted to `test`.** A default would make
+ * `node scripts/run-workspace-script.mjs` — the command somebody types when they
+ * are guessing — run the whole test suite, and the argument is one word.
+ */
+export const scriptFrom = (argv) => {
+  const [script] = argv
+  if (script === undefined || script.startsWith('-')) return undefined
+  return script
+}
 
-  if (workspaces.length === 0) {
-    console.error('No workspace has a test script. That is not a pass.')
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const script = scriptFrom(process.argv.slice(2))
+
+  if (script === undefined) {
+    console.error('Name the npm script to run, e.g. `node scripts/run-workspace-script.mjs test`.')
     process.exit(1)
   }
 
-  console.log(`running ${workspaces.length} workspaces, ${CONCURRENCY} at a time\n`)
+  const workspaces = await workspacesWithScript(script)
 
-  const results = await inBatches(workspaces, CONCURRENCY, async (workspace) => {
+  if (workspaces.length === 0) {
+    console.error(`No workspace has a ${script} script. That is not a pass.`)
+    process.exit(1)
+  }
+
+  const concurrency = concurrencyFor(script)
+  console.log(`running ${script} in ${workspaces.length} workspaces, ${concurrency} at a time\n`)
+
+  const results = await inBatches(workspaces, concurrency, async (workspace) => {
     const result = await runWorkspace(workspace)
     const verdict = result.ok ? 'passed' : 'FAILED'
     console.log(`${'─'.repeat(72)}\n${result.name} — ${verdict} in ${result.seconds.toFixed(1)}s`)

@@ -126,6 +126,18 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.status',
   'kolonie.accounts.note',
   'kolonie.accounts.vault-key',
+  /**
+   * Who runs the service behind an account, and what the Colony can say about
+   * providers from what citizens have named (`#288`).
+   *
+   * Two tools rather than one because they are opposite acts: the first is a
+   * citizen writing down a fact about its own account, the second is a read
+   * about everybody that names nobody. The write is separate from `declare` for
+   * the reason `vault-key` is — an account already on record cannot be
+   * re-declared, and most accounts predate a citizen knowing the field exists.
+   */
+  'kolonie.accounts.provider',
+  'kolonie.accounts.providers',
   'kolonie.accounts.prefer',
   'kolonie.academy.pow.challenge',
   'kolonie.academy.pow.solve',

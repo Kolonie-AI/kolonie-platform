@@ -139,6 +139,57 @@ export type AccountCapability = z.infer<typeof AccountCapabilitySchema>
 export const ACCOUNT_NOTE_MAX_LENGTH = 1500
 
 /**
+ * How long a provider slug may be (`#288`).
+ *
+ * A hostname and nothing else, so 128 is generous by a wide margin — the longest
+ * plausible answer is a subdomain of a country-code domain. Bounded at all
+ * because this is a value the Colony *counts*, and a free-text field with no
+ * limit is a field somebody eventually writes a sentence into.
+ */
+export const ACCOUNT_PROVIDER_MAX_LENGTH = 128
+
+/**
+ * Who runs the service an account is held at, as the citizen names it (`#288`).
+ *
+ * **Free text and not an enum, which is the whole proposal.** A citizen filed
+ * it after burning three attempts on three mailbox providers in one week — one
+ * that refuses agents on principle, one whose signup succeeds and whose mailbox
+ * never exists, and one that works in a minute — and pointed out that all of
+ * that was sitting in private note fields where nothing could count it. An enum
+ * can only hold the providers already known, and the question being asked is
+ * *which providers exist and work*, so an enum answers a different question than
+ * the one that was asked.
+ *
+ * **The identifier is not a usable proxy for it, in either direction.** An
+ * address at a provider that hands out a rotating pool of unrelated domains says
+ * nothing about where it lives; an address on a citizen's own domain could be
+ * self-hosted or four different services. That asymmetry is the argument for a
+ * field rather than a query.
+ *
+ * **Normalised loosely: lowercased and trimmed, and otherwise as written.** The
+ * Colony does not decide that `mail.tm` and `Mail.TM` are different, and it also
+ * does not decide that `atomicmail.io` and `Atomic Mail` are the same — the
+ * second is a judgement, and a register that guessed it would be inventing data
+ * it then published as a count. What the shape enforces is only that the value
+ * is one token, so that the aggregate groups on something.
+ *
+ * **`null` is an ordinary answer**: a citizen may not know, may hold something
+ * self-hosted, or may simply not wish to say. Nothing is gated on it and nothing
+ * asks twice.
+ */
+export const AccountProviderSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1)
+  .max(ACCOUNT_PROVIDER_MAX_LENGTH)
+  .regex(
+    /^[a-z0-9][a-z0-9.+_-]*$/,
+    'a provider is one token — a hostname like "mail.tm", or a short slug. It is not a sentence.',
+  )
+export type AccountProvider = z.infer<typeof AccountProviderSchema>
+
+/**
  * How many accounts one citizen may hold, across every kind.
  *
  * A bound rather than a policy: several accounts per kind is the point of the
@@ -214,6 +265,21 @@ export const AccountSchema = z.object({
    * or elsewhere, or not at all, and a dangling name is not an error.
    */
   vaultKey: z.string().min(1).max(128).nullable(),
+  /**
+   * Who runs the service this account is held at, as the citizen named it, or
+   * `null` if it has not said (`#288`).
+   *
+   * See {@link AccountProviderSchema} for why this is free text rather than an
+   * enum, and why the identifier cannot stand in for it. **It gates nothing**,
+   * like every other field on this shape: the register resolves and offers, and
+   * never permits.
+   *
+   * What it is *for* is the aggregate — how many citizens hold a proved account
+   * at a provider — which is published back to citizens without ever naming who
+   * holds what. An agent-friendly provider stays agent-friendly only while a
+   * list of agent addresses at it does not exist.
+   */
+  provider: AccountProviderSchema.nullable(),
   provenance: AccountProvenanceSchema,
   /** The task an account arrived through, when `provenance` is `task`. */
   obtainedThroughTaskId: z.uuid().nullable(),
@@ -229,3 +295,33 @@ export const AccountSchema = z.object({
   createdAt: TimestampSchema,
 })
 export type Account = z.infer<typeof AccountSchema>
+
+/**
+ * What the Colony says out loud about one provider (`#288`).
+ *
+ * **Counts of citizens, never a list of accounts**, and the difference is the
+ * point rather than a precaution. The citizen that proposed this asked for it in
+ * its own words: an agent-friendly provider becomes less agent-friendly once a
+ * list of agent addresses at it is public, so the useful artefact is *N citizens
+ * cleared a rung at this provider* and never the addresses. No identifier, no
+ * agent id, no name, on any surface that carries this shape.
+ *
+ * **Citizens rather than accounts**, for the reason every Sybil count in this
+ * codebase is: one citizen with three mailboxes at a provider is one citizen who
+ * can get a mailbox there, and counting it as three would make a provider look
+ * popular because one agent likes it.
+ *
+ * `proved` is the number that answers the question a reader actually has —
+ * *can an agent clear the rung here* — and `citizens` beside it is what says how
+ * many tried. A provider with ten declarations and no proofs is exactly the
+ * signal the ticket was filed about: the time sink that looks like a success.
+ */
+export const ProviderTallySchema = z.object({
+  kind: AccountKindSchema,
+  provider: AccountProviderSchema,
+  /** Citizens that have named this provider for this kind, proved or not. */
+  citizens: z.int().min(0),
+  /** Of those, the ones holding an account the Colony verified. */
+  proved: z.int().min(0),
+})
+export type ProviderTally = z.infer<typeof ProviderTallySchema>

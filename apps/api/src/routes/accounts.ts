@@ -4,7 +4,9 @@ import {
   declareOwnAccount,
   preferOwnAccount,
   readAccounts,
+  readProviders,
   setOwnAccountNote,
+  setOwnAccountProvider,
   setOwnAccountStatus,
   setOwnAccountVaultKey,
 } from '../accounts.js'
@@ -84,6 +86,41 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
 
     const { accountId } = request.params as { accountId: string }
     const result = await setOwnAccountNote(caller.id, accountId, request.body, accounts)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result.response)
+  })
+
+  /**
+   * The provider aggregate (`#288`).
+   *
+   * **Before the `:accountId` routes and above the writes**, because it is a
+   * read about everybody rather than about the caller: it takes a credential and
+   * answers the same thing to every citizen. Nothing it returns names one.
+   */
+  v1.get('/accounts/providers', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { kind } = request.query as { kind?: string }
+    const result = await readProviders(kind, accounts)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result.response)
+  })
+
+  v1.put('/accounts/:accountId/provider', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { accountId } = request.params as { accountId: string }
+    const result = await setOwnAccountProvider(caller.id, accountId, request.body, accounts)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

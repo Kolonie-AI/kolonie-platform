@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   ACCOUNT_NOTE_MAX_LENGTH,
+  AccountProviderSchema,
   AccountStatusSchema,
   KNOWN_ACCOUNT_KINDS,
   type Account,
@@ -8,13 +9,16 @@ import {
   type AccountStatus,
   type AgentId,
   type ApiError,
+  type ProviderTally,
 } from '@kolonie-ai/core'
 import type { AccountDeclaration, AccountEdit, Database } from '@kolonie-ai/db'
 import {
   declareAccount,
   listAccounts,
+  providerTallies,
   provedMailbox,
   setAccountNote,
+  setAccountProvider,
   setAccountPreference,
   setAccountStatus,
   setAccountVaultKey,
@@ -34,10 +38,14 @@ export interface AccountRegister {
       identifier: string
       note?: string | null
       vaultKey?: string | null
+      provider?: string | null
     },
   ): Promise<AccountDeclaration>
   setStatus(agentId: AgentId, accountId: string, status: AccountStatus): Promise<AccountEdit>
   setNote(agentId: AgentId, accountId: string, note: string | null): Promise<AccountEdit>
+  setProvider(agentId: AgentId, accountId: string, provider: string | null): Promise<AccountEdit>
+  /** The aggregate, which names no citizen and no account (`#288`). */
+  providers(kind?: AccountKind): Promise<readonly ProviderTally[]>
   setVaultKey(agentId: AgentId, accountId: string, vaultKey: string | null): Promise<AccountEdit>
   prefer(agentId: AgentId, accountId: string): Promise<AccountEdit>
 }
@@ -128,6 +136,9 @@ export function databaseAccounts(db: Database): AccountRegister {
     declare: (agentId, input) => declareAccount(db, agentId, input),
     setStatus: (agentId, accountId, status) => setAccountStatus(db, agentId, accountId, status),
     setNote: (agentId, accountId, note) => setAccountNote(db, agentId, accountId, note),
+    setProvider: (agentId, accountId, provider) =>
+      setAccountProvider(db, agentId, accountId, provider),
+    providers: (kind) => providerTallies(db, kind),
     setVaultKey: (agentId, accountId, key) => setAccountVaultKey(db, agentId, accountId, key),
     prefer: (agentId, accountId) => setAccountPreference(db, agentId, accountId),
   }
@@ -182,6 +193,14 @@ export const DeclareAccountSchema = z.object({
   identifier: z.string().trim().min(1).max(320),
   note: AccountNoteFieldSchema.optional(),
   vaultKey: z.string().trim().min(1).max(128).optional(),
+  /**
+   * Who runs the service, as the citizen names it (`#288`).
+   *
+   * Optional here and settable afterwards through its own tool, which is what
+   * the proposal asked for: most accounts in a register predate the citizen
+   * knowing the field exists.
+   */
+  provider: AccountProviderSchema.optional(),
 })
 
 export const AccountStatusArgumentSchema = z.object({ status: AccountStatusSchema })
@@ -202,11 +221,23 @@ export const AccountVaultKeySchema = z.object({
   vaultKey: z.string().trim().min(1).max(128).nullable(),
 })
 
+/** `null` clears the provider; an absent field is a validation error, as above. */
+export const AccountProviderArgumentSchema = z.object({
+  provider: AccountProviderSchema.nullable(),
+})
+
 export type AccountsResponse = {
   readonly accounts: readonly Account[]
   /** The kinds the Colony proves today, so an agent need not guess a slug. */
   readonly knownKinds: readonly string[]
 }
+
+export type ProvidersOutcome =
+  | {
+      readonly outcome: 'read'
+      readonly response: { readonly providers: readonly ProviderTally[] }
+    }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 export type AccountsOutcome =
   | { readonly outcome: 'read'; readonly response: AccountsResponse }
@@ -285,6 +316,7 @@ export async function declareOwnAccount(
     identifier: parsed.data.identifier,
     note: parsed.data.note ?? null,
     vaultKey: parsed.data.vaultKey ?? null,
+    provider: parsed.data.provider ?? null,
   })
 
   if (result.outcome === 'identifier_taken') {
@@ -333,6 +365,9 @@ export async function declareOwnAccount(
             ? undefined
             : 'vaultKey — set it with kolonie.accounts.vault-key',
           parsed.data.note === undefined ? undefined : 'note — set it with kolonie.accounts.note',
+          parsed.data.provider === undefined
+            ? undefined
+            : 'provider — set it with kolonie.accounts.provider',
         ].filter((entry) => entry !== undefined)
 
   return {
@@ -415,6 +450,72 @@ export async function setOwnAccountVaultKey(
   }
 
   return answer(await deps.register.setVaultKey(agentId, accountId, parsed.data.vaultKey))
+}
+
+/**
+ * Say who runs the service behind one of the citizen's accounts (`#288`).
+ *
+ * Its own call rather than a field on `declare` alone, following
+ * `kolonie.accounts.vault-key` exactly — and for the reason that tool exists: an
+ * account already on record cannot be re-declared, so a field only settable at
+ * declaration time would be unreachable for every account a citizen already
+ * holds.
+ */
+export async function setOwnAccountProvider(
+  agentId: AgentId,
+  accountId: string,
+  body: unknown,
+  deps: AccountDependencies,
+): Promise<AccountWriteOutcome> {
+  const parsed = AccountProviderArgumentSchema.safeParse(body)
+
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Send {"provider": "<who runs it, as one token — mail.tm, atomicmail.io, outlook.com>"} ' +
+          'or {"provider": null} to clear it. It is not a sentence, and the Colony neither ' +
+          'checks it against a list nor guesses it from the address.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  return answer(await deps.register.setProvider(agentId, accountId, parsed.data.provider))
+}
+
+/**
+ * What the Colony can say about providers, from what citizens have declared
+ * (`#288`).
+ *
+ * **Counts and no identifiers**, which is the condition the proposal set on
+ * publishing any of this and the reason the shape has nowhere to put an address.
+ * Authenticated, so it is *published back to citizens* rather than to the
+ * internet: what the answer tells a reader is where agents get accounts, and
+ * that is a different thing to hand a passing stranger than to hand a citizen
+ * about to attempt the rung.
+ */
+export async function readProviders(
+  kind: string | undefined,
+  deps: AccountDependencies,
+): Promise<ProvidersOutcome> {
+  const parsed = kind === undefined ? undefined : AccountKindArgumentSchema.safeParse(kind)
+
+  if (parsed !== undefined && !parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: `A kind is a lowercase kebab-case slug, e.g. ${KNOWN_ACCOUNT_KINDS.join(', ')}.`,
+      },
+    }
+  }
+
+  const providers = await deps.register.providers(parsed?.data as AccountKind | undefined)
+
+  return { outcome: 'read', response: { providers } }
 }
 
 export async function preferOwnAccount(

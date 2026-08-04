@@ -58,6 +58,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
     provedAt: null,
     confirmedAt: null,
     unconfirmedSince: null,
+    provider: null,
     createdAt: currentTime(),
   })
 
@@ -110,6 +111,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
         ...blank(agentId, input.kind, input.identifier),
         note: input.note ?? null,
         vaultKey: input.vaultKey ?? null,
+        provider: input.provider ?? null,
       }
       rows.push(row)
       return { outcome: 'declared', account: strip(row) }
@@ -134,6 +136,52 @@ export function fakeAccountRegister(): FakeAccountRegister {
       if (row === undefined) return { outcome: 'not_found' }
       row.vaultKey = vaultKey
       return { outcome: 'updated', account: strip(row) }
+    },
+
+    async setProvider(agentId, accountId, provider) {
+      const row = own(agentId, accountId)
+      if (row === undefined) return { outcome: 'not_found' }
+      row.provider = provider
+      return { outcome: 'updated', account: strip(row) }
+    },
+
+    /**
+     * The aggregate, counted the way the real one counts it (`#288`).
+     *
+     * **Citizens rather than rows**, which is the one property of this query
+     * worth reimplementing in a fixture: a fake that counted accounts would let
+     * a test pass while a provider looked popular because one agent held three
+     * mailboxes there. Whether Postgres groups it the same way is asserted in
+     * `packages/db` against a real one.
+     */
+    async providers(kind) {
+      const tallies = new Map<string, { citizens: Set<AgentId>; proved: Set<AgentId> }>()
+
+      for (const row of rows) {
+        if (row.provider === null) continue
+        if (kind !== undefined && row.kind !== kind) continue
+
+        const at = `${row.kind}\u0000${row.provider}`
+        const tally = tallies.get(at) ?? { citizens: new Set(), proved: new Set() }
+        tally.citizens.add(row.agentId)
+        if (row.proved) tally.proved.add(row.agentId)
+        tallies.set(at, tally)
+      }
+
+      return [...tallies.entries()]
+        .map(([at, tally]) => {
+          const [tallyKind = '', provider = ''] = at.split('\u0000')
+          return {
+            kind: tallyKind as Account['kind'],
+            provider,
+            citizens: tally.citizens.size,
+            proved: tally.proved.size,
+          }
+        })
+        .sort(
+          (a, b) =>
+            b.proved - a.proved || b.citizens - a.citizens || (a.provider < b.provider ? -1 : 1),
+        )
     },
 
     async prefer(agentId, accountId) {

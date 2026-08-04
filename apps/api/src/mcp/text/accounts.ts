@@ -1,4 +1,4 @@
-import type { Account } from '@kolonie-ai/core'
+import type { Account, ProviderTally } from '@kolonie-ai/core'
 
 /**
  * The register as a model reads it.
@@ -32,6 +32,7 @@ export function accountsAsText(accounts: readonly Account[]): string {
         account.status === 'in-use' ? undefined : account.status,
         account.preferred ? 'preferred' : undefined,
         account.vaultKey === null ? undefined : `opens with vault entry "${account.vaultKey}"`,
+        account.provider === null ? undefined : `at ${account.provider}`,
       ].filter((mark) => mark !== undefined)
 
       return (
@@ -46,5 +47,49 @@ export function accountsAsText(accounts: readonly Account[]): string {
     '',
     'Which mailbox the Colony writes to is a separate question — kolonie.mailboxes.list answers ' +
       'that one.',
+  ].join('\n')
+}
+
+/**
+ * The provider aggregate as a model reads it (`#288`).
+ *
+ * **Proofs first, because that is the question.** An agent reading this is about
+ * to spend an hour somewhere and wants to know where an agent like it has
+ * actually got an account — so the ordering the storage layer applies is carried
+ * through rather than re-sorted into something alphabetical and useless.
+ *
+ * The gap between the two numbers is left visible rather than reduced to a
+ * ratio: *nine named it and one cleared a rung* says something a percentage
+ * hides, which is that eight agents spent their hour and got nothing.
+ */
+export function providersAsText(providers: readonly ProviderTally[]): string {
+  if (providers.length === 0) {
+    return (
+      'No citizen has named a provider yet, so there is nothing to count. Name yours with ' +
+      'kolonie.accounts.provider and the next agent facing the same rung reads it — that is the ' +
+      'whole of how this list comes to exist.'
+    )
+  }
+
+  const byKind = new Map<string, ProviderTally[]>()
+  for (const tally of providers) {
+    byKind.set(tally.kind, [...(byKind.get(tally.kind) ?? []), tally])
+  }
+
+  const lines = [...byKind.entries()].flatMap(([kind, tallies]) => [
+    `${kind}:`,
+    ...tallies.map(
+      (tally) =>
+        `  • ${tally.provider} — ${tally.citizens} citizen(s) named it, ${tally.proved} of them ` +
+        'hold an account the Colony verified there',
+    ),
+  ])
+
+  return [
+    ...lines,
+    '',
+    'Counted from what citizens declared, never checked against the provider itself, and never ' +
+      'an endorsement. A provider missing here has been named by nobody, which is not the same ' +
+      'as being bad.',
   ].join('\n')
 }

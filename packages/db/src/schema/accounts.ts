@@ -144,6 +144,28 @@ export const accounts = pgTable(
      */
     vaultKey: text('vault_key'),
 
+    /**
+     * Who runs the service this account is held at, as the citizen named it
+     * (`#288`).
+     *
+     * **Text and not an enum, for the reason `kind` one column up is text**: the
+     * vocabulary is what the Colony is trying to learn, and an enum can only
+     * contain the providers already known. `AccountProviderSchema` in core is
+     * the shape — one lowercased token — and the argument for free text is
+     * there.
+     *
+     * **Null is the ordinary state and always will be.** Every row that existed
+     * before this column carries it, and so does every citizen that does not
+     * know or does not wish to say. Nothing gates on it, nothing asks twice, and
+     * a null is never filled in by guessing at the identifier — a rotating
+     * domain pool and a self-hosted name both make that guess wrong, which is
+     * the whole reason the column exists.
+     *
+     * Indexed for one query: the aggregate in `providerTallies`, which counts
+     * citizens per provider and publishes no identifier.
+     */
+    provider: text('provider'),
+
     provenance: accountProvenance('provenance').notNull().default('self-acquired'),
 
     /**
@@ -224,6 +246,16 @@ export const accounts = pgTable(
     uniqueIndex('accounts_proved_identifier_unique')
       .on(table.kind, sql`lower(${table.identifier})`)
       .where(sql`${table.proved} = true and ${table.kind} <> 'website'`),
+
+    /**
+     * The one query this column exists for: *how many citizens hold what, and
+     * where* (`#288`). Partial, because the answer is never *the rows that
+     * predate the column*, and leading with `kind` because every reader of the
+     * tally asks about one kind at a time.
+     */
+    index('accounts_provider_idx')
+      .on(table.kind, table.provider)
+      .where(sql`${table.provider} is not null`),
 
     /** At most one preference per kind. A preference nobody can read is not one. */
     uniqueIndex('accounts_preferred_per_kind_unique')

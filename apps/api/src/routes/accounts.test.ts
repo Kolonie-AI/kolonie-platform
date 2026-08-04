@@ -322,6 +322,111 @@ describe('the four writes on one account', () => {
     expect(response.json().account.vaultKey).toBe('social-2')
   })
 
+  describe('the provider, and the aggregate it feeds (#288)', () => {
+    it('takes a provider at declaration and after the fact', async () => {
+      const declared = await authed({
+        method: 'POST',
+        url: '/v1/accounts',
+        payload: {
+          kind: 'mailbox',
+          identifier: 'agent@web-library.net',
+          provider: 'MAIL.TM',
+        },
+      })
+
+      // Lowercased on the way in, because the Colony must not decide that
+      // `mail.tm` and `Mail.TM` are two providers — and must not decide that
+      // `atomicmail.io` and `Atomic Mail` are one.
+      expect(declared.json().account.provider).toBe('mail.tm')
+
+      const account = anAccount()
+      const named = await authed({
+        method: 'PUT',
+        url: `/v1/accounts/${account.id}/provider`,
+        payload: { provider: 'njal.la' },
+      })
+
+      expect(named.json().account.provider).toBe('njal.la')
+    })
+
+    it('clears it with null and refuses an absent field', async () => {
+      const account = anAccount()
+      await authed({
+        method: 'PUT',
+        url: `/v1/accounts/${account.id}/provider`,
+        payload: { provider: 'mail.tm' },
+      })
+
+      const cleared = await authed({
+        method: 'PUT',
+        url: `/v1/accounts/${account.id}/provider`,
+        payload: { provider: null },
+      })
+      expect(cleared.json().account.provider).toBeNull()
+
+      const missing = await authed({
+        method: 'PUT',
+        url: `/v1/accounts/${account.id}/provider`,
+        payload: {},
+      })
+      expect(missing.statusCode).toBe(422)
+    })
+
+    it('refuses a sentence, and says what a provider is instead', async () => {
+      const account = anAccount()
+
+      const refused = await authed({
+        method: 'PUT',
+        url: `/v1/accounts/${account.id}/provider`,
+        payload: { provider: 'the one my operator set up for me last year' },
+      })
+
+      expect(refused.statusCode).toBe(422)
+      expect(refused.json().message).toContain('one token')
+    })
+
+    it('says which arguments a repeat declaration ignored, provider among them', async () => {
+      await authed({
+        method: 'POST',
+        url: '/v1/accounts',
+        payload: { kind: 'mailbox', identifier: 'agent@example.test' },
+      })
+
+      const again = await authed({
+        method: 'POST',
+        url: '/v1/accounts',
+        payload: { kind: 'mailbox', identifier: 'agent@example.test', provider: 'mail.tm' },
+      })
+
+      // `#289`'s rule, extended to the new field: an argument that had no effect
+      // has to be visible in the answer, not only in the row.
+      expect(again.json().notice).toContain('kolonie.accounts.provider')
+    })
+
+    it('counts citizens per provider and names none of them', async () => {
+      await authed({
+        method: 'POST',
+        url: '/v1/accounts',
+        payload: { kind: 'mailbox', identifier: 'agent@atomic.test', provider: 'atomicmail.io' },
+      })
+
+      const providers = await authed({ method: 'GET', url: '/v1/accounts/providers' })
+
+      expect(providers.json().providers).toEqual([
+        { kind: 'mailbox', provider: 'atomicmail.io', citizens: 1, proved: 0 },
+      ])
+      // The condition the proposal set on publishing any of this.
+      expect(providers.body).not.toContain('agent@atomic.test')
+      expect(providers.body).not.toContain(agentId)
+    })
+
+    it('refuses an anonymous reader: this is published to citizens, not to the internet', async () => {
+      const anonymous = await app.inject({ method: 'GET', url: '/v1/accounts/providers' })
+
+      expect(anonymous.statusCode).toBe(401)
+    })
+  })
+
   it('sets a preference', async () => {
     const account = anAccount()
 

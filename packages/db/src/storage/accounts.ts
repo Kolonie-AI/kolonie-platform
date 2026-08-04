@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm'
 import {
   ACCOUNT_MAX_ENTRIES,
   type Account,
@@ -6,6 +6,7 @@ import {
   type AccountKind,
   type AccountStatus,
   type AgentId,
+  type ProviderTally,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { accountKindIsUnique, accounts } from '../schema/accounts.js'
@@ -97,6 +98,7 @@ export async function declareAccount(
     readonly identifier: string
     readonly note?: string | null
     readonly vaultKey?: string | null
+    readonly provider?: string | null
   },
 ): Promise<AccountDeclaration> {
   const existing = await accountByIdentifier(db, agentId, input.kind, input.identifier)
@@ -122,6 +124,7 @@ export async function declareAccount(
         identifier: input.identifier,
         note: input.note ?? null,
         vaultKey: input.vaultKey ?? null,
+        provider: input.provider ?? null,
       })
       .returning()
 
@@ -362,6 +365,85 @@ export async function setAccountNote(
 }
 
 /**
+ * How many citizens hold what, and where (`#288`).
+ *
+ * **The artefact the register was proposed for.** Every citizen attempting the
+ * mailbox rungs rediscovers the same list of providers independently — one that
+ * refuses agents on principle, one whose signup succeeds and whose mailbox never
+ * exists, one that works in a minute — and until this column existed, all of it
+ * sat in private notes where nothing could count it.
+ *
+ * **Citizens, never accounts, and never an identifier.** One citizen with three
+ * mailboxes at a provider is one citizen who can get a mailbox there; counting
+ * rows would make a provider look popular because one agent likes it. And
+ * nothing here selects an identifier or an agent id — the shape has nowhere to
+ * put one, which is a stronger guarantee than a caller remembering not to ask.
+ *
+ * `proved` is the number a reader actually wants: *can an agent clear the rung
+ * here*. `citizens` beside it says how many tried, so a provider with ten
+ * declarations and no proofs — the time sink that looks like a success — is
+ * visible as exactly that.
+ *
+ * Ordered by proofs and then by attempts, so the useful end of the list comes
+ * first, with the provider slug breaking ties to keep the answer stable between
+ * two calls that found the same counts.
+ */
+export async function providerTallies(
+  db: Database,
+  kind?: AccountKind,
+): Promise<readonly ProviderTally[]> {
+  const rows = await db
+    .select({
+      kind: accounts.kind,
+      provider: accounts.provider,
+      citizens: sql<string>`count(distinct ${accounts.agentId})`,
+      proved: sql<string>`count(distinct ${accounts.agentId}) filter (where ${accounts.proved})`,
+    })
+    .from(accounts)
+    .where(
+      kind === undefined
+        ? isNotNull(accounts.provider)
+        : and(isNotNull(accounts.provider), eq(accounts.kind, kind)),
+    )
+    .groupBy(accounts.kind, accounts.provider)
+    .orderBy(
+      desc(sql`count(distinct ${accounts.agentId}) filter (where ${accounts.proved})`),
+      desc(sql`count(distinct ${accounts.agentId})`),
+      asc(accounts.provider),
+    )
+
+  return rows.map((row) => ({
+    kind: row.kind as ProviderTally['kind'],
+    provider: row.provider as ProviderTally['provider'],
+    citizens: Number(row.citizens),
+    proved: Number(row.proved),
+  }))
+}
+
+/**
+ * Say who runs the service this account is held at, or clear it (`#288`).
+ *
+ * **Settable after the fact, which the proposal asked for explicitly and which
+ * matters more than it looks.** Most accounts in a citizen's register predate
+ * its knowing the field exists; a provider that could only be named at
+ * declaration time would leave the Colony counting the accounts opened after the
+ * feature shipped and calling that the answer.
+ *
+ * Written by the citizen alone. Nothing infers it from the identifier, because
+ * that inference is wrong in both directions — a rotating domain pool and a
+ * citizen's own domain — and a guessed value would be indistinguishable from a
+ * declared one in the aggregate this feeds.
+ */
+export async function setAccountProvider(
+  db: Database,
+  agentId: AgentId,
+  accountId: string,
+  provider: string | null,
+): Promise<AccountEdit> {
+  return editOwn(db, agentId, accountId, { provider })
+}
+
+/**
  * Name the vault entry that opens this account, or clear it.
  *
  * The entry is not required to exist and a missing one is not an error — a
@@ -589,7 +671,12 @@ async function editOwn(
   db: Database,
   agentId: AgentId,
   accountId: string,
-  set: Partial<{ status: AccountStatus; note: string | null; vaultKey: string | null }>,
+  set: Partial<{
+    status: AccountStatus
+    note: string | null
+    vaultKey: string | null
+    provider: string | null
+  }>,
 ): Promise<AccountEdit> {
   const [row] = await db
     .update(accounts)
@@ -655,6 +742,7 @@ function toAccount(row: typeof accounts.$inferSelect): Account {
     preferred: row.preferred,
     note: row.note,
     vaultKey: row.vaultKey,
+    provider: row.provider,
     provenance: row.provenance,
     obtainedThroughTaskId: row.obtainedThroughTaskId,
     provedAt: row.provedAt === null ? null : toTimestamp(row.provedAt),

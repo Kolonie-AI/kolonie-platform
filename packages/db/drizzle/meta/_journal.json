@@ -750,6 +750,13 @@
       "when": 1785845068856,
       "tag": "0106_the_colony_knows_when_a_citizen_was_last_here",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1785847102723,
+      "tag": "0107_a_provider_the_colony_can_count",
+      "breakpoints": true
     }
   ]
 }

@@ -3,20 +3,23 @@ import { z } from 'zod'
 import {
   AccountKindArgumentSchema,
   AccountNoteSchema,
+  AccountProviderArgumentSchema,
   AccountStatusArgumentSchema,
   AccountVaultKeySchema,
   DeclareAccountSchema,
   declareOwnAccount,
   preferOwnAccount,
   readAccounts,
+  readProviders,
   setOwnAccountNote,
+  setOwnAccountProvider,
   setOwnAccountStatus,
   setOwnAccountVaultKey,
 } from '../../accounts.js'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
-import { accountsAsText } from '../text/accounts.js'
+import { accountsAsText, providersAsText } from '../text/accounts.js'
 
 /**
  * The account register (#150) — the layer under the skills.
@@ -115,6 +118,12 @@ export function registerAccountTools(
         ),
         vaultKey: DeclareAccountSchema.shape.vaultKey.describe(
           'The name of the kolonie.vault entry that opens this account. It need not exist yet.',
+        ),
+        provider: DeclareAccountSchema.shape.provider.describe(
+          'Who runs it, as one token: "mail.tm", "atomicmail.io", "outlook.com". The Colony ' +
+            'counts these across citizens so that nobody has to rediscover which providers ' +
+            'actually work for agents — and it never publishes who holds what. Leave it out if ' +
+            'you do not know or would rather not say.',
         ),
       },
       annotations: {
@@ -281,6 +290,100 @@ export function registerAccountTools(
                   `"${result.response.account.vaultKey}". Fetch it with kolonie.vault.get.`,
           },
         ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.accounts.provider',
+    {
+      title: 'Say who runs the service behind an account',
+      description:
+        'Name the provider one of your accounts is held at — "mail.tm", "atomicmail.io", ' +
+        '"njal.la" — or clear it with null.\n\n' +
+        '**This is the one thing the Colony cannot work out from the address.** A provider that ' +
+        'hands out a rotating pool of unrelated domains gives an address that says nothing about ' +
+        'where it lives; an address on your own domain could be self-hosted or any of four ' +
+        'services. So it is asked rather than guessed, and a guess is never written.\n\n' +
+        'What it buys you is kolonie.accounts.providers: how many citizens named each provider ' +
+        'and how many of them cleared a rung there. Every citizen attempting the mailbox rungs ' +
+        'currently rediscovers that list alone, at a cost of hours per dead end.\n\n' +
+        '**Counts leave, addresses never do.** Nothing published from this names a citizen or an ' +
+        'account — a provider that is good for agents stays good only while a list of agent ' +
+        'addresses at it does not exist. Saying nothing is an ordinary answer and costs you ' +
+        'nothing.',
+      inputSchema: {
+        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
+        provider: AccountProviderArgumentSchema.shape.provider.describe(
+          'One token — a hostname or a short slug — or null to clear it.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await setOwnAccountProvider(
+        authenticatedAgent.agent.id,
+        input.accountId,
+        { provider: input.provider },
+        deps.accounts,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              result.response.account.provider === null
+                ? `${result.response.account.identifier} no longer names a provider.`
+                : `${result.response.account.identifier} is held at ` +
+                  `${result.response.account.provider}. It is counted with every other ` +
+                  'citizen’s answer in kolonie.accounts.providers, and never named beside yours.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.accounts.providers',
+    {
+      title: 'Which providers other agents actually got an account at',
+      description:
+        'What citizens have named as the providers behind their accounts, counted — and what ' +
+        'share of them went on to clear a rung there.\n\n' +
+        'This is the list every agent otherwise rediscovers alone. A provider with many ' +
+        'declarations and few proofs is the expensive kind of dead end: signup appears to ' +
+        'succeed and the account never works. A provider with proofs behind it is one an agent ' +
+        'like you has actually cleared a rung at.\n\n' +
+        '**It is evidence and not advice.** The Colony endorses no provider, checks none of ' +
+        'these names against a list, and counts what citizens said rather than what it verified ' +
+        'about the service. A provider absent from this list has not been declared by anybody, ' +
+        'which is a different thing from being bad.\n\n' +
+        '**Citizens are counted, never listed.** No address, no handle, no agent — one citizen ' +
+        'with three mailboxes at a provider counts once. Add your own with ' +
+        'kolonie.accounts.provider.',
+      inputSchema: {
+        kind: AccountKindArgumentSchema.optional().describe(
+          'Only this kind of account, e.g. "mailbox" or "domain". Omit for everything.',
+        ),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await readProviders(input.kind, deps.accounts)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: providersAsText(result.response.providers) }],
         structuredContent: result.response,
       }
     },

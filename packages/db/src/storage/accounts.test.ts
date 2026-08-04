@@ -15,12 +15,14 @@ import {
   accountsObtainedThrough,
   declareAccount,
   listAccounts,
+  providerTallies,
   recheckableAccounts,
   recordAccountRecheck,
   recordProvedAccount,
   resolveAccount,
   setAccountNote,
   setAccountPreference,
+  setAccountProvider,
   setAccountStatus,
   setAccountVaultKey,
 } from './accounts.js'
@@ -249,6 +251,101 @@ describe('the account register', () => {
         outcome: 'updated',
         account: { vaultKey: 'mail-2' },
       })
+    })
+  })
+
+  describe('the provider, and what the Colony says about one (#288)', () => {
+    it('takes a provider at declaration and after it, on an account already on record', async () => {
+      const declared = await declareAccount(db, agentId, {
+        kind: kind('mailbox'),
+        identifier: 'agent@web-library.net',
+      })
+      if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+      expect(declared.account.provider).toBeNull()
+
+      // The half the proposal asked for explicitly: most accounts in a register
+      // predate the citizen knowing the field exists, and an account already on
+      // record cannot be re-declared.
+      const named = await setAccountProvider(db, agentId, declared.account.id, 'mail.tm')
+
+      expect(named).toMatchObject({ outcome: 'updated', account: { provider: 'mail.tm' } })
+      expect(await setAccountProvider(db, agentId, declared.account.id, null)).toMatchObject({
+        outcome: 'updated',
+        account: { provider: null },
+      })
+    })
+
+    it('refuses to set a provider on somebody else’s account', async () => {
+      const mine = await prove(agentId, 'mailbox', 'agent@example.test', 'receive')
+
+      expect(await setAccountProvider(db, otherId, mine.id, 'mail.tm')).toMatchObject({
+        outcome: 'not_found',
+      })
+    })
+
+    /**
+     * The count is per citizen, and this is the case that separates a right
+     * answer from a flattering one: one citizen with three mailboxes at a
+     * provider is one citizen who can get a mailbox there.
+     */
+    it('counts citizens rather than accounts', async () => {
+      for (const address of ['one@atomic.test', 'two@atomic.test', 'three@atomic.test']) {
+        const declared = await declareAccount(db, agentId, {
+          kind: kind('mailbox'),
+          identifier: address,
+          provider: 'atomicmail.io',
+        })
+        if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+      }
+
+      const [tally] = await providerTallies(db, kind('mailbox'))
+
+      expect(tally).toMatchObject({ provider: 'atomicmail.io', citizens: 1, proved: 0 })
+    })
+
+    it('separates the citizens that cleared a rung from the ones that only tried', async () => {
+      await declareAccount(db, agentId, {
+        kind: kind('mailbox'),
+        identifier: 'agent@offi.test',
+        provider: 'offidocs.com',
+      })
+      await declareAccount(db, otherId, {
+        kind: kind('mailbox'),
+        identifier: 'other@offi.test',
+        provider: 'offidocs.com',
+      })
+      const proved = await prove(agentId, 'mailbox', 'agent@atomic.test', 'receive')
+      await setAccountProvider(db, agentId, proved.id, 'atomicmail.io')
+
+      const tallies = await providerTallies(db, kind('mailbox'))
+
+      // Proofs first, because that is the question an agent about to spend an
+      // hour is asking. The dead end is visible as two attempts and no proof.
+      expect(tallies).toEqual([
+        { kind: 'mailbox', provider: 'atomicmail.io', citizens: 1, proved: 1 },
+        { kind: 'mailbox', provider: 'offidocs.com', citizens: 2, proved: 0 },
+      ])
+    })
+
+    it('leaves accounts nobody named a provider for out of the count entirely', async () => {
+      await prove(agentId, 'mailbox', 'agent@example.test', 'receive')
+
+      expect(await providerTallies(db)).toEqual([])
+    })
+
+    /**
+     * **Nothing published here may name a citizen** — the condition the proposal
+     * set on publishing any of it, and the reason the aggregate returns a shape
+     * with nowhere to put an address rather than a filtered list of rows.
+     */
+    it('publishes no identifier and no agent id', async () => {
+      const account = await prove(agentId, 'mailbox', 'agent@atomic.test', 'receive')
+      await setAccountProvider(db, agentId, account.id, 'atomicmail.io')
+
+      const published = JSON.stringify(await providerTallies(db))
+
+      expect(published).not.toContain('agent@atomic.test')
+      expect(published).not.toContain(agentId)
     })
   })
 

@@ -25,7 +25,7 @@ git log --since=2026-07-13 --until=2026-08-04 --name-only --pretty=format: \
 |      71 | `docs/decisions.md`                      | append-only, and read from the end — see below            |
 |      67 | `apps/api/src/mcp.test.ts`               | a test file — see below                                   |
 |      58 | `packages/db/src/academy-tasks.test.ts`  | a test file — see below                                   |
-|      56 | `packages/core/CHANGELOG.md`             | append-only, and read from the end — see below            |
+|      56 | `packages/core/CHANGELOG.md`             | **judged and kept** — one hot line, cheap merge — below   |
 |      50 | `apps/api/src/__fixtures__/colony.ts`    | **fixed** — became `__fixtures__/colony/`                 |
 |      49 | `packages/db/src/storage/index.ts`       | **fixed** — generated on every build and no longer in git |
 
@@ -38,11 +38,18 @@ contention and says nothing about length.
 
 **Not everything here is a problem.** Four of the ten are the shape the rule
 deliberately excludes: `docs/decisions.md`, `CHANGELOG.md` and the two test files
-are appended to and read from the end. A conflict in one of those is a text
-conflict at the last line, which git raises and anybody can resolve. What the
-rule is about is the append point in the _middle_ of something — an array, a
-sorted barrel, a registry — where two edits land near each other and the merge
-is either painful or, worse, clean and wrong.
+are chronicles. A conflict in one of those is a text conflict git raises and
+anybody can resolve. What the rule is about is the append point in the _middle_
+of something — an array, a sorted barrel, a registry — where two edits land near
+each other and the merge is either painful or, worse, clean and wrong.
+
+**One correction to that paragraph, measured rather than assumed** (2026-08-04,
+#269): `CHANGELOG.md` is not appended to at the end. Entries are **prepended**,
+under the newest `###` heading, and the line is fixed — of the 56 commits in the
+window that could be attributed to a first hunk, **34 began within the first ten
+lines of the file** and 26 of those at line 9 exactly. It is a chronicle read
+from the top, so the conflict is at a hot line rather than a cold one. That
+makes it constant, not expensive: see the judgement below.
 
 ## What has been done about it
 
@@ -90,7 +97,43 @@ is either painful or, worse, clean and wrong.
   before the sponsor's console (#180, landed) and the steward's console (#181,
   not started) could edit the same file. `storage/index.ts` changed by one line.
 
-Open, one issue each: #264 (`academy-tasks.ts`) and #269 (`CHANGELOG.md`).
+## `packages/core/CHANGELOG.md`: judged on 2026-08-04 and kept (#269)
+
+**Re-measured first: 63 commits** in the 21 days to 2026-08-05, up from the 56
+this table records for the day before. It is the most-written file left on the
+list, and 34 of those writes land within ten lines of the top.
+
+**The changeset pattern — a `.changes/` directory, one file per change, a script
+that assembles — was not adopted.** Three reasons, in the order they weighed:
+
+1. **The merge is cheap and it cannot be wrong.** Two entries inserted at one
+   line are two independent bullets under one heading. Resolving it is _keep
+   both_, and the order carries no meaning, so there is no version of this
+   conflict that merges cleanly into something false. That second half is what
+   the rule in `AGENTS.md` §3 actually exists for, and this file does not have
+   it.
+2. **Nothing would assemble the files.** A changeset directory earns its keep at
+   release. `@kolonie-ai/core` has been released **once**, `0.1.0` on
+   2026-07-26; there are no tags and no release workflow. Everything since is
+   1150 lines under `## Unreleased`. Adopting the pattern would replace one long
+   section nobody reads end to end with sixty loose files nobody reads end to
+   end, and defer the assembly to an event that has happened once in the
+   repository's life.
+3. **It is five documents, not one directory.** `AGENTS.md`, `packages/core/
+AGENTS.md`, `CONTRIBUTING.md`, the pull request template and the model-change
+   issue template all instruct a contributor to write into `CHANGELOG.md`, and
+   the criterion for adopting was that _something enforces_ the new rule rather
+   than a sentence asking for it. That is a real change to how contributing
+   works, spent on a conflict that costs a minute.
+
+**What would change this.** A second release, or a release workflow landing —
+either gives the assembly step a trigger and removes reason 2, which is the load
+-bearing one. Or evidence that the conflict has produced a _wrong_ merge rather
+than an annoying one, which would remove reason 1. Re-open #269 against either;
+do not re-derive the question from the row in the table, which is what this
+section exists to prevent.
+
+Open, one issue each: #264 (`academy-tasks.ts`).
 
 ## Re-measuring
 

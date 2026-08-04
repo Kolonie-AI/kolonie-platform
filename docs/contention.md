@@ -52,9 +52,15 @@ is either painful or, worse, clean and wrong.
 - `_journal.json` cannot stop being one append point — drizzle decides its
   format — so it is guarded instead: `packages/db/src/journal.test.ts` refuses
   the four ways a merge of it goes wrong (#262).
+- `packages/db/src/storage/quests.ts` became `packages/db/src/storage/quests/`
+  on 2026-08-04 (#263), split into `write.ts`, `read.ts` and `steward.ts` over
+  a `shared.ts`, with its own `index.ts`. It was never on the table above — it
+  is four days old — and that is the point of doing it now: the split was made
+  before the sponsor's console (#180, landed) and the steward's console (#181,
+  not started) could edit the same file. `storage/index.ts` changed by one line.
 
-Open, one issue each: #264 (`academy-tasks.ts`), #263 (`quests.ts`), #269
-(`CHANGELOG.md`), #270 (`colony.ts`), #271 (`storage/index.ts`).
+Open, one issue each: #264 (`academy-tasks.ts`), #269 (`CHANGELOG.md`), #270
+(`colony.ts`), #271 (`storage/index.ts`).
 
 ## Re-measuring
 

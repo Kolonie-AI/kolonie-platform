@@ -49,7 +49,7 @@ import {
   refuseQuest,
   submitQuestForReview,
   updateQuestDraft,
-} from './quests.js'
+} from './quests/index.js'
 
 const target = databaseTestTarget()
 

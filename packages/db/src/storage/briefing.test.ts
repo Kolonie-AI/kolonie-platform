@@ -759,7 +759,21 @@ describe('the Colony’s write-up of a task', () => {
        * left the reader with an empty foreground and the synthesis paid for.
        */
       it('leaves the claims alone when the synthesis has run since the revision', async () => {
-        await reviseTaskText(new Date().toISOString())
+        // **A stated moment, not `new Date()`, and the difference is the whole
+        // reliability of this test.** `writeBriefing` stamps `writtenAt` from the
+        // clock when it is called, so what has to hold is that the revision is
+        // strictly earlier — and `demotionLine` compares whole milliseconds with
+        // `>`, deliberately, so that a synthesis starting in the same millisecond
+        // as a revision counts as having read the old text.
+        //
+        // Writing the revision as *now* left one round trip to the database to
+        // separate the two, and that is not a unit of time you can count on:
+        // measured on 2026-08-04 against a server with durability relaxed
+        // (`#283`), 20 of 40 round trips completed inside the same millisecond.
+        // The test then demoted the claim and failed for a reason with nothing to
+        // do with the rule it is about — which is what it did on CI in `812f7ad`
+        // while passing twelve times in a row locally.
+        await reviseTaskText(daysAgo(1))
 
         // Written after the revision, from reports that all predate it — which
         // is exactly the shape the citizen measured.

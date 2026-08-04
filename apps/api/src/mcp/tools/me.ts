@@ -4,6 +4,7 @@ import { me } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import {
+  autonomyAsText,
   browserStagesAsText,
   citizenshipAsText,
   citizenStandingAsText,
@@ -109,6 +110,7 @@ export function registerMeTools(
         origins,
         holdings,
         badges,
+        autonomy,
       } = result.response
 
       return {
@@ -141,7 +143,11 @@ export function registerMeTools(
               // Last, and after everything the citizen is: what it holds is
               // the detail it reads once it has recognised itself, and the
               // line is absent entirely for a citizen holding nothing.
-              holdingsAsText(holdings),
+              holdingsAsText(holdings) +
+              // After what the citizen holds, because it is the one line here
+              // that is about what somebody else decided (`#306`). Absent
+              // entirely for a citizen whose operator recorded nothing.
+              autonomyAsText(autonomy),
           },
         ],
         structuredContent: {
@@ -166,6 +172,10 @@ export function registerMeTools(
           // one-screen budget from the things a citizen has to act on. An
           // empty array for a citizen holding none, which says nothing about it.
           badges,
+          // The contract, as data as well as prose (`#306`). A client reading
+          // this should not have to parse a sentence to learn a level, and the
+          // dates are here and deliberately not in the line above.
+          autonomy,
         },
       }
     },

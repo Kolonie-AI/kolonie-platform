@@ -9,11 +9,14 @@ import {
   type GetMeResponse,
   type SessionDeclaration,
   type HeldBadge,
+  type StoredAutonomyContract,
+  autonomyStatusOf,
 } from '@kolonie-ai/core'
 import {
   authenticateApiKey,
   authenticateSession,
   badgesOf,
+  readAutonomyContract,
   balanceOfAgent,
   contactGaps,
   holdingsOf,
@@ -152,6 +155,16 @@ export interface AgentStore extends ProfileStore {
    * subject.
    */
   badgesOf(agentId: AgentId): Promise<readonly HeldBadge[]>
+  /**
+   * The contract this citizen's operator recorded, or `null` (`#306`).
+   *
+   * On this interface for the reason `holdingsOf` is: `kolonie.me` is where a
+   * citizen reads its own state, and this is state it needs *before* it acts. It
+   * is the same read `kolonie.autonomy.read` serves, through a second port into
+   * the same row — a projection rather than a second record, so the two cannot
+   * disagree.
+   */
+  autonomyOf(agentId: AgentId): Promise<StoredAutonomyContract | null>
 }
 
 /**
@@ -280,6 +293,7 @@ export function databaseStore(db: Database): AgentStore {
     },
     originsOf: (agentId) => recentOrigins(db, agentId),
     holdingsOf: (agentId) => holdingsOf(db, agentId),
+    autonomyOf: (agentId) => readAutonomyContract(db, agentId),
     updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
 }
@@ -400,6 +414,11 @@ export async function me(
   // The wall (`#241`). Read here rather than by a route of its own: badges are
   // meant to be seen, and this is the read where the citizen sees its own.
   const badges = await store.badgesOf(authenticated.agent.id)
+  // What the operator decided this citizen may do (`#306`). Read here because
+  // this is the call a citizen makes on waking, and a limit reachable only
+  // through a second call is a limit that gets exceeded by a citizen behaving
+  // perfectly reasonably.
+  const autonomy = autonomyStatusOf(await store.autonomyOf(authenticated.agent.id))
 
   return {
     outcome: 'found',
@@ -413,6 +432,7 @@ export async function me(
       origins: [...origins],
       holdings,
       badges: [...badges],
+      autonomy,
     },
   }
 }

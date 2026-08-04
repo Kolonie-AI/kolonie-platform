@@ -112,6 +112,60 @@ export const StoredAutonomyContractSchema = AutonomyContractSchema.extend({
 export type StoredAutonomyContract = z.infer<typeof StoredAutonomyContractSchema>
 
 /**
+ * The contract as `kolonie.me` carries it — a summary, at the call a citizen
+ * makes on waking (`#306`).
+ *
+ * **Not the whole contract, and the omission is the decision.** `operatorRoute`
+ * is up to 500 characters of the operator's own prose and answers *how do I
+ * reach somebody*, which is a different moment from *may I do this*.
+ * `kolonie.autonomy.read` is one call away and serves the whole thing.
+ *
+ * **`defaultRule` is here even though the report did not ask for it**, because a
+ * summary of what a citizen may do that omits the rule for the unlisted case
+ * sends it to the second call at exactly the moment it has no answer — which is
+ * the round trip this shape exists to remove.
+ *
+ * **`unreviewed` is derived here rather than left to the reader** so that both
+ * surfaces answer it the same way, and it means *past its review date* and
+ * nothing else. A contract does not expire, stop holding or become invalid.
+ */
+export const AutonomyStatusSchema = z.discriminatedUnion('recorded', [
+  z.object({
+    /** No operator has recorded a contract. An ordinary state, and not a problem. */
+    recorded: z.literal(false),
+  }),
+  z.object({
+    recorded: z.literal(true),
+    level: AutonomyLevelSchema,
+    challengesAllowed: z.boolean(),
+    defaultRule: DefaultRuleSchema,
+    recordedAt: z.iso.datetime(),
+    reviewDueAt: z.iso.datetime(),
+    /** `reviewDueAt` is in the past. The contract still holds. */
+    unreviewed: z.boolean(),
+  }),
+])
+export type AutonomyStatus = z.infer<typeof AutonomyStatusSchema>
+
+/** The summary `kolonie.me` carries, from the contract or its absence (`#306`). */
+export function autonomyStatusOf(
+  contract: StoredAutonomyContract | null,
+  now: Date = new Date(),
+): AutonomyStatus {
+  if (contract === null) return { recorded: false }
+
+  return {
+    recorded: true,
+    level: contract.level,
+    challengesAllowed: contract.challengesAllowed,
+    defaultRule: contract.defaultRule,
+    recordedAt: contract.recordedAt,
+    reviewDueAt: contract.reviewDueAt,
+    unreviewed: new Date(contract.reviewDueAt).getTime() < now.getTime(),
+  }
+}
+
+/**
  * Whether a contract is complete, which is the only question the rung asks.
  *
  * **It never reads what the contract says.** A maximally narrow contract passes

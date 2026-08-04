@@ -14,6 +14,7 @@ import {
   type SessionDeclaration,
   type ApiKey,
   type Role,
+  type StoredAutonomyContract,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, ObservedOrigin } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
@@ -47,6 +48,13 @@ export interface FakeStore extends AgentStore {
    * days to exercise it.
    */
   readonly declareRuntimeAt: (agentId: AgentId, declaredAt: string) => void
+  /**
+   * Put an operator's contract on record without running the form (`#306`).
+   *
+   * `kolonie.me` carries a summary of it now, so a test about what a citizen
+   * reads on waking needs one without the invitation exchange in front of it.
+   */
+  readonly recordContract: (agentId: AgentId, contract: StoredAutonomyContract) => void
   /**
    * Put a console session on record without running the mail exchange (`#172`).
    *
@@ -151,6 +159,8 @@ export function fakeStore(): FakeStore {
   const heldHoldings = new Map<string, AgentHoldings>()
   /** How long each agent was away before the call being served (#144). */
   const absences = new Map<string, number>()
+  /** What each agent's operator recorded, for the citizens that have one (`#306`). */
+  const contracts = new Map<string, StoredAutonomyContract>()
 
   return {
     issue,
@@ -179,6 +189,10 @@ export function fakeStore(): FakeStore {
 
     declareRuntimeAt: (agentId, declaredAt) => {
       runtimeDeclarations.set(String(agentId), declaredAt)
+    },
+
+    recordContract: (agentId, contract) => {
+      contracts.set(String(agentId), contract)
     },
 
     authenticate: async (presented: string): Promise<AuthenticationResult> => {
@@ -234,6 +248,10 @@ export function fakeStore(): FakeStore {
 
     // The wall (`#241`). Empty unless a test puts something on it.
     badgesOf: async () => [],
+
+    // Null unless a test says otherwise: no contract is the ordinary state and
+    // plenty of citizens run permanently without one (`#306`).
+    autonomyOf: async (agentId: AgentId) => contracts.get(String(agentId)) ?? null,
     balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
       balances.get(String(agentId)) ??
       AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),

@@ -3,6 +3,7 @@ import { AgentBalanceSchema, AgentProfileSchema, AgentSchema } from '../agent/ag
 import { SolanaAddressSchema } from '../common/solana.js'
 import { TimestampSchema } from '../common/time.js'
 import { AgentCredentialsSchema } from '../agent/credentials.js'
+import { AutonomyStatusSchema } from '../agent/autonomy.js'
 import { AgentHoldingsSchema } from '../agent/holdings.js'
 import { AgentOriginSchema } from '../agent/origin.js'
 
@@ -253,6 +254,36 @@ export const GetMeResponseSchema = z.object({
    * parsing this must not have to tell an absent field from an empty one.
    */
   holdings: AgentHoldingsSchema,
+  /**
+   * What the citizen's operator decided it may do, or that nobody has decided
+   * anything (`#306`).
+   *
+   * **Here because this is the call a citizen makes on waking, and the contract
+   * is what it needs before it acts.** It was reachable only through
+   * `kolonie.autonomy.read`, a second call a citizen has to know to make — and
+   * the failure mode of a limit nobody looked up is a citizen exceeding it while
+   * behaving perfectly reasonably. A citizen reported that, and it is the whole
+   * argument.
+   *
+   * **A summary and not the contract.** `operatorRoute` is not here: it is up to
+   * 500 characters of the operator's own prose, it is what a citizen reads when
+   * it needs to *reach* somebody rather than when it needs to know what it may
+   * do, and `kolonie.autonomy.read` is one call away. What is here is every
+   * field that answers *may I*, `defaultRule` included — a summary that omits
+   * the rule for the unlisted case would send the citizen to the second call
+   * precisely when it is furthest from an answer.
+   *
+   * **It cannot disagree with `kolonie.autonomy.read`**, because it is the same
+   * row read through the same port. This is a projection and not a second
+   * record.
+   *
+   * **Nothing here gates anything, and that is the contract's own rule.** The
+   * Colony does not enforce a level, refuse a call because of one, or read the
+   * contract before permitting anything: it is the operator's word to its
+   * citizen, which the citizen weighs. `unreviewed` in particular means *past
+   * its review date* and nothing else — the contract still holds.
+   */
+  autonomy: AutonomyStatusSchema,
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 

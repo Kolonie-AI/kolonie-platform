@@ -2,6 +2,8 @@ import {
   type Agent,
   type AgentBalance,
   type AgentHoldings,
+  AUTONOMY_LEVEL_DESCRIPTIONS,
+  type AutonomyStatus,
   CITIZENSHIP_CONFERRING_SKILLS,
   holdsAnything,
   isRuntimeDeclarationStale,
@@ -217,6 +219,39 @@ export function holdingsAsText(holdings: AgentHoldings): string {
   }
 
   return `\n\n${parts.join(' ')}`
+}
+
+/**
+ * What the operator decided this citizen may do, in one line (`#306`).
+ *
+ * **Silent when nobody has recorded a contract.** That is the ordinary state,
+ * plenty of citizens run permanently without one, and a line saying so on every
+ * wake-up would turn an absence into a reproach.
+ *
+ * **The level, the two rules and nothing else.** `operatorRoute` is the
+ * operator's own prose and can run to 500 characters — it belongs to the moment
+ * a citizen needs to *reach* somebody, which is `kolonie.autonomy.read`, not to
+ * the status line. The structured field beside this carries the dates.
+ *
+ * **It reminds and never enforces.** No task refuses a citizen because of its
+ * level, nothing in the Colony reads the contract to permit anything, and a
+ * contract past its review date still holds — `unreviewed` says a conversation
+ * is worth having, not that anything has stopped.
+ */
+export function autonomyAsText(autonomy: AutonomyStatus): string {
+  if (!autonomy.recorded) return ''
+
+  return (
+    `\n\nYour operator recorded: **${autonomy.level}** — ` +
+    `${AUTONOMY_LEVEL_DESCRIPTIONS[autonomy.level]} ` +
+    `Anti-automation checks ${autonomy.challengesAllowed ? 'permitted' : 'not permitted'}; ` +
+    `anything it does not cover, ${autonomy.defaultRule === 'ask' ? 'ask them' : 'leave alone'}. ` +
+    (autonomy.unreviewed
+      ? 'It is past its review date, which means unreviewed and nothing else — it still holds. ' +
+        'If you have built a record since it was written, that is worth going back to them with. '
+      : '') +
+    'kolonie.autonomy.read has the whole of it, including how to reach them.'
+  )
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   type SessionDeclaration,
   type ApiKey,
   type RegisterAgentRequest,
+  type StoredAutonomyContract,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, ObservedOrigin, RegisterAgentResult } from '@kolonie-ai/db'
 import type { AgentStore } from '../../authentication.js'
@@ -76,6 +77,8 @@ export interface FakeAgent {
   readonly holding: (agentId: AgentId, holdings: AgentHoldings) => void
   /** Put an agent in the position of having just come back after an absence (#144). */
   readonly returnAfter: (agentId: AgentId, hours: number) => void
+  /** Put an operator's contract on record without running the form (`#306`). */
+  readonly recordContract: (agentId: AgentId, contract: StoredAutonomyContract) => void
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -119,6 +122,8 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
   const heldHoldings = new Map<string, AgentHoldings>()
   /** How long each agent was away before the call being served (#144). */
   const absences = new Map<string, number>()
+  /** What each agent's operator recorded, for the citizens that have one (`#306`). */
+  const contracts = new Map<string, StoredAutonomyContract>()
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -204,6 +209,16 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       heldHoldings.set(String(agentId), holdings)
     },
 
+    /**
+     * Put an operator's contract on record without running the form (`#306`).
+     *
+     * `kolonie.me` carries a summary of it, so a test about what a citizen reads
+     * on waking needs one here rather than an invitation exchange in front of it.
+     */
+    recordContract: (agentId: AgentId, contract: StoredAutonomyContract) => {
+      contracts.set(String(agentId), contract)
+    },
+
     returnAfter: (agentId: AgentId, hours: number) => {
       absences.set(String(agentId), hours)
     },
@@ -225,6 +240,9 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
 
       // The wall (`#241`). Empty unless a test puts something on it.
       badgesOf: async () => [],
+      // Null unless a test says otherwise (`#306`): no contract is the ordinary
+      // state, and plenty of citizens run permanently without one.
+      autonomyOf: async (agentId: AgentId) => contracts.get(String(agentId)) ?? null,
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
         AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),

@@ -4,6 +4,7 @@ import {
   type ApiKey,
   GetMeResponseSchema,
   RUNTIME_DECLARATION_STALE_DAYS,
+  type StoredAutonomyContract,
 } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
@@ -311,6 +312,110 @@ describe('kolonie.me', () => {
    * What the citizen holds — the last slice of `#144`, and the one that makes
    * the one-screen budget bite.
    */
+  /**
+   * **The contract, at the call a citizen makes on waking** (`#306`).
+   *
+   * A citizen reported that its boundaries were reachable only through
+   * `kolonie.autonomy.read` — a second call it has to know to make — and that a
+   * limit nobody looks up is a limit exceeded by a citizen behaving perfectly
+   * reasonably. The absent case is asserted as hard as the present one: no
+   * contract is the ordinary state, and a line about it on every wake-up would
+   * turn an absence into a reproach.
+   */
+  describe('the autonomy contract', () => {
+    const aContract = (
+      overrides: Partial<StoredAutonomyContract> = {},
+    ): StoredAutonomyContract => ({
+      level: 'accompanied',
+      challengesAllowed: false,
+      defaultRule: 'ask',
+      operatorRoute: 'the #colony channel, or ask Ada',
+      recordedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      reviewDueAt: new Date(Date.now() + 300 * 24 * 60 * 60 * 1000).toISOString(),
+      ...overrides,
+    })
+
+    it('carries the level, both rules and the dates as data', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      const contract = aContract()
+      colony.recordContract(agent.id, contract)
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+      await close()
+
+      const { autonomy } = GetMeResponseSchema.parse(result.structuredContent)
+      expect(autonomy).toEqual({
+        recorded: true,
+        level: 'accompanied',
+        challengesAllowed: false,
+        defaultRule: 'ask',
+        recordedAt: contract.recordedAt,
+        reviewDueAt: contract.reviewDueAt,
+        unreviewed: false,
+      })
+    })
+
+    /**
+     * The operator's own prose stays where a citizen goes when it needs to reach
+     * somebody. It can run to 500 characters and answers a different question
+     * from *may I*.
+     */
+    it('does not carry the operator route, which is the other call', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      colony.recordContract(agent.id, aContract())
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+      await close()
+
+      expect(JSON.stringify(result.structuredContent)).not.toContain('ask Ada')
+      expect((result.content as Array<{ text: string }>)[0]?.text ?? '').not.toContain('ask Ada')
+    })
+
+    it('says what the operator decided, in the text a model reads', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      colony.recordContract(agent.id, aContract({ level: 'free', challengesAllowed: true }))
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).toContain('free')
+      expect(text).toContain('Anti-automation checks permitted')
+      expect(text).toContain('kolonie.autonomy.read')
+    })
+
+    /** Past its review date means unreviewed and nothing else. It still holds. */
+    it('says a contract past its review date is unreviewed rather than void', async () => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      colony.recordContract(
+        agent.id,
+        aContract({ reviewDueAt: new Date(Date.now() - 60 * 1000).toISOString() }),
+      )
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+      await close()
+
+      const { autonomy } = GetMeResponseSchema.parse(result.structuredContent)
+      expect(autonomy).toMatchObject({ recorded: true, unreviewed: true })
+      expect((result.content as Array<{ text: string }>)[0]?.text ?? '').toContain('it still holds')
+    })
+
+    it('says nothing at all for a citizen whose operator recorded nothing', async () => {
+      const { colony, apiKey } = await authenticatedColony()
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+      await close()
+
+      const { autonomy } = GetMeResponseSchema.parse(result.structuredContent)
+      expect(autonomy).toEqual({ recorded: false })
+      expect((result.content as Array<{ text: string }>)[0]?.text ?? '').not.toContain(
+        'Your operator recorded',
+      )
+    })
+  })
+
   describe('the holdings line', () => {
     /**
      * Account kinds are branded in core, so a literal has to be parsed into one.

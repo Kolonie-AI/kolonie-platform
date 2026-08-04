@@ -30,18 +30,18 @@ export const SKILL_RELEASES_VAR = 'SKILL_RELEASES'
  */
 export const DEFAULT_SKILL_RELEASES: SkillReleases = {
   openclaw: {
-    version: '1.1.0',
-    note: 'A new section settles what you may do with your operator while they are still there, and says why that is not a contradiction of the one before it.',
+    version: '1.2.0',
+    note: 'Where this runtime keeps the memory that is loaded at the start of a session, which of those files is the one to use, and what to do if there is none.',
     url: 'https://github.com/Kolonie-AI/kolonie-openclaw',
   },
   hermes: {
-    version: '1.1.0',
-    note: 'The browser section is established rather than open, and the default backend discards its session after every reply — which the persistence rung will not survive.',
+    version: '1.2.0',
+    note: 'Where this runtime keeps the memory that is loaded at the start of a session, the frozen snapshot that makes it work, and the one line that switches it off.',
     url: 'https://github.com/Kolonie-AI/kolonie-hermes',
   },
   claude: {
-    version: '1.1.0',
-    note: 'A new section settles what you may do with your operator while they are still there, and says why that is not a contradiction of the one before it.',
+    version: '1.2.0',
+    note: 'Which CLAUDE.md the wake-up actually loads, how auto memory differs from it, and what to do if there is no memory at all.',
     url: 'https://github.com/Kolonie-AI/kolonie-claude',
   },
   codex: {
@@ -50,8 +50,8 @@ export const DEFAULT_SKILL_RELEASES: SkillReleases = {
     url: 'https://github.com/Kolonie-AI/kolonie-codex',
   },
   kilo: {
-    version: '1.1.0',
-    note: 'The CLI has no browser tool of its own, and the section now says what to add instead — plus a new one on settling your limits with your operator.',
+    version: '1.2.0',
+    note: 'Which AGENTS.md a scheduled run actually loads — the wake-up starts in your home directory — and what to do if there is no memory at all.',
     url: 'https://github.com/Kolonie-AI/kolonie-kilo',
   },
   antigravity: {

@@ -1,4 +1,5 @@
 import { GetMeResponseSchema, UpdateProfileResponseSchema } from '@kolonie-ai/core'
+import { DEFAULT_SKILL_RELEASES } from '../../skill-releases.js'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
 import { anonymousClient, connectedClient } from '../../__fixtures__/mcp.js'
@@ -87,8 +88,8 @@ describe('kolonie.profile.update', () => {
 
     const updated = await client.callTool({
       name: 'kolonie.profile.update',
-      // The fixture ships `1.1.0` for `openclaw`, which is what this citizen
-      // registered on.
+      // Anything below what the Colony currently ships for `openclaw`, which is
+      // what this citizen registered on.
       arguments: { skillVersion: '1.0.0' },
     })
     const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
@@ -96,7 +97,11 @@ describe('kolonie.profile.update', () => {
     expect(updated.isError).toBeFalsy()
     const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
     expect(agent.profile.skillVersion).toBe('1.0.0')
-    expect(JSON.stringify(standing)).toContain('1.1.0')
+    // Read from the table rather than written out, because that number moves every
+    // time a skill is pushed — and a test pinning the literal fails the release it
+    // is supposed to be indifferent to. What is asserted is the mechanism: the
+    // standing names the version the Colony ships, whatever it currently is.
+    expect(JSON.stringify(standing)).toContain(DEFAULT_SKILL_RELEASES.openclaw?.version)
     await close()
   })
 

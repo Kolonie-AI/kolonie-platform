@@ -241,11 +241,19 @@ export const PERSISTENCE_INTERVAL_DAYS = 90
  *   capability, worth paying for, and required by nothing in the graph. That is
  *   the definition of a badge (D-031, one node over).
  *
+ * - `recheck` — the Colony writes to an address it already proved, months
+ *   later, and the citizen hands the code back (`#226`). Mechanically it is
+ *   `inbox` again, and it is a third value rather than a reused one because the
+ *   two answer different questions: `inbox` is *which address did this citizen
+ *   prove*, and a re-check row would corrupt that answer for every read that
+ *   asks it — the primary-address index, the grant the send badge reads, and
+ *   the register's own idea of when a mailbox was first proved.
+ *
  * It lives in core because three packages read it and none may import another:
- * the schema derives the database enum from it, storage keys the two flows on
- * it, and the verifiers ask which node a row belongs to.
+ * the schema derives the database enum from it, storage keys the flows on it,
+ * and the verifiers ask which node a row belongs to.
  */
-export const EmailChallengePurposeSchema = z.enum(['inbox', 'send'])
+export const EmailChallengePurposeSchema = z.enum(['inbox', 'send', 'recheck'])
 export type EmailChallengePurpose = z.infer<typeof EmailChallengePurposeSchema>
 
 /**

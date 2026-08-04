@@ -28,6 +28,7 @@ import {
   contactGaps,
   hasAutonomyContract,
   domainGrantOf,
+  latestRecheck,
   recheckableAccounts,
   openWebsiteTokens,
   verifiedSolanaAddress,
@@ -322,6 +323,50 @@ const verifiers = createVerifiers({
    * evidence and returns a verdict, and what marks the register is the
    * transaction that records that verdict.
    */
+  /**
+   * The mailbox strategy reads what the API left behind (`#226`).
+   *
+   * **Nothing here sends mail**, and that is the arrangement rather than a
+   * limitation: the check is started when the citizen wakes, by the process that
+   * holds the mailer, and this process reads the row and turns it into a
+   * verdict. A verifier reads the world and never writes to it.
+   */
+  mailboxRechecks: {
+    start: async (_agentId, account) => {
+      const latest = await latestRecheck(db, account.id)
+
+      if (latest === null) {
+        return {
+          outcome: 'open' as const,
+          address: account.identifier,
+          // Nothing has been opened yet, which happens when the badge is handed
+          // in before the citizen's next waking. The next wake-up opens it.
+          expiresAt: 'your next wake-up',
+        }
+      }
+
+      if (latest.answered) return { outcome: 'answered' as const, address: latest.recheck.address }
+
+      if (latest.recheck.deliveryFailure !== null) {
+        return {
+          outcome: 'undeliverable' as const,
+          reason: latest.recheck.deliveryFailure,
+          permanent: latest.recheck.deliveryFailurePermanent,
+        }
+      }
+
+      if (Date.parse(latest.recheck.expiresAt) <= Date.now()) {
+        return { outcome: 'window_closed' as const, address: latest.recheck.address }
+      }
+
+      return {
+        outcome: 'open' as const,
+        address: latest.recheck.address,
+        expiresAt: latest.recheck.expiresAt,
+      }
+    },
+    sendProved: (account) => account.capabilities.includes('send' as never),
+  },
   recheckableAccounts: {
     recheckable: (agentId, kinds) => recheckableAccounts(db, agentId, kinds),
   },

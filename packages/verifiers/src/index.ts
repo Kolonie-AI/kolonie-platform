@@ -39,8 +39,10 @@ import { DomainPersistenceVerifier, type DomainGrants } from './domain-persisten
 import {
   AccountPersistenceVerifier,
   domainRecheck,
+  mailboxRecheck,
   websiteRecheck,
   type AccountRecheck,
+  type MailboxRechecks,
   type RecheckableAccounts,
 } from './account-persistence.js'
 export { HeartbeatVerifier, type ContactHistory, type HeartbeatDependencies } from './heartbeat.js'
@@ -196,9 +198,11 @@ export {
 export {
   AccountPersistenceVerifier,
   domainRecheck,
+  mailboxRecheck,
   websiteRecheck,
   type AccountPersistenceDependencies,
   type AccountRecheck,
+  type MailboxRechecks,
   type RecheckableAccounts,
   type RecheckOutcome,
 } from './account-persistence.js'
@@ -529,6 +533,8 @@ export interface VerifierDependencies {
   readonly githubChallenges?: GithubChallenges
   /** Answers which nonces the Colony has issued to an agent for the website rung. */
   readonly websiteChallenges?: WebsiteChallenges
+  /** Reads the Colony's own record of a mailbox re-check in flight (`#226`). */
+  readonly mailboxRechecks?: MailboxRechecks
   /**
    * Reads a page the Colony was told about, for the `website` re-check (`#242`).
    *
@@ -850,6 +856,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
           challenges: deps.websiteChallenges,
         }),
       )
+    }
+
+    if (deps.mailboxRechecks !== undefined) {
+      checks.push(mailboxRecheck({ rechecks: deps.mailboxRechecks }))
     }
 
     if (checks.length > 0) {

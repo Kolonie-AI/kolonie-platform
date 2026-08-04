@@ -279,7 +279,24 @@ const app = buildApp({
   },
   // The digest (#200). Its own seam rather than a reader assembled at the call
   // site, so what a wake-up is told stays one query set with one owner.
-  wakeup: databaseWakeup(db),
+  wakeup: databaseWakeup(db, {
+    db,
+    log,
+    // The same mailer the mailbox rung and the console get, on the same three
+    // variables. Absent, a re-check is still opened and the citizen is still
+    // told — it simply has no code to read, which the log says loudly.
+    ...(process.env['CLOUDFLARE_ACCOUNT_ID'] &&
+    process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'] &&
+    process.env['ACADEMY_SENDER_ADDRESS']
+      ? {
+          mailer: cloudflareMailer({
+            accountId: process.env['CLOUDFLARE_ACCOUNT_ID'],
+            token: process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'],
+            sender: process.env['ACADEMY_SENDER_ADDRESS'],
+          }),
+        }
+      : {}),
+  }),
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same

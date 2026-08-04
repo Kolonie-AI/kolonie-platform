@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import {
+  AccountKindSchema,
   AgentIdSchema,
   SubmissionIdSchema,
   TaskIdSchema,
+  wakeupIsQuiet,
   WakeupResponseSchema,
 } from '@kolonie-ai/core'
 import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
@@ -127,5 +129,89 @@ describe('the wake-up digest', () => {
     const withoutAccount = await wakeup(agentId, {}, source, noContributions)
 
     expect(withoutAccount.response.contributions.unavailable).toBeNull()
+  })
+})
+
+/**
+ * The re-check's place in the digest (`#226`).
+ *
+ * Two properties, and both are about *when* a citizen learns something rather
+ * than whether: the check is started by the waking that reports it, and it is
+ * reported before anything else.
+ */
+describe('a due mailbox re-check', () => {
+  it('is started before the digest is read, so the waking that opens it says so', async () => {
+    const inner = fakeWakeup()
+    const order: string[] = []
+    const started = {
+      ...inner,
+      startDueRechecks: async () => {
+        order.push('started')
+      },
+      changes: async (agent: typeof agentId, since: string) => {
+        order.push('read')
+        return inner.changes(agent, since)
+      },
+    }
+
+    await wakeup(agentId, {}, started, noContributions)
+
+    expect(order).toEqual(['started', 'read'])
+  })
+
+  /**
+   * **First in the response**, ahead of tasks and verdicts. Everything else in a
+   * digest is news; this is the only entry with a deadline attached, and a
+   * returning citizen has to see its backlog before it picks up new work.
+   */
+  it('comes before tasks and verdicts in the response', async () => {
+    source.answersChanges({
+      accountRechecks: [
+        {
+          accountId: '44444444-4444-4444-8444-444444444444',
+          kind: AccountKindSchema.parse('mailbox'),
+          address: 'colette@example.test',
+          expiresAt: new Date().toISOString() as never,
+          wakeupsSince: 1,
+        },
+      ],
+    })
+
+    const { response } = await wakeup(agentId, {}, source, noContributions)
+
+    const fields = Object.keys(response)
+    expect(response.accountRechecks).toHaveLength(1)
+    expect(fields.indexOf('accountRechecks')).toBeLessThan(fields.indexOf('tasksAdded'))
+    expect(fields.indexOf('accountRechecks')).toBeLessThan(fields.indexOf('submissionVerdicts'))
+  })
+
+  /** A digest holding only a due re-check is not a quiet one. */
+  it('makes a digest that would otherwise be quiet loud', () => {
+    expect(
+      wakeupIsQuiet({
+        ...WakeupResponseSchema.parse({
+          since: new Date().toISOString(),
+          firstSession: false,
+          accountRechecks: [],
+          tasksAdded: [],
+          tasksRetired: [],
+          submissionVerdicts: [],
+          reportOutcomes: [],
+          ticketUpdates: [],
+          skillsGranted: [],
+          reputationDelta: 0,
+          contributions: { pullRequests: [], unavailable: null },
+        }),
+        accountRechecks: [
+          {
+            accountId: '44444444-4444-4444-8444-444444444444',
+            kind: AccountKindSchema.parse('mailbox'),
+            address: 'colette@example.test',
+            expiresAt: new Date().toISOString() as never,
+            wakeupsSince: 1,
+          },
+        ],
+      }),
+    ).toBe(false)
   })
 })

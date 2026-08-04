@@ -28,6 +28,22 @@ export type RecheckOutcome =
   | { readonly outcome: 'held'; readonly evidence: string }
   | { readonly outcome: 'gone'; readonly evidence: string }
   | { readonly outcome: 'unavailable'; readonly evidence: string }
+  /**
+   * The check has been started and the answer is not here yet (`#226`).
+   *
+   * **A fourth outcome, because one kind cannot be checked synchronously and the
+   * other can.** A domain re-check reads DNS and has an answer in a second; a
+   * mailbox re-check cannot be done by the Colony alone — it writes a token to
+   * the address and *the citizen has to come back and report it*. `held`, `gone`
+   * and `unavailable` all assume the answer is available now, and forcing a
+   * mailbox into one of them would mean either failing a citizen for not having
+   * answered a mail sent seconds ago, or passing it for a mailbox nobody read.
+   *
+   * It is not `unavailable` under another name: `unavailable` says the Colony
+   * could not establish anything and records nothing, while this says the check
+   * is *running* and has a window with a deadline in it.
+   */
+  | { readonly outcome: 'pending'; readonly evidence: string }
 
 /**
  * How one kind of account is re-checked.
@@ -174,6 +190,18 @@ export class AccountPersistenceVerifier implements Verifier {
      * the path that does not pay.
      */
     const marker = { accountId: candidate.id, kind: candidate.kind, attempt: submission.attempt }
+
+    if (found.outcome === 'pending') {
+      return {
+        status: 'pending',
+        evidence: `Check 3 (the account): ${found.evidence}`,
+        // No `recheck` key, for `unavailable`'s reason and a different one: the
+        // check has not answered, so there is nothing to record — and what marks
+        // the register when it does answer is the citizen reporting the code,
+        // not this verdict.
+        metadata: { ...marker, check: 'recheck', recheck: 'pending' },
+      }
+    }
 
     if (found.outcome === 'unavailable') {
       return {
@@ -353,6 +381,105 @@ export function websiteRecheck(deps: {
       return {
         outcome: 'held',
         evidence: `\`${account.identifier}\` serves a freshly issued token in a meta tag.`,
+      }
+    },
+  }
+}
+
+/** What the mailbox strategy needs from the Colony's own records (`#226`). */
+export interface MailboxRechecks {
+  /**
+   * Open the re-check for this account, or answer the one already open.
+   *
+   * Minting and mailing are the Colony writing to the outside world, so they
+   * live in the port rather than in the strategy: a verifier reads the world and
+   * never writes to it (AGENTS.md §3), and the one thing this check cannot avoid
+   * is that *somebody* has to send a mail. What the verifier does with the
+   * answer — and only that — is here.
+   */
+  start(
+    agentId: AgentId,
+    account: Account,
+  ): Promise<
+    | { readonly outcome: 'open'; readonly address: string; readonly expiresAt: string }
+    | { readonly outcome: 'answered'; readonly address: string }
+    | { readonly outcome: 'window_closed'; readonly address: string }
+    | { readonly outcome: 'undeliverable'; readonly reason: string; readonly permanent: boolean }
+  >
+  /** Whether `send` was proved for this account and is being re-proved too. */
+  sendProved(account: Account): boolean
+}
+
+/**
+ * The `mailbox` strategy — the address the Colony writes to still reaches the
+ * citizen (`#226`).
+ *
+ * **Both directions, and only what was proved.** Receiving is the token round
+ * trip, exactly as `email-inbox` does it. Sending is re-proved only when `send`
+ * is among the account's capabilities: a citizen that never proved sending is
+ * not failed for not doing it now, which is the defect D-031 found one node
+ * over and the reason the granting rung was split in the first place.
+ *
+ * **Silence is `unavailable`, never `gone`.** An unread mail and a dead mailbox
+ * look identical from here, and `gone` requires positive evidence — which for
+ * mail is a *permanent* delivery failure. A soft bounce, a full mailbox, a rate
+ * limit or a provider outage is the world being unreliable, and this package's
+ * rule is that the Colony being unable to reach something is not the citizen's
+ * failure.
+ */
+export function mailboxRecheck(deps: { readonly rechecks: MailboxRechecks }): AccountRecheck {
+  return {
+    kind: 'mailbox',
+
+    async recheck(agentId, account) {
+      const started = await deps.rechecks.start(agentId, account)
+
+      if (started.outcome === 'answered') {
+        const also = deps.rechecks.sendProved(account)
+
+        return {
+          outcome: 'held',
+          evidence:
+            `you read the code the Colony mailed to \`${started.address}\` and handed it back` +
+            (also
+              ? ', and the send capability recorded against it was re-proved with it.'
+              : '. Only receiving was re-checked, because only receiving was proved.'),
+        }
+      }
+
+      if (started.outcome === 'window_closed') {
+        return {
+          outcome: 'unavailable',
+          evidence:
+            `the Colony wrote to \`${started.address}\` and the window closed with no answer. ` +
+            'That is not read as the mailbox being gone — an unread mail and a dead mailbox look ' +
+            'identical from here, and only a permanent delivery failure is evidence. The check ' +
+            'will be offered again.',
+        }
+      }
+
+      if (started.outcome === 'undeliverable') {
+        return started.permanent
+          ? {
+              outcome: 'gone',
+              evidence: `the address rejected the Colony's mail permanently: ${started.reason}`,
+            }
+          : {
+              outcome: 'unavailable',
+              evidence:
+                `the Colony could not deliver to the address: ${started.reason} A soft bounce, a ` +
+                'full mailbox or a provider having a bad afternoon is not evidence about you.',
+            }
+      }
+
+      return {
+        outcome: 'pending',
+        evidence:
+          `a single-use code is on its way to \`${started.address}\`. Read it out of that ` +
+          'mailbox and hand it back with `kolonie.academy.email.code` — the same tool the rung ' +
+          `used — before ${started.expiresAt}. The window is measured from the rhythm you ` +
+          'declared, so it is long enough for you to wake up and answer. Nothing is spent by ' +
+          'this: the submission stays open until you answer or the window closes.',
       }
     },
   }

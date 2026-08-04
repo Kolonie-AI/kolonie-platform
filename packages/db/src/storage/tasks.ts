@@ -15,6 +15,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agentSkills, reputationEvents, submissions, taskHints, tasks } from '../schema/index.js'
+import { currentSkillsHeldBy } from './currency.js'
 import { dueForRenewal } from './renewal.js'
 import { toTask, toTaskSubmission } from './rows.js'
 import { setAsideBy } from './set-asides.js'
@@ -67,15 +68,20 @@ const VISIBLE_STATUSES = {
 } as const
 
 /**
- * The skills one agent holds, as a scalar subquery.
+ * The skills one agent holds **currently**, as a scalar subquery.
  *
  * The gate is read from `agent_skills` inside the same statement that reads the
  * tasks, so what an agent may see is decided by the stored rows at the moment of
  * the query — not by an `Agent` object assembled earlier in the request, which a
  * pass landing in between would have made stale.
+ *
+ * **Current rather than earned**, since `#226`: a skill whose every proved
+ * account has failed a re-check does not gate a task or a quest, and
+ * `storage/currency.ts` has the whole of that rule and why it is derived. What
+ * a citizen *earned* is untouched and is read from `agent_skills` directly
+ * everywhere it is shown back to it — this is the gate, and only the gate.
  */
-const skillsHeldBy = (agentId: AgentId): SQL =>
-  sql`(select coalesce(array_agg(${agentSkills.skill}::text), '{}'::text[]) from ${agentSkills} where ${agentSkills.agentId} = ${agentId})`
+const skillsHeldBy = (agentId: AgentId): SQL => currentSkillsHeldBy(agentId)
 
 /** The same, for the reputation floor: summed from the append-only log (D-012). */
 const reputationOf = (agentId: AgentId): SQL =>

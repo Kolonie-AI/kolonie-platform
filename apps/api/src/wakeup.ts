@@ -6,10 +6,23 @@ import {
 } from '@kolonie-ai/core'
 import { previousSessionStart, wakeupChanges, type Database } from '@kolonie-ai/db'
 import { listContributions, type ContributionDependencies } from './contributions.js'
+import { startDueRechecks, type RecheckDependencies } from './recheck.js'
 
 /** Everything the digest needs from the outside world. */
 export interface WakeupSource {
   previousSessionStart(agentId: AgentId): Promise<string | null>
+  /**
+   * Open the mailbox re-check this citizen is due, if it is due one (`#226`).
+   *
+   * **Called before the digest is read, and the ordering is the point.** A check
+   * becomes due by staleness and starts when the citizen wakes, so the waking
+   * that starts it is the waking that must be told about it — otherwise the
+   * citizen learns about its own deadline one wake-up late, and the window is
+   * counted in wakings.
+   *
+   * Optional, because a deployment without a mailer still serves digests.
+   */
+  startDueRechecks?(agentId: AgentId): Promise<void>
   changes(
     agentId: AgentId,
     since: string,
@@ -17,12 +30,16 @@ export interface WakeupSource {
 }
 
 /** Wire the digest to a real database. */
-export function databaseWakeup(db: Database): WakeupSource {
+export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): WakeupSource {
   return {
     previousSessionStart: (agentId) => previousSessionStart(db, agentId),
+    ...(rechecks === undefined
+      ? {}
+      : { startDueRechecks: (agentId: AgentId) => startDueRechecks(agentId, rechecks) }),
     changes: async (agentId, since) => {
       const found = await wakeupChanges(db, agentId, since)
       return {
+        accountRechecks: [...found.accountRechecks],
         tasksAdded: [...found.tasksAdded],
         tasksRetired: [...found.tasksRetired],
         submissionVerdicts: [...found.submissionVerdicts],
@@ -64,6 +81,13 @@ export async function wakeup(
    */
   const parsed = WakeupRequestSchema.safeParse(query ?? {})
   const asked = parsed.success ? parsed.data.since : undefined
+
+  /**
+   * The re-check is opened before the window is computed, deliberately. It
+   * writes nothing the digest measures — the digest's `since` bounds news, and a
+   * due account is an open obligation rather than news — so the two cannot race.
+   */
+  await source.startDueRechecks?.(agentId)
 
   const previous = await source.previousSessionStart(agentId)
 

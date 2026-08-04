@@ -1,5 +1,15 @@
 import { sql, type SQL, type SQLWrapper } from 'drizzle-orm'
-import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  check,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
+import { accounts } from './accounts.js'
 import { agents } from './agents.js'
 import { emailChallengePurpose } from './enums.js'
 
@@ -165,6 +175,44 @@ export const emailChallenges = pgTable(
     agentId: uuid('agent_id')
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
+
+    /**
+     * Which registered account this row re-checks, on a `recheck` row (`#226`).
+     *
+     * **Null on every other purpose, and that is the whole of its meaning.** A
+     * granting challenge is how an account comes to exist, so there is nothing
+     * for it to point at; a re-check is always *about* a row in the register,
+     * and matching the two by address afterwards would mean re-deriving the link
+     * from a string every read — the mailbox-identity rule, the +tag folding and
+     * the case rules — where a column has it exactly.
+     *
+     * `cascade`, like the agent above it: the register row going away takes the
+     * proof events about it, and erasure takes everything.
+     *
+     * **The two check constraints below test this column rather than naming the
+     * `recheck` purpose**, and that is not a stylistic choice. Postgres refuses
+     * to use a newly added enum value in the transaction that added it, and the
+     * migrator runs every pending migration in one — so a constraint quoting the
+     * literal cannot ship in the same release that introduces it. Testing *does
+     * this row name an account* says the same thing about the same rows and does
+     * not touch the enum at all.
+     */
+    accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'cascade' }),
+
+    /**
+     * Why the Colony's mail did not leave, on a re-check the mailer refused.
+     *
+     * **Recorded because the difference between two failures is the whole
+     * verdict** (`#226`): a permanent rejection is positive evidence that the
+     * address is gone, and a soft bounce, a full mailbox or a provider outage is
+     * evidence about the world. The strategy that decides `gone` against
+     * `unavailable` runs in another process from the one holding the mailer, so
+     * the answer has to be written down rather than passed along.
+     */
+    deliveryFailure: text('delivery_failure'),
+
+    /** Whether that failure was the address refusing permanently. */
+    deliveryFailurePermanent: boolean('delivery_failure_permanent'),
 
     /**
      * The mailbox the agent claims, exactly as it typed it.
@@ -359,7 +407,7 @@ export const emailChallenges = pgTable(
      */
     check(
       'email_challenges_code_belongs_to_inbox',
-      sql`case when ${table.purpose} = 'inbox'
+      sql`case when ${table.purpose} = 'inbox' or ${table.accountId} is not null
             then ${table.sentAt} is null or ${table.code} is not null
             else ${table.code} is null and ${table.sentAt} is null
           end`,
@@ -380,7 +428,7 @@ export const emailChallenges = pgTable(
     check(
       'email_challenges_verdict_needs_its_evidence',
       sql`${table.verifiedAt} is null
-          or case when ${table.purpose} = 'inbox'
+          or case when ${table.purpose} = 'inbox' or ${table.accountId} is not null
                  then ${table.sentAt} is not null
                  else ${table.inboundAt} is not null
              end`,

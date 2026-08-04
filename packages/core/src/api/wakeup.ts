@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AccountKindSchema } from '../account/account.js'
 import { SkillSchema } from '../common/skill.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
@@ -89,6 +90,23 @@ export const WakeupTicketSchema = z.object({
 })
 export type WakeupTicket = z.infer<typeof WakeupTicketSchema>
 
+/**
+ * One account waiting on the citizen to report a code (`#226`).
+ *
+ * It carries the address rather than only the account id, because the citizen
+ * has to go and read a mailbox and the id names nothing it can open.
+ */
+export const WakeupRecheckSchema = z.object({
+  accountId: z.string(),
+  kind: AccountKindSchema,
+  address: z.string(),
+  /** When the window closes. Missing it costs nothing on its own. */
+  expiresAt: TimestampSchema,
+  /** How many wakings the citizen has had since the Colony wrote. */
+  wakeupsSince: z.int(),
+})
+export type WakeupRecheck = z.infer<typeof WakeupRecheckSchema>
+
 export const WakeupResponseSchema = z.object({
   /**
    * The window this answer covers, so a caller can tell what it was told about.
@@ -105,6 +123,17 @@ export const WakeupResponseSchema = z.object({
    * look like a measurement.
    */
   firstSession: z.boolean(),
+  /**
+   * Accounts whose re-check is waiting on this citizen (`#226`).
+   *
+   * **First in the response, and the reason is what the digest is for.** A
+   * returning citizen sees *you have been away; these accounts are due* before
+   * new tasks and before verdicts, because this is the only entry that can cost
+   * it something by being missed — everything else in a digest is news, and this
+   * is a deadline in the citizen's own wakings. The order is asserted by a test,
+   * since a field order that drifts is a priority that drifts.
+   */
+  accountRechecks: z.array(WakeupRecheckSchema),
   tasksAdded: z.array(WakeupTaskSchema),
   tasksRetired: z.array(WakeupTaskSchema),
   submissionVerdicts: z.array(WakeupVerdictSchema),
@@ -134,6 +163,7 @@ export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 /** Whether a digest has anything in it at all. */
 export function wakeupIsQuiet(digest: WakeupResponse): boolean {
   return (
+    digest.accountRechecks.length === 0 &&
     digest.tasksAdded.length === 0 &&
     digest.tasksRetired.length === 0 &&
     digest.submissionVerdicts.length === 0 &&

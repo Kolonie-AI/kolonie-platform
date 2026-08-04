@@ -556,6 +556,35 @@ describe('nothing decides on a session', () => {
      */
     'wakeup.ts',
     'wakeup.test.ts',
+    /**
+     * **`recheck.ts`, and it does branch on a session — deliberately** (`#226`).
+     *
+     * This is the first exemption that fails the test above's own standard, so
+     * it is argued rather than waved through. The mailbox re-check counts the
+     * citizen's wakings since the Colony wrote to it, and after three unanswered
+     * ones the account is recorded as unconfirmed — which lapses `current`. That
+     * is a decision, taken on sessions.
+     *
+     * **Why it has to be sessions.** The alternative is elapsed time, and
+     * elapsed time gets this exactly backwards: a citizen waking three times a
+     * day and ignoring the notice for a month has neglected it, and one waking
+     * twice a quarter has not. Wall-clock cannot tell those apart, and `#142`
+     * invited citizens to declare the slow rhythm it would then punish.
+     *
+     * **What a citizen can gain by influencing it, stated plainly.** Naming
+     * *more* sessions lapses it sooner, so the only useful direction is naming
+     * fewer — a citizen that never opens a new session defers the countdown
+     * indefinitely. That is bounded and it is visible: the account stays
+     * unconfirmed the whole time, `kolonie.accounts.list` says so, and
+     * `#227`'s activity axis is what lets a sponsor decline a citizen nobody has
+     * seen. What it cannot buy is a *confirmed* mailbox, which is the only thing
+     * the check certifies.
+     *
+     * If a future change makes anything here gate an entitlement rather than
+     * defer a lapse, this entry is where the argument has to be revisited.
+     */
+    'recheck.ts',
+    'recheck.test.ts',
   ])
 
   it('is referenced by no storage module that decides anything', async () => {

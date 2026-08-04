@@ -11,8 +11,10 @@ import {
 } from '@kolonie-ai/core'
 import {
   AccountPersistenceVerifier,
+  mailboxRecheck,
   websiteRecheck,
   type AccountRecheck,
+  type MailboxRechecks,
 } from './account-persistence.js'
 import type { PageReader } from './website-verify.js'
 
@@ -285,5 +287,126 @@ describe('websiteRecheck', () => {
     expect(result.status).toBe('fail')
     expect(result.metadata).toMatchObject({ recheck: 'gone', kind: 'website' })
     expect(result.evidence).toContain('the skill you earned with it is permanent')
+  })
+})
+
+/**
+ * The `mailbox` strategy (`#226`).
+ *
+ * The port is what the API left behind, so every state a mailbox re-check can be
+ * in is producible here without a mailer: waiting, answered, closed unanswered,
+ * and refused by the address.
+ */
+describe('mailboxRecheck', () => {
+  const proved = anAccount({
+    kind: AccountKindSchema.parse('mailbox'),
+    identifier: 'colette@example.test',
+  })
+
+  const strategyOver = (
+    start: MailboxRechecks['start'],
+    sendProved: MailboxRechecks['sendProved'] = () => false,
+  ) => mailboxRecheck({ rechecks: { start, sendProved } })
+
+  /**
+   * The fourth outcome, and the reason it exists: the Colony cannot answer this
+   * question by itself, so *the check is running* has to be sayable.
+   */
+  it('is pending while the citizen has not answered, and names the tool and the deadline', async () => {
+    const found = await strategyOver(async () => ({
+      outcome: 'open',
+      address: proved.identifier,
+      expiresAt: '2026-09-01T00:00:00.000Z',
+    })).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('pending')
+    expect(found.evidence).toContain('kolonie.academy.email.code')
+    expect(found.evidence).toContain('2026-09-01')
+  })
+
+  it('holds once the code has been handed back', async () => {
+    const found = await strategyOver(async () => ({
+      outcome: 'answered',
+      address: proved.identifier,
+    })).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('held')
+  })
+
+  /**
+   * Silence is the ambiguous case, and the whole model turns on refusing to
+   * read it as evidence: an unread mail and a dead mailbox look identical here.
+   */
+  it('is unavailable when the window closes unanswered, and never gone', async () => {
+    const found = await strategyOver(async () => ({
+      outcome: 'window_closed',
+      address: proved.identifier,
+    })).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('unavailable')
+    expect(found.evidence).toContain('not read as the mailbox being gone')
+  })
+
+  it('is gone only on a permanent delivery failure', async () => {
+    const found = await strategyOver(async () => ({
+      outcome: 'undeliverable',
+      reason: '550 5.1.1 no such user',
+      permanent: true,
+    })).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('gone')
+  })
+
+  it.each([
+    ['a soft bounce', '451 try again later'],
+    ['a full mailbox', '452 mailbox full'],
+    ['a provider error', '421 service unavailable'],
+  ])('is unavailable on %s', async (_case, reason) => {
+    const found = await strategyOver(async () => ({
+      outcome: 'undeliverable',
+      reason,
+      permanent: false,
+    })).recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('unavailable')
+  })
+
+  /**
+   * A citizen that never proved sending is not failed for not doing it now —
+   * the defect D-031 found one node over, and the reason the rung was split.
+   */
+  it('re-proves sending only where sending was proved', async () => {
+    const receiveOnly = await strategyOver(async () => ({
+      outcome: 'answered',
+      address: proved.identifier,
+    })).recheck(agent.id, proved)
+
+    const both = await strategyOver(
+      async () => ({ outcome: 'answered', address: proved.identifier }),
+      () => true,
+    ).recheck(agent.id, proved)
+
+    expect(receiveOnly.outcome).toBe('held')
+    expect(receiveOnly.evidence).toContain('Only receiving was re-checked')
+    expect(both.evidence).toContain('send capability')
+  })
+
+  /** A `pending` strategy leaves the submission open and spends no attempt. */
+  it('produces a pending verdict rather than a failure', async () => {
+    const verifier = new AccountPersistenceVerifier({
+      accounts: { recheckable: async () => [proved] },
+      checks: [
+        strategyOver(async () => ({
+          outcome: 'open',
+          address: proved.identifier,
+          expiresAt: '2026-09-01T00:00:00.000Z',
+        })),
+      ],
+    })
+
+    const result = await verifier.verify(submission, context)
+
+    expect(result.status).toBe('pending')
+    expect(result.metadata).toMatchObject({ recheck: 'pending', kind: 'mailbox' })
   })
 })

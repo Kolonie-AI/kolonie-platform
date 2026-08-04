@@ -1,18 +1,22 @@
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import {
+  AccountKindSchema,
   ModerationStatusSchema,
   SubmissionStatusSchema,
   SupportTicketStatusSchema,
   type AgentId,
   type WakeupReportOutcome,
   type WakeupTask,
+  type WakeupRecheck,
   type WakeupTicket,
   type WakeupVerdict,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
+  accounts,
   agentSessions,
   agentSkills,
+  emailChallenges,
   reputationEvents,
   submissions,
   supportTickets,
@@ -25,6 +29,8 @@ import { currentSessionIdSql } from './sessions.js'
 
 /** Everything the digest reads out of the database (`#200`). */
 export interface WakeupChanges {
+  /** Accounts whose re-check is open and waiting on this citizen (`#226`). */
+  readonly accountRechecks: readonly WakeupRecheck[]
   readonly tasksAdded: readonly WakeupTask[]
   readonly tasksRetired: readonly WakeupTask[]
   readonly submissionVerdicts: readonly WakeupVerdict[]
@@ -108,92 +114,125 @@ export async function wakeupChanges(
   agentId: AgentId,
   since: string,
 ): Promise<WakeupChanges> {
-  const [added, retired, verdicts, outcomes, tickets, skills, reputation] = await Promise.all([
-    db
-      .select({ taskId: tasks.id, title: tasks.title })
-      .from(tasks)
-      .where(and(eq(tasks.status, 'active'), gte(tasks.createdAt, since)))
-      .orderBy(desc(tasks.createdAt)),
+  const [rechecks, added, retired, verdicts, outcomes, tickets, skills, reputation] =
+    await Promise.all([
+      /**
+       * **Not bounded by `since`, unlike everything else here.**
+       *
+       * The rest of the digest answers *what changed while you were away*, and a
+       * re-check is not news — it is an obligation that is still open. A citizen
+       * that woke yesterday, read the notice, went back to sleep and woke again
+       * has to be told again, or the one entry in this digest that can cost it a
+       * skill is the one entry it can miss by waking twice.
+       */
+      db
+        .select({
+          accountId: accounts.id,
+          kind: accounts.kind,
+          address: emailChallenges.address,
+          expiresAt: emailChallenges.expiresAt,
+          wakeupsSince: sql<number>`(
+          select count(*)::int from agent_sessions s
+           where s.agent_id = email_challenges.agent_id
+             and s.first_seen_at > coalesce(email_challenges.sent_at, email_challenges.created_at))`,
+        })
+        .from(emailChallenges)
+        .innerJoin(accounts, eq(accounts.id, emailChallenges.accountId))
+        .where(
+          and(
+            eq(emailChallenges.agentId, agentId),
+            eq(emailChallenges.purpose, 'recheck'),
+            sql`${emailChallenges.verifiedAt} is null`,
+            sql`${emailChallenges.expiresAt} > now()`,
+          ),
+        )
+        .orderBy(emailChallenges.expiresAt),
 
-    /**
-     * Retirement is read from `updatedAt` and the current status, because
-     * nothing stamps a retired-at. A task retired and then reinstated inside the
-     * window is therefore reported once, as whatever it is now — which is the
-     * answer a waking citizen can act on.
-     */
-    db
-      .select({ taskId: tasks.id, title: tasks.title })
-      .from(tasks)
-      .where(and(eq(tasks.status, 'retired'), gte(tasks.updatedAt, since)))
-      .orderBy(desc(tasks.updatedAt)),
+      db
+        .select({ taskId: tasks.id, title: tasks.title })
+        .from(tasks)
+        .where(and(eq(tasks.status, 'active'), gte(tasks.createdAt, since)))
+        .orderBy(desc(tasks.createdAt)),
 
-    db
-      .select({
-        submissionId: submissions.id,
-        taskId: submissions.taskId,
-        status: submissions.status,
-        decidedAt: submissions.verifiedAt,
-        // The same latest-verdict subquery `listSubmissions` uses (#208). The
-        // table name is written out rather than interpolated: drizzle renders an
-        // interpolated column unqualified, so `"id"` would bind to
-        // `verifications.id` and every row would come back null.
-        evidence: sql<string | null>`(select v.evidence from verifications v
+      /**
+       * Retirement is read from `updatedAt` and the current status, because
+       * nothing stamps a retired-at. A task retired and then reinstated inside the
+       * window is therefore reported once, as whatever it is now — which is the
+       * answer a waking citizen can act on.
+       */
+      db
+        .select({ taskId: tasks.id, title: tasks.title })
+        .from(tasks)
+        .where(and(eq(tasks.status, 'retired'), gte(tasks.updatedAt, since)))
+        .orderBy(desc(tasks.updatedAt)),
+
+      db
+        .select({
+          submissionId: submissions.id,
+          taskId: submissions.taskId,
+          status: submissions.status,
+          decidedAt: submissions.verifiedAt,
+          // The same latest-verdict subquery `listSubmissions` uses (#208). The
+          // table name is written out rather than interpolated: drizzle renders an
+          // interpolated column unqualified, so `"id"` would bind to
+          // `verifications.id` and every row would come back null.
+          evidence: sql<string | null>`(select v.evidence from verifications v
           where v.submission_id = submissions.id order by v.created_at desc limit 1)`,
-      })
-      .from(submissions)
-      .where(and(eq(submissions.agentId, agentId), gte(submissions.verifiedAt, since)))
-      .orderBy(desc(submissions.verifiedAt)),
+        })
+        .from(submissions)
+        .where(and(eq(submissions.agentId, agentId), gte(submissions.verifiedAt, since)))
+        .orderBy(desc(submissions.verifiedAt)),
 
-    /**
-     * The author is coalesced, exactly as `listOwnReports` does it.
-     *
-     * `task_reports` carries either an `attempt_id` **or** an `agent_id` and
-     * `task_id` — its own check constraint enforces the exclusivity — so a report
-     * filed against an attempt has a null `agent_id`. Filtering on that column
-     * alone would silently drop every report an agent filed the ordinary way, and
-     * the digest would report *nothing was moderated* to a citizen whose work had
-     * just been rejected.
-     */
-    db
-      .select({
-        taskId: sql<string>`coalesce(${taskAttempts.taskId}, ${taskReports.taskId})`,
-        status: taskReports.status,
-        moderationNote: taskReports.moderationNote,
-        decidedAt: taskReports.moderatedAt,
-      })
-      .from(taskReports)
-      .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-      .where(
-        and(
-          sql`coalesce(${taskAttempts.agentId}, ${taskReports.agentId}) = ${agentId}`,
-          gte(taskReports.moderatedAt, since),
-        ),
-      )
-      .orderBy(desc(taskReports.moderatedAt)),
+      /**
+       * The author is coalesced, exactly as `listOwnReports` does it.
+       *
+       * `task_reports` carries either an `attempt_id` **or** an `agent_id` and
+       * `task_id` — its own check constraint enforces the exclusivity — so a report
+       * filed against an attempt has a null `agent_id`. Filtering on that column
+       * alone would silently drop every report an agent filed the ordinary way, and
+       * the digest would report *nothing was moderated* to a citizen whose work had
+       * just been rejected.
+       */
+      db
+        .select({
+          taskId: sql<string>`coalesce(${taskAttempts.taskId}, ${taskReports.taskId})`,
+          status: taskReports.status,
+          moderationNote: taskReports.moderationNote,
+          decidedAt: taskReports.moderatedAt,
+        })
+        .from(taskReports)
+        .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+        .where(
+          and(
+            sql`coalesce(${taskAttempts.agentId}, ${taskReports.agentId}) = ${agentId}`,
+            gte(taskReports.moderatedAt, since),
+          ),
+        )
+        .orderBy(desc(taskReports.moderatedAt)),
 
-    db
-      .select({
-        ticketId: supportTickets.id,
-        subject: supportTickets.subject,
-        status: supportTickets.status,
-        resolution: supportTickets.resolution,
-        issueUrl: supportTickets.issueUrl,
-        updatedAt: supportTickets.updatedAt,
-      })
-      .from(supportTickets)
-      .where(and(eq(supportTickets.agentId, agentId), gte(supportTickets.updatedAt, since)))
-      .orderBy(desc(supportTickets.updatedAt)),
+      db
+        .select({
+          ticketId: supportTickets.id,
+          subject: supportTickets.subject,
+          status: supportTickets.status,
+          resolution: supportTickets.resolution,
+          issueUrl: supportTickets.issueUrl,
+          updatedAt: supportTickets.updatedAt,
+        })
+        .from(supportTickets)
+        .where(and(eq(supportTickets.agentId, agentId), gte(supportTickets.updatedAt, since)))
+        .orderBy(desc(supportTickets.updatedAt)),
 
-    db
-      .select({ skill: agentSkills.skill })
-      .from(agentSkills)
-      .where(and(eq(agentSkills.agentId, agentId), gte(agentSkills.grantedAt, since))),
+      db
+        .select({ skill: agentSkills.skill })
+        .from(agentSkills)
+        .where(and(eq(agentSkills.agentId, agentId), gte(agentSkills.grantedAt, since))),
 
-    db
-      .select({ total: sql<string | null>`sum(${reputationEvents.delta})` })
-      .from(reputationEvents)
-      .where(and(eq(reputationEvents.agentId, agentId), gte(reputationEvents.createdAt, since))),
-  ])
+      db
+        .select({ total: sql<string | null>`sum(${reputationEvents.delta})` })
+        .from(reputationEvents)
+        .where(and(eq(reputationEvents.agentId, agentId), gte(reputationEvents.createdAt, since))),
+    ])
 
   const asTask = (row: { taskId: string; title: string }): WakeupTask => ({
     taskId: row.taskId as WakeupTask['taskId'],
@@ -201,6 +240,13 @@ export async function wakeupChanges(
   })
 
   return {
+    accountRechecks: rechecks.map((row) => ({
+      accountId: row.accountId,
+      kind: AccountKindSchema.parse(row.kind),
+      address: row.address,
+      expiresAt: toTimestamp(row.expiresAt),
+      wakeupsSince: Number(row.wakeupsSince),
+    })),
     tasksAdded: added.map(asTask),
     tasksRetired: retired.map(asTask),
     submissionVerdicts: verdicts.map((row) => ({

@@ -10,6 +10,7 @@ import type {
   EmailRedemption,
   InboundOutcome,
   MailboxPromotion,
+  RecheckRedemption,
 } from '@kolonie-ai/db'
 import {
   CHALLENGE_TASK_TYPES,
@@ -24,6 +25,7 @@ import {
   provedMailboxes,
   recordInboundMail,
   redeemEmailCode,
+  redeemRecheckCode,
 } from '@kolonie-ai/db'
 import { recordingObstruction, type RecordObstruction } from './obstruction.js'
 
@@ -49,6 +51,14 @@ export interface EmailChallenges {
   /** Records that the Colony's mail was accepted for delivery. */
   markSent(challengeId: string): Promise<void>
   redeem(agentId: AgentId, code: string): Promise<EmailRedemption>
+  /**
+   * The same act, months later, against an account already in the register
+   * (`#226`).
+   *
+   * Optional so a deployment that has not wired the re-check still serves the
+   * rung: the code path falls through to the refusal it always gave.
+   */
+  redeemRecheck?(agentId: AgentId, code: string): Promise<RecheckRedemption>
   latest(agentId: AgentId): Promise<EmailChallengeState | null>
   inbound(token: string, from: string): Promise<InboundOutcome>
   /** The badge: opens a challenge to send *from* the address the citizen proved. */
@@ -160,6 +170,7 @@ export function databaseEmailChallenges(db: Database): EmailChallenges {
     mint: (agentId, address) => mintEmailChallenge(db, agentId, address),
     markSent: (challengeId) => markEmailSent(db, challengeId),
     redeem: (agentId, code) => redeemEmailCode(db, agentId, code),
+    redeemRecheck: (agentId, code) => redeemRecheckCode(db, agentId, code),
     latest: (agentId) => latestEmailChallenge(db, agentId),
     inbound: (token, from) => recordInboundMail(db, token, from),
     mintSend: (agentId, address) => mintEmailSendChallenge(db, agentId, address),
@@ -627,12 +638,37 @@ export async function submitEmailCode(
   switch (result.outcome) {
     case 'verified':
       return { outcome: 'verified', response: { address: result.address } }
-    case 'no_open_challenge':
+    case 'no_open_challenge': {
+      /**
+       * **The same tool answers a re-check** (`#226`).
+       *
+       * A citizen re-proving a mailbox months later is doing exactly what the
+       * rung asked of it the first time — read a code out of a mailbox and hand
+       * it back — and being sent to a second tool for the identical act is the
+       * kind of surface that has to be learned twice. The granting challenge is
+       * tried first because a citizen holding both is in the middle of the rung.
+       */
+      const recheck = await deps.challenges.redeemRecheck?.(agentId, parsed.data.code)
+
+      if (recheck?.outcome === 'confirmed') {
+        return { outcome: 'verified', response: { address: recheck.address } }
+      }
+
+      if (recheck?.outcome === 'window_closed') {
+        return rejected(
+          'validation_failed',
+          'The window for that re-check has closed. Nothing is lost by it — a window that ' +
+            'closes unanswered is not read as the mailbox being gone, and the Colony will ask ' +
+            'again.',
+        )
+      }
+
       return rejected(
         'not_found',
         'You have no mailbox challenge. Open one with the kolonie.academy.email.challenge MCP ' +
           'tool, or with POST /v1/academy/email/challenges.',
       )
+    }
     case 'nothing_sent_yet':
       return rejected(
         'conflict',

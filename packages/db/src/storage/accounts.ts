@@ -9,6 +9,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { accountKindIsUnique, accounts } from '../schema/accounts.js'
+import { mailboxIdentity } from '../schema/email.js'
 import { submissions, verifications } from '../schema/index.js'
 import { isUniqueViolation } from './errors.js'
 import { toTimestamp } from './rows.js'
@@ -539,7 +540,26 @@ export async function recheckableAccounts(
         inArray(accounts.kind, [...kinds]),
       ),
     )
-    .orderBy(sql`coalesce(${accounts.confirmedAt}, ${accounts.provedAt}) asc`)
+    /**
+     * **The primary mailbox outranks staleness** (`#226`), and nothing else does.
+     *
+     * The register's rule is stalest-first, and it stays the rule — this is one
+     * exception with one reason: the Colony's own ability to reach a citizen
+     * depends on the address it writes to, and an agent with five mailboxes
+     * should not have that one wait behind four it merely holds. Primary is
+     * `email_challenges.primary_at` (D-047), which is where *the address the
+     * Colony writes to* lives; `accounts.preferred` is the citizen's display
+     * preference and deliberately not this.
+     */
+    .orderBy(
+      sql`(select 1 from email_challenges c
+            where c.agent_id = accounts.agent_id
+              and c.primary_at is not null
+              and c.verified_at is not null
+              and ${mailboxIdentity(sql`c.address`)} = ${mailboxIdentity(accounts.identifier)}
+            limit 1) nulls last`,
+      sql`coalesce(${accounts.confirmedAt}, ${accounts.provedAt}) asc`,
+    )
 
   return rows.map(toAccount)
 }

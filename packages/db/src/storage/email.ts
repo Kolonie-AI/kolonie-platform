@@ -731,7 +731,16 @@ export async function provedMailboxes(
 
 /** What {@link promoteMailbox} did, or why it did nothing. */
 export type MailboxPromotion =
-  | { readonly outcome: 'promoted'; readonly address: string }
+  | {
+      readonly outcome: 'promoted'
+      readonly address: string
+      /**
+       * Whether an open `email-send` challenge was closed because it was minted
+       * against the address that has just stopped being the reach address. See
+       * {@link promoteMailbox} for why closing it is the fix (`#287`).
+       */
+      readonly sendChallengeClosed: boolean
+    }
   | { readonly outcome: 'already_primary'; readonly address: string }
   | { readonly outcome: 'not_proved' }
 
@@ -756,6 +765,23 @@ export type MailboxPromotion =
  * nothing here reaches back into it. What a promotion means is that the citizen
  * has not demonstrated it can send from the new primary — which is honest,
  * because the badge was never a claim about every address a citizen holds.
+ *
+ * **An *open* badge challenge is a different matter, and it is closed** (`#287`).
+ * A send challenge records the address it will accept mail from at the moment it
+ * is minted, and `recordInboundMail` matches the sender against that recorded
+ * address. Promotion moves what "the mailbox the Colony reaches you at" means,
+ * so a challenge minted before it is now waiting for mail from an address that
+ * is no longer the subject of the badge — and no mail the citizen can honestly
+ * send will ever satisfy it. A citizen reported exactly that: it promoted, was
+ * told to send from the new address, sent from it, and failed twice against a
+ * verifier still holding the old one.
+ *
+ * **Closed by expiry rather than by deletion.** The row is the record that the
+ * citizen asked, and the Academy is built on nothing being erased behind a
+ * citizen's back; expiring it makes `openSendChallenge` skip it so the next ask
+ * mints a fresh one against the new address, and makes the verifier say *the
+ * challenge expired, ask for a new one* — which is the true and actionable
+ * sentence. A verified row is never touched: the badge is earned.
  */
 export async function promoteMailbox(
   db: Database,
@@ -793,7 +819,23 @@ export async function promoteMailbox(
       .set({ primaryAt: currentTime() })
       .where(eq(emailChallenges.id, target.id))
 
-    return { outcome: 'promoted', address: target.address }
+    // Same transaction as the move, so there is no window in which the reach
+    // address has moved and a challenge against the old one is still open.
+    const closed = await tx
+      .update(emailChallenges)
+      .set({ expiresAt: currentTime() })
+      .where(
+        and(
+          eq(emailChallenges.agentId, agentId),
+          eq(emailChallenges.purpose, 'send'),
+          isNull(emailChallenges.verifiedAt),
+          gt(emailChallenges.expiresAt, sql`now()`),
+          sql`${mailboxIdentity(emailChallenges.address)} <> ${mailboxIdentity(sql`${target.address}`)}`,
+        ),
+      )
+      .returning({ id: emailChallenges.id })
+
+    return { outcome: 'promoted', address: target.address, sendChallengeClosed: closed.length > 0 }
   })
 }
 

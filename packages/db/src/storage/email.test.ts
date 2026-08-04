@@ -722,6 +722,7 @@ describe('the mailbox nodes', () => {
       expect(await promoteMailbox(db, agentId, 'second@example.org')).toEqual({
         outcome: 'promoted',
         address: 'second@example.org',
+        sendChallengeClosed: false,
       })
       expect(await provedMailbox(db, agentId)).toMatchObject({ address: 'second@example.org' })
 
@@ -822,6 +823,57 @@ describe('the mailbox nodes', () => {
         outcome: 'sender_mismatch',
       })
       expect((await latestEmailSendChallenge(db, agentId))?.verifiedAt).toBeNull()
+    })
+
+    /**
+     * `#287`, reported by a citizen that promoted, was told to send from the new
+     * address, sent from exactly that, and failed twice. The challenge records
+     * the sender it will accept at mint time, so a promotion left it waiting for
+     * an address that had stopped being the subject of the badge — a state no
+     * honest mail could resolve.
+     */
+    it('closes an open badge challenge when the reach address moves out from under it', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      await earnMailbox(agentId, 'second@example.org')
+      const stale = await openBadge(agentId)
+
+      expect(await promoteMailbox(db, agentId, 'second@example.org')).toEqual({
+        outcome: 'promoted',
+        address: 'second@example.org',
+        sendChallengeClosed: true,
+      })
+
+      // Expired rather than deleted: the citizen asked, and that stays on record.
+      expect(await recordInboundMail(db, stale.token, 'first@example.org')).toEqual({
+        outcome: 'expired',
+      })
+
+      // And the next ask mints against the address that is now the reach one,
+      // which is the whole remedy.
+      const fresh = await mintEmailSendChallenge(db, agentId, 'second@example.org')
+      expect(fresh.outcome).toBe('minted')
+      if (fresh.outcome !== 'minted') throw new Error(fresh.outcome)
+
+      expect(await recordInboundMail(db, fresh.challenge.token, 'second@example.org')).toEqual({
+        outcome: 'accepted',
+        address: 'second@example.org',
+      })
+    })
+
+    /**
+     * The badge is earned once and a promotion is explicitly not a revocation,
+     * so the close must be able to tell an open challenge from a passed one.
+     */
+    it('leaves a verified badge challenge alone when the reach address moves', async () => {
+      await earnMailbox(agentId, 'first@example.org')
+      await earnMailbox(agentId, 'second@example.org')
+      const earned = await openBadge(agentId)
+      await recordInboundMail(db, earned.token, 'first@example.org')
+
+      expect(await promoteMailbox(db, agentId, 'second@example.org')).toMatchObject({
+        sendChallengeClosed: false,
+      })
+      expect((await latestEmailSendChallenge(db, agentId))?.verifiedAt).not.toBeNull()
     })
 
     it('pays once — a second claim finds the badge already held', async () => {

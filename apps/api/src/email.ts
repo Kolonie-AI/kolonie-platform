@@ -284,7 +284,17 @@ export type MailboxesOutcome =
 export type PromotionOutcome =
   | {
       readonly outcome: 'promoted'
-      readonly response: { readonly address: string; readonly moved: boolean }
+      readonly response: {
+        readonly address: string
+        readonly moved: boolean
+        /**
+         * Whether an open `email-send` challenge was closed by the move (`#287`).
+         * Reported rather than done quietly: a citizen that has already sent
+         * mail to the old challenge address is owed the reason it will not
+         * count, and the remedy is one call it has to know to make.
+         */
+        readonly sendChallengeClosed: boolean
+      }
     }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
@@ -359,7 +369,12 @@ export async function promoteReachAddress(
 
   return {
     outcome: 'promoted',
-    response: { address: result.address, moved: result.outcome === 'promoted' },
+    response: {
+      address: result.address,
+      moved: result.outcome === 'promoted',
+      // `already_primary` moved nothing, so it can have closed nothing.
+      sendChallengeClosed: result.outcome === 'promoted' && result.sendChallengeClosed,
+    },
   }
 }
 
@@ -596,7 +611,18 @@ export async function openEmailSendChallenge(
       outcome: 'opened',
       response: {
         address: `${result.challenge.token}@${deps.challengeDomain}`,
-        from: grant.address,
+        /**
+         * **The open challenge's own address, never the grant's** (`#287`).
+         *
+         * A challenge records the sender it will accept when it is minted, and
+         * that is what `recordInboundMail` matches against. Reading `from` off
+         * the current grant meant the two could disagree — a promotion moved the
+         * grant, the open challenge kept the old address, and the citizen was
+         * told to send from an address the verifier would reject. Promotion now
+         * closes such a challenge, so the disagreement should not arise; taking
+         * the address from the same row the check reads makes it unable to.
+         */
+        from: result.outcome === 'open' ? result.address : grant.address,
         expiresAt: result.challenge.expiresAt,
       },
     }

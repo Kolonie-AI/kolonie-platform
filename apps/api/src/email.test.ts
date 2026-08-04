@@ -660,8 +660,44 @@ describe('POST /v1/mailboxes/promote', () => {
     const response = await promote('second@example.org')
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ address: 'second@example.org', moved: true })
+    expect(response.json()).toEqual({
+      address: 'second@example.org',
+      moved: true,
+      sendChallengeClosed: false,
+    })
     expect(await challenges.proved(agentId)).toMatchObject({ address: 'second@example.org' })
+  })
+
+  /**
+   * The whole of `#287`, walked the way the citizen who reported it walked it:
+   * open the badge challenge, prove a second mailbox, promote it, and try to
+   * pass the badge from the address the Colony now says it reaches you at.
+   *
+   * Before the fix the challenge stayed open against the old address while the
+   * response named the new one, so the citizen was told to send from an address
+   * the verifier would reject — and did, twice.
+   */
+  it('closes an open badge challenge, so the badge can be passed from the new address', async () => {
+    await climb('first@example.org')
+    const stale = String((await openBadge()).json().address)
+    challenges.proveDirectly(agentId, 'second@example.org')
+
+    const promoted = await promote('second@example.org')
+    expect(promoted.json()).toMatchObject({ moved: true, sendChallengeClosed: true })
+
+    // The old challenge is closed, so mail to it no longer counts for anything.
+    expect((await deliver(stale, 'first@example.org')).json()).toEqual({
+      delivered: false,
+      reason: 'challenge expired',
+    })
+
+    // And the fresh one names the address that is now the reach address, which
+    // is both what the response says and what the arrival is checked against.
+    const fresh = await openBadge()
+    expect(fresh.json()).toMatchObject({ from: 'second@example.org' })
+    expect((await deliver(String(fresh.json().address), 'second@example.org')).json()).toEqual({
+      delivered: true,
+    })
   })
 
   /**
@@ -689,7 +725,11 @@ describe('POST /v1/mailboxes/promote', () => {
     const response = await promote('first@example.org')
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ address: 'first@example.org', moved: false })
+    expect(response.json()).toEqual({
+      address: 'first@example.org',
+      moved: false,
+      sendChallengeClosed: false,
+    })
   })
 
   it('refuses an anonymous caller', async () => {

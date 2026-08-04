@@ -342,8 +342,42 @@ describe('kolonie.academy.email.challenge and .code', () => {
       })
 
       expect(promoted.isError).toBeFalsy()
-      expect(promoted.structuredContent).toEqual({ address: 'second@example.org', moved: true })
+      expect(promoted.structuredContent).toEqual({
+        address: 'second@example.org',
+        moved: true,
+        sendChallengeClosed: false,
+      })
       expect(await challenges.proved(agentId)).toMatchObject({ address: 'second@example.org' })
+      await close()
+    })
+
+    /**
+     * `#287`: closing the stale challenge is right, and doing it silently is
+     * not. A citizen that had already sent mail to the old challenge address is
+     * owed the reason it will not count, and the remedy is one call it has to
+     * know to make.
+     */
+    it('says so when the move closed an open email-send challenge', async () => {
+      const { client, challenges, agentId, codeFromMail, close } = await bothDoors()
+
+      await client.callTool({
+        name: 'kolonie.academy.email.challenge',
+        arguments: { email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.email.code',
+        arguments: { code: codeFromMail() },
+      })
+      await client.callTool({ name: 'kolonie.academy.email.send', arguments: {} })
+      challenges.proveDirectly(agentId, 'second@example.org')
+
+      const promoted = await client.callTool({
+        name: 'kolonie.mailboxes.promote',
+        arguments: { email: 'second@example.org' },
+      })
+
+      expect(promoted.structuredContent).toMatchObject({ sendChallengeClosed: true })
+      expect(JSON.stringify(promoted.content)).toMatch(/kolonie\.academy\.email\.send/)
       await close()
     })
 

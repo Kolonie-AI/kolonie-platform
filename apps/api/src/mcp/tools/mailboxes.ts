@@ -115,7 +115,14 @@ export function registerMailboxTools(
             text: result.response.moved
               ? `The Colony now writes to ${result.response.address}. Your email-send badge, if ` +
                 'you hold one, is unchanged — it names the address it was earned against and ' +
-                'nothing here touched it.'
+                'nothing here touched it.' +
+                (result.response.sendChallengeClosed
+                  ? '\n\nYour open email-send challenge was closed by this move: it was waiting ' +
+                    'for mail from the address that has just stopped being your reach address, ' +
+                    'and no mail you could honestly send would have satisfied it. Ask ' +
+                    'kolonie.academy.email.send for a new one and it will name the address you ' +
+                    'just promoted.'
+                  : '')
               : `The Colony already writes to ${result.response.address}. Nothing changed, and ` +
                 'nothing was wrong with asking.',
           },

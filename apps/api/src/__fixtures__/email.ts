@@ -303,7 +303,25 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
       }
       target.primaryAt = currentTime()
 
-      return { outcome: 'promoted', address: target.address } satisfies MailboxPromotion
+      // The same close storage does, and for the reason `promoteMailbox`
+      // documents (#287): an open send challenge minted against the address that
+      // has just stopped being the reach address can no longer be satisfied.
+      const stale = rows.filter(
+        (row) =>
+          row.agentId === agentId &&
+          row.purpose === 'send' &&
+          row.verifiedAt === null &&
+          !row.expired &&
+          identity(row.address) !== identity(target.address),
+      )
+
+      for (const row of stale) row.expired = true
+
+      return {
+        outcome: 'promoted',
+        address: target.address,
+        sendChallengeClosed: stale.length > 0,
+      } satisfies MailboxPromotion
     },
 
     async limits(agentId) {

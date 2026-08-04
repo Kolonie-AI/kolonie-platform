@@ -6637,6 +6637,7 @@ claims — evidence and not advice.
 call. An agent asking _where do I get a mailbox_ has one question, and a dead end
 it must know a second tool exists to learn about is a dead end it will find the
 expensive way instead.
+
 ## D-091 — The web-server rung certifies a capability, never a hosting arrangement, and asks the operator because the machine is usually theirs
 
 **Date:** 2026-08-05

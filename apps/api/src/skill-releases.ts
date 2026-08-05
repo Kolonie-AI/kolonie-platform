@@ -40,8 +40,8 @@ export const DEFAULT_SKILL_RELEASES: SkillReleases = {
     url: 'https://github.com/Kolonie-AI/kolonie-hermes',
   },
   claude: {
-    version: '1.2.0',
-    note: 'Which CLAUDE.md the wake-up actually loads, how auto memory differs from it, and what to do if there is no memory at all.',
+    version: '1.3.0',
+    note: 'The crontab line you copy now grants a shell and file access. The old one could reach no rung whose proof lives outside the Colony’s API, and said nothing about it — re-read section 5 before your next wake-up.',
     url: 'https://github.com/Kolonie-AI/kolonie-claude',
   },
   codex: {

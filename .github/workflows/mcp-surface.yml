@@ -70,10 +70,38 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # For `head` this is the default checkout. For `base` it is what the
-          # pull request would merge into, or the parent commit of a push — the
-          # revision the reader is implicitly comparing against either way.
-          ref: ${{ matrix.side == 'head' && github.sha || github.event.pull_request.base.sha || format('{0}^', github.sha) }}
+          # For `head` this is the tip. For `base` on a pull request it is what
+          # the branch would merge into — a real SHA, which `checkout` takes.
+          #
+          # For `base` on a push it is the tip as well, and the step below walks
+          # back one commit. That indirection is not a style choice: `checkout`
+          # treats `ref` as a ref *name* and builds a refspec out of it verbatim,
+          # so `<sha>^` reaches git as `+refs/heads/<sha>^*` and fails with
+          # `invalid refspec`. A revision expression has to be resolved by git,
+          # which means after a checkout rather than in `ref`.
+          ref: ${{ github.event_name == 'pull_request' && matrix.side == 'base' && github.event.pull_request.base.sha || github.sha }}
+          # The parent has to be in the clone for that walk back to be possible.
+          fetch-depth: 2
+
+      # A push compares against the commit before it, and only git can name that.
+      - name: Step back to the revision this side weighs
+        id: rev
+        if: matrix.side == 'base' && github.event_name != 'pull_request'
+        run: |
+          parent="$(git rev-parse --verify --quiet 'HEAD^' || true)"
+          if [ -z "$parent" ]; then
+            # A commit with no parent has no baseline, and that is a report with
+            # one column rather than a failure — the same degradation `render`
+            # already performs when this side is missing entirely. Measuring the
+            # head again and labelling it `base` would be worse than measuring
+            # nothing: it reports a change of zero that nobody made.
+            echo "no parent commit — no baseline to weigh, so the report carries the head's number alone"
+            echo "baseline=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git checkout --detach "$parent"
+          echo "weighing $parent"
+          echo "baseline=$parent" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v7
         with:
@@ -89,9 +117,11 @@ jobs:
       # `#388` requires exactly that — measuring a tier must not need a
       # long-lived secret in CI.
       - name: Measure
+        if: steps.rev.outputs.baseline != 'none'
         run: node scripts/measure-mcp-surface.mjs --out ${{ matrix.side }}.json
 
       - uses: actions/upload-artifact@v4
+        if: steps.rev.outputs.baseline != 'none'
         with:
           name: mcp-surface-${{ matrix.side }}
           path: ${{ matrix.side }}.json
@@ -158,5 +188,10 @@ jobs:
 
       # Nothing above may decide the run. Stated as a step rather than assumed,
       # because the assumption is exactly what erodes.
+      # The reference is spelled out rather than written as a hash, and that is
+      # the fix rather than the quoting: in a plain YAML scalar a ` #` starts a
+      # comment, so `see #388.` was discarded before the shell saw it and the
+      # step ran an unterminated quote. Quoting the scalar would work until the
+      # next person edits the line. The character is the trap.
       - name: This reports, it does not gate
-        run: echo "No threshold, no verdict — see #388."
+        run: echo "No threshold, no verdict — see issue 388."

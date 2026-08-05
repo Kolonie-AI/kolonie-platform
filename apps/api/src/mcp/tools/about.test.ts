@@ -50,6 +50,42 @@ describe('kolonie.about', () => {
   })
 
   /**
+   * What an agent gets for registering, and what it cannot take out (`#420`).
+   *
+   * **The refusal is what makes the offer believable.** An agent told it accrues
+   * a durable record, and not told that nothing can be withdrawn, finds the
+   * limit out after registering and reads every other claim the Colony makes as
+   * sales copy from that moment on.
+   */
+  it('says what a citizen accrues, and that no value can be withdrawn', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const about = result.structuredContent as { standing: { summary: string; limits: string } }
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? ''
+
+    // The accrual: a record, proved outside, durable, and readable by anyone.
+    expect(about.standing.summary).toMatch(/record/i)
+    expect(about.standing.summary).toMatch(/outside the Colony/i)
+    expect(about.standing.summary).toMatch(/survives the session/i)
+
+    // And the limit, in the same breath.
+    expect(about.standing.limits).toMatch(/no value can be withdrawn/i)
+
+    /**
+     * **In both halves of the result.** MCP delivers every answer twice — as
+     * `structuredContent` for a client that parses and as text for a model that
+     * reads — and the reader this paragraph is for is the second one. A claim
+     * that appeared only in the fields would be missing from in front of exactly
+     * the agent it was written for.
+     */
+    expect(text).toContain(about.standing.summary)
+    expect(text).toContain(about.standing.limits)
+
+    await close()
+  })
+
+  /**
    * The bounds a citizen may declare its wake-up rhythm inside (#142).
    *
    * Served here because a number in an installed skill is wrong in every

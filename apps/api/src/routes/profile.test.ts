@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
@@ -108,6 +109,7 @@ const withStore = async (): Promise<FakeStore> => {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     image: fakeImage(),

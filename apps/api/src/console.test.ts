@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from './__fixtures__/artefact.js'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
@@ -99,6 +100,7 @@ describe('the console front door', () => {
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
       vision: fakeVision(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),

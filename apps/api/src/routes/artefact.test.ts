@@ -43,42 +43,19 @@ import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 
-import { fixedWindowLimiter } from '../rate-limit.js'
-import type { ReachabilityFetch } from '../reachability.js'
-
 /**
- * The route half of `#394` — that the tool is authenticated, that the allowance
- * refuses with a time, and that a citizen which has only ever called this holds
- * nothing.
- *
- * Every address is a documentation example. Nothing here touches a network: the
- * fetch is injected, and the tests about refusals inject one that throws if it
- * is called at all.
+ * The `artefact-publish` rung's mint (`#389`) — the code a citizen renders
+ * *inside* what it publishes.
  */
 let app: FastifyInstance
 let store: FakeStore
+let challenges: ReturnType<typeof fakeArtefactChallenges>
 let apiKey: string
 let issued: ReturnType<FakeStore['issue']>
 
-/** Answers 200 and never touches a network. */
-const answering: ReachabilityFetch = async () => new Response(null, { status: 200 })
-
-/** Nothing may call this. Passed where the point is that no request is made. */
-const forbidden: ReachabilityFetch = async () => {
-  throw new Error('the Colony made a request it should have refused')
-}
-
-let reachabilityFetch: ReachabilityFetch = answering
-/**
- * Deliberately tiny here, where the real allowance is sixty (`REACHABILITY_LIMIT`).
- * What this file is testing is the *shape* of the refusal — a 429, a
- * `retry-after` header, and a message that does not read as a punishment — and
- * spending sixty calls to reach it would only make the test slow.
- */
-let limit = 5
-
 beforeEach(async () => {
   store = fakeStore()
+  challenges = fakeArtefactChallenges()
   app = buildApp({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
@@ -115,7 +92,7 @@ beforeEach(async () => {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: { challenges: fakeDomainChallenges(), obstruction: noObstruction },
-    artefact: fakeArtefactChallenges(),
+    artefact: challenges,
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     image: fakeImage(),
@@ -123,111 +100,50 @@ beforeEach(async () => {
     injection: fakeInjection(),
     vetting: fakeVetting(),
     authenticator: fakeAuthenticator(),
-    reachability: {
-      limiter: fixedWindowLimiter({ limit, windowMs: 60_000 }),
-      fetch: (url, init) => reachabilityFetch(url, init),
-    },
   })
   await app.ready()
   issued = store.issue()
   apiKey = issued.apiKey
 })
 
-afterEach(() => {
-  reachabilityFetch = answering
-  limit = 60
-})
-
 afterEach(async () => {
   await app.close()
 })
 
-const check = (origin: string) =>
+const mint = () =>
   app.inject({
     method: 'POST',
-    url: '/v1/reachability',
+    url: '/v1/academy/artefact/challenges',
     headers: { authorization: `Bearer ${apiKey}` },
-    payload: { origin },
   })
 
-describe('POST /v1/reachability', () => {
-  it('answers with what happened at the address', async () => {
-    const response = await check('https://example.org')
+describe('POST /v1/academy/artefact/challenges', () => {
+  it('answers 201 with a code and an expiry', async () => {
+    const response = await mint()
 
-    expect(response.statusCode).toBe(200)
-    expect(response.json().finding).toMatchObject({
-      origin: 'https://example.org',
-      reason: 'answered',
-      status: 200,
-      reached: true,
-    })
+    expect(response.statusCode).toBe(201)
+    const { challenge } = response.json()
+    expect(challenge.code).toMatch(/^KOL-[A-Z]{8}$/)
+    expect(Date.parse(challenge.expiresAt)).toBeGreaterThan(Date.now())
   })
 
   /**
-   * Authenticated, unlike the name check it borrows its limiter shape from: the
-   * allowance is keyed on the citizen, and a call that makes the Colony's host
-   * open an outbound connection is not for the open internet.
+   * Authenticating is what binds the code to one agent, and it is the whole
+   * reason the rung means anything: a code readable in somebody else's published
+   * image must not clear this one.
    */
   it('refuses a caller with no credential', async () => {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/v1/reachability',
-      payload: { origin: 'https://example.org' },
-    })
+    const response = await app.inject({ method: 'POST', url: '/v1/academy/artefact/challenges' })
 
     expect(response.statusCode).toBe(401)
+    expect(response.headers['www-authenticate']).toBeDefined()
   })
 
-  /** The boundary, and no request is made when it fires. */
-  it('refuses a private address without contacting anything', async () => {
-    reachabilityFetch = forbidden
+  it('mints a fresh code every time, and keeps the older ones', async () => {
+    const first = (await mint()).json().challenge.code
+    const second = (await mint()).json().challenge.code
 
-    const response = await check('http://169.254.169.254')
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json().finding.reason).toBe('not-public')
-    expect(response.json().finding.reached).toBe(false)
-  })
-
-  /**
-   * The allowance refuses with a time to try again, and says nothing is held
-   * against the citizen — the point of the call is to be run in a loop.
-   */
-  it('refuses with a retry time once the allowance is spent', async () => {
-    for (let spent = 0; spent < limit; spent += 1) await check('https://example.org')
-
-    const response = await check('https://example.org')
-
-    expect(response.statusCode).toBe(429)
-    expect(response.headers['retry-after']).toBeDefined()
-    expect(Number(response.headers['retry-after'])).toBeGreaterThan(0)
-    expect(response.json().code).toBe('rate_limited')
-    expect(response.json().message).toContain('nothing is held against you')
-  })
-
-  /**
-   * **It grants nothing and books nothing**, which is the promise the tool makes
-   * in its own description. A citizen that has only ever called this holds
-   * exactly what it held before, and `web-server` is not among it.
-   */
-  it('grants no skill and books nothing', async () => {
-    const me = () =>
-      app.inject({
-        method: 'GET',
-        url: '/v1/agents/me',
-        headers: { authorization: `Bearer ${apiKey}` },
-      })
-
-    const before = (await me()).json().agent.skills
-
-    await check('https://example.org')
-    await check('https://example.org')
-    await check('https://example.org')
-
-    const after = (await me()).json().agent.skills
-    expect(after).toEqual(before)
-    // The rung this diagnoses, named explicitly: three successful checks are not
-    // a shortcut through a rung that asks twice an hour apart.
-    expect(after).not.toContain('web-server')
+    expect(first).not.toBe(second)
+    expect(challenges.minted(issued.agent.id)).toEqual([first, second])
   })
 })

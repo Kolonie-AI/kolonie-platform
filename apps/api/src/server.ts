@@ -52,6 +52,7 @@ import { databaseAutonomyStore, databaseOperatorPages } from './autonomy.js'
 import { databaseConfirmedOperators } from './operators.js'
 import { databaseOperatorClaims } from './operator-claim.js'
 import { databaseSocialChallenges } from './social.js'
+import { databaseArtefactChallenges } from './artefact.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseVault } from './vault.js'
@@ -471,6 +472,7 @@ const app = buildApp({
   },
   operatorClaim: { claims: databaseOperatorClaims(db), reader: httpClaimReader() },
   domain: { challenges: databaseDomainChallenges(db), obstruction },
+  artefact: { challenges: databaseArtefactChallenges(db), obstruction },
   vision: databaseVisionChallenges(db),
   // No configuration and no credential of the Colony's, deliberately: the vault
   // is sealed with the caller's own key, which arrives in the request that uses

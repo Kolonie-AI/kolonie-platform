@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from '../../__fixtures__/artefact.js'
 import { API_KEY_PREFIX, RegisterAgentResponseSchema } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../../__fixtures__/deposits.js'
 import { describe, expect, it } from 'vitest'
@@ -331,6 +332,7 @@ describe('kolonie.register', () => {
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       image: fakeImage(),

@@ -229,7 +229,13 @@ describe('the migrations', () => {
     // they are asked for and on whether they are withheld, and one boolean in
     // the wrong place would leak the Colony's help into the unaided attempt
     // `#111` exists to measure. `kolonie-docs#162` is the record.
-    expect(afterFirst.tables).toBe('67')
+    //
+    // **Sixty-eight** (`#389`): `artefact_challenges`, the code a citizen has to
+    // put *inside* an artefact it publishes. Its own table beside the two web
+    // rungs' because none of the three implies another — and what it holds is
+    // the code, the address and the verdict, never a copy of the artefact
+    // (`kolonie-docs#161`).
+    expect(afterFirst.tables).toBe('68')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -169,6 +169,14 @@ describe('schema', () => {
         'agent_vault',
         'agents',
         /**
+         * `#389`: the code a citizen has to render *inside* what it publishes,
+         * which is what separates an artefact it made from a URL it found. Its
+         * own table beside the two web rungs' because none of the three implies
+         * another — and what it holds is the code, the address and the verdict,
+         * never a copy of the artefact (`kolonie-docs#161`).
+         */
+        'artefact_challenges',
+        /**
          * `#173`. The record behind every privileged act — who granted a role,
          * who took it back, who published a quest. It is here rather than in a
          * log file because the question it answers is *who let this money move*,

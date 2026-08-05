@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from '../../../__fixtures__/artefact.js'
 import { API_BASE_PATH, DEFAULT_RHYTHM_BOUNDS } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../../../__fixtures__/deposits.js'
 import { describe, expect, it } from 'vitest'
@@ -108,6 +109,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       reachability: fakeReachability(),
@@ -157,6 +159,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         operatorClaim: fakeOperatorClaim(),
         autonomy: fakeAutonomy(),
         domain: fakeDomain(),
+        artefact: fakeArtefactChallenges(),
         website: fakeWebsite(),
         webServer: fakeWebServer(),
         reachability: fakeReachability(),

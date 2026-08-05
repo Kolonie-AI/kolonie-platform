@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import {
   CAPABILITY_STAGE,
   HIT_TOLERANCE_PX,
@@ -104,6 +105,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     image: fakeImage(),

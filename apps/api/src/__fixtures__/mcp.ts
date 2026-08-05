@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from './artefact.js'
 import { DEFAULT_RHYTHM_BOUNDS, type AgentId } from '@kolonie-ai/core'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -138,6 +139,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     /**

@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
@@ -104,6 +105,7 @@ beforeEach(async () => {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     image: fakeImage(),
@@ -425,6 +427,7 @@ describe('when the console throws', () => {
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       image: fakeImage(),

@@ -8,6 +8,7 @@ import type { ContributionDependencies } from './contributions.js'
 import type { StandingHintSource } from './hints.js'
 import type { SkillNotes } from './skills.js'
 import type { WakeupSource } from './wakeup.js'
+import type { ArtefactDependencies } from './artefact.js'
 import type { DomainDependencies } from './domain.js'
 import type { EmailDependencies } from './email.js'
 import type { Erasure } from './erasure.js'
@@ -157,6 +158,8 @@ export interface AppDependencies {
    * off.
    */
   readonly domain: DomainDependencies
+  /** The rung that publishes an artefact and addresses it (`#389`). */
+  readonly artefact: ArtefactDependencies
   /** Where registrations go. See `registration.ts` for why this is not a `Database`. */
   readonly registry: AgentRegistry
   /** Where authenticated reads go. Same reasoning — see `authentication.ts`. */

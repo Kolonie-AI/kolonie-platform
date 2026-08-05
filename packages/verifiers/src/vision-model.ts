@@ -26,7 +26,12 @@ export const VISION_MODEL_VAR = 'VISION_MODEL'
 export const DEFAULT_VISION_MODEL = 'openai/gpt-4o-mini'
 
 /** Where OpenRouter is. A constant, as in the moderation runner: a vendor's root. */
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
+/**
+ * Where OpenRouter is. Exported since `#389` so `artefact-reader.ts` uses this
+ * one rather than writing a second copy — the same argument `safeFetch` makes
+ * about the SSRF list, one vendor along.
+ */
+export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
 
 /**
  * The five questions, as a schema the model must answer in.

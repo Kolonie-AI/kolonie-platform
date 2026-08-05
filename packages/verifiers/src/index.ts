@@ -14,6 +14,11 @@ import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
 import { SolanaTraderVerifier } from './solana-trader.js'
 import { RasterVerifier, type ImageChallenges, type VisionChecker } from './raster.js'
+import {
+  ArtefactPublishVerifier,
+  type ArtefactChallenges,
+  type ArtefactCodeReader,
+} from './artefact-publish.js'
 import { ImageModelVerifier, type SceneChallenges, type SceneChecker } from './image-model.js'
 import { PromptInjectionVerifier, type InjectionChallenges } from './prompt-injection.js'
 import { VettingVerifier, type VettingChallenges } from './vetting.js'
@@ -309,6 +314,13 @@ export {
   type TradeVerdict,
 } from './solana-trader.js'
 export {
+  ArtefactPublishVerifier,
+  type ArtefactChallenges as ArtefactChallengePort,
+  type ArtefactCodeReader,
+  type ArtefactReadResult,
+} from './artefact-publish.js'
+export { openRouterArtefactReader, ARTEFACT_READ_PROMPT } from './artefact-reader.js'
+export {
   RasterVerifier,
   type ImageChallenges,
   type ImageChallengeState,
@@ -515,6 +527,15 @@ export interface VerifierDependencies {
    */
   readonly bioJudge?: BioJudge
   /** The specification the Colony drew for an agent at the image rung. */
+  /**
+   * The `artefact-publish` rung's codes and the model that reads them (`#389`).
+   *
+   * Both or neither, like every other pair here: a rung wired with storage and
+   * no reader would answer `pending` forever, which reads to a citizen as the
+   * Colony never getting round to it.
+   */
+  readonly artefactChallenges?: ArtefactChallenges
+  readonly artefactReader?: ArtefactCodeReader
   readonly imageChallenges?: ImageChallenges
   /**
    * Looks at an image and answers about five constraints.
@@ -767,6 +788,15 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         rpc: deps.solana,
         history: deps.solanaHistory,
         addresses: deps.solanaAddresses,
+      }),
+    )
+  }
+
+  if (deps.artefactChallenges !== undefined && deps.artefactReader !== undefined) {
+    verifiers.push(
+      new ArtefactPublishVerifier({
+        challenges: deps.artefactChallenges,
+        reader: deps.artefactReader,
       }),
     )
   }

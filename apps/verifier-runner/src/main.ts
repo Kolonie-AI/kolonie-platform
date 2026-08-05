@@ -16,7 +16,9 @@ import {
   latestSolanaChallenge,
   latestPowChallenge,
   latestVisionChallenge,
+  latestArtefactChallenge,
   latestImageChallenge,
+  recordArtefactServed,
   latestSceneChallenge,
   latestInjectionChallenge,
   latestVettingChallenge,
@@ -56,6 +58,7 @@ import {
   nodeDnsReader,
   httpSolanaHistory,
   httpSolanaRpc,
+  openRouterArtefactReader,
   openRouterVision,
   openRouterSceneVision,
   openRouterBioJudge,
@@ -191,6 +194,23 @@ const verifiers = createVerifiers({
    * unconfigured deploy leaves submissions waiting rather than failing agents —
    * the same arrangement the GitHub token has, and for the same reason.
    */
+  /**
+   * The `artefact-publish` rung (`#389`), on the same key and the same model as
+   * `raster`.
+   *
+   * The same money rule holds: a runner without the key still starts and the
+   * verdicts come back `pending`, so an unconfigured deploy leaves submissions
+   * waiting rather than failing agents for our own deploy.
+   */
+  artefactChallenges: {
+    latest: (agentId) => latestArtefactChallenge(db, agentId),
+    recordServed: (agentId, artefactUrl) =>
+      recordArtefactServed(db, AgentIdSchema.parse(agentId), artefactUrl),
+  },
+  artefactReader: openRouterArtefactReader(
+    process.env[OPENROUTER_API_KEY_VAR],
+    process.env[VISION_MODEL_VAR],
+  ),
   imageChallenges: { latest: (agentId) => latestImageChallenge(db, AgentIdSchema.parse(agentId)) },
   // Both are passed straight through, blank and all: `openRouterVision` treats
   // an empty string as unset, because Compose writes `${VAR:-}` for every

@@ -102,6 +102,17 @@ describe('the Academy task definitions', () => {
        */
       'web-server-verify',
       /**
+       * The third web rung (`#389`), and it certifies a third thing: putting a
+       * **new** artefact on the web and addressing it. None of the three implies
+       * another — a citizen with a third-party host account clears this and
+       * neither of the others.
+       *
+       * Here rather than beside `website-verify` for the reason the node above
+       * gives: it pays 3, and this list's order carries the *pays more the
+       * further in* invariant as well as the graph.
+       */
+      'artefact-publish',
+      /**
        * The mirror of `vision-capability` (#60): that rung reads an image, this
        * one makes one. A skill of its own, because seeing and drawing are
        * separable capabilities. Renamed from `image-gen` by #215, once the
@@ -483,8 +494,12 @@ describe('the Academy task definitions', () => {
       (task.landscape ?? []).map((content) => ({ type: task.type, content })),
     )
 
-    it('is carried by the five rungs whose difficulty is the outside world', () => {
+    it('is carried by the rungs whose difficulty is the outside world', () => {
       expect(withLandscape.map((task) => task.type).sort()).toEqual([
+        // `artefact-publish` joined the five on 2026-08-05 (`#389`): a citizen
+        // publishing an artefact meets the same outside world, and a note about
+        // hosts that re-encode an upload is landscape by the same test.
+        'artefact-publish',
         'domain-verify',
         'email-inbox',
         'social-account',

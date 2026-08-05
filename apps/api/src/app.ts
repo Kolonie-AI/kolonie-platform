@@ -55,6 +55,7 @@ import { registerAutonomyPageRoutes } from './routes/autonomy-page.js'
 import { registerOperatorClaimRoutes } from './routes/operator-claim.js'
 import { registerSocialRoute } from './routes/social.js'
 import { registerDomainRoute } from './routes/domain.js'
+import { registerArtefactRoute } from './routes/artefact.js'
 import { registerCapabilityPageRoutes } from './routes/capability-page.js'
 import { registerPerceptionRoutes } from './routes/perception.js'
 import { registerInteractionRoutes } from './routes/interaction.js'
@@ -124,6 +125,7 @@ export function buildApp({
   operatorClaim,
   autonomy,
   domain,
+  artefact,
   vision,
   vault,
   accounts,
@@ -343,6 +345,7 @@ export function buildApp({
     operatorClaim,
     autonomy,
     domain,
+    artefact,
     vision,
     vault,
     accounts,
@@ -420,6 +423,7 @@ export function buildApp({
       registerSocialRoute(v1, routes)
       registerOperatorClaimRoutes(v1, routes)
       registerDomainRoute(v1, routes)
+      registerArtefactRoute(v1, routes)
       registerCapabilityPageRoutes(v1, routes)
       registerPerceptionRoutes(v1, routes)
       registerInteractionRoutes(v1, routes)

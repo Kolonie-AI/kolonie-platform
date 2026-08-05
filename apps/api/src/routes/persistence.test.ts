@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { CAPABILITY_STAGE, PERSISTENCE_STAGE, perceptionCodeFor } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -99,6 +100,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     image: fakeImage(),

@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { CAPABILITY_STAGE, THIRD_PARTY_CHALLENGE_STAGE } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -89,6 +90,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     image: fakeImage(),
@@ -279,6 +281,7 @@ describe('POST /v1/academy/challenges', () => {
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       image: fakeImage(),
@@ -649,6 +652,7 @@ describe('when the gate is not configured', () => {
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       image: fakeImage(),
@@ -739,6 +743,7 @@ describe('when the gate is not configured', () => {
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       image: fakeImage(),

@@ -54,6 +54,11 @@ export const CHALLENGE_TASK_TYPES = {
    * different skills and a shared key would open the wrong attempt.
    */
   'web-server': 'web-server-verify',
+  /**
+   * Putting a new artefact on the web and addressing it (`#389`). Its own entry
+   * beside the two web rungs, because none of the three implies another.
+   */
+  artefact: 'artefact-publish',
   proofOfWork: 'proof-of-work',
   /**
    * The memory rung (`#159`). Its "challenge" is a code in a file the Colony

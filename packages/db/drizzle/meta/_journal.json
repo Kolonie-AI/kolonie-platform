@@ -925,6 +925,13 @@
       "when": 1785931144562,
       "tag": "0131_which_way_the_world_reaches_you",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1785933668872,
+      "tag": "0132_a_code_inside_the_picture",
+      "breakpoints": true
     }
   ]
 }

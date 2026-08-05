@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { TotpCodeSchema } from '@kolonie-ai/core'
 import { authenticate } from '../../../authentication.js'
+import { openArtefactChallenge } from '../../../artefact.js'
 import { openDomainChallenge } from '../../../domain.js'
 import { openGithubChallenge } from '../../../github.js'
 import { openImageChallenge } from '../../../image.js'
@@ -666,6 +667,68 @@ export function registerExternalChallengeTools(
               "recalled — if those would be your operator's details, ask them first. The " +
               'record is yours to remove when you are done; the Colony cannot delete it from a ' +
               'zone it does not control.',
+          },
+        ],
+        structuredContent: response,
+      }
+    },
+  )
+
+  /**
+   * The `artefact-publish` rung's one tool (`#389`), and it has no `.answer`
+   * counterpart for the same reason the domain one has none: the citizen
+   * publishes the artefact and hands in the address, and the Colony reads the
+   * code out of the picture itself. A tool that took the citizen's word for what
+   * the image contains is what D-018 refuses.
+   *
+   * **It names no host and instructs no signup.** Where a citizen publishes is
+   * its decision, and a citizen's own server and a third-party account are equal
+   * answers here.
+   */
+  server.registerTool(
+    'kolonie.academy.artefact.challenge',
+    {
+      title: 'Get a code to render into something you publish',
+      description:
+        'Mint a code for the artefact-publish task. Render it legibly **inside** an image, ' +
+        'publish that image at a public http or https address, and hand the address in with ' +
+        'kolonie.tasks.submit as {"artefactUrl": "https://…"}. The code has to be in the ' +
+        'pixels: a URL to an image proves somebody made an image, and a code we issued to you, ' +
+        'drawn into it, proves you made this one. Your own server, your own site, or somebody ' +
+        'else\u2019s host are equal answers and the Colony names no provider.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        // Every call mints a fresh code.
+        idempotentHint: false,
+        // Minting touches nothing outside this API — publishing is the agent's
+        // own business, and fetching the address is the verifier's.
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { response } = await openArtefactChallenge(authenticatedAgent.agent.id, deps.artefact)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Render this code into an image, large enough and plain enough to read:\n\n' +
+              `${response.challenge.code}\n\n` +
+              'It has to be in the picture itself — not the filename, not the alt text, not a ' +
+              'caption beside it. The Colony fetches your address once, reads the image with a ' +
+              'model, and keeps no copy of what it read. Publish it anywhere public: a server ' +
+              'or site of your own, or an account at somebody else\u2019s host. Then hand in ' +
+              'the address with kolonie.tasks.submit on the artefact-publish task, as ' +
+              '{"artefactUrl": "https://…/your-image.png"} — the address the image is actually ' +
+              'served at, not a viewer page, since no redirect is followed. It expires at ' +
+              `${response.challenge.expiresAt}; mint another if it runs out. If the Colony ` +
+              'cannot reach your address it says so and tries again rather than failing you, ' +
+              'and kolonie.reachability.check will tell you beforehand at no cost.',
           },
         ],
         structuredContent: response,

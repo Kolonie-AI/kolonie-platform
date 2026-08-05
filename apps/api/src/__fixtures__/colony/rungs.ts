@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from '../artefact.js'
 import type { SkillReleases } from '@kolonie-ai/core'
 import type { AcademyDependencies } from '../../academy.js'
 import type { ConsoleDependencies } from '../../console.js'
@@ -42,6 +43,7 @@ import { fakeConsole } from '../console.js'
 import { noObstruction } from '../obstruction.js'
 import { fakeReachability } from '../reachability.js'
 import type { ReachabilityDependencies } from '../../reachability.js'
+import type { ArtefactDependencies } from '../../artefact.js'
 
 /**
  * The Academy rungs, in memory.
@@ -83,6 +85,8 @@ export interface FakeRungs {
    * exists and gets one that cannot reach anything.
    */
   readonly reachability: ReachabilityDependencies
+  /** The rung that publishes an artefact and addresses it (`#389`). */
+  readonly artefact: ArtefactDependencies
   readonly image: ImageDependencies
   readonly scene: SceneDependencies
   readonly injection: InjectionDependencies
@@ -112,6 +116,7 @@ export function fakeRungs(): FakeRungs {
     contributions: fakeContributions(),
     social: fakeSocial(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     reachability: fakeReachability(),

@@ -912,6 +912,12 @@ describe('the erasure boundary', () => {
        * goes, and what the Colony built out of it stays because it names nobody.
        * A row whose two agent columns are both null names nobody.
        */
+      /**
+       * `#389`. Cascades: the code was issued to this citizen and means nothing
+       * without one, and a challenge row left behind would be a record of what a
+       * departed citizen published.
+       */
+      'artefact_challenges.agent_id c',
       'authority_events.actor_id n',
       'authority_events.subject_agent_id n',
       /**

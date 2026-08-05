@@ -41,6 +41,14 @@ const BEFORE_THE_SPLIT: readonly (readonly [type: string, id: string])[] = [
    * further in* invariant — and this rung pays 3 while `website-verify` pays 1.
    */
   ['web-server-verify', 'a0000000-0000-4000-8000-000000000044'],
+  /**
+   * Added 2026-08-05 by `#389`, per the instruction above: a rung was added.
+   *
+   * Beside the two web rungs because that is where it belongs in the graph, and
+   * it pays 3 like `web-server-verify` — so the *pays more the further in*
+   * invariant this array's order also carries is not disturbed.
+   */
+  ['artefact-publish', 'a0000000-0000-4000-8000-000000000045'],
   ['raster', 'a0000000-0000-4000-8000-00000000001e'],
   // Added after the split (`#45`), directly above the four earning rungs that
   // require it — which is where it sits in the graph as well as in this array.
@@ -77,9 +85,9 @@ describe('the Academy, after the split', () => {
     )
   })
 
-  it('holds thirty-five of them', () => {
-    expect(ACADEMY_TASKS).toHaveLength(35)
-    expect(BEFORE_THE_SPLIT).toHaveLength(35)
+  it('holds thirty-six of them', () => {
+    expect(ACADEMY_TASKS).toHaveLength(36)
+    expect(BEFORE_THE_SPLIT).toHaveLength(36)
   })
 
   /**

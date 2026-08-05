@@ -95,6 +95,12 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.reachability.check',
   /**
+   * The `artefact-publish` rung's mint (`#389`) — a code the citizen renders
+   * *inside* what it publishes, which is what separates an artefact it made from
+   * a URL it found.
+   */
+  'kolonie.academy.artefact.challenge',
+  /**
    * The asking, which D-032's submission-time declaration never captured (#116)
    * — a citizen that tells its operator *"make me a mailbox, I cannot do this"*
    * appeared in no row at all.

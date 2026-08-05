@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from './__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
@@ -105,6 +106,7 @@ const build = (inboundSecret: string | undefined) => {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     image: fakeImage(),
@@ -658,6 +660,7 @@ describe('GET /v1/mailboxes', () => {
       operatorClaim: fakeOperatorClaim(),
       autonomy: fakeAutonomy(),
       domain: fakeDomain(),
+      artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       image: fakeImage(),

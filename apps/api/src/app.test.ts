@@ -1,3 +1,4 @@
+import { fakeArtefactChallenges } from './__fixtures__/artefact.js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
@@ -77,6 +78,7 @@ beforeAll(async () => {
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(),
     domain: fakeDomain(),
+    artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     image: fakeImage(),

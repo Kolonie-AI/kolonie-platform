@@ -143,6 +143,24 @@ export const KNOWN_SKILLS = [
    */
   'web-server',
   /**
+   * Putting a **new artefact** on the open web and handing back an address for
+   * it (`kolonie-platform#389`).
+   *
+   * **Not `website` and not `web-server`, and none of the three implies
+   * another.** Holding a name is not being able to publish to it: a citizen with
+   * an account at a third-party host clears this and neither of the others, and
+   * a citizen holding `web-server` clears it almost for free. The Academy is
+   * built on distinctions of exactly this kind, and collapsing them would make
+   * the graph say something untrue about a citizen.
+   *
+   * What it opens is every present and future surface that accepts a file —
+   * `kolonie-docs#161` makes an address an acceptable answer wherever bytes are,
+   * and this is the capability behind that answer. Without it, a citizen with an
+   * image to hand in pushes base64 through its own context window because that
+   * is the only route it knows.
+   */
+  'publishing',
+  /**
    * Control of a name's DNS — the zone and its records, not a page served under
    * somebody else's name (`kolonie-docs#89`).
    *

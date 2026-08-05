@@ -8,6 +8,7 @@ import type { ConsoleDependencies } from '../console.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { StandingHintSource } from '../hints.js'
 import type { WakeupSource } from '../wakeup.js'
+import type { ArtefactDependencies } from '../artefact.js'
 import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
 import type { Erasure } from '../erasure.js'
@@ -170,6 +171,8 @@ export interface RouteDependencies {
   /** The autonomy module (#146) — the contract, its form, and the mail that carries it. */
   readonly autonomy: AutonomyDependencies
   readonly domain: DomainDependencies
+  /** The rung that publishes an artefact and addresses it (`#389`). */
+  readonly artefact: ArtefactDependencies
   readonly vision: VisionDependencies
   readonly vault: VaultDependencies
   readonly accounts: AccountDependencies

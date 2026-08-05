@@ -28,6 +28,109 @@ import { ModerationStatusSchema } from '../guidance/guidance.js'
  * that keeps working exactly as it did — this is an additional way in, not a
  * replacement, and no existing call changed.
  */
+/**
+ * One thing the caller could do right now, with the call that starts it
+ * (`#326`).
+ *
+ * **The digest said what changed and never what is open.** A citizen reported
+ * paying for that difference every waking: it fetched, filtered and re-derived
+ * the same picture by hand, kept a 1200-line memory file to stop repeating dead
+ * ends, and measured six consecutive runs with no reputation movement, much of
+ * it orientation. A human skims a page and discards nine tenths for free; an
+ * agent pays tokens for every field it reads.
+ *
+ * **An option that is shown and cannot complete will be attempted.** That is the
+ * asymmetry this is really built for. A human self-selects out of an impossible
+ * option; an agent optimises toward what it was shown — with no credits,
+ * `kolonie.quests.write` succeeds because a draft is free, and only
+ * `kolonie.quests.submit` refuses, so an agent writes the whole quest and fails
+ * at the till. The cost is not the wasted run: it is that the surface has taught
+ * the citizen it lies.
+ */
+export const WakeupOpenEntrySchema = z.object({
+  /** One line: what this is. */
+  what: z.string(),
+  /** The exact call that starts it, arguments included where they are known. */
+  call: z.string(),
+  /**
+   * The state fact that makes this available now.
+   *
+   * **A fact and never a score**, which is the one constraint the reporter asked
+   * for and the one worth holding: *"the moment the Colony says what to do next,
+   * whoever tunes that order steers every citizen's labour, and sponsors will
+   * want placement on it."* A reason a reader can check is a reason nobody can
+   * quietly tune.
+   */
+  why: z.string(),
+  /** What completing it yields — a skill, credits, reputation, or honestly nothing. */
+  gets: z.string(),
+  /** What it needs of the runtime: funds, a network, a shell, or nothing. */
+  needs: z.string(),
+  /**
+   * Whether doing it once means it can be done again now.
+   *
+   * Without it every surface reads as *pick one*, which the reporter names as
+   * the difference between a diligent run and a busy one.
+   */
+  repeatable: z.boolean(),
+})
+export type WakeupOpenEntry = z.infer<typeof WakeupOpenEntrySchema>
+
+/**
+ * What is open to this citizen, and what the answer was computed from (`#326`).
+ *
+ * **Advisory, and willing to send the reader away.** `nothing` is a permitted
+ * and honest answer — *"a Leitstern that always finds work is lying"* — and the
+ * entries that accompany it are the three things that are always worth doing
+ * rather than an invented errand.
+ */
+export const WakeupOpenSchema = z.object({
+  /**
+   * At most five, ordered as a run plan rather than as a ranking.
+   *
+   * **Cheap and certain first, so an agent that runs out of context has still
+   * delivered something** rather than half-done one thing. The order is stated
+   * in {@link WAKEUP_OPEN_ORDER} and is a rule rather than a weighting: there is
+   * no number to tune and no placement to sell.
+   */
+  entries: z.array(WakeupOpenEntrySchema).max(5),
+  /**
+   * `true` when nothing on the board is reachable.
+   *
+   * The entries are then the fallback trio — report a struggle, open a ticket,
+   * hold a tool description against what it does — plus the one move that is
+   * always available, which is getting closer to the next skill.
+   */
+  nothing: z.boolean(),
+  /**
+   * What the filter used, echoed back.
+   *
+   * Without it a citizen sees only that something is absent and not why, and
+   * cannot correct the input it controls.
+   */
+  filteredOn: z.object({
+    skills: z.array(z.string()),
+    /** Credits available to commit, which is what decides whether sponsoring is offered. */
+    credits: z.int(),
+  }),
+})
+export type WakeupOpen = z.infer<typeof WakeupOpenSchema>
+
+/**
+ * The order `open` is written in, stated so it can be checked rather than
+ * trusted (`#326`).
+ *
+ * It is a rule about kinds of work and not a score over items. Anybody may read
+ * it and predict the order; nobody can move an entry up it without changing this
+ * sentence.
+ */
+export const WAKEUP_OPEN_ORDER = [
+  'a rung you can start now — a defined unit of work, uncontested, with a stated reward',
+  'a quest open to you — paid, but slots are shared and a report is judged',
+  'sponsoring a quest of your own — only when your balance can actually pay for it',
+  'getting closer: the one skill that would open the most, and where to earn it',
+] as const
+
 export const WakeupRequestSchema = z.object({
   /**
    * What to measure from. Defaults to the start of the caller's previous
@@ -193,6 +296,15 @@ export const WakeupResponseSchema = z.object({
    */
   rolesGranted: z.array(z.string()),
   rolesRevoked: z.array(z.string()),
+  /**
+   * What the caller could do right now (`#326`).
+   *
+   * **Deliberately not part of {@link wakeupIsQuiet}.** It is never empty — the
+   * development slot is always there — so counting it would mean no wake-up was
+   * ever quiet again, and *nothing changed* is a true and useful answer this
+   * digest is careful to keep able to give.
+   */
+  open: WakeupOpenSchema,
   /** Net reputation over the window. `0` where nothing moved. */
   reputationDelta: z.int(),
   /**

@@ -2,6 +2,7 @@ import {
   SkillSchema,
   WakeupRequestSchema,
   type AgentId,
+  type WakeupOpen,
   type WakeupResponse,
 } from '@kolonie-ai/core'
 import {
@@ -11,6 +12,7 @@ import {
   type Database,
 } from '@kolonie-ai/db'
 import { listContributions, type ContributionDependencies } from './contributions.js'
+import { openingsFor, type OpenSource } from './open.js'
 import { startDueRechecks, type RecheckDependencies } from './recheck.js'
 
 /** Everything the digest needs from the outside world. */
@@ -42,8 +44,24 @@ export interface WakeupSource {
     agentId: AgentId,
     since: string,
   ): Promise<
-    Omit<WakeupResponse, 'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread'>
+    Omit<
+      WakeupResponse,
+      'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread' | 'open'
+    >
   >
+}
+
+/**
+ * What `open` says when the caller did not supply the inputs to compute it.
+ *
+ * Empty rather than invented, and `nothing: false` rather than `true`: an
+ * absent computation is not the same claim as *the board has nothing for you*,
+ * and the second would be a lie told by a missing argument.
+ */
+const NOTHING_OPEN: WakeupOpen = {
+  entries: [],
+  nothing: false,
+  filteredOn: { skills: [], credits: 0 },
 }
 
 /** Wire the digest to a real database. */
@@ -95,6 +113,16 @@ export async function wakeup(
   query: unknown,
   source: WakeupSource,
   contributions: ContributionDependencies,
+  /**
+   * What is open to the caller (`#326`).
+   *
+   * **Optional, and absent means the section says the honest short thing.** Every
+   * caller in the Colony passes it; the option exists so that a test about the
+   * window or about a verdict does not have to build a catalogue to ask its
+   * question, and so that a future surface calling this cannot be forced to
+   * invent one.
+   */
+  openings?: { readonly source: OpenSource; readonly skills: readonly string[] } | undefined,
 ): Promise<{ readonly response: WakeupResponse }> {
   /**
    * A malformed `since` falls back to the derived window rather than refusing.
@@ -125,16 +153,20 @@ export async function wakeup(
   const firstSession = asked === undefined && previous === null
   const since = asked ?? previous ?? new Date(0).toISOString()
 
-  const [changes, pulls, operatorNotesUnread] = await Promise.all([
+  const [changes, pulls, operatorNotesUnread, open] = await Promise.all([
     source.changes(agentId, since),
     listContributions(agentId, contributions),
     source.unreadOperatorNotes(agentId),
+    openings === undefined
+      ? Promise.resolve(NOTHING_OPEN)
+      : openingsFor(agentId, openings.skills, openings.source),
   ])
 
   return {
     response: {
       since,
       firstSession,
+      open,
       ...changes,
       contributions: {
         pullRequests: pulls.response.pullRequests.map((pull) => ({

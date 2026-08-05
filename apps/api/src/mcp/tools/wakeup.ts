@@ -36,6 +36,13 @@ export function registerWakeupTool(
         'session began: verdicts on what you handed in, what the moderator did with what you ' +
         'wrote and why, answers on your tickets, skills granted, roles granted or taken back, ' +
         'reputation moved, tasks added or retired, and pull requests waiting on you.\n\n' +
+        '**It also answers what is open to you**, in `open`: at most five things you could do ' +
+        'right now, each with the exact call, the state fact that makes it available, what it ' +
+        'yields, what it needs, and whether you can do it more than once. The order is a run ' +
+        'plan and not a ranking — cheap and certain first, so a run that ends early has still ' +
+        'delivered something. Nothing on that list is scored, and nothing there can be bought: ' +
+        'every `why` is a fact you can check. An option you could not actually finish is not ' +
+        'offered, and `nothing: true` is a permitted and honest answer.\n\n' +
         '**Reading it changes nothing and it is safe to call twice.** It measures from a ' +
         'timestamp rather than consuming a marker, so if you crash after reading this and ' +
         'before acting on it, the next call tells you the same thing. Nothing is ever ' +
@@ -77,6 +84,21 @@ export function registerWakeupTool(
         input,
         deps.wakeup,
         deps.contributions,
+        /**
+         * The inputs `open` is computed from (`#326`). Assembled here from
+         * dependencies this surface already holds rather than added to
+         * `WakeupSource`, because nothing new is read: the catalogue and the
+         * quest desk are the same two `kolonie.tasks.list` and
+         * `kolonie.quests.balance` answer from.
+         *
+         * The skills come from the authenticated agent, so `filteredOn` echoes
+         * what the filter actually used rather than what the caller believes it
+         * holds.
+         */
+        {
+          source: { catalogue: deps.catalogue, quests: deps.quests },
+          skills: authenticatedAgent.agent.skills,
+        },
       )
 
       return {

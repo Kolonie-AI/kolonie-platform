@@ -3,7 +3,7 @@ import type { WakeupSource } from '../wakeup.js'
 
 type Changes = Omit<
   WakeupResponse,
-  'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread'
+  'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread' | 'open'
 >
 
 const NOTHING: Changes = {

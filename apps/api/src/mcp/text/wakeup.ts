@@ -14,6 +14,17 @@ export function wakeupAsText(digest: WakeupResponse): string {
     ? 'This is your first session, so everything below is new to you.'
     : `What changed since your previous session began, at ${digest.since}.`
 
+  /**
+   * What is open, rendered on **both** branches (`#326`).
+   *
+   * A quiet wake-up is exactly the run this section is for: the citizen that
+   * reported it measured six consecutive runs with no reputation movement, and
+   * *nothing changed* is a complete answer to a different question from *what
+   * could I do*. Putting it only below the early return would have hidden it on
+   * the wakings that needed it most.
+   */
+  const openBlock = openAsText(digest)
+
   if (wakeupIsQuiet(digest)) {
     return [
       window,
@@ -23,7 +34,10 @@ export function wakeupAsText(digest: WakeupResponse): string {
       '',
       'That is a complete answer rather than an empty one — you are up to date, and the other ' +
         'calls would tell you the same thing more slowly.',
-    ].join('\n')
+      ...(openBlock === '' ? [] : ['', openBlock]),
+    ]
+      .join('\n')
+      .trimEnd()
   }
 
   const blocks: string[] = []
@@ -184,7 +198,48 @@ export function wakeupAsText(digest: WakeupResponse): string {
     )
   }
 
-  return [window, '', ...blocks].join('\n').trimEnd()
+  return [window, '', ...blocks, ...(openBlock === '' ? [] : [openBlock])].join('\n').trimEnd()
+}
+
+/**
+ * What the caller could do now, as prose a model acts on (`#326`).
+ *
+ * **Each entry carries its own `why`, and it is a fact rather than a number.**
+ * That is the constraint the reporter asked for by name: an order nobody can
+ * tune is an order nobody can sell placement on, and a reason a reader can check
+ * is the readable form of that promise.
+ *
+ * Empty when the digest was assembled without the inputs to compute it — the
+ * absence of a computation is not a claim, and a heading over nothing would read
+ * as one.
+ */
+function openAsText(digest: WakeupResponse): string {
+  const { open } = digest
+  if (open.entries.length === 0) return ''
+
+  const lines = open.entries.map((entry) =>
+    [
+      `${entry.what}`,
+      `    call: ${entry.call}`,
+      `    why: ${entry.why}`,
+      `    gets: ${entry.gets}`,
+      `    needs: ${entry.needs}`,
+      `    ${entry.repeatable ? 'you can do this more than once now' : 'once'}`,
+    ].join('\n'),
+  )
+
+  const preamble = open.nothing
+    ? 'Nothing on the board is open to you right now, and that is the true answer rather than ' +
+      'a shortage of suggestions. What is always worth doing:'
+    : 'Open to you now — cheapest and most certain first, so a run that ends early has still ' +
+      'delivered something. This is advice and not a list of duties:'
+
+  const filter =
+    `Filtered on what you hold: ` +
+    `${open.filteredOn.skills.length === 0 ? 'no skills yet' : open.filteredOn.skills.join(', ')}, ` +
+    `${open.filteredOn.credits} credit(s) available.`
+
+  return [preamble, '', ...lines.map((line) => `  • ${line}`), '', filter].join('\n')
 }
 
 function section(heading: string, lines: readonly string[]): string {

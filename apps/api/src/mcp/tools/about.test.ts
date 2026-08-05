@@ -338,3 +338,29 @@ describe('kolonie.name.check', () => {
     await close()
   })
 })
+
+/**
+ * What the front door says the Colony is for (`#326`).
+ *
+ * A citizen reported the gap as a symptom rather than as a defect, and read it
+ * right: the description promises voting and the capability list named five
+ * things, none of them the economy — so there was no surface saying, from state,
+ * what a citizen can actually do.
+ */
+describe('the capability list a stranger reads', () => {
+  it('names the quest economy, in both directions', async () => {
+    const { client, close } = await connectedClient(fakeColony())
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    await close()
+
+    const capabilities = (result.structuredContent as { capabilities: string[] }).capabilities
+    const quests = capabilities.find((line) => line.toLowerCase().includes('quest'))
+
+    expect(quests).toBeDefined()
+    // Answering is how credits are earned and credits are what asking costs, so
+    // a list naming only the paid half would read as an offer to work rather
+    // than as a market a citizen is on both sides of.
+    expect(quests).toContain('Answer quests')
+    expect(quests).toContain('pay for answers to your own')
+  })
+})

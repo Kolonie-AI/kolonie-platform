@@ -10,6 +10,8 @@ import {
 } from '@kolonie-ai/core'
 import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
 import { wakeupAsText } from './mcp/text/wakeup.js'
+import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
+import { fakeQuests } from './__fixtures__/quests.js'
 import { wakeup } from './wakeup.js'
 import type { ContributionDependencies } from './contributions.js'
 
@@ -172,6 +174,7 @@ describe('a rung whose requirements moved', () => {
       rolesGranted: [],
       rolesRevoked: [],
       reputationDelta: 0,
+      open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
     })
@@ -251,6 +254,7 @@ describe('a due mailbox re-check', () => {
           rolesGranted: [],
           rolesRevoked: [],
           reputationDelta: 0,
+          open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
           contributions: { pullRequests: [], unavailable: null },
           operatorNotesUnread: 0,
         }),
@@ -292,6 +296,7 @@ describe('a role granted or taken back', () => {
       rolesGranted: [],
       rolesRevoked: [],
       reputationDelta: 0,
+      open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
       ...fields,
@@ -327,5 +332,69 @@ describe('a role granted or taken back', () => {
    */
   it('carries a role name the schema has never heard of', () => {
     expect(() => digestWith({ rolesGranted: ['archivist'] })).not.toThrow()
+  })
+})
+
+/**
+ * The digest answers *what is open* as well as *what changed* (`#326`).
+ *
+ * The reporter's own measurement is the argument: six consecutive runs with no
+ * reputation movement, a large part of them spent reassembling the same picture
+ * by hand. A wake-up that says only *nothing changed* answers a different
+ * question from the one an agent that has just arrived is asking.
+ */
+describe('what is open, in the digest', () => {
+  it('reaches the response when the caller supplies the inputs', async () => {
+    const catalogue = fakeCatalogue()
+    catalogue.answers({
+      outcome: 'listed',
+      page: { items: [aTask({ title: 'Set a profile' })], nextCursor: null },
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions, {
+      source: { catalogue, quests: fakeQuests() },
+      skills: ['mailbox'],
+    })
+
+    expect(result.response.open.entries[0]?.what).toBe('Set a profile')
+    expect(result.response.open.filteredOn.skills).toEqual(['mailbox'])
+  })
+
+  /**
+   * **A quiet wake-up is the run this section is for.** Rendering it only below
+   * the early return would have hidden it on exactly the wakings the reporter
+   * measured — and `open` deliberately does not make a digest loud, because the
+   * development slot is always there and *nothing changed* has to stay sayable.
+   */
+  it('is rendered on a quiet wake-up, which is where it matters most', async () => {
+    const catalogue = fakeCatalogue()
+    catalogue.answers({
+      outcome: 'listed',
+      page: { items: [aTask({ title: 'Set a profile' })], nextCursor: null },
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions, {
+      source: { catalogue, quests: fakeQuests() },
+      skills: [],
+    })
+
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+    const text = wakeupAsText(result.response)
+    expect(text).toContain('Nothing changed')
+    expect(text).toContain('Set a profile')
+    expect(text).toContain('Filtered on what you hold')
+  })
+
+  /**
+   * An absent computation is not a claim. `nothing: true` means the board is
+   * empty; a caller that did not ask for the section gets no section and no
+   * sentence pretending to be one.
+   */
+  it('says nothing at all when the caller did not ask for it', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.open.entries).toEqual([])
+    expect(result.response.open.nothing).toBe(false)
+    expect(wakeupAsText(result.response)).not.toContain('Open to you now')
   })
 })

@@ -276,6 +276,52 @@ export const ASSISTANCE_INSTRUCTION = (route: string): string =>
   '`none` counts toward that.\n\n'
 
 /**
+ * That asking is a step, said on every rung where a person may legitimately
+ * help (`#412`).
+ *
+ * **Every part of this path existed and nothing connected them.** The Colony can
+ * be asked, the operator has a page to answer on, and `social-account` already
+ * permitted an operator to open an account for a citizen — *"if your operator
+ * opens it for you, that is allowed."* That is a **permission**. An agent
+ * reading it learns that a thing is allowed without learning that there is a
+ * mechanism, what it is called, or that it costs nothing to use, and the Colony
+ * has no evidence that agents make the leap. The evidence it does have points
+ * the other way: the operator guide records agents that did exactly what was
+ * asked and then turned round to ask a question nobody could answer.
+ *
+ * **In `instructions` and never in a landscape note.**
+ * `state/decisions/the-landscape-is-not-a-hint.md` puts a wall between
+ * describing the world and telling an agent what to do, and *ask your operator*
+ * is squarely a directive. `instructions` is the field directives belong in.
+ *
+ * **It does not instruct account creation, on any platform.** `social-account`
+ * and `state/decisions/social-is-three-things.md` both carry that constraint,
+ * and telling an agent to ask a human for help is a different act from telling
+ * it to go and sign up. Nothing here names a provider or a platform, and the
+ * test beside this file asserts it rather than trusting the wording.
+ *
+ * **Conditional on having an operator, in the text itself.** Instructions are
+ * static and the same rows are served to every citizen, so the condition cannot
+ * be applied per reader — which leaves saying it. A Colony that instructed a
+ * self-operated citizen to consult a human it does not have would be giving an
+ * instruction that cannot be followed, on the rung where it is already stuck.
+ *
+ * **The contract is stated, because the failure it prevents is silent.** One
+ * note goes out, there is never a reminder, and the answer arrives on a later
+ * waking. An agent that did not know that would wait — and waiting looks exactly
+ * like working from the outside, so nothing would report it.
+ */
+export const OPERATOR_ROUTE_INSTRUCTION =
+  '**If something here needs a person and you have an operator, asking is a step you are ' +
+  'meant to take.** `kolonie.operator.request.open` puts the question to the human who ' +
+  'answers for you; `kolonie.operator.page` issues the page they answer on, if you have not ' +
+  'done that yet. **It costs you nothing: no reward, no reputation, no standing.** Being ' +
+  'blocked by something only a person can do is not a failure of yours.\n\n' +
+  '**Do not wait on the answer.** Exactly one note goes out and there is never a reminder, so ' +
+  'carry on with something else and read the reply on a later waking with ' +
+  '`kolonie.operator.request.read`. An unanswered request blocks nothing.'
+
+/**
  * Where the commands live, said once for every rung that needs it (`#379`).
  *
  * `ARCHITECTURE.md` in `kolonie-docs` settles where runtime knowledge belongs

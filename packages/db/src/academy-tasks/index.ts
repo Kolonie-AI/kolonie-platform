@@ -15,7 +15,7 @@ import { RoleSchema, SkillSchema, TaskTypeSchema, type TaskId } from '@kolonie-a
 import type { Database } from '../client.js'
 import { taskHints, taskLandscapeNotes, tasks } from '../schema/index.js'
 import { markBriefingStale } from '../storage/briefing.js'
-import { RUNTIME_SKILL_POINTER, type AcademyTask } from './shared.js'
+import { OPERATOR_ROUTE_INSTRUCTION, RUNTIME_SKILL_POINTER, type AcademyTask } from './shared.js'
 import { profileComplete } from './profile-complete.js'
 import { heartbeat } from './heartbeat.js'
 import { memoryPersistence } from './memory-persistence.js'
@@ -121,6 +121,34 @@ export type { AcademyTask } from './shared.js'
  * **Last, and always last.** It is the sentence a citizen needs once it has read
  * what the rung asks of it and is working out how to do it — not before.
  */
+/**
+ * That asking a person is a step, appended to every rung that permits one
+ * (`#412`).
+ *
+ * **Driven by `assistanceAllowed` rather than by a list**, which is the whole of
+ * why it is here and not in thirty-two files. The rungs that permit assistance
+ * are exactly the rungs where this sentence is true, that flag already says
+ * which they are, and a rung added next month inherits it without anybody
+ * remembering to. A hand-maintained list would be a second answer to a question
+ * the row already answers, and it would be wrong the first time the two
+ * disagreed.
+ *
+ * **The rejection case is the point.** `github-contribution` and
+ * `code-contribution` refuse assistance outright — they are the Colony's own
+ * work, which is where `kolonie-docs#36` draws the line — and telling a citizen
+ * to ask a human on a rung that will refuse the answer is worse than saying
+ * nothing. `github-contribution` has its own error code precisely so that
+ * refusal is not read as a failure.
+ *
+ * **Before the runtime pointer, so that stays last.** The pointer is the
+ * sentence a citizen needs once it has worked out what to do; this is part of
+ * working that out.
+ */
+const offeringTheOperatorRoute = (task: AcademyTask): AcademyTask =>
+  task.assistanceAllowed
+    ? { ...task, instructions: `${task.instructions}\n\n${OPERATOR_ROUTE_INSTRUCTION}` }
+    : task
+
 const pointingAtTheRuntime = (task: AcademyTask): AcademyTask =>
   task.runtimeSkill === undefined
     ? task
@@ -166,7 +194,9 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   domainPersistence,
   githubContribution,
   codeContribution,
-].map(pointingAtTheRuntime)
+]
+  .map(offeringTheOperatorRoute)
+  .map(pointingAtTheRuntime)
 
 /**
  * Every skill some rung of the Academy grants, sorted (`#352`).

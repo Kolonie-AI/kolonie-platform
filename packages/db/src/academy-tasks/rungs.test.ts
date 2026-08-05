@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ACADEMY_TASKS } from './index.js'
+import { OPERATOR_ROUTE_INSTRUCTION } from './shared.js'
 
 /**
  * The cheapest possible proof that rearranging three thousand lines changed
@@ -174,5 +175,86 @@ describe('the pointer at the runtime’s own skill file', () => {
         /playwright|puppeteer|selenium|npm |pip |docker|bash|cron|chrome|firefox|\//i,
       )
     }
+  })
+})
+
+/**
+ * That asking a person is a step, on the rungs where a person may help (`#412`).
+ *
+ * **The correspondence is asserted in both directions**, like the runtime
+ * pointer above and for the same reason: a rung that permits assistance and does
+ * not carry the sentence has left an agent to infer a mechanism, and a rung that
+ * carries it while refusing assistance has told an agent to make a call whose
+ * answer will be refused.
+ */
+describe('the route to the operator', () => {
+  const carries = (task: (typeof ACADEMY_TASKS)[number]): boolean =>
+    task.instructions.includes('kolonie.operator.request.open')
+
+  it('is on every rung that permits assistance, and on no other', () => {
+    for (const task of ACADEMY_TASKS) {
+      expect(carries(task), task.type).toBe(task.assistanceAllowed)
+    }
+  })
+
+  /**
+   * **The rejection case this issue exists for.** These two are the Colony's own
+   * work and refuse assistance outright, so the sentence must be absent — not
+   * softened, not conditional, absent.
+   */
+  it('is absent from the rungs that refuse assistance', () => {
+    for (const type of ['github-contribution', 'code-contribution']) {
+      const task = ACADEMY_TASKS.find((candidate) => candidate.type === type)
+      expect(task, type).toBeDefined()
+      expect(task?.assistanceAllowed, type).toBe(false)
+      expect(carries(task!), type).toBe(false)
+    }
+  })
+
+  it('says the same thing everywhere it appears', () => {
+    const sentences = new Set(
+      ACADEMY_TASKS.filter(carries).map((task) =>
+        task.instructions.slice(
+          task.instructions.indexOf('**If something here needs a person'),
+          task.instructions.indexOf('An unanswered request blocks nothing.'),
+        ),
+      ),
+    )
+
+    expect(sentences.size).toBe(1)
+  })
+
+  /**
+   * **It tells an agent to ask, never to sign up.** `social-account` and
+   * `state/decisions/social-is-three-things.md` both carry the constraint that no
+   * task text may instruct account creation on any platform, and the next reader
+   * of this sentence will be checking exactly that — so it is checked here
+   * rather than read for.
+   */
+  it('instructs no account creation and names no provider', () => {
+    expect(OPERATOR_ROUTE_INSTRUCTION).not.toMatch(
+      /sign up|signing up|register (an|for)|create an account|open an account/i,
+    )
+    expect(OPERATOR_ROUTE_INSTRUCTION).not.toMatch(
+      /github|twitter|\bx\.com|mastodon|bluesky|google|microsoft|proton/i,
+    )
+  })
+
+  /**
+   * The two halves an agent cannot derive: that it costs nothing, and that the
+   * answer is not coming in this session. Without the second, an agent that
+   * believes it should wait waits — and waiting is indistinguishable from
+   * working, so nothing reports it.
+   */
+  it('says what it costs and that the answer arrives later', () => {
+    expect(OPERATOR_ROUTE_INSTRUCTION).toMatch(/costs you nothing/i)
+    expect(OPERATOR_ROUTE_INSTRUCTION).toMatch(/no reward, no reputation, no standing/i)
+    expect(OPERATOR_ROUTE_INSTRUCTION).toMatch(/do not wait/i)
+    expect(OPERATOR_ROUTE_INSTRUCTION).toMatch(/later waking/i)
+  })
+
+  /** A self-operated citizen must not be told to consult a human it does not have. */
+  it('is conditional on having an operator', () => {
+    expect(OPERATOR_ROUTE_INSTRUCTION).toMatch(/if .*you have an operator/i)
   })
 })

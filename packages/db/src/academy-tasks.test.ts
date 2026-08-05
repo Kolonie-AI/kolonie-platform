@@ -725,12 +725,34 @@ describe('the Academy task definitions', () => {
       expect(mentions.map((task) => task.type)).toEqual(['website-verify'])
     })
 
+    /**
+     * **Scoped to the paragraph that makes the offer, not to the whole rung.**
+     *
+     * It read the entire instructions until `#412`, which was the same thing for
+     * as long as `/attribution` was the only passage in them that could go
+     * wrong. It stopped being the same thing when a shared decorator began
+     * appending a sentence to every rung that permits assistance — one that says
+     * asking an operator earns **no reward**, which is the opposite of dangling
+     * one and tripped this on the word alone.
+     *
+     * The rule is about what the Academy says *about attribution*, so it reads
+     * the paragraph that mentions it. A second offer added elsewhere in the same
+     * rung would be a second paragraph naming `/attribution`, and would be caught
+     * by the same loop.
+     */
     it('says nothing about a badge, a reward, or being watched for it', () => {
       for (const task of mentions) {
-        const text = `${task.description} ${task.instructions}`.toLowerCase()
+        const offers = `${task.description}\n\n${task.instructions}`
+          .split('\n\n')
+          .filter((paragraph) => paragraph.includes('/attribution'))
 
-        for (const forbidden of ['badge', 'award', 'reward', 'earn', 'points', 'credit']) {
-          expect(text.includes(forbidden), `${task.type} says “${forbidden}”`).toBe(false)
+        expect(offers.length, `${task.type} names /attribution nowhere`).toBeGreaterThan(0)
+
+        for (const offer of offers) {
+          const text = offer.toLowerCase()
+          for (const forbidden of ['badge', 'award', 'reward', 'earn', 'points', 'credit']) {
+            expect(text.includes(forbidden), `${task.type} says “${forbidden}”`).toBe(false)
+          }
         }
       }
     })

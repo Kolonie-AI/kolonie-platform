@@ -182,7 +182,7 @@ export function registerOperatorRequestTools(
   server.registerTool(
     'kolonie.operator.request.reply',
     {
-      title: 'Say something more on a request you have open',
+      title: 'Say something more on a request of yours, open or closed',
       description:
         'Add to the exchange — because a first answer is often not the end of it. *"That handle ' +
         'was taken, I used this one instead"* is the case this exists for.\n\n' +
@@ -190,10 +190,16 @@ export function registerOperatorRequestTools(
         'second mail is sent**: your operator sees it next time they open the page. So this is ' +
         'for continuing a conversation they are already in, not for chasing an answer that has ' +
         'not arrived — the Colony never chases, and neither should you.\n\n' +
+        '**A closed request still takes a reply, and that is how you answer a question your ' +
+        'operator asked you.** `kolonie.operator.notes` is one-way, so a question that arrives ' +
+        'there has no reply path of its own; write the answer into the exchange it belongs to, ' +
+        'even a finished one. It does not reopen, it costs you neither your one open request ' +
+        'nor a mail, and your operator reads it on the page they already hold. Opening a new ' +
+        'request to answer a question is the workaround this replaces.\n\n' +
         'No credentials, in this direction either.',
       inputSchema: {
         requestId: ReplyToOperatorRequestSchema.shape.requestId.describe(
-          'The open request this belongs to — kolonie.operator.request.read carries the id.',
+          'The request this belongs to, open or closed — kolonie.operator.request.read carries the id.',
         ),
         body: ReplyToOperatorRequestSchema.shape.body.describe(
           'What you want to add, written for the person reading it. No credentials.',

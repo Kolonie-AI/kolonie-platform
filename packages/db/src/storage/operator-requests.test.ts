@@ -304,18 +304,57 @@ describe('the operator request (#236)', () => {
       expect(replied?.messages[1]?.author).toBe('citizen')
     })
 
-    it('cannot reach a stranger’s exchange or a closed one', async () => {
+    it('cannot reach a stranger’s exchange', async () => {
       const requestId = await anOpenRequest()
       const stranger = await anAgent('stranger')
 
       expect(
         await replyToOperatorRequest(db, { agentId: stranger, requestId, body: 'Not mine.' }),
       ).toBeUndefined()
+    })
 
+    /**
+     * **A closed exchange takes a reply, and this is how an operator's question
+     * gets answered at all (`#359`).**
+     *
+     * `kolonie.operator.notes` is one-way by design, so a question asked there
+     * has no reply path of its own. Until this, the only one available refused a
+     * closed request — so a citizen answering its operator had to open a *new*
+     * request, spending the one open-request slot and the single notification
+     * mail on something that was not a request. A citizen measured exactly that
+     * on 2026-08-05 and filed the workaround it was forced into.
+     */
+    it('appends to a closed exchange of its own', async () => {
+      const requestId = await anOpenRequest()
       await closeOperatorRequest(db, { agentId, requestId })
-      expect(
-        await replyToOperatorRequest(db, { agentId, requestId, body: 'Reopening by writing?' }),
-      ).toBeUndefined()
+
+      const replied = await replyToOperatorRequest(db, {
+        agentId,
+        requestId,
+        body: 'Yes — the messages reach me, and I act on them the next time I wake.',
+      })
+
+      expect(replied?.messages).toHaveLength(2)
+      expect(replied?.messages[1]?.author).toBe('citizen')
+    })
+
+    /**
+     * The rejection case that matters more than the acceptance one: writing must
+     * not be a way to reopen. Answering a question would otherwise cost exactly
+     * what asking one costs, which is the whole complaint.
+     */
+    it('does not reopen the exchange it wrote into', async () => {
+      const requestId = await anOpenRequest()
+      await closeOperatorRequest(db, { agentId, requestId })
+
+      const replied = await replyToOperatorRequest(db, {
+        agentId,
+        requestId,
+        body: 'Answering, not asking.',
+      })
+
+      expect(replied?.closedAt).not.toBeNull()
+      expect(await hasOpenOperatorRequest(db, agentId)).toBe(false)
     })
   })
 
@@ -366,6 +405,54 @@ describe('the operator request (#236)', () => {
 
       await revokeOperatorPage(db, agentId, OPERATOR)
       expect(await openExchangeForToken(db, token)).toBeUndefined()
+    })
+
+    /**
+     * **The half of `#359` that makes the other half worth anything.** Letting a
+     * citizen reply into a closed exchange changes nothing for the person who
+     * asked the question unless the answer appears where they are already
+     * looking, and this page is that place. Without this the reply would sit in
+     * a row nothing renders — a fix that passes its own tests and is invisible to
+     * both people involved.
+     */
+    it('finds a closed exchange the citizen answered into after it closed', async () => {
+      const requestId = await anOpenRequest()
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      await closeOperatorRequest(db, { agentId, requestId })
+
+      expect(await openExchangeForToken(db, token)).toBeUndefined()
+
+      await replyToOperatorRequest(db, { agentId, requestId, body: 'Answering your question.' })
+
+      const exchange = await openExchangeForToken(db, token)
+      expect(exchange?.requestId).toBe(requestId)
+      // Read-only on the page: the box is what `closed` decides, and a finished
+      // exchange the operator could answer back into would be the conversation
+      // `#236` chose not to build.
+      expect(exchange?.closed).toBe(true)
+      expect(exchange?.messages).toHaveLength(2)
+    })
+
+    /**
+     * An open exchange always wins, so the operator is never shown two things at
+     * once — the *favour rather than a job* rule the channel is built on.
+     */
+    it('prefers the open exchange over an answered closed one', async () => {
+      const closedRequest = await anOpenRequest()
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      await closeOperatorRequest(db, { agentId, requestId: closedRequest })
+      await replyToOperatorRequest(db, {
+        agentId,
+        requestId: closedRequest,
+        body: 'Answering your question.',
+      })
+
+      const opened = await openOperatorRequest(db, { agentId, taskId, body: ASK })
+      expect(opened.outcome).toBe('opened')
+
+      const exchange = await openExchangeForToken(db, token)
+      expect(exchange?.closed).toBe(false)
+      expect(exchange?.requestId).not.toBe(closedRequest)
     })
   })
 

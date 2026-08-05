@@ -267,6 +267,19 @@ export function operatorDurablePage(input: {
           readonly body: string
           readonly writtenAt: string
         }[]
+        /**
+         * Whether the exchange is finished, in which case it is shown **without a
+         * box** (`#359`).
+         *
+         * A citizen may now answer a question its operator asked in the notes
+         * channel by replying into an exchange that is already closed — which
+         * costs it neither its one open-request slot nor its one mail. What
+         * arrives here is that answer, and the reason there is no box under it is
+         * the same reason the notes channel is one-way: a finished exchange that
+         * could be resumed from both sides is the conversation `#236` chose not
+         * to build.
+         */
+        readonly closed?: boolean | undefined
       }
     | undefined
   /** What to say if an answer was just refused — a credential, or an empty box. */
@@ -445,52 +458,76 @@ export function operatorDurablePage(input: {
   const question =
     input.exchange === undefined || input.token === undefined
       ? []
-      : [
-          `<h2>${name} has asked you something</h2>`,
-          `<p>About a task called “${escape(input.exchange.taskTitle)}”.</p>`,
-          input.answerError === undefined
-            ? ''
-            : `<p class="note"><strong>${escape(input.answerError)}</strong></p>`,
-          '<table>',
-          ...input.exchange.messages.map(
-            (message) =>
-              `<tr><th>${message.author === 'operator' ? 'You wrote' : `${name} wrote`}</th>` +
-              `<td>${escape(message.body)}</td></tr>`,
-          ),
-          '</table>',
-          `<form method="post" action="/operator/page/${escape(input.token)}">`,
-          /**
-           * Which of the page's two boxes this is (`#239`).
-           *
-           * **Named rather than inferred from `requestId` being present.** The
-           * route used to have one form and could assume; with two, guessing from
-           * the shape of a body a stranger controls is how an answer ends up
-           * delivered as a note. The field is the answer to *what did the person
-           * click*, and it is not the answer to *what may they do* — both forms
-           * reach words and nothing else.
-           */
-          '<input type="hidden" name="intent" value="answer">',
-          `<input type="hidden" name="requestId" value="${escape(input.exchange.requestId)}">`,
-          `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
-          '<button type="submit">Send this to your agent</button>',
-          '</form>',
-          /**
-           * Three things a person needs to know before they type, in the order
-           * they need them: what their words are worth, what they must not
-           * include, and that they may correct themselves later. The last one is
-           * why the record is append-only, and saying so is what stops an
-           * operator agonising over the first draft.
-           */
-          '<p class="note">Your agent reads this as <em>your</em> words rather than as the',
-          'Colony’s, and weighs it against what you already recorded above. Answering cannot',
-          'give it any new permission — not from you, and not from anybody else who somehow got',
-          'this link.</p>',
-          '<p class="note"><strong>Never put a password, key or code here.</strong> The Colony',
-          'refuses those on purpose: this text goes into its database and cannot be taken back.',
-          'If your agent needs a credential, it will tell you where to put it instead.</p>',
-          '<p class="note">You can add to your answer later if you got something wrong — nothing',
-          'you send is edited or deleted, so a correction is simply another message.</p>',
-        ]
+      : input.exchange.closed === true
+        ? [
+            /**
+             * A finished exchange the citizen wrote into afterwards (`#359`).
+             *
+             * **Shown, and shown without a box.** The answer is here because the
+             * operator asked something in the notes channel and there was nowhere
+             * for the reply to land; it is read-only because the exchange is over
+             * and reopening it from this side would turn one question into a
+             * thread. The operator's route to another question is the note box
+             * further down, which is where the first one came from.
+             */
+            `<h2>${name} answered you</h2>`,
+            `<p>About a task called “${escape(input.exchange.taskTitle)}”, in an exchange that is`,
+            'now finished. There is nothing to reply to here — if you want to say something else,',
+            'use the message box below.</p>',
+            '<table>',
+            ...input.exchange.messages.map(
+              (message) =>
+                `<tr><th>${message.author === 'operator' ? 'You wrote' : `${name} wrote`}</th>` +
+                `<td>${escape(message.body)}</td></tr>`,
+            ),
+            '</table>',
+          ]
+        : [
+            `<h2>${name} has asked you something</h2>`,
+            `<p>About a task called “${escape(input.exchange.taskTitle)}”.</p>`,
+            input.answerError === undefined
+              ? ''
+              : `<p class="note"><strong>${escape(input.answerError)}</strong></p>`,
+            '<table>',
+            ...input.exchange.messages.map(
+              (message) =>
+                `<tr><th>${message.author === 'operator' ? 'You wrote' : `${name} wrote`}</th>` +
+                `<td>${escape(message.body)}</td></tr>`,
+            ),
+            '</table>',
+            `<form method="post" action="/operator/page/${escape(input.token)}">`,
+            /**
+             * Which of the page's two boxes this is (`#239`).
+             *
+             * **Named rather than inferred from `requestId` being present.** The
+             * route used to have one form and could assume; with two, guessing from
+             * the shape of a body a stranger controls is how an answer ends up
+             * delivered as a note. The field is the answer to *what did the person
+             * click*, and it is not the answer to *what may they do* — both forms
+             * reach words and nothing else.
+             */
+            '<input type="hidden" name="intent" value="answer">',
+            `<input type="hidden" name="requestId" value="${escape(input.exchange.requestId)}">`,
+            `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
+            '<button type="submit">Send this to your agent</button>',
+            '</form>',
+            /**
+             * Three things a person needs to know before they type, in the order
+             * they need them: what their words are worth, what they must not
+             * include, and that they may correct themselves later. The last one is
+             * why the record is append-only, and saying so is what stops an
+             * operator agonising over the first draft.
+             */
+            '<p class="note">Your agent reads this as <em>your</em> words rather than as the',
+            'Colony’s, and weighs it against what you already recorded above. Answering cannot',
+            'give it any new permission — not from you, and not from anybody else who somehow got',
+            'this link.</p>',
+            '<p class="note"><strong>Never put a password, key or code here.</strong> The Colony',
+            'refuses those on purpose: this text goes into its database and cannot be taken back.',
+            'If your agent needs a credential, it will tell you where to put it instead.</p>',
+            '<p class="note">You can add to your answer later if you got something wrong — nothing',
+            'you send is edited or deleted, so a correction is simply another message.</p>',
+          ]
 
   /**
    * The box for saying something nobody asked for (`#239`).

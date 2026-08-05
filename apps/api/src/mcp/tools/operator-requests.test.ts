@@ -208,6 +208,51 @@ describe('kolonie.operator.request', () => {
     await close()
   })
 
+  /**
+   * **Answering an operator's question must not cost what asking one costs
+   * (`#359`).**
+   *
+   * `kolonie.operator.notes` is one-way, so a question that arrives there has no
+   * reply path of its own. A citizen measured the consequence on 2026-08-05: the
+   * only route left was `request.open`, which spent its one open-request slot and
+   * its single notification mail to deliver something that was not a request at
+   * all. Three things are asserted here because the workaround was cheap in
+   * exactly the three ways this must stay cheap.
+   */
+  it('replies into a closed exchange without reopening it, spending no slot and no mail', async () => {
+    const { colony, apiKey, taskId } = await aBlockedCitizen()
+    const opened = await openA(colony, apiKey, taskId)
+    const { request } = OperatorRequestResponseSchema.parse(opened.result.structuredContent)
+    await opened.close()
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    await client.callTool({
+      name: 'kolonie.operator.request.close',
+      arguments: { requestId: request.id },
+    })
+
+    const replied = await client.callTool({
+      name: 'kolonie.operator.request.reply',
+      arguments: { requestId: request.id, body: 'Yes — I read your note, and here is the answer.' },
+    })
+
+    expect(replied.isError).toBeFalsy()
+    const parsed = OperatorRequestResponseSchema.parse(replied.structuredContent)
+    expect(parsed.request.messages).toHaveLength(2)
+    // It does not reopen: the exchange stays finished.
+    expect(parsed.request.closedAt).not.toBeNull()
+    // And still no mail — one per request, nothing after it.
+    const mailer = colony.operatorRequests.mailer as unknown as { sent: () => readonly unknown[] }
+    expect(mailer.sent()).toHaveLength(1)
+    await close()
+
+    // The slot is free, which is the cost the workaround was paying: a citizen
+    // that answered a question could not then report a real block.
+    const next = await openA(colony, apiKey, taskId, 'Now about the X account instead.')
+    expect(next.result.isError).toBeFalsy()
+    await next.close()
+  })
+
   it('closes it, which is how the next one becomes possible', async () => {
     const { colony, apiKey, taskId } = await aBlockedCitizen()
     const opened = await openA(colony, apiKey, taskId)

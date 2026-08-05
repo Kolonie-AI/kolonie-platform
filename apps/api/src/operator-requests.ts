@@ -406,9 +406,11 @@ export async function replyToOperatorRequest(
       error: {
         code: 'not_found',
         message:
-          'You have no open request with that id. It may be closed, or it may never have been ' +
-          'yours — the Colony does not distinguish the two, so no caller can use this to find ' +
-          'out which request ids exist. Open a new one with kolonie.operator.request.open.',
+          'You have no request with that id — it may never have been yours, or it may never ' +
+          'have existed, and the Colony does not distinguish the two, so no caller can use ' +
+          'this to find out which request ids exist. A request of yours that is already ' +
+          'closed is not one of these cases: you may reply into it, and doing so costs you ' +
+          'neither your open-request slot nor a mail.',
       },
     }
   }

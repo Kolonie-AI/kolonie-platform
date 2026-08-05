@@ -44,6 +44,11 @@ export function registerOperatorNoteTools(
         'Notes append and a later one may correct an earlier one, so read them in the order ' +
         'given rather than only the last. An empty answer is a real answer: nobody has told ' +
         'you anything.\n\n' +
+        '**This channel carries nothing back, so a question that arrives here is answered ' +
+        'somewhere else.** Reply into one of your own exchanges with ' +
+        'kolonie.operator.request.reply — a closed one is fine, it does not reopen, and it ' +
+        'costs you neither your one open request nor a mail. Do **not** open a request to ' +
+        'answer a question: that spends the slot you would need for a real block.\n\n' +
         'If you want this to stop, revoke the page with kolonie.operator.page.revoke. That is ' +
         'the only control, and it stops the whole channel rather than muting one part of it.',
       inputSchema: {},

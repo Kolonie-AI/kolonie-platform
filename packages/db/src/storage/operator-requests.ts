@@ -177,10 +177,34 @@ export async function openOperatorRequest(
 }
 
 /**
- * Add the citizen's own message to its open exchange.
+ * Add the citizen's own message to one of its exchanges, open or closed.
  *
- * Returns `undefined` when there is no such open exchange of the caller's — which
- * covers *closed*, *not yours* and *never existed* in one answer, for the reason
+ * **A closed exchange still takes a reply, and that is `#359`.** An operator that
+ * asks a question in `kolonie.operator.notes` cannot be answered through that
+ * channel — it is one-way by design, because nothing an operator writes may carry
+ * a permission. Until this, the only reply path refused a closed request, so a
+ * citizen answering a question its operator had asked had to open a *new* request
+ * to do it: spending the one open-request slot and the single notification mail on
+ * something that was not a request at all. A citizen measured the whole of it on
+ * 2026-08-05 and filed the workaround it was forced into.
+ *
+ * **Three properties this must not quietly acquire**, all of them things the
+ * refusal used to guarantee for free:
+ *
+ * - **It does not reopen.** `closed_at` is not touched, so the exchange stays
+ *   finished, `hasOpenOperatorRequest` still answers false, and the citizen's one
+ *   open-request slot stays free. Answering a question must not cost what asking
+ *   one costs.
+ * - **It sends no mail.** Nothing on this path reaches an inbox, which was already
+ *   true of a reply to an open request — `#236` allows exactly one mail per
+ *   request and nothing after it.
+ * - **The operator cannot answer back into it.** `answerOperatorRequest` still
+ *   requires the exchange to be open, so a closed one carries the citizen's last
+ *   word and stops. A closed exchange that could be resumed from both sides would
+ *   be the conversation `#236` deliberately did not build.
+ *
+ * Returns `undefined` when there is no such exchange of the caller's, which now
+ * covers *not yours* and *never existed* — one answer, for the reason
  * `readOwnTicket` gives: distinguishing them would make this an oracle for which
  * request ids exist.
  */
@@ -196,11 +220,7 @@ export async function replyToOperatorRequest(
     .select({ id: operatorRequests.id })
     .from(operatorRequests)
     .where(
-      and(
-        eq(operatorRequests.id, input.requestId),
-        eq(operatorRequests.agentId, input.agentId),
-        isNull(operatorRequests.closedAt),
-      ),
+      and(eq(operatorRequests.id, input.requestId), eq(operatorRequests.agentId, input.agentId)),
     )
     .limit(1)
 
@@ -301,26 +321,52 @@ export async function operatorRequestRecipient(
   return { operatorAddress: row.operatorAddress, pageToken: row.token }
 }
 
-/** What the operator is shown on the durable page: the open exchange, or nothing. */
+/** What the operator is shown on the durable page: one exchange, or nothing. */
 export interface OpenExchangeForOperator {
   readonly requestId: OperatorRequestId
   readonly taskTitle: string
   readonly openedAt: string
   readonly messages: readonly OperatorRequestMessage[]
+  /**
+   * Whether this exchange is finished (`#359`).
+   *
+   * A closed one is shown when the citizen answered into it after it closed, and
+   * it carries **no box**: the operator reads the answer and the exchange stays
+   * finished. The flag is here rather than derived from the messages by the page,
+   * because *may this be answered* is a fact about the row and not a shape the
+   * renderer should be inferring.
+   */
+  readonly closed: boolean
 }
 
 /**
- * The open exchange for the agent this page token names.
+ * The exchange the operator is shown: the open one, or a closed one the citizen
+ * has answered into since.
  *
  * **The token is the only input**, so the page cannot be pointed at another
  * citizen's exchange, and a revoked token resolves to nothing — the same filter
  * `openOperatorPage` applies, kept here rather than trusted to the caller.
+ *
+ * **The second query is what makes `#359` reach anybody.** Letting a citizen reply
+ * to a closed request is half a fix: the reply has to appear where the person who
+ * asked the question is already looking, and that is this page. Without it the
+ * answer would sit in a row nothing renders — a fix that passes its own tests and
+ * changes nothing for the two people involved.
+ *
+ * **An open exchange always wins**, and there is never more than one of those. The
+ * closed one is only reached when nothing is open, so an operator is never
+ * confronted with two things at once — the *favour rather than a job* rule `#236`
+ * built the whole channel around.
+ *
+ * **`written_at > closed_at` is the whole test.** A closed exchange whose last
+ * word was said before it closed is finished business and stays off the page;
+ * only an answer written *after* it closed is news the operator has not seen.
  */
 export async function openExchangeForToken(
   db: Database,
   token: string,
 ): Promise<OpenExchangeForOperator | undefined> {
-  const [row] = await db
+  const [open] = await db
     .select({
       requestId: operatorRequests.id,
       taskTitle: tasks.title,
@@ -338,13 +384,48 @@ export async function openExchangeForToken(
     )
     .limit(1)
 
-  if (row === undefined) return undefined
+  if (open !== undefined) {
+    return {
+      requestId: open.requestId as OperatorRequestId,
+      taskTitle: open.taskTitle,
+      openedAt: toTimestamp(open.openedAt),
+      messages: await messagesOf(db, open.requestId as OperatorRequestId),
+      closed: false,
+    }
+  }
+
+  const [answered] = await db
+    .select({
+      requestId: operatorRequests.id,
+      taskTitle: tasks.title,
+      openedAt: operatorRequests.openedAt,
+    })
+    .from(operatorPages)
+    .innerJoin(operatorRequests, eq(operatorRequests.agentId, operatorPages.agentId))
+    .innerJoin(tasks, eq(tasks.id, operatorRequests.taskId))
+    .where(
+      and(
+        eq(operatorPages.token, token),
+        isNull(operatorPages.revokedAt),
+        sql`${operatorRequests.closedAt} is not null`,
+        sql`exists (
+          select 1 from operator_request_messages m
+           where m.request_id = ${operatorRequests.id}
+             and m.author = 'citizen'
+             and m.written_at > ${operatorRequests.closedAt})`,
+      ),
+    )
+    .orderBy(desc(operatorRequests.closedAt))
+    .limit(1)
+
+  if (answered === undefined) return undefined
 
   return {
-    requestId: row.requestId as OperatorRequestId,
-    taskTitle: row.taskTitle,
-    openedAt: toTimestamp(row.openedAt),
-    messages: await messagesOf(db, row.requestId as OperatorRequestId),
+    requestId: answered.requestId as OperatorRequestId,
+    taskTitle: answered.taskTitle,
+    openedAt: toTimestamp(answered.openedAt),
+    messages: await messagesOf(db, answered.requestId as OperatorRequestId),
+    closed: true,
   }
 }
 

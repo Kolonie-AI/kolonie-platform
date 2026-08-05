@@ -585,6 +585,37 @@ describe('the operator’s form', () => {
     })
 
     /**
+     * **The answer to a question the operator asked, shown without a box
+     * (`#359`).**
+     *
+     * `kolonie.operator.notes` is one-way, so a citizen answers by replying into
+     * one of its own exchanges — a closed one included. This page is where the
+     * person who asked is already looking, so it is where the answer has to
+     * appear; and it appears read-only, because a finished exchange that could be
+     * resumed from both sides is the conversation `#236` chose not to build. The
+     * operator's route to another question is the note box, which is where the
+     * first one came from.
+     */
+    it('shows a closed exchange the citizen answered into, and offers no box for it', async () => {
+      const { token, requestId } = await anAsk()
+      await requests.store.close({ agentId, requestId })
+      await requests.store.reply({
+        agentId,
+        requestId,
+        body: 'Yes — I read your note, and here is the answer.',
+      })
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('answered you')
+      expect(response.body).toContain('I read your note, and here is the answer.')
+      // No answer form for a finished exchange. The note box further down is a
+      // different form, and it is still there — hence the specific field.
+      expect(response.body).not.toContain('value="answer"')
+    })
+
+    /**
      * The refusal, in the direction it matters most. An operator who has just
      * created an account is one paste away from putting a password in a database.
      */

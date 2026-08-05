@@ -105,11 +105,12 @@ export function fakeOperatorRequestStore(
       return Promise.resolve({ outcome: 'opened' as const, request: view(row) })
     },
 
+    // A closed exchange takes a reply too (`#359`), and it does not reopen: the
+    // fixture mirrors that rather than the old refusal, or every test of the new
+    // path would be testing the fixture's opinion of it.
     reply: ({ agentId, requestId, body }) => {
       const row = rows.get(requestId)
-      if (row === undefined || row.agentId !== agentId || row.closedAt !== null) {
-        return Promise.resolve(undefined)
-      }
+      if (row === undefined || row.agentId !== agentId) return Promise.resolve(undefined)
       row.messages.push({ author: 'citizen', body, writtenAt: new Date().toISOString() })
       return Promise.resolve(view(row))
     },
@@ -148,7 +149,30 @@ export function fakeOperatorRequestStore(
       const agentId = pages.agentForToken(token)
       if (agentId === null) return Promise.resolve(undefined)
 
-      const row = openRowFor(agentId)
+      const open = openRowFor(agentId)
+      // The open exchange wins; a closed one appears only once the citizen has
+      // answered into it after it closed (`#359`).
+      const row =
+        open ??
+        [...rows.values()]
+          .filter(
+            (candidate) =>
+              candidate.agentId === agentId &&
+              candidate.closedAt !== null &&
+              candidate.messages.some(
+                (message) =>
+                  message.author === 'citizen' &&
+                  candidate.closedAt !== null &&
+                  // `>=` where the database says `>`: both timestamps here are
+                  // `toISOString()` at millisecond resolution, and a close
+                  // followed immediately by a reply lands on the same
+                  // millisecond. Postgres records microseconds, so the two
+                  // statements are never equal there.
+                  message.writtenAt >= candidate.closedAt,
+              ),
+          )
+          .sort((a, b) => String(b.closedAt).localeCompare(String(a.closedAt)))[0]
+
       if (row === undefined) return Promise.resolve(undefined)
 
       return Promise.resolve({
@@ -156,6 +180,7 @@ export function fakeOperatorRequestStore(
         taskTitle: tasks.get(row.taskId) ?? '',
         openedAt: row.openedAt,
         messages: row.messages.map((message) => ({ ...message })),
+        closed: row.closedAt !== null,
       })
     },
 

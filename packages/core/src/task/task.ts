@@ -480,6 +480,17 @@ export const TaskSchema = z.object({
    */
   full: z.boolean().optional(),
   /**
+   * Places still open, where the caller asked a question that computes it
+   * (`#346`).
+   *
+   * `null` is a quest buying an unlimited number of reports; **absent is a read
+   * that did not ask**, exactly like {@link full}, which it shares its
+   * definition of *taken* with — a quest reported as having a place free and
+   * refused as full is the burnt work {@link slots} names as the thing that
+   * loses citizens permanently.
+   */
+  freeSlots: z.int().nullable().optional(),
+  /**
    * Why a steward refused this task, for its author to read. `null` unless the
    * status is `rejected`.
    *

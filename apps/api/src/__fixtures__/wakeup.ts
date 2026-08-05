@@ -3,7 +3,7 @@ import type { WakeupSource } from '../wakeup.js'
 
 type Changes = Omit<
   WakeupResponse,
-  'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread' | 'open' | 'standing'
+  'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread' | 'open' | 'standing' | 'pays'
 >
 
 /** A citizen at the very start: nothing held, nothing earned (`#344`). */

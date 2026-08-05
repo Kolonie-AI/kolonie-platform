@@ -59,6 +59,24 @@ export interface OpenSource {
 /** How many rungs and how many quests may appear, before the always-present slot. */
 const PER_KIND = 2
 
+/** How much of the catalogue is read to answer *what is open to you now*. */
+const AVAILABLE_PAGE = 25
+
+/**
+ * What this citizen could start now, as the catalogue answers it.
+ *
+ * **Never throws.** This rides on the first call of a wake-up, and a citizen
+ * that woke to an error because one of several reads was unhappy has lost the
+ * run the digest exists to save. An empty list is an absence the ordering
+ * already knows how to be short about.
+ */
+export async function availableNow(agentId: AgentId, source: OpenSource): Promise<readonly Task[]> {
+  return source.catalogue
+    .list({ agentId, availableOnly: true, limit: AVAILABLE_PAGE, hints: false })
+    .then((result) => (result.outcome === 'listed' ? result.page.items : []))
+    .catch(() => [] as readonly Task[])
+}
+
 /**
  * Assemble the section.
  *
@@ -72,12 +90,18 @@ export async function openingsFor(
   agentId: AgentId,
   skills: readonly string[],
   source: OpenSource,
+  /**
+   * What is available to this citizen now, fetched once by the caller (`#346`).
+   *
+   * **Passed in rather than read here**, because the `pays` section is built
+   * from the same listing and two identical reads of the catalogue on the first
+   * call of every wake-up is a cost with nothing bought by it. A promise rather
+   * than a value so the caller can still start it alongside everything else.
+   */
+  available: Promise<readonly Task[]> = availableNow(agentId, source),
 ): Promise<WakeupOpen> {
   const [listed, frontier, purse] = await Promise.all([
-    source.catalogue
-      .list({ agentId, availableOnly: true, limit: 25, hints: false })
-      .then((result) => (result.outcome === 'listed' ? result.page.items : []))
-      .catch(() => [] as readonly Task[]),
+    available,
     source.catalogue.frontier(agentId).catch(() => ({ skills: [], entries: [] }) as Frontier),
     source.quests.balance(agentId).catch(() => ({ balance: 0, reserved: 0, available: 0 })),
   ])

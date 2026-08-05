@@ -311,6 +311,77 @@ describe('a task for a thousand citizens', () => {
       expect(result.page.items.find((item) => item.id === taskId)?.full).toBe(true)
     })
 
+    /**
+     * How many places are left, which the wake-up digest states as a number
+     * (`#346`). Built on the same *taken* expression `full` is, so a quest
+     * reported as having a place free and refused as full cannot happen.
+     */
+    it('counts the places still open', async () => {
+      const taskId = await aQuest({ slots: 3 })
+      await passed(taskId, await anAgent('winner'))
+      const reader = await anAgent('reader')
+
+      const result = await listTasks(db, { agentId: reader, availableOnly: false, limit: 10 })
+
+      expect(result.outcome).toBe('listed')
+      if (result.outcome !== 'listed') return
+      const quest = result.page.items.find((item) => item.id === taskId)
+      expect(quest?.freeSlots).toBe(2)
+      expect(quest?.full).toBe(false)
+    })
+
+    /** An open claim holds a place here too, exactly as it does for `full`. */
+    it('counts a claimed place as taken', async () => {
+      const taskId = await aQuest({ slots: 2 })
+      const holder = await anAgent('claimant')
+      await db.insert(taskAttempts).values({
+        agentId: holder,
+        taskId,
+        attempt: 1,
+        opener: 'challenge' as const,
+        expiresAt: sql`now() + interval '1 hour'`,
+      })
+      const reader = await anAgent('reader')
+
+      const result = await listTasks(db, { agentId: reader, availableOnly: false, limit: 10 })
+
+      expect(result.outcome).toBe('listed')
+      if (result.outcome !== 'listed') return
+      expect(result.page.items.find((item) => item.id === taskId)?.freeSlots).toBe(1)
+    })
+
+    /** The rejection case: a full quest is zero places, never a negative number. */
+    it('reports no places left on a full quest, and never a negative one', async () => {
+      const taskId = await aQuest({ slots: 1 })
+      await passed(taskId, await anAgent('winner'))
+      const reader = await anAgent('reader')
+
+      const result = await listTasks(db, { agentId: reader, availableOnly: false, limit: 10 })
+
+      expect(result.outcome).toBe('listed')
+      if (result.outcome !== 'listed') return
+      const quest = result.page.items.find((item) => item.id === taskId)
+      expect(quest?.freeSlots).toBe(0)
+      expect(quest?.full).toBe(true)
+    })
+
+    /**
+     * A task with no capacity at all buys an unlimited number, and says so
+     * rather than zero — which every Academy rung is, and a quest may be.
+     */
+    it('answers null where there is no capacity to count', async () => {
+      const taskId = await aQuest({ slots: null })
+      const reader = await anAgent('reader')
+
+      const result = await listTasks(db, { agentId: reader, availableOnly: false, limit: 10 })
+
+      expect(result.outcome).toBe('listed')
+      if (result.outcome !== 'listed') return
+      const quest = result.page.items.find((item) => item.id === taskId)
+      expect(quest?.freeSlots).toBeNull()
+      expect(quest?.full).toBe(false)
+    })
+
     it('does not list an expired quest among what can be started now', async () => {
       const agentId = await anAgent('reader')
       await aQuest({ expiresAt: new Date(Date.now() - 60_000).toISOString() })

@@ -184,7 +184,7 @@ export async function wakeupChanges(
       .orderBy(emailChallenges.expiresAt),
 
     db
-      .select({ taskId: tasks.id, title: tasks.title })
+      .select({ taskId: tasks.id, title: tasks.title, kind: tasks.kind })
       .from(tasks)
       .where(and(eq(tasks.status, 'active'), gte(tasks.createdAt, since)))
       .orderBy(desc(tasks.createdAt)),
@@ -206,7 +206,7 @@ export async function wakeupChanges(
      * a waking citizen to act on.
      */
     db
-      .select({ taskId: tasks.id, title: tasks.title })
+      .select({ taskId: tasks.id, title: tasks.title, kind: tasks.kind })
       .from(tasks)
       .where(and(eq(tasks.status, 'retired'), gte(tasks.retiredAt, since)))
       .orderBy(desc(tasks.retiredAt)),
@@ -366,9 +366,10 @@ export async function wakeupChanges(
    * — see {@link ListTasksQuery.createdSince}. `null` says *not computed*, which
    * is the honest thing for a read that did not ask the question.
    */
-  const asTask = (row: { taskId: string; title: string }): WakeupTask => ({
+  const asTask = (row: { taskId: string; title: string; kind: string }): WakeupTask => ({
     taskId: row.taskId as WakeupTask['taskId'],
     title: row.title,
+    kind: row.kind,
     startable: null,
   })
 

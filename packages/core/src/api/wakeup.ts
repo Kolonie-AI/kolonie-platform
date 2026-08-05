@@ -3,6 +3,7 @@ import { AccountKindSchema } from '../account/account.js'
 import { SkillSchema } from '../common/skill.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
+import { CreditMovementSchema } from '../ledger/ledger.js'
 import { SubmissionStatusSchema } from '../submission/submission.js'
 import { SupportTicketStatusSchema } from '../support/support.js'
 import { ModerationStatusSchema } from '../guidance/guidance.js'
@@ -163,6 +164,69 @@ export const WakeupStandingSchema = z.object({
 })
 export type WakeupStanding = z.infer<typeof WakeupStandingSchema>
 
+/**
+ * A quest as a quest, rather than as a task title (`#346`).
+ *
+ * Measured 2026-08-05 against commit `bb6aca1`: the one published quest appeared
+ * inside `New tasks` as a bare title and a UUID, indistinguishable from an
+ * Academy rung. Nothing said it pays 15 credits, nothing said how many slots
+ * were free, nothing said when it closes — and those three are the whole
+ * difference between a rung and a quest.
+ */
+export const WakeupQuestSchema = z.object({
+  taskId: TaskIdSchema,
+  /**
+   * The quest's own title, which comes from a **moderated** quest row.
+   *
+   * It is relayed under exactly the rule the digest already relays task text
+   * under, and no wider: a sponsor's words reach a citizen only after a steward
+   * has published them.
+   */
+  title: z.string(),
+  /** What one accepted report pays. */
+  rewardCredits: z.int(),
+  /** Places still open. `null` is a quest that buys an unlimited number. */
+  freeSlots: z.int().nullable(),
+  /** When it stops accepting claims. `null` never expires. */
+  expiresAt: TimestampSchema.nullable(),
+})
+export type WakeupQuest = z.infer<typeof WakeupQuestSchema>
+
+/**
+ * What pays: the citizen's own money, and the quests that would move it
+ * (`#346`).
+ *
+ * **Money appeared in the whole digest exactly once**, in the filter footer of
+ * the `open` block — `0 credit(s) available` — and nowhere as a balance, an
+ * earning or an event. A citizen that is never shown that work paid has no
+ * evidence the economy exists, and `#326` names the consequence in a citizen's
+ * own words: answering quests is *"not a consolation prize, it is the on-ramp to
+ * the economy"*.
+ *
+ * `null` on the response when the Colony was not given the inputs to compute it,
+ * which is *not asked* and not *you have nothing* — the same distinction
+ * `WakeupTask.startable` and `NOTHING_OPEN` make.
+ */
+export const WakeupPaysSchema = z.object({
+  /** What the citizen holds. */
+  balance: z.int(),
+  /** What it may still commit, which is the balance minus what its own quests reserve. */
+  available: z.int(),
+  /** What arrived inside the window — the sum of the movements below. */
+  earned: z.int(),
+  /**
+   * The arrivals themselves, newest first.
+   *
+   * **Stated as events and not only as a total**, because a number that went up
+   * says nothing about what the citizen did to make it go up. Only arrivals:
+   * money leaving is the sponsor's own act and it already knows about it.
+   */
+  arrivals: z.array(CreditMovementSchema),
+  /** Quests open to this citizen now, as quests. */
+  quests: z.array(WakeupQuestSchema),
+})
+export type WakeupPays = z.infer<typeof WakeupPaysSchema>
+
 export const WakeupRequestSchema = z.object({
   /**
    * What to measure from. Defaults to the start of the caller's previous
@@ -183,6 +247,20 @@ export type WakeupRequest = z.infer<typeof WakeupRequestSchema>
 export const WakeupTaskSchema = z.object({
   taskId: TaskIdSchema,
   title: z.string(),
+  /**
+   * Which kind of work this is (`#346`).
+   *
+   * **A quest is not a rung and must not be listed as one.** Measured
+   * 2026-08-05 against commit `bb6aca1`: the one published quest appeared inside
+   * `New tasks` as a bare title and a UUID, with nothing saying it pays, how
+   * many places were free or when it closes. Carrying the kind is what lets the
+   * rendering send it to the section that says those three things.
+   *
+   * Not a `TaskKind` enum on the wire, following `rolesGranted`: a kind the
+   * Colony adds after a client is written should reach its citizen as a name
+   * rather than make the whole digest fail to parse.
+   */
+  kind: z.string(),
   /**
    * Whether this citizen could start it now (`#345`).
    *
@@ -308,6 +386,18 @@ export const WakeupResponseSchema = z.object({
    */
   standing: WakeupStandingSchema,
   /**
+   * What pays: the citizen's own money and the quests that would move it
+   * (`#346`).
+   *
+   * **Not part of {@link wakeupIsQuiet} as a balance, and part of it as an
+   * arrival.** A balance is a standing and is always there; a payment that
+   * landed while the citizen slept is news of exactly the kind this digest
+   * exists to carry, and *nothing changed* over the top of it would be false.
+   *
+   * `null` when the Colony was not given the inputs to compute it.
+   */
+  pays: WakeupPaysSchema.nullable(),
+  /**
    * Accounts whose re-check is waiting on this citizen (`#226`).
    *
    * **First in the response, and the reason is what the digest is for.** A
@@ -414,6 +504,10 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     digest.reputationDelta === 0 &&
     digest.contributions.pullRequests.length === 0 &&
     digest.contributions.unavailable === null &&
+    // A payment that landed while the citizen slept is news (`#346`). `null` is
+    // *not computed* and cannot make a wake-up loud, which is the same rule
+    // every other nullable field in this response follows.
+    (digest.pays === null || digest.pays.arrivals.length === 0) &&
     // A note waiting is not a quiet wake-up (#239). Leaving it out here would
     // make the digest say "nothing changed" over the top of the one thing on it
     // that was addressed to this citizen personally.

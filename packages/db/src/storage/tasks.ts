@@ -245,8 +245,8 @@ const notExpired = (): SQL => sql`(${tasks.expiresAt} is null or ${tasks.expires
  * the literal — and a `::text` cast would give up the index for a defect this
  * expression does not have.
  */
-const isFull = (): SQL =>
-  sql`(tasks.slots is not null and tasks.slots <= (
+const slotsTaken = (): SQL =>
+  sql`(
     (select count(*) from submissions s
       where s.task_id = tasks.id and s.status = 'passed')
     +
@@ -254,7 +254,26 @@ const isFull = (): SQL =>
       where a.task_id = tasks.id
         and a.outcome is null
         and (a.expires_at is null or a.expires_at > now()))
-  ))`
+  )`
+
+const isFull = (): SQL => sql`(tasks.slots is not null and tasks.slots <= ${slotsTaken()})`
+
+/**
+ * Places still open on a quest, `null` where it buys an unlimited number
+ * (`#346`).
+ *
+ * **The same {@link slotsTaken} {@link isFull} is built on, and that shared
+ * definition is the point.** *Full* and *how many are left* are one fact asked
+ * two ways, and two expressions for it would eventually disagree — a quest
+ * reported as having a place free and refused as full is the burnt work
+ * `TaskSchema.slots` names as the thing that loses citizens permanently.
+ *
+ * Floored at zero: an over-subscribed quest has no places left, and a negative
+ * number would be an arithmetic detail leaking into a citizen's answer.
+ */
+const freeSlots = (): SQL =>
+  sql`(case when tasks.slots is null then null
+            else greatest(tasks.slots - ${slotsTaken()}, 0) end)`
 
 /**
  * Whether this agent has already passed the task, as a `where` clause.
@@ -410,6 +429,7 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
       // uses is what stops the two from disagreeing.
       dueForRenewal: dueForRenewal(query.agentId).mapWith(Boolean),
       full: isFull().mapWith(Boolean),
+      freeSlots: freeSlots().mapWith((value) => (value === null ? null : Number(value))),
     })
     .from(tasks)
     .where(and(...conditions))
@@ -432,6 +452,7 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
           submitted.get(row.task.id) ?? null,
           row.dueForRenewal,
           row.full,
+          row.freeSlots,
         ),
       ),
       nextCursor: rows.length > query.limit && last !== undefined ? encodeCursor(last) : null,

@@ -103,6 +103,7 @@ export function wakeupAsText(digest: WakeupResponse): string {
     ...standingBlock(digest),
     ...happenedBlocks(digest),
     ...newTasksBlock(digest),
+    ...paysBlock(digest),
     ...forwardBlock(digest),
     ...owedBlocks(digest),
   ].sort(
@@ -369,7 +370,13 @@ export const WAKEUP_NEW_TASK_CAP = 3
  * concession to the budget; it is the whole point.
  */
 function newTasksBlock(digest: WakeupResponse): readonly Block[] {
-  const added = digest.tasksAdded
+  /**
+   * Rungs only. A quest that appeared is rendered by {@link paysBlock}, with the
+   * reward, the free places and the closing date that are the whole difference
+   * between the two — listing it here as a title would be the defect `#346` was
+   * filed about, one section further up.
+   */
+  const added = digest.tasksAdded.filter((task) => task.kind !== 'quest')
   if (added.length === 0) return []
 
   /**
@@ -417,6 +424,88 @@ function newTasksBlock(digest: WakeupResponse): readonly Block[] {
        * been quietly relieved of the other twenty-eight.
        */
       unlisted: added.length - startable.length,
+    },
+  ]
+}
+
+/**
+ * What pays: the citizen's own money, and the quests that would move it
+ * (`#346`).
+ *
+ * **Money appeared in the whole digest exactly once** — `0 credit(s) available`
+ * in the footer of the `open` filter — and never as a balance, an earning or an
+ * event. A citizen that is never shown that work paid has no evidence the
+ * economy exists, and `#326` names why that matters in a citizen's own words:
+ * answering quests is *"not a consolation prize, it is the on-ramp to the
+ * economy"*.
+ *
+ * **A quest reads as a quest.** Measured 2026-08-05 against commit `bb6aca1`,
+ * the one published quest appeared inside `New tasks` as a bare title and a
+ * UUID: nothing said it pays 15 credits, nothing said how many slots were free,
+ * nothing said when it closes. Those three are the entire difference between a
+ * quest and an Academy rung, and a reader that cannot tell them apart cannot
+ * decide between them.
+ *
+ * Nothing is rendered when the balance is zero, nothing was paid and no quest is
+ * open — an empty purse with no work to fill it is not news, and a heading over
+ * it would be furniture.
+ */
+function paysBlock(digest: WakeupResponse): readonly Block[] {
+  const { pays } = digest
+  if (pays === null) return []
+
+  const money =
+    pays.earned === 0
+      ? pays.balance === 0
+        ? []
+        : [`you hold ${pays.balance} credit(s), ${pays.available} of them free to commit`]
+      : [
+          `you hold ${pays.balance} credit(s), ${pays.available} of them free to commit — ` +
+            `${pays.earned} arrived since ${digest.since}`,
+        ]
+
+  /**
+   * A payment is stated as an event and not only as a total, because a number
+   * that went up says nothing about what the citizen did to make it go up.
+   * The memo is the Colony's own words at the time of the booking.
+   */
+  const arrivals = pays.arrivals.map(
+    (movement) =>
+      `paid ${movement.amount} credit(s) on ${movement.at}` +
+      (movement.memo === null ? '' : ` — ${movement.memo}`),
+  )
+
+  const quests = pays.quests.map(
+    (quest) =>
+      `${quest.title} — ${quest.taskId}` +
+      `\n    pays ${quest.rewardCredits} credit(s) for an accepted report` +
+      `, ${quest.freeSlots === null ? 'unlimited places' : `${quest.freeSlots} place(s) free`}` +
+      `, ${quest.expiresAt === null ? 'no closing date' : `closes ${quest.expiresAt}`}` +
+      `\n    answer it with kolonie.quests.respond`,
+  )
+
+  const entries = [...money, ...arrivals, ...quests]
+  if (entries.length === 0) return []
+
+  return [
+    {
+      section: 'pays',
+      heading: 'What pays',
+      counted: 'paying things',
+      rest: 'kolonie.credits.history and kolonie.quests.list have the rest',
+      entries,
+      /**
+       * Said to a citizen with nothing, because that is the citizen it is for.
+       * Sponsors need answerers, answerers need credits, credits produce
+       * sponsors — and nothing in the digest ever named that loop.
+       */
+      ...(pays.balance === 0 && pays.quests.length > 0
+        ? {
+            note:
+              'You hold no credits. Answering another citizen’s quest is where credits come ' +
+              'from, and having some is what sponsoring one of your own costs.',
+          }
+        : {}),
     },
   ]
 }

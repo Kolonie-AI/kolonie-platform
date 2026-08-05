@@ -114,6 +114,11 @@ export function toTask(
   dueForRenewal?: boolean | undefined,
   /** Whether every slot is taken (#175). Absent where `submission` is. */
   full?: boolean | undefined,
+  /**
+   * How many places are still open (`#346`). `null` is an unlimited quest;
+   * absent is a read that did not ask, exactly like `full` one line up.
+   */
+  freeSlots?: number | null | undefined,
 ): Task {
   return TaskSchema.parse({
     id: row.id,
@@ -144,6 +149,7 @@ export function toTask(
     minActivityDays: row.minActivityDays,
     distinctOperators: row.distinctOperators,
     ...(full === undefined ? {} : { full }),
+    ...(freeSlots === undefined ? {} : { freeSlots }),
     rejectionReason: row.rejectionReason,
     assistanceAllowed: row.assistanceAllowed,
     prerequisiteTaskIds: row.prerequisiteTaskIds,

@@ -9,6 +9,7 @@ import {
   nonWithdrawableNotice,
   questCommitment,
   type AgentId,
+  type CreditMovement,
   type Task,
   type TaskId,
 } from '@kolonie-ai/core'
@@ -36,6 +37,15 @@ export interface FakeQuestDesk extends QuestDesk {
   readonly moderate: (taskId: TaskId, decision?: 'approved' | 'rejected') => void
   /** Credit a sponsor's balance, which is `packages/db`'s job in the real one. */
   readonly credit: (agentId: AgentId, amount: number) => void
+  /**
+   * What the ledger reader answers with (`#346`).
+   *
+   * Still not a ledger — the rows are handed in rather than booked. What the
+   * wake-up digest does with them *is* this layer's job, though: it keeps only
+   * the arrivals and sums them, and a fixture that could only answer empty
+   * would let both halves of that pass untested.
+   */
+  readonly answersMovements: (movements: readonly CreditMovement[]) => void
   /**
    * Accept a report on a quest, which only a verdict can do in the real one
    * (`#178`).
@@ -77,6 +87,7 @@ export function fakeQuests(): FakeQuestDesk {
     { readonly own: OwnQuest; moderated: 'approved' | 'rejected' | null }
   >()
   const balances = new Map<string, number>()
+  let movements: readonly CreditMovement[] = []
   const audienceAsked: AudienceCriteria[] = []
   let fixedAudience: number | null = null
 
@@ -340,6 +351,10 @@ export function fakeQuests(): FakeQuestDesk {
       fixedAudience = citizens
     },
 
+    answersMovements(next) {
+      movements = next
+    },
+
     async create({ authorId, draft }) {
       const parsed = QuestDraftSchema.parse(draft)
       const id = TaskIdSchema.parse(randomUUID())
@@ -477,7 +492,7 @@ export function fakeQuests(): FakeQuestDesk {
      * `packages/db/src/storage/credits.test.ts`, which is where it belongs.
      */
     async movements() {
-      return { balance: 0, total: 0, movements: [] }
+      return { balance: 0, total: movements.length, movements: [...movements] }
     },
 
     /**

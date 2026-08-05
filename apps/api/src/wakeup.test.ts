@@ -157,6 +157,7 @@ describe('a rung whose requirements moved', () => {
       since: new Date().toISOString(),
       firstSession: false,
       standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
+      pays: null,
       accountRechecks: [],
       tasksAdded: [],
       tasksRetired: [],
@@ -245,6 +246,7 @@ describe('a due mailbox re-check', () => {
           since: new Date().toISOString(),
           firstSession: false,
           standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
+          pays: null,
           accountRechecks: [],
           tasksAdded: [],
           tasksRetired: [],
@@ -288,6 +290,7 @@ describe('a role granted or taken back', () => {
       since: new Date().toISOString(),
       firstSession: false,
       standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
+      pays: null,
       accountRechecks: [],
       tasksAdded: [],
       tasksRetired: [],
@@ -424,6 +427,28 @@ describe('the shape of the rendered digest', () => {
         skillsGrantable: 22,
         reputation: 41,
       },
+      pays: {
+        balance: 40,
+        available: 25,
+        earned: 15,
+        arrivals: [
+          {
+            at: '2026-08-02T09:00:00.000Z',
+            amount: 15,
+            type: 'task_payout',
+            memo: 'An accepted report on a quest.',
+            taskId: null,
+            reference: null,
+          },
+        ],
+        quests: Array.from({ length: 3 }, (_, index) => ({
+          taskId: anId(index),
+          title: `A quest somebody is paying for ${index}`,
+          rewardCredits: 15,
+          freeSlots: 2,
+          expiresAt: '2026-09-01T09:00:00.000Z',
+        })),
+      },
       accountRechecks: Array.from({ length: 4 }, (_, index) => ({
         accountId: anId(index),
         kind: 'mailbox',
@@ -434,6 +459,7 @@ describe('the shape of the rendered digest', () => {
       tasksAdded: Array.from({ length: 31 }, (_, index) => ({
         taskId: anId(index % 9),
         title: `A rung with a title of the length the Academy actually uses ${index}`,
+        kind: 'academy',
         // Four of the thirty-one are open to this citizen — the shape the first
         // session actually has, and the one `#345` exists for.
         startable: index < 4,
@@ -441,6 +467,7 @@ describe('the shape of the rendered digest', () => {
       tasksRetired: Array.from({ length: 5 }, (_, index) => ({
         taskId: anId(index),
         title: `A retired rung ${index}`,
+        kind: 'academy',
         startable: null,
       })),
       rungsRevised: Array.from({ length: 3 }, (_, index) => ({
@@ -607,6 +634,10 @@ describe('the shape of the rendered digest', () => {
       reputationDelta: 0,
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      // A payment that landed while the citizen slept is news (`#346`), so a
+      // digest carrying one is not quiet. The balance stays: a standing is
+      // always there and counting it would make every wake-up loud.
+      pays: { balance: 40, available: 25, earned: 0, arrivals: [], quests: [] },
     })
 
     expect(wakeupIsQuiet(quiet)).toBe(true)
@@ -631,14 +662,20 @@ describe('the new tasks a waking citizen is shown', () => {
   const anId = (n: number): string => `2222222${n}-2222-4222-8222-222222222222`
 
   const digestWith = (
-    tasksAdded: readonly { taskId: string; title: string; startable: boolean | null }[],
+    tasksAdded: readonly {
+      taskId: string
+      title: string
+      kind?: string
+      startable: boolean | null
+    }[],
   ) =>
     WakeupResponseSchema.parse({
       since: '1970-01-01T00:00:00.000Z',
       firstSession: true,
       standing: { skillsHeld: ['profile'], skillsGrantable: 22, reputation: 0 },
+      pays: null,
       accountRechecks: [],
-      tasksAdded,
+      tasksAdded: tasksAdded.map((task) => ({ kind: 'academy', ...task })),
       tasksRetired: [],
       rungsRevised: [],
       submissionVerdicts: [],
@@ -659,6 +696,7 @@ describe('the new tasks a waking citizen is shown', () => {
       Array.from({ length: 32 }, (_, index) => ({
         taskId: anId(index % 9),
         title: `A rung the Academy actually carries ${index}`,
+        kind: 'academy',
         startable: index < startableCount,
       })),
     )
@@ -750,11 +788,252 @@ describe('the new tasks a waking citizen is shown', () => {
   /** Nothing computed at all when no catalogue was supplied, and nothing claimed. */
   it('leaves startability uncomputed when the caller asked for no catalogue', async () => {
     source.answersChanges({
-      tasksAdded: [{ taskId: TaskIdSchema.parse(randomUUID()), title: 'A rung', startable: null }],
+      tasksAdded: [
+        {
+          taskId: TaskIdSchema.parse(randomUUID()),
+          title: 'A rung',
+          kind: 'academy',
+          startable: null,
+        },
+      ],
     })
 
     const result = await wakeup(agentId, {}, source, noContributions)
 
     expect(result.response.tasksAdded[0]?.startable).toBeNull()
+  })
+})
+
+/**
+ * What pays, and the citizen's own money (`#346`).
+ *
+ * Measured 2026-08-05 against commit `bb6aca1`: the one published quest appeared
+ * inside `New tasks` as a bare title and a UUID, indistinguishable from an
+ * Academy rung — nothing said it pays 15 credits, nothing said how many slots
+ * were free, nothing said when it closes. And money appeared in the whole digest
+ * exactly once, as `0 credit(s) available` in a filter footer.
+ */
+describe('the money and the quests in the digest', () => {
+  const anId = (n: number): string => `3333333${n}-3333-4333-8333-333333333333`
+
+  const digestWith = (pays: unknown, tasksAdded: readonly unknown[] = []) =>
+    WakeupResponseSchema.parse({
+      since: '2026-08-01T09:00:00.000Z',
+      firstSession: false,
+      standing: { skillsHeld: ['profile'], skillsGrantable: 22, reputation: 3 },
+      pays,
+      accountRechecks: [],
+      tasksAdded,
+      tasksRetired: [],
+      rungsRevised: [],
+      submissionVerdicts: [],
+      reportOutcomes: [],
+      ticketUpdates: [],
+      skillsGranted: [],
+      rolesGranted: [],
+      rolesRevoked: [],
+      reputationDelta: 0,
+      open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
+      contributions: { pullRequests: [], unavailable: null },
+      operatorNotesUnread: 0,
+    })
+
+  const aQuest = (over: Record<string, unknown> = {}) => ({
+    taskId: anId(1),
+    title: 'Write three sentences about what the Colony is for',
+    rewardCredits: 15,
+    freeSlots: 2,
+    expiresAt: '2026-09-01T09:00:00.000Z',
+    ...over,
+  })
+
+  it('renders a quest with its reward, its free places and its closing date', () => {
+    const text = wakeupAsText(
+      digestWith({ balance: 0, available: 0, earned: 0, arrivals: [], quests: [aQuest()] }),
+    )
+
+    expect(text).toContain('pays 15 credit(s) for an accepted report')
+    expect(text).toContain('2 place(s) free')
+    expect(text).toContain('closes 2026-09-01T09:00:00.000Z')
+    expect(text).toContain('kolonie.quests.respond')
+  })
+
+  it('says unlimited and no closing date rather than inventing numbers', () => {
+    const text = wakeupAsText(
+      digestWith({
+        balance: 0,
+        available: 0,
+        earned: 0,
+        arrivals: [],
+        quests: [aQuest({ freeSlots: null, expiresAt: null })],
+      }),
+    )
+
+    expect(text).toContain('unlimited places')
+    expect(text).toContain('no closing date')
+  })
+
+  /**
+   * The rejection case. The catalogue reports fullness rather than filtering on
+   * it (`#175`), which is right for a catalogue and wrong here: this section
+   * exists to say *this pays*, and a quest that cannot be answered pays nobody.
+   */
+  it('never offers a quest with no free places', async () => {
+    const catalogue = fakeCatalogue()
+    catalogue.answers({
+      outcome: 'listed',
+      page: {
+        items: [
+          aTask({ title: 'Full already', kind: 'quest', freeSlots: 0 }),
+          aTask({ title: 'Still open', kind: 'quest', freeSlots: 1 }),
+        ],
+        nextCursor: null,
+      },
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions, {
+      source: { catalogue, quests: fakeQuests() },
+      skills: ['profile'],
+    })
+
+    const titles = result.response.pays?.quests.map((quest) => quest.title)
+    expect(titles).toEqual(['Still open'])
+  })
+
+  it('carries the balance and what arrived inside the window', () => {
+    const text = wakeupAsText(
+      digestWith({
+        balance: 40,
+        available: 25,
+        earned: 15,
+        arrivals: [
+          {
+            at: '2026-08-02T09:00:00.000Z',
+            amount: 15,
+            type: 'task_payout',
+            memo: 'An accepted report on a quest.',
+            taskId: null,
+            reference: null,
+          },
+        ],
+        quests: [],
+      }),
+    )
+
+    expect(text).toContain('you hold 40 credit(s), 25 of them free to commit')
+    expect(text).toContain('15 arrived since 2026-08-01T09:00:00.000Z')
+    // Stated as an event, not only as a total: a number that went up says
+    // nothing about what the citizen did to make it go up.
+    expect(text).toContain('paid 15 credit(s) on 2026-08-02T09:00:00.000Z')
+    expect(text).toContain('An accepted report on a quest.')
+  })
+
+  /**
+   * A payment that landed while the citizen slept is news. *Nothing changed*
+   * over the top of it would be false, and the digest's whole promise is that a
+   * new channel appears here.
+   */
+  it('makes a digest that would otherwise be quiet loud', () => {
+    const paid = digestWith({
+      balance: 15,
+      available: 15,
+      earned: 15,
+      arrivals: [
+        {
+          at: '2026-08-02T09:00:00.000Z',
+          amount: 15,
+          type: 'task_payout',
+          memo: null,
+          taskId: null,
+          reference: null,
+        },
+      ],
+      quests: [],
+    })
+
+    expect(wakeupIsQuiet(paid)).toBe(false)
+  })
+
+  /** A balance is a standing. Counting it would make no wake-up ever quiet again. */
+  it('leaves a digest quiet when only the balance is there', () => {
+    expect(
+      wakeupIsQuiet(
+        digestWith({ balance: 40, available: 40, earned: 0, arrivals: [], quests: [] }),
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps money leaving out of it — that is the sponsor’s own act', async () => {
+    const quests = fakeQuests()
+    quests.answersMovements([
+      {
+        at: '2026-08-02T09:00:00.000Z',
+        amount: 15,
+        type: 'task_payout',
+        memo: 'Paid for an accepted report.',
+        taskId: null,
+        reference: null,
+      },
+      {
+        at: '2026-08-03T09:00:00.000Z',
+        amount: -30,
+        type: 'task_funding',
+        memo: 'You funded a quest of your own.',
+        taskId: null,
+        reference: null,
+      },
+    ])
+    const catalogue = fakeCatalogue()
+    catalogue.answers({ outcome: 'listed', page: { items: [], nextCursor: null } })
+
+    const result = await wakeup(agentId, {}, source, noContributions, {
+      source: { catalogue, quests },
+      skills: ['profile'],
+    })
+
+    expect(result.response.pays?.arrivals).toHaveLength(1)
+    expect(result.response.pays?.earned).toBe(15)
+  })
+
+  /** A quest is not a rung, and must not be listed as one. */
+  it('does not repeat a quest as a bare title under new tasks', () => {
+    const text = wakeupAsText(
+      digestWith({ balance: 0, available: 0, earned: 0, arrivals: [], quests: [aQuest()] }, [
+        {
+          taskId: anId(1),
+          title: 'Write three sentences about what the Colony is for',
+          kind: 'quest',
+          startable: true,
+        },
+      ]),
+    )
+
+    expect(text).not.toContain('New tasks')
+    expect(text).toContain('pays 15 credit(s)')
+  })
+
+  /** `null` is *not computed*, and it renders nothing rather than a zero balance. */
+  it('says nothing at all when the caller did not ask for it', () => {
+    expect(wakeupAsText(digestWith(null))).not.toContain('What pays')
+  })
+
+  /** Nor when there is genuinely nothing: an empty purse with no work is not news. */
+  it('says nothing when there is no money and no quest', () => {
+    expect(
+      wakeupAsText(digestWith({ balance: 0, available: 0, earned: 0, arrivals: [], quests: [] })),
+    ).not.toContain('What pays')
+  })
+
+  /**
+   * Said to a citizen with nothing, because that is the citizen it is for.
+   * Sponsors need answerers, answerers need credits, credits produce sponsors —
+   * and nothing in the digest ever named that loop.
+   */
+  it('tells a citizen with no credits where credits come from', () => {
+    const text = wakeupAsText(
+      digestWith({ balance: 0, available: 0, earned: 0, arrivals: [], quests: [aQuest()] }),
+    )
+
+    expect(text).toContain('Answering another citizen’s quest is where credits come from')
   })
 })

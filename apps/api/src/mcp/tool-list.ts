@@ -108,6 +108,14 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.tasks.note',
   'kolonie.tasks.take-up',
   'kolonie.tasks.report.feedback',
+  /**
+   * Registered by `tools/quests.ts` because `QuestDesk` is what serves it, and
+   * listed here beside the citizen's own record because that is what it is
+   * (#333). A citizen that has never sponsored anything has credit movements —
+   * the grant that opened its account and every task it has been paid for — so
+   * this is not a sponsor tool despite where it is registered.
+   */
+  'kolonie.credits.history',
   // Both registered by `tools/history.ts` rather than with the tasks, and it
   // says why. They are about the citizen rather than about any one task.
   'kolonie.me.history',

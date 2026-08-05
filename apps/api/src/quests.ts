@@ -11,6 +11,7 @@ import {
   questSubmissionRejection,
   type AgentId,
   type ApiError,
+  type CreditMovement,
   type QuestAuditPolicy,
   type QuestReportCounts,
   type QuestReportKind,
@@ -40,6 +41,9 @@ import {
   availableBalance,
   commitmentsBy,
   countAudience,
+  creditBalanceFor,
+  creditMovementCountFor,
+  creditMovementsFor,
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
@@ -112,11 +116,37 @@ export interface QuestDesk {
    * question anybody asks it here is *can this sponsor afford this quest* — and
    * `#180` requires the answer to be visible in the form **before** submission
    * rather than discovered at publication.
+   *
+   * **That is no longer the only question, and the seam is knowingly left as it
+   * is** (`#333`). {@link QuestDesk.movements} asks *what has happened to this
+   * account*, which is about credits and not about quests: it serves a citizen
+   * that has never sponsored anything, and a grant, a deposit and a hand credit
+   * all appear in it. It is here because the split would be one interface, one
+   * factory, one dependency field and one fixture for two methods, and the thing
+   * that would justify paying that is a second implementation of the ledger —
+   * not a second question about it. **What would tip it**: an account surface
+   * that a non-sponsor route has to reach without the quest desk, or a second
+   * backing store. Neither exists, and this comment is here so the next reader
+   * decides on that rather than on tidiness.
    */
   balance(authorId: AgentId): Promise<{
     readonly balance: number
     readonly reserved: number
     readonly available: number
+  }>
+  /**
+   * Every movement of this citizen's own credits, newest first (`#333`).
+   *
+   * The audit `balance` cannot be: a balance is a number a citizen has to
+   * believe, and this is the set of events it is the sum of.
+   */
+  movements(
+    agentId: AgentId,
+    options: { readonly since?: string; readonly limit?: number },
+  ): Promise<{
+    readonly balance: number
+    readonly total: number
+    readonly movements: readonly CreditMovement[]
   }>
   /**
    * The same money, decomposed per quest (`#324`).
@@ -222,6 +252,18 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
     submit: (input) => submitQuestForReviewInDatabase(db, input),
     withdraw: (input) => withdrawQuestFromReviewInDatabase(db, input),
     balance: (authorId) => availableBalance(db, authorId),
+    movements: async (agentId, options) => {
+      // The three reads are independent and none of them writes, so a
+      // transaction would buy nothing: a movement booked between them appears in
+      // one answer and not another, and the totals are served precisely so a
+      // reader can see that rather than be protected from it.
+      const [balance, total, movements] = await Promise.all([
+        creditBalanceFor(db, agentId),
+        creditMovementCountFor(db, agentId),
+        creditMovementsFor(db, agentId, options),
+      ])
+      return { balance, total, movements }
+    },
     commitments: (authorId) => commitmentsBy(db, authorId),
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
@@ -668,6 +710,34 @@ export async function readBalance(
   const [purse, quests] = await Promise.all([desk.balance(authorId), desk.commitments(authorId)])
 
   return { outcome: 'ok', response: { ...purse, quests } }
+}
+
+/**
+ * Every movement of the caller's own credits (`#333`).
+ *
+ * **The reading a citizen could not do.** `kolonie.me` gives a balance and
+ * `kolonie.quests.balance` gives a decomposition of what is committed right now;
+ * neither is a record of events, so a grant, a payout, an escrow funding and a
+ * refund were all invisible as things that happened. A citizen that found two of
+ * those numbers disagreeing had no way to establish which was wrong and had to
+ * open a ticket to ask — which is how this issue arrived.
+ *
+ * `balance` and `total` come back with the rows because the rows may be capped:
+ * a partial list does not sum to the balance, and a reader that discovered that
+ * by subtraction would reasonably conclude the ledger was wrong.
+ */
+export async function readCreditHistory(
+  agentId: AgentId,
+  input: { readonly since?: string; readonly limit?: number },
+  desk: QuestDesk,
+): Promise<
+  QuestResult<{
+    readonly balance: number
+    readonly total: number
+    readonly movements: readonly CreditMovement[]
+  }>
+> {
+  return { outcome: 'ok', response: await desk.movements(agentId, input) }
 }
 
 /** The steward's queue: moderated quests awaiting a human decision. */

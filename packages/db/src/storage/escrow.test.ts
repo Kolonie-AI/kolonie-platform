@@ -285,8 +285,46 @@ describe('the sponsor’s balance and the escrow', () => {
       )
 
       expect(await commitmentsBy(db, sponsor)).toEqual([
-        expect.objectContaining({ taskId, reserved: 0, escrowed: 190 }),
+        expect.objectContaining({ taskId, reserved: 0, escrowed: 190, paid: 10 }),
       ])
+    })
+
+    /**
+     * **The row has to add up, and a payout at the advertised price is the easy
+     * half of that** (`#333`). A citizen watching its own quest read 277 against
+     * a published cost of 300 and could establish only that 23 is not a multiple
+     * of the 15 the quest advertises — because a payout is reduced when the
+     * answering citizen declares that an operator helped it. `escrowed + paid`
+     * is what publication funded whatever the rates were, which is the property
+     * that makes the arithmetic checkable without knowing them.
+     */
+    it('adds escrowed and paid back up to what publication funded, at any rate', async () => {
+      const sponsor = await anAgent('sponsor')
+      const full = await anAgent('unattended-citizen')
+      const halved = await anAgent('assisted-citizen')
+      await credit(sponsor, 1000)
+      const taskId = await aQuest({ sponsorId: sponsor, price: 15, capacity: 20, status: 'active' })
+      await db.transaction((tx) =>
+        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 15, capacity: 20 }),
+      )
+
+      // 15 at the advertised rate, then 8 — `ceil(15 × 50%)`, which is what an
+      // answer from a citizen that declared assistance is worth. Together they
+      // are the 23 the reporter could not account for.
+      for (const [agentId, credits] of [
+        [full, 15],
+        [halved, 8],
+      ] as const) {
+        const submissionId = await anAcceptedReport(taskId, agentId)
+        await db.transaction((tx) =>
+          payQuestReport(tx, { taskId, submissionId, agentId, credits, memo: 'An answer.' }),
+        )
+      }
+
+      const [row] = await commitmentsBy(db, sponsor)
+
+      expect(row).toEqual(expect.objectContaining({ taskId, escrowed: 277, paid: 23 }))
+      expect((row?.escrowed ?? 0) + (row?.paid ?? 0)).toBe(300)
     })
 
     it('leaves the list once the quest has settled, which is the refund arriving', async () => {

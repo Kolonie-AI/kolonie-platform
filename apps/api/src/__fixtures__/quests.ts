@@ -430,7 +430,27 @@ export function fakeQuests(): FakeQuestDesk {
                   slots: held.own.task.slots ?? 0,
                 })
               : 0,
+          // The fixture never books a payout, so the whole cost is still in
+          // escrow and this is zero. It is present rather than omitted because
+          // the route contract is `escrowed + paid` adds up to what was funded,
+          // and a fixture that dropped the field would let a caller forget it.
+          paid: 0,
         }))
+    },
+
+    /**
+     * The citizen's own credit movements (`#333`).
+     *
+     * **Empty, and that is the whole fixture.** The rows are the ledger's and
+     * this file holds no ledger — reproducing one would be reimplementing double
+     * entry to test a route that does nothing but pass the list through. What
+     * the route contract actually needs from here is the *shape*: three fields,
+     * and `balance` and `total` served alongside the rows rather than derived
+     * from them. The behaviour is tested against a real database in
+     * `packages/db/src/storage/credits.test.ts`, which is where it belongs.
+     */
+    async movements() {
+      return { balance: 0, total: 0, movements: [] }
     },
 
     /**

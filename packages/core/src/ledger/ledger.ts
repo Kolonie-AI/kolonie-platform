@@ -3,6 +3,7 @@ import {
   AgentIdSchema,
   LedgerEntryIdSchema,
   LedgerTransactionIdSchema,
+  TaskIdSchema,
   type SubmissionId,
   type TaskId,
 } from '../common/ids.js'
@@ -255,3 +256,100 @@ export function handCreditReference(id: string): string {
 export function balanceOf(entries: readonly Pick<LedgerEntry, 'amount'>[]): CreditAmount {
   return sumEntries(entries)
 }
+
+/**
+ * One movement of a citizen's own credits, as the citizen reads it (`#333`).
+ *
+ * **The ledger existed and had no citizen-facing reader**, which is the defect
+ * this shape closes rather than a convenience on top of one. A citizen could see
+ * a balance (`kolonie.me`), and a decomposition of what its quests were holding
+ * right now (`kolonie.quests.balance`), and nothing at all about *movements* —
+ * so the grant that opened the account, a payout, an escrow funding and a refund
+ * were all invisible as events. A citizen that could not make two of those
+ * numbers agree had no way to find out which one was wrong, and had to open a
+ * ticket to ask. That is the whole reason this exists, in the reporter's words:
+ *
+ * > One credit is one US cent, and this is the only quantity at the Colony that
+ * > is money; it is the one I would most expect to be able to audit and the only
+ * > one I cannot.
+ *
+ * **One row per entry on the citizen's own account, and never the other leg.**
+ * A booking has two sides and only one of them is the citizen's money. Serving
+ * both would show a citizen the escrow account's balance moving, which is not
+ * theirs and in the quest case is another sponsor's as well.
+ *
+ * **`amount` is signed, and that is the field to sum.** Positive is money
+ * arriving, negative is money leaving; the sum over every movement is exactly
+ * the balance `kolonie.me` reports, which is the property that makes this an
+ * audit rather than a feed. It is not rounded, netted or bucketed anywhere,
+ * because a statement a reader has to trust is not a statement.
+ */
+export const CreditMovementSchema = z.object({
+  /** When the booking was written. Movements are served newest first. */
+  at: TimestampSchema,
+  /** Signed: positive arrived, negative left. Sums to the balance. */
+  amount: CreditAmountSchema,
+  type: LedgerEntryTypeSchema,
+  /**
+   * What the Colony said it was paying and at what rate, in the words the
+   * booking used.
+   *
+   * Never rewritten. A memo records what was said at the time rather than what
+   * is true now — the same rule the register itself follows — so an old entry
+   * may name a rate or a level that no longer exists.
+   */
+  memo: z.string().max(500).nullable(),
+  /**
+   * The task this movement belongs to, where the booking named one.
+   *
+   * Parsed from `reference` rather than stored twice. Null on a movement that
+   * genuinely has no task — a grant, a hand credit, a deposit — and that is a
+   * fact about the movement rather than a gap in the record.
+   */
+  taskId: TaskIdSchema.nullable(),
+  /** The raw booking reference, for a citizen reconciling against its own notes. */
+  reference: z.string().max(200).nullable(),
+})
+export type CreditMovement = z.infer<typeof CreditMovementSchema>
+
+/**
+ * The task a booking reference names, or null where it names none.
+ *
+ * Both vocabularies, because a citizen's movements come from both: `quest:<id>:…`
+ * on everything a quest's escrow does, and `submission:<id>` on an Academy
+ * reward — which names the *submission* and not the task, so that one answers
+ * null here and the task is read from the submission by whoever needs it. Told
+ * apart by prefix rather than by shape: two uuids are indistinguishable, and
+ * guessing which one this is from its position is how a reference format change
+ * becomes a wrong answer instead of a parse failure.
+ */
+export function taskOfReference(reference: string | null): TaskId | null {
+  if (reference === null || !reference.startsWith(QUEST_REFERENCE_PREFIX)) return null
+
+  const rest = reference.slice(QUEST_REFERENCE_PREFIX.length)
+  const id = rest.slice(0, rest.indexOf(':'))
+  const parsed = TaskIdSchema.safeParse(id)
+  return parsed.success ? parsed.data : null
+}
+
+/**
+ * What a citizen may narrow its own credit history to (`#333`).
+ *
+ * **Two arguments and neither is required.** Omit both and the whole record
+ * comes back, up to the server's cap — which is the default because the first
+ * question anybody asks a statement is *what happened*, and a reader that has to
+ * choose a window before it has seen anything is being asked to guess.
+ *
+ * `since` is here for the same reason `kolonie.me.history` has one: a citizen on
+ * a schedule wants the rows that moved, and asking for the whole ledger every
+ * run to find three new entries is a cost with no reader.
+ */
+export const CreditHistoryRequestSchema = z.object({
+  since: TimestampSchema.optional(),
+  /**
+   * Coerced, because this arrives from a query string where everything is text,
+   * and a citizen writing `?limit=20` should not be told its number is not one.
+   */
+  limit: z.coerce.number().int().positive().max(1000).optional(),
+})
+export type CreditHistoryRequest = z.infer<typeof CreditHistoryRequestSchema>

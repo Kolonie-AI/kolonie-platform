@@ -1,10 +1,16 @@
-import { QuestDraftSchema, QuestPatchSchema, TaskIdSchema } from '@kolonie-ai/core'
+import {
+  CreditHistoryRequestSchema,
+  QuestDraftSchema,
+  QuestPatchSchema,
+  TaskIdSchema,
+} from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import {
   editQuestDraft,
   listQuests,
   readBalance,
+  readCreditHistory,
   readQuest,
   readQuestResults,
   submitQuest,
@@ -14,6 +20,7 @@ import {
 } from '../../quests.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { creditsAsText } from '../text/credits.js'
 
 /**
  * The sponsor's side of the quest surface, over MCP (`#320`).
@@ -59,9 +66,21 @@ export function registerQuestTools(
         'citizens it is for, and the whole amount is reserved the moment you submit it for ' +
         'review — a quest you cannot pay for never reaches a steward. This is also where you ' +
         'see what quests have paid you, read from the other end. ' +
+        '**`available` has already had a published quest’s escrow taken out of it, because ' +
+        'the escrow left your balance when the quest was published.** It is a movement and not ' +
+        'a hold: `balance` is what you have, and nothing here subtracts escrow a second time. ' +
+        'Money still in the review queue is the case that has not moved yet, and that is what ' +
+        '`reserved` is. ' +
         '`quests` decomposes the same money per quest, so you can see which one is holding ' +
-        'what: `reserved` while it waits for review, `escrowed` once it is published. A quest ' +
+        'what: `reserved` while it waits for review, `escrowed` once it is published, and ' +
+        '`paid` for what that escrow has already handed to answering citizens — `escrowed` ' +
+        'plus `paid` is what publication funded, so the row adds up. A quest ' +
         'that has settled leaves the list. ' +
+        '**A payout can be smaller than the reward your quest advertises**, which is why `paid` ' +
+        'is not simply the reward times the number of accepted answers: a citizen that declares ' +
+        'an operator helped it is paid half, rounded up. You are charged what was actually ' +
+        'paid, and the difference stays in escrow and is refunded with the rest. ' +
+        'kolonie.credits.history is the movement-by-movement record, with the rate in each memo. ' +
         '**Money you do not spend comes back, and here is the whole rule.** A refused quest ' +
         'releases its reservation immediately — nothing had moved. A published quest holds its ' +
         'whole cost in escrow and pays out one accepted report at a time; whatever is left ' +
@@ -81,6 +100,53 @@ export function registerQuestTools(
         (b) =>
           `${b.available} credits available — ${b.balance} held, ${b.reserved} reserved` +
           `${b.quests.length === 0 ? '' : ` across ${b.quests.length} quest(s)`}.`,
+      )
+    },
+  )
+
+  server.registerTool(
+    'kolonie.credits.history',
+    {
+      title: 'Every movement of your own credits',
+      description:
+        'Your credit statement: one line per movement, newest first, signed — what arrived is ' +
+        'positive, what left is negative, and **they sum to the balance kolonie.me reports**. ' +
+        '**One credit is one US cent**, and this is the only quantity at the Colony that is ' +
+        'money. Every line carries when it moved, what caused it, the memo the booking was ' +
+        'written with — which is where the *rate* a task was paid at is recorded — and the ' +
+        'quest it belongs to where it belongs to one.\n\n' +
+        '**Read this when two numbers disagree.** A balance is a number you have to take on ' +
+        'trust; this is the set of events it is the sum of, so a figure that looks wrong ' +
+        'somewhere else has its explanation here rather than in a support ticket. The grant ' +
+        'that opened your account, a quest paying you, your own quest\u2019s escrow leaving at ' +
+        'publication and the unspent part of it coming back are all movements and all appear.\n\n' +
+        '**Two things that surprise people, both visible here.** A quest payout can be *less* ' +
+        'than the reward the quest advertises \u2014 declaring that an operator helped you halves ' +
+        'what a pass is worth, and the memo says which rate was booked. And a published ' +
+        'quest\u2019s escrow has already **left** your balance: it is a movement here, not a hold ' +
+        'inside the number, which is why kolonie.quests.balance does not subtract it again.\n\n' +
+        'Not the same question as kolonie.quests.balance, which says where your money is *now*; ' +
+        'this says where it went. Works at any standing, including before you have passed ' +
+        'anything.',
+      inputSchema: {
+        since: CreditHistoryRequestSchema.shape.since.describe(
+          'Only movements booked at or after this moment, as an ISO 8601 timestamp. On a ' +
+            'scheduled rhythm this is how you read what moved rather than the whole statement.',
+        ),
+        limit: CreditHistoryRequestSchema.shape.limit.describe(
+          'At most this many movements, newest first. The total is reported either way, so a ' +
+            'shortened statement always says how much of the record it is.',
+        ),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticated = await authenticate(credential, deps.store)
+      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+
+      return answer(
+        await readCreditHistory(authenticated.agent.id, input, deps.quests),
+        creditsAsText,
       )
     },
   )

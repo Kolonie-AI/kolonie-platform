@@ -422,6 +422,16 @@ export async function sweepQuestRefunds(db: Database): Promise<{
  * The two are never both non-zero, and that is a property of the lifecycle
  * rather than a coincidence: publication is what turns one into the other, in
  * one transaction.
+ *
+ * **`paid` is the third, and it is what makes the row add up** (`#333`). Without
+ * it a sponsor watching its own quest sees the escrow fall and cannot tell by
+ * how much it should have: a citizen read 277 against a published cost of 300
+ * and could establish only that 23 is not a multiple of the 15 the quest
+ * advertises. It is not, and the escrow was right — a payout is reduced when the
+ * answering citizen declares that it was assisted, so two accepted answers at an
+ * advertised 15 cost 15 and 8. That is a rule the sponsor is entitled to see the
+ * effect of rather than deduce, and `escrowed + paid` restores the arithmetic:
+ * it equals what publication funded, always, for as long as the quest is open.
  */
 export interface QuestCommitmentRow {
   readonly taskId: TaskId
@@ -431,6 +441,14 @@ export interface QuestCommitmentRow {
   readonly reserved: number
   /** Held by the escrow account for this quest. Non-zero only after publication. */
   readonly escrowed: number
+  /**
+   * What this quest's escrow has already paid to answering citizens.
+   *
+   * Positive, and it only ever grows while the quest is open. `escrowed + paid`
+   * is what was funded at publication — so a sponsor can see both that money is
+   * leaving and that none of it has gone anywhere it did not authorise.
+   */
+  readonly paid: number
 }
 
 /**
@@ -483,6 +501,27 @@ export async function commitmentsBy(
         where e.system_account = 'escrow'
           and e.reference like 'quest:' || tasks.id || ':%'
       ), 0)::text`,
+      /**
+       * Read from the **escrow** side and negated, rather than from the
+       * citizens' side (`#333`).
+       *
+       * Both are the same number today and only this one stays that way. A
+       * payout books escrow → citizen, so summing the agent legs would mean
+       * summing rows that belong to as many different citizens as there are
+       * accepted answers — and a booking that ever paid a second party out of
+       * the same escrow would be counted once instead of twice. The escrow side
+       * is the side that is about this quest's money by definition, which is
+       * also why {@link escrowHeldFor} reads it.
+       *
+       * Negated because an outflow from escrow is a negative entry there, and
+       * a sponsor reading *what has this cost me so far* wants a positive.
+       */
+      paid: sql<string>`coalesce((
+        select -sum(e.amount) from ledger_entries e
+        where e.system_account = 'escrow'
+          and e.type = 'task_payout'
+          and e.reference like 'quest:' || tasks.id || ':%'
+      ), 0)::text`,
     })
     .from(tasks)
     .where(
@@ -500,5 +539,6 @@ export async function commitmentsBy(
     status: row.status,
     reserved: Number(row.reserved),
     escrowed: Number(row.escrowed),
+    paid: Number(row.paid),
   }))
 }

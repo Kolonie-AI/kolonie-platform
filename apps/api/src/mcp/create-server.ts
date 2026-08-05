@@ -3,6 +3,7 @@ import { createLog, type AgentId } from '@kolonie-ai/core'
 import { standingHintText } from '../hints.js'
 import type { McpDependencies } from './dependencies.js'
 import { guardTools } from './guard.js'
+import { publishLeanSchemas } from './published-schema.js'
 import { registerAboutTools } from './tools/about.js'
 import { registerAcademyTools } from './tools/academy/index.js'
 import { registerAccountTools } from './tools/accounts.js'
@@ -155,6 +156,15 @@ export function createMcpServer(
           return due === null ? undefined : standingHintText(due)
         },
   )
+
+  /**
+   * What is published is not what is enforced (`#382`).
+   *
+   * Beside `guardTools` and for the same reason: one call covers every tool,
+   * including one registered after this function returns, and its author does
+   * nothing to be covered.
+   */
+  publishLeanSchemas(server)
 
   registerAboutTools(server, deps)
   registerRegistrationTool(server, deps)

@@ -829,7 +829,35 @@ describe('writing briefings', () => {
       10,
     )
 
-    expect(warnings.some((message) => message.includes('discarded a corpus'))).toBe(true)
+    // **Which of the two causes, in the line itself** (`#374`). An empty
+    // briefing is either a model that answered with nothing or a model that
+    // answered and had everything dropped, and they need opposite fixes.
+    expect(warnings.some((message) => message.includes('proposed no claims at all'))).toBe(true)
+  })
+
+  /**
+   * The other cause, and the one `#374` could not tell apart from it: the model
+   * answered, and every claim it proposed was dropped for naming a source the
+   * corpus does not contain. Same empty briefing, different fix.
+   */
+  it('says so when the model answered and everything it proposed was dropped', async () => {
+    const warnings: string[] = []
+    stale = [randomUUID() as TaskId]
+    corpus = [anEntry()]
+    model.composes({ section: 'wall', text: 'Cites nobody here.', sources: [randomUUID()] })
+
+    await briefingTick(
+      {
+        store: briefingStore(),
+        model,
+        log: { info: () => {}, warn: (m) => warnings.push(m), error: () => {} },
+      },
+      10,
+    )
+
+    const warned = warnings.find((message) => message.includes('is empty over'))
+    expect(warned).toContain('the model proposed 1')
+    expect(warned).toContain('1 naming no source in the corpus')
   })
 
   /** An empty corpus producing an empty briefing is ordinary and says nothing. */

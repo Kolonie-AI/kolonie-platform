@@ -106,6 +106,41 @@ describe('writing a briefing', () => {
 
     expect(claims.map((claim) => claim.text)).toEqual(['A real wall.'])
   })
+
+  /**
+   * **What was dropped is counted, so an empty briefing can be diagnosed**
+   * (`#374`).
+   *
+   * An empty `claims` array had two causes and looked identical from outside:
+   * the model answered with nothing, or it answered and everything was dropped
+   * here. They need opposite fixes — a prompt to rewrite, or a schema and
+   * provider to look at — and `#374` had to go to production to tell nine
+   * briefings apart because this number did not exist.
+   */
+  it('counts what it dropped, and why, when nothing survives', async () => {
+    const real = anEntry()
+    model.composes(
+      { section: 'wall', text: 'Cites nobody in the corpus.', sources: [randomUUID()] },
+      { section: 'wall', text: '   ', sources: [real.id] },
+    )
+
+    const outcome = await synthesise(forTask([real]), model)
+
+    expect(outcome.claims).toEqual([])
+    expect(outcome.proposed).toBe(2)
+    expect(outcome.unsourced).toBe(1)
+    expect(outcome.blank).toBe(1)
+  })
+
+  /** The other cause, told apart from the one above by `proposed`. */
+  it('reports nothing proposed when the model answered with nothing', async () => {
+    const outcome = await synthesise(forTask([anEntry()]), model)
+
+    expect(outcome.claims).toEqual([])
+    expect(outcome.proposed).toBe(0)
+    expect(outcome.unsourced).toBe(0)
+    expect(outcome.blank).toBe(0)
+  })
 })
 
 /**

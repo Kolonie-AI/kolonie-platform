@@ -992,7 +992,7 @@ export async function synthesiseNow(
     }
 
     const corpus = await store.corpus(taskId)
-    const { claims } = await synthesise({ task, corpus }, model)
+    const { claims, proposed, unsourced, blank } = await synthesise({ task, corpus }, model)
     await store.write({ taskId, claims, model: model.name })
     log.info(
       `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,
@@ -1010,11 +1010,31 @@ export async function synthesiseNow(
     // answering consistently, and the flag is already cleared — what is needed is
     // for a person to read the prompt, which needs the failure to be visible
     // rather than corrected. It cost a production round trip to find this once.
+    //
+    // **Which of the two it was, said in the line itself** (`#374`). An empty
+    // briefing has two causes and they need opposite fixes: a model that
+    // answered with nothing is a prompt to rewrite, and a model that answered
+    // and had every claim dropped here is a schema or a provider problem. Both
+    // used to print this same sentence, so nine empty briefings could not be
+    // sorted into the two piles without a production round trip — which is what
+    // `#374` had to do, and what nobody should have to do twice.
     if (corpus.length > 0 && claims.length === 0) {
+      const because =
+        proposed === 0
+          ? 'the model proposed no claims at all'
+          : `the model proposed ${proposed}, and every one was dropped here ` +
+            `(${unsourced} naming no source in the corpus, ${blank} with empty text)`
+
       log.warn(
-        `briefing for ${taskId} is empty over ${corpus.length} moderated entries — ` +
-          'the synthesis prompt discarded a corpus that had something in it',
-        { event: 'briefing.empty', taskId, entries: corpus.length },
+        `briefing for ${taskId} is empty over ${corpus.length} moderated entries — ${because}`,
+        {
+          event: 'briefing.empty',
+          taskId,
+          entries: corpus.length,
+          proposed,
+          unsourced,
+          blank,
+        },
       )
     }
 

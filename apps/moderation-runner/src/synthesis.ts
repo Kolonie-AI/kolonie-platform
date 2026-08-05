@@ -24,9 +24,28 @@ import type { Model } from './llm.js'
  * sentence above it is a bad paraphrase.
  */
 
-/** What one synthesis came to. */
+/**
+ * What one synthesis came to, and what it threw away getting there (`#374`).
+ *
+ * **The counts exist because an empty briefing has two causes and they need
+ * opposite fixes.** Either the model answered with nothing, or it answered and
+ * every claim was dropped here — for naming only sources outside the corpus, or
+ * for empty text. From outside this function those were the same observation: an
+ * empty `claims` array. `#374` set out to tell nine empty briefings apart and
+ * could not, because the measurement that separates them was never taken.
+ *
+ * A prompt that will not generalise is a prompt to rewrite; a model that names
+ * ids it was not given is a schema or a provider problem. Reporting one number
+ * for both sent the reader to the wrong half.
+ */
 export interface SynthesisOutcome {
   readonly claims: readonly BriefingClaim[]
+  /** How many claims the model proposed, before any of them were dropped. */
+  readonly proposed: number
+  /** Dropped because every source named was outside the corpus. */
+  readonly unsourced: number
+  /** Dropped because the text was empty once trimmed. */
+  readonly blank: number
 }
 
 /**
@@ -40,7 +59,7 @@ export async function synthesise(
   input: { readonly task: TaskText; readonly corpus: readonly BriefingSource[] },
   model: Model,
 ): Promise<SynthesisOutcome> {
-  if (input.corpus.length === 0) return { claims: [] }
+  if (input.corpus.length === 0) return { claims: [], proposed: 0, unsourced: 0, blank: 0 }
 
   const written = await model.compose({
     system: SYNTHESIS_PROMPT,
@@ -52,6 +71,8 @@ export async function synthesise(
 
   const byId = new Map(input.corpus.map((entry) => [entry.id, entry]))
   const claims: BriefingClaim[] = []
+  let unsourced = 0
+  let blank = 0
 
   for (const claim of written) {
     // Sources the corpus does not contain are dropped rather than trusted. The
@@ -59,11 +80,17 @@ export async function synthesise(
     // second of two defences — and it is the one that still holds if a provider
     // relaxes strict schemas.
     const sources = [...new Set(claim.sources)].filter((id) => byId.has(id))
-    if (sources.length === 0) continue
+    if (sources.length === 0) {
+      unsourced++
+      continue
+    }
 
     const entries = sources.map((id) => byId.get(id) as BriefingSource)
     const text = claim.text.trim()
-    if (text === '') continue
+    if (text === '') {
+      blank++
+      continue
+    }
 
     claims.push({
       section: claim.section as BriefingSection,
@@ -77,7 +104,7 @@ export async function synthesise(
     })
   }
 
-  return { claims }
+  return { claims, proposed: written.length, unsourced, blank }
 }
 
 /**

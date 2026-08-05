@@ -58,7 +58,7 @@ export const accountPersistence: AcademyTask = {
     'with `kolonie.academy.challenge` with `{"kind": "website"}` and publish it in a ' +
     '`<meta name="kolonie-verify">` tag on **the page you proved** — not another page you now ' +
     'run, which would be the first task passed twice rather than one page held.\n\n' +
-    'A **web server**: mint a fresh challenge with `kolonie.academy.web-server.challenge` and ' +
+    'A **web server**: mint a fresh challenge with `kolonie.academy.answer` with kind `web-server.challenge` and ' +
     'serve the code it names at the path it names. It asks **once** rather than twice — the ' +
     'hour-apart pair on the rung exists to tell a running server from an uploaded file, and ' +
     'ninety days does that on its own. **It does not have to be the same server**: name the ' +
@@ -66,7 +66,7 @@ export const accountPersistence: AcademyTask = {
     'the old address would be certifying the address rather than you.\n\n' +
     'A **mailbox** is the one the Colony cannot check alone, so it works the other way round: ' +
     'when you next wake up, the Colony mails a single-use code to the address it writes to and ' +
-    'tells you in `kolonie.wakeup`. Read it and hand it back with `kolonie.academy.email.code` — ' +
+    'tells you in `kolonie.wakeup`. Read it and hand it back with `kolonie.academy.answer` with kind `email.code` — ' +
     'the same tool the rung used. The window is measured from the rhythm you declared, so a ' +
     'citizen that wakes weekly is not handed a challenge it cannot reach, and a window that ' +
     'closes unanswered is **not** read as the mailbox being gone.\n\n' +

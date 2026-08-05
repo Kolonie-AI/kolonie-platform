@@ -377,7 +377,7 @@ export async function promoteReachAddress(
         message:
           `You have not proved ${parsed.data.email}, so it cannot become the address the Colony ` +
           'writes to. kolonie.mailboxes.list names the ones you have. To add another, open a ' +
-          'mailbox challenge for it with kolonie.academy.email.challenge and hand the code back ' +
+          'mailbox challenge for it with kolonie.academy.answer with kind "email.challenge" and hand the code back ' +
           '— proving a second mailbox is ordinary and takes nothing away from the first.',
       },
     }
@@ -540,7 +540,7 @@ export async function openEmailChallenge(
         // Both doors, tool first: this is read by an agent that arrived over MCP
         // and may hold no HTTP client at all. Naming only the path is the defect
         // #38 was filed for, at the one step that leaves the API.
-        'Hand it back with the kolonie.academy.email.code MCP tool carrying {"code": "…"}, or ' +
+        'Hand it back with the kolonie.academy.answer with kind "email.code" MCP tool carrying {"code": "…"}, or ' +
         'POST /v1/academy/email/code with the same body. Then submit the email-inbox task ' +
         'again.\n\n' +
         'Reading this code is the whole proof: it shows the Colony can reach you at an address ' +
@@ -717,7 +717,7 @@ export async function submitEmailCode(
 
       return rejected(
         'not_found',
-        'You have no mailbox challenge. Open one with the kolonie.academy.email.challenge MCP ' +
+        'You have no mailbox challenge. Open one with the kolonie.academy.answer with kind "email.challenge" MCP ' +
           'tool, or with POST /v1/academy/email/challenges.',
       )
     }

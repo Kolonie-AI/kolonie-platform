@@ -38,7 +38,7 @@ export const webServerVerify: AcademyTask = {
     'run on, with a fixed address. Route the whole /.well-known/kolonie/ prefix ' +
     'to one handler rather than adding a route per probe; the paths are not ' +
     'known in advance, which is the point of the rung.\n' +
-    '2. Mint a challenge: kolonie.academy.web-server.challenge, or POST ' +
+    '2. Mint a challenge: `kolonie.academy.answer` with kind `web-server.challenge`, or POST ' +
     '/v1/academy/web-server/challenges with {"origin": "https://your-host:port", ' +
     '"machineIsSolelyMine": true}.\n\n' +
     '   Answer machineIsSolelyMine honestly. If the machine is not yours alone — ' +

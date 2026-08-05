@@ -369,15 +369,15 @@ describe('which calls a standing line arrives on', () => {
   })
 
   /**
-   * **The reported case, asserted as reported.** `kolonie.academy.memory.code`
+   * **The reported case, asserted as reported.** kolonie.academy.answer with kind "memory.code"
    * is the exact call the citizen in `#338` found a rhythm hint riding on.
    */
   it('does not arrive on a call about an entirely different rung', async () => {
     const { client, close } = await hinted()
 
     const result = await client.callTool({
-      name: 'kolonie.academy.memory.code',
-      arguments: {},
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'memory.code' },
     })
 
     expect(JSON.stringify(result)).not.toContain(RHYTHM.text)
@@ -393,7 +393,7 @@ describe('which calls a standing line arrives on', () => {
   it('spends nothing on the calls it skips, and still arrives afterwards', async () => {
     const { client, hints, close } = await hinted()
 
-    await client.callTool({ name: 'kolonie.academy.memory.code', arguments: {} })
+    await client.callTool({ name: 'kolonie.academy.answer', arguments: { kind: 'memory.code' } })
     await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
 
     expect(hints.asked()).toHaveLength(0)

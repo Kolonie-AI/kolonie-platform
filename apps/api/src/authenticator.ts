@@ -63,7 +63,7 @@ export const TOTP_NOTICE =
 export const NO_SECRET: ApiError = {
   code: 'conflict',
   message:
-    'No secret is outstanding for you. Ask for one with kolonie.academy.authenticator.secret, ' +
+    'No secret is outstanding for you. Ask for one with kolonie.academy.answer with kind "authenticator.secret", ' +
     'or POST /v1/academy/authenticator/secrets. It is shown once and never again.',
 }
 

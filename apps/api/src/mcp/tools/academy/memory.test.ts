@@ -12,7 +12,7 @@ import { fakeMemory, fakeMemoryCodes, type FakeMemoryCodes } from '../../../__fi
  * hands the value back** — across every surface that mentions the rung, and the shape of
  * the two calls a citizen actually makes.
  */
-describe('kolonie.academy.memory.code and .redeem', () => {
+describe('kolonie.academy.answer with kind "memory.code" and .redeem', () => {
   const withMemory = async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const codes: FakeMemoryCodes = fakeMemoryCodes()
@@ -24,7 +24,10 @@ describe('kolonie.academy.memory.code and .redeem', () => {
   }
 
   const mint = (client: Awaited<ReturnType<typeof withMemory>>['client'], args = {}) =>
-    client.callTool({ name: 'kolonie.academy.memory.code', arguments: args })
+    client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'memory.code', ...args },
+    })
 
   it('carries a citizen from nothing to a redeemed code, and rotates on the way back', async () => {
     const { client, codes, close, agentId } = await withMemory()
@@ -35,8 +38,8 @@ describe('kolonie.academy.memory.code and .redeem', () => {
     codes.issuedHoursAgo(agentId, 7)
 
     const redeemed = await client.callTool({
-      name: 'kolonie.academy.memory.redeem',
-      arguments: { code },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'memory.redeem', code },
     })
 
     expect(minted.isError).toBeFalsy()
@@ -92,11 +95,14 @@ describe('kolonie.academy.memory.code and .redeem', () => {
     const { client, close } = await withMemory()
 
     const { tools } = await client.listTools()
-    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.memory.code')
+    // The dispatcher since `#415`, and the sentences travelled with the fold —
+    // which is what this test is for: a rung folded into a `kind` must not lose
+    // the two facts a citizen has to know *before* it stores anything.
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.answer')
 
     expect(tool?.description).toContain('vault')
-    expect(tool?.description).toContain('Replace')
-    expect(tool?.description).toContain('NEVER SHOW IT AGAIN')
+    expect(tool?.description).toContain('replacing whatever you stored last time')
+    expect(tool?.description).toContain('NEVER SHOWN AGAIN')
     await close()
   })
 
@@ -105,8 +111,8 @@ describe('kolonie.academy.memory.code and .redeem', () => {
 
     const { code } = (await mint(client)).structuredContent as { code: string }
     const early = await client.callTool({
-      name: 'kolonie.academy.memory.redeem',
-      arguments: { code },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'memory.redeem', code },
     })
 
     expect(early.isError).toBe(true)

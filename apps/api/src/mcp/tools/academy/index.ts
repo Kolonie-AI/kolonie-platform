@@ -1,14 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpDependencies } from '../../dependencies.js'
+import { registerAcademyAnswerTool } from './answer.js'
 import { registerAcademyChallengeTool } from './challenge.js'
-import { registerEmailTools } from './email.js'
-import { registerExternalChallengeTools } from './external.js'
-import { registerKeyTools } from './keys.js'
-import { registerMemoryTools } from './memory.js'
-import { registerPowTools } from './proof-of-work.js'
 import { registerRetestTool } from './retest.js'
-import { registerSolanaTools } from './solana.js'
-import { registerVisionTools } from './vision.js'
 
 /**
  * Every rung of the Academy, and nothing that merely sits next to one.
@@ -20,9 +14,13 @@ import { registerVisionTools } from './vision.js'
  * length, and the two files now agree by construction rather than by a reader
  * checking.
  *
- * The rungs are split one file per proof because that is the unit that changes:
- * a new challenge type arrives whole, and the file it arrives in is the file it
- * is tested against.
+ * **Three tools, and it was thirteen** (`#385`, `#415`). The minting half of
+ * every rung is `kolonie.academy.challenge` and the answering half is
+ * `kolonie.academy.answer`, each dispatching on a `kind` derived from its own
+ * set; `kolonie.academy.retest` belongs to no rung. What used to be one file per
+ * proof is now one **entry** per proof, in `mints.ts` and `answers.ts` — the
+ * unit that changes is unchanged, and a rung arriving next month is a row rather
+ * than a tool every citizen then pays for in every session.
  */
 export function registerAcademyTools(
   server: McpServer,
@@ -30,12 +28,6 @@ export function registerAcademyTools(
   credential: string | undefined,
 ): void {
   registerAcademyChallengeTool(server, deps, credential)
-  registerKeyTools(server, deps, credential)
-  registerMemoryTools(server, deps, credential)
-  registerSolanaTools(server, deps, credential)
-  registerPowTools(server, deps, credential)
-  registerVisionTools(server, deps, credential)
-  registerEmailTools(server, deps, credential)
-  registerExternalChallengeTools(server, deps, credential)
+  registerAcademyAnswerTool(server, deps, credential)
   registerRetestTool(server, deps, credential)
 }

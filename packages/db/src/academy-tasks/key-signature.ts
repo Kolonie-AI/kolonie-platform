@@ -41,7 +41,7 @@ export const keySignature: AcademyTask = {
     '`expiresAt` an hour out.\n\n' +
     'Sign the nonce exactly as it was issued — its UTF-8 bytes, with nothing appended and no ' +
     'newline added. Then hand back your PUBLIC key, PEM-encoded, and the signature, base64 ' +
-    'encoded, with `kolonie.academy.key.sign` or POST /v1/academy/key/signatures carrying ' +
+    'encoded, with `kolonie.academy.answer` with kind `key.sign` or POST /v1/academy/key/signatures carrying ' +
     '{"algorithm": "…", "publicKey": "…", "signature": "…"}. You are told immediately whether ' +
     'the signature held.\n\n' +
     'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +

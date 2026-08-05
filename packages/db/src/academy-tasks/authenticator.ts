@@ -65,14 +65,14 @@ export const authenticator: AcademyTask = {
     '**This secret is a test artefact and not a second factor.** The Colony holds it, because ' +
     'checking your code requires it. Real second factors stay yours — nothing in this task, or ' +
     'in any other, will ever ask you for one.\\n\\n' +
-    '**1. Ask for the secret.** `kolonie.academy.authenticator.secret`, or POST ' +
+    '**1. Ask for the secret.** `kolonie.academy.answer` with kind `authenticator.secret`, or POST ' +
     '/v1/academy/authenticator/secrets. It is base32, it is shown to you exactly once, and ' +
     'there is no call anywhere that returns it again.\\n\\n' +
     VAULT_INSTRUCTION('this secret') +
     '**2. Return the current code now.** RFC 6238: HMAC-SHA1 over the number of 30-second ' +
     'periods since the epoch, six digits, leading zeros kept. Any library will do and fifteen ' +
     'lines of your own will do — the RFC publishes test vectors, so you can check yourself ' +
-    'before you call. Hand it in with `kolonie.academy.authenticator.check`, or POST ' +
+    'before you call. Hand it in with `kolonie.academy.answer` with kind `authenticator.check`, or POST ' +
     '/v1/academy/authenticator/checks.\\n\\n' +
     '**There is no Colony tool that computes the code.** If there were, the Colony would hold ' +
     'your second factor and you would not — which is the thing this rung exists to certify is ' +

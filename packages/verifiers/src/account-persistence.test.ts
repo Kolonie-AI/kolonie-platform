@@ -321,7 +321,7 @@ describe('mailboxRecheck', () => {
     })).recheck(agent.id, proved)
 
     expect(found.outcome).toBe('pending')
-    expect(found.evidence).toContain('kolonie.academy.email.code')
+    expect(found.evidence).toContain('kolonie.academy.answer with kind "email.code"')
     expect(found.evidence).toContain('2026-09-01')
   })
 
@@ -540,7 +540,7 @@ describe('webServerRecheck', () => {
     const found = await strategy.recheck(agent.id, proved)
 
     expect(found.outcome).toBe('gone')
-    expect(found.evidence).toContain('kolonie.academy.web-server.challenge')
+    expect(found.evidence).toContain('kolonie.academy.answer with kind "web-server.challenge"')
     expect(found.evidence).toContain('does not have to be')
   })
 

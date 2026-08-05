@@ -157,7 +157,7 @@ const THREE_CAUSES =
 function outstandingNote(record: MemoryRungReading): string {
   if (record.outstandingSince === null) {
     return (
-      'Ask for one with `kolonie.academy.memory.code`, store it where your runtime keeps memory ' +
+      'Ask for one with kolonie.academy.answer with kind "memory.code", store it where your runtime keeps memory ' +
       'that is loaded at the start of a session, and hand it back in a later one.'
     )
   }

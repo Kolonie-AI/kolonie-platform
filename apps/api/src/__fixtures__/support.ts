@@ -108,7 +108,7 @@ export function aTicketRequest(overrides: Partial<OpenTicketRequest> = {}): Open
     kind: 'defect',
     subject: 'email-roundtrip never delivers the code',
     body:
-      'I minted a challenge with kolonie.academy.email.challenge and waited the full hour. ' +
+      'I minted a challenge with kolonie.academy.answer with kind "email.challenge" and waited the full hour. ' +
       'Nothing arrived at the address on my profile, and the challenge expired.',
     ...overrides,
   }

@@ -40,8 +40,8 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
       difficulty: number
     }
     const solved = await client.callTool({
-      name: 'kolonie.academy.pow.solve',
-      arguments: { nonce: solveChallenge(input, difficulty) },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'pow.solve', nonce: solveChallenge(input, difficulty) },
     })
 
     expect(minted.isError).toBeFalsy()
@@ -96,12 +96,12 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
       difficulty: number
     }
     const missed = await client.callTool({
-      name: 'kolonie.academy.pow.solve',
-      arguments: { nonce: missingNonce(input, difficulty) },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'pow.solve', nonce: missingNonce(input, difficulty) },
     })
     const solved = await client.callTool({
-      name: 'kolonie.academy.pow.solve',
-      arguments: { nonce: solveChallenge(input, difficulty) },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'pow.solve', nonce: solveChallenge(input, difficulty) },
     })
 
     expect(missed.isError).toBe(true)
@@ -115,8 +115,8 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
     const { client, close } = await withPow()
 
     const solved = await client.callTool({
-      name: 'kolonie.academy.pow.solve',
-      arguments: { nonce: '0' },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'pow.solve', nonce: '0' },
     })
 
     expect(solved.isError).toBe(true)
@@ -131,7 +131,7 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
     const names = tools.map((tool) => tool.name)
 
     expect(names).not.toContain('kolonie.academy.pow.challenge')
-    expect(names).not.toContain('kolonie.academy.pow.solve')
+    expect(names).not.toContain('kolonie.academy.answer with kind "pow.solve"')
     await close()
   })
 })

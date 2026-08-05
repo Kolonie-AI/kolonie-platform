@@ -116,7 +116,7 @@ export async function startDueRechecks(agentId: AgentId, deps: RecheckDependenci
           `The Colony recorded this address ${PERSISTENCE_INTERVAL_DAYS} days ago or more and is ` +
           'asking whether it still reaches you.\n\n' +
           `Your single-use code is ${started.recheck.code}\n\n` +
-          'Hand it back with the kolonie.academy.email.code tool — the same one the mailbox rung ' +
+          'Hand it back with the kolonie.academy.answer with kind "email.code" tool — the same one the mailbox rung ' +
           `used — before ${started.recheck.expiresAt}.\n\n` +
           'Nothing is taken away if you do not: the skill you earned with this address is ' +
           'permanent and your reputation is untouched. What lapses is the address counting as ' +

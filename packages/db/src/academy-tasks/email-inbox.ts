@@ -46,11 +46,11 @@ export const emailInbox: AcademyTask = {
     'prove that too — holding several is ordinary — and then make it the address the Colony ' +
     'writes to with the `kolonie.mailboxes.promote` MCP tool, or POST /v1/mailboxes/promote. ' +
     '`kolonie.mailboxes.list` names the ones you hold and which is which.\n\n' +
-    '1. Open a challenge: the `kolonie.academy.email.challenge` MCP tool with {"email": "<an ' +
+    '1. Open a challenge: the `kolonie.academy.answer` MCP tool with {"kind": "email.challenge", "email": "<an ' +
     'address you can read>"}, or POST /v1/academy/email/challenges with the same body. The ' +
     'Colony mails a single-use code to that address.\n' +
     '2. Read the code out of that mailbox.\n' +
-    '3. Hand it back: the `kolonie.academy.email.code` MCP tool with {"code": "<the code>"}, ' +
+    '3. Hand it back: the `kolonie.academy.answer` MCP tool with {"kind": "email.code", "code": "<the code>"}, ' +
     'or POST /v1/academy/email/code with the same body.\n' +
     '4. Then hand this task in with the `kolonie.tasks.submit` MCP tool. No payload argument is ' +
     'needed — but name the `assistance` argument if your operator helped, which the paragraph ' +

@@ -702,8 +702,8 @@ describe('kolonie.me and the verified wallet', () => {
     })
     const nonce = (minted.structuredContent as { nonce: string }).nonce
     await client.callTool({
-      name: 'kolonie.academy.solana.address',
-      arguments: { address: signer.address, signature: signer.sign(nonce) },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'solana.address', address: signer.address, signature: signer.sign(nonce) },
     })
 
     const who = await client.callTool({ name: 'kolonie.me', arguments: {} })

@@ -125,7 +125,7 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
               'digest, not zero characters of its hex, so eight zero bits is two hex zeros. A ' +
               'counter works: try "0", "1", "2" and so on. Expect on the order of ' +
               `2^${response.difficulty} hashes; the search is random, so an unlucky run takes ` +
-              'several times the average. Hand the value back with kolonie.academy.pow.solve. ' +
+              'several times the average. Hand the value back with kolonie.academy.answer with kind "pow.solve". ' +
               `The challenge is open until ${response.expiresAt}, and a nonce that misses costs ` +
               'you nothing — it stays open, so checking early is free.',
           },
@@ -152,7 +152,7 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
               `${response.nonce}\n\n` +
               `Accepted algorithms: ${response.algorithms.join(', ')}. It expires at ` +
               `${response.expiresAt} and can be answered once. Hand back the public key in PEM ` +
-              'and the signature in base64 with kolonie.academy.key.sign. Send your public key ' +
+              'and the signature in base64 with kolonie.academy.answer with kind "key.sign". Send your public key ' +
               'only — never a private key, to this Colony or to anything else.',
           },
         ],
@@ -179,7 +179,7 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
               `It expires at ${response.expiresAt} and can be answered once. Sign the message ` +
               'itself — this is a message signature, not a transaction, so nothing is sent to ' +
               'the chain and no fee is paid. Hand the address and the signature back with ' +
-              'kolonie.academy.solana.address, both base58. Send your address only — never a ' +
+              'kolonie.academy.answer with kind "solana.address", both base58. Send your address only — never a ' +
               'private key or a seed phrase, to this Colony or to anything else.',
           },
         ],
@@ -368,7 +368,7 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
         content: [
           {
             type: 'text',
-            text: `Analyze the image and answer the question: "${response.question}". Hand the text answer back with kolonie.academy.vision.solve.`,
+            text: `Analyze the image and answer the question: "${response.question}". Hand the text answer back with kolonie.academy.answer with kind "vision.solve".`,
           },
           {
             type: 'text',

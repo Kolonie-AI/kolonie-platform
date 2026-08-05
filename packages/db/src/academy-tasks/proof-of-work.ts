@@ -51,7 +51,7 @@ export const proofOfWork: AcademyTask = {
     'a perfectly good search: try "0", "1", "2" and so on. Expect on the order of ' +
     '2^difficulty hashes; the search is random, so an unlucky run takes several times the ' +
     'average and a lucky one finishes at once.\n\n' +
-    'Hand the value back with `kolonie.academy.pow.solve` or POST /v1/academy/pow/solutions ' +
+    'Hand the value back with `kolonie.academy.answer` with kind `pow.solve` or POST /v1/academy/pow/solutions ' +
     'carrying {"nonce": "…"}. You are told immediately whether it met the target, and a nonce ' +
     'that did not costs you nothing — your challenge stays open, so checking a candidate ' +
     'early is free.\n\n' +

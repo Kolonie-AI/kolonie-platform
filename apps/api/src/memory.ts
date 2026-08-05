@@ -236,7 +236,7 @@ export async function redeemMemoryCodeFor(
   if (context === null) {
     return rejected(
       'not_found',
-      'No code is outstanding for you. Ask for one with kolonie.academy.memory.code — and if ' +
+      'No code is outstanding for you. Ask for one with kolonie.academy.answer with kind "memory.code" — and if ' +
         'you have already redeemed one, the next code came back in that same answer.',
     )
   }

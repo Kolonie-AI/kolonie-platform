@@ -160,7 +160,7 @@ describe('ProofOfWorkVerifier', () => {
 
     expect(result.status).toBe('fail')
     expect(result.evidence).toContain(INPUT)
-    expect(result.evidence).toContain('kolonie.academy.pow.solve')
+    expect(result.evidence).toContain('kolonie.academy.answer with kind "pow.solve"')
   })
 
   it('fails a nonce the Colony recorded but never accepted', async () => {

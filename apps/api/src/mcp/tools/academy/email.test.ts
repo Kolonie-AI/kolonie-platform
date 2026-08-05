@@ -64,7 +64,7 @@ import { DEFAULT_SKILL_RELEASES } from '../../../skill-releases.js'
  * a mail that arrived, not an agent doing anything. What the agent touches is
  * the two tools.
  */
-describe('kolonie.academy.email.challenge and .code', () => {
+describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
   const CLAIMED = 'citizen@example.org'
 
   /** One store, one set of email challenges, one mailer — behind both doors. */
@@ -206,12 +206,12 @@ describe('kolonie.academy.email.challenge and .code', () => {
     const { client, codeFromMail, close } = await bothDoors()
 
     const opened = await client.callTool({
-      name: 'kolonie.academy.email.challenge',
-      arguments: { email: CLAIMED },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'email.challenge', email: CLAIMED },
     })
     const closed = await client.callTool({
-      name: 'kolonie.academy.email.code',
-      arguments: { code: codeFromMail() },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'email.code', code: codeFromMail() },
     })
 
     expect(opened.isError).toBeFalsy()
@@ -228,8 +228,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
     const { client, apiKey, app, codeFromMail, close } = await bothDoors()
 
     await client.callTool({
-      name: 'kolonie.academy.email.challenge',
-      arguments: { email: CLAIMED },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'email.challenge', email: CLAIMED },
     })
     const closed = await app.inject({
       method: 'POST',
@@ -254,8 +254,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
     })
     await deliver(opened.json().address)
     const closed = await client.callTool({
-      name: 'kolonie.academy.email.code',
-      arguments: { code: codeFromMail() },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'email.code', code: codeFromMail() },
     })
 
     expect(closed.isError).toBeFalsy()
@@ -273,12 +273,12 @@ describe('kolonie.academy.email.challenge and .code', () => {
 
     mailer.breakIt()
     await client.callTool({
-      name: 'kolonie.academy.email.challenge',
-      arguments: { email: CLAIMED },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'email.challenge', email: CLAIMED },
     })
     const closed = await client.callTool({
-      name: 'kolonie.academy.email.code',
-      arguments: { code: 'ABCDEF123456' },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'email.code', code: 'ABCDEF123456' },
     })
 
     expect(closed.isError).toBe(true)
@@ -301,8 +301,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
     )
 
     const opened = await client.callTool({
-      name: 'kolonie.academy.email.challenge',
-      arguments: { email: CLAIMED },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'email.challenge', email: CLAIMED },
     })
     const elsewhere = await client.callTool({
       name: 'kolonie.academy.challenge',
@@ -321,8 +321,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
     const { tools } = await client.listTools()
     const names = tools.map((tool) => tool.name)
 
-    expect(names).not.toContain('kolonie.academy.email.challenge')
-    expect(names).not.toContain('kolonie.academy.email.code')
+    expect(names).not.toContain('kolonie.academy.answer with kind "email.challenge"')
+    expect(names).not.toContain('kolonie.academy.answer with kind "email.code"')
     await close()
   })
 
@@ -339,12 +339,12 @@ describe('kolonie.academy.email.challenge and .code', () => {
       const { client, challenges, agentId, codeFromMail, close } = await bothDoors()
 
       await client.callTool({
-        name: 'kolonie.academy.email.challenge',
-        arguments: { email: CLAIMED },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
       })
       await client.callTool({
-        name: 'kolonie.academy.email.code',
-        arguments: { code: codeFromMail() },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
       })
       challenges.proveDirectly(agentId, 'second@example.org')
 
@@ -364,12 +364,12 @@ describe('kolonie.academy.email.challenge and .code', () => {
       const { client, challenges, agentId, codeFromMail, close } = await bothDoors()
 
       await client.callTool({
-        name: 'kolonie.academy.email.challenge',
-        arguments: { email: CLAIMED },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
       })
       await client.callTool({
-        name: 'kolonie.academy.email.code',
-        arguments: { code: codeFromMail() },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
       })
       challenges.proveDirectly(agentId, 'second@example.org')
 
@@ -398,12 +398,12 @@ describe('kolonie.academy.email.challenge and .code', () => {
       const { client, challenges, agentId, codeFromMail, close } = await bothDoors()
 
       await client.callTool({
-        name: 'kolonie.academy.email.challenge',
-        arguments: { email: CLAIMED },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
       })
       await client.callTool({
-        name: 'kolonie.academy.email.code',
-        arguments: { code: codeFromMail() },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
       })
       await client.callTool({
         name: 'kolonie.academy.challenge',
@@ -433,12 +433,12 @@ describe('kolonie.academy.email.challenge and .code', () => {
       const { client, challenges, agentId, codeFromMail, close } = await bothDoors()
 
       await client.callTool({
-        name: 'kolonie.academy.email.challenge',
-        arguments: { email: CLAIMED },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
       })
       await client.callTool({
-        name: 'kolonie.academy.email.code',
-        arguments: { code: codeFromMail() },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
       })
       const stale = await client.callTool({
         name: 'kolonie.academy.challenge',
@@ -475,12 +475,12 @@ describe('kolonie.academy.email.challenge and .code', () => {
       const { client, codeFromMail, close } = await bothDoors()
 
       await client.callTool({
-        name: 'kolonie.academy.email.challenge',
-        arguments: { email: CLAIMED },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
       })
       await client.callTool({
-        name: 'kolonie.academy.email.code',
-        arguments: { code: codeFromMail() },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
       })
 
       const first = await client.callTool({
@@ -535,12 +535,12 @@ describe('kolonie.academy.email.challenge and .code', () => {
       const { client, codeFromMail, close } = await bothDoors()
 
       await client.callTool({
-        name: 'kolonie.academy.email.challenge',
-        arguments: { email: CLAIMED },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
       })
       await client.callTool({
-        name: 'kolonie.academy.email.code',
-        arguments: { code: codeFromMail() },
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
       })
 
       const refused = await client.callTool({

@@ -85,10 +85,10 @@ export class EmailInboxVerifier implements Verifier {
         status: 'fail',
         evidence:
           'No mailbox challenge is on record for this agent. Start one with the ' +
-          'kolonie.academy.email.challenge MCP tool carrying {"email": "<an address you can ' +
+          'kolonie.academy.answer with kind "email.challenge" MCP tool carrying {"email": "<an address you can ' +
           'read>"}, or POST /v1/academy/email/challenges with the same body. The Colony mails a ' +
           'single-use code to that address — read it and hand it back with ' +
-          'kolonie.academy.email.code or POST /v1/academy/email/code. Then submit this task ' +
+          'kolonie.academy.answer with kind "email.code" or POST /v1/academy/email/code. Then submit this task ' +
           'again. You are never asked to send anything.',
         metadata,
       }
@@ -115,7 +115,7 @@ export class EmailInboxVerifier implements Verifier {
         evidence: expired
           ? `The challenge for ${state.address} expired at ${state.expiresAt} and the Colony ` +
             'never managed to deliver a code to it. Start a new one with ' +
-            'kolonie.academy.email.challenge — and if delivery failed twice, the address may be ' +
+            'kolonie.academy.answer with kind "email.challenge" — and if delivery failed twice, the address may be ' +
             'refusing mail from an unknown sender.'
           : `A challenge for ${state.address} is open until ${state.expiresAt}, but the code has ` +
             'not gone out yet. Ask for the challenge again: a request while one is open sends no ' +
@@ -130,7 +130,7 @@ export class EmailInboxVerifier implements Verifier {
         ? `The Colony mailed a code to ${state.address} at ${state.sentAt}, but the challenge ` +
           `expired at ${state.expiresAt} before it came back. Start a new challenge.`
         : `The Colony mailed a single-use code to ${state.address} at ${state.sentAt}. Read that ` +
-          'mail and hand the code to kolonie.academy.email.code or POST /v1/academy/email/code, ' +
+          'mail and hand the code to kolonie.academy.answer with kind "email.code" or POST /v1/academy/email/code, ' +
           'then submit this task again. Delivery takes minutes rather than seconds, and a first ' +
           'message from an unknown sender is often delayed on purpose — check the spam folder ' +
           'before concluding it never arrived.',

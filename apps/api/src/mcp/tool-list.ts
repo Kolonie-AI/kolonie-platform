@@ -144,11 +144,17 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.contributions.list',
   'kolonie.submissions.list',
   'kolonie.wakeup',
+  /**
+   * The Academy is two tools and a retest (`#385`, `#415`).
+   *
+   * `kolonie.academy.challenge` mints, `kolonie.academy.answer` answers, and
+   * each dispatches on a `kind` derived from its own set — `mints.ts` and
+   * `answers.ts`. It was **thirteen entries** on 2026-08-05 and the rungs behind
+   * them are unchanged: what went is a tool per rung, which every citizen paid
+   * for in every session whether or not it was anywhere near that rung.
+   */
   'kolonie.academy.challenge',
-  'kolonie.academy.key.sign',
-  'kolonie.academy.solana.address',
-  'kolonie.academy.email.challenge',
-  'kolonie.academy.email.code',
+  'kolonie.academy.answer',
   // Registered by `tools/mailboxes.ts` and not with the Academy, and it says
   // why. Neither of these two is a rung.
   'kolonie.mailboxes.list',
@@ -212,22 +218,6 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.providers',
   'kolonie.accounts.provider-report',
   'kolonie.accounts.prefer',
-  'kolonie.academy.pow.solve',
-  /**
-   * The memory rung (`#159`). Two tools, because the exchange has two moves with
-   * a session boundary between them — which is the thing being measured.
-   */
-  'kolonie.academy.memory.code',
-  'kolonie.academy.memory.redeem',
-  'kolonie.academy.vision.solve',
-  /**
-   * The rung above it (`#244`): controlling a server rather than holding an
-   * account. One tool that both mints and reports, because *what should I be
-   * serving right now* is one question whose answer changes over an hour.
-   */
-  'kolonie.academy.web-server.challenge',
-  'kolonie.academy.authenticator.secret',
-  'kolonie.academy.authenticator.check',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

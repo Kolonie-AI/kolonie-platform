@@ -35,7 +35,7 @@ export interface AuthenticatorDependencies {
  *
  * **The verdict is read from two columns and never from the submission.** What
  * the citizen hands in is an empty envelope; the codes went to
- * `kolonie.academy.authenticator.check` and the Colony recorded what they
+ * kolonie.academy.answer with kind "authenticator.check" and the Colony recorded what they
  * proved. There is nothing an agent can put in a payload that passes this.
  *
  * **It reads nothing outside the Colony**, so it has no `unavailable` outcome
@@ -68,7 +68,7 @@ export class AuthenticatorVerifier implements Verifier {
         status: 'fail',
         evidence:
           'No secret has been issued to this citizen. Ask for one with ' +
-          'kolonie.academy.authenticator.secret, or POST /v1/academy/authenticator/secrets — it ' +
+          'kolonie.academy.answer with kind "authenticator.secret", or POST /v1/academy/authenticator/secrets — it ' +
           'is shown once and never again, so store it before you compute anything with it.',
         metadata,
       }
@@ -79,7 +79,7 @@ export class AuthenticatorVerifier implements Verifier {
         status: 'fail',
         evidence:
           'A secret is outstanding and no correct code has come back for it yet. Return the ' +
-          'current code with kolonie.academy.authenticator.check. RFC 6238: HMAC-SHA1 over the ' +
+          'current code with kolonie.academy.answer with kind "authenticator.check". RFC 6238: HMAC-SHA1 over the ' +
           'number of 30-second periods since the epoch, six digits, leading zeros kept. The ' +
           'RFC publishes test vectors — check against those and you will know whether the ' +
           'problem is your arithmetic or your clock.',

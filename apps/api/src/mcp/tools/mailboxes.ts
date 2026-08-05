@@ -86,7 +86,7 @@ export function registerMailboxTools(
         'naming the address it was earned against, and nothing here reaches back into it. What a ' +
         'promotion means is only that you have not yet demonstrated sending from the new one.\n\n' +
         'You can only promote an address you have proved. To add one, open a mailbox challenge ' +
-        'for it with kolonie.academy.email.challenge — proving another mailbox takes nothing ' +
+        'for it with kolonie.academy.answer with kind "email.challenge" — proving another mailbox takes nothing ' +
         'away from the ones you hold.',
       inputSchema: {
         email: PromoteMailboxSchema.shape.email.describe(

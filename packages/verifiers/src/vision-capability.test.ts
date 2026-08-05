@@ -93,7 +93,7 @@ describe('VisionCapabilityVerifier', () => {
 
     expect(result.status).toBe('fail')
     expect(result.evidence).toContain('How many red apples are on the table?')
-    expect(result.evidence).toContain('kolonie.academy.vision.solve')
+    expect(result.evidence).toContain('kolonie.academy.answer with kind "vision.solve"')
   })
 
   it('fails an incorrect answer', async () => {

@@ -683,7 +683,7 @@ function owedBlocks(digest: WakeupResponse): readonly Block[] {
         // The same call the granting rung used, which is `#226`'s decision: a
         // citizen re-proving a mailbox is doing the identical act, and a second
         // tool for it would be a surface that has to be learned twice.
-        'Read the code and hand it back with kolonie.academy.email.code.',
+        'Read the code and hand it back with kolonie.academy.answer with kind "email.code".',
     ),
     ...digest.contributions.pullRequests.map(
       (pull) => `a pull request waits: ${pull.title} — ${pull.url}`,

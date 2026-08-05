@@ -24,8 +24,9 @@ describe('kolonie.academy.key.challenge and .sign', () => {
     const nonce = (minted.structuredContent as { nonce: string }).nonce
 
     const signed = await client.callTool({
-      name: 'kolonie.academy.key.sign',
+      name: 'kolonie.academy.answer',
       arguments: {
+        kind: 'key.sign',
         algorithm: keypair.algorithm,
         publicKey: keypair.publicKey,
         signature: keypair.sign(nonce),
@@ -70,8 +71,9 @@ describe('kolonie.academy.key.challenge and .sign', () => {
       arguments: { kind: 'key-signature' },
     })
     const signed = await client.callTool({
-      name: 'kolonie.academy.key.sign',
+      name: 'kolonie.academy.answer',
       arguments: {
+        kind: 'key.sign',
         algorithm: keypair.algorithm,
         publicKey: keypair.publicKey,
         signature: keypair.sign('a value of my own choosing'),
@@ -88,7 +90,9 @@ describe('kolonie.academy.key.challenge and .sign', () => {
 
     const { tools } = await client.listTools()
 
-    expect(tools.map((tool) => tool.name)).not.toContain('kolonie.academy.key.sign')
+    expect(tools.map((tool) => tool.name)).not.toContain(
+      'kolonie.academy.answer with kind "key.sign"',
+    )
     await close()
   })
 })

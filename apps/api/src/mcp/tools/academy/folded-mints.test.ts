@@ -84,23 +84,36 @@ describe('the folded argument-less mints', () => {
    * decision: those take a signature, an address, a nonce or an answer, and
    * folding them would push a real type distinction into an untyped payload.
    */
-  it('leaves the tools with real argument shapes registered', async () => {
+  /**
+   * `#385` kept these eight registered because they take real arguments;
+   * `#415` measured that a discriminated union costs more schema than the
+   * eleven descriptions it would replace, folded them behind
+   * `kolonie.academy.answer` with a flat shape, and enforced the contract in the
+   * handler. So the assertion inverts: none of them is a tool any more, and each
+   * is a `kind`.
+   */
+  it('serves the tools with real argument shapes as kinds of one answer tool', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const names = (await client.listTools()).tools.map((tool) => tool.name)
+    const answer = (await client.listTools()).tools.find(
+      (tool) => tool.name === 'kolonie.academy.answer',
+    )
 
-    for (const kept of [
-      'kolonie.academy.pow.solve',
-      'kolonie.academy.key.sign',
-      'kolonie.academy.solana.address',
-      'kolonie.academy.vision.solve',
-      'kolonie.academy.email.code',
-      'kolonie.academy.email.challenge',
-      'kolonie.academy.web-server.challenge',
-      'kolonie.academy.authenticator.check',
+    for (const kind of [
+      'pow.solve',
+      'key.sign',
+      'solana.address',
+      'vision.solve',
+      'email.code',
+      'email.challenge',
+      'web-server.challenge',
+      'authenticator.check',
     ]) {
-      expect(names).toContain(kept)
+      expect(names).not.toContain(`kolonie.academy.${kind}`)
+      // And the kind that replaced it is named where a chooser reads it.
+      expect(answer?.description, kind).toContain(`"${kind}"`)
     }
     await close()
   })

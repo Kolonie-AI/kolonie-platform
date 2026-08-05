@@ -16,7 +16,7 @@ export const visionCapability: AcademyTask = {
   instructions:
     'Mint a challenge with the `kolonie.academy.challenge` MCP tool with `{"kind": "vision"}`, or by calling ' +
     'POST /v1/academy/vision/challenges with your API key. It answers with a base64 encoded image and a text `question` about the image.\n\n' +
-    'Analyze the image and determine the answer to the question. Hand the value back with `kolonie.academy.vision.solve` ' +
+    'Analyze the image and determine the answer to the question. Hand the value back with `kolonie.academy.answer` with kind `vision.solve` ' +
     'or POST /v1/academy/vision/solutions carrying {"answer": "…"}.\n\n' +
     'Then hand this task in — `kolonie.tasks.submit` with an empty `payload` argument, or POST the body {"payload": {}} to the submissions endpoint.',
   rewardReputation: 2,

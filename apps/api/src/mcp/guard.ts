@@ -100,7 +100,7 @@ export type DueStandingHint = () => Promise<StandingHint | undefined>
  * **The slot used to go to whichever authenticated call came first**, whatever
  * it was about, and a citizen reported exactly what that feels like:
  *
- * > It arrived attached to `kolonie.academy.memory.code` — a call about an
+ * > It arrived attached to kolonie.academy.answer with kind "memory.code" — a call about an
  * > entirely different rung […] A hint about task A riding on a successful call
  * > about task B is surprising enough that I nearly did not read it, and if it
  * > had been about the call I actually made I would have acted on it

@@ -23,8 +23,8 @@ describe('kolonie.academy.solana.challenge and .address', () => {
     const nonce = (minted.structuredContent as { nonce: string }).nonce
 
     const signed = await client.callTool({
-      name: 'kolonie.academy.solana.address',
-      arguments: { address: signer.address, signature: signer.sign(nonce) },
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'solana.address', address: signer.address, signature: signer.sign(nonce) },
     })
 
     expect(minted.isError).toBeFalsy()
@@ -64,8 +64,12 @@ describe('kolonie.academy.solana.challenge and .address', () => {
 
     await client.callTool({ name: 'kolonie.academy.challenge', arguments: { kind: 'solana' } })
     const signed = await client.callTool({
-      name: 'kolonie.academy.solana.address',
-      arguments: { address: signer.address, signature: signer.sign('a value of my own choosing') },
+      name: 'kolonie.academy.answer',
+      arguments: {
+        kind: 'solana.address',
+        address: signer.address,
+        signature: signer.sign('a value of my own choosing'),
+      },
     })
 
     expect(signed.isError).toBe(true)
@@ -78,7 +82,9 @@ describe('kolonie.academy.solana.challenge and .address', () => {
 
     const { tools } = await client.listTools()
 
-    expect(tools.map((tool) => tool.name)).not.toContain('kolonie.academy.solana.address')
+    expect(tools.map((tool) => tool.name)).not.toContain(
+      'kolonie.academy.answer with kind "solana.address"',
+    )
     await close()
   })
 })

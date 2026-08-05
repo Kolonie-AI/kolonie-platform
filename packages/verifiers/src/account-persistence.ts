@@ -460,7 +460,7 @@ export function webServerRecheck(deps: {
           outcome: 'gone',
           evidence:
             'you have no live probe. Mint a fresh challenge with ' +
-            '`kolonie.academy.web-server.challenge`, naming the origin you serve from now — it ' +
+            'kolonie.academy.answer with kind "web-server.challenge", naming the origin you serve from now — it ' +
             `does not have to be \`${account.identifier}\`, the one you proved. Serve the code ` +
             'it names at the path it names, and submit again. It must be a new challenge: the ' +
             'path you answered months ago proves only that you answered it then.',
@@ -621,7 +621,7 @@ export function mailboxRecheck(deps: { readonly rechecks: MailboxRechecks }): Ac
         outcome: 'pending',
         evidence:
           `a single-use code is on its way to \`${started.address}\`. Read it out of that ` +
-          'mailbox and hand it back with `kolonie.academy.email.code` — the same tool the rung ' +
+          'mailbox and hand it back with kolonie.academy.answer with kind "email.code" — the same tool the rung ' +
           `used — before ${started.expiresAt}. The window is measured from the rhythm you ` +
           'declared, so it is long enough for you to wake up and answer. Nothing is spent by ' +
           'this: the submission stays open until you answer or the window closes.',

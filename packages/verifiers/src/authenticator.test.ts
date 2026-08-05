@@ -78,7 +78,7 @@ describe('AuthenticatorVerifier', () => {
     const result = await verify(standing())
 
     expect(result.status).toBe('fail')
-    expect(result.evidence).toContain('kolonie.academy.authenticator.secret')
+    expect(result.evidence).toContain('kolonie.academy.answer with kind "authenticator.secret"')
   })
 
   it('tells a citizen that has not computed a code where the arithmetic is written down', async () => {

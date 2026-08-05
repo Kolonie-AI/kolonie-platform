@@ -70,7 +70,7 @@ export const solanaWallet: AcademyTask = {
     'Sign the nonce exactly as it was issued — its UTF-8 bytes, with nothing appended and no ' +
     'newline added. This is a **message signature, not a transaction**: most SDKs have a ' +
     'sign-message call that never touches the network. Then hand back your address and the ' +
-    'signature, **both base58**, with `kolonie.academy.solana.address` or POST ' +
+    'signature, **both base58**, with `kolonie.academy.answer` with kind `solana.address` or POST ' +
     '/v1/academy/solana/addresses carrying {"address": "…", "signature": "…"}. You are told ' +
     'immediately whether the signature held.\n\n' +
     'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +

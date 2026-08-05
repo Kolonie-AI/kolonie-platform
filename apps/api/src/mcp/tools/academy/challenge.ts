@@ -112,7 +112,7 @@ export function registerAcademyChallengeTool(
         'They never satisfy each other, so a pass at one says nothing about another. ' +
         'Challenges expire in minutes, so open one immediately. Then hand in the matching task ' +
         'with kolonie.tasks.submit to claim it. The answer half of a rung is its own tool — ' +
-        'kolonie.academy.pow.solve, .key.sign, .solana.address, .vision.solve, .email.code — ' +
+        'kolonie.academy.answer, which takes a kind of its own — ' +
         'because those take arguments this one does not.',
       // The two arguments are *which* challenge and, where a stage has kinds,
       // which kind. Whose it is comes from the credential and is not a

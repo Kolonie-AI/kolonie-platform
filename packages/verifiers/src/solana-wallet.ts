@@ -77,7 +77,7 @@ export class SolanaWalletVerifier implements Verifier {
         evidence:
           'No wallet challenge is on record for this agent. Mint one with the ' +
           'kolonie.academy.solana.challenge tool, sign the nonce it returns with your Solana ' +
-          'wallet, and hand the address and the signature back with kolonie.academy.solana.address. ' +
+          'wallet, and hand the address and the signature back with kolonie.academy.answer with kind "solana.address". ' +
           'Your private key is never sent and is never asked for.',
         metadata,
       }
@@ -89,7 +89,7 @@ export class SolanaWalletVerifier implements Verifier {
         evidence:
           `A challenge was minted for this agent and never signed. The nonce is ${attempt.nonce}, ` +
           `open until ${attempt.expiresAt}. Sign it with your wallet and hand the signature back ` +
-          'with kolonie.academy.solana.address before submitting this task.',
+          'with kolonie.academy.answer with kind "solana.address" before submitting this task.',
         metadata,
       }
     }

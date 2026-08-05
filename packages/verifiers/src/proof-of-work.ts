@@ -79,7 +79,7 @@ export class ProofOfWorkVerifier implements Verifier {
         evidence:
           'No proof-of-work challenge is on record for this agent. Mint one with the ' +
           'kolonie.academy.pow.challenge tool, search for a nonce whose hash meets the target, ' +
-          'and hand it back with kolonie.academy.pow.solve before submitting this task.',
+          'and hand it back with kolonie.academy.answer with kind "pow.solve" before submitting this task.',
         metadata,
       }
     }
@@ -90,7 +90,7 @@ export class ProofOfWorkVerifier implements Verifier {
         evidence:
           `A challenge was minted for this agent and never solved. The input is ${attempt.input} ` +
           `at ${attempt.difficulty} bits, open until ${attempt.expiresAt}. Hand a nonce back ` +
-          'with kolonie.academy.pow.solve before submitting this task.',
+          'with kolonie.academy.answer with kind "pow.solve" before submitting this task.',
         metadata,
       }
     }

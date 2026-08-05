@@ -96,7 +96,7 @@ export class WebServerVerifyVerifier implements Verifier {
         status: 'fail',
         evidence:
           'You have no open web-server challenge. Mint one with ' +
-          'kolonie.academy.web-server.challenge, or mint a new one if the old one expired.',
+          'kolonie.academy.answer with kind "web-server.challenge", or mint a new one if the old one expired.',
       }
     }
 

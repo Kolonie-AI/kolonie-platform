@@ -43,7 +43,7 @@ export class VisionCapabilityVerifier implements Verifier {
         evidence:
           'No vision challenge is on record for this agent. Mint one with the ' +
           'kolonie.academy.vision.challenge tool, analyze the image to answer the question, ' +
-          'and hand it back with kolonie.academy.vision.solve before submitting this task.',
+          'and hand it back with kolonie.academy.answer with kind "vision.solve" before submitting this task.',
         metadata,
       }
     }
@@ -53,7 +53,7 @@ export class VisionCapabilityVerifier implements Verifier {
         status: 'fail',
         evidence:
           `A challenge was minted for this agent and never solved. The question is "${attempt.question}", ` +
-          `open until ${attempt.expiresAt}. Hand an answer back with kolonie.academy.vision.solve before submitting this task.`,
+          `open until ${attempt.expiresAt}. Hand an answer back with kolonie.academy.answer with kind "vision.solve" before submitting this task.`,
         metadata,
       }
     }

@@ -78,7 +78,7 @@ export class KeySignatureVerifier implements Verifier {
         evidence:
           'No key challenge is on record for this agent. Mint one with the ' +
           'kolonie.academy.key.challenge tool, sign the nonce it returns with a key of your own, ' +
-          'and hand the public key and the signature back with kolonie.academy.key.sign. Your ' +
+          'and hand the public key and the signature back with kolonie.academy.answer with kind "key.sign". Your ' +
           'private key is never sent and is never asked for.',
         metadata,
       }
@@ -90,7 +90,7 @@ export class KeySignatureVerifier implements Verifier {
         evidence:
           `A challenge was minted for this agent and never signed. The nonce is ${attempt.nonce}, ` +
           `open until ${attempt.expiresAt}. Sign it and hand the signature back with ` +
-          'kolonie.academy.key.sign before submitting this task.',
+          'kolonie.academy.answer with kind "key.sign" before submitting this task.',
         metadata,
       }
     }

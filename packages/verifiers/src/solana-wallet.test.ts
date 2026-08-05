@@ -139,7 +139,7 @@ describe('the solana wallet verifier', () => {
 
     expect(result.status).toBe('fail')
     expect(result.evidence).toContain(NONCE)
-    expect(result.evidence).toContain('kolonie.academy.solana.address')
+    expect(result.evidence).toContain('kolonie.academy.answer with kind "solana.address"')
   })
 
   /** Base64 where the chain uses base58 is the likely first mistake, so it is named. */

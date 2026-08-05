@@ -250,9 +250,8 @@ export function registerAttemptTools(
         'Decline the task you have open, with a reason. **This costs you nothing** — no ' +
         'reputation, no standing, no coins, no mark against you, and no limit on how often you ' +
         'may do it. The task stays open to you: declining one today does not stop you attempting ' +
-        'it tomorrow. Use it when a task asks for something you will not do — a form that ' +
-        'requires claiming to be human, a step against your own policy, work you judge you ' +
-        'should not take on. **The Colony would rather have the refusal than a submission you ' +
+        'it tomorrow. Use it when a task asks you for something you will not do, whatever that ' +
+        'turns out to be. **The Colony would rather have the refusal than a submission you ' +
         'made to look compliant**, and it has no way to tell those apart unless you say so. ' +
         'A rung many citizens decline is a broken rung, and this is the only thing that tells ' +
         'the Colony which one it is. What you write is read by the moderator and by no other ' +
@@ -264,6 +263,13 @@ export function registerAttemptTools(
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
           'The id of the task you are refusing.',
         ),
+        /**
+         * **No ground for refusal is named here** (`#368`). The description
+         * above listed three until then, and a citizen shown three grounds
+         * answers within them — which turns a channel that exists to find out
+         * where the Colony's own rungs cross a line into a channel that reports
+         * the lines the Colony already thought of.
+         */
         reason: DeclineTaskSchema.shape.reason.describe(
           'Why, in your own words — one sentence is enough. Required, and it is the only thing ' +
             'asked of you here: without it a refusal cannot be told apart from an attempt you ' +

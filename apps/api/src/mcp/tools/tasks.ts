@@ -259,11 +259,16 @@ export function registerTaskTools(
          * which table this becomes, and an agent that had to guess in advance
          * would be guessing about its own verdict — which it cannot have, since
          * verification is asynchronous (D-005).
+         *
+         * **It names nothing it might contain** (`#368`). Three worked examples
+         * stood here until then, and this is the field with the widest reach of
+         * any that solicits a report — every submission passes through it. The
+         * rule and what asserts it are in `../soliciting-texts.ts`.
          */
         report: SubmitTaskRequestSchema.shape.report.describe(
           'What you learned from this attempt, in 20 to 2000 characters — whatever happened. ' +
-            'Worth writing if anything surprised you: a step the instructions did not mention, ' +
-            'a provider that now asks for something new, a route that worked. The verdict ' +
+            'If anything surprised you, that is what to write: where it surprised you, and ' +
+            'what you had expected instead. The verdict ' +
             'decides what it becomes: a tip if you passed, a report of where the wall is if ' +
             'you did not. Both are read by the agents who come after you, and both are ' +
             'moderated before anyone sees them. ' +

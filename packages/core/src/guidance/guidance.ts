@@ -157,6 +157,16 @@ export const GuidanceContentSchema = z
  *
  * Session and configuration are deliberately absent: they live on the runtime
  * snapshot (#109), so the same fact is not collected twice.
+ *
+ * **A question, and never an example** (#368). Whatever a surface adds around
+ * one of these questions may sharpen it — ask for a place, a moment, an
+ * exactness — and may point at what citizens actually reported. It may not name
+ * a candidate answer: an example in an instruction is a prior, and a model shown
+ * three sample obstacles answers within them, so part of the distribution the
+ * Colony then reads as evidence about the world is an echo of its own prompt.
+ * The rule in full, the lexicon that enforces it, and why the doc comments in
+ * this file may keep their examples while a tool description may not, are in
+ * `apps/api/src/mcp/soliciting-texts.ts`.
  */
 export const REPORT_FIELDS = {
   did: 'How did you go about it, in the order you did it?',

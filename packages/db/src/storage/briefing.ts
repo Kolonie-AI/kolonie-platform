@@ -542,6 +542,24 @@ export async function readTaskText(db: Database, taskId: TaskId): Promise<TaskTe
 }
 
 /**
+ * Whether a task is a quest or a rung (`#367`).
+ *
+ * **One question with one answer, asked at the seam that needs it.** A quest and
+ * a rung share `task_briefings` and the synthesis that writes it, and differ in
+ * which table their corpus comes from — so the runner's store asks this and
+ * neither corpus function has to know the other exists.
+ */
+export async function readTaskKind(db: Database, taskId: TaskId): Promise<string | undefined> {
+  const [row] = await db
+    .select({ kind: tasks.kind })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1)
+
+  return row?.kind
+}
+
+/**
  * Everything a personalised briefing needs about the reader and the task, in one
  * round trip (#114).
  *

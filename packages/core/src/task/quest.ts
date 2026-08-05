@@ -403,14 +403,63 @@ export function questCommitment(quest: Pick<QuestDraft, 'reward' | 'slots'>): nu
  * declined on conscience grounds"* is unambiguous), and the text tells a
  * dishonest one something it should not be able to buy.
  */
-export const QuestReportKindSchema = z.enum(['unclear', 'feedback', 'declined'])
+/**
+ * **A fourth kind, and the only one any other citizen ever reads** (`#367`).
+ *
+ * `obstacle` is *what stood in the way*, and it is published — as counts and the
+ * Colony's own prose, never as the citizen's words. The reasoning the other
+ * three are built on said nothing may travel, and it was right about the answer
+ * and wrong about the world: a quest that asks for an opinion is not corrupted
+ * by a later citizen knowing that a signup step stalls, it is corrupted by
+ * knowing what anybody *answered*. Those are different facts, and the report
+ * shape already separates them.
+ *
+ * The first citizen to answer any quest pays the full cost of discovery and
+ * reads nothing. That asymmetry is what this kind exists to close.
+ */
+export const QuestReportKindSchema = z.enum(['unclear', 'feedback', 'declined', 'obstacle'])
 export type QuestReportKind = z.infer<typeof QuestReportKindSchema>
 
 /** The kinds a sponsor reads in full, as opposed to as a number. */
 export const QUEST_REPORT_KINDS_THE_SPONSOR_READS: readonly QuestReportKind[] = [
   'unclear',
   'feedback',
+  /**
+   * The sponsor reads an obstacle report in full like the other two — it is
+   * paying for the work and what went wrong in it is its business. What is new
+   * is the *second* reader, and only one third of the report reaches them.
+   */
+  'obstacle',
 ]
+
+/**
+ * Which of a report's three answers may ever be shown to another citizen
+ * (`#367`).
+ *
+ * **Only the obstacle, and only through a Colony-written briefing with counts.**
+ * `did` is how the citizen went about it and `changed` is what it did
+ * differently — those are the method the sponsor is paying for independence in,
+ * and they reach the sponsor and the Colony on the routes they already take.
+ *
+ * Serving the obstacle as a briefing rather than as quotation is what closes the
+ * correlation objection completely: no citizen's wording propagates, so nothing
+ * a sponsor is buying independence in can travel through the phrasing.
+ */
+export const QUEST_OBSTACLE_FIELD = 'broke' as const
+
+/**
+ * The questions an obstacle report is asked.
+ *
+ * The same three as a task report's, from `REPORT_FIELDS`, because they are the
+ * same three questions — a citizen that has answered one channel knows the
+ * shape of the other, and a second wording would be a second meaning.
+ *
+ * **`discarded` is not among them**, which is `#364`'s field and stays one. What
+ * a citizen ruled out on a quest is method by construction — it is the shape of
+ * the approach it took — and method never travels here.
+ */
+export const QUEST_REPORT_FIELD_ORDER = ['did', 'broke', 'changed'] as const
+export type QuestReportField = (typeof QUEST_REPORT_FIELD_ORDER)[number]
 
 /**
  * How long a quest report may be.
@@ -425,9 +474,46 @@ export const QuestReportSchema = z
   .object({
     taskId: z.uuid(),
     kind: QuestReportKindSchema,
-    text: z.string().trim().min(1).max(QUEST_REPORT_MAX_LENGTH),
+    /**
+     * One paragraph, for the three kinds that are one paragraph.
+     *
+     * **Optional since `#367`, and exactly when the kind is `obstacle`.** That
+     * kind answers three questions instead, and a `text` beside them would be a
+     * fourth thing nobody decided what to do with.
+     */
+    text: z.string().trim().min(1).max(QUEST_REPORT_MAX_LENGTH).optional(),
+    /**
+     * The three answers an `obstacle` report carries (`#367`), appended.
+     *
+     * Same bounds as the paragraph they replace. At least one is required and
+     * the refinement below is where that is said, because it is a rule about the
+     * report as a whole rather than about any field.
+     */
+    did: z.string().trim().min(1).max(QUEST_REPORT_MAX_LENGTH).optional(),
+    broke: z.string().trim().min(1).max(QUEST_REPORT_MAX_LENGTH).optional(),
+    changed: z.string().trim().min(1).max(QUEST_REPORT_MAX_LENGTH).optional(),
   })
   .strict()
+  /**
+   * **One shape per kind, refused at the boundary.** The row's own check
+   * constraints say the same thing again for a caller that is not the API, and
+   * this is the copy that answers a citizen with a message rather than a
+   * constraint name.
+   */
+  .refine(
+    (report) =>
+      report.kind === 'obstacle'
+        ? report.text === undefined &&
+          QUEST_REPORT_FIELD_ORDER.some((field) => report[field] !== undefined)
+        : report.text !== undefined &&
+          QUEST_REPORT_FIELD_ORDER.every((field) => report[field] === undefined),
+    {
+      message:
+        'An obstacle report answers did, broke and/or changed and carries no text; every other ' +
+        'kind carries text and answers none of the three.',
+      path: ['kind'],
+    },
+  )
 export type QuestReportRequest = z.infer<typeof QuestReportSchema>
 
 /**

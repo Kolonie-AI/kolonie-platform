@@ -9,6 +9,9 @@ import {
   writeDirectionClassification,
   pendingAnswerModerations,
   unmoderatedProviderReasons,
+  markBriefingStale,
+  questObstacleCorpus,
+  readTaskKind,
   unmoderatedQuestReports,
   recordProviderReasonModeration,
   recordQuestReportModeration,
@@ -142,7 +145,24 @@ const questStore: QuestModerationStore = {
 const briefings: BriefingStore = {
   stale: (limit) => staleBriefings(db, limit),
   taskText: (taskId) => readTaskText(db, taskId),
-  corpus: (taskId) => briefingCorpus(db, taskId),
+  /**
+   * **Two corpora, one synthesis** (`#367`).
+   *
+   * A quest is a row in `tasks` like a rung is, so its briefing lives in
+   * `task_briefings` beside theirs and is written by the same loop against the
+   * same prompt. What differs is where the entries come from: a rung's are
+   * approved `task_reports`, and a quest's are the published obstacles of
+   * approved `quest_reports` — one third of each report, and never the two
+   * answers that are method.
+   *
+   * **The branch is here rather than inside either corpus function**, because
+   * this is the seam the loop already depends on and neither table should have
+   * to know the other exists. `briefingTick` is unchanged.
+   */
+  corpus: async (taskId) =>
+    (await readTaskKind(db, taskId)) === 'quest'
+      ? questObstacleCorpus(db, taskId)
+      : briefingCorpus(db, taskId),
   write: (input) => writeBriefing(db, input),
 }
 
@@ -191,6 +211,10 @@ const questReportStore: QuestReportModerationStore = {
   pending: (limit) => unmoderatedQuestReports(db, limit),
   write: (input) => recordQuestReportModeration(db, { ...input, decision: 'approved' }),
   refuse: (input) => recordQuestReportModeration(db, { ...input, decision: 'rejected' }),
+  // The same flag a rung's corpus sets on approval (`#367`). A quest's published
+  // obstacles are written up by the same synthesis loop, so they enter its queue
+  // the same way.
+  markStale: (taskId) => markBriefingStale(db, taskId),
 }
 
 /**

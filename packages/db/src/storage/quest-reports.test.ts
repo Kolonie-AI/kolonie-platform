@@ -8,6 +8,7 @@ import { questsAwaitingRefund } from './escrow.js'
 import {
   declineReasons,
   fileQuestReport,
+  questObstacleCorpus,
   questReportCounts,
   recordQuestReportModeration,
   retireQuestEarly,
@@ -169,6 +170,174 @@ describe('a quest report', () => {
       // deleting the row would delete the record of it.
       const [row] = await db.select().from(questReports)
       expect(row?.status).toBe('rejected')
+    })
+  })
+
+  /**
+   * **The obstacle travels; the method never does** (`#367`).
+   *
+   * The first citizen to answer any quest pays the whole cost of discovery and
+   * reads nothing. What closes that is publishing where people got stuck — and
+   * what makes publishing it safe is that where you stopped is a fact about the
+   * world, while how you went about it is the method the sponsor is paying for
+   * independence in.
+   */
+  describe('an obstacle report', () => {
+    const anObstacle = async (
+      taskId: TaskId,
+      agentId: AgentId,
+      answers: { did?: string; broke?: string; changed?: string },
+    ) => fileQuestReport(db, { taskId, agentId, kind: 'obstacle', ...answers })
+
+    it('takes the three questions and carries no paragraph', async () => {
+      const taskId = await aQuest()
+      const agentId = await anAgent('answerer')
+
+      const filed = await anObstacle(taskId, agentId, {
+        did: 'Worked through the sources in the order they were listed.',
+        broke: 'The archive search returns nothing without an account.',
+        changed: 'Nothing — this was my first attempt at it.',
+      })
+
+      expect(filed.outcome).toBe('filed')
+      const [row] = await db
+        .select({ text: questReports.text, broke: questReports.broke })
+        .from(questReports)
+        .where(eq(questReports.taskId, taskId))
+      expect(row?.text).toBeNull()
+      expect(row?.broke).toContain('archive search')
+    })
+
+    /**
+     * The rejection case the definition of done asks for, and the two halves are
+     * asserted together because separating them would let either pass alone: an
+     * obstacle the stage refused is not served, **and** the report still stands
+     * and still reaches the sponsor.
+     */
+    it('serves no obstacle the stage refused, and the report still reaches the sponsor', async () => {
+      const taskId = await aQuest()
+      const agentId = await anAgent('said-too-much')
+      await anObstacle(taskId, agentId, {
+        broke: 'Stopped once I had decided the answer is the second option.',
+        did: 'Read both and compared them.',
+      })
+
+      const [queued] = await unmoderatedQuestReports(db, 10)
+      // The sponsor's half clears; the published half does not. That is the
+      // proportionate response — the citizen said a little too much about what
+      // it concluded, and what it loses is publication rather than the report.
+      await recordQuestReportModeration(db, {
+        id: queued!.id,
+        decision: 'approved',
+        scrubbed: 'Read both and compared them.',
+      })
+
+      expect(await questObstacleCorpus(db, taskId)).toHaveLength(0)
+      expect(await sponsorQuestReports(db, taskId)).toHaveLength(1)
+    })
+
+    it('serves the obstacle once the stage has published it', async () => {
+      const taskId = await aQuest()
+      const agentId = await anAgent('stopped-cleanly')
+      await anObstacle(taskId, agentId, {
+        broke: 'The archive search returns nothing without an account.',
+      })
+
+      const [queued] = await unmoderatedQuestReports(db, 10)
+      await recordQuestReportModeration(db, {
+        id: queued!.id,
+        decision: 'approved',
+        scrubbed: 'The archive search returns nothing without an account.',
+        publishedObstacle: 'The archive search returns nothing without an account.',
+      })
+
+      const corpus = await questObstacleCorpus(db, taskId)
+      expect(corpus).toHaveLength(1)
+      // One row is one citizen — the unique index makes that true by
+      // construction, so a claim's count needs nothing maintaining it.
+      expect(corpus[0]?.reports).toBe(1)
+      expect(corpus[0]?.kind).toBe('wall')
+    })
+
+    /**
+     * **The method never travels**, which is the whole of what makes the
+     * obstacle publishable. Asserted on the corpus rather than on the column,
+     * because the corpus is what a citizen actually reaches.
+     */
+    it('never puts how it was answered in front of another citizen', async () => {
+      const taskId = await aQuest()
+      const agentId = await anAgent('method-holder')
+      await anObstacle(taskId, agentId, {
+        did: 'Read the three sources in the order given and cross-checked them.',
+        broke: 'The archive search returns nothing without an account.',
+        changed: 'A second model, after the first would not read the tables.',
+      })
+
+      const [queued] = await unmoderatedQuestReports(db, 10)
+      await recordQuestReportModeration(db, {
+        id: queued!.id,
+        decision: 'approved',
+        scrubbed: 'everything, as the sponsor reads it',
+        publishedObstacle: 'The archive search returns nothing without an account.',
+      })
+
+      const [entry] = await questObstacleCorpus(db, taskId)
+      expect(entry?.content).not.toContain('cross-checked')
+      expect(entry?.content).not.toContain('second model')
+    })
+
+    /** A rewrite withdraws what was published, immediately. */
+    it('stops serving an obstacle its author has replaced', async () => {
+      const taskId = await aQuest()
+      const agentId = await anAgent('changed-its-mind')
+      await anObstacle(taskId, agentId, { broke: 'The archive search needs an account.' })
+      const [queued] = await unmoderatedQuestReports(db, 10)
+      await recordQuestReportModeration(db, {
+        id: queued!.id,
+        decision: 'approved',
+        scrubbed: 'The archive search needs an account.',
+        publishedObstacle: 'The archive search needs an account.',
+      })
+      expect(await questObstacleCorpus(db, taskId)).toHaveLength(1)
+
+      await anObstacle(taskId, agentId, { broke: 'On reflection it was the login and not that.' })
+
+      expect(await questObstacleCorpus(db, taskId)).toHaveLength(0)
+    })
+
+    /**
+     * The three kinds that were here first keep their readers and their routing,
+     * which is an acceptance criterion of `#367` and the thing a fourth kind is
+     * most likely to break.
+     */
+    it('leaves the three existing kinds exactly where they were', async () => {
+      const taskId = await aQuest()
+      await fileQuestReport(db, {
+        taskId,
+        agentId: await anAgent('unclear-reporter'),
+        kind: 'unclear',
+        text: 'I cannot tell which of two things it is asking for.',
+      })
+      await fileQuestReport(db, {
+        taskId,
+        agentId: await anAgent('declining-reporter'),
+        kind: 'declined',
+        text: 'I will not do this, on conscience grounds.',
+      })
+
+      const queued = await unmoderatedQuestReports(db, 10)
+      // `declined` never enters the queue, exactly as before.
+      expect(queued).toHaveLength(1)
+      await recordQuestReportModeration(db, {
+        id: queued[0]!.id,
+        decision: 'approved',
+        scrubbed: 'I cannot tell which of two things it is asking for.',
+      })
+
+      expect((await sponsorQuestReports(db, taskId)).map((row) => row.kind)).toEqual(['unclear'])
+      expect(await declineReasons(db, taskId)).toHaveLength(1)
+      // And no obstacle briefing came out of any of it.
+      expect(await questObstacleCorpus(db, taskId)).toHaveLength(0)
     })
   })
 

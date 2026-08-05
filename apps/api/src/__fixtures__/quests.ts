@@ -166,7 +166,7 @@ export function fakeQuests(): FakeQuestDesk {
    */
   const reports = new Map<
     string,
-    { taskId: string; kind: string; text: string; scrubbed: string | null }
+    { taskId: string; kind: string; text: string | null; scrubbed: string | null }
   >()
 
   return {
@@ -180,14 +180,24 @@ export function fakeQuests(): FakeQuestDesk {
     async report(input) {
       const key = `${input.taskId}:${input.agentId}`
       const replaced = reports.has(key)
+      /**
+       * An `obstacle` report carries three answers and no paragraph (`#367`).
+       * What the sponsor reads is all three, so the fake joins them — the
+       * runner's own join is richer, and what these tests are about is the
+       * route.
+       */
+      const text =
+        input.text ??
+        [input.did, input.broke, input.changed].filter((answer) => answer !== undefined).join('\n')
+
       reports.set(key, {
         taskId: input.taskId,
         kind: input.kind,
-        text: input.text,
+        text,
         // Approved immediately here, because the scrub is the moderation
         // runner's and these tests are about the route. `declined` gets none,
         // which is the rule being reproduced.
-        scrubbed: input.kind === 'declined' ? null : input.text,
+        scrubbed: input.kind === 'declined' ? null : text,
       })
       return { outcome: 'filed' as const, replaced }
     },

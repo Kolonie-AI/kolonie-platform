@@ -86,7 +86,40 @@ export const questReports = pgTable(
      * sponsor reads {@link questReports.scrubbed}; for `declined` nobody outside
      * the Colony reads anything at all.
      */
-    text: text('text').notNull(),
+    text: text('text'),
+
+    /**
+     * What an `obstacle` report answers instead of a paragraph (`#367`).
+     *
+     * The same three questions a task report is asked, and the split between
+     * them is what makes publishing any of it possible:
+     *
+     * | field | on a quest |
+     * |---|---|
+     * | `broke` | where it stopped — **published**, as counts and Colony prose |
+     * | `did` | how the citizen went about it — never published; this is the method the sponsor pays for |
+     * | `changed` | what was different this time — never published |
+     *
+     * Null on every other kind, which the check below makes a property of the
+     * table rather than a habit of the write path.
+     */
+    did: text('did'),
+    broke: text('broke'),
+    changed: text('changed'),
+
+    /**
+     * The obstacle after the scrub, and the only citizen-written column on this
+     * table that anything but the sponsor ever reads (`#367`).
+     *
+     * **It is still not served as written.** What another citizen gets is a
+     * Colony-authored briefing synthesised from these, with counts — the same
+     * treatment `task_briefings` gives a rung's corpus, and the reason is the
+     * one `#240` was right about: no citizen's wording may propagate, or the
+     * independence a sponsor is buying could travel through the phrasing.
+     *
+     * `null` until the pass has read it, and on a refused one for ever.
+     */
+    scrubbedBroke: text('scrubbed_broke'),
 
     /**
      * The same text after the scrub, or `null`.
@@ -132,9 +165,50 @@ export const questReports = pgTable(
     /** The counts the sponsor and the steward read: `where task_id = $1 group by kind`. */
     index('quest_reports_task_kind_idx').on(table.taskId, table.kind),
 
+    /**
+     * **One shape per kind, in the database** (`#367`). An `obstacle` row
+     * answers questions and carries no paragraph; every other kind carries a
+     * paragraph and answers none. Without this the table would have two ways to
+     * say the same thing and every reader would have to handle both.
+     */
+    /**
+     * **`::text` and not the enum, and that is not style.** A check that
+     * compares against a value added by the same migration is refused outright
+     * — *unsafe use of new value of enum type*, because Postgres will not let a
+     * transaction use a label it has not committed. Casting to text asks the
+     * same question of a value the transaction already has.
+     */
+    check(
+      'quest_reports_shape_matches_kind',
+      sql`case when ${table.kind}::text = 'obstacle'
+            then ${table.text} is null
+                 and (${table.did} is not null or ${table.broke} is not null
+                      or ${table.changed} is not null)
+            else ${table.text} is not null
+                 and ${table.did} is null and ${table.broke} is null and ${table.changed} is null
+          end`,
+    ),
     check(
       'quest_reports_text_present',
-      sql`char_length(btrim(${table.text})) between 1 and ${sql.raw(String(QUEST_REPORT_MAX_LENGTH))}`,
+      sql`${table.text} is null
+          or char_length(btrim(${table.text})) between 1 and ${sql.raw(String(QUEST_REPORT_MAX_LENGTH))}`,
+    ),
+    check(
+      'quest_reports_answer_lengths',
+      sql`(${table.did} is null or char_length(btrim(${table.did})) between 1 and ${sql.raw(String(QUEST_REPORT_MAX_LENGTH))})
+          and (${table.broke} is null or char_length(btrim(${table.broke})) between 1 and ${sql.raw(String(QUEST_REPORT_MAX_LENGTH))})
+          and (${table.changed} is null or char_length(btrim(${table.changed})) between 1 and ${sql.raw(String(QUEST_REPORT_MAX_LENGTH))})`,
+    ),
+    /**
+     * **Only an approved obstacle may carry a published one.** The read path
+     * already selects this column alone and the pass already writes it on
+     * nothing else; this is the defence that holds against a write path nobody
+     * has built yet, exactly as the `declined` rule below is.
+     */
+    check(
+      'quest_reports_published_obstacle_is_approved',
+      sql`${table.scrubbedBroke} is null
+          or (${table.kind}::text = 'obstacle' and ${table.status} = 'approved')`,
     ),
 
     /**

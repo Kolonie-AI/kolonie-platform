@@ -68,6 +68,13 @@ export const SOLICITING_TOOLS: readonly string[] = [
   'kolonie.tasks.decline',
   'kolonie.tasks.set-aside',
   'kolonie.tasks.submit',
+  /**
+   * Added by `#367`, and it arrived here the way the seam was built to make it
+   * arrive: the quest report took the same three questions, the last assertion
+   * in the test beside this file failed, and the tool was in this list before it
+   * shipped rather than after somebody noticed.
+   */
+  'kolonie.quests.report',
 ]
 
 /**

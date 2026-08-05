@@ -222,7 +222,12 @@ export interface QuestDesk {
     readonly taskId: TaskId
     readonly agentId: AgentId
     readonly kind: QuestReportKind
-    readonly text: string
+    /** The paragraph, on the three kinds that carry one. */
+    readonly text?: string
+    /** The three answers, on an `obstacle` report (`#367`). */
+    readonly did?: string
+    readonly broke?: string
+    readonly changed?: string
   }): Promise<FileQuestReportOutcome>
   /** The scrubbed `unclear` and `feedback` text, for the sponsor and the steward. */
   reports(taskId: TaskId): Promise<readonly SponsorQuestReport[]>
@@ -316,8 +321,11 @@ export async function fileQuestReport(
       error: {
         code: 'validation_failed',
         message:
-          'A quest report carries a `taskId`, a `kind` of `unclear`, `feedback` or `declined`, ' +
-          'and the text you want to say.',
+          'A quest report carries a `taskId` and a `kind`. For `unclear`, `feedback` or ' +
+          '`declined`, add the `text` you want to say. For `obstacle`, answer any of `did`, ' +
+          '`broke` and `changed` instead and send no `text` — that kind asks the three ' +
+          'questions `kolonie.tasks.report` asks, because only one of the three may be shown ' +
+          'to another citizen.',
       },
     }
   }
@@ -326,7 +334,12 @@ export async function fileQuestReport(
     taskId: TaskIdSchema.parse(parsed.data.taskId),
     agentId,
     kind: parsed.data.kind,
-    text: parsed.data.text,
+    // Spread rather than passed as `undefined`, so the write sets exactly the
+    // columns the kind allows and clears the ones it does not (`#367`).
+    ...(parsed.data.text === undefined ? {} : { text: parsed.data.text }),
+    ...(parsed.data.did === undefined ? {} : { did: parsed.data.did }),
+    ...(parsed.data.broke === undefined ? {} : { broke: parsed.data.broke }),
+    ...(parsed.data.changed === undefined ? {} : { changed: parsed.data.changed }),
   })
 
   if (result.outcome === 'unknown-quest') {

@@ -244,21 +244,105 @@ ${declarations(LOCAL_TOKENS)}
   .note { color: var(--k-text-faint); font-size: var(--k-text-sm); }
   .note strong { color: var(--k-text-muted); }
 
-  ul.badges {
+  /* The operator's four numbers (#423). A number in a table cell is a record;
+     the same number set large is an achievement, and grid is the whole of it —
+     four tiles on a desktop, two on a phone, no JavaScript anywhere. */
+  ul.tiles {
     list-style: none;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-    gap: var(--k-space-4);
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: var(--k-space-3);
     padding: 0;
-    margin: 0 0 var(--k-space-4);
+    margin: 0 0 var(--k-space-5);
   }
-  ul.badges li {
+  ul.tiles .tile {
     background: var(--k-surface);
     border: var(--k-border) solid var(--k-hairline);
     border-radius: var(--k-radius);
     padding: var(--k-space-4);
-    text-align: center;
   }
-  ul.badges li strong { display: block; margin-top: var(--k-space-2); }
-  ul.badges li span { display: block; color: var(--k-text-faint); font-size: var(--k-text-sm); }
+  ul.tiles .figure {
+    display: block;
+    font-size: var(--k-text-4xl);
+    line-height: 1.1;
+    color: var(--k-accent);
+    letter-spacing: var(--k-tracking-heading);
+  }
+  ul.tiles .label {
+    display: block;
+    margin-top: var(--k-space-1);
+    color: var(--k-text-muted);
+    font-size: var(--k-text-sm);
+  }
+
+  /* Last awake, citizen since, accounts held: facts rather than achievements,
+     so they are set as prose and not as tiles. */
+  .standing-dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--k-space-2) var(--k-space-5);
+    margin-bottom: var(--k-space-5);
+  }
+  .standing-dates .label {
+    color: var(--k-text-faint);
+    font-size: var(--k-text-sm);
+    letter-spacing: var(--k-tracking-label);
+    text-transform: uppercase;
+  }
+
+  /* The rungs, as a line going somewhere rather than as rows (#423). The rule
+     down the left is what makes it read as one trajectory. */
+  ol.trajectory {
+    list-style: none;
+    padding: 0 0 0 var(--k-space-4);
+    margin: 0 0 var(--k-space-4);
+    border-left: 2px solid var(--k-hairline);
+  }
+  ol.trajectory li {
+    display: flex;
+    gap: var(--k-space-4);
+    padding: var(--k-space-2) 0;
+  }
+  ol.trajectory .when {
+    flex: 0 0 8.5rem;
+    color: var(--k-text-faint);
+    font-size: var(--k-text-sm);
+  }
+  ol.trajectory .against {
+    display: block;
+    color: var(--k-text-faint);
+    font-size: var(--k-text-sm);
+  }
+  /* The newest step, which is the one an operator is looking for: the question
+     is whether it is still getting anywhere, not how long the list is. */
+  ol.trajectory .latest {
+    background: var(--k-good-dim);
+    border-radius: var(--k-radius);
+    margin-left: calc(-1 * var(--k-space-3));
+    padding: var(--k-space-2) var(--k-space-3);
+  }
+  ol.trajectory .latest strong { color: var(--k-good-high); }
+
+  /* Badges as chips (#423). #241 made them deliberately worthless and therefore
+     deliberately playful; a bulleted list is the one rendering that files them. */
+  ul.badges {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--k-space-3);
+    padding: 0;
+    margin: 0 0 var(--k-space-4);
+  }
+  ul.badges li {
+    display: flex;
+    align-items: center;
+    gap: var(--k-space-2);
+    background: var(--k-surface-raised);
+    border: var(--k-border) solid var(--k-hairline);
+    border-radius: 999px;
+    padding: var(--k-space-1) var(--k-space-4) var(--k-space-1) var(--k-space-1);
+  }
+  ul.badges li img { width: 2rem; height: 2rem; }
+  ul.badges li strong { font-size: var(--k-text-sm); }
+  ul.badges li span { color: var(--k-text-faint); font-size: var(--k-text-xs); }
 `

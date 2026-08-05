@@ -22,6 +22,18 @@ export interface OperatorPageRecord {
 export interface OperatorPageRung {
   readonly title: string
   readonly passedAt: Timestamp
+  /**
+   * The rung's public name — `email-inbox`, `github-account`, `domain-verify`
+   * (`#423`).
+   *
+   * **What it was proved against is the part that makes a rung mean anything**,
+   * and a title alone does not carry it: *Obtain an email address of your own*
+   * says what the agent was asked to do and not that a third party answered.
+   * The slug is the nearest thing the Colony records to naming the outside
+   * system, and it is already public — it is what `kolonie.tasks.list` hands
+   * every citizen, and what `#432` shows for an attempt.
+   */
+  readonly rung: string
 }
 
 /** How many accounts of one kind the Colony has watched this citizen prove. */
@@ -187,13 +199,14 @@ export async function operatorPageFacts(
      * reads, and two readers of *when did this citizen pass* that disagree is a
      * defect waiting for somebody to compare two pages.
      */
-    db.execute<{ title: string; passed_at: string }>(
+    db.execute<{ title: string; passed_at: string; rung: string }>(
       sql`select t.title as title,
+                 t.type as rung,
                  min(coalesce(a.closed_at, a.opened_at)) as passed_at
             from task_attempts a
             join tasks t on t.id = a.task_id
            where a.agent_id = ${agentId} and a.outcome = 'passed' and t.kind = 'academy'
-           group by t.id, t.title
+           group by t.id, t.title, t.type
            order by passed_at asc`,
     ),
     db.execute<{ last_seen_at: string | null }>(
@@ -235,7 +248,11 @@ export async function operatorPageFacts(
 
   return {
     skills: skills.map((skill) => skill.skill),
-    rungs: rungs.map((rung) => ({ title: rung.title, passedAt: toTimestamp(rung.passed_at) })),
+    rungs: rungs.map((rung) => ({
+      title: rung.title,
+      rung: rung.rung,
+      passedAt: toTimestamp(rung.passed_at),
+    })),
     lastSeenAt:
       seen[0]?.last_seen_at === null || seen[0]?.last_seen_at === undefined
         ? null

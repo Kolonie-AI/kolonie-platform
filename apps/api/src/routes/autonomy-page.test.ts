@@ -295,7 +295,9 @@ describe('the operator’s form', () => {
     it('draws no wall for an agent that holds none', async () => {
       const token = await aPage()
 
-      expect((await get(`/operator/page/${token}`)).body).not.toContain('Badges')
+      // The heading, not the word: the stylesheet names the class it styles the
+      // chips with, on every page, whether or not one is drawn (`#422`).
+      expect((await get(`/operator/page/${token}`)).body).not.toContain('<h2>Badges</h2>')
     })
 
     /**
@@ -417,8 +419,12 @@ describe('the operator’s form', () => {
         pages.factsFor(agentId, {
           skills: ['profile', 'domain'],
           rungs: [
-            { title: 'Say who you are', passedAt: '2026-07-01T10:05:00.000Z' },
-            { title: 'Prove a domain', passedAt: '2026-07-20T09:00:00.000Z' },
+            { title: 'Say who you are', rung: 'profile', passedAt: '2026-07-01T10:05:00.000Z' },
+            {
+              title: 'Prove a domain',
+              rung: 'domain-verify',
+              passedAt: '2026-07-20T09:00:00.000Z',
+            },
           ],
           lastSeenAt: '2026-08-05T06:00:00.000Z',
           citizenSince: '2026-06-30T12:00:00.000Z',
@@ -432,12 +438,71 @@ describe('the operator’s form', () => {
         expect(response.body).toContain('Say who you are')
         expect(response.body).toContain('Prove a domain')
         expect(response.body).toContain('profile')
+        // What it was proved against, which is the part that makes a rung mean
+        // anything (`#423`): a title says what the agent was asked to do.
+        expect(response.body).toContain('proved against domain-verify')
         // A day rather than a moment: an ISO string reads as a machine talking
         // to itself, to a person who has never heard of the Colony.
         expect(response.body).toContain('1 July 2026')
-        expect(response.body).toContain('5 August 2026')
         expect(response.body).not.toContain('2026-07-01T10:05:00.000Z')
         expect(response.body).toContain('1 × mailbox')
+      })
+
+      /**
+       * The four numbers, set large (`#423`).
+       *
+       * **The zero case is the one worth asserting**, because it is the one a
+       * renderer is tempted to hide: an operator whose agent has cleared nothing
+       * is the operator most likely to switch it off, and hiding the tiles until
+       * there is something in them shows them the least.
+       */
+      it('draws four tiles, including for a citizen that has cleared nothing', async () => {
+        const empty = (await get(`/operator/page/${await aPage()}`)).body
+
+        expect(empty).toContain('class="tiles"')
+        expect(empty.match(/class="tile"/g)).toHaveLength(4)
+        expect(empty).toContain('steps of the Academy cleared')
+        expect(empty).toContain('skills held')
+        expect(empty).toContain('accounts proved')
+        expect(empty).toContain('paid answers accepted')
+        expect(empty).toContain('Four zeros is what a new citizen looks like')
+
+        pages.factsFor(agentId, {
+          skills: ['profile', 'domain'],
+          rungs: [
+            { title: 'Say who you are', rung: 'profile', passedAt: '2026-07-01T10:05:00.000Z' },
+          ],
+          questsAccepted: 2,
+          accounts: [
+            { kind: 'mailbox', count: 1 },
+            { kind: 'domain', count: 2 },
+          ],
+        })
+
+        const filled = (await get(`/operator/page/${await aPage()}`)).body
+
+        // Accounts are summed across kinds — three proved, of two kinds — and
+        // the kinds themselves stay in the line below, never an address.
+        expect(filled).toContain('<span class="figure">3</span>')
+        expect(filled).toContain('<span class="figure">2</span>')
+        expect(filled).not.toContain('Four zeros')
+      })
+
+      /**
+       * *Last awake: three hours ago* is the single line that makes the page
+       * feel alive, and it is what the operator actually asked (`#423`). Past a
+       * week the relative form is arithmetic the reader has to undo, so the day
+       * comes back.
+       */
+      it('says how long ago it was awake, and falls back to the day past a week', async () => {
+        const hoursAgo = new Date(Date.now() - 3 * 3_600_000).toISOString()
+        pages.factsFor(agentId, { lastSeenAt: hoursAgo })
+
+        expect((await get(`/operator/page/${await aPage()}`)).body).toContain('3 hours ago')
+
+        pages.factsFor(agentId, { lastSeenAt: '2026-01-04T06:00:00.000Z' })
+
+        expect((await get(`/operator/page/${await aPage()}`)).body).toContain('4 January 2026')
       })
 
       /**
@@ -464,7 +529,13 @@ describe('the operator’s form', () => {
       it('carries no money, no secret and nothing about another citizen', async () => {
         pages.factsFor(agentId, {
           skills: ['profile', 'solana-wallet'],
-          rungs: [{ title: 'Prove a wallet', passedAt: '2026-07-01T10:05:00.000Z' }],
+          rungs: [
+            {
+              title: 'Prove a wallet',
+              rung: 'solana-wallet',
+              passedAt: '2026-07-01T10:05:00.000Z',
+            },
+          ],
           lastSeenAt: '2026-08-05T06:00:00.000Z',
           questsAccepted: 9,
           accounts: [{ kind: 'mailbox', count: 2 }],
@@ -483,15 +554,25 @@ describe('the operator’s form', () => {
         const body = (await get(`/operator/page/${token}`)).body
 
         /**
-         * Asserted over the cells rather than over the whole page, because the
-         * badge wall says the words *no reputation, no credits* on purpose —
-         * that sentence is what stops an operator reading a badge as a score,
-         * and a test that banned the word would delete it.
+         * Asserted over the parts of the page that carry *values* rather than
+         * over the whole of it, for two reasons that both still hold after
+         * `#423`. The badge wall says the words *no reputation, no credits* on
+         * purpose — that sentence is what stops an operator reading a badge as a
+         * score, and a test that banned the word would delete it. And `kol` is a
+         * substring of `Kolonie`, which the page says in prose about itself.
+         *
+         * What changed is only where the values are: the standing table became
+         * tiles and a trajectory (`#423`), so those two blocks are read here
+         * alongside the cells the contract still renders as a table.
          */
-        const cells = [...body.matchAll(/<td>(.*?)<\/td>/g)].map((match) => match[1] ?? '')
-        expect(cells.length).toBeGreaterThan(0)
+        const values = [
+          ...[...body.matchAll(/<td>(.*?)<\/td>/g)].map((match) => match[1] ?? ''),
+          body.match(/<ul class="tiles">[\s\S]*?<\/ul>/)?.[0] ?? '',
+          body.match(/<ol class="trajectory">[\s\S]*?<\/ol>/)?.[0] ?? '',
+        ].filter((value) => value !== '')
+        expect(values.length).toBeGreaterThan(0)
         for (const forbidden of ['balance', 'credit', 'reputation', 'vault', 'kol']) {
-          expect(cells.join(' ').toLowerCase(), forbidden).not.toContain(forbidden)
+          expect(values.join(' ').toLowerCase(), forbidden).not.toContain(forbidden)
         }
         // And no address of any kind: the counts say a mailbox exists, never which.
         expect(body).not.toMatch(/[\w.]+@[\w.]+\.\w+/)

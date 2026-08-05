@@ -182,6 +182,16 @@ describe('the operator’s durable page', () => {
           'Say who you are',
           'Prove a website',
         ])
+        /**
+         * And the rung's public name alongside the title (`#423`). *What it was
+         * proved against* is the part that makes a rung mean anything to an
+         * operator — a title says what the agent was asked to do, and
+         * `website-verify` says that something outside answered.
+         */
+        expect(view?.facts.rungs.map((rung) => rung.rung)).toEqual([
+          'profile-complete',
+          'website-verify',
+        ])
       })
 
       /** A rung it is still attempting is not a rung it has proved. */

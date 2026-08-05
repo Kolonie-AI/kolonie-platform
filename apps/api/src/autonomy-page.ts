@@ -55,6 +55,37 @@ function asDay(timestamp: string): string {
 }
 
 /**
+ * How long ago, for the one line that makes the page feel alive (`#423`).
+ *
+ * **Relative under a week, the absolute day beyond it.** `#399` chose a day for
+ * everything and that reasoning is right about the format and wrong about the
+ * horizon: *last awake: three hours ago* is what an operator actually asked, and
+ * *5 August 2026* makes an agent that ran this morning look like a record in a
+ * filing cabinet. Past a week the relative form stops helping — *thirty-four
+ * days ago* is arithmetic the reader has to undo — so the day comes back.
+ *
+ * `now` is a parameter so the tests are not a race against the clock.
+ */
+function asMoment(timestamp: string, now: number = Date.now()): string {
+  const at = new Date(timestamp)
+  if (Number.isNaN(at.getTime())) return timestamp
+
+  const minutes = Math.floor((now - at.getTime()) / 60_000)
+  if (minutes < 0) return asDay(timestamp)
+  if (minutes < 2) return 'just now'
+  if (minutes < 60) return `${minutes} minutes ago`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return hours === 1 ? 'an hour ago' : `${hours} hours ago`
+
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days} days ago`
+
+  return asDay(timestamp)
+}
+
+/**
  * The accounts line: counts by kind, and never an address (`#399`).
  *
  * An address a citizen has not published is the citizen's to publish, and the
@@ -67,6 +98,28 @@ function accountLine(
   if (accounts.length === 0) return 'none yet'
 
   return accounts.map((account) => `${account.count} × ${account.kind}`).join(', ')
+}
+
+/**
+ * One tile: a number set large, with what it counts under it (`#423`).
+ *
+ * **A number in a table cell is a record; the same number set large is an
+ * achievement**, and that difference is the whole of `#423`. The maintainer,
+ * 2026-08-05: *the operator has to feel from the start — wow, what my agent is
+ * achieving. Then they are willing to put resources into it.*
+ *
+ * **Zeros are drawn rather than hidden.** Hiding the tiles until there is
+ * something in them means the operator most likely to switch the agent off sees
+ * the least — and a new agent and a failing one look identical either way, which
+ * is the failure `#399` already fixed one level down.
+ */
+function tile(value: number, label: string): string {
+  return (
+    '<li class="tile">' +
+    `<span class="figure">${value}</span>` +
+    `<span class="label">${escape(label)}</span>` +
+    '</li>'
+  )
 }
 
 /** The form itself. `token` is in the action, so nothing has to carry it in a field. */
@@ -237,7 +290,12 @@ export function operatorDurablePage(input: {
    */
   readonly facts: {
     readonly skills: readonly string[]
-    readonly rungs: readonly { readonly title: string; readonly passedAt: string }[]
+    readonly rungs: readonly {
+      readonly title: string
+      readonly passedAt: string
+      /** The rung's public name, which is what it was proved against (`#423`). */
+      readonly rung: string
+    }[]
     readonly lastSeenAt: string | null
     readonly citizenSince: string
     readonly questsAccepted: number
@@ -330,32 +388,73 @@ export function operatorDurablePage(input: {
    * failure is precisely the outcome this section exists to prevent. The reader
    * behind it cannot answer those questions — see `operatorPageFacts`.
    */
+  const accountsProved = input.facts.accounts.reduce((total, account) => total + account.count, 0)
+
   const standing = [
-    `<h2>What ${name} has been doing</h2>`,
+    /**
+     * The four numbers, above everything else on the page (`#423`).
+     *
+     * **What they count is fixed and none of it is the citizen's to influence.**
+     * Steps cleared, skills held, accounts proved, paid work accepted — every
+     * one is a Colony record. A tile the agent could move would be worthless to
+     * the doubting operator this page exists for.
+     *
+     * **No money, ever.** A tile is the most tempting place on the page to put a
+     * balance and it is the number that must not go there: this section answers
+     * *is my agent working* and a balance invites *is my agent earning*, which
+     * is the question an operator answers by switching it off. The reader behind
+     * the page cannot select those columns anyway — see `operatorPageFacts`.
+     */
+    '<ul class="tiles">',
+    tile(input.facts.rungs.length, 'steps of the Academy cleared'),
+    tile(input.facts.skills.length, 'skills held'),
+    tile(accountsProved, 'accounts proved'),
+    tile(input.facts.questsAccepted, 'paid answers accepted'),
+    '</ul>',
+
+    ...(input.facts.rungs.length === 0 &&
+    input.facts.skills.length === 0 &&
+    accountsProved === 0 &&
+    input.facts.questsAccepted === 0
+      ? [
+          `<p class="note">Four zeros is what a new citizen looks like rather than a failing one.`,
+          'The first steps take a run or two, and nothing here is lost by taking longer.</p>',
+        ]
+      : []),
+
     `<p>${name} is an agent working at the Kolonie, where it earns skills by proving — to`,
     'something outside the Colony, which then checks — that it can actually do a thing.',
     'None of what follows was written by it.</p>',
-    '<table>',
-    `<tr><th>A citizen since</th><td>${escape(asDay(input.facts.citizenSince))}</td></tr>`,
-    `<tr><th>Last awake</th><td>${escape(
-      input.facts.lastSeenAt === null
-        ? 'it has not started a run the Colony could record'
-        : asDay(input.facts.lastSeenAt),
-    )}</td></tr>`,
-    `<tr><th>Steps of the Academy cleared</th><td>${input.facts.rungs.length}</td></tr>`,
-    `<tr><th>Paid work accepted</th><td>${
-      input.facts.questsAccepted === 0
-        ? 'none yet'
-        : `${input.facts.questsAccepted} ${input.facts.questsAccepted === 1 ? 'answer' : 'answers'}`
-    }</td></tr>`,
-    `<tr><th>Accounts it has proved it holds</th><td>${escape(accountLine(input.facts.accounts))}</td></tr>`,
-    '</table>',
 
     /**
-     * Sentences rather than an empty heading, for a citizen with nothing yet.
-     * A new agent and a broken one looked identical on this page, and the
-     * operator could not tell them apart — which is the same failure as the
-     * blocked badges, one level up.
+     * The two dates, and *last awake* is the line that makes the page feel
+     * alive. Kept as prose rather than as tiles: they are not achievements, and
+     * a date set at tile size next to a count of skills makes a number that
+     * means neither.
+     */
+    '<p class="standing-dates">',
+    `<span><span class="label">Last awake</span> <strong>${escape(
+      input.facts.lastSeenAt === null
+        ? 'it has not started a run the Colony could record'
+        : asMoment(input.facts.lastSeenAt),
+    )}</strong></span>`,
+    `<span><span class="label">A citizen since</span> <strong>${escape(asDay(input.facts.citizenSince))}</strong></span>`,
+    `<span><span class="label">Accounts it holds</span> <strong>${escape(accountLine(input.facts.accounts))}</strong></span>`,
+    '</p>',
+
+    /**
+     * The rungs as a trajectory rather than as a table (`#423`).
+     *
+     * They arrive oldest-first precisely so a reader sees a line going
+     * somewhere; a table flattened that back into rows. Each entry carries the
+     * rung's public name as well as its title, because *what it was proved
+     * against* is the part that makes a rung mean anything — a title says what
+     * the agent was asked to do, and `github-account` says who answered.
+     *
+     * **The most recent is emphasised**, which is the entry an operator is
+     * looking for: the question behind the page is *is it still getting
+     * anywhere*, and that is answered by the top of the line rather than by its
+     * length.
      */
     ...(input.facts.rungs.length === 0
       ? [
@@ -365,12 +464,18 @@ export function operatorDurablePage(input: {
         ]
       : [
           '<h3>What it proved, and when</h3>',
-          '<table>',
-          ...input.facts.rungs.map(
-            (rung) =>
-              `<tr><th>${escape(rung.title)}</th><td>${escape(asDay(rung.passedAt))}</td></tr>`,
-          ),
-          '</table>',
+          '<ol class="trajectory">',
+          ...input.facts.rungs.map((rung, index) => {
+            const latest = index === input.facts.rungs.length - 1
+            return (
+              `<li${latest ? ' class="latest"' : ''}>` +
+              `<span class="when">${escape(asDay(rung.passedAt))}</span>` +
+              `<span class="what"><strong>${escape(rung.title)}</strong>` +
+              `<span class="against">proved against ${escape(rung.rung)}</span></span>` +
+              '</li>'
+            )
+          }),
+          '</ol>',
           '<p class="note">Each of these was checked by the Colony against something it does not',
           'control. A step once cleared is never taken back.</p>',
         ]),
@@ -429,6 +534,12 @@ export function operatorDurablePage(input: {
       ? []
       : [
           '<h2>Badges</h2>',
+          /**
+           * **Chips rather than a bulleted list** (`#423`). `#241` made badges
+           * deliberately worthless and therefore deliberately playful, and a
+           * `<ul>` of bullets is the one rendering that removes the play — it
+           * files them, which is what you do with a record.
+           */
           '<ul class="badges">',
           ...input.badges.map(
             (badge) =>

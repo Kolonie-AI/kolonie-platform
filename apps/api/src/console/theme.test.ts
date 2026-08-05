@@ -17,8 +17,19 @@ import { page } from './html.js'
 
 const source = readFileSync(fileURLToPath(new URL('./theme.ts', import.meta.url)), 'utf8')
 
-/** The stylesheet with the `:root` block cut out — the rules, and no declarations. */
-const rules = CONSOLE_STYLE.slice(CONSOLE_STYLE.indexOf('}') + 1)
+/**
+ * The stylesheet with the `:root` block cut out and the comments removed — the
+ * rules, and nothing that only reads like one.
+ *
+ * Comments go because an issue reference is `#423`, which is a valid hex colour
+ * to a regular expression and is not one to anybody else. The alternative was
+ * writing the rules with no reasoning in them, which is the wrong thing to trade
+ * for a simpler test.
+ */
+const rules = CONSOLE_STYLE.slice(CONSOLE_STYLE.indexOf('}') + 1).replaceAll(
+  /\/\*[\s\S]*?\*\//g,
+  '',
+)
 
 describe('the console stylesheet', () => {
   /**

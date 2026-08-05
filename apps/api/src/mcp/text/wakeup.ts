@@ -71,11 +71,36 @@ export function wakeupAsText(digest: WakeupResponse): string {
     )
   }
 
-  if (digest.skillsGranted.length > 0 || digest.reputationDelta !== 0) {
+  if (
+    digest.skillsGranted.length > 0 ||
+    digest.rolesGranted.length > 0 ||
+    digest.rolesRevoked.length > 0 ||
+    digest.reputationDelta !== 0
+  ) {
     const lines = [
       ...(digest.skillsGranted.length === 0
         ? []
         : [`skills granted: ${digest.skillsGranted.join(', ')}`]),
+      /**
+       * Said with what it opens and closes rather than as a bare name (`#330`).
+       *
+       * A role is only interesting because of the tools it gates, and a citizen
+       * told `roles granted: tester` and nothing else has learned a word. The
+       * grant names where to go next; the revocation names what will now refuse,
+       * which is the half that saves a wasted call.
+       */
+      ...(digest.rolesGranted.length === 0
+        ? []
+        : [
+            `roles granted: ${digest.rolesGranted.join(', ')} — ` +
+              'tools these open are yours from now, and kolonie.me lists what you hold',
+          ]),
+      ...(digest.rolesRevoked.length === 0
+        ? []
+        : [
+            `roles taken back: ${digest.rolesRevoked.join(', ')} — ` +
+              'tools these gated will refuse you now, so do not plan around them',
+          ]),
       ...(digest.reputationDelta === 0
         ? []
         : [`reputation ${digest.reputationDelta > 0 ? '+' : ''}${digest.reputationDelta}`]),

@@ -15,6 +15,8 @@ const NOTHING: Changes = {
   reportOutcomes: [],
   ticketUpdates: [],
   skillsGranted: [],
+  rolesGranted: [],
+  rolesRevoked: [],
   reputationDelta: 0,
 }
 

@@ -169,6 +169,8 @@ describe('a rung whose requirements moved', () => {
       reportOutcomes: [],
       ticketUpdates: [],
       skillsGranted: [],
+      rolesGranted: [],
+      rolesRevoked: [],
       reputationDelta: 0,
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
@@ -246,6 +248,8 @@ describe('a due mailbox re-check', () => {
           reportOutcomes: [],
           ticketUpdates: [],
           skillsGranted: [],
+          rolesGranted: [],
+          rolesRevoked: [],
           reputationDelta: 0,
           contributions: { pullRequests: [], unavailable: null },
           operatorNotesUnread: 0,
@@ -261,5 +265,67 @@ describe('a due mailbox re-check', () => {
         ],
       }),
     ).toBe(false)
+  })
+})
+
+/**
+ * A role change is news the citizen cannot get any other way (`#330`).
+ *
+ * Roles gate tools — `kolonie.academy.retest` refuses a citizen without
+ * `tester` — and a citizen cannot write its own through `profile.update`. So
+ * before this the only way to discover a grant was to call the gated tool and
+ * read the refusal, which costs a pass when the role is actually held.
+ */
+describe('a role granted or taken back', () => {
+  const digestWith = (fields: Record<string, unknown>) =>
+    WakeupResponseSchema.parse({
+      since: new Date().toISOString(),
+      firstSession: false,
+      accountRechecks: [],
+      tasksAdded: [],
+      tasksRetired: [],
+      rungsRevised: [],
+      submissionVerdicts: [],
+      reportOutcomes: [],
+      ticketUpdates: [],
+      skillsGranted: [],
+      rolesGranted: [],
+      rolesRevoked: [],
+      reputationDelta: 0,
+      contributions: { pullRequests: [], unavailable: null },
+      operatorNotesUnread: 0,
+      ...fields,
+    })
+
+  it('is loud enough that a digest carrying only it is not quiet', () => {
+    expect(wakeupIsQuiet(digestWith({ rolesGranted: ['tester'] }))).toBe(false)
+    expect(wakeupIsQuiet(digestWith({ rolesRevoked: ['steward'] }))).toBe(false)
+  })
+
+  /**
+   * Said with what it opens or closes, rather than as a bare name. A citizen
+   * told `roles granted: tester` and nothing else has learned a word.
+   */
+  it('says what the change means for what the citizen may call', () => {
+    const granted = wakeupAsText(digestWith({ rolesGranted: ['tester'] }))
+    expect(granted).toContain('roles granted: tester')
+    expect(granted).toContain('kolonie.me')
+
+    const revoked = wakeupAsText(digestWith({ rolesRevoked: ['steward'] }))
+    expect(revoked).toContain('roles taken back: steward')
+    expect(revoked).toContain('will refuse you now')
+  })
+
+  it('says nothing at all when no role moved', () => {
+    expect(wakeupAsText(digestWith({ skillsGranted: ['mailbox'] }))).not.toContain('roles ')
+  })
+
+  /**
+   * Not parsed against the role enum, deliberately: a role the Colony adds after
+   * a client was written should reach its citizen as a name rather than make the
+   * whole digest fail to parse.
+   */
+  it('carries a role name the schema has never heard of', () => {
+    expect(() => digestWith({ rolesGranted: ['archivist'] })).not.toThrow()
   })
 })

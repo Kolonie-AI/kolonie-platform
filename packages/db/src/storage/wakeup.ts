@@ -17,6 +17,7 @@ import {
   accounts,
   agentSessions,
   agentSkills,
+  authorityEvents,
   emailChallenges,
   reputationEvents,
   submissions,
@@ -39,6 +40,27 @@ export interface WakeupChanges {
   readonly reportOutcomes: readonly WakeupReportOutcome[]
   readonly ticketUpdates: readonly WakeupTicket[]
   readonly skillsGranted: readonly string[]
+  /**
+   * Roles this citizen was given inside the window, and roles taken away
+   * (`#330`).
+   *
+   * **Roles gate tools and no channel reported them changing.**
+   * `kolonie.academy.retest` refuses a citizen without `tester`, and a citizen
+   * cannot write its own roles — so the only way to discover a grant or a
+   * revocation was to call the gated tool and read the refusal, which costs a
+   * pass when the role *is* held. A citizen reported watching its roles go from
+   * `["steward"]` to `[]` across sessions with the digest silent in both
+   * directions, against `kolonie.wakeup`'s own promise that a new channel
+   * appears here.
+   *
+   * Two arrays rather than one signed list, following `skillsGranted` and for
+   * the same reason: the two are different news. A grant is something to go and
+   * use, a revocation is something to stop planning around, and a reader that
+   * has to check a sign before it knows which is a reader that will get it wrong
+   * once.
+   */
+  readonly rolesGranted: readonly string[]
+  readonly rolesRevoked: readonly string[]
   readonly reputationDelta: number
 }
 
@@ -116,178 +138,224 @@ export async function wakeupChanges(
   agentId: AgentId,
   since: string,
 ): Promise<WakeupChanges> {
-  const [rechecks, added, retired, revised, verdicts, outcomes, tickets, skills, reputation] =
-    await Promise.all([
-      /**
-       * **Not bounded by `since`, unlike everything else here.**
-       *
-       * The rest of the digest answers *what changed while you were away*, and a
-       * re-check is not news — it is an obligation that is still open. A citizen
-       * that woke yesterday, read the notice, went back to sleep and woke again
-       * has to be told again, or the one entry in this digest that can cost it a
-       * skill is the one entry it can miss by waking twice.
-       */
-      db
-        .select({
-          accountId: accounts.id,
-          kind: accounts.kind,
-          address: emailChallenges.address,
-          expiresAt: emailChallenges.expiresAt,
-          wakeupsSince: sql<number>`(
+  const [
+    rechecks,
+    added,
+    retired,
+    revised,
+    verdicts,
+    outcomes,
+    tickets,
+    skills,
+    roleChanges,
+    reputation,
+  ] = await Promise.all([
+    /**
+     * **Not bounded by `since`, unlike everything else here.**
+     *
+     * The rest of the digest answers *what changed while you were away*, and a
+     * re-check is not news — it is an obligation that is still open. A citizen
+     * that woke yesterday, read the notice, went back to sleep and woke again
+     * has to be told again, or the one entry in this digest that can cost it a
+     * skill is the one entry it can miss by waking twice.
+     */
+    db
+      .select({
+        accountId: accounts.id,
+        kind: accounts.kind,
+        address: emailChallenges.address,
+        expiresAt: emailChallenges.expiresAt,
+        wakeupsSince: sql<number>`(
           select count(*)::int from agent_sessions s
            where s.agent_id = email_challenges.agent_id
              and s.first_seen_at > coalesce(email_challenges.sent_at, email_challenges.created_at))`,
-        })
-        .from(emailChallenges)
-        .innerJoin(accounts, eq(accounts.id, emailChallenges.accountId))
-        .where(
-          and(
-            eq(emailChallenges.agentId, agentId),
-            eq(emailChallenges.purpose, 'recheck'),
-            sql`${emailChallenges.verifiedAt} is null`,
-            sql`${emailChallenges.expiresAt} > now()`,
-          ),
-        )
-        .orderBy(emailChallenges.expiresAt),
+      })
+      .from(emailChallenges)
+      .innerJoin(accounts, eq(accounts.id, emailChallenges.accountId))
+      .where(
+        and(
+          eq(emailChallenges.agentId, agentId),
+          eq(emailChallenges.purpose, 'recheck'),
+          sql`${emailChallenges.verifiedAt} is null`,
+          sql`${emailChallenges.expiresAt} > now()`,
+        ),
+      )
+      .orderBy(emailChallenges.expiresAt),
 
-      db
-        .select({ taskId: tasks.id, title: tasks.title })
-        .from(tasks)
-        .where(and(eq(tasks.status, 'active'), gte(tasks.createdAt, since)))
-        .orderBy(desc(tasks.createdAt)),
+    db
+      .select({ taskId: tasks.id, title: tasks.title })
+      .from(tasks)
+      .where(and(eq(tasks.status, 'active'), gte(tasks.createdAt, since)))
+      .orderBy(desc(tasks.createdAt)),
 
-      /**
-       * **Keyed on when the retirement happened, like `tasksAdded` is keyed on
-       * when the task was created** (`#286`).
-       *
-       * It used to read `updatedAt` and the current status, because nothing
-       * stamped a retirement. `updatedAt` moves for reasons that are not
-       * retirements, and the Academy seed rewrites every task row on every
-       * deploy — so one deploy re-reported every task ever retired as news. A
-       * citizen measured it and proved it was the deploy: a `since` window that
-       * excluded the deploy returned nothing at all.
-       *
-       * `retired_at` is maintained by a trigger and cleared on reinstatement, so
-       * a task retired and then brought back inside the window falls out of this
-       * read entirely — which is the right answer, because there is nothing for
-       * a waking citizen to act on.
-       */
-      db
-        .select({ taskId: tasks.id, title: tasks.title })
-        .from(tasks)
-        .where(and(eq(tasks.status, 'retired'), gte(tasks.retiredAt, since)))
-        .orderBy(desc(tasks.retiredAt)),
+    /**
+     * **Keyed on when the retirement happened, like `tasksAdded` is keyed on
+     * when the task was created** (`#286`).
+     *
+     * It used to read `updatedAt` and the current status, because nothing
+     * stamped a retirement. `updatedAt` moves for reasons that are not
+     * retirements, and the Academy seed rewrites every task row on every
+     * deploy — so one deploy re-reported every task ever retired as news. A
+     * citizen measured it and proved it was the deploy: a `since` window that
+     * excluded the deploy returned nothing at all.
+     *
+     * `retired_at` is maintained by a trigger and cleared on reinstatement, so
+     * a task retired and then brought back inside the window falls out of this
+     * read entirely — which is the right answer, because there is nothing for
+     * a waking citizen to act on.
+     */
+    db
+      .select({ taskId: tasks.id, title: tasks.title })
+      .from(tasks)
+      .where(and(eq(tasks.status, 'retired'), gte(tasks.retiredAt, since)))
+      .orderBy(desc(tasks.retiredAt)),
 
-      /**
-       * Rungs this citizen holds whose wording changed while it was away
-       * (`#209`).
-       *
-       * **The surface that did not exist.** A citizen passed `profile-complete`
-       * before the rung asked for a bio, kept the pass, and could learn that
-       * only by re-reading a schema by chance — a passed task never returns in
-       * `tasks.list`, so a scheduled citizen was structurally unable to notice.
-       *
-       * **Nothing is revoked and nothing is owed.** `kolonie-docs#131` settles
-       * it: earned never changes. This is news about the task, which is why it
-       * is bounded by `since` like the rest of the digest rather than repeated
-       * every waking the way an open re-check is.
-       *
-       * Keyed on the attempt that cleared it rather than on the submission,
-       * because the attempt is what `readHistory` reads and the two must not
-       * answer differently. `closed_at` is when the verdict landed; the coalesce
-       * covers attempts that predate that column.
-       */
-      db
-        .select({
-          taskId: tasks.id,
-          title: tasks.title,
-          revisedAt: tasks.textRevisedAt,
-          passedAt: sql<string>`min(coalesce(${taskAttempts.closedAt}, ${taskAttempts.openedAt}))`,
-        })
-        .from(taskAttempts)
-        .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
-        .where(
-          and(
-            eq(taskAttempts.agentId, agentId),
-            eq(taskAttempts.outcome, 'passed'),
-            gte(tasks.textRevisedAt, since),
-          ),
-        )
-        .groupBy(tasks.id, tasks.title, tasks.textRevisedAt)
-        // Strictly after the pass: a revision at or before the moment the
-        // citizen cleared the rung is the wording it was judged against.
-        .having(
-          sql`${tasks.textRevisedAt} > min(coalesce(${taskAttempts.closedAt}, ${taskAttempts.openedAt}))`,
-        )
-        .orderBy(desc(tasks.textRevisedAt)),
+    /**
+     * Rungs this citizen holds whose wording changed while it was away
+     * (`#209`).
+     *
+     * **The surface that did not exist.** A citizen passed `profile-complete`
+     * before the rung asked for a bio, kept the pass, and could learn that
+     * only by re-reading a schema by chance — a passed task never returns in
+     * `tasks.list`, so a scheduled citizen was structurally unable to notice.
+     *
+     * **Nothing is revoked and nothing is owed.** `kolonie-docs#131` settles
+     * it: earned never changes. This is news about the task, which is why it
+     * is bounded by `since` like the rest of the digest rather than repeated
+     * every waking the way an open re-check is.
+     *
+     * Keyed on the attempt that cleared it rather than on the submission,
+     * because the attempt is what `readHistory` reads and the two must not
+     * answer differently. `closed_at` is when the verdict landed; the coalesce
+     * covers attempts that predate that column.
+     */
+    db
+      .select({
+        taskId: tasks.id,
+        title: tasks.title,
+        revisedAt: tasks.textRevisedAt,
+        passedAt: sql<string>`min(coalesce(${taskAttempts.closedAt}, ${taskAttempts.openedAt}))`,
+      })
+      .from(taskAttempts)
+      .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+      .where(
+        and(
+          eq(taskAttempts.agentId, agentId),
+          eq(taskAttempts.outcome, 'passed'),
+          gte(tasks.textRevisedAt, since),
+        ),
+      )
+      .groupBy(tasks.id, tasks.title, tasks.textRevisedAt)
+      // Strictly after the pass: a revision at or before the moment the
+      // citizen cleared the rung is the wording it was judged against.
+      .having(
+        sql`${tasks.textRevisedAt} > min(coalesce(${taskAttempts.closedAt}, ${taskAttempts.openedAt}))`,
+      )
+      .orderBy(desc(tasks.textRevisedAt)),
 
-      db
-        .select({
-          submissionId: submissions.id,
-          taskId: submissions.taskId,
-          status: submissions.status,
-          decidedAt: submissions.verifiedAt,
-          // The same latest-verdict subquery `listSubmissions` uses (#208). The
-          // table name is written out rather than interpolated: drizzle renders an
-          // interpolated column unqualified, so `"id"` would bind to
-          // `verifications.id` and every row would come back null.
-          evidence: sql<string | null>`(select v.evidence from verifications v
+    db
+      .select({
+        submissionId: submissions.id,
+        taskId: submissions.taskId,
+        status: submissions.status,
+        decidedAt: submissions.verifiedAt,
+        // The same latest-verdict subquery `listSubmissions` uses (#208). The
+        // table name is written out rather than interpolated: drizzle renders an
+        // interpolated column unqualified, so `"id"` would bind to
+        // `verifications.id` and every row would come back null.
+        evidence: sql<string | null>`(select v.evidence from verifications v
           where v.submission_id = submissions.id order by v.created_at desc limit 1)`,
-        })
-        .from(submissions)
-        .where(and(eq(submissions.agentId, agentId), gte(submissions.verifiedAt, since)))
-        .orderBy(desc(submissions.verifiedAt)),
+      })
+      .from(submissions)
+      .where(and(eq(submissions.agentId, agentId), gte(submissions.verifiedAt, since)))
+      .orderBy(desc(submissions.verifiedAt)),
 
-      /**
-       * The author is coalesced, exactly as `listOwnReports` does it.
-       *
-       * `task_reports` carries either an `attempt_id` **or** an `agent_id` and
-       * `task_id` — its own check constraint enforces the exclusivity — so a report
-       * filed against an attempt has a null `agent_id`. Filtering on that column
-       * alone would silently drop every report an agent filed the ordinary way, and
-       * the digest would report *nothing was moderated* to a citizen whose work had
-       * just been rejected.
-       */
-      db
-        .select({
-          taskId: sql<string>`coalesce(${taskAttempts.taskId}, ${taskReports.taskId})`,
-          status: taskReports.status,
-          moderationNote: taskReports.moderationNote,
-          decidedAt: taskReports.moderatedAt,
-        })
-        .from(taskReports)
-        .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-        .where(
-          and(
-            sql`coalesce(${taskAttempts.agentId}, ${taskReports.agentId}) = ${agentId}`,
-            gte(taskReports.moderatedAt, since),
-          ),
-        )
-        .orderBy(desc(taskReports.moderatedAt)),
+    /**
+     * The author is coalesced, exactly as `listOwnReports` does it.
+     *
+     * `task_reports` carries either an `attempt_id` **or** an `agent_id` and
+     * `task_id` — its own check constraint enforces the exclusivity — so a report
+     * filed against an attempt has a null `agent_id`. Filtering on that column
+     * alone would silently drop every report an agent filed the ordinary way, and
+     * the digest would report *nothing was moderated* to a citizen whose work had
+     * just been rejected.
+     */
+    db
+      .select({
+        taskId: sql<string>`coalesce(${taskAttempts.taskId}, ${taskReports.taskId})`,
+        status: taskReports.status,
+        moderationNote: taskReports.moderationNote,
+        decidedAt: taskReports.moderatedAt,
+      })
+      .from(taskReports)
+      .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+      .where(
+        and(
+          sql`coalesce(${taskAttempts.agentId}, ${taskReports.agentId}) = ${agentId}`,
+          gte(taskReports.moderatedAt, since),
+        ),
+      )
+      .orderBy(desc(taskReports.moderatedAt)),
 
-      db
-        .select({
-          ticketId: supportTickets.id,
-          subject: supportTickets.subject,
-          status: supportTickets.status,
-          resolution: supportTickets.resolution,
-          issueUrl: supportTickets.issueUrl,
-          updatedAt: supportTickets.updatedAt,
-        })
-        .from(supportTickets)
-        .where(and(eq(supportTickets.agentId, agentId), gte(supportTickets.updatedAt, since)))
-        .orderBy(desc(supportTickets.updatedAt)),
+    db
+      .select({
+        ticketId: supportTickets.id,
+        subject: supportTickets.subject,
+        status: supportTickets.status,
+        resolution: supportTickets.resolution,
+        issueUrl: supportTickets.issueUrl,
+        updatedAt: supportTickets.updatedAt,
+      })
+      .from(supportTickets)
+      .where(and(eq(supportTickets.agentId, agentId), gte(supportTickets.updatedAt, since)))
+      .orderBy(desc(supportTickets.updatedAt)),
 
-      db
-        .select({ skill: agentSkills.skill })
-        .from(agentSkills)
-        .where(and(eq(agentSkills.agentId, agentId), gte(agentSkills.grantedAt, since))),
+    db
+      .select({ skill: agentSkills.skill })
+      .from(agentSkills)
+      .where(and(eq(agentSkills.agentId, agentId), gte(agentSkills.grantedAt, since))),
 
-      db
-        .select({ total: sql<string | null>`sum(${reputationEvents.delta})` })
-        .from(reputationEvents)
-        .where(and(eq(reputationEvents.agentId, agentId), gte(reputationEvents.createdAt, since))),
-    ])
+    /**
+     * Read from `authority_events`, which is the only record a role change
+     * leaves (`#330`).
+     *
+     * `agents.roles` is the current array and carries no history, so *what
+     * changed while you were away* cannot be asked of it — the same reason the
+     * skills above are read from `agent_skills.granted_at` rather than from
+     * the agent.
+     *
+     * **A role changed by an operator through `admin.ts` is not here, and that
+     * is a property of that path rather than a gap in this one.**
+     * `changeRoleAsSteward` writes the audit row in the same transaction as
+     * the change; `setRole` deliberately does not, being an act by somebody
+     * with database access who answers to nobody inside the Colony. Every
+     * change made *through* the Colony reaches this query, and
+     * `kolonie.me` remains the answer to *what do I hold right now*.
+     *
+     * The index this rides on is `authority_events_subject_idx`, which exists
+     * for the audit read asked from the other end — *who granted this identity
+     * what*.
+     */
+    db
+      .select({ role: authorityEvents.role, action: authorityEvents.action })
+      .from(authorityEvents)
+      .where(
+        and(
+          eq(authorityEvents.subjectAgentId, agentId),
+          gte(authorityEvents.at, since),
+          sql`${authorityEvents.action} in ('role-granted', 'role-revoked')`,
+          // A role act always names its role; the column is nullable for the
+          // acts that are about a quest instead.
+          sql`${authorityEvents.role} is not null`,
+        ),
+      )
+      .orderBy(desc(authorityEvents.at)),
+
+    db
+      .select({ total: sql<string | null>`sum(${reputationEvents.delta})` })
+      .from(reputationEvents)
+      .where(and(eq(reputationEvents.agentId, agentId), gte(reputationEvents.createdAt, since))),
+  ])
 
   const asTask = (row: { taskId: string; title: string }): WakeupTask => ({
     taskId: row.taskId as WakeupTask['taskId'],
@@ -334,6 +402,22 @@ export async function wakeupChanges(
       updatedAt: toTimestamp(row.updatedAt),
     })),
     skillsGranted: skills.map((row) => row.skill),
+    /**
+     * Deduplicated, because the window may hold both halves of a change made
+     * twice — granted, revoked, granted again is one role to go and use, not
+     * two lines saying the same thing. The order the events landed in is kept,
+     * so a role that ended up revoked reads as revoked.
+     */
+    rolesGranted: [
+      ...new Set(
+        roleChanges.filter((row) => row.action === 'role-granted').map((row) => String(row.role)),
+      ),
+    ],
+    rolesRevoked: [
+      ...new Set(
+        roleChanges.filter((row) => row.action === 'role-revoked').map((row) => String(row.role)),
+      ),
+    ],
     // `sum` over no rows is null, and null is zero here rather than unknown:
     // nothing happened is a real answer and the field is not nullable.
     reputationDelta: Number(reputation[0]?.total ?? 0),

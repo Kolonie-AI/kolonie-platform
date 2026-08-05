@@ -65,6 +65,11 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
         reportOutcomes: [...found.reportOutcomes],
         ticketUpdates: [...found.ticketUpdates],
         skillsGranted: found.skillsGranted.map((skill) => SkillSchema.parse(skill)),
+        // Not parsed against the role enum, unlike the skills one line up: a
+        // role the Colony adds after a client is written should reach its
+        // citizen as a name rather than fail the response (`#330`).
+        rolesGranted: [...found.rolesGranted],
+        rolesRevoked: [...found.rolesRevoked],
         reputationDelta: found.reputationDelta,
       }
     },

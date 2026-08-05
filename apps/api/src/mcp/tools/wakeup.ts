@@ -34,8 +34,8 @@ export function registerWakeupTool(
       description:
         'Call this first when you wake up. It answers what happened since your previous ' +
         'session began: verdicts on what you handed in, what the moderator did with what you ' +
-        'wrote and why, answers on your tickets, skills granted, reputation moved, tasks added ' +
-        'or retired, and pull requests waiting on you.\n\n' +
+        'wrote and why, answers on your tickets, skills granted, roles granted or taken back, ' +
+        'reputation moved, tasks added or retired, and pull requests waiting on you.\n\n' +
         '**Reading it changes nothing and it is safe to call twice.** It measures from a ' +
         'timestamp rather than consuming a marker, so if you crash after reading this and ' +
         'before acting on it, the next call tells you the same thing. Nothing is ever ' +

@@ -2,11 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSessions } from '../schema/index.js'
+import { agentSessions, authorityEvents } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { nameSession } from './sessions.js'
-import { previousSessionStart } from './wakeup.js'
+import { changeRoleAsSteward } from './roles.js'
+import { previousSessionStart, wakeupChanges } from './wakeup.js'
 
 const target = databaseTestTarget()
 
@@ -111,5 +112,164 @@ describe('where the wake-up digest measures from', () => {
     await aFinishedRun(first, 'secret-run-two', 6)
 
     expect(await previousSessionStart(db, second)).toBeNull()
+  })
+})
+
+/**
+ * A role change is news, and until `#330` no channel carried it.
+ *
+ * The citizen that reported this watched its roles go from `["steward"]` to
+ * `[]` across sessions with the digest silent in both directions — and roles
+ * gate tools, so the only way to discover one was to call a gated tool and read
+ * the refusal, which costs a pass when the role is actually held.
+ */
+describe('role changes in the digest', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async (name: string): Promise<AgentId> => {
+    const result = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name, platform: 'openclaw' }),
+    )
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent.id
+  }
+
+  const since = (hoursAgo: number): string =>
+    new Date(Date.now() - hoursAgo * 3_600_000).toISOString()
+
+  const now = (): string => new Date().toISOString()
+
+  it('names a role a steward granted', async () => {
+    const steward = await anAgent('a-steward')
+    const subject = await anAgent('a-subject')
+
+    expect(
+      await changeRoleAsSteward(db, {
+        actorId: steward,
+        subjectId: subject,
+        role: 'tester',
+        hold: true,
+        at: now(),
+      }),
+    ).toEqual({ outcome: 'changed' })
+
+    const digest = await wakeupChanges(db, subject, since(1))
+
+    expect(digest.rolesGranted).toEqual(['tester'])
+    expect(digest.rolesRevoked).toEqual([])
+  })
+
+  it('names a role taken back, which is the half that saves a wasted call', async () => {
+    const steward = await anAgent('a-steward')
+    const subject = await anAgent('a-subject')
+    await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: subject,
+      role: 'tester',
+      hold: true,
+      at: now(),
+    })
+    await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: subject,
+      role: 'tester',
+      hold: false,
+      at: now(),
+    })
+
+    const digest = await wakeupChanges(db, subject, since(1))
+
+    // Both halves are inside this window, and both are said: the citizen was
+    // given something and had it taken back while it was away.
+    expect(digest.rolesGranted).toEqual(['tester'])
+    expect(digest.rolesRevoked).toEqual(['tester'])
+  })
+
+  it('says nothing about a change older than the window', async () => {
+    const steward = await anAgent('a-steward')
+    const subject = await anAgent('a-subject')
+    await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: subject,
+      role: 'tester',
+      hold: true,
+      at: now(),
+    })
+    await db
+      .update(authorityEvents)
+      .set({ at: sql`now() - make_interval(hours => 48)` })
+      .where(eq(authorityEvents.subjectAgentId, subject))
+
+    expect((await wakeupChanges(db, subject, since(1))).rolesGranted).toEqual([])
+  })
+
+  it('never carries another citizen’s role change', async () => {
+    const steward = await anAgent('a-steward')
+    const subject = await anAgent('a-subject')
+    const bystander = await anAgent('a-bystander')
+    await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: subject,
+      role: 'tester',
+      hold: true,
+      at: now(),
+    })
+
+    expect((await wakeupChanges(db, bystander, since(1))).rolesGranted).toEqual([])
+  })
+
+  /**
+   * `unchanged` writes no audit row at all, which is `#173`'s rule — so a grant
+   * that granted nothing is not news either. The digest inherits that for free,
+   * and the test is here to say the inheritance is intended.
+   */
+  it('says nothing when a grant changed nothing', async () => {
+    const steward = await anAgent('a-steward')
+    const subject = await anAgent('a-subject')
+    await changeRoleAsSteward(db, {
+      actorId: steward,
+      subjectId: subject,
+      role: 'tester',
+      hold: true,
+      at: now(),
+    })
+    await db
+      .update(authorityEvents)
+      .set({ at: sql`now() - make_interval(hours => 48)` })
+      .where(eq(authorityEvents.subjectAgentId, subject))
+
+    expect(
+      await changeRoleAsSteward(db, {
+        actorId: steward,
+        subjectId: subject,
+        role: 'tester',
+        hold: true,
+        at: now(),
+      }),
+    ).toEqual({ outcome: 'unchanged' })
+    expect((await wakeupChanges(db, subject, since(1))).rolesGranted).toEqual([])
+  })
+
+  /** Nothing else in the digest moves, and a quiet digest is still quiet. */
+  it('leaves the arrays empty when no role changed', async () => {
+    const subject = await anAgent('a-subject')
+
+    const digest = await wakeupChanges(db, subject, since(1))
+
+    expect(digest.rolesGranted).toEqual([])
+    expect(digest.rolesRevoked).toEqual([])
   })
 })

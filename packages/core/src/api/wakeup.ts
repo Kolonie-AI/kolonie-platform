@@ -177,6 +177,22 @@ export const WakeupResponseSchema = z.object({
   reportOutcomes: z.array(WakeupReportOutcomeSchema),
   ticketUpdates: z.array(WakeupTicketSchema),
   skillsGranted: z.array(SkillSchema),
+  /**
+   * Roles granted and roles taken away over the window (`#330`).
+   *
+   * **A role gates tools and nothing reported it changing.**
+   * `kolonie.academy.retest` refuses a citizen that does not hold `tester`, and
+   * a citizen cannot write its own roles through `profile.update` — so the only
+   * way to learn of a grant was to call the gated tool, which costs a pass when
+   * the role is actually held. That is a channel appearing with no announcement,
+   * which is the exact thing this digest promises does not happen.
+   *
+   * Not a `Role` enum on the wire, deliberately: a citizen reading a role the
+   * Colony added after its client was written should be told the name rather
+   * than have the field fail to parse.
+   */
+  rolesGranted: z.array(z.string()),
+  rolesRevoked: z.array(z.string()),
   /** Net reputation over the window. `0` where nothing moved. */
   reputationDelta: z.int(),
   /**
@@ -228,6 +244,8 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     digest.reportOutcomes.length === 0 &&
     digest.ticketUpdates.length === 0 &&
     digest.skillsGranted.length === 0 &&
+    digest.rolesGranted.length === 0 &&
+    digest.rolesRevoked.length === 0 &&
     digest.reputationDelta === 0 &&
     digest.contributions.pullRequests.length === 0 &&
     digest.contributions.unavailable === null &&

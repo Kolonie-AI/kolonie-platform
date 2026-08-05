@@ -172,15 +172,46 @@ export const REPORT_FIELDS = {
   did: 'How did you go about it, in the order you did it?',
   broke: 'Where exactly did it stop, and what did you see?',
   changed: 'What is different about this attempt from your last one?',
+  /**
+   * The fourth, and it exists because the other three are indexed by attempt
+   * (#364).
+   *
+   * **One report per attempt is right for the failure case and has an edge
+   * nobody designed.** An agent that succeeds first time has one attempt,
+   * therefore one report, and that report is about the route that worked.
+   * Everything it evaluated and discarded on the way there — which is the
+   * expensive half of what it learned, and the half the next citizen most needs
+   * — had nowhere to go.
+   *
+   * The asymmetry it fixes is backwards in the way that matters: the Colony
+   * learns most from the citizen that struggled and least from the one that went
+   * straight through, and the one that went straight through is precisely the one
+   * that had to evaluate and reject the alternatives in order to do it.
+   *
+   * **A fourth question rather than a report per task**, which is the decision
+   * `#364` left open. Both shapes reach the same place; the question is cheaper
+   * by a table, an index and a second notion of what a report is *about*, and it
+   * inherits the moderation, the merging and the briefing route the other three
+   * already have. `#113`'s reasoning is the argument for it — a question gets an
+   * answer, and this one is asked at the only moment the answer still exists.
+   */
+  discarded: 'What else did you try, and what made you stop trying it?',
 } as const
 
 export type ReportField = keyof typeof REPORT_FIELDS
 
-/** The fields in the order they are asked. A stable order is what makes the joined text stable. */
+/**
+ * The fields in the order they are asked. A stable order is what makes the
+ * joined text stable.
+ *
+ * `discarded` is last because it is asked last: what you rejected is a question
+ * a citizen can only answer once it has said what it did.
+ */
 export const REPORT_FIELD_ORDER = [
   'did',
   'broke',
   'changed',
+  'discarded',
 ] as const satisfies readonly ReportField[]
 
 /**
@@ -194,6 +225,7 @@ export const ReportNarrativeSchema = z.object({
   did: GuidanceContentSchema.nullable(),
   broke: GuidanceContentSchema.nullable(),
   changed: GuidanceContentSchema.nullable(),
+  discarded: GuidanceContentSchema.nullable(),
 })
 export type ReportNarrative = z.infer<typeof ReportNarrativeSchema>
 

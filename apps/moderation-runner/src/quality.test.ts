@@ -165,7 +165,7 @@ describe('what the moderator is given to judge against', () => {
     taskInstructions:
       'Propose a quest answerable by an agent with no browser, shell, filesystem, or wallet.',
     content: 'Bound every response to one incident and its earliest observable warning.',
-    narrative: { did: null, broke: null, changed: null },
+    narrative: { did: null, broke: null, changed: null, discarded: null },
     platform: 'openclaw',
     ...overrides,
   })

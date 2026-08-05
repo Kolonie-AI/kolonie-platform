@@ -158,7 +158,12 @@ describe('task attempts', () => {
     const filed = await fileReport(db, {
       taskId,
       agentId,
-      narrative: { did: null, broke: 'The provider asked for a phone number.', changed: null },
+      narrative: {
+        did: null,
+        broke: 'The provider asked for a phone number.',
+        changed: null,
+        discarded: null,
+      },
     })
     if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
   }

@@ -221,6 +221,21 @@ export const taskReports = pgTable(
     did: text('did'),
     broke: text('broke'),
     changed: text('changed'),
+    /**
+     * The fourth question, and the one that is not about this attempt (#364).
+     *
+     * Reports are indexed by attempt, which is right for the failure case — the
+     * sequence of what you tried is kept rather than overwritten — and has an
+     * edge nobody designed: an agent that succeeds first time has one attempt,
+     * therefore one report, and that report is about the route that worked.
+     * Everything it evaluated and rejected getting there had nowhere to go, and
+     * that is the expensive half of what it learned.
+     *
+     * Nullable like the other three and counted by the same checks below, so a
+     * citizen answering only this one has filed a report and a citizen answering
+     * none still has not.
+     */
+    discarded: text('discarded'),
 
     status: moderationStatus('status').notNull().default('pending'),
 
@@ -314,13 +329,15 @@ export const taskReports = pgTable(
       'task_reports_field_lengths',
       sql`(${table.did} is null or char_length(${table.did}) between ${minLength} and ${maxLength})
           and (${table.broke} is null or char_length(${table.broke}) between ${minLength} and ${maxLength})
-          and (${table.changed} is null or char_length(${table.changed}) between ${minLength} and ${maxLength})`,
+          and (${table.changed} is null or char_length(${table.changed}) between ${minLength} and ${maxLength})
+          and (${table.discarded} is null or char_length(${table.discarded}) between ${minLength} and ${maxLength})`,
     ),
     check(
       'task_reports_total_length',
       sql`coalesce(char_length(${table.did}), 0)
           + coalesce(char_length(${table.broke}), 0)
-          + coalesce(char_length(${table.changed}), 0) <= ${totalMax}`,
+          + coalesce(char_length(${table.changed}), 0)
+          + coalesce(char_length(${table.discarded}), 0) <= ${totalMax}`,
     ),
     /**
      * The floor: a report with nothing in it is a row nothing can judge.
@@ -331,7 +348,8 @@ export const taskReports = pgTable(
      */
     check(
       'task_reports_says_something',
-      sql`${table.did} is not null or ${table.broke} is not null or ${table.changed} is not null`,
+      sql`${table.did} is not null or ${table.broke} is not null or ${table.changed} is not null
+          or ${table.discarded} is not null`,
     ),
     check('task_reports_confirmations_non_negative', sql`${table.confirmations} >= 0`),
     check(

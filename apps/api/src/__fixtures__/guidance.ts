@@ -503,7 +503,7 @@ export function anOwnReport(overrides: Partial<OwnReport> = {}): OwnReport {
     ...aReport(),
     attemptId: randomUUID(),
     attempt: 1,
-    narrative: { did: null, broke: AUTHOR_TEXT, changed: null },
+    narrative: { did: null, broke: AUTHOR_TEXT, changed: null, discarded: null },
     status: 'pending',
     moderationNote: null,
     // Empty by default, which is the ordinary entry. A test about the

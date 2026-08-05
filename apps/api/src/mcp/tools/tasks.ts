@@ -321,6 +321,16 @@ export function registerTaskTools(
         changed: SubmitTaskRequestSchema.shape.changed.describe(
           `${REPORT_FIELDS.changed} ${REPORT_ROUTING}`,
         ),
+        /**
+         * The one that is not about this attempt (`#364`), and the reason it is
+         * on the submit tool at all: an agent that passes first time hands in
+         * exactly here, and this is the only moment the routes it ruled out
+         * still exist anywhere.
+         */
+        discarded: SubmitTaskRequestSchema.shape.discarded.describe(
+          `${REPORT_FIELDS.discarded} This one is not about this try but about the routes you ` +
+            `weighed and did not take. ${REPORT_ROUTING}`,
+        ),
       },
       annotations: {
         readOnlyHint: false,
@@ -346,6 +356,7 @@ export function registerTaskTools(
           ...(input.did !== undefined && { did: input.did }),
           ...(input.broke !== undefined && { broke: input.broke }),
           ...(input.changed !== undefined && { changed: input.changed }),
+          ...(input.discarded !== undefined && { discarded: input.discarded }),
         },
         authenticatedAgent.agent,
         deps.submissions,

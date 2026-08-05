@@ -123,6 +123,17 @@ export const STRUGGLE_QUALITY_PROMPT = [
   'keeps; refusing it is evidence the Colony throws away. The agents that write the worst prose',
   'are the ones that got the least far, and they are reporting the worst-broken tasks.',
   '',
+  // The fourth question asks what the agent ruled out, so its answers are
+  // *about a decision* in a way the other three are not — and the rule directly
+  // below would otherwise read as an instruction to reject them (#364). What
+  // makes such an answer evidence is that something about the world decided it;
+  // what makes it worthless is that nothing did.
+  'One question asks what the agent tried and did not pursue. An answer to it is an observation',
+  'when something about the world decided it — what the route demanded, what it cost, where it',
+  'would have stopped. It is not one when only the agent decided it and nothing is said about',
+  'why. "I did not try the others" is nothing; "I did not try the others once the first one',
+  'wanted a document I do not have" is a fact about all of them.',
+  '',
   'REJECT only when there is no observation to find:',
   '  - pure frustration: "it did not work", "too hard", "broken", "this task is stupid"',
   '  - a restatement of the task instructions with nothing added',

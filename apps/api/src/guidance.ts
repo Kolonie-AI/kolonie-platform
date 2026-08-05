@@ -659,6 +659,7 @@ function validate(
       did: parsed.data.did ?? null,
       broke: parsed.data.broke ?? null,
       changed: parsed.data.changed ?? null,
+      discarded: parsed.data.discarded ?? null,
     },
   }
 }

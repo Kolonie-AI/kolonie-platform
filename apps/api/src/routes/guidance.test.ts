@@ -267,6 +267,7 @@ describe('POST /v1/tasks/:taskId/reports', () => {
       did: null,
       broke: null,
       changed: 'I registered a vision-capable model as a fallback before trying again.',
+      discarded: null,
     })
   })
 
@@ -878,7 +879,10 @@ describe('no citizen’s words reach another citizen through a personalised brie
       movesMoney: false,
     })
     guidance.answersOwnReports([
-      anOwnReport({ taskId, narrative: { did: secret, broke: null, changed: null } }),
+      anOwnReport({
+        taskId,
+        narrative: { did: secret, broke: null, changed: null, discarded: null },
+      }),
     ])
 
     const response = await get(`/v1/tasks/${taskId}/reports`)
@@ -1340,7 +1344,7 @@ describe('GET /v1/agents/me/history', () => {
           // A report *by this author* — the only prose the read carries at all.
           report: anOwnReport({
             taskId: task.taskId,
-            narrative: { did: secret, broke: null, changed: null },
+            narrative: { did: secret, broke: null, changed: null, discarded: null },
           }),
         })),
       })),

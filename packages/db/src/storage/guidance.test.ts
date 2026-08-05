@@ -6,6 +6,7 @@ import {
   type AgentPlatform,
   type TaskId,
   type TaskReportId,
+  type ReportField,
   type ReportNarrative,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
@@ -38,10 +39,13 @@ const target = databaseTestTarget()
  * fixture that made them all fill three would bury the ones that *are* about it.
  * `broke` is the default because a wall is the ordinary report.
  */
-const aNarrative = (
-  content: string,
-  field: 'did' | 'broke' | 'changed' = 'broke',
-): ReportNarrative => ({ did: null, broke: null, changed: null, [field]: content })
+const aNarrative = (content: string, field: ReportField = 'broke'): ReportNarrative => ({
+  did: null,
+  broke: null,
+  changed: null,
+  discarded: null,
+  [field]: content,
+})
 
 describe('what citizens write about a task', () => {
   let db: Database
@@ -368,6 +372,60 @@ describe('what citizens write about a task', () => {
         taskId,
         agentId,
         narrative: aNarrative('A second thought about the very same wall, from the same agent.'),
+      })
+
+      expect(second.outcome).toBe('revised')
+      expect(await reportsOnTask()).toHaveLength(1)
+    })
+
+    /**
+     * **The routes you rejected, from a citizen that has one attempt** (`#364`).
+     *
+     * The edge nobody designed: reports are indexed by attempt, so an agent that
+     * passes first time has one attempt, therefore one report, and that report is
+     * about the route that worked. The fourth question is what the alternatives
+     * it ruled out now have.
+     */
+    it('records the routes an agent ruled out, on an attempt it passed first time', async () => {
+      const agentId = await anAgent('straight-through')
+      await attempt(agentId, 'passed')
+
+      const filed = await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: aNarrative(
+          'Ruled out the first three: each wanted a document before it would issue anything.',
+          'discarded',
+        ),
+      })
+
+      expect(filed.outcome).toBe('recorded')
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+      const [written] = await db
+        .select({ discarded: taskReports.discarded })
+        .from(taskReports)
+        .where(eq(taskReports.id, filed.entry.id))
+      expect(written?.discarded).toContain('Ruled out the first three')
+      // A report answering only the fourth question is a report: the row's own
+      // floor counts it, which is what stops it being a field nothing can file.
+      expect(await reportsOnTask()).toHaveLength(1)
+    })
+
+    /**
+     * The rejection case the definition of done asks for: **the fourth question
+     * must not become a second slot on one attempt.** It travels with the other
+     * three, on the one row the attempt is allowed, or the per-attempt sequence
+     * the failure case depends on would have quietly become per-attempt-plus-one.
+     */
+    it('does not let the fourth question buy a second report on the same attempt', async () => {
+      const agentId = await anAgent('one-slot-only')
+      await attempt(agentId, 'failed')
+      await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
+
+      const second = await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: aNarrative('And these are the ones I ruled out before that.', 'discarded'),
       })
 
       expect(second.outcome).toBe('revised')
@@ -800,7 +858,7 @@ describe('what citizens write about a task', () => {
        * than stated. Now the same call that revises a wall refuses advice, and
        * says why.
        *
-       * The reason is unchanged: advice is followed rather than weighed, so an
+       * The reason is unchanged: advice is followed rather than weighed, discarded: null, so an
        * editable approved one is the moderator bypass in its more dangerous
        * form.
        */
@@ -898,6 +956,7 @@ describe('what citizens write about a task', () => {
             did: 'I opened the signup page and filled the form in order.',
             broke: 'It stopped at the second step asking for a telephone number.',
             changed: 'A different model from last time, with a browser configured.',
+            discarded: null,
           },
         })
 

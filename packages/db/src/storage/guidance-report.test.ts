@@ -5,6 +5,7 @@ import {
   SubmissionIdSchema,
   noStagesRun,
   type AgentId,
+  type ReportField,
   type ReportNarrative,
   type TaskId,
 } from '@kolonie-ai/core'
@@ -23,10 +24,13 @@ const target = databaseTestTarget()
  * fixture that made them all fill three would bury the ones that *are* about it.
  * `broke` is the default because a wall is the ordinary report.
  */
-const aNarrative = (
-  content: string,
-  field: 'did' | 'broke' | 'changed' = 'broke',
-): ReportNarrative => ({ did: null, broke: null, changed: null, [field]: content })
+const aNarrative = (content: string, field: ReportField = 'broke'): ReportNarrative => ({
+  did: null,
+  broke: null,
+  changed: null,
+  discarded: null,
+  [field]: content,
+})
 
 /**
  * A report attached to a submission, and what the verdict makes of it (#56).
@@ -140,6 +144,7 @@ describe('a report carried on a submission', () => {
         did: taskReports.did,
         broke: taskReports.broke,
         changed: taskReports.changed,
+        discarded: taskReports.discarded,
         status: taskReports.status,
         attemptId: taskReports.attemptId,
       })

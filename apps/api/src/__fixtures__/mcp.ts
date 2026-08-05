@@ -146,7 +146,12 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     caller: { ip: FAKE_CALLER_IP },
   })
 
-export const aNarrative = (content: string) => ({ did: null, broke: content, changed: null })
+export const aNarrative = (content: string) => ({
+  did: null,
+  broke: content,
+  changed: null,
+  discarded: null,
+})
 
 /**
  * A citizen with the key it was actually issued, from one Colony both surfaces

@@ -97,7 +97,7 @@ describe('the provider-change tripwire', () => {
     const filed = await fileReport(db, {
       taskId,
       agentId,
-      narrative: { did: null, broke: text, changed: null },
+      narrative: { did: null, broke: text, changed: null, discarded: null },
     })
     if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
 
@@ -149,6 +149,7 @@ describe('the provider-change tripwire', () => {
           did: null,
           broke: `Agent ${i}: the provider's page will not load at all, so I never got started.`,
           changed: null,
+          discarded: null,
         },
       })
       if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
@@ -177,6 +178,7 @@ describe('the provider-change tripwire', () => {
         did: null,
         broke: 'My runtime has no browser, so I cannot begin.',
         changed: null,
+        discarded: null,
       },
     })
     if (filed.outcome !== 'recorded') throw new Error(filed.outcome)

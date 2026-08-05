@@ -643,6 +643,7 @@ export async function listOwnReports(
       did: taskReports.did,
       broke: taskReports.broke,
       changed: taskReports.changed,
+      discarded: taskReports.discarded,
       status: taskReports.status,
       moderationNote: taskReports.moderationNote,
       confidentialSpans: taskReports.confidentialSpans,
@@ -680,7 +681,12 @@ export async function listOwnReports(
        * not a claim about the world.
        */
       kind: kindOfRow(row.attemptId, row.outcome) ?? 'wall',
-      narrative: { did: row.did, broke: row.broke, changed: row.changed },
+      narrative: {
+        did: row.did,
+        broke: row.broke,
+        changed: row.changed,
+        discarded: row.discarded,
+      },
       confirmations: row.confirmations,
       platforms: row.platforms,
       attemptedCount: row.attemptedCount,
@@ -768,6 +774,7 @@ export async function pendingReports(
       did: taskReports.did,
       broke: taskReports.broke,
       changed: taskReports.changed,
+      discarded: taskReports.discarded,
       platform: agents.platform,
     })
     .from(taskReports)
@@ -791,7 +798,12 @@ export async function pendingReports(
     .limit(limit)
 
   return rows.map((row) => {
-    const narrative = { did: row.did, broke: row.broke, changed: row.changed }
+    const narrative = {
+      did: row.did,
+      broke: row.broke,
+      changed: row.changed,
+      discarded: row.discarded,
+    }
     return {
       kind: kindOfRow(row.attemptId, row.outcome) as ReportKind,
       id: row.id,
@@ -842,6 +854,7 @@ export async function approvedOnTask(
       did: taskReports.did,
       broke: taskReports.broke,
       changed: taskReports.changed,
+      discarded: taskReports.discarded,
       platforms: platformBreakdown,
     })
     .from(taskReports)
@@ -858,7 +871,12 @@ export async function approvedOnTask(
 
   return rows.map((row) => ({
     id: row.id,
-    content: reportNarrativeText({ did: row.did, broke: row.broke, changed: row.changed }),
+    content: reportNarrativeText({
+      did: row.did,
+      broke: row.broke,
+      changed: row.changed,
+      discarded: row.discarded,
+    }),
     platforms: Object.keys(row.platforms).map((value) => AgentPlatformSchema.parse(value)),
   }))
 }

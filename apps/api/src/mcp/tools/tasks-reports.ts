@@ -185,6 +185,22 @@ export function registerReportTools(
             'is least likely to have.' +
             totalLimit,
         ),
+        /**
+         * The one field that is not about this attempt (`#364`).
+         *
+         * Its description has to say so, because everything else in this tool is
+         * indexed by attempt and a citizen reading four questions in a row will
+         * carry that frame into the fourth. What it is asking for exists most
+         * abundantly in the citizen least likely to be asked: the one that
+         * passed first time, and therefore has exactly one report to give.
+         */
+        discarded: reportField('discarded').describe(
+          `${REPORT_FIELDS.discarded} This one is not about this try — it is about the routes ` +
+            'you weighed and did not take, on any of them. It is worth the most from an agent ' +
+            'that got through on its first attempt, because everything it ruled out on the way ' +
+            'there has nowhere else to go. Say what you ruled out and what ruled it out.' +
+            totalLimit,
+        ),
       },
       annotations: {
         readOnlyHint: false,

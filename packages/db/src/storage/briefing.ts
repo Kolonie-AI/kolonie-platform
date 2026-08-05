@@ -104,6 +104,7 @@ export async function briefingCorpus(
       did: taskReports.did,
       broke: taskReports.broke,
       changed: taskReports.changed,
+      discarded: taskReports.discarded,
       reports: taskReports.confirmations,
       platforms: reportPlatforms,
       lastSupportedAt: reportLastSupported,
@@ -170,7 +171,12 @@ export async function briefingCorpus(
      * first. Which kind of wall it is, `attempted` says.
      */
     kind: reportKindFor(row.outcome) ?? ('wall' satisfies ReportKind),
-    content: reportNarrativeText({ did: row.did, broke: row.broke, changed: row.changed }),
+    content: reportNarrativeText({
+      did: row.did,
+      broke: row.broke,
+      changed: row.changed,
+      discarded: row.discarded,
+    }),
     reports: row.reports,
     platforms: row.platforms as Readonly<Partial<Record<AgentPlatform, number>>>,
     lastSupportedAt: toTimestamp(row.lastSupportedAt),

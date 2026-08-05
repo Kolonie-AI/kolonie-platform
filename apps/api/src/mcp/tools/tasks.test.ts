@@ -292,6 +292,7 @@ describe('kolonie.tasks.submit', () => {
       'broke',
       'changed',
       'did',
+      'discarded',
       'payload',
       'report',
       'taskId',

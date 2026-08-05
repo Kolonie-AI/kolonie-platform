@@ -57,6 +57,20 @@ export const ReportFieldsSchema = z.object({
     .min(GUIDANCE_CONTENT_MIN_LENGTH)
     .max(GUIDANCE_CONTENT_MAX_LENGTH)
     .optional(),
+  /**
+   * The fourth, appended (#364).
+   *
+   * **Appended and never inserted**, which is not a style rule here: this shape
+   * is the request body of a live endpoint and the input schema of a live MCP
+   * tool, and a field inserted into the middle changes nothing for either but
+   * changes every positional reading of it downstream.
+   */
+  discarded: z
+    .string()
+    .trim()
+    .min(GUIDANCE_CONTENT_MIN_LENGTH)
+    .max(GUIDANCE_CONTENT_MAX_LENGTH)
+    .optional(),
 })
 
 /**

@@ -1229,6 +1229,7 @@ describe('the counts an erasure disturbs', () => {
         did: null,
         broke: 'The signup page asks for a phone number partway through.',
         changed: null,
+        discarded: null,
       },
     })
     if (canonical.outcome !== 'recorded') throw new Error(canonical.outcome)
@@ -1241,6 +1242,7 @@ describe('the counts an erasure disturbs', () => {
         did: null,
         broke: 'It wanted a phone number and I could not give it one.',
         changed: null,
+        discarded: null,
       },
     })
     if (merged.outcome !== 'recorded') throw new Error(merged.outcome)

@@ -95,7 +95,12 @@ describe('a citizen’s own history', () => {
     await fileReport(db, {
       taskId,
       agentId,
-      narrative: { did: null, broke: 'The signup form asked for a phone number.', changed: null },
+      narrative: {
+        did: null,
+        broke: 'The signup form asked for a phone number.',
+        changed: null,
+        discarded: null,
+      },
     })
     await closeAttempt(db, first.id, 'failed')
 
@@ -132,7 +137,7 @@ describe('a citizen’s own history', () => {
     await fileReport(db, {
       taskId,
       agentId: theirs,
-      narrative: { did: null, broke: 'Something only they saw.', changed: null },
+      narrative: { did: null, broke: 'Something only they saw.', changed: null, discarded: null },
     })
     await closeAttempt(db, other.id, 'failed')
 
@@ -178,7 +183,12 @@ describe('a citizen’s own history', () => {
     await fileReport(db, {
       taskId,
       agentId,
-      narrative: { did: null, broke: 'A distinctive sentence I wrote myself.', changed: null },
+      narrative: {
+        did: null,
+        broke: 'A distinctive sentence I wrote myself.',
+        changed: null,
+        discarded: null,
+      },
     })
     await closeAttempt(db, attempt.id, 'failed')
 
@@ -200,7 +210,11 @@ describe('a citizen’s own history', () => {
     const anAttemptAgo = async (agentId: AgentId, hoursAgo: number, broke: string) => {
       const taskId = await aTask(`A rung ${hoursAgo}h ago`)
       const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
-      await fileReport(db, { taskId, agentId, narrative: { did: null, broke, changed: null } })
+      await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: { did: null, broke, changed: null, discarded: null },
+      })
       await closeAttempt(db, attempt.id, 'failed')
       await db
         .update(taskAttempts)

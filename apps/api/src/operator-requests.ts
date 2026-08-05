@@ -1,12 +1,13 @@
 import {
   AnswerOperatorRequestSchema,
-  CREDENTIAL_REFUSAL_MESSAGE,
+  credentialFinding,
+  credentialRefusalMessage,
   OpenOperatorRequestSchema,
   OperatorRequestIdSchema,
   ReplyToOperatorRequestSchema,
-  looksLikeCredential,
   type AgentId,
   type ApiError,
+  type CredentialFinding,
   type ListOperatorRequestsResponse,
   type OperatorRequest,
   type OperatorRequestId,
@@ -138,10 +139,17 @@ export type ReadRequestsResult =
   | { readonly outcome: 'no-such-request' }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
-const credentialRefusal = (): ApiError => ({
+/**
+ * The refusal, naming what tripped it (`#335`).
+ *
+ * `details.reason` is the finding's class and never its value — a refusal
+ * travels back through an API error, which is a place a credential must not go.
+ * A citizen branches on `reason`; the message is what it reads.
+ */
+const credentialRefusal = (finding: CredentialFinding): ApiError => ({
   code: 'validation_failed',
-  message: CREDENTIAL_REFUSAL_MESSAGE,
-  details: { body: 'must not contain a credential' },
+  message: credentialRefusalMessage(finding),
+  details: { body: 'must not contain a credential', reason: finding.reason },
 })
 
 const invalid = (message: string, details?: Record<string, string>): ApiError => ({
@@ -186,8 +194,9 @@ export async function openOperatorRequest(
     }
   }
 
-  if (looksLikeCredential(parsed.data.body)) {
-    return { outcome: 'rejected', error: credentialRefusal() }
+  const finding = credentialFinding(parsed.data.body)
+  if (finding !== null) {
+    return { outcome: 'rejected', error: credentialRefusal(finding) }
   }
 
   if (deps.mailer === undefined || deps.pageBaseUrl === undefined) {
@@ -366,8 +375,9 @@ export async function replyToOperatorRequest(
     }
   }
 
-  if (looksLikeCredential(parsed.data.body)) {
-    return { outcome: 'rejected', error: credentialRefusal() }
+  const finding = credentialFinding(parsed.data.body)
+  if (finding !== null) {
+    return { outcome: 'rejected', error: credentialRefusal(finding) }
   }
 
   /**
@@ -491,8 +501,9 @@ export async function answerOperatorRequest(
     }
   }
 
-  if (looksLikeCredential(parsed.data.body)) {
-    return { outcome: 'rejected', error: credentialRefusal() }
+  const finding = credentialFinding(parsed.data.body)
+  if (finding !== null) {
+    return { outcome: 'rejected', error: credentialRefusal(finding) }
   }
 
   const answered = await deps.store.answer({

@@ -56,6 +56,11 @@ export function registerOperatorRequestTools(
         'those here on purpose: the text goes into a mail, a web form and the database, and none ' +
         'of that can be taken back. Ask for the thing to be created and for the credential to be ' +
         'put in your vault, then read it with kolonie.vault.get.\n\n' +
+        '**Writing *about* a secret is fine and always was meant to be.** The refusal looks for ' +
+        'a value, not for vocabulary: naming a password, a TOTP secret or an API key in a ' +
+        'sentence is not what it catches, and you do not need to paraphrase around the words ' +
+        'your task is about. If it does refuse you, **it names the fragment that tripped it** — ' +
+        'fix that one thing rather than rewriting the message.\n\n' +
         'You need an operator page out before you can ask — kolonie.operator.page issues it.',
       inputSchema: {
         taskId: OpenOperatorRequestSchema.shape.taskId.describe(

@@ -1,9 +1,9 @@
 import {
-  CREDENTIAL_REFUSAL_MESSAGE,
+  credentialFinding,
+  credentialRefusalMessage,
   MAX_UNREAD_OPERATOR_NOTES,
   ReadOperatorNotesResponseSchema,
   WriteOperatorNoteSchema,
-  looksLikeCredential,
   type AgentId,
   type ApiError,
   type OperatorNote,
@@ -155,13 +155,17 @@ export async function writeOperatorNote(
     }
   }
 
-  if (looksLikeCredential(parsed.data.body)) {
+  // Named here too (#335). The operator writing this is a person in a browser
+  // and gets the same help the citizen does: which fragment tripped it, never
+  // what came after it.
+  const finding = credentialFinding(parsed.data.body)
+  if (finding !== null) {
     return {
       outcome: 'rejected',
       error: {
         code: 'validation_failed',
-        message: CREDENTIAL_REFUSAL_MESSAGE,
-        details: { body: 'must not contain a credential' },
+        message: credentialRefusalMessage(finding),
+        details: { body: 'must not contain a credential', reason: finding.reason },
       },
     }
   }

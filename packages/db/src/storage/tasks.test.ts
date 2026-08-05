@@ -52,6 +52,9 @@ describe('listTasks', () => {
     readonly status?: TaskStatus
     /** Set explicitly where a test is about ordering rather than about content. */
     readonly createdAt?: string
+    /** `quest` is what `tasks_academy_is_open` requires before a floor may be raised. */
+    readonly kind?: 'academy' | 'quest'
+    readonly audience?: 'candidates' | 'citizens'
   }
 
   const seed = async (...seeds: Seed[]): Promise<void> => {
@@ -69,6 +72,8 @@ describe('listTasks', () => {
         rewardReputation: 1,
         timeoutHours: 24,
         status: task.status ?? ('active' as const),
+        kind: task.kind ?? ('academy' as const),
+        audience: task.audience ?? ('candidates' as const),
         ...(task.createdAt === undefined ? {} : { createdAt: task.createdAt }),
       })),
     )
@@ -241,6 +246,85 @@ describe('listTasks', () => {
 
     it('keeps the skill gate on retired tasks: it lists what could have been started', async () => {
       await seed({ title: 'Retired and locked', requires: ['browser'], status: 'retired' })
+
+      expect((await list({ availableOnly: false })).items).toEqual([])
+    })
+  })
+
+  /**
+   * The listing half of the floor `createSubmission` refuses on (`#325`).
+   *
+   * Every assertion here is the same shape: what the listing offers and what the
+   * submission would accept are one answer, not two.
+   */
+  describe('the audience floor', () => {
+    const becomeCitizen = async (who: AgentId): Promise<void> => {
+      await db.update(agents).set({ status: 'citizen' }).where(eq(agents.id, who))
+    }
+
+    it('hides a citizens-only quest from a candidate', async () => {
+      await seed(
+        { title: 'Open to all', kind: 'quest' },
+        { title: 'Citizens only', kind: 'quest', audience: 'citizens' },
+      )
+
+      expect(titles((await list()).items)).toEqual(['Open to all'])
+    })
+
+    it('shows it the moment the candidate becomes a citizen', async () => {
+      await seed({ title: 'Citizens only', kind: 'quest', audience: 'citizens' })
+      expect((await list()).items).toEqual([])
+
+      await becomeCitizen(agentId)
+
+      expect(titles((await list()).items)).toEqual(['Citizens only'])
+    })
+
+    /**
+     * The candidate reported in `#325` held no skills at all, which is the case
+     * that made the gap visible: nothing else in the predicate was filtering, so
+     * a quest open only to citizens was the second row it was offered.
+     */
+    it('hides it from a candidate holding no skills at all', async () => {
+      await seed({ title: 'Citizens only', kind: 'quest', audience: 'citizens' })
+
+      const bare = await anAgent('holds-nothing')
+
+      expect((await list({ agentId: bare })).items).toEqual([])
+
+      // The row is there — this is the floor keeping it out, not a failed seed.
+      const stored = await db.select({ title: tasks.title }).from(tasks)
+      expect(stored.map((row) => row.title)).toEqual(['Citizens only'])
+    })
+
+    /**
+     * `candidates` is not a lower gate that also admits citizens by accident: it
+     * admits everybody, which is what lowering the floor means.
+     */
+    it('leaves a quest open to candidates open to citizens too', async () => {
+      await seed({ title: 'Open to all', kind: 'quest' })
+      await becomeCitizen(agentId)
+
+      expect(titles((await list()).items)).toEqual(['Open to all'])
+    })
+
+    it('applies per caller, so one citizen’s standing does not open it for another', async () => {
+      await seed({ title: 'Citizens only', kind: 'quest', audience: 'citizens' })
+      const other = await anAgent('a-citizen')
+      await becomeCitizen(other)
+
+      expect(titles((await list({ agentId: other })).items)).toEqual(['Citizens only'])
+      expect((await list()).items).toEqual([])
+    })
+
+    /**
+     * The floor is a fact about the agent, like the skill gate and unlike
+     * expiry or capacity — so it holds on the wider list as well, where
+     * `keeps the skill gate on retired tasks` asserts the same thing one axis
+     * over.
+     */
+    it('holds on the wider list, which asks what could have been started', async () => {
+      await seed({ title: 'Citizens only', kind: 'quest', audience: 'citizens' })
 
       expect((await list({ availableOnly: false })).items).toEqual([])
     })

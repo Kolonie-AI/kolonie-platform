@@ -99,17 +99,64 @@ const missingSkillsSql = (agentId: AgentId): SQL =>
   sql`array(select unnest(${tasks.requiresSkills}) except select unnest(${skillsHeldBy(agentId)}))`
 
 /**
+ * Whether this agent clears the task's audience floor, as a `where` clause.
+ *
+ * The listing half of the floor `createSubmission` refuses on
+ * (`governance/quests.md`, D-039). `citizens` admits citizens; `candidates` is
+ * not a lower gate that also admits citizens by accident — it admits everybody,
+ * which is what "the sponsor lowered the floor" means, so it filters nothing
+ * here.
+ *
+ * **Read from `agents.status` inside the same statement**, for the reason
+ * {@link skillsHeldBy} is: a rung passed between assembling the caller and
+ * running the query would otherwise decide this from a stale object.
+ *
+ * **Table names written out**, per {@link isFull} — Drizzle renders an
+ * interpolated column as a bare identifier, which inside this correlated
+ * subquery would resolve against `agents` rather than against `tasks`.
+ *
+ * **{@link frontier} deliberately does not apply it**, though it applies the
+ * reputation floor for a reason that reads like the same one. The difference is
+ * that the reputation floor cannot move by earning the missing skill and this
+ * one can: citizenship is automatic on a grant (`storage/citizenship.ts`), so a
+ * candidate one skill away from a citizens-only quest may well be a citizen by
+ * the time it arrives. Applying it there would hide exactly the work the
+ * frontier exists to point at.
+ */
+const withinAudience = (agentId: AgentId): SQL =>
+  sql`(tasks.audience <> 'citizens' or exists (
+    select 1 from agents floor_identity
+     where floor_identity.id = ${agentId} and floor_identity.status = 'citizen'
+  ))`
+
+/**
  * Whether this agent may start a task, in the form a `where` clause takes.
  *
- * **It reads skills and reputation, and nothing else — in particular it does not
- * read `slots`** (`#175`). Capacity is not a fact about the agent. A full quest
- * excluded by *this* predicate would be a citizen told it does not qualify when
- * it qualifies perfectly well and was merely late, which is the refusal `#175`
- * names as the one that loses citizens permanently. Fullness is reported by
- * {@link isFull} instead, and refused by its own outcome in `createSubmission`.
+ * **It reads skills, reputation and the audience floor, and nothing else — in
+ * particular it does not read `slots`** (`#175`). Capacity is not a fact about
+ * the agent. A full quest excluded by *this* predicate would be a citizen told
+ * it does not qualify when it qualifies perfectly well and was merely late,
+ * which is the refusal `#175` names as the one that loses citizens permanently.
+ * Fullness is reported by {@link isFull} instead, and refused by its own outcome
+ * in `createSubmission`.
+ *
+ * **The audience floor is the other half of that argument and belongs here for
+ * the opposite reason** (`#325`). It *is* a fact about the agent, and one it
+ * cannot fix by being early: a candidate shown a citizens-only quest reads it,
+ * works it, and is refused at the till holding a finished report. Until this
+ * was one predicate the floor lived only in `createSubmission`, so the listing
+ * offered work the submission would not take — measured in production on
+ * 2026-08-05 against a freshly registered candidate holding no skills at all.
+ *
+ * **`createSubmission`'s `audience-refused` outcome stays**, and it is not
+ * redundant. A candidate that climbs the identity rung between listing and
+ * hand-in must still be able to hand in — and one that is listed a quest and
+ * loses nothing in between must still be refused by the writer rather than by
+ * the reader. The two predicates answer the same question at two moments, which
+ * is why they read one rule: `status = 'citizen'`.
  */
 const attemptableBy = (agentId: AgentId): SQL =>
-  sql`${tasks.requiresSkills} <@ ${skillsHeldBy(agentId)} and ${tasks.minReputation} <= ${reputationOf(agentId)}`
+  sql`${tasks.requiresSkills} <@ ${skillsHeldBy(agentId)} and ${tasks.minReputation} <= ${reputationOf(agentId)} and ${withinAudience(agentId)}`
 
 /**
  * Whether a task's expiry has passed, in the form a `where` clause takes.

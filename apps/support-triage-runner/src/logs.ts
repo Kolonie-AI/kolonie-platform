@@ -211,9 +211,20 @@ export function lokiLogs(options: LokiOptions): Logs {
        * more than five services — six of eleven could not express an error at
        * all before it, and `interactive` exists there so a maintainer's mistyped
        * query never arrives here.
+       *
+       * **`| __error__=""` is load-bearing and belongs after every `| json` in
+       * this file** (`#435`). Loki answers a pipeline error with a 400 for the
+       * *whole* query rather than skipping the series that caused it, and
+       * Traefik's access log is CLF while its 502 lines are detected as
+       * `error` — so one unparseable line anywhere in the window silenced this
+       * query for as long as Traefik served anything at all. The runner caught
+       * the 400 by design and went on, which is why nothing looked wrong from
+       * `#407` until 2026-08-06. Lines the Colony did not write are exactly the
+       * class worth catching, and this is what makes them countable instead of
+       * fatal.
        */
       const counted = (await query('/loki/api/v1/query', {
-        query: `sum by (service, event) (count_over_time({job="containers", level="error"} | json [${windowSeconds}s]))`,
+        query: `sum by (service, event) (count_over_time({job="containers", level="error"} | json | __error__="" [${windowSeconds}s]))`,
         time: String(end),
       })) as
         | {
@@ -249,7 +260,7 @@ export function lokiLogs(options: LokiOptions): Logs {
       const selector =
         signature.event === '«no event field»'
           ? `{job="containers", service="${signature.service}", level="error"}`
-          : `{job="containers", service="${signature.service}", level="error"} | json | event="${signature.event}"`
+          : `{job="containers", service="${signature.service}", level="error"} | json | __error__="" | event="${signature.event}"`
 
       const found = (await query('/loki/api/v1/query_range', {
         query: selector,
@@ -285,7 +296,7 @@ export function lokiLogs(options: LokiOptions): Logs {
       const start = Math.floor(before / 1000) - 86_400
 
       const found = (await query('/loki/api/v1/query_range', {
-        query: `{job="containers", service="${service}"} | json | event=~"service.started|runner.started"`,
+        query: `{job="containers", service="${service}"} | json | __error__="" | event=~"service.started|runner.started"`,
         start: String(start * 1_000_000_000),
         end: String(Math.floor(before / 1000) * 1_000_000_000),
         limit: '1',

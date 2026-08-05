@@ -18,10 +18,13 @@ import { createDatabase, databaseUrlFromEnv } from './client.js'
 async function main(): Promise<void> {
   const db = createDatabase(databaseUrlFromEnv(), { max: 1, onnotice: () => {} })
   try {
-    const { inserted, updated, hints } = await seedAcademyTasks(db)
+    const { inserted, updated, hints, landscape } = await seedAcademyTasks(db)
     console.log(
       `academy tasks: ${inserted} inserted, ${updated} already present and refreshed, ` +
-        `${hints} hints serving`,
+        // Both totals, and the second is the one worth watching (#390): hints
+        // are served to a citizen that asked, landscape notes to every citizen
+        // on every attempt. One number is an opt-in cost and the other is not.
+        `${hints} hints and ${landscape} landscape notes serving`,
     )
   } finally {
     await db.close()

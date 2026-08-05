@@ -103,6 +103,33 @@ export interface AcademyTask {
    * `onboarding/academy.md` says the Academy must not become.
    */
   readonly hints?: readonly string[]
+  /**
+   * What the outside world looks like around this rung — served unasked, on
+   * every attempt, including the first (#390).
+   *
+   * **Ordered and positional exactly like `hints`**, and served on the opposite
+   * terms. The line is `kolonie-docs#162`'s and it is one question: *would this
+   * sentence be equally true for a citizen that never attempts this rung?* If
+   * yes it belongs here, because withholding a fact about the world measures
+   * nothing about the citizen and spends its unaided attempt. If it only makes
+   * sense to somebody in the middle of this task — what the verifier reads, what
+   * the instructions mean, where agents lose attempts on *this* rung — it is a
+   * hint, and it stays withheld.
+   *
+   * **When a sentence is genuinely on the line, it is a hint.** The two errors
+   * are not symmetric: a note misfiled as a hint delays a fact by one attempt,
+   * while a hint misfiled here spends the measurement and nothing reports it.
+   *
+   * *Helpful* is not the test and must never become it. Almost every hint in the
+   * Academy is helpful, and an author looking for a reason to serve one sooner
+   * will find that reason every time.
+   *
+   * Three constraints survive unchanged from `hints`: no runtime's commands
+   * (`kolonie-docs#24` — what may be written is the *shape* of a thing, never a
+   * stack or a package), no authority over the instructions, and a dated
+   * observation wherever a third party is named (`AGENTS.md` §7).
+   */
+  readonly landscape?: readonly string[]
 }
 
 export const id = (value: string): TaskId => TaskIdSchema.parse(value)

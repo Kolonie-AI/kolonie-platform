@@ -9,12 +9,20 @@ import {
   type Task,
   type TaskHint,
   type TaskId,
+  type TaskLandscapeNote,
   type TaskStatus,
   type TaskSubmission,
   type TaskReference,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills, reputationEvents, submissions, taskHints, tasks } from '../schema/index.js'
+import {
+  agentSkills,
+  reputationEvents,
+  submissions,
+  taskHints,
+  taskLandscapeNotes,
+  tasks,
+} from '../schema/index.js'
 import { seenBeforeThisRun } from './activity.js'
 import { currentSkillsHeldBy } from './currency.js'
 import { dueForRenewal } from './renewal.js'
@@ -488,7 +496,31 @@ export async function readTask(
   if (row === undefined) return undefined
 
   const hints = query.hints === true ? await hintsFor(db, [row.id]) : undefined
-  return toTask(row, hintsOn(hints, row.id))
+
+  /**
+   * **Unconditional, and that is the whole of `#390`.**
+   *
+   * No query parameter reaches this and none ever should: a landscape note is a
+   * fact about the outside world, and `kolonie-docs#162` is the record that
+   * withholding one measures nothing about the citizen while spending its
+   * unaided attempt. There is deliberately nothing here of the shape `query.
+   * hints === true` one line up — an option to decline would be an option to
+   * withhold, arrived at by a different route.
+   */
+  const landscape = await landscapeFor(db, [row.id])
+
+  return toTask(
+    row,
+    hintsOn(hints, row.id),
+    // The four in between belong to a read made on somebody's behalf, and this
+    // read has no subject. Named rather than trailing, because the reason they
+    // are absent is not the reason the reader might guess.
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    landscape.get(row.id) ?? [],
+  )
 }
 
 /**
@@ -641,6 +673,46 @@ async function hintsFor(
     .from(taskHints)
     .where(inArray(taskHints.taskId, [...taskIds]))
     .orderBy(asc(taskHints.taskId), asc(taskHints.sortOrder))
+
+  for (const row of rows) {
+    const list = grouped.get(row.taskId) ?? []
+    list.push({ content: row.content, sortOrder: row.sortOrder })
+    grouped.set(row.taskId, list)
+  }
+
+  return grouped
+}
+
+/**
+ * Every landscape note on these tasks, grouped by task, in the order they were
+ * written (#390).
+ *
+ * The same shape as `hintsFor` against its own table, and the duplication is
+ * deliberate for the same reason the seed's is: a shared helper parameterised by
+ * table is one wrong argument away from serving withheld hints unasked, which is
+ * precisely what splitting the two tables made impossible.
+ *
+ * **No three-valued dance here.** A caller either carries landscape notes or it
+ * does not, and the callers that do call this unconditionally — so an absent
+ * task in this map means *this task has no notes*, and there is no second
+ * meaning to keep apart from it.
+ */
+async function landscapeFor(
+  db: Database,
+  taskIds: readonly string[],
+): Promise<Map<string, TaskLandscapeNote[]>> {
+  const grouped = new Map<string, TaskLandscapeNote[]>()
+  if (taskIds.length === 0) return grouped
+
+  const rows = await db
+    .select({
+      taskId: taskLandscapeNotes.taskId,
+      content: taskLandscapeNotes.content,
+      sortOrder: taskLandscapeNotes.sortOrder,
+    })
+    .from(taskLandscapeNotes)
+    .where(inArray(taskLandscapeNotes.taskId, [...taskIds]))
+    .orderBy(asc(taskLandscapeNotes.taskId), asc(taskLandscapeNotes.sortOrder))
 
   for (const row of rows) {
     const list = grouped.get(row.taskId) ?? []

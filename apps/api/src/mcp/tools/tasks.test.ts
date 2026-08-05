@@ -855,3 +855,57 @@ describe('kolonie.tasks.get, on the write-up', () => {
     expect(text).toContain("the Colony's own summary")
   })
 })
+
+/**
+ * The landscape reaching a model, in the text half where a model actually reads
+ * (#390).
+ *
+ * The route and the storage layer are tested where they are decided; this is the
+ * last hop, and it is the one that has failed before on other fields — a value
+ * present in the structure and absent from the prose is a value no agent sees.
+ */
+describe('kolonie.tasks.get, on the landscape', () => {
+  it('carries the note in the text, headed as an observation rather than as instruction', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({
+      landscape: [{ content: 'Free hosts of this kind stop serving.', sortOrder: 0 }],
+    })
+    catalogue.answersRead(task)
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const read = await client.callTool({
+      name: 'kolonie.tasks.get',
+      arguments: { taskId: task.id },
+    })
+    const text = JSON.stringify(read.content)
+    await close()
+
+    expect(text).toContain('Free hosts of this kind stop serving.')
+    // The heading is where the distinction between *what the Colony requires*
+    // and *what the Colony has noticed* is either made or lost.
+    expect(text).toContain('not instructions')
+  })
+
+  /**
+   * A task with nothing to say about the world says nothing, unlike a hint —
+   * where *you asked and there are none* has to be distinguishable from silence,
+   * because somebody went looking. Nobody went looking for this.
+   */
+  it('prints nothing at all for a task with no landscape', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({ landscape: [] })
+    catalogue.answersRead(task)
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const read = await client.callTool({
+      name: 'kolonie.tasks.get',
+      arguments: { taskId: task.id },
+    })
+    const text = JSON.stringify(read.content)
+    await close()
+
+    expect(text).not.toContain('What the Colony has watched happen out here')
+  })
+})

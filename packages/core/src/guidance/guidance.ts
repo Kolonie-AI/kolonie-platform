@@ -294,6 +294,42 @@ export const TaskHintSchema = z.object({
 export type TaskHint = z.infer<typeof TaskHintSchema>
 
 /**
+ * What the outside world looks like around a task, attached to the task (#390).
+ *
+ * **The same shape as a hint and deliberately not the same type.**
+ * `kolonie-docs#162` separates two things the Colony used to treat as one: help
+ * with the task, which is withheld on a first attempt and stays withheld, and
+ * the landscape, which was never a capability to test. The test that sorts a
+ * sentence is one question — *would this be equally true for a citizen that
+ * never attempts this rung?* — and a sentence that passes it is this.
+ *
+ * **Served unasked, on every attempt, including the first.** That is the whole
+ * difference from `TaskHintSchema` above, and it is why this is a second type
+ * rather than a `kind` column on the first. The two differ on every axis that
+ * matters — when they are served, whether they have to be asked for, whether
+ * they are withheld — so one boolean in the wrong place would silently leak
+ * withheld help into an unaided attempt, and nothing would report it. Separate
+ * storage makes that wrong thing hard to write rather than one keystroke away.
+ *
+ * **The constraints that survive the change are every constraint except *when*.**
+ * It stays platform-blind — no `platform` column, no filtering, no way to write
+ * one only some citizens see. It names no runtime's commands (`kolonie-docs#24`),
+ * because how a capability is reached is a fact about a runtime the Colony does
+ * not control. Where it names a third party it is a dated observation and never
+ * a recommendation. And it carries no authority over the instructions: a note
+ * that starts telling a citizen what to do has become the task.
+ *
+ * **No id, for the same reason a hint has none.** Its identity is its position
+ * in one task's list, which is what the unique index in the database says too.
+ */
+export const TaskLandscapeNoteSchema = z.object({
+  content: z.string().min(1).max(GUIDANCE_CONTENT_MAX_LENGTH),
+  /** Ascending. The order the author put them in, which is the order they are read in. */
+  sortOrder: z.int().min(0),
+})
+export type TaskLandscapeNote = z.infer<typeof TaskLandscapeNoteSchema>
+
+/**
  * A citizen reporting where a task went wrong for it.
  *
  * The bug report of the Academy, and like a bug report its value is in the

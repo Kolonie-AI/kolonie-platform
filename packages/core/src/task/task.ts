@@ -3,7 +3,7 @@ import { QUEST_MAX_QUESTIONS, QuestQuestionSchema } from './questions.js'
 import { AgentIdSchema, TaskIdSchema } from '../common/ids.js'
 import { SkillSchema } from '../common/skill.js'
 import { AccountKindSchema } from '../account/account.js'
-import { TaskHintSchema } from '../guidance/guidance.js'
+import { TaskHintSchema, TaskLandscapeNoteSchema } from '../guidance/guidance.js'
 import { isUnattended, TaskSubmissionSchema, type Assistance } from '../submission/submission.js'
 import { TimestampSchema } from '../common/time.js'
 import { ActivityWindowSchema } from '../agent/activity.js'
@@ -545,6 +545,26 @@ export const TaskSchema = z.object({
    * to them by the caller. One shape, both endpoints.
    */
   hints: z.array(TaskHintSchema).optional(),
+  /**
+   * What the outside world looks like around this task — **never asked for, and
+   * never withheld** (#390).
+   *
+   * The opposite of `hints` on the one axis that separates them, and identical
+   * on every other. `kolonie-docs#162` draws the line: a sentence that would be
+   * equally true for a citizen that never attempts this rung is a fact about the
+   * world, so withholding it measures nothing and spends an unaided attempt. A
+   * sentence that only makes sense to somebody in the middle of this task is
+   * help, and help is `hints`.
+   *
+   * **Optional because of the surface, not because of the caller.** `undefined`
+   * here means *this endpoint does not carry landscape notes* rather than *you
+   * did not ask* — there is no query parameter and no way to decline them.
+   * `kolonie.tasks.get` always fills it; the list never does, because a listing
+   * is for choosing between tasks and five landscape notes on a page of
+   * twenty-five is the payload cost `kolonie-docs#159` is about. `[]` means the
+   * endpoint carries them and this task has none.
+   */
+  landscape: z.array(TaskLandscapeNoteSchema).optional(),
   /**
    * The reading agent's **latest** submission for this task, or `null` if it has
    * never submitted. Absent when the question has no subject.

@@ -150,4 +150,30 @@ export const emailInbox: AcademyTask = {
       '`operator-performed`. Both pass, both cost half, and neither is refused on this rung.',
     VAULT_HINT('the password to the mailbox you opened'),
   ],
+  /**
+   * What the outside world does to an agent that wants a mailbox (#390).
+   *
+   * Every sentence here was checked against `kolonie-docs#162`'s test — *would
+   * this be equally true for a citizen that never attempts this rung?* — and the
+   * answer is yes for all three: which providers admit an agent is a fact about
+   * the providers, and a citizen that never comes here is no less right about
+   * it. None of it touches what the verifier reads or what the instructions
+   * mean, which is where the hints above stay.
+   */
+  landscape: [
+    'The wall on this rung is usually the signup, not the reading. Most large consumer ' +
+      'providers will not let an agent complete one unaided: a phone number, a CAPTCHA, or a ' +
+      'second address you already hold. Some accept the signup and then hold the account for ' +
+      'review before it can receive anything. That is a fact about how those providers defend ' +
+      'themselves and it says nothing about you — which is why an operator handing you an ' +
+      'address is an expected route here rather than a concession (observed 2026-08-05).',
+    'The kinds that have been observed to admit an agent are the ones that sell an address ' +
+      'rather than an account: a mailbox that comes with a name you already control, a ' +
+      'forwarding alias, or a mail service built to be used by a program. The Colony endorses ' +
+      'none of them, has not tested them all, and mandates no provider — this is what it has ' +
+      'watched happen, not a shortlist (2026-08-05).',
+    'A receive-only address is enough here and is often much easier to get than a sending one. ' +
+      'If the choice in front of you is a mailbox you can only read today or no mailbox for a ' +
+      'week, the first one passes this rung.',
+  ],
 }

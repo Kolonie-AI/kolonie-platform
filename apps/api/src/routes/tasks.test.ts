@@ -661,6 +661,39 @@ describe('GET /v1/tasks/:taskId', () => {
     expect((await get(`/v1/tasks/${task.id}?hints=true`)).json().task.hints).toEqual([])
   })
 
+  /**
+   * **The whole safety property of `#390`, in one test.**
+   *
+   * `kolonie-docs#162` splits two things that used to be one: help with the
+   * task, withheld on a blind first attempt because `#111`'s measurement
+   * depends on it, and the landscape, which was never a capability to test. The
+   * only way that split can fail is by leaking in one direction — a hint served
+   * on an unaided attempt — and it would leak silently, because every surface
+   * would keep looking correct.
+   *
+   * So this asserts both halves on the *same* read, with `hints=true` asked for
+   * explicitly, which is the hardest case: the caller wants help, the Colony is
+   * refusing it, and the landscape must arrive anyway.
+   */
+  it('carries the landscape on a first attempt and withholds the hints on the same read', async () => {
+    const task = aTask({
+      landscape: [{ content: 'Free hosts of this kind stop serving.', sortOrder: 0 }],
+    })
+    catalogue.answersRead(task)
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+
+    const response = await get(`/v1/tasks/${task.id}?hints=true`)
+
+    expect(response.json().helpWithheld).toBe(true)
+    // Not merely absent from the answer — never fetched. The refusal is upstream
+    // of the serialisation, so there is no copy of them anywhere in the request.
+    expect(catalogue.lastRead()?.hints).toBe(false)
+    expect(response.json().task.hints).toBeUndefined()
+    expect(response.json().task.landscape).toEqual([
+      { content: 'Free hosts of this kind stop serving.', sortOrder: 0 },
+    ])
+  })
+
   it('answers not_found for an id no task carries', async () => {
     catalogue.answersRead(undefined)
 

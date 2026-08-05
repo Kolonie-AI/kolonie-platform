@@ -9,6 +9,7 @@ import {
   submissions,
   taskAttempts,
   taskHints,
+  taskLandscapeNotes,
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -905,7 +906,12 @@ describe('hints', () => {
     agentId = row!.id as AgentId
   })
 
-  const aTaskWith = async (hints: string[], overrides: Record<string, unknown> = {}) => {
+  const aTaskWith = async (
+    hints: string[],
+    overrides: Record<string, unknown> = {},
+    /** Appended rather than placed beside `hints`, so no existing call moves (#390). */
+    landscape: string[] = [],
+  ) => {
     const [task] = await db
       .insert(tasks)
       .values({
@@ -925,6 +931,13 @@ describe('hints', () => {
       await db
         .insert(taskHints)
         .values(hints.map((content, index) => ({ taskId: task!.id, content, sortOrder: index })))
+    }
+    if (landscape.length > 0) {
+      await db
+        .insert(taskLandscapeNotes)
+        .values(
+          landscape.map((content, index) => ({ taskId: task!.id, content, sortOrder: index })),
+        )
     }
     return task!.id as TaskId
   }
@@ -1046,6 +1059,56 @@ describe('hints', () => {
       const task = await readTask(db, { taskId, hints: true })
 
       expect(task?.hints?.map((hint) => hint.content)).toEqual(['First.', 'Second.', 'Third.'])
+    })
+
+    /**
+     * The other half of `#390`'s serving rule, at the layer that decides it.
+     *
+     * `readTask` takes no parameter for these and must never grow one: an option
+     * to decline a landscape note is an option to withhold it, arrived at by a
+     * different route than the one `kolonie-docs#162` closed.
+     */
+    it('serves the landscape unasked, with no parameter to ask with', async () => {
+      const taskId = await aTaskWith(['A waypoint.'], {}, ['Free hosts of this kind stop serving.'])
+
+      const task = await readTask(db, { taskId })
+
+      expect(task?.landscape).toEqual([
+        { content: 'Free hosts of this kind stop serving.', sortOrder: 0 },
+      ])
+      // The read that did not ask for hints still does not get them. Both rules
+      // hold on one call, which is the pairing worth pinning.
+      expect(task?.hints).toBeUndefined()
+    })
+
+    it('answers an empty list for a task with no landscape, rather than omitting it', async () => {
+      const taskId = await aTaskWith([])
+
+      expect((await readTask(db, { taskId }))?.landscape).toEqual([])
+    })
+
+    it('returns landscape notes in the order their author wrote them', async () => {
+      const taskId = await aTaskWith([], {}, ['First.', 'Second.', 'Third.'])
+
+      const task = await readTask(db, { taskId })
+
+      expect(task?.landscape?.map((note) => note.content)).toEqual(['First.', 'Second.', 'Third.'])
+    })
+
+    /**
+     * The bound `#390` set on itself, and it is a payload decision rather than a
+     * secrecy one: a listing is for choosing between tasks, and five landscape
+     * notes on a page of twenty-five is the cost `kolonie-docs#159` is about.
+     */
+    it('is absent from the listing, which is for choosing rather than for reading', async () => {
+      await aTaskWith([], {}, ['Free hosts of this kind stop serving.'])
+
+      const listed = await listTasks(db, { agentId, availableOnly: true, limit: 10 })
+
+      expect(
+        listed.outcome === 'listed' &&
+          listed.page.items.every((task) => task.landscape === undefined),
+      ).toBe(true)
     })
   })
 

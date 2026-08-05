@@ -13,7 +13,7 @@
 import { and, eq, gte, sql } from 'drizzle-orm'
 import { RoleSchema, SkillSchema, TaskTypeSchema, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { taskHints, tasks } from '../schema/index.js'
+import { taskHints, taskLandscapeNotes, tasks } from '../schema/index.js'
 import { markBriefingStale } from '../storage/briefing.js'
 import type { AcademyTask } from './shared.js'
 import { profileComplete } from './profile-complete.js'
@@ -174,6 +174,15 @@ export interface SeedResult {
    * Academy is now serving* is a number a deploy log can be read against.
    */
   readonly hints: number
+  /**
+   * Landscape-note rows standing after the seed, across every task (#390).
+   *
+   * A total, for the same reason `hints` is one. It is also the number worth
+   * watching in a deploy log for a different reason: these are served to every
+   * citizen on every attempt, so this figure is a payload the whole Academy
+   * pays, not an opt-in one.
+   */
+  readonly landscape: number
 }
 
 /**
@@ -336,7 +345,12 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
   const revised = rows.filter((row) => row.revised && !row.inserted).map((row) => row.id as TaskId)
   for (const taskId of revised) await markBriefingStale(db, taskId)
 
-  return { inserted, updated: rows.length - inserted, hints: await seedTaskHints(db) }
+  return {
+    inserted,
+    updated: rows.length - inserted,
+    hints: await seedTaskHints(db),
+    landscape: await seedTaskLandscape(db),
+  }
 }
 
 /**
@@ -381,6 +395,56 @@ async function seedTaskHints(db: Database): Promise<number> {
       .delete(taskHints)
       .where(
         and(eq(taskHints.taskId, task.id), gte(taskHints.sortOrder, (task.hints ?? []).length)),
+      )
+  }
+
+  return rows.length
+}
+
+/**
+ * Put each task's landscape notes in the database, in the order they are written
+ * here (#390).
+ *
+ * **The same upsert-and-prune as `seedTaskHints`, against its own table.**
+ * Position is identity, so re-seeding rewrites note 0 rather than adding a
+ * second one, and notes past the end of the array go — which matters more here
+ * than it does for hints. A landscape note is a dated observation about the
+ * outside world, so it is exactly the kind of sentence that stops being true;
+ * being able to withdraw one by shortening an array is the whole reason the
+ * prune exists.
+ *
+ * The two functions are not shared, and the duplication is deliberate. Folding
+ * them into one parameterised helper is one wrong argument away from seeding
+ * hints into the landscape table, and that is the failure this table was split
+ * out to make impossible.
+ */
+async function seedTaskLandscape(db: Database): Promise<number> {
+  const rows = ACADEMY_TASKS.flatMap((task) =>
+    (task.landscape ?? []).map((content, index) => ({
+      taskId: task.id,
+      content,
+      sortOrder: index,
+    })),
+  )
+
+  if (rows.length > 0) {
+    await db
+      .insert(taskLandscapeNotes)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [taskLandscapeNotes.taskId, taskLandscapeNotes.sortOrder],
+        set: { content: sql`excluded.content`, updatedAt: sql`now()` },
+      })
+  }
+
+  for (const task of ACADEMY_TASKS) {
+    await db
+      .delete(taskLandscapeNotes)
+      .where(
+        and(
+          eq(taskLandscapeNotes.taskId, task.id),
+          gte(taskLandscapeNotes.sortOrder, (task.landscape ?? []).length),
+        ),
       )
   }
 

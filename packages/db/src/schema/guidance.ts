@@ -103,6 +103,70 @@ export const taskHints = pgTable(
 )
 
 /**
+ * What the outside world looks like around a task, as the Colony has watched it
+ * (#390).
+ *
+ * Seeded, never written by an agent, and — the one thing that separates it from
+ * `task_hints` above — **served unasked, on every attempt, including the first**.
+ * `kolonie-docs#162` is the record: help with the task is withheld on a blind
+ * first attempt because an unaided attempt gives every rung a clean number, and
+ * a fact about the world is not help with the task. Which mailbox providers
+ * admit an agent at all says nothing about the agent, so withholding it measures
+ * nothing and spends the attempt.
+ *
+ * **A second table rather than a flag on `task_hints`, and the argument is the
+ * failure mode.** The two differ on when they are served, on whether they must
+ * be asked for, and on whether they are withheld — three axes, one boolean. A
+ * hint mis-set would leak the Colony's help into the attempt `#111` exists to
+ * measure, the leak would be invisible on every surface, and nothing would
+ * report it. Separate storage makes the wrong thing hard to write; a column
+ * makes it one keystroke away.
+ *
+ * **No status column and no `platform` column**, both for the reasons
+ * `task_hints` gives. The first because the Colony authored the row and nothing
+ * has to judge it; the second because a note some citizens cannot see is a
+ * skill's note and not the Colony's, and the absence of the column is what keeps
+ * that true rather than a habit of the write path.
+ *
+ * Identity is `(task_id, sort_order)`, exactly as it is for a hint, and for the
+ * same reason: nothing references a note, so its position in its task's list is
+ * a sufficient name and the seed has a stable answer to *is this row already
+ * here?*
+ */
+export const taskLandscapeNotes = pgTable(
+  'task_landscape_notes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    /** `cascade`, like a hint: a note is a sentence in the task's own definition. */
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+
+    content: text('content').notNull(),
+
+    /** Ascending, ties impossible — the unique index sees to that. */
+    sortOrder: smallint('sort_order').notNull().default(0),
+
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      'task_landscape_notes_content_length',
+      sql`char_length(${table.content}) between 1 and ${maxLength}`,
+    ),
+    check('task_landscape_notes_sort_order_range', sql`${table.sortOrder} between 0 and 999`),
+    /** The seed's idempotency key and the read path's index in one, as on `task_hints`. */
+    uniqueIndex('task_landscape_notes_task_order_unique').on(table.taskId, table.sortOrder),
+  ],
+)
+
+/**
  * What one citizen wrote about one attempt at a task.
  *
  * **This replaces `task_struggles` and `task_tips` (#110).** The comment that

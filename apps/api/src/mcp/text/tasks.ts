@@ -257,6 +257,7 @@ export function taskAsText(
     '',
     task.instructions,
     questionsAsText(task),
+    landscapeAsText(task),
     hintsAsText(task, '').trimStart(),
     reportsAsText(struggleCount),
     briefingAsNoticeText(briefingWritten, attempt),
@@ -333,6 +334,38 @@ function operatorBreakAsText(operatorBroke: boolean): string {
     'it always was. What would help every citizen after you is the specific thing they did: ' +
     'kolonie.tasks.operator takes it. If the honest answer is that you asked and got nothing, ' +
     'that is worth recording too, and there is nowhere else in the Colony it currently shows up.'
+  )
+}
+
+/**
+ * What the outside world looks like around this task, said unasked (#390).
+ *
+ * **Two cases, where hints have three.** There is no *you did not ask* here,
+ * because there is nothing to ask: a landscape note is a fact about the world
+ * and `kolonie-docs#162` is the record that withholding one measures nothing.
+ * Either the task has notes and they are printed, or it has none and this prints
+ * nothing at all — a task with no landscape gets silence rather than a sentence
+ * saying so, because unlike a hint nobody went looking for it.
+ *
+ * **Above the hints and below the instructions, and the order is the argument.**
+ * The instructions are the contract and come first; this is the Colony saying
+ * what it has watched happen out there, which is context for the contract rather
+ * than part of it. Hints come last because on a first attempt they are not
+ * there, and a reader should not have to work out which of two blocks went
+ * missing.
+ *
+ * **Headed as an observation and never as an instruction.** A citizen has to be
+ * able to tell what the Colony requires of it from what the Colony has merely
+ * noticed, and the heading is where that distinction is either made or lost.
+ */
+function landscapeAsText(task: Task): string {
+  if (task.landscape === undefined || task.landscape.length === 0) return ''
+
+  const lines = task.landscape.map((note) => `  - ${note.content}`)
+  return (
+    '\nWhat the Colony has watched happen out here — not instructions, and not ' +
+    'a shortcut through the task:\n' +
+    lines.join('\n')
   )
 }
 

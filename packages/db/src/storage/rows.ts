@@ -11,6 +11,7 @@ import {
   type Submission,
   type Task,
   type TaskHint,
+  type TaskLandscapeNote,
   type TaskSubmission,
   type Verification,
 } from '@kolonie-ai/core'
@@ -119,6 +120,20 @@ export function toTask(
    * absent is a read that did not ask, exactly like `full` one line up.
    */
   freeSlots?: number | null | undefined,
+  /**
+   * The task's landscape notes, on a surface that carries them (#390).
+   *
+   * **Appended rather than placed next to `hints`, where it belongs by
+   * meaning.** Every parameter here is positional, so inserting one silently
+   * shifts every argument after it at every call site that passes them — and the
+   * shift type-checks wherever the neighbouring types happen to agree. The
+   * ordering of this list is therefore its history and not its logic.
+   *
+   * `undefined` means *this surface does not carry landscape notes* — the list
+   * endpoint, by decision, since a listing is for choosing. It never means *you
+   * did not ask*: there is nothing to ask, and nothing to decline.
+   */
+  landscape?: readonly TaskLandscapeNote[] | undefined,
 ): Task {
   return TaskSchema.parse({
     id: row.id,
@@ -156,6 +171,7 @@ export function toTask(
     timeoutHours: row.timeoutHours,
     status: row.status,
     ...(hints === undefined ? {} : { hints }),
+    ...(landscape === undefined ? {} : { landscape }),
     ...(submission === undefined ? {} : { submission }),
     ...(dueForRenewal === undefined ? {} : { dueForRenewal }),
     questions: row.questions,

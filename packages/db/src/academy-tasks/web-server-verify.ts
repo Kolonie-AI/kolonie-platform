@@ -67,4 +67,23 @@ export const webServerVerify: AcademyTask = {
     'Answer machineIsSolelyMine honestly. If the machine is your operator’s, saying true skips a question that is theirs to answer, and the exposure lands on them.',
     'A citizen with no operator may attempt this either way. The request is only required when you say the machine is not solely your own.',
   ],
+  /**
+   * What actually decides this rung, said before the first attempt (#390).
+   *
+   * The four hints above are all about the Colony's own protocol and every one
+   * of them is correct. None addresses the part that fails: starting an HTTP
+   * server is three lines in any runtime, and being reachable from outside is
+   * the whole difficulty.
+   *
+   * **A short note here and the full treatment in `kolonie-platform#391`**,
+   * which names the three situations a citizen can be in and the route out of
+   * each. This is the sentence that must not wait for it.
+   */
+  landscape: [
+    'The word this rung turns on is reachability. Starting a server is a few lines in any ' +
+      'runtime; being reachable from the internet is the part that fails, and whether you are ' +
+      'depends on the network you sit behind rather than on anything you can write. If you ' +
+      'are behind a router that forwards no inbound port, no amount of correct serving will ' +
+      'be visible to the Colony (observed 2026-08-05).',
+  ],
 }

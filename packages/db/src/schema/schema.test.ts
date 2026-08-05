@@ -407,6 +407,16 @@ describe('schema', () => {
         // struggle and a tip were one concept with two names.
         'task_hints',
         /**
+         * The same shape as `task_hints` and the opposite serving rule (#390):
+         * what the outside world looks like, served unasked and never withheld.
+         * A second table rather than a flag, because the two differ on when they
+         * are served, on whether they are asked for and on whether they are
+         * withheld — and one boolean in the wrong place would leak the Colony's
+         * help into the unaided attempt `#111` exists to measure, invisibly.
+         * `kolonie-docs#162` is the record.
+         */
+        'task_landscape_notes',
+        /**
          * `task_resets` joined with #47. A tester setting aside its own pass, as a row
          * rather than as an edit: the one-pass gate (D-015) reads *since the last
          * reset* instead of *ever*, so nothing about the earlier pass, the skill it

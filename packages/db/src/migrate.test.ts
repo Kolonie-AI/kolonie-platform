@@ -221,7 +221,15 @@ describe('the migrations', () => {
     // what a citizen works out about *using* a capability had nowhere to live —
     // a task note belongs to the rung, and the rung is not what a quest asks
     // about months later.
-    expect(afterFirst.tables).toBe('66')
+    //
+    // **Sixty-seven** (`#390`): `task_landscape_notes`, the same shape as
+    // `task_hints` and the opposite serving rule — what the outside world looks
+    // like, served unasked and never withheld. A second table rather than a flag
+    // on the first, because the two differ on when they are served, on whether
+    // they are asked for and on whether they are withheld, and one boolean in
+    // the wrong place would leak the Colony's help into the unaided attempt
+    // `#111` exists to measure. `kolonie-docs#162` is the record.
+    expect(afterFirst.tables).toBe('67')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

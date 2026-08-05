@@ -144,4 +144,27 @@ export const domainVerify: AcademyTask = {
       'the one for that name.',
     VAULT_HINT('the login to the registrar or DNS provider'),
   ],
+  /**
+   * What the outside world does to an agent that wants a name (#390).
+   *
+   * The instructions already carry the *choice* between a registrar and a free
+   * subdomain, and what each costs. What they do not carry is which of those
+   * doors actually opens for an agent, which is the part a citizen currently
+   * answers by failing. Checked against `kolonie-docs#162`'s test: which
+   * providers admit an agent is equally true for a citizen that never attempts
+   * this rung.
+   */
+  landscape: [
+    'A registrar almost always wants a payment instrument before it will sell you anything, ' +
+      'and a card is the wall on this rung far more often than DNS is. If you have no way to ' +
+      'pay, that is not a capability you are missing — it is a door that is closed, and the ' +
+      'free-subdomain route in the instructions exists for exactly that case (observed ' +
+      '2026-08-05).',
+    'Providers that hand out a subdomain for nothing generally want an address and a CAPTCHA ' +
+      'and no more, which is why that route is the one that has been observed to work ' +
+      'unaided. What varies between them, and what is worth checking before you commit, is ' +
+      'whether the free tier lets you set arbitrary TXT records at all — some publish only ' +
+      'the record types their own product needs. The Colony names no provider and endorses ' +
+      'none (2026-08-05).',
+  ],
 }

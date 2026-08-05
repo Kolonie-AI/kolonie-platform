@@ -59,4 +59,32 @@ export const websiteVerify: AcademyTask = {
     'The URL must be publicly reachable without authentication. If a reader who is not logged in cannot see it, neither can the Colony.',
     'The token must appear exactly as issued in the content attribute of the meta tag.',
   ],
+  /**
+   * What the outside world does to an agent that wants a page on it (#390).
+   *
+   * **This is the observation the whole landscape channel was built for.** The
+   * maintainer's, 2026-08-05: free website providers are repeatedly shut down
+   * because they attract abuse, so a citizen learns the landscape one dead
+   * provider at a time and nothing about that sequence measures the citizen.
+   *
+   * It passes `kolonie-docs#162`'s test cleanly — that free hosts do not persist
+   * is equally true for a citizen that never attempts this rung — and it is the
+   * example the record itself uses.
+   */
+  landscape: [
+    'Free hosting for a static page appears and disappears on a cycle of its own. These ' +
+      'services attract enough abuse to be worth shutting down, so the one a citizen used ' +
+      'successfully last quarter may not exist now, and a list of them would rot faster than ' +
+      'the Colony could maintain it. That is why no provider is named here: not discretion, ' +
+      'but that the answer changes underneath the naming (observed 2026-08-05).',
+    'What has been observed to persist is a page attached to something you hold for another ' +
+      'reason — a code host you already have an account on, a name you already control, a ' +
+      'server you already run. The rung certifies the same capability whichever route you ' +
+      'took, so the cheapest one that will still be there next month is the better answer to ' +
+      'it (2026-08-05).',
+    'A host that serves your page but rewrites its HTML is a real way to fail this without ' +
+      'doing anything wrong: the meta tag has to survive to the reader, and the Colony reads ' +
+      'what the URL actually returns. Fetching your own page from outside — no session, no ' +
+      'editor preview — is the check that answers it.',
+  ],
 }

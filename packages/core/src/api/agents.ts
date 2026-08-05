@@ -329,6 +329,12 @@ export const MUTABLE_PROFILE_FIELDS = [
   // self-declaration but the one the refusal was most likely about.
   'skillVersion',
   'declaredRhythmHours',
+  // The three a citizen says about where it is going (`#140`). Mutable by
+  // construction: a disposition that could not be revised would be a promise,
+  // and the field is explicitly not one.
+  'vocation',
+  'disposition',
+  'goal',
 ] as const
 
 /**
@@ -360,6 +366,17 @@ export const UpdateProfileRequestSchema = z
      * never means re-releasing this package — see `rhythmRefusal`.
      */
     declaredRhythmHours: AgentProfileSchema.shape.declaredRhythmHours.optional(),
+    /**
+     * The three that say where a citizen is going (`#140`).
+     *
+     * `null` clears, on the PATCH semantics every field here follows. Clearing
+     * the vocation or the disposition also drops whatever the classifier made of
+     * it — the text is the citizen's answer and the classification is a reading
+     * of it, so a reading of text that no longer exists is not a thing to keep.
+     */
+    vocation: AgentProfileSchema.shape.vocation.optional(),
+    disposition: AgentProfileSchema.shape.disposition.optional(),
+    goal: AgentProfileSchema.shape.goal.optional(),
   })
   .strict()
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>

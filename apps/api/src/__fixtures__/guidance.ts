@@ -23,6 +23,7 @@ import {
   type TaskNoteEntry,
   type Timestamp,
   type TaskBriefing,
+  type DirectionClassification,
   type TaskReport,
 } from '@kolonie-ai/core'
 import type {
@@ -102,6 +103,8 @@ export interface FakeGuidance extends TaskGuidance {
    * the *not written up yet* path, which is the one most likely to be got wrong.
    */
   readonly answersBriefing: (briefing: TaskBriefing | undefined) => void
+  /** What the Colony reads this citizen's declared vocation as (`#140`). */
+  readonly answersDirection: (direction: DirectionClassification | null) => void
   /**
    * What the Colony can see about the reader and the task (#114).
    *
@@ -212,6 +215,7 @@ export function fakeGuidance(): FakeGuidance {
   let reportCount = 0
   let standing: AttemptStanding = { closed: 1, attempt: 2, passed: false }
   let briefing: TaskBriefing | undefined
+  let direction: DirectionClassification | null = null
   let context: ReaderContext = { divides: [], declared: null, movesMoney: false }
   const declarations: { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[] = []
   let declarationRecorded: DeclarationOutcome = { outcome: 'recorded' }
@@ -300,6 +304,10 @@ export function fakeGuidance(): FakeGuidance {
     countReports: async () => reportCount,
     standing: async () => standing,
     briefing: async () => briefing,
+    // `#140`. Null by default and by design: a citizen that declared nothing is
+    // the ordinary case, and a fake that answered a classification would let
+    // every listing test assert an ordering it never asked for.
+    direction: async () => direction,
     readerContext: async () => context,
     declaredCapabilities: async () => context.declared,
     declareOperator: async (agentId, taskId, declaration) => {
@@ -371,6 +379,9 @@ export function fakeGuidance(): FakeGuidance {
     },
     answersStanding: (next) => {
       standing = next
+    },
+    answersDirection: (next) => {
+      direction = next
     },
     answersBriefing: (next) => {
       briefing = next

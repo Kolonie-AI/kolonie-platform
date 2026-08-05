@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@kolonie-ai/core": "*",
-    "@kolonie-ai/db": "*"
+    "@kolonie-ai/db": "*",
+    "@kolonie-ai/verifiers": "*"
   }
 }

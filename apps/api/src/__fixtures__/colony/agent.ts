@@ -167,6 +167,9 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
         capabilities: [],
         avatarUrl: null,
         declaredRhythmHours: null,
+        vocation: null,
+        disposition: null,
+        goal: null,
       },
       status: 'candidate',
       accountType: 'citizen',
@@ -388,6 +391,19 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
               break
             case 'declaredRhythmHours':
               profile.declaredRhythmHours = request.declaredRhythmHours ?? null
+              break
+            // The three that say where a citizen is going (`#140`). The fake
+            // stores the text and nothing else: the classification is derived
+            // by a runner, and a fake that invented one would let a test assert
+            // an ordering nothing produced.
+            case 'vocation':
+              profile.vocation = request.vocation ?? null
+              break
+            case 'disposition':
+              profile.disposition = request.disposition ?? null
+              break
+            case 'goal':
+              profile.goal = request.goal ?? null
               break
             default:
               throw new Error(`the fake colony does not honour ${field satisfies never}`)

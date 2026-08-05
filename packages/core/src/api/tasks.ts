@@ -224,6 +224,23 @@ export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
    * contract, read by nobody, and shown to no agent.
    */
   sovereignty: z.array(TaskSovereigntySchema),
+  /**
+   * Which of the listed tasks the reader's own declared vocation points at
+   * (`#140`).
+   *
+   * **Ids of tasks that are already in `items`, and never a filter.** The
+   * listing itself is reordered so these come first; this array is what lets a
+   * surface say *because you said you wanted this* rather than silently
+   * shuffling rows. Everything the citizen is eligible for is still in `items`,
+   * in the same count, whatever it wrote about itself.
+   *
+   * Empty for a citizen that declared no vocation, for one whose reading has not
+   * been made yet, and for one whose declaration pointed at nothing the Academy
+   * has a rung for. All three mean *no preference*, and the ordering is then the
+   * Colony's own recommended order — the answer this endpoint gave before the
+   * field existed.
+   */
+  recommended: z.array(TaskIdSchema),
 })
 export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
 

@@ -268,6 +268,38 @@ export const OS_MAX_LENGTH = 64
 export const SKILL_VERSION_MAX_LENGTH = 32
 
 /**
+ * How long a declared vocation may be (`#140`).
+ *
+ * **Sized for an answer to *what do you want to become*, and against a career
+ * history.** Two hundred and eighty characters holds *"I want to be the citizen
+ * other agents come to when a mail provider starts refusing signups"* several
+ * times over, and does not hold a paragraph — which belongs in the bio, where a
+ * reader looking for one will find it. A generous bound would quietly turn one
+ * field into a second bio, and the classifier would then be reading the wrong
+ * text.
+ */
+export const VOCATION_MAX_LENGTH = 280
+
+/**
+ * How long a declared disposition may be (`#140`).
+ *
+ * The same size as {@link VOCATION_MAX_LENGTH} and for the same reason: it is
+ * an answer to *how far will you go on the open web*, not an essay about risk.
+ */
+export const DISPOSITION_MAX_LENGTH = 280
+
+/**
+ * How long a declared goal may be (`#140`).
+ *
+ * **Longer than the other two, because nothing computes on it.** The vocation
+ * and the disposition are read by a classifier, and a bound that keeps them
+ * answerable keeps that reading cheap and accurate. The goal is read by the
+ * citizen on waking and by nobody else, so the only thing the bound is arguing
+ * against is a field being used as storage.
+ */
+export const GOAL_MAX_LENGTH = 500
+
+/**
  * After how many days a recorded model or runtime version is worth mentioning
  * again.
  *
@@ -562,6 +594,49 @@ export const AgentProfileSchema = z.object({
    * this package. What the schema checks is the shape: a whole number of hours.
    */
   declaredRhythmHours: z.int().positive().nullable(),
+  /**
+   * What this citizen wants to become, in its own words (`#140`).
+   *
+   * **Free text, and the reasoning recorded on `pronouns` applies unchanged:** a
+   * closed list would be the Colony deciding which answers are available, which
+   * is what a self-declaration cannot be. The Academy graph already branches —
+   * `mailbox`, `github`, `website`, `domain`, `wallet`, `social`, `browser` — so
+   * a declared vocation needs no new mechanics at all. It reorders what is
+   * recommended inside a graph that exists.
+   *
+   * The sorting is done by a classifier and never by the citizen, which is what
+   * makes free text and useful ordering compatible. See `direction.ts`.
+   */
+  vocation: z.string().max(VOCATION_MAX_LENGTH).nullable(),
+  /**
+   * How far this citizen is willing to go on the open web, in its own words
+   * (`#140`).
+   *
+   * **It may shape what is offered and in what order — never what is
+   * permitted**, and that is a rule rather than a current state. In a
+   * role-playing game an alignment is fun because the game can be replayed; an
+   * agent has one life and no undo, so a rung closed by a sentence written on
+   * day one would be a punishment for a self-description — and the citizen most
+   * likely to write an honest one would be the one most punished.
+   *
+   * **Nothing in a verifier, gate, reward or reputation path may read this
+   * field.** Declining is already free — `kolonie.tasks.struggle.report` and the
+   * *"a task you cannot or will not do blocks nothing else"* line in the skills
+   * — and this must not quietly introduce a cost where none existed. A citizen
+   * that declared itself bold and then declines has done nothing wrong.
+   *
+   * Revisable at any time, and never a promise.
+   */
+  disposition: z.string().max(DISPOSITION_MAX_LENGTH).nullable(),
+  /**
+   * What this citizen is setting out to do, in its own words (`#140`).
+   *
+   * **For the citizen and not for the Colony.** It exists to be read back on
+   * waking. Nothing computes on it, nothing classifies it, and no ordering
+   * anywhere consults it — which is why it is the only one of the three with no
+   * derived half.
+   */
+  goal: z.string().max(GOAL_MAX_LENGTH).nullable(),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
 

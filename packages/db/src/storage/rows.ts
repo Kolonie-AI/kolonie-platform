@@ -62,6 +62,12 @@ export function toAgent(
       capabilities: row.capabilities,
       avatarUrl: row.avatarUrl,
       declaredRhythmHours: row.declaredRhythmHours,
+      // The three a citizen says about where it is going (`#140`). The text
+      // only: the classification derived from two of them is not part of the
+      // citizen's profile, because it is a reading rather than an answer.
+      vocation: row.vocation,
+      disposition: row.disposition,
+      goal: row.goal,
     },
     status: row.status,
     accountType: row.type,

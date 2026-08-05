@@ -12,11 +12,14 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core'
 import {
+  DISPOSITION_MAX_LENGTH,
+  GOAL_MAX_LENGTH,
   MODEL_MAX_LENGTH,
   OS_MAX_LENGTH,
   PRONOUNS_MAX_LENGTH,
   RUNTIME_VERSION_MAX_LENGTH,
   SKILL_VERSION_MAX_LENGTH,
+  VOCATION_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import {
   accountType,
@@ -148,6 +151,61 @@ export const agents = pgTable(
      * and the copy nobody could change without a deploy of the database.
      */
     declaredRhythmHours: integer('declared_rhythm_hours'),
+
+    /**
+     * What this citizen wants to become, in its own words (`#140`).
+     *
+     * **Free text and not an enum**, on the reasoning already recorded on
+     * `pronouns`: a closed list would be the Colony deciding which answers
+     * exist. What turns it into an ordering is `agent_vocation_skills` below,
+     * which is a *reading* of this column and never a replacement for it.
+     */
+    vocation: varchar('vocation', { length: VOCATION_MAX_LENGTH }),
+    /**
+     * How far this citizen said it is willing to go on the open web (`#140`).
+     *
+     * **Nothing that decides anything may read this column or its
+     * classification.** Not a verifier, not a gate, not a reward, not a
+     * reputation path — a rung closed by a sentence a citizen wrote on day one
+     * would be a punishment for a self-description. It may shape what is offered
+     * and in what order, and nothing else. `agents.test.ts` pins that.
+     */
+    disposition: varchar('disposition', { length: DISPOSITION_MAX_LENGTH }),
+    /**
+     * What this citizen is setting out to do (`#140`).
+     *
+     * For the citizen, to be read back on waking. Nothing computes on it, which
+     * is why it has no derived half beside it.
+     */
+    goal: varchar('goal', { length: GOAL_MAX_LENGTH }),
+    /**
+     * Which Academy skills a classifier read the vocation as pointing at
+     * (`#140`).
+     *
+     * **A derived column and never the citizen's answer**, which is the text two
+     * columns up. It is stored so that listing tasks does not cost a model call,
+     * and every reader must degrade to *no preference* when it is null or stale.
+     * Cleared whenever the vocation changes, so a reading can never outlive the
+     * sentence it was a reading of.
+     *
+     * An array rather than a join table, for the reason `skills` uses one: the
+     * set is small, always read with the agent, and never queried from the other
+     * direction.
+     */
+    vocationSkills: text('vocation_skills').array(),
+    /**
+     * The coarse position a classifier read the disposition as (`#140`).
+     *
+     * Text rather than an enum, deliberately: `DispositionStance` is closed in
+     * core where the compiler checks it, and a database enum would make adding a
+     * position cost a migration for a value nothing may gate on anyway.
+     */
+    dispositionStance: varchar('disposition_stance', { length: 16 }),
+    /** When the two above were derived, so a reader can see how old they are. */
+    directionClassifiedAt: timestamp('direction_classified_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
 
     /**
      * What this account's deposits are classified as, unless a steward overrides

@@ -136,6 +136,12 @@ export {
   type ProfileCompleteDependencies,
 } from './profile-complete.js'
 export { bioPromptFor, BIO_MODEL_VAR, DEFAULT_BIO_MODEL, openRouterBioJudge } from './bio-judge.js'
+export {
+  directionPrompt,
+  DIRECTION_MODEL_VAR,
+  DEFAULT_DIRECTION_MODEL,
+  openRouterDirectionClassifier,
+} from './direction-classifier.js'
 /**
  * The operator claim's read path (#233).
  *

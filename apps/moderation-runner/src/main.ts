@@ -5,6 +5,8 @@ import {
   databaseUrlFromEnv,
   detectProviderChange,
   failReportOnRedLine,
+  unclassifiedDirections,
+  writeDirectionClassification,
   pendingAnswerModerations,
   unmoderatedQuestReports,
   recordQuestReportModeration,
@@ -33,6 +35,8 @@ import type { QuestReportModerationStore } from './quest-reports.js'
 import { createLog, type TaskId } from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
+import { openRouterDirectionClassifier, DIRECTION_MODEL_VAR } from '@kolonie-ai/verifiers'
+import type { DirectionStore } from './directions.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
 /**
@@ -186,6 +190,30 @@ const questReportStore: QuestReportModerationStore = {
   refuse: (input) => recordQuestReportModeration(db, { ...input, decision: 'rejected' }),
 }
 
+/**
+ * Reading what citizens said they want to become (`#140`).
+ *
+ * **Fifth pass in the same process, and the one that costs the least to lose.**
+ * The classifier is built from the same key every other model call here uses;
+ * without one it answers `null` for every citizen and the pass defers everybody
+ * forever, which is exactly the right behaviour — an unclassified citizen has no
+ * declared preference, and a listing with no preference is the one the Colony
+ * served before any of this existed.
+ *
+ * `DirectionStore` takes the stance as a plain string, because what the runner
+ * has is whatever the classifier answered; narrowing it to the closed set is
+ * `writeDirectionClassification`'s job and it does it against the vocabulary in
+ * core rather than against a copy here.
+ */
+const directionStore: DirectionStore = {
+  unclassified: (limit) => unclassifiedDirections(db, limit),
+  write: (agentId, reading) =>
+    writeDirectionClassification(db, agentId, {
+      skills: reading.skills,
+      stance: reading.stance as never,
+    }),
+}
+
 const runner = startRunner(
   {
     store,
@@ -195,6 +223,14 @@ const runner = startRunner(
     quests: { store: questStore, model, log },
     answers: { store: answerStore, model, log },
     questReports: { store: questReportStore, model, log },
+    directions: {
+      directions: directionStore,
+      classifier: openRouterDirectionClassifier(
+        process.env[OPENROUTER_API_KEY_VAR],
+        process.env[DIRECTION_MODEL_VAR],
+      ),
+      log,
+    },
   },
   { pollIntervalMs: POLL_INTERVAL_MS },
 )

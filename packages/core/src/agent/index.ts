@@ -1,4 +1,5 @@
 export * from './agent.js'
+export * from './direction.js'
 export * from './autonomy.js'
 export * from './contact.js'
 export * from './activity.js'

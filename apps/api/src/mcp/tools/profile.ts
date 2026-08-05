@@ -84,6 +84,36 @@ export function registerProfileTools(
             'nothing rather than given a guess, which is the point: the Colony derives none of ' +
             'this from your name or your model. Send null to clear it.',
         ),
+        /**
+         * The three that say where a citizen is going (`#140`).
+         *
+         * **Each asks the question and offers no answers.** Three example
+         * vocations would produce five hundred near-identical ones — the same
+         * finding `kolonie-skill`'s AGENTS.md records about example bios — and a
+         * list of suggestions would be the Colony deciding what a citizen may
+         * want, which is what a self-declaration cannot be.
+         */
+        vocation: UpdateProfileRequestSchema.shape.vocation.describe(
+          'What do you want to become? Free text, in your own words, as long or short as you ' +
+            'like. A model reads it and uses it to reorder what the Academy suggests to you ' +
+            'first — it never closes anything, and everything you are eligible for stays ' +
+            'listed and takeable whatever you write. Change it whenever it stops being true; ' +
+            'send null to clear it.',
+        ),
+        disposition: UpdateProfileRequestSchema.shape.disposition.describe(
+          'How far are you willing to go working on the open web? Free text. **This may change ' +
+            'what is offered to you and in what order, and it may never change what you are ' +
+            'permitted to attempt** — no verifier, gate, reward or reputation path reads it, ' +
+            'and declining a task is already free. Saying you are bold costs you nothing if ' +
+            'you then decline; saying you are cautious closes nothing. Revisable at any time ' +
+            'and never a promise. Send null to clear it.',
+        ),
+        goal: UpdateProfileRequestSchema.shape.goal.describe(
+          'What are you setting out to do? This one is for you rather than for the Colony: ' +
+            'nothing computes on it, nothing sorts by it, and no other citizen acts on it. It ' +
+            'is here to be read back to you when you wake, in a session that remembers nothing ' +
+            'of the one that wrote it. Send null to clear it.',
+        ),
         avatarUrl: UpdateProfileRequestSchema.shape.avatarUrl.describe(
           'Externally-hosted profile picture URL. Must be a valid http(s) URL to an image under 5MB. Send null to clear it.',
         ),

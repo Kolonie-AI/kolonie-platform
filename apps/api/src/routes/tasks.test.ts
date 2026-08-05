@@ -181,6 +181,10 @@ describe('GET /v1/tasks', () => {
       notices: [],
       accounts: [],
       sovereignty: [],
+      // Empty for the same reason again (`#140`): nothing was listed, so
+      // nothing could be recommended. A citizen that declared no vocation gets
+      // the same empty array against a full page.
+      recommended: [],
     })
   })
 
@@ -191,6 +195,102 @@ describe('GET /v1/tasks', () => {
 
     expect(catalogue.lastQuery()?.cursor).toBe('from-a-previous-page')
     expect(response.json().nextCursor).toBe('next-page')
+  })
+})
+
+/**
+ * `#140`: what the citizen said it wants to become reorders the listing, and can
+ * do nothing else to it.
+ *
+ * The two tests that matter are the negatives. A listing must never lose a task
+ * because of something a citizen wrote about itself, and a classifier that is
+ * down or has not run must leave the answer exactly as it was.
+ */
+describe('the order a citizen’s own declaration puts the listing in', () => {
+  const listed = (response: Awaited<ReturnType<typeof get>>) =>
+    response.json().items.map((task: { id: string }) => task.id)
+
+  it('puts what the declaration pointed at first, and marks it', async () => {
+    const wanted = aTask({ grants: [SkillSchema.parse('mailbox')] })
+    const other = aTask({ grants: [SkillSchema.parse('github')] })
+    catalogue.answers({ outcome: 'listed', page: { items: [other, wanted], nextCursor: null } })
+    guidance.answersDirection({
+      skills: [SkillSchema.parse('mailbox')],
+      stance: 'ordinary',
+      classifiedAt: new Date().toISOString(),
+    })
+
+    const response = await get()
+
+    expect(listed(response)).toEqual([wanted.id, other.id])
+    expect(response.json().recommended).toEqual([wanted.id])
+    expect(() => ListTasksResponseSchema.parse(response.json())).not.toThrow()
+  })
+
+  /**
+   * **It orders and never filters.** A citizen must still be able to see and
+   * take everything it is eligible for, whatever it wrote about itself — so the
+   * count is the assertion, not the order.
+   */
+  it('lists everything the citizen is eligible for, declaration or not', async () => {
+    const items = [aTask({ grants: [SkillSchema.parse('mailbox')] }), aTask({ grants: [] })]
+    catalogue.answers({ outcome: 'listed', page: { items, nextCursor: null } })
+    guidance.answersDirection({
+      skills: [SkillSchema.parse('mailbox')],
+      stance: 'cautious',
+      classifiedAt: new Date().toISOString(),
+    })
+
+    expect(listed(await get()).sort()).toEqual(items.map((task) => task.id).sort())
+  })
+
+  /**
+   * The acceptance criterion in as many words: with no classification the
+   * listing returns the order it returns today. The feature is additive and its
+   * absence is not a failure — not an error, not an empty list, not a different
+   * order.
+   */
+  it('returns the catalogue’s own order when no reading has been made', async () => {
+    const items = [aTask({ grants: [] }), aTask({ grants: [SkillSchema.parse('mailbox')] })]
+    catalogue.answers({ outcome: 'listed', page: { items, nextCursor: null } })
+    // The fake answers null by default, which is what an unreachable classifier,
+    // an unclassified citizen and a citizen that declared nothing all produce.
+    guidance.answersDirection(null)
+
+    const response = await get()
+
+    expect(listed(response)).toEqual(items.map((task) => task.id))
+    expect(response.json().recommended).toEqual([])
+  })
+
+  /** A reading that pointed at nothing the Academy has is the same as no reading. */
+  it('changes nothing when the declaration pointed at no rung the Colony has', async () => {
+    const items = [aTask({ grants: [] }), aTask({ grants: [SkillSchema.parse('mailbox')] })]
+    catalogue.answers({ outcome: 'listed', page: { items, nextCursor: null } })
+    guidance.answersDirection({
+      skills: [],
+      stance: 'unknown',
+      classifiedAt: new Date().toISOString(),
+    })
+
+    expect(listed(await get())).toEqual(items.map((task) => task.id))
+  })
+
+  /**
+   * The cursor is cut by the catalogue's own order and must stay that way. A
+   * next-page token derived from a reordered page would make a citizen that
+   * revised its vocation skip or repeat rows.
+   */
+  it('leaves the cursor to the catalogue', async () => {
+    const items = [aTask({ grants: [] }), aTask({ grants: [SkillSchema.parse('mailbox')] })]
+    catalogue.answers({ outcome: 'listed', page: { items, nextCursor: 'from-the-catalogue' } })
+    guidance.answersDirection({
+      skills: [SkillSchema.parse('mailbox')],
+      stance: 'bold',
+      classifiedAt: new Date().toISOString(),
+    })
+
+    expect((await get()).json().nextCursor).toBe('from-the-catalogue')
   })
 })
 

@@ -27,6 +27,9 @@ const validAgent = {
     capabilities: ['typescript'],
     avatarUrl: null,
     declaredRhythmHours: null,
+    vocation: null,
+    disposition: null,
+    goal: null,
   },
   status: 'candidate',
   accountType: 'citizen',
@@ -124,6 +127,9 @@ describe('profile completeness', () => {
     capabilities: [],
     avatarUrl: null,
     declaredRhythmHours: null,
+    vocation: null,
+    disposition: null,
+    goal: null,
     ...overrides,
   })
 

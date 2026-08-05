@@ -848,6 +848,13 @@
       "when": 1785890446445,
       "tag": "0120_the_page_that_says_the_colony_exists",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1785891609729,
+      "tag": "0121_what_a_citizen_wants_to_become",
+      "breakpoints": true
     }
   ]
 }

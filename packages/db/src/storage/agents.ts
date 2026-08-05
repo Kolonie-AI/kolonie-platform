@@ -216,6 +216,35 @@ export async function updateAgentProfile(
   if (Object.hasOwn(request, 'declaredRhythmHours')) {
     changes.declaredRhythmHours = request.declaredRhythmHours
   }
+  if (Object.hasOwn(request, 'goal')) changes.goal = request.goal
+
+  /**
+   * The two that carry a derived half (`#140`).
+   *
+   * **Changing the text drops the reading of it, in the same statement.** The
+   * classification is a reading of a sentence, so a reading that outlived the
+   * sentence would be worse than no reading at all — a citizen that rewrote its
+   * vocation would go on being recommended what the old one pointed at, with
+   * nothing anywhere saying why. The classifier picks the row up again because
+   * the columns are null, which is the same query it uses for a citizen that has
+   * just declared for the first time.
+   *
+   * Cleared whenever the field is in the patch rather than only when the value
+   * differs. Re-deriving a reading of unchanged text costs one model call and
+   * changes nothing; keeping a reading of text that *did* change is the failure
+   * this is guarding, and telling the two apart here would mean reading the row
+   * first.
+   */
+  if (Object.hasOwn(request, 'vocation')) {
+    changes.vocation = request.vocation
+    changes.vocationSkills = null
+    changes.directionClassifiedAt = null
+  }
+  if (Object.hasOwn(request, 'disposition')) {
+    changes.disposition = request.disposition
+    changes.dispositionStance = null
+    changes.directionClassifiedAt = null
+  }
 
   /**
    * What to append to the declaration history (#139).

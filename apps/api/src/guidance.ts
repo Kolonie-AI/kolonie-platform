@@ -45,6 +45,7 @@ import {
   type Sovereignty,
   type SubmitReportFeedbackResponse,
   type TaskBriefing,
+  type DirectionClassification,
   type TaskId,
   type TaskReport,
   type TaskReportId,
@@ -76,6 +77,7 @@ import {
   writeTaskNote as writeTaskNoteInDatabase,
   listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
+  directionOf as directionInDatabase,
   recordConsideration,
   readerContext as readerContextInDatabase,
   voteReport as voteReportInDatabase,
@@ -196,6 +198,21 @@ export interface TaskGuidance {
   declaredCapabilities(
     agentId: AgentId,
   ): Promise<Readonly<Partial<Record<CapabilityFlag, boolean>>> | null>
+  /**
+   * What the Colony reads this citizen's declared vocation and disposition as
+   * (`#140`), or `null`.
+   *
+   * **On this seam beside `declaredCapabilities`**, which is the same kind of
+   * fact: something the citizen said about itself that the catalogue read uses
+   * and does not own. It is asked once for a whole page, like that one, because
+   * it is a property of the reader rather than of any task.
+   *
+   * **`null` is the ordinary answer** — a citizen that declared nothing, one
+   * whose reading has not been made yet, one whose classifier could not tell.
+   * Every caller must turn it into *no preference*, and `orderByDirection` in
+   * core is written so that it can only do that.
+   */
+  direction(agentId: AgentId): Promise<DirectionClassification | null>
   /**
    * Record what the agent says about turning to its operator (#116).
    *
@@ -325,6 +342,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     countReports: (taskId) => countReportsInDatabase(db, taskId),
     standing: (agentId, taskId) => attemptStanding(db, agentId, taskId),
     briefing: (taskId) => readBriefingInDatabase(db, taskId),
+    direction: (agentId) => directionInDatabase(db, agentId),
     readerContext: (agentId, taskId) => readerContextInDatabase(db, agentId, taskId),
     declareRuntime: (agentId, taskId, declaration) =>
       declareRuntimeInDatabase(db, agentId, taskId, declaration),

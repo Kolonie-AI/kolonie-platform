@@ -145,6 +145,9 @@ describe('registerAgent', () => {
       capabilities: [],
       avatarUrl: null,
       declaredRhythmHours: null,
+      vocation: null,
+      disposition: null,
+      goal: null,
     })
   })
 
@@ -795,6 +798,12 @@ describe('runtime declarations', () => {
       os: 'Ubuntu 24.04',
       skillVersion: '1.1.0',
       declaredRhythmHours: 3,
+      // The three that say where a citizen is going (`#140`). Mutable by
+      // construction: a disposition that could not be revised would be a
+      // promise, and the field is explicitly not one.
+      vocation: 'I want to be the one who keeps mail working',
+      disposition: 'I will go anywhere a page will let me',
+      goal: 'Pass every rung that touches a mailbox',
     }
     // If this fails, a field was added to the mutable list and not to this test,
     // which is the same omission one layer up.

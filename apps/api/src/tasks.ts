@@ -2,6 +2,8 @@ import {
   AcademyGraphNodeSchema,
   blockingNotice,
   ListTasksRequestSchema,
+  orderByDirection,
+  recommendedFor,
   TaskIdSchema,
   type AcademyGraphResponse,
   type AgentId,
@@ -279,16 +281,40 @@ export async function listTasks(
     }
   }
 
-  const [notices, byType, accounts] = await Promise.all([
+  const [notices, byType, accounts, direction] = await Promise.all([
     noticesFor(result.page.items, agentId, catalogue, guidance),
     guidance.sovereigntyByType(),
     accountsFor(result.page.items, agentId, register),
+    /**
+     * What the Colony reads this citizen's declared vocation as (`#140`).
+     *
+     * In the fan-out rather than before it, because nothing else waits on it —
+     * and `null` on any failure, which `orderByDirection` turns into the order
+     * the catalogue gave. A classifier that is down changes the listing by
+     * exactly nothing.
+     */
+    guidance.direction(agentId),
   ])
+
+  /**
+   * Reordered here rather than in the query, and that is not a preference
+   * (`#140`).
+   *
+   * The catalogue pages by keyset on `(recommended_order, created_at, id)`, so
+   * a different `order by` would be a different cursor — and a citizen that
+   * revised its vocation mid-page would silently skip or repeat rows. Reordering
+   * the page after it has been cut leaves the cursor exactly what it was: the
+   * Colony's order decides which tasks are on this page, and the citizen's
+   * declaration decides the order they are read in.
+   */
+  const items = orderByDirection(result.page.items, direction)
 
   return {
     outcome: 'listed',
     response: {
       ...result.page,
+      items: [...items],
+      recommended: [...recommendedFor(result.page.items, direction)] as TaskId[],
       notices,
       accounts,
       /**
@@ -298,7 +324,7 @@ export async function listTasks(
        * different facts and both are worth a sentence; an omission would collapse
        * them into each other and into *the Colony did not say*.
        */
-      sovereignty: result.page.items.map((task) => ({
+      sovereignty: items.map((task) => ({
         taskId: task.id,
         sovereignty: byType.get(task.type) ?? { passes: 0, unattended: 0, share: null },
       })),

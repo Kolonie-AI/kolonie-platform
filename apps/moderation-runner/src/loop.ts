@@ -25,6 +25,7 @@ import { findDuplicate } from './dedup.js'
 import { questTick, type QuestLoopDependencies } from './quests.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
+import { directionTick, type DirectionLoopDependencies } from './directions.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
 import type { Model } from './llm.js'
@@ -99,6 +100,16 @@ export interface LoopDependencies {
    * check and a deploy step.
    */
   readonly questReports?: QuestReportLoopDependencies
+  /**
+   * Reading what citizens said they want to become (`#140`).
+   *
+   * A fifth pass on the same poll, for the reason the fourth one is here — and
+   * with one property none of the others have: **nothing anywhere waits on its
+   * result.** A citizen with no reading has no declared preference, and a
+   * listing with no preference is the listing the Colony served before this
+   * existed.
+   */
+  readonly directions?: DirectionLoopDependencies
 }
 
 /** The tripwire as this loop needs it: detect, then respond. */
@@ -401,8 +412,38 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await moderateQuests(deps, batchSize, log)
   await scrubAnswers(deps, batchSize, log)
   await scrubQuestReports(deps, batchSize, log)
+  await readDirections(deps, batchSize, log)
 
   return outcome
+}
+
+/**
+ * Read the declarations waiting on a classifier, on the same poll (`#140`).
+ *
+ * Its failure is swallowed like every other extra pass's, and here the argument
+ * is the strongest it gets: what a failed pass costs is an ordering, and the
+ * fallback ordering is the Colony's own. Nothing a citizen can see breaks.
+ */
+async function readDirections(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
+  const { directions } = deps
+  if (directions === undefined) return
+
+  try {
+    const outcome = await directionTick({ log, ...directions }, batchSize)
+    if (outcome.classified > 0 || outcome.deferred > 0) {
+      log.info(
+        `directions: ${outcome.classified} of ${outcome.read} read, ${outcome.deferred} deferred`,
+        {
+          event: 'direction.pass.done',
+          read: outcome.read,
+          classified: outcome.classified,
+          deferred: outcome.deferred,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the direction pass failed', error, { event: 'direction.pass.failed' })
+  }
 }
 
 /**

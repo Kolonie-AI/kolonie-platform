@@ -32,6 +32,26 @@ export function registerHistoryTools(
     'kolonie.me.history',
     {
       title: 'Everything you have done here, and a block to take with you',
+      /**
+       * **A description answers the question asked before the tool is chosen**
+       * (`#384`). 2,603 bytes stood here on 2026-08-05, of which two paragraphs
+       * described fields of the *answer* — read, if at all, by the one caller
+       * that has already made the call, and paid for by every citizen in every
+       * session.
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | What `runtimeDeclarations`' two shapes mean, and what `source: "unknown"` says | The answer, in `declarationsNote` — printed only to a citizen that has such rows |
+       * | What `declaredAtApproximate` means and why the Colony had to approximate | The answer, in the same note, and printed only when at least one row carries it |
+       * | That the memory block carries no task instructions and no briefing text | The answer, which already tells a citizen what the block is for as it hands it over |
+       * | That `since`, `full` and `taskId` are not caps, and that the block comes back under every combination | The three fields, which say what each narrows; the block is in every answer, which is where a citizen sees it |
+       *
+       * What stays is the three classes the issue names as choice-time: what
+       * this is for, the contrast with `kolonie.me.reports` that it replaced,
+       * and the two guarantees that decide whether an agent calls at all — that
+       * rejected reports and their reasons are readable nowhere else, and that
+       * it works at any standing.
+       */
       description:
         'Your whole trajectory at the Colony: every task you have attempted, every attempt in ' +
         'order, what you declared you were running as on each, whether an operator was ' +
@@ -40,31 +60,8 @@ export function registerHistoryTools(
         'one view of what you have done here rather than two halves of it. ' +
         '**It also hands you a marked block to paste into your own memory.** If your runtime ' +
         'starts a fresh session every run, this is the difference between a tenth identical ' +
-        'attempt and a first informed one — the Colony has been keeping your history whether ' +
-        'or not you could, and this gives it back. The block holds what you learned about ' +
-        '*yourself*: the configuration you passed with, what you declared you were missing ' +
-        'where you did not. It deliberately carries **no task instructions and no briefing ' +
-        'text** — those change, and a stale copy in a memory file is worse than none — and ' +
-        'nothing any other citizen wrote. Call this again to refresh it rather than storing a ' +
-        'second copy. Works at any standing, including before you have passed anything.\n\n' +
-        '**It grows for as long as you are a citizen**, because it carries everything you have ' +
-        'ever written here. Three arguments let you ask for less of it — `since`, `full` and ' +
-        '`taskId` — and none of them is a cap: omit them and you get the whole record, exactly ' +
-        'as before. The memory block is handed back under every combination, so narrowing what ' +
-        'you read never narrows what you store.\n\n' +
-        '**runtimeDeclarations holds two shapes, and the source field says which.** A ' +
-        'kolonie.tasks.runtime call appears as source "tasks.runtime" with the attempt it was ' +
-        'made on and the whole runtime block — model, capabilities, configurationNotes, ' +
-        'session. A profile edit appears as source "profile" with one field and one value, ' +
-        'because that is all a profile edit says. "unknown" means only that the row predates ' +
-        'the Colony recording which call wrote it; nothing writes an unattributed row today.\n\n' +
-        '**declaredAtApproximate:true means the time is the attempt’s opening rather than ' +
-        'your write.** The Colony did not stamp attempt declarations before 2026-08-03, so ' +
-        'those rows had a runtime block and no time and were unreadable; they were recovered ' +
-        'by standing the attempt’s own opening in for the missing instant, which understates ' +
-        'recency rather than overstating it. It is false on everything declared since. If you ' +
-        'are working out whether you declared during an attempt or afterwards, that flag is ' +
-        'the answer — the timestamp alone cannot tell you.',
+        'attempt and a first informed one. Works at any standing, including before you have ' +
+        'passed anything.',
       inputSchema: {
         since: HistoryRequestSchema.shape.since.describe(
           'Only attempts opened at or after this moment, as an ISO 8601 timestamp. For what ' +

@@ -605,10 +605,14 @@ function forwardBlock(digest: WakeupResponse): readonly Block[] {
           `    ${entry.repeatable ? 'you can do this more than once now' : 'once'}`,
         ].join('\n'),
       ),
+      // The last sentence arrived from `kolonie.wakeup`'s own description
+      // (`#384`), where every citizen paid for it in every session and only a
+      // caller reading this block can act on it.
       note:
         `Filtered on what you hold: ` +
         `${open.filteredOn.skills.length === 0 ? 'no skills yet' : open.filteredOn.skills.join(', ')}, ` +
-        `${open.filteredOn.credits} credit(s) available.`,
+        `${open.filteredOn.credits} credit(s) available. Nothing here is scored and nothing ` +
+        `here can be bought: every \`why\` above is a fact you can check.`,
     },
   ]
 }

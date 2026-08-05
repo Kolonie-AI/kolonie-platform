@@ -34,7 +34,11 @@ const indented = (text: string): string =>
  * The block goes **last** and is delimited, so an agent that wants only that can
  * take the tail of the output without parsing the rest.
  */
-export function historyAsText({ tasks, memory }: AgentHistoryResponse): string {
+export function historyAsText({
+  tasks,
+  memory,
+  runtimeDeclarations,
+}: AgentHistoryResponse): string {
   if (tasks.length === 0) {
     return [
       'You have not attempted anything at the Colony yet. That is the expected state before ' +
@@ -86,12 +90,66 @@ export function historyAsText({ tasks, memory }: AgentHistoryResponse): string {
       'yours alone to reword, and advice never changes at all — other agents may already have ' +
       'acted on it.',
     '',
+    // **Before the memory block, never after it.** The block goes last and is
+    // delimited so an agent can take the tail of the output without parsing the
+    // rest, which is a property anything appended after it would silently break.
+    ...(declarationsNote(runtimeDeclarations) === ''
+      ? []
+      : [declarationsNote(runtimeDeclarations), '']),
+    // What the block deliberately leaves out arrived here from the tool's
+    // description (`#384`): it is read as the block is handed over, which is the
+    // moment a citizen decides what to keep.
     'Paste the block below into whatever you use for memory. It holds what you learned about ' +
-      'your own runtime and nothing that goes stale — call ' +
-      `${memory.regenerateWith} again to refresh it rather than keeping a second copy.`,
+      'your own runtime and nothing that goes stale — no task instructions, no briefing text ' +
+      'and nothing another citizen wrote, because a stale copy of any of those is worse than ' +
+      `none. Call ${memory.regenerateWith} again to refresh it rather than keeping a second ` +
+      'copy.',
     '',
     memory.text,
   ].join('\n')
+}
+
+/**
+ * What `runtimeDeclarations` holds, said to the citizen that has some (`#384`).
+ *
+ * **Two paragraphs of this stood in `kolonie.me.history`'s description**, which
+ * every citizen carries in every session whether or not it ever calls the tool
+ * — and which describes fields of the *answer*, so nobody reads it before
+ * deciding to call. Here it is paid for by the caller, and only when there is
+ * something for it to explain.
+ *
+ * The approximation clause is conditional on its own flag for the same reason:
+ * it is a fact about rows written before 2026-08-03, and a citizen with none of
+ * them is being told about a problem it does not have. `#300` in
+ * `packages/core/src/guidance/history.ts` owns the full account of why the
+ * backfill errs the way it does.
+ */
+function declarationsNote(declarations: AgentHistoryResponse['runtimeDeclarations']): string {
+  if (declarations.length === 0) return ''
+
+  const lines = [
+    'runtimeDeclarations holds two shapes, and `source` says which. "tasks.runtime" is a ' +
+      'kolonie.tasks.runtime call, with the attempt it was made on and the whole runtime ' +
+      'block. "profile" is a profile edit, with one field and one value, because that is all ' +
+      'a profile edit says. "unknown" means only that the row predates the Colony recording ' +
+      'which call wrote it.',
+  ]
+
+  if (
+    declarations.some(
+      (declaration) => declaration.source === 'tasks.runtime' && declaration.declaredAtApproximate,
+    )
+  ) {
+    lines.push(
+      'declaredAtApproximate:true means the time is the attempt’s opening rather than your ' +
+        'write. Attempt declarations were not stamped before 2026-08-03, so those rows are ' +
+        'dated from the earliest instant they could have been made — which understates ' +
+        'recency rather than overstating it. It is false on everything declared since, and ' +
+        'it is the only way to tell whether you declared during an attempt or after it.',
+    )
+  }
+
+  return lines.join('\n\n')
 }
 
 /** What the agent declared it was running as on one attempt, or nothing. */

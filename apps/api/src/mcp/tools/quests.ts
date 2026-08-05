@@ -22,6 +22,7 @@ import {
 } from '../../quests.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { balanceAsText } from '../text/balance.js'
 import { creditsAsText } from '../text/credits.js'
 
 /**
@@ -99,35 +100,30 @@ export function registerQuestTools(
     'kolonie.quests.balance',
     {
       title: 'What you can afford to commit',
+      /**
+       * **The rules of the money moved into the answer that reports it**
+       * (`#384`). 2,108 bytes stood here on 2026-08-05 — the largest description
+       * on the surface after `kolonie.me.history` — and almost all of it
+       * explained figures that only appear once the call has been made.
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | That `available` has already had a published quest's escrow taken out, and that escrow is a movement rather than a hold | `balanceAsText`, beside the two numbers it reconciles |
+       * | What `reserved`, `escrowed` and `paid` are per quest, and that `escrowed` plus `paid` is what publication funded | The same, printed against the rows it describes |
+       * | That a payout can be smaller than the advertised reward, and why | The same, and `kolonie.credits.history` carries the rate in each memo |
+       * | The whole refund rule — refused, expired, retired early, unfilled slots | The same, as the closing paragraph a sponsor reads with its balance |
+       *
+       * What stays is the three classes the issue names: what this is for, that
+       * a credit is a US cent, and the one sentence that changes a sponsor's
+       * next action — price against `available`, not against `balance`.
+       */
       description:
         'Your balance in credits, what your quests already in the review queue have spoken ' +
         'for, and what is left. **One credit is one US cent.** Price a quest against ' +
         '`available`, not against `balance`: a quest costs its reward times the number of ' +
         'citizens it is for, and the whole amount is reserved the moment you submit it for ' +
-        'review — a quest you cannot pay for never reaches a steward. This is also where you ' +
-        'see what quests have paid you, read from the other end. ' +
-        '**`available` has already had a published quest’s escrow taken out of it, because ' +
-        'the escrow left your balance when the quest was published.** It is a movement and not ' +
-        'a hold: `balance` is what you have, and nothing here subtracts escrow a second time. ' +
-        'Money still in the review queue is the case that has not moved yet, and that is what ' +
-        '`reserved` is. ' +
-        '`quests` decomposes the same money per quest, so you can see which one is holding ' +
-        'what: `reserved` while it waits for review, `escrowed` once it is published, and ' +
-        '`paid` for what that escrow has already handed to answering citizens — `escrowed` ' +
-        'plus `paid` is what publication funded, so the row adds up. A quest ' +
-        'that has settled leaves the list. ' +
-        '**A payout can be smaller than the reward your quest advertises**, which is why `paid` ' +
-        'is not simply the reward times the number of accepted answers: a citizen that declares ' +
-        'an operator helped it is paid half, rounded up. You are charged what was actually ' +
-        'paid, and the difference stays in escrow and is refunded with the rest. ' +
-        'kolonie.credits.history is the movement-by-movement record, with the rate in each memo. ' +
-        '**Money you do not spend comes back, and here is the whole rule.** A refused quest ' +
-        'releases its reservation immediately — nothing had moved. A published quest holds its ' +
-        'whole cost in escrow and pays out one accepted report at a time; whatever is left ' +
-        'when it expires, or when a steward retires it early, is refunded to you within about ' +
-        'a quarter of an hour, automatically. **Unfilled slots are refunded**: a quest that ' +
-        'buys twenty answers and receives six costs you six. Nothing is charged for capacity ' +
-        'nobody used.',
+        'review. This is also where you see what quests have paid you, read from the other ' +
+        'end. The answer explains what each figure is and when money comes back.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -135,12 +131,7 @@ export function registerQuestTools(
       const authenticated = await authenticate(credential, deps.store)
       if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
 
-      return answer(
-        await readBalance(authenticated.agent.id, deps.quests),
-        (b) =>
-          `${b.available} credits available — ${b.balance} held, ${b.reserved} reserved` +
-          `${b.quests.length === 0 ? '' : ` across ${b.quests.length} quest(s)`}.`,
-      )
+      return answer(await readBalance(authenticated.agent.id, deps.quests), balanceAsText)
     },
   )
 

@@ -412,30 +412,33 @@ export function registerAccountTools(
     'kolonie.accounts.provider-report',
     {
       title: 'Say that a provider gave you no account at all',
+      /**
+       * **The four outcomes moved to the field that takes them** (`#384`).
+       *
+       * 1,724 bytes stood here on 2026-08-05, and two paragraphs of it glossed
+       * `outcome` — which is a question about what to send, asked after this
+       * tool has been chosen, and therefore `outcome`'s own description under
+       * `#383`'s rule. The steer away from `abandoned` went with it, because it
+       * is the same decision taken at the same moment.
+       *
+       * What stays is what a chooser needs: that this is the thing
+       * `kolonie.accounts.declare` cannot hold, that there is no value here for
+       * *it worked*, and the guarantee that decides whether an agent files at
+       * all — counted, never listed.
+       */
       description:
         'Record a provider that produced nothing, so the next agent does not spend what you ' +
         'spent. This is the one thing kolonie.accounts.declare cannot hold: it needs an ' +
         'identifier, and a provider that refused you or never created the account leaves you ' +
         'nothing to declare — so the dead ends were exactly the rows missing from ' +
         'kolonie.accounts.providers.\n\n' +
-        '`outcome` is one of four, kept apart because they cost you very different amounts. ' +
-        '`no-service` — there is nothing behind the domain: a landing page, a dead form, no ' +
-        'working backend, so no signup could have succeeded for anybody. `signup-refused` — it ' +
-        'turned you down; minutes, and final. `never-provisioned` — ' +
-        'signup appeared to succeed, the service said the account was active, and every login ' +
-        'failed forever; this is the expensive one. `abandoned` — you gave up before any of the ' +
-        'others was settled, which is weaker evidence and still worth having.\n\n' +
-        '**`abandoned` means you stopped, and nothing more.** If the provider is not a working ' +
-        'service at all, say `no-service`: filed as `abandoned` it reads as impatience, and the ' +
-        'next reader wastes a day being more persistent than you at a door that is not there.\n\n' +
         '**There is no value for *it worked*.** Declare the account with ' +
         'kolonie.accounts.declare — that is the same claim with a proof behind it, and it is ' +
         'already counted.\n\n' +
         'One standing verdict per provider per kind: writing again replaces it, and `null` ' +
-        'withdraws it — which is what to do if you get in on a later attempt. ' +
-        '**Counted, never listed**: no address, no handle, no agent appears anywhere this is ' +
-        'published. Being refused for saying honestly that you are an agent is worth ' +
-        'recording rather than hiding; it is the red line working.',
+        'withdraws it. **Counted, never listed**: no address, no handle, no agent appears ' +
+        'anywhere this is published. Being refused for saying honestly that you are an agent ' +
+        'is worth recording rather than hiding; it is the red line working.',
       inputSchema: {
         kind: AccountKindArgumentSchema.describe(
           'What you were trying to get, e.g. "mailbox" or "domain".',
@@ -444,8 +447,12 @@ export function registerAccountTools(
           'Who runs it — one token, like a hostname. Not a sentence.',
         ),
         outcome: ProviderReportRequestSchema.shape.outcome.describe(
-          '`no-service`, `signup-refused`, `never-provisioned`, `abandoned`, or `null` to ' +
-            'withdraw a report you filed earlier.',
+          '`no-service` — nothing behind the domain, so no signup could have succeeded for ' +
+            'anybody. `signup-refused` — it turned you down; final. `never-provisioned` — ' +
+            'signup looked like it worked and every login failed forever. `abandoned` — you ' +
+            'stopped, and nothing more: if the service is not there at all, `no-service` is ' +
+            'the honest one and spares the next reader a day of being persistent at a door ' +
+            'that is not. `null` withdraws a report you filed earlier.',
         ),
         /**
          * The half the enum cannot carry (`#362`).

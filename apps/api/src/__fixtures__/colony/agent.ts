@@ -32,6 +32,7 @@ import type { SolanaChallenges } from '../../solana.js'
 import type { StandingHintSource } from '../../hints.js'
 import type { WakeupSource } from '../../wakeup.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
+import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
 import { fakeStandingHints } from '../hints.js'
 import { fakeWakeup } from '../wakeup.js'
 
@@ -88,6 +89,8 @@ export interface FakeAgent {
    * around. A test that *is* about it overrides this.
    */
   readonly prospects: (agentId: AgentId) => Promise<OpenProspects>
+  /** A citizen's private notes against the skills it holds (`#348`). */
+  readonly skillNotes: FakeSkillNotes
   /** The one line a citizen did not ask for (`#231`). */
   readonly hints: StandingHintSource
   /** The range a declared rhythm has to fall inside (#142). */
@@ -227,6 +230,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       failedAttempts: 0,
       unreported: null,
     }),
+    skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),
     /**
      * The default range (#142). A test that cares about the bounds passes its

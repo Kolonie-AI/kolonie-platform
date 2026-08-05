@@ -32,7 +32,15 @@ import {
   httpClaimReader,
   httpContributionReader,
 } from '@kolonie-ai/verifiers'
-import { githubAccountOf, openProspects, recordObstructedAttemptForTaskType } from '@kolonie-ai/db'
+import {
+  githubAccountOf,
+  holdsSkillNow,
+  openProspects,
+  readSkillNote,
+  readSkillNotes,
+  recordObstructedAttemptForTaskType,
+  writeSkillNote,
+} from '@kolonie-ai/db'
 import { databaseWebServerChallenges } from './web-server.js'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
@@ -267,6 +275,13 @@ const app = buildApp({
   catalogue: databaseCatalogue(db),
   // The state facts behind the wake-up's non-rung suggestions (`#347`).
   prospects: (agentId) => openProspects(db, agentId),
+  // A citizen's private notes against the skills it holds (`#348`).
+  skillNotes: {
+    holds: (agentId, skill) => holdsSkillNow(db, agentId, skill),
+    write: (agentId, skill, note) => writeSkillNote(db, agentId, skill, note),
+    read: (agentId, skill) => readSkillNote(db, agentId, skill),
+    readMany: (agentId, skills) => readSkillNotes(db, agentId, skills),
+  },
   quests: databaseQuests(db, questAuditPolicy()),
   /**
    * The way in (`#219`).

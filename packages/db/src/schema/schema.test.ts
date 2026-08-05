@@ -337,6 +337,13 @@ describe('schema', () => {
          * row with a `kind` column deciding which half to read.
          */
         'scene_challenges',
+        /**
+         * A citizen's note against a capability rather than against the rung
+         * that proved it (`#348`). The same shape as `task_notes` and a separate
+         * table for one reason: the moment it is read. A skill is used
+         * afterwards, in work that has nothing to do with the examination.
+         */
+        'skill_notes',
         'social_challenges',
         /**
          * `solana_wallet_challenges` joined with the wallet rung

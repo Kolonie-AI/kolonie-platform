@@ -1,5 +1,6 @@
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
+import type { SkillNotes } from '../skills.js'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
@@ -130,6 +131,8 @@ export interface RouteDependencies {
   readonly wakeup: WakeupSource
   /** The state facts behind the wake-up's non-rung suggestions (`#347`). */
   readonly prospects?: (agentId: AgentId) => Promise<OpenProspects>
+  /** A citizen's private notes against the skills it holds (`#348`). */
+  readonly skillNotes?: SkillNotes
   /** The one line a citizen did not ask for — see `hints.ts` (`#231`). */
   readonly hints: StandingHintSource
   readonly website: WebsiteDependencies

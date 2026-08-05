@@ -6,6 +6,7 @@ import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { StandingHintSource } from './hints.js'
+import type { SkillNotes } from './skills.js'
 import type { WakeupSource } from './wakeup.js'
 import type { DomainDependencies } from './domain.js'
 import type { EmailDependencies } from './email.js'
@@ -104,6 +105,8 @@ export interface AppDependencies {
    * than the one `hints` needs.
    */
   readonly prospects?: (agentId: AgentId) => Promise<OpenProspects>
+  /** A citizen's private notes against the skills it holds — see `skills.ts` (`#348`). */
+  readonly skillNotes?: SkillNotes
   /** The one line a citizen did not ask for — see `hints.ts` (`#231`). */
   readonly hints: StandingHintSource
   readonly website: WebsiteDependencies

@@ -106,6 +106,11 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.tasks.set-aside',
   'kolonie.tasks.note',
+  /**
+   * A note against a capability rather than against the rung that proved it
+   * (`#348`). Registered by `tools/skills.ts`, beside the tasks note it mirrors.
+   */
+  'kolonie.skills.note',
   'kolonie.tasks.take-up',
   'kolonie.tasks.report.feedback',
   /**

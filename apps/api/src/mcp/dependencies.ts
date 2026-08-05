@@ -4,6 +4,7 @@ import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
@@ -98,6 +99,14 @@ export interface McpDependencies {
    * than the one `hints` needs.
    */
   readonly prospects?: (agentId: AgentId) => Promise<OpenProspects>
+  /**
+   * A citizen's private notes against the skills it holds (`#348`).
+   *
+   * Optional on the same terms as `prospects`: a deployment that cannot serve
+   * them registers no tool, which is a surface that is honestly absent rather
+   * than one that answers wrongly.
+   */
+  readonly skillNotes?: SkillNotes
   /**
    * The one line a citizen did not ask for — see `hints.ts` (`#231`).
    *

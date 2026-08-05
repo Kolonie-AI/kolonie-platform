@@ -215,7 +215,13 @@ describe('the migrations', () => {
     // recording that the Colony read its proved page and found a link back. The
     // only badge criterion that cannot be a query over rows the Colony already
     // holds, because it needs somebody to fetch a page.
-    expect(afterFirst.tables).toBe('65')
+    //
+    // **Sixty-six** (`#348`): `skill_notes`, one row per citizen per skill.
+    // `agent_skills` recorded that something was awarded and nothing else, and
+    // what a citizen works out about *using* a capability had nowhere to live —
+    // a task note belongs to the rung, and the rung is not what a quest asks
+    // about months later.
+    expect(afterFirst.tables).toBe('66')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -13,6 +13,7 @@ import { fakeDomain } from './domain.js'
 import { fakeEmail } from './email.js'
 import { fakeErasureDesk } from './erasure.js'
 import { fakeContributions, fakeGithub } from './github.js'
+import { fakeSkillNotes } from './skill-notes.js'
 import { fakeStandingHints } from './hints.js'
 import { fakeWakeup } from './wakeup.js'
 import { fakeGuidance } from './guidance.js'
@@ -129,6 +130,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
       failedAttempts: 0,
       unreported: null,
     }),
+    skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),

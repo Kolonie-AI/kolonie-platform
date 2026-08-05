@@ -5,6 +5,7 @@ import type {
   StandingHintCode,
   StandingHintFinding,
 } from '@kolonie-ai/core'
+import { generalHintText } from '@kolonie-ai/core'
 import { dueStandingHint, type Database } from '@kolonie-ai/db'
 
 /**
@@ -132,6 +133,24 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'do not need to have attempted anything to file one. It costs you nothing: no reward, no ' +
     'reputation, no standing. Nobody else can tell the Colony this, and you will not be asked ' +
     'about this task again.',
+  /**
+   * **The text is looked up by code, never carried in the finding** (`#355`).
+   *
+   * Every other sentence here interpolates its `subject`; this one uses it as a
+   * key. That is the whole of why a reworded sentence does not become a sentence
+   * said twice: `general_hints_sent` records the code, and the wording is free
+   * to change underneath it.
+   *
+   * An unknown code renders the corpus's own fallback rather than throwing. A
+   * hint is instrumentation on the authenticated path — `dueStandingHint` is
+   * deliberately silent about its own failures for the same reason — and a
+   * citizen whose line could not be rendered is one that was not told
+   * something, never one whose work failed.
+   */
+  general: (subject) =>
+    (subject === null ? undefined : generalHintText(subject)) ??
+    'The Colony has something general to say and could not find the words for it. ' +
+      'kolonie.support.open, if you would like to say so.',
 }
 
 /** Render a finding as the pair a citizen is handed. */

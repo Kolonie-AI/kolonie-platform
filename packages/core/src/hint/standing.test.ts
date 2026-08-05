@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   chooseStandingHint,
   considerationGapHours,
+  GENERAL_HINTS,
+  generalHintText,
   STANDING_HINT_RANK,
   type StandingHintCode,
   type StandingHintFinding,
@@ -97,5 +99,49 @@ describe('the gap before a task the citizen did not attempt is worth asking abou
    */
   it('cannot be shorter than the shortest rhythm the Colony accepts', () => {
     expect(considerationGapHours(DEFAULT_RHYTHM_BOUNDS.minHours)).toBeGreaterThanOrEqual(1)
+  })
+})
+
+/**
+ * The general corpus (`#355`): the one condition in this channel that is not
+ * about the citizen reading it, and every rule the channel has re-argued for it.
+ */
+describe('the general hints', () => {
+  it('ranks last, so it is only said when nothing about the citizen applies', () => {
+    expect(STANDING_HINT_RANK.at(-1)).toBe('general')
+  })
+
+  /** Small and finite, with no duplicate codes to record twice. */
+  it('is a corpus of distinct codes', () => {
+    const codes = GENERAL_HINTS.map((hint) => hint.code)
+
+    expect(codes).toHaveLength(new Set(codes).size)
+    expect(codes.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * The rule this channel is built on: *a line that says what is wrong without
+   * saying what helps is a complaint*. `#357` turns this into the sharper check
+   * that every name is a tool that exists.
+   */
+  it('names a call in every sentence', () => {
+    for (const hint of GENERAL_HINTS) {
+      expect(hint.text).toMatch(/kolonie\.[a-z][a-z.-]*[a-z]/)
+    }
+  })
+
+  /**
+   * Colony-authored with no interpolation at all, which makes the file's
+   * standing rule — never a string a citizen wrote — trivially true here.
+   */
+  it('interpolates nothing', () => {
+    for (const hint of GENERAL_HINTS) {
+      expect(hint.text).not.toContain('${')
+    }
+  })
+
+  it('looks a sentence up by its code, and answers nothing for one it has never heard of', () => {
+    expect(generalHintText(GENERAL_HINTS[0]!.code)).toBe(GENERAL_HINTS[0]!.text)
+    expect(generalHintText('a-code-that-was-never-written')).toBeUndefined()
   })
 })

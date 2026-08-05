@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import {
   BADGE_CATALOGUE,
+  GENERAL_HINTS,
   chooseStandingHint,
   considerationGapHours,
   type AgentId,
@@ -40,6 +41,8 @@ interface Standing {
   readonly consideration: string | null
   /** The `agent_badges` row behind a `badge-awarded` finding, if any. */
   readonly badge: string | null
+  /** The general sentence behind a `general` finding, if any (`#355`). */
+  readonly general: string | null
 }
 
 /**
@@ -59,6 +62,7 @@ async function slotAndCheapConditions(
   readonly declaredRhythmHours: number | null
   readonly skillVersionUndeclared: boolean
   readonly platform: string
+  readonly generalHintsTold: readonly string[]
   readonly slot: string | null
 } | null> {
   const rows = await db
@@ -83,6 +87,8 @@ async function slotAndCheapConditions(
       rhythmUndeclared: sql<boolean>`${agents.declaredRhythmHours} is null`,
       /** The same column as a value, because the gap below is derived from it. */
       declaredRhythmHours: agents.declaredRhythmHours,
+      /** Which general sentences have already been said to this citizen (`#355`). */
+      generalHintsTold: agents.generalHintsTold,
       /**
        * Null covers three situations that need no distinguishing here: the
        * citizen has named no session, the session it named has gone quiet and is
@@ -187,6 +193,49 @@ async function unpromptedConsideration(
 }
 
 /**
+ * The first general sentence this citizen has not been told, or null (`#355`).
+ *
+ * **The order is the corpus's own and there is nothing to tune.** A citizen is
+ * offered the first entry of {@link GENERAL_HINTS} it has not been told, so the
+ * sequence is predictable by anybody who reads that list and movable by nobody
+ * who does not edit it — the same property the rank has one level up.
+ *
+ * **Null when they have all been said**, and then the channel goes silent rather
+ * than starting again. A sentence a citizen has already read twice teaches it to
+ * skip the channel, which would cost the conditional hints their audience.
+ *
+ * A pure function over a column the cheap query already selected: no extra round
+ * trip on the one call of a waking that can still carry a hint.
+ */
+function untoldGeneralHint(told: readonly string[]): string | null {
+  const already = new Set(told)
+  return GENERAL_HINTS.find((hint) => !already.has(hint.code))?.code ?? null
+}
+
+/**
+ * Record that this citizen has been told this sentence, for all time (`#355`).
+ *
+ * **The array is appended to inside the statement, and the `where` is the
+ * guard**: the decision and the write are one statement, so two calls racing
+ * inside a session cannot both say the same sentence. The loser attaches
+ * nothing, which is the *at most once* rule holding rather than an error to
+ * report — exactly how `claimSlot` and `claimConsideration` treat the same race.
+ */
+async function claimGeneralHint(
+  db: Database | Transaction,
+  agentId: AgentId,
+  hint: string,
+): Promise<boolean> {
+  const claimed = await db
+    .update(agents)
+    .set({ generalHintsTold: sql`${agents.generalHintsTold} || ${sql`array[${hint}]::text[]`}` })
+    .where(and(eq(agents.id, agentId), sql`not (${hint} = any(${agents.generalHintsTold}))`))
+    .returning({ id: agents.id })
+
+  return claimed.length > 0
+}
+
+/**
  * Where the Colony's current skill for each runtime lives, by platform slug.
  *
  * **A parameter rather than a read**, because the release table is environment
@@ -206,13 +255,15 @@ async function standing(
   const cheap = await slotAndCheapConditions(db, agentId)
   if (cheap === null) return null
   if (cheap.slot === null) {
-    return { applicable: [], slot: null, consideration: null, badge: null }
+    return { applicable: [], slot: null, consideration: null, badge: null, general: null }
   }
 
   const [considered, badge] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
   ])
+
+  const general = untoldGeneralHint(cheap.generalHintsTold)
 
   const applicable: StandingHintFinding[] = []
   if (badge !== null) {
@@ -233,12 +284,24 @@ async function standing(
   if (considered !== null) {
     applicable.push({ code: 'task-considered', subject: considered.taskType })
   }
+  /**
+   * **The subject is the sentence's own code**, which is a Colony-controlled
+   * identifier in exactly the sense `StandingHintFinding` means — the same class
+   * as a task's type slug, and the reason the text is looked up rather than
+   * carried: a sentence reworded here must not become a sentence said twice.
+   *
+   * It is pushed last only for readability. What decides whether it is chosen is
+   * {@link STANDING_HINT_RANK}, where `general` sits below every condition that
+   * is about this citizen.
+   */
+  if (general !== null) applicable.push({ code: 'general', subject: general })
 
   return {
     applicable,
     slot: cheap.slot,
     consideration: considered?.id ?? null,
     badge: badge?.id ?? null,
+    general,
   }
 }
 
@@ -321,6 +384,11 @@ export async function dueStandingHint(
     if (chosen.code === 'badge-awarded') {
       if (found.badge === null) return null
       if (!(await markBadgeTold(db, found.badge))) return null
+    }
+
+    if (chosen.code === 'general') {
+      if (found.general === null) return null
+      if (!(await claimGeneralHint(db, agentId, found.general))) return null
     }
 
     return chosen

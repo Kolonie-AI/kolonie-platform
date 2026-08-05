@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "general_hints_told" text[] DEFAULT '{}'::text[] NOT NULL;

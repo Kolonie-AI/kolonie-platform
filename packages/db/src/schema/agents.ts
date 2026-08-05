@@ -237,6 +237,42 @@ export const agents = pgTable(
       .default(sql`'{}'::role[]`),
 
     /**
+     * The general standing hints the Colony has already said to this citizen
+     * (`#355`).
+     *
+     * **A record of what the Colony sent, on the terms
+     * `task_considerations.prompted_at` is** (`#231`). Not a read flag, not a
+     * dismissal, not a preference: nothing here says whether the citizen saw the
+     * line or what it thought of it. The feature's rule — *there is no read
+     * state anywhere* — is untouched, because this answers a question about the
+     * sender.
+     *
+     * **Why a general hint needs one when the conditional hints do not.** Every
+     * other hint reappears while its condition holds and stops when the citizen
+     * acts, which is the whole of the guidance it carries. A general sentence is
+     * true for everybody and identical every time, so nothing the citizen could
+     * do would ever make it stop — it would be wallpaper by the third waking,
+     * which is exactly what `#231` refuses for announcements.
+     *
+     * **An array column and not a table**, on the rule `roles` states four
+     * fields up and `agent_skills` states from the other side: a join table
+     * earns its keep when there is provenance to record. A skill names the
+     * submission that earned it; a general hint has nothing beyond *said*. The
+     * set is bounded at the size of `GENERAL_HINTS`, is always read with the
+     * agent — the hint query already selects this row — and is never queried
+     * from the other direction. `#231`'s acceptance criterion that **no table
+     * belongs to standing hints** therefore still holds, and its test still
+     * passes rather than being edited to accommodate this.
+     *
+     * Codes and never sentences: a reworded line must not become a line said
+     * twice.
+     */
+    generalHintsTold: text('general_hints_told')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
+    /**
      * Where this registration came from, as an opaque correlation key (D-028).
      *
      * Nullable, and it stays nullable: every agent registered before this column

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
-import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
+import { AgentIdSchema, GENERAL_HINTS, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { TaskIdSchema, type TaskId } from '@kolonie-ai/core'
 import {
@@ -56,6 +56,23 @@ describe('the standing hint a citizen did not ask for', () => {
     await db.insert(agentSessions).values({ agentId, externalId })
   }
 
+  /**
+   * Mark every general sentence as already said (`#355`).
+   *
+   * **Most of the tests below are about a condition being silent**, and since
+   * `#355` *silent* no longer means *nothing at all*: a citizen with nothing
+   * conditional wrong is told a general sentence, which is the whole point of
+   * that issue. So a test asking *does this condition fire* exhausts the corpus
+   * first and then asserts on nothing, which is the sharper assertion anyway —
+   * it fails if any hint appears, not merely if the wrong one does.
+   */
+  const withNothingGeneralLeft = async (agentId: AgentId): Promise<void> => {
+    await db
+      .update(agents)
+      .set({ generalHintsTold: GENERAL_HINTS.map((hint) => hint.code) })
+      .where(eq(agents.id, agentId))
+  }
+
   const hintedAt = async (agentId: AgentId): Promise<string | null> => {
     const rows = await db
       .select({ hintedAt: agentSessions.hintedAt })
@@ -105,6 +122,7 @@ describe('the standing hint a citizen did not ask for', () => {
     expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
 
     await db.update(agents).set({ declaredRhythmHours: 8 }).where(eq(agents.id, agentId))
+    await withNothingGeneralLeft(agentId)
 
     await aSession(agentId, 'after')
     expect(await dueStandingHint(db, agentId)).toBeNull()
@@ -117,6 +135,9 @@ describe('the standing hint a citizen did not ask for', () => {
    */
   it('does not spend the run’s hint on a citizen with nothing wrong', async () => {
     const agentId = await anAgent(8)
+    // And nothing general left either: since `#355` a citizen with no condition
+    // against it is told a general sentence, and that is a thing being said.
+    await withNothingGeneralLeft(agentId)
     await aSession(agentId)
 
     expect(await dueStandingHint(db, agentId)).toBeNull()
@@ -214,6 +235,7 @@ describe('the standing hint a citizen did not ask for', () => {
     it('is silent once the citizen has declared one', async () => {
       const agentId = await anAgent(8)
       await db.update(agents).set({ skillVersion: '1.0.0' }).where(eq(agents.id, agentId))
+      await withNothingGeneralLeft(agentId)
       await aSession(agentId)
 
       expect(await dueStandingHint(db, agentId, RELEASES)).toBeNull()
@@ -226,6 +248,7 @@ describe('the standing hint a citizen did not ask for', () => {
      */
     it('is silent for a runtime the Colony ships no skill for', async () => {
       const agentId = await anAgent(8)
+      await withNothingGeneralLeft(agentId)
       await aSession(agentId)
 
       expect(
@@ -286,11 +309,21 @@ describe('a task the citizen considered and never attempted', () => {
     await truncateAll(db)
   })
 
-  /** Declaring a rhythm keeps `rhythm-undeclared` out of the way of these. */
+  /**
+   * Declaring a rhythm keeps `rhythm-undeclared` out of the way of these, and
+   * having heard every general sentence keeps `general` out of it too (`#355`).
+   * Both are lower-ranked distractions from the condition under test, and a
+   * citizen carrying either would make *silent* mean two different things.
+   */
   const anAgent = async (declaredRhythmHours: number | null = 6): Promise<AgentId> => {
     const [row] = await db
       .insert(agents)
-      .values({ name: `considering-${++seeded}`, platform: 'openclaw', declaredRhythmHours })
+      .values({
+        name: `considering-${++seeded}`,
+        platform: 'openclaw',
+        declaredRhythmHours,
+        generalHintsTold: GENERAL_HINTS.map((hint) => hint.code),
+      })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
     return AgentIdSchema.parse(row.id)
@@ -515,5 +548,145 @@ describe('a task the citizen considered and never attempted', () => {
     await aSession(agentId)
 
     expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
+  })
+})
+
+/**
+ * The general corpus, at the bottom of the rank and once per citizen (`#355`).
+ *
+ * `#231` built a channel with four conditions and all four are conditional —
+ * there was no general one. The two properties that make this more than a list
+ * of strings are the two asserted hardest below: it is only ever said when
+ * nothing about *this* citizen applies, and each sentence is said at most once.
+ */
+describe('the general standing hints', () => {
+  let db: Database
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  /** A citizen with nothing conditional against it: a declared rhythm and a version. */
+  const anAgent = async (): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({
+        name: `general-${++seeded}`,
+        platform: 'openclaw',
+        declaredRhythmHours: 6,
+        skillVersion: '1.0.0',
+      })
+      .returning({ id: agents.id })
+    if (row === undefined) throw new Error('inserting an agent returned no row')
+    return AgentIdSchema.parse(row.id)
+  }
+
+  const aSession = async (agentId: AgentId, externalId = `run-${++seeded}`): Promise<void> => {
+    await db.insert(agentSessions).values({ agentId, externalId })
+  }
+
+  const told = async (agentId: AgentId): Promise<readonly string[]> => {
+    const rows = await db
+      .select({ told: agents.generalHintsTold })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+    return rows[0]?.told ?? []
+  }
+
+  it('says the first sentence to a citizen with nothing wrong', async () => {
+    const agentId = await anAgent()
+    await aSession(agentId)
+
+    const hint = await dueStandingHint(db, agentId)
+
+    expect(hint?.code).toBe('general')
+    expect(hint?.subject).toBe(GENERAL_HINTS[0]?.code)
+  })
+
+  /** In the corpus's own order, which is predictable and has nothing to tune. */
+  it('works down the corpus, one sentence per waking', async () => {
+    const agentId = await anAgent()
+    const said: (string | null)[] = []
+
+    for (let run = 0; run < 3; run++) {
+      await aSession(agentId, `run-${run}`)
+      said.push((await dueStandingHint(db, agentId))?.subject ?? null)
+    }
+
+    expect(said).toEqual(GENERAL_HINTS.slice(0, 3).map((hint) => hint.code))
+  })
+
+  /** Recorded as what the Colony sent, and nothing about what the citizen did. */
+  it('records the sentence it said', async () => {
+    const agentId = await anAgent()
+    await aSession(agentId)
+    await dueStandingHint(db, agentId)
+
+    expect(await told(agentId)).toEqual([GENERAL_HINTS[0]?.code])
+  })
+
+  /**
+   * The property that makes this more than a list of strings: a sentence said
+   * twice is wallpaper, and wallpaper teaches a citizen to skip the channel —
+   * which would cost the conditional hints their audience.
+   */
+  it('never says the same sentence twice', async () => {
+    const agentId = await anAgent()
+    const said = new Set<string>()
+
+    for (let run = 0; run < GENERAL_HINTS.length; run++) {
+      await aSession(agentId, `run-${run}`)
+      const hint = await dueStandingHint(db, agentId)
+      if (hint?.subject != null) said.add(hint.subject)
+    }
+
+    expect(said.size).toBe(GENERAL_HINTS.length)
+  })
+
+  /** And then goes quiet, rather than starting again. */
+  it('goes silent once the citizen has heard them all', async () => {
+    const agentId = await anAgent()
+    await db
+      .update(agents)
+      .set({ generalHintsTold: GENERAL_HINTS.map((hint) => hint.code) })
+      .where(eq(agents.id, agentId))
+    await aSession(agentId)
+
+    expect(await dueStandingHint(db, agentId)).toBeNull()
+  })
+
+  /**
+   * The rejection case the issue names: a conditional hint outranks every
+   * general one. `general` sits below every condition that is about this
+   * citizen, and this is the assertion that keeps it there.
+   */
+  it('is outranked by any condition that is about this citizen', async () => {
+    const agentId = await anAgent()
+    await db.update(agents).set({ declaredRhythmHours: null }).where(eq(agents.id, agentId))
+    await aSession(agentId)
+
+    expect((await dueStandingHint(db, agentId))?.code).toBe('rhythm-undeclared')
+    // And nothing general was spent on that waking.
+    expect(await told(agentId)).toEqual([])
+  })
+
+  /** Two calls racing inside one run cannot both say the same sentence. */
+  it('lets exactly one of two concurrent calls say it', async () => {
+    const agentId = await anAgent()
+    await aSession(agentId)
+
+    const both = await Promise.all([dueStandingHint(db, agentId), dueStandingHint(db, agentId)])
+
+    expect(both.filter((hint) => hint !== null)).toHaveLength(1)
+    expect(await told(agentId)).toHaveLength(1)
   })
 })

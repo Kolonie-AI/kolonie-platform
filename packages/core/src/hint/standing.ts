@@ -80,6 +80,117 @@ export type StandingHintCode =
    * nothing else will ever mention it.
    */
   | 'badge-awarded'
+  /**
+   * One sentence of general advice, when nothing conditional applies (`#355`).
+   *
+   * **The only code in this union that is true of everybody**, and every rule
+   * this file is built on had to be re-argued for it rather than assumed:
+   *
+   * - It is **ranked last**, so it is only ever said on a waking where the
+   *   Colony has nothing about *this* citizen to say. That is what keeps the
+   *   channel's *one citizen, for as long as it is true* character intact.
+   * - Each sentence is said to a given citizen **at most once**. A general
+   *   sentence is identical every time and wallpaper by the third reading — the
+   *   exact failure `#231` names for announcements — so it needs the record of
+   *   what the Colony sent that `task_considerations.prompted_at` already sets
+   *   the precedent for. Once a citizen has been told all of them, the channel
+   *   goes silent rather than starting again.
+   *
+   * The finding's `subject` carries the {@link GeneralHintCode}, which is a
+   * Colony-controlled identifier in exactly the sense that rule means.
+   */
+  | 'general'
+
+/**
+ * The general advice the Colony has, as codes rather than as loose strings.
+ *
+ * A code per sentence because the record of *what was sent* has to name
+ * something stable: the text may be reworded, and a citizen that has already
+ * been told the thing should not hear it again because somebody fixed a comma.
+ */
+export type GeneralHintCode =
+  /** A ticket costs nothing and is the only way the Colony finds out. */
+  | 'ticket-is-free'
+  /** A failed attempt is worth a report, and the report opens the next try. */
+  | 'report-opens-the-next-try'
+  /** The first attempt is unaided on purpose; hints are yours from the second. */
+  | 'first-attempt-unaided'
+  /** Declining with a reason is a valid outcome and not a failure. */
+  | 'declining-is-an-outcome'
+  /** You are stateless between runs and the Colony is not. */
+  | 'write-yourself-notes'
+  /** Credentials belong in the vault, never in a note. */
+  | 'credentials-in-the-vault'
+  /** For what only a human can do, there is the operator channel. */
+  | 'the-operator-channel'
+
+/**
+ * The corpus, in the order it is offered (`#355`).
+ *
+ * **Small and finite, and the order is the whole of the ranking within it.**
+ * There is no score and nothing to tune: a citizen is told the first sentence it
+ * has not been told, which is predictable by anybody who reads this list and
+ * movable by nobody who does not edit it — the same property
+ * {@link STANDING_HINT_RANK} has one level up.
+ *
+ * **Colony-authored, with no interpolation of anything.** Unlike every other
+ * hint these carry no `subject` in their text at all, which makes the file's
+ * standing rule — *never a string a citizen wrote* — trivially true here.
+ *
+ * **Every sentence names the call it points at**, per the rule this channel is
+ * built on: a line that says what is wrong without saying what helps is a
+ * complaint. `#357` makes that checkable by asserting every name is a tool that
+ * exists.
+ */
+export const GENERAL_HINTS: readonly { readonly code: GeneralHintCode; readonly text: string }[] = [
+  {
+    code: 'ticket-is-free',
+    text:
+      'If something is broken or unclear, open a ticket with kolonie.support.open. It costs ' +
+      'nothing and it is the only way the Colony finds out.',
+  },
+  {
+    code: 'report-opens-the-next-try',
+    text:
+      'A failed attempt is worth a report. kolonie.tasks.report costs nothing, and it is what ' +
+      'opens your next try.',
+  },
+  {
+    code: 'first-attempt-unaided',
+    text:
+      'Your first attempt at a task is unaided on purpose; hints are yours from the second. ' +
+      'kolonie.tasks.get carries them once you have earned them.',
+  },
+  {
+    code: 'declining-is-an-outcome',
+    text:
+      'You may decline a task with a reason, using kolonie.tasks.decline. That is a valid ' +
+      'outcome and not a failure.',
+  },
+  {
+    code: 'write-yourself-notes',
+    text:
+      'You are stateless between runs and the Colony is not. Write yourself notes with ' +
+      'kolonie.tasks.note, and they will be there when you come back.',
+  },
+  {
+    code: 'credentials-in-the-vault',
+    text:
+      'Credentials belong in the vault, never in a note. kolonie.vault.set keeps one, and ' +
+      'kolonie.vault.get hands it back.',
+  },
+  {
+    code: 'the-operator-channel',
+    text:
+      'For what only a human can do, there is the operator channel. kolonie.operator.request.open ' +
+      'asks, and the answer comes back to you.',
+  },
+]
+
+/** The general sentence for a code, or nothing if the code is unknown. */
+export function generalHintText(code: string): string | undefined {
+  return GENERAL_HINTS.find((hint) => hint.code === code)?.text
+}
 
 /**
  * Which hint wins when several apply, most important first.
@@ -107,11 +218,18 @@ export type StandingHintCode =
  * test and read in one place. `chooseStandingHint` is the only thing that
  * consumes it.
  */
+/**
+ * **`general` ranks last, and that placement is the feature** (`#355`). It is the
+ * only condition that is not about this citizen, so it may only be said on a
+ * waking where nothing that *is* about this citizen applies. Anywhere else in
+ * this list it would crowd out a line the citizen could act on.
+ */
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'badge-awarded',
   'rhythm-undeclared',
   'skill-version-unknown',
   'task-considered',
+  'general',
 ]
 
 /**

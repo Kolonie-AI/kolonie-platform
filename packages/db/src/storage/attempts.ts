@@ -13,6 +13,8 @@ import {
   type CapabilityFlag,
   type DeclareOperator,
   type DeclareRuntime,
+  type InboundRoute,
+  type InboundRouteDivide,
   type Sovereignty,
   type RuntimeChange,
   type AttemptOpener,
@@ -44,6 +46,7 @@ export function toTaskAttempt(row: AttemptRow): TaskAttempt {
       capabilities: row.capabilities,
       configurationNotes: row.configurationNotes,
       session: row.session,
+      inboundRoute: row.inboundRoute,
     },
     openedAt: toTimestamp(row.openedAt),
     closedAt: row.closedAt === null ? null : toTimestamp(row.closedAt),
@@ -621,6 +624,10 @@ export async function declareRuntime(
         ? {}
         : { configurationNotes: declaration.configurationNotes }),
       ...(declaration.session === undefined ? {} : { session: declaration.session }),
+      // Left as it was when absent, exactly like the three above: a citizen that
+      // declares its model on one call and its route on the next has declared
+      // both, and the honest thing must not be the lossy thing (#393).
+      ...(declaration.inboundRoute === undefined ? {} : { inboundRoute: declaration.inboundRoute }),
       capabilities: merged,
       // Stamped whenever the call lands, not only when something changed: what
       // *stale* has to mean is *you have not told us in a while*, which is the
@@ -1046,6 +1053,92 @@ export async function capabilityDivides(
   }
 
   return divides
+}
+
+/**
+ * How the inbound route divided this rung's outcomes (#393).
+ *
+ * **The same population, window and exclusions as {@link capabilityDivides}** —
+ * closed citizen attempts on the task *type*, inside the recency window, with
+ * test accounts filtered out by `agents.type = 'citizen'`. It is written beside
+ * that function rather than folded into it because the axis is not a flag: the
+ * declaration is a five-member set and the two sides are derived from it, so a
+ * shared loop would have to take a *how to split* argument and would then be one
+ * function with two meanings.
+ *
+ * `operator-machine` and `unknown` land on neither side. Counting either would
+ * manufacture a claim the citizen did not make.
+ */
+export async function inboundRouteDivide(
+  db: Database,
+  taskId: TaskId,
+): Promise<InboundRouteDivide> {
+  const empty = { withRoute: 0, withRoutePassed: 0, withoutRoute: 0, withoutRoutePassed: 0 }
+
+  const [task] = await db
+    .select({ type: tasks.type })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1)
+
+  if (task === undefined) return empty
+
+  const cutoff = await currentEvidenceCutoff(db, taskId)
+  const recent =
+    cutoff === null
+      ? sql`true`
+      : sql`(${taskAttempts.closedAt} >= ${cutoff} or ${taskAttempts.closedAt} >= now() - make_interval(days => ${CURRENT_CLAIM_DAYS}))`
+
+  const reachable = sql`${taskAttempts.inboundRoute} in ('public-address', 'tunnel')`
+  const unreachable = sql`${taskAttempts.inboundRoute} = 'none'`
+
+  const [row] = await db
+    .select({
+      withRoute: sql<number>`(count(*) filter (where ${reachable}))::int`,
+      withRoutePassed: sql<number>`(count(*) filter (where ${reachable} and ${taskAttempts.outcome} = 'passed'))::int`,
+      withoutRoute: sql<number>`(count(*) filter (where ${unreachable}))::int`,
+      withoutRoutePassed: sql<number>`(count(*) filter (where ${unreachable} and ${taskAttempts.outcome} = 'passed'))::int`,
+    })
+    .from(taskAttempts)
+    .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+    .where(and(eq(tasks.type, task.type), eq(agents.type, 'citizen'), CITIZEN_CLOSED, recent))
+
+  if (row === undefined) return empty
+
+  return {
+    withRoute: Number(row.withRoute),
+    withRoutePassed: Number(row.withRoutePassed),
+    withoutRoute: Number(row.withoutRoute),
+    withoutRoutePassed: Number(row.withoutRoutePassed),
+  }
+}
+
+/**
+ * What this citizen most recently said about being reachable, anywhere in the
+ * Colony (#393).
+ *
+ * **Across tasks, for the reason {@link latestDeclaredCapabilities} is**: a
+ * citizen that declared a tunnel while climbing one rung has declared it, and
+ * the rung it has not yet touched is exactly the one the sentence is for.
+ *
+ * Only the newest, unlike the capability merge above — there is one axis here
+ * rather than five independent flags, so *newest wins* is the whole rule and
+ * there is nothing to merge. `null` where it has never said, which reads as
+ * `unknown`.
+ */
+export async function latestDeclaredInboundRoute(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<InboundRoute | null> {
+  const [row] = await db
+    .select({ inboundRoute: taskAttempts.inboundRoute })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.agentId, agentId), isNotNull(taskAttempts.inboundRoute)))
+    .orderBy(desc(taskAttempts.openedAt))
+    .limit(1)
+
+  return (row?.inboundRoute as InboundRoute | undefined) ?? null
 }
 
 /**

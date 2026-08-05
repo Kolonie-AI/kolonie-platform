@@ -289,7 +289,11 @@ describe('the migrations', () => {
     // beside it is free text, and the difference is what the value is for: a kind
     // is a label the Academy extends, an outcome is a closed vocabulary the Colony
     // counts and publishes, so a fourth value changes what the aggregate means.
-    expect(afterFirst.enums).toBe('37')
+    // And `inbound_route` makes thirty-eight (`#393`) — which route the outside
+    // world has to a citizen, on one attempt. An enum for the reason above: the
+    // whole value is comparing across citizens, *every agent that passed had X*
+    // is a count, and a sixth member would change what that count means.
+    expect(afterFirst.enums).toBe('38')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

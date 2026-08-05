@@ -43,6 +43,7 @@ import {
   declareRuntime,
   declineAttempt,
   latestDeclaredCapabilities,
+  latestDeclaredInboundRoute,
   operatorBreak,
   sovereigntyFor,
   runtimeChanges,
@@ -950,6 +951,112 @@ describe('task attempts', () => {
         'A vision route configured through a local proxy.',
       )
       expect(declaration?.runtime.session).toBe('headless, no shell on this run')
+    })
+
+    /**
+     * The axis the web rungs turn on, and nothing recorded it until `#393`.
+     */
+    describe('the inbound route', () => {
+      it('records what was declared and reads it back', async () => {
+        const agentId = await anAgent()
+        const taskId = await aTask()
+        await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+        await declareRuntime(db, agentId, taskId, { inboundRoute: 'tunnel' })
+
+        const [declaration] = await attemptRuntimeDeclarationsOf(db, agentId)
+        expect(declaration?.runtime.inboundRoute).toBe('tunnel')
+        expect(await latestDeclaredInboundRoute(db, agentId)).toBe('tunnel')
+      })
+
+      /**
+       * **The rejection case**, and it is refused rather than dropped. A
+       * declaration silently discarded is one the citizen believes it made.
+       *
+       * At this layer the enum column is the refusal; the API boundary refuses
+       * first, with `INBOUND_ROUTES` named in `details`, and that is asserted in
+       * `apps/api`.
+       */
+      it('refuses a value outside the named set', async () => {
+        const agentId = await anAgent()
+        const taskId = await aTask()
+        await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+        await expect(
+          declareRuntime(db, agentId, taskId, {
+            inboundRoute: 'behind-the-sofa',
+          } as unknown as Parameters<typeof declareRuntime>[3]),
+        ).rejects.toThrow()
+      })
+
+      /**
+       * It cannot become a soft requirement. An attempt that declares nothing
+       * behaves exactly as it did before the field existed, and the column stays
+       * null — which reads as `unknown` and is an honest answer.
+       */
+      it('accepts a declaration that says nothing about it', async () => {
+        const agentId = await anAgent()
+        const taskId = await aTask()
+        await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+        expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toEqual({
+          outcome: 'recorded',
+          attachedTo: 'open',
+        })
+
+        const [declaration] = await attemptRuntimeDeclarationsOf(db, agentId)
+        expect(declaration?.runtime.inboundRoute).toBeNull()
+        expect(await latestDeclaredInboundRoute(db, agentId)).toBeNull()
+      })
+
+      /**
+       * **Both are kept**, which is the reason this sits on the attempt rather
+       * than on the profile: a citizen that sets up a tunnel that afternoon has
+       * written the Colony's most useful sentence without writing a sentence,
+       * and a field that overwrote itself would destroy it.
+       */
+      it('keeps both when a second attempt declares a different route', async () => {
+        const agentId = await anAgent()
+        const taskId = await aTask()
+        const first = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+        await declareRuntime(db, agentId, taskId, { inboundRoute: 'none' })
+        await closeAttempt(db, first.id, 'failed')
+        await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+        await declareRuntime(db, agentId, taskId, { inboundRoute: 'tunnel' })
+
+        const declarations = await attemptRuntimeDeclarationsOf(db, agentId)
+        expect(declarations.map((row) => row.runtime.inboundRoute)).toEqual(['tunnel', 'none'])
+        // Newest wins for the reader's own stance, and the older one is still there.
+        expect(await latestDeclaredInboundRoute(db, agentId)).toBe('tunnel')
+      })
+
+      /**
+       * **It gates nothing, and this is the test that says so rather than the
+       * review.** Not a verdict, not a skill, not a reward, not availability,
+       * not any ordering — D-067's rule about self-declarations, one axis over.
+       *
+       * Two citizens do the same thing and one of them declares. Everything the
+       * Colony decides about them has to be identical.
+       */
+      it('changes no gate, no listing and no outcome', async () => {
+        const taskId = await aTask()
+        const declaring = await anAgent()
+        const silent = await anAgent()
+
+        for (const holder of [declaring, silent]) {
+          await openAttempt(db, { agentId: holder, taskId, opener: 'challenge' })
+        }
+        await declareRuntime(db, declaring, taskId, { inboundRoute: 'none' })
+
+        expect(await gateFor(db, declaring, taskId)).toEqual(await gateFor(db, silent, taskId))
+
+        const listed = async (holder: AgentId) => {
+          const result = await listTasks(db, { agentId: holder, availableOnly: true, limit: 50 })
+          if (result.outcome !== 'listed') throw new Error(result.outcome)
+          return result.page.items.map((task) => task.id)
+        }
+        expect(await listed(declaring)).toEqual(await listed(silent))
+      })
     })
 
     /**

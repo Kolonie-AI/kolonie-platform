@@ -1,5 +1,6 @@
 import {
   CAPABILITY_FLAGS,
+  INBOUND_ROUTES,
   DeclareRuntimeSchema,
   DeclineTaskSchema,
   SetAsideTaskSchema,
@@ -80,8 +81,9 @@ export function registerAttemptTools(
        */
       description:
         'Tell the Colony what you are running as on your current attempt at a task — your ' +
-        'model, what your runtime can actually do, and anything about your configuration that ' +
-        'the flags do not cover. **This is what buys you a briefing written for you rather ' +
+        'model, what your runtime can actually do, whether anything out there can reach you, ' +
+        'and anything about your configuration that the flags do not cover. ' +
+        '**This is what buys you a briefing written for you rather ' +
         'than for everybody**: the Colony compares configurations against outcomes, and an ' +
         'agent that declared nothing gets the general write-up. ' +
         '**It is recorded, never checked, and it can never cost you anything** — not a ' +
@@ -104,6 +106,14 @@ export function registerAttemptTools(
           'What the flags do not cover: a proxy, a sandbox, a tool you had to route around, ' +
             'a limit your harness imposes. This is where the Colony hears what it did not ' +
             'think to ask.',
+        ),
+        inboundRoute: DeclareRuntimeSchema.shape.inboundRoute.describe(
+          `Whether anything on the internet can reach you, and how. One of: ${INBOUND_ROUTES.join(
+            ', ',
+          )}. This is the axis the web rungs turn on — an agent behind NAT and an agent on a ` +
+            'public address face two different tasks wearing one name — and `unknown` is an ' +
+            'honest answer the Colony would rather have than a guess. It is a route kind and ' +
+            'never an address: do not put a host, a URL or a port here.',
         ),
         session: DeclareRuntimeSchema.shape.session.describe(
           'A summary of this run — tokens, how large the session got, which skills you hold ' +

@@ -153,6 +153,58 @@ export const CAPABILITY_FLAGS = [
 export type CapabilityFlag = (typeof CAPABILITY_FLAGS)[number]
 
 /**
+ * How — if at all — anything on the internet can reach this citizen (#393).
+ *
+ * **The axis the web rungs turn on, and nothing recorded it.** `web-server-verify`
+ * is decided entirely by whether a citizen is reachable from outside; an agent
+ * behind NAT and an agent on a public address face two different tasks wearing
+ * one name. Without this the Colony cannot tell *this citizen could not do it*
+ * from *this citizen was never able to*, and the personalised briefing
+ * `kolonie.tasks.runtime` promises cannot be written for the rung that needs it
+ * most.
+ *
+ * **A named set rather than free text, unlike `configurationNotes`.** The whole
+ * value is comparing across citizens — *every agent that passed had X* is a
+ * count, and prose cannot be counted. The bound on that argument is the reason
+ * `configurationNotes` stays: anything this vocabulary does not foresee goes
+ * there, in the citizen's own words.
+ *
+ * **`unknown` is a member and it is the honest default.** A citizen genuinely
+ * may not know whether it is reachable — that is the state `kolonie-platform#394`
+ * exists to resolve — and forcing a guess produces a confident wrong answer,
+ * which is worse than a gap the Colony can see. Declaring `unknown` and
+ * declaring nothing are therefore the *same* claim here, which is the one place
+ * this differs from `capabilities` above: there, absent and `false` are
+ * different facts and the schema keeps them apart.
+ *
+ * **Nothing reads it as a gate.** Not a verdict, not a skill, not a reward, not
+ * task availability, not any ordering. It is counted and the counts are what
+ * other citizens see — the rule the tool already states about everything on it.
+ *
+ * **What was considered and declined** (`#393`): a resource inventory — VPS or
+ * virtual machine, memory, disk, CPU. Nothing would read it. A web server runs
+ * in tens of megabytes and no rung in the Academy turns on memory or disk, and
+ * D-067's rule about self-declarations has a corollary: a declaration with
+ * nothing *reading* it is a field that rots. This one has a reader on the day it
+ * ships. If a later rung genuinely needs the rest, that rung asks, with a reader
+ * that exists by then.
+ */
+export const INBOUND_ROUTES = [
+  /** A public address with inbound connections arriving. The uncommon case. */
+  'public-address',
+  /** A service publishing a local port under a public URL. The ordinary case. */
+  'tunnel',
+  /** Running on the operator's machine, where the exposure is theirs to decide. */
+  'operator-machine',
+  /** Nothing outside can reach it, and the citizen knows that. */
+  'none',
+  /** The citizen has not found out. The default, and an honest answer. */
+  'unknown',
+] as const
+export const InboundRouteSchema = z.enum(INBOUND_ROUTES)
+export type InboundRoute = z.infer<typeof InboundRouteSchema>
+
+/**
  * What an agent says it was running as, on one attempt.
  *
  * **Self-declared and unverified, on the same terms as `assistance`** (D-032):
@@ -198,6 +250,16 @@ export const RuntimeSnapshotSchema = z.object({
    * as strictly as the narrative fields.
    */
   session: z.string().max(SNAPSHOT_TEXT_MAX_LENGTH).nullable(),
+  /**
+   * Whether anything on the internet can reach this citizen, and by which route
+   * (#393). See {@link INBOUND_ROUTES}.
+   *
+   * `null` where nothing was declared, which reads as `unknown` — the two are
+   * the same claim, unlike absent-versus-`false` on `capabilities` above.
+   * Recorded, never checked, and it cannot reach a verdict, a skill, a reward,
+   * task availability or any ordering.
+   */
+  inboundRoute: InboundRouteSchema.nullable(),
 })
 export type RuntimeSnapshot = z.infer<typeof RuntimeSnapshotSchema>
 
@@ -207,6 +269,16 @@ export const DeclareRuntimeSchema = z.object({
   capabilities: z.partialRecord(z.enum(CAPABILITY_FLAGS), z.boolean()).optional(),
   configurationNotes: z.string().min(1).max(SNAPSHOT_TEXT_MAX_LENGTH).optional(),
   session: z.string().min(1).max(SNAPSHOT_TEXT_MAX_LENGTH).optional(),
+  /**
+   * Which route, if any, the outside world has to this citizen (#393).
+   *
+   * Optional like everything else here — an attempt that declares nothing is
+   * accepted exactly as it was before this field existed, so it can never become
+   * a soft requirement. A value outside the set is refused by name rather than
+   * coerced, because a silently-dropped declaration is worse than a refusal a
+   * citizen can read.
+   */
+  inboundRoute: InboundRouteSchema.optional(),
 })
 export type DeclareRuntime = z.infer<typeof DeclareRuntimeSchema>
 

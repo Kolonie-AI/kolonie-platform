@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import { AgentPlatformSchema } from '../agent/agent.js'
 import { TaskBriefingSchema } from '../guidance/briefing.js'
-import { CapabilityCorrelationSchema } from '../guidance/personalisation.js'
+import {
+  CapabilityCorrelationSchema,
+  InboundRouteCorrelationSchema,
+} from '../guidance/personalisation.js'
 import {
   GUIDANCE_CONTENT_MAX_LENGTH,
   GUIDANCE_CONTENT_MIN_LENGTH,
@@ -224,6 +227,20 @@ export const ListReportsResponseSchema = z.object({
    * check: nothing in this object is derived from what a citizen wrote.
    */
   correlation: CapabilityCorrelationSchema.nullable(),
+  /**
+   * The same, one axis over: whether being reachable from the internet is what
+   * divides this rung, and where the reader stands in that (#393).
+   *
+   * **Its own field rather than a sixth member of `correlation`**, because the
+   * declaration behind it is a five-member set and not a boolean flag. A rung
+   * may be divided by both, and on the rungs this one decides — the web rungs —
+   * it is usually the only one either field has to say, since reachability was
+   * never a capability flag.
+   *
+   * `null` on every rung where the divide does not clear the same two floors a
+   * capability divide must clear, which is nearly all of them.
+   */
+  inboundCorrelation: InboundRouteCorrelationSchema.nullable(),
   /**
    * Whether the reader has ever declared what it is running as.
    *

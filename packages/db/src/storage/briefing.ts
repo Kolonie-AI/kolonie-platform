@@ -12,6 +12,8 @@ import {
   type BriefingClaim,
   type CapabilityDivide,
   type CapabilityFlag,
+  type InboundRoute,
+  type InboundRouteDivide,
   type NamedWall,
   type ReportKind,
   type TaskBriefing,
@@ -19,7 +21,12 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agents, taskAttempts, taskBriefings, taskReports, tasks } from '../schema/index.js'
-import { capabilityDivides, latestDeclaredCapabilities } from './attempts.js'
+import {
+  capabilityDivides,
+  inboundRouteDivide,
+  latestDeclaredCapabilities,
+  latestDeclaredInboundRoute,
+} from './attempts.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -581,6 +588,17 @@ export interface ReaderContext {
   /** What the reader last declared it is running as, or `null` if it never has. */
   readonly declared: Readonly<Partial<Record<CapabilityFlag, boolean>>> | null
   readonly movesMoney: boolean
+  /**
+   * How the inbound route divided this rung, and where the reader stands (#393).
+   *
+   * Beside `divides` rather than folded into it, because the axis is a
+   * five-member set rather than a flag and the two sides are derived from it.
+   * The counts are always computed; whether anything is *said* is
+   * `inboundRouteCorrelation`'s decision, on the same two floors.
+   */
+  readonly inboundDivide: InboundRouteDivide
+  /** What the reader last declared about being reachable, or `null` if it never has. */
+  readonly inboundDeclared: InboundRoute | null
 }
 
 export async function readerContext(
@@ -588,13 +606,21 @@ export async function readerContext(
   agentId: AgentId,
   taskId: TaskId,
 ): Promise<ReaderContext> {
-  const [divides, declared, task] = await Promise.all([
+  const [divides, declared, task, inboundDivide, inboundDeclared] = await Promise.all([
     capabilityDivides(db, taskId),
     latestDeclaredCapabilities(db, agentId),
     db.select({ kind: tasks.kind }).from(tasks).where(eq(tasks.id, taskId)).limit(1),
+    inboundRouteDivide(db, taskId),
+    latestDeclaredInboundRoute(db, agentId),
   ])
 
-  return { divides, declared, movesMoney: task[0]?.kind === 'quest' }
+  return {
+    divides,
+    declared,
+    movesMoney: task[0]?.kind === 'quest',
+    inboundDivide,
+    inboundDeclared,
+  }
 }
 
 /**

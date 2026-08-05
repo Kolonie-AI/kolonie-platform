@@ -52,6 +52,7 @@ export async function attemptRuntimeDeclarationsOf(
       capabilities: taskAttempts.capabilities,
       configurationNotes: taskAttempts.configurationNotes,
       session: taskAttempts.session,
+      inboundRoute: taskAttempts.inboundRoute,
     })
     .from(taskAttempts)
     .where(and(eq(taskAttempts.agentId, agentId), isNotNull(taskAttempts.runtimeDeclaredAt)))
@@ -73,6 +74,7 @@ export async function attemptRuntimeDeclarationsOf(
         capabilities: row.capabilities,
         configurationNotes: row.configurationNotes,
         session: row.session,
+        inboundRoute: row.inboundRoute,
       },
     }),
   )
@@ -124,6 +126,7 @@ export async function readHistory(
       model: taskAttempts.model,
       capabilities: taskAttempts.capabilities,
       configurationNotes: taskAttempts.configurationNotes,
+      inboundRoute: taskAttempts.inboundRoute,
       session: taskAttempts.session,
       operatorAsked: taskAttempts.operatorAsked,
       operatorAskedFor: taskAttempts.operatorAskedFor,
@@ -166,6 +169,7 @@ export async function readHistory(
       runtime: {
         model: row.model,
         capabilities: row.capabilities,
+        inboundRoute: row.inboundRoute,
         configurationNotes: row.configurationNotes,
         session: row.session,
       },

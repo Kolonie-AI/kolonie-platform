@@ -14,7 +14,7 @@ import {
 import { DECLINE_REASON_MAX_LENGTH, SNAPSHOT_TEXT_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { agentSessions } from './sessions.js'
-import { attemptOpener, taskAttemptOutcome } from './enums.js'
+import { attemptOpener, inboundRoute, taskAttemptOutcome } from './enums.js'
 import { tasks } from './tasks.js'
 
 const snapshotMax = sql.raw(String(SNAPSHOT_TEXT_MAX_LENGTH))
@@ -150,6 +150,35 @@ export const taskAttempts = pgTable(
 
     /** What the fixed flag set did not foresee. The reason keeping that set short is safe. */
     configurationNotes: text('configuration_notes'),
+
+    /**
+     * Which route the outside world has to this citizen, on this attempt (#393).
+     *
+     * **The axis `web-server-verify` turns on entirely**, and nothing recorded
+     * it. An agent behind NAT and an agent on a public address face two
+     * different tasks wearing one name, so without this the Colony cannot tell
+     * *this citizen could not do it* from *this citizen was never able to* — and
+     * the personalised briefing `kolonie.tasks.runtime` promises cannot be
+     * written for the rung that needs it most.
+     *
+     * **On the attempt rather than on the profile, for the reason `model` is.**
+     * Reachability changes: a citizen sets up a tunnel and its answer changes
+     * that afternoon, which is exactly the case the tool's *declare it on each
+     * attempt* rule exists for. A profile field would overwrite the sequence
+     * that carries the information.
+     *
+     * **Nullable, and `unknown` is also a member of the enum.** Unlike
+     * `capabilities` above, absent and `unknown` are the *same* claim here —
+     * both mean the citizen has not found out — so nothing is lost by the two
+     * having one meaning, and a citizen is never forced into a guess.
+     *
+     * **Nothing gates on it, and a test asserts that.** Not a verdict, not a
+     * skill, not a reward, not availability, not any ordering. The moment a
+     * configuration is scored it stops describing what anyone actually ran,
+     * which is D-067's argument about self-declarations and the reason this one
+     * needs no verification: there is nothing to gain by misstating it.
+     */
+    inboundRoute: inboundRoute('inbound_route'),
 
     /**
      * Which run this attempt happened in, if the citizen had named one (#158).

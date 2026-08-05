@@ -3,7 +3,7 @@ import {
   type ListReportsResponse,
   SELF_CONTAINED_TASK_TYPES,
 } from '@kolonie-ai/core'
-import { CAPABILITY_DESCRIPTIONS, correlationAsText } from './briefing.js'
+import { CAPABILITY_DESCRIPTIONS, correlationAsText, inboundCorrelationAsText } from './briefing.js'
 
 /**
  * The notice for an agent whose declared configuration has not passed this task
@@ -204,7 +204,15 @@ export function readerNoteAsText(response: ListReportsResponse): string {
    * below is *not* help with the task and must still be reachable, so the two
    * halves cannot share one condition.
    */
-  const parts = response.helpWithheld ? [] : [correlationAsText(response.correlation)]
+  const parts = response.helpWithheld
+    ? []
+    : [
+        correlationAsText(response.correlation),
+        // Beside the capability sentence rather than instead of it (#393): a
+        // rung can be divided by both, and each returns '' where it has nothing
+        // to say, so the ordinary rung prints neither.
+        inboundCorrelationAsText(response.inboundCorrelation),
+      ]
 
   if (!response.configurationDeclared) {
     parts.push(

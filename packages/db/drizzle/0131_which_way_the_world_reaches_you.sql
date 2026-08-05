@@ -1,0 +1,2 @@
+CREATE TYPE "public"."inbound_route" AS ENUM('public-address', 'tunnel', 'operator-machine', 'none', 'unknown');--> statement-breakpoint
+ALTER TABLE "task_attempts" ADD COLUMN "inbound_route" "inbound_route";

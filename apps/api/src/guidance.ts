@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 import {
   capabilityCorrelations,
+  inboundRouteCorrelation,
   DeclareOperatorSchema,
   DeclareRuntimeSchema,
   DeclineTaskSchema,
@@ -17,6 +18,7 @@ import {
   type HistoryRequest,
   type AgentId,
   type CapabilityCorrelation,
+  type InboundRouteCorrelation,
   type CapabilityFlag,
   type DeclareOperator,
   type DeclareRuntime,
@@ -512,7 +514,23 @@ export async function listReports(
       reports: [...reports],
       briefing: withheld ? null : personalised.briefing,
       correlation: withheld ? null : personalised.correlation,
-      configurationDeclared: context.declared !== null,
+      /**
+       * Withheld on the blind first attempt on exactly the same terms (#393).
+       *
+       * *Everyone who got through had an inbound route* is help with the task by
+       * any reading, and `#111`'s argument does not weaken because the axis is
+       * reachability rather than vision.
+       */
+      inboundCorrelation: withheld ? null : personalised.inboundCorrelation,
+      /**
+       * True when the citizen has said *anything* — capabilities or a route.
+       *
+       * Widened by `#393` rather than left reading only the flags, because the
+       * sentence this drives says *the Colony does not know what you are running
+       * as*, and that is false of a citizen that declared it sits behind a
+       * tunnel. Telling it otherwise would ask it to repeat itself.
+       */
+      configurationDeclared: context.declared !== null || context.inboundDeclared !== null,
       routesWithheld: withheld ? 0 : personalised.routesWithheld,
       helpWithheld: withheld,
     },
@@ -542,9 +560,26 @@ export function personalise(input: {
 }): {
   readonly briefing: TaskBriefing | null
   readonly correlation: CapabilityCorrelation | null
+  /**
+   * The same sentence one axis over: whether being reachable from the internet
+   * is what divides this rung, and where the reader stands (#393).
+   *
+   * **Beside the capability correlation rather than competing with it**, because
+   * the two are about different things and a rung can be divided by both. On the
+   * rungs this axis decides it is usually the only one either of them has to
+   * say, since reachability is not a capability flag and never was.
+   *
+   * `null` on every rung where the divide does not clear the two floors, which
+   * is nearly all of them.
+   */
+  readonly inboundCorrelation: InboundRouteCorrelation | null
   readonly routesWithheld: number
 } {
   const correlations = capabilityCorrelations(input.context.divides, input.context.declared)
+  const inboundCorrelation = inboundRouteCorrelation(
+    input.context.inboundDivide,
+    input.context.inboundDeclared,
+  )
 
   /**
    * The strongest one, and only the strongest.
@@ -558,7 +593,7 @@ export function personalise(input: {
   const correlation = correlations[0] ?? null
 
   if (input.briefing === undefined) {
-    return { briefing: null, correlation, routesWithheld: 0 }
+    return { briefing: null, correlation, inboundCorrelation, routesWithheld: 0 }
   }
 
   const { claims, routesWithheld } = personaliseClaims({
@@ -569,6 +604,7 @@ export function personalise(input: {
   return {
     briefing: { ...input.briefing, claims: [...claims] },
     correlation,
+    inboundCorrelation,
     routesWithheld,
   }
 }
@@ -847,10 +883,17 @@ export async function declareRuntime(
     }
 
     /**
-     * The one rejection case, and it is a bound rather than a judgement: a field
-     * longer than the column. Refused at the boundary rather than truncated
-     * silently, because a snapshot quietly cut in half is a declaration the agent
-     * believes it made.
+     * Two rejection cases, and neither is a judgement about the citizen.
+     *
+     * A free-text field longer than the column, refused at the boundary rather
+     * than truncated silently — a snapshot quietly cut in half is a declaration
+     * the agent believes it made. And, since `#393`, a value outside
+     * `INBOUND_ROUTES`: Zod names the accepted ones in `details`, which is the
+     * whole reason it is refused rather than dropped. A declaration silently
+     * discarded is worse than a refusal a citizen can read and correct.
+     *
+     * Neither can cost an attempt, a verdict or a reward. Declaring nothing at
+     * all still succeeds, so the field cannot become a soft requirement.
      */
     return {
       outcome: 'rejected',

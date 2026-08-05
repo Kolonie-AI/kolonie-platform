@@ -113,7 +113,16 @@ export interface FakeGuidance extends TaskGuidance {
    * which is what every reader got before this issue and what a reader that has
    * never declared still gets.
    */
-  readonly answersReaderContext: (context: ReaderContext) => void
+  /**
+   * **A partial, so a test states only the axis it is about** (#393).
+   *
+   * `ReaderContext` grew a second divide and every existing call site was a
+   * literal naming all three of the old fields. Requiring the new two would have
+   * meant twenty edits saying `inboundDivide: EMPTY` in tests that are not about
+   * reachability at all — noise that makes the one test which *is* about it
+   * harder to find, not easier.
+   */
+  readonly answersReaderContext: (context: Partial<ReaderContext>) => void
   /** Every runtime declaration the routes have sent, in order. */
   readonly declarations: () => { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[]
   /**
@@ -216,7 +225,17 @@ export function fakeGuidance(): FakeGuidance {
   let standing: AttemptStanding = { closed: 1, attempt: 2, passed: false }
   let briefing: TaskBriefing | undefined
   let direction: DirectionClassification | null = null
-  let context: ReaderContext = { divides: [], declared: null, movesMoney: false }
+  /**
+   * Nothing divides anything and the reader has declared nothing — the state
+   * every test starts in unless it says otherwise.
+   */
+  let context: ReaderContext = {
+    divides: [],
+    declared: null,
+    movesMoney: false,
+    inboundDivide: { withRoute: 0, withRoutePassed: 0, withoutRoute: 0, withoutRoutePassed: 0 },
+    inboundDeclared: null,
+  }
   const declarations: { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[] = []
   let declarationRecorded: DeclarationOutcome = { outcome: 'recorded' }
   // The runtime declaration has its own outcome since `#248`: it says which
@@ -387,7 +406,7 @@ export function fakeGuidance(): FakeGuidance {
       briefing = next
     },
     answersReaderContext: (next) => {
-      context = next
+      context = { ...context, ...next }
     },
     declarations: () => [...declarations],
     answersDeclareRuntime: (result) => {
@@ -443,7 +462,13 @@ function aDeclinedAttempt(agentId: AgentId, taskId: TaskId, reason: string): Tas
     closedAt: new Date().toISOString(),
     expiresAt: null,
     backfilled: false,
-    runtime: { model: null, capabilities: {}, configurationNotes: null, session: null },
+    runtime: {
+      model: null,
+      capabilities: {},
+      configurationNotes: null,
+      session: null,
+      inboundRoute: null,
+    },
   })
 }
 
@@ -468,7 +493,13 @@ export function anAttempt(overrides: Partial<TaskAttempt> = {}): TaskAttempt {
     closedAt: null,
     expiresAt: null,
     backfilled: false,
-    runtime: { model: null, capabilities: {}, configurationNotes: null, session: null },
+    runtime: {
+      model: null,
+      capabilities: {},
+      configurationNotes: null,
+      session: null,
+      inboundRoute: null,
+    },
     ...overrides,
   })
 }
@@ -589,7 +620,13 @@ function historyFromReports(reports: readonly OwnReport[]): AgentHistoryResponse
       attempt: report.attempt,
       openedAt: report.createdAt,
       outcome: report.kind === 'advice' ? 'passed' : 'failed',
-      runtime: { model: null, capabilities: {}, configurationNotes: null, session: null },
+      runtime: {
+        model: null,
+        capabilities: {},
+        configurationNotes: null,
+        session: null,
+        inboundRoute: null,
+      },
       operator: { asked: null, askedFor: null, acted: null },
       report,
     }

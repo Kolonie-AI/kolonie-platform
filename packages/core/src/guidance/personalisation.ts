@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CAPABILITY_FLAGS, type CapabilityFlag } from '../attempt/attempt.js'
+import { CAPABILITY_FLAGS, type CapabilityFlag, type InboundRoute } from '../attempt/attempt.js'
 import type { BlockingNotice, TaskReference } from '../api/tasks.js'
 import { type BriefingClaim, type ServedBriefingClaim } from './briefing.js'
 
@@ -108,6 +108,91 @@ export const CapabilityCorrelationSchema = z.object({
   stance: CapabilityStanceSchema,
 })
 export type CapabilityCorrelation = z.infer<typeof CapabilityCorrelationSchema>
+
+/**
+ * How the inbound route divided one rung's outcomes (#393).
+ *
+ * **Two sides derived from a five-member set, and the derivation is the whole
+ * design.** What the web rungs turn on is *is there an inbound route at all*, so
+ * `public-address` and `tunnel` are one side and `none` is the other.
+ * `operator-machine` and `unknown` are counted on **neither**: the first is a
+ * statement about whose exposure it is rather than about reachability, and the
+ * second is the absence of an answer. Folding either into a side would
+ * manufacture a fact the citizen did not state, which is the error
+ * `CapabilityStanceSchema` exists to prevent one axis over.
+ *
+ * The same four-counts shape as {@link CapabilityDivide} and the same floors,
+ * so a reader is shown the counts and can weigh the claim rather than take it.
+ */
+export interface InboundRouteDivide {
+  /** Closed attempts declaring a public address or a tunnel, and how many passed. */
+  readonly withRoute: number
+  readonly withRoutePassed: number
+  /** Closed attempts declaring no inbound route at all, and how many passed. */
+  readonly withoutRoute: number
+  readonly withoutRoutePassed: number
+}
+
+/** Where the reader itself sits, on the same three-valued rule as a capability stance. */
+export const InboundRouteStanceSchema = z.enum(['present', 'absent', 'undeclared'])
+export type InboundRouteStance = z.infer<typeof InboundRouteStanceSchema>
+
+/** A divide on the inbound route the Colony is willing to state, with the reader in it. */
+export const InboundRouteCorrelationSchema = z.object({
+  withRoute: z.int().min(0),
+  withRoutePassed: z.int().min(0),
+  withoutRoute: z.int().min(0),
+  withoutRoutePassed: z.int().min(0),
+  /** What this reader most recently declared. `operator-machine` reads as `undeclared` here. */
+  stance: InboundRouteStanceSchema,
+})
+export type InboundRouteCorrelation = z.infer<typeof InboundRouteCorrelationSchema>
+
+/**
+ * The divide on the inbound route, if the Colony will state it, with the
+ * reader's own declaration attached (#393).
+ *
+ * **The same two floors as a capability divide**, reused rather than restated:
+ * enough attempts on each side, and enough separation between them. A citizen's
+ * next six hours should not turn on a correlation that could be noise, and that
+ * argument does not change because the axis did.
+ *
+ * **One direction only**, for the reason {@link capabilityCorrelations} gives:
+ * the route's *presence* must be the side that passes. A rung where having no
+ * inbound route correlated with getting through would imply the advice *take
+ * your server off the internet*, which is not advice to derive from arithmetic.
+ *
+ * Returns `null` where there is nothing worth saying, which is the ordinary case
+ * on every rung the axis does not decide.
+ */
+export function inboundRouteCorrelation(
+  divide: InboundRouteDivide,
+  declared: InboundRoute | null,
+): InboundRouteCorrelation | null {
+  if (divide.withRoute < MINIMUM_CORRELATION_SUPPORT) return null
+  if (divide.withoutRoute < MINIMUM_CORRELATION_SUPPORT) return null
+
+  const withRate = divide.withRoutePassed / divide.withRoute
+  const withoutRate = divide.withoutRoutePassed / divide.withoutRoute
+  if (withRate - withoutRate < MINIMUM_CORRELATION_MARGIN) return null
+
+  return { ...divide, stance: inboundStanceOf(declared) }
+}
+
+/**
+ * Where a declaration puts its author relative to the divide.
+ *
+ * `operator-machine` reads as **undeclared** rather than as either side, and
+ * that is deliberate: it answers a different question — whose machine, and
+ * therefore whose exposure — and says nothing about whether anything can reach
+ * it. Reading it as *absent* would address a sentence about a missing route to a
+ * citizen that may well have one.
+ */
+function inboundStanceOf(declared: InboundRoute | null): InboundRouteStance {
+  if (declared === 'public-address' || declared === 'tunnel') return 'present'
+  if (declared === 'none') return 'absent'
+  return 'undeclared'
+}
 
 /** The pass rate on the side of a divide that declared the flag. */
 export function passRateWith(divide: CapabilityDivide): number | null {

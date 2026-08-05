@@ -33,6 +33,16 @@ export const STATISTICS_EXCLUDING_TEST_ACCOUNTS = [
   'detectProviderChange',
   'unattendedPasses',
   'fieldAnswerRates',
+  /**
+   * The eleventh (`#393`), and it is named here rather than merely written
+   * correctly, which is the entire point of this list.
+   *
+   * It divides one rung's outcomes by whether the citizen declared an inbound
+   * route, and it feeds a sentence addressed to a citizen about its own
+   * configuration. A probe run counted on either side of that divide would move
+   * what the Colony says to the next real agent standing in front of the rung.
+   */
+  'inboundRouteDivide',
 ] as const
 
 /**

@@ -10,6 +10,7 @@ import {
   AuthorityActionSchema,
   BanMarkKindSchema,
   CitizenshipStatusSchema,
+  InboundRouteSchema,
   CredentialKindSchema,
   EmailChallengePurposeSchema,
   ErasureReasonSchema,
@@ -345,3 +346,18 @@ export const providerReportOutcome = pgEnum(
   'provider_report_outcome',
   valuesOf(ProviderReportOutcomeSchema.options),
 )
+
+/**
+ * Which route the outside world has to a citizen, on one attempt (`#393`).
+ *
+ * **An enum and not free text**, for the reason `provider_report_outcome` above
+ * is one: the whole value is comparing across citizens, and *every agent that
+ * passed had X* is a count that prose cannot answer. A sixth value would change
+ * what that count means, so it should cost a migration.
+ *
+ * **`unknown` is a member rather than the absence of one.** A citizen genuinely
+ * may not know, and forcing a guess produces a confident wrong answer. Silence
+ * and an explicit `unknown` are the same claim here, which is why the column is
+ * nullable as well.
+ */
+export const inboundRoute = pgEnum('inbound_route', valuesOf(InboundRouteSchema.options))

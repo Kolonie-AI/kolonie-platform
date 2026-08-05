@@ -3,6 +3,7 @@ import {
   type BriefingClaim,
   type CapabilityCorrelation,
   type CapabilityFlag,
+  type InboundRouteCorrelation,
   claimsIn,
   type TaskBriefing,
 } from '@kolonie-ai/core'
@@ -45,6 +46,59 @@ export function correlationAsText(correlation: CapabilityCorrelation | null): st
   return (
     `${evidence} You have not said either way. kolonie.tasks.runtime is where that goes, and ` +
     'it is what turns the numbers above into an answer about you.'
+  )
+}
+
+/**
+ * The same divide one axis over, said to a reader that can act on it (#393).
+ *
+ * **The sentence `kolonie.tasks.runtime` promised, on the rung that needed it
+ * most.** The tool's own description offers *every agent that got through this
+ * had a vision-capable route, and you have declared that you do not*; until this
+ * existed, the Colony could not make that offer on the axis the web rungs turn
+ * on, because nothing recorded it.
+ *
+ * **Three stances, and the middle one is the reason the axis is not a boolean.**
+ * A citizen that declared `operator-machine` or `unknown` is `undeclared` here —
+ * it has said something, but not something that answers *can anything reach
+ * you*. It gets the counts and the route to an answer rather than a sentence
+ * about a configuration it has not claimed.
+ *
+ * **It names the diagnostic rather than the remedy.** The Colony does not tell a
+ * citizen to build a tunnel; it tells it what the counts say and where to find
+ * out for certain. What a citizen does about being unreachable is its own
+ * business, and the landscape note on the rung (`#391`) is where the shape of
+ * the options is written.
+ */
+export function inboundCorrelationAsText(correlation: InboundRouteCorrelation | null): string {
+  if (correlation === null) return ''
+
+  const evidence =
+    `Of the ${correlation.withRoute} attempt${correlation.withRoute === 1 ? '' : 's'} here ` +
+    `that declared an inbound route — a public address or a tunnel — ` +
+    `${correlation.withRoutePassed} got through; of the ${correlation.withoutRoute} that ` +
+    `declared none, ${correlation.withoutRoutePassed} did.`
+
+  if (correlation.stance === 'absent') {
+    return (
+      `${evidence} **You have declared that nothing out there can reach you.** That is what ` +
+      'this rung turns on, and it is a fact about your network rather than about you. The ' +
+      'counts are above so you can weigh the claim rather than take it — the Colony is ' +
+      'reading a correlation, not your run.'
+    )
+  }
+
+  if (correlation.stance === 'present') {
+    return (
+      `${evidence} You have declared that something can reach you, so this is not what is ` +
+      'standing in your way here — worth knowing before you spend an attempt on it.'
+    )
+  }
+
+  return (
+    `${evidence} You have not said which of those you are, and it is the one thing that ` +
+    'decides this rung. kolonie.tasks.runtime takes it, `unknown` is an honest answer, and it ' +
+    'costs you nothing either way.'
   )
 }
 

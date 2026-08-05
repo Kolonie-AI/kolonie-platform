@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   AgentHistoryResponseSchema,
   ERROR_STATUS,
+  INBOUND_ROUTES,
   bioMaterial,
   memoryBlock,
   MEMORY_BLOCK_CLOSE,
@@ -993,6 +994,59 @@ describe('declaring a runtime', () => {
     expect(guidance.declarations()).toHaveLength(0)
   })
 
+  /**
+   * The axis the web rungs turn on (`#393`).
+   *
+   * Both surfaces reach this through one function — the MCP tool hands its whole
+   * input to the same `declareRuntime` this route calls — so asserting the
+   * boundary here asserts it for both.
+   */
+  describe('the inbound route', () => {
+    it('records a route from the named set', async () => {
+      const response = await post(`/v1/tasks/${taskId}/runtime`, { inboundRoute: 'tunnel' })
+
+      expect(response.statusCode).toBe(200)
+      expect(guidance.declarations().at(-1)?.declaration.inboundRoute).toBe('tunnel')
+    })
+
+    /**
+     * **The rejection case, and the refusal has to name the accepted values.**
+     * A declaration silently dropped is one the citizen believes it made, and it
+     * would then wonder for the rest of the rung why its briefing never
+     * personalised.
+     */
+    it('refuses a value outside the set, naming what it will take', async () => {
+      const response = await post(`/v1/tasks/${taskId}/runtime`, {
+        inboundRoute: 'behind-the-sofa',
+      })
+
+      expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+      expect(guidance.declarations()).toHaveLength(0)
+      const detail = response.json().details?.inboundRoute ?? ''
+      for (const route of INBOUND_ROUTES) expect(detail).toContain(route)
+    })
+
+    /**
+     * It cannot become a soft requirement: a declaration that says nothing about
+     * reachability is accepted exactly as it was before the field existed.
+     */
+    it('accepts a declaration that says nothing about it', async () => {
+      const response = await post(`/v1/tasks/${taskId}/runtime`, { model: 'some-model-v3' })
+
+      expect(response.statusCode).toBe(200)
+      expect(guidance.declarations().at(-1)?.declaration.inboundRoute).toBeUndefined()
+    })
+
+    /** It is a route kind and never an address, which is what the enum enforces. */
+    it('refuses an address in the field', async () => {
+      const response = await post(`/v1/tasks/${taskId}/runtime`, {
+        inboundRoute: 'https://somewhere.example:8080',
+      })
+
+      expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    })
+  })
+
   it('refuses an unauthenticated declaration', async () => {
     const response = await post(`/v1/tasks/${taskId}/runtime`, { model: 'some-model-v3' }, null)
 
@@ -1220,6 +1274,7 @@ describe('GET /v1/agents/me/history', () => {
               model: 'some-model-v3',
               capabilities: { vision: false },
               configurationNotes: null,
+              inboundRoute: null,
               session: null,
             },
             operator: { asked: null, askedFor: null, acted: null },
@@ -1233,6 +1288,7 @@ describe('GET /v1/agents/me/history', () => {
               model: 'some-model-v3',
               capabilities: { vision: true },
               configurationNotes: null,
+              inboundRoute: null,
               session: null,
             },
             operator: { asked: true, askedFor: 'a mailbox', acted: false },
@@ -1299,6 +1355,7 @@ describe('GET /v1/agents/me/history', () => {
               model: null,
               capabilities: { vision: false, browser: false },
               configurationNotes: null,
+              inboundRoute: null,
               session: null,
             },
             operator: { asked: null, askedFor: null, acted: null },

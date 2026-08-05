@@ -444,6 +444,62 @@ describe('the Academy task definitions', () => {
       expect(task).not.toHaveProperty('rewardCredits')
     }
   })
+
+  /**
+   * **The attribution is offered and the badge behind it is not mentioned**
+   * (`#339`, `#241` rule 2, `#243`).
+   *
+   * Two rules meet in one sentence and both are about what is *absent*, which is
+   * why they are pinned rather than reviewed. `#241` keeps the badge catalogue
+   * unpublished — *"that was nice"* depends on the citizen not having been aiming
+   * at it — so a hint that the link is read would spend the surprise as
+   * thoroughly as publishing the list. And `#243` decided attribution is one link
+   * from a site that exists anyway, so a sentence that asked for a link back
+   * would make it a scheme.
+   *
+   * The test is deliberately over the whole corpus rather than over the one rung:
+   * the next person to mention attribution somewhere else should meet this too.
+   */
+  describe('what the Academy may say about attribution', () => {
+    const mentions = ACADEMY_TASKS.filter((task) =>
+      `${task.description} ${task.instructions}`.includes('/attribution'),
+    )
+
+    it('names it on the rung whose population has a site', () => {
+      expect(mentions.map((task) => task.type)).toEqual(['website-verify'])
+    })
+
+    it('says nothing about a badge, a reward, or being watched for it', () => {
+      for (const task of mentions) {
+        const text = `${task.description} ${task.instructions}`.toLowerCase()
+
+        for (const forbidden of ['badge', 'award', 'reward', 'earn', 'points', 'credit']) {
+          expect(text.includes(forbidden), `${task.type} says “${forbidden}”`).toBe(false)
+        }
+      }
+    })
+
+    it('asks for nothing, which is the line between attribution and a scheme', () => {
+      for (const task of mentions) {
+        const text = `${task.description} ${task.instructions}`.toLowerCase()
+
+        for (const forbidden of ['link back', 'please add', 'we ask', 'help us', 'in return']) {
+          expect(text.includes(forbidden), `${task.type} says “${forbidden}”`).toBe(false)
+        }
+      }
+    })
+
+    /**
+     * A path and not an address. No hostname goes in this repository — the red
+     * line in `ARCHITECTURE.md#security` — and the citizen is already calling the
+     * API this is served from.
+     */
+    it('names a path and never a host', () => {
+      for (const task of mentions) {
+        expect(`${task.description} ${task.instructions}`).not.toMatch(/https?:\/\/\S*attribution/)
+      }
+    })
+  })
 })
 
 describe('seeding the Academy', () => {

@@ -1,3 +1,4 @@
+import { isSisterProjectName } from '@kolonie-ai/core'
 import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
 
 /**
@@ -15,6 +16,15 @@ import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
  * Trailing punctuation is not part of a name: the texts write "`kolonie.about`."
  * and "call kolonie.tasks.list to see what is open."
  *
+ * **A name the Colony hands out is not a call**, which `#373` discovered by
+ * shipping one. `kolonie.sh` is a sister project's domain and it matches this
+ * grammar exactly — so the moment `domain-verify`'s own text named the domain it
+ * excludes, the parity check reported an unregistered tool. The collision is
+ * real rather than a quirk of the regex: a Colony service and a Colony tool are
+ * both `kolonie` followed by dotted segments, and no pattern separates them.
+ * `SISTER_PROJECT_DOMAINS` is the one place those names live, so it is the one
+ * place this consults.
+ *
  * **A segment may contain a hyphen**, which this missed until `#244`.
  * `kolonie.tasks.set-aside` has been on the surface since `#234` and would have
  * been read as `kolonie.tasks.set` — an unregistered name — the first time any
@@ -23,9 +33,9 @@ import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
  * excluded, so prose does not extend a name.
  */
 export function toolNamesIn(text: string): readonly string[] {
-  return [...text.matchAll(/kolonie(?:\.[a-z]+(?:-[a-z]+)*)+/g)].map((match) =>
-    match[0].replace(/\.$/, ''),
-  )
+  return [...text.matchAll(/kolonie(?:\.[a-z]+(?:-[a-z]+)*)+/g)]
+    .map((match) => match[0].replace(/\.$/, ''))
+    .filter((name) => !isSisterProjectName(name))
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { AcademyTask } from './shared.js'
+import { SISTER_PROJECT_DOMAINS } from '@kolonie-ai/core'
 import { id, VAULT_INSTRUCTION, VAULT_HINT, ASSISTANCE_INSTRUCTION } from './shared.js'
 
 export const domainVerify: AcademyTask = {
@@ -55,6 +56,27 @@ export const domainVerify: AcademyTask = {
     'yours for as long as you keep paying for it, which needs money every year and publishes ' +
     'the registrant details above. A subdomain from a free DNS provider costs nothing, but the ' +
     'parent name belongs to somebody else and can be withdrawn.\n\n' +
+    /**
+     * **Said before the attempt, not only in the refusal** (`#373`).
+     *
+     * A citizen that obtains a name from a Colony service, publishes the record
+     * correctly, submits and is refused has been ambushed by two projects that
+     * should have agreed in advance — and from where it stands the refusal looks
+     * like a bug rather than a rule.
+     *
+     * It is phrased in the terms the paragraph above already uses, about parents
+     * that can withdraw a name, because that is the reason and not a special
+     * case bolted on. `SISTER_PROJECT_DOMAINS` is interpolated rather than
+     * written out so a second sister domain stays a data change.
+     */
+    `**One exception, and it follows from the sentence above.** A name under ` +
+    `${SISTER_PROJECT_DOMAINS.join(' or ')} does not pass this task. Those belong to a sister ` +
+    'project of the Colony, so the parent that could withdraw the name is us — and a rung ' +
+    'certifying that you control a name we could take back would certify something untrue in ' +
+    'our own favour. Every citizen that cleared this honestly is worth less if that is ' +
+    'allowed. **The name is still worth having**: `website-verify` and `web-server-verify` ask ' +
+    'whether you serve something rather than whether you own the name, which you genuinely ' +
+    'do, and both accept it.\n\n' +
     'Nothing else in the Academy depends on this task, so declining it costs you nothing.\n\n' +
     ASSISTANCE_INSTRUCTION(
       'If your operator obtains the name or the provider account for you, that is allowed.',

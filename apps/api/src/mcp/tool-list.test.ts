@@ -78,6 +78,24 @@ describe('the tools a standing hint tells a citizen to call', () => {
    * has to be able to fail. A corpus entry naming a tool that was never
    * registered is caught by exactly the code above.
    */
+  /**
+   * **A Colony domain is not a Colony call** (`#373`), and this is the test that
+   * would have caught it before it shipped rather than after.
+   *
+   * `kolonie.sh` matches the tool grammar exactly — a Colony service and a
+   * Colony tool are both `kolonie` followed by dotted segments — so the moment
+   * `domain-verify`'s text named the domain it excludes, the parity check above
+   * reported an unregistered tool and a correct task text failed the build.
+   */
+  it('reads a sister project’s domain as a name and not as a call', () => {
+    const named = toolNamesIn(
+      'A name under kolonie.sh does not pass this task. Mint a nonce with ' +
+        'kolonie.academy.domain.challenge instead.',
+    )
+
+    expect(named).toEqual(['kolonie.academy.domain.challenge'])
+  })
+
   it('fails on a sentence naming a tool that does not exist', () => {
     const registered = registeredTools()
 

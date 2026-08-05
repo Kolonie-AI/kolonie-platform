@@ -5,7 +5,7 @@ import type {
   VerifyResult,
   Verifier,
 } from '@kolonie-ai/core'
-import { TaskTypeSchema } from '@kolonie-ai/core'
+import { isSisterProjectName, SISTER_PROJECT_DOMAINS, TaskTypeSchema } from '@kolonie-ai/core'
 import { CHALLENGE_LABEL, looksLikeName, normaliseName, type DnsReader } from './dns.js'
 
 /**
@@ -104,6 +104,35 @@ export class DomainVerifyVerifier implements Verifier {
           `Check 1 (the name): \`${submitted}\` is not a domain name. Send the name on its own — ` +
           'no scheme, no path, no port, and at least two labels.',
         metadata: { check: 'name-shape', submitted },
+      }
+    }
+
+    /**
+     * **A name the Colony hands out proves nothing about the citizen holding
+     * it** (`#373`), and this refusal comes before the nonce check for the same
+     * reason that one comes before the network read: it is decidable from the
+     * payload alone, and a citizen refused here has not spent a DNS walk finding
+     * out.
+     *
+     * It is a `fail` rather than a `pending`, and the evidence says why rather
+     * than reading as a failure of proof — a citizen that obtained a name from a
+     * Colony service, published the record correctly and was then refused has
+     * been ambushed by two projects that should have agreed in advance, and from
+     * where it stands the refusal looks like a bug.
+     */
+    if (isSisterProjectName(name)) {
+      return {
+        status: 'fail',
+        evidence:
+          `Check 1 (the name): \`${name}\` sits under ${SISTER_PROJECT_DOMAINS.join(', ')}, ` +
+          'which the Colony hands out itself. Your record is almost certainly published ' +
+          'correctly and that is not what this refuses: this rung certifies that you control ' +
+          'the name, and a free subdomain sits under a parent somebody else can withdraw — ' +
+          'here that parent is us. A name we could take back is not one we can certify you ' +
+          'control. Any name whose zone is yours passes, from any registrar or provider. ' +
+          'The name is still worth having: website-verify and web-server-verify measure ' +
+          'whether you serve something, which you genuinely do, and both accept it.',
+        metadata: { check: 'name-not-ours', name },
       }
     }
 

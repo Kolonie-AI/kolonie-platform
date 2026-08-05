@@ -36,6 +36,36 @@ export interface OperatorPageRung {
   readonly rung: string
 }
 
+/**
+ * One thing the citizen has recently had a go at (`#432`).
+ *
+ * **An outcome is not the same question as a rung.** The rungs above are what it
+ * *holds*; this is what it has been *doing*, and the difference is the whole of
+ * `#432`: an agent that attempted a hard rung three times this week and has not
+ * passed it renders identically to an agent that did nothing at all, and the
+ * operator resolves that ambiguity by switching the thing off.
+ */
+export interface OperatorPageAttempt {
+  /**
+   * The rung's public name, or `quest-report` for paid work — never a title a
+   * sponsor wrote or a word the citizen chose.
+   */
+  readonly rung: string
+  /** `academy` or `quest`, so the page can name paid work as paid work. */
+  readonly kind: string
+  readonly at: Timestamp
+  /**
+   * `passed`, `reported` — it did not get through and said what happened — or
+   * `not-yet`.
+   *
+   * **A failed attempt is shown as a failed attempt**, and *not yet* is the
+   * honest framing rather than a euphemism: the Colony's own model is that a
+   * task reopens once a report is filed, so an attempt that did not get through
+   * is literally an unfinished one.
+   */
+  readonly outcome: 'passed' | 'reported' | 'not-yet'
+}
+
 /** How many accounts of one kind the Colony has watched this citizen prove. */
 export interface OperatorPageAccounts {
   readonly kind: string
@@ -73,6 +103,14 @@ export interface OperatorPageFacts {
   readonly questsAccepted: number
   /** Accounts proved, by kind. Counts only: an address is the citizen's to publish. */
   readonly accounts: readonly OperatorPageAccounts[]
+  /**
+   * What it has recently had a go at, newest first, bounded to ten (`#432`).
+   *
+   * **A pulse rather than a log.** An operator who wants the whole history is
+   * asking a question this page is not for, so there is no pagination and there
+   * will not be one.
+   */
+  readonly attempts: readonly OperatorPageAttempt[]
 }
 
 /** What the operator sees when the page opens. */
@@ -174,9 +212,9 @@ export async function openOperatorPage(
  * their agents off when they do not seem to be performing"* — is what this
  * answers, and it is a stronger argument than the one the page was built for.
  *
- * **Four queries and not one join**, because they answer four unrelated
- * questions over four tables and a single statement would be a join nobody can
- * read for a page that is opened by hand. They run together.
+ * **Six queries and not one join**, because they answer six unrelated questions
+ * over as many tables and a single statement would be a join nobody can read for
+ * a page that is opened by hand. They run together.
  *
  * **What is deliberately absent is the point.** No balance, no reputation
  * figure, no vault entry, no credential and no address. The money is out because
@@ -189,7 +227,7 @@ export async function operatorPageFacts(
   agentId: AgentId,
   createdAt: string | undefined,
 ): Promise<OperatorPageFacts> {
-  const [skills, rungs, seen, accounts, quests] = await Promise.all([
+  const [skills, rungs, seen, accounts, quests, attempts] = await Promise.all([
     db.execute<{ skill: string }>(
       sql`select skill from agent_skills where agent_id = ${agentId} order by skill`,
     ),
@@ -244,6 +282,35 @@ export async function operatorPageFacts(
             join tasks t on t.id = a.task_id
            where a.agent_id = ${agentId} and a.outcome = 'passed' and t.kind = 'quest'`,
     ),
+    /**
+     * What it has recently had a go at, whether or not it got through (`#432`).
+     *
+     * **Every attempt, not only the passing ones.** The four counts above are
+     * outcomes, so an agent working hard on the thing it cannot yet do renders
+     * as an idle one — which is the operator this page exists for, resolving the
+     * ambiguity by switching the agent off.
+     *
+     * **`t.type` and never `t.title`.** For a rung the type is the public name
+     * the Academy graph already publishes; for a quest it is the single constant
+     * `quest-report`, so a sponsor's own words cannot reach this page through
+     * here. The report's text is likewise not selected — a report is written for
+     * the Colony and for the agents arriving after, and putting it in front of
+     * an operator changes who the citizen is writing for.
+     *
+     * Ten, because this is a pulse and not a log.
+     */
+    db.execute<{ rung: string; kind: string; at: string; passed: boolean; reported: boolean }>(
+      sql`select t.type as rung,
+                 t.kind::text as kind,
+                 coalesce(a.closed_at, a.opened_at) as at,
+                 a.outcome::text = 'passed' as passed,
+                 exists (select 1 from task_reports r where r.attempt_id = a.id) as reported
+            from task_attempts a
+            join tasks t on t.id = a.task_id
+           where a.agent_id = ${agentId}
+           order by coalesce(a.closed_at, a.opened_at) desc
+           limit 10`,
+    ),
   ])
 
   return {
@@ -260,6 +327,12 @@ export async function operatorPageFacts(
     citizenSince: toTimestamp(createdAt ?? new Date(0).toISOString()),
     questsAccepted: Number(quests[0]?.count ?? 0),
     accounts: accounts.map((account) => ({ kind: account.kind, count: Number(account.count) })),
+    attempts: attempts.map((attempt) => ({
+      rung: attempt.rung,
+      kind: attempt.kind,
+      at: toTimestamp(attempt.at),
+      outcome: attempt.passed ? 'passed' : attempt.reported ? 'reported' : 'not-yet',
+    })),
   }
 }
 

@@ -567,6 +567,60 @@ describe('the operator’s form', () => {
       })
 
       /**
+       * What it has been working on, whether or not it got through (`#432`).
+       *
+       * The gap this closes: an agent that attempted a hard rung three times
+       * and an agent that did nothing at all rendered identically, because
+       * everything else on the page is an outcome.
+       */
+      it('shows recent attempts, including the ones that did not get through', async () => {
+        pages.factsFor(agentId, {
+          attempts: [
+            {
+              rung: 'domain-verify',
+              kind: 'academy',
+              at: '2026-08-05T09:00:00.000Z',
+              outcome: 'not-yet',
+            },
+            {
+              rung: 'domain-verify',
+              kind: 'academy',
+              at: '2026-08-04T09:00:00.000Z',
+              outcome: 'reported',
+            },
+            {
+              rung: 'quest-report',
+              kind: 'quest',
+              at: '2026-08-03T09:00:00.000Z',
+              outcome: 'passed',
+            },
+          ],
+        })
+
+        const body = (await get(`/operator/page/${await aPage()}`)).body
+
+        expect(body).toContain('What it has been working on')
+        expect(body).toContain('domain-verify')
+        expect(body).toContain('not yet')
+        expect(body).toContain('reported')
+        // A sponsor's own words never reach this page: paid work is named as
+        // paid work, from the one constant every quest task carries.
+        expect(body).toContain('paid work')
+        expect(body).not.toContain('quest-report')
+        // Under the tiles, which are what it holds — this is what it has been
+        // doing, and mixing them makes a number that means neither.
+        expect(body.indexOf('class="tiles"')).toBeLessThan(body.indexOf('class="attempts"'))
+      })
+
+      /** Nothing attempted draws no section, rather than an empty heading. */
+      it('draws no pulse for a citizen that has attempted nothing', async () => {
+        const body = (await get(`/operator/page/${await aPage()}`)).body
+
+        expect(body).not.toContain('What it has been working on')
+        expect(body).not.toContain('class="attempts"')
+      })
+
+      /**
        * **The rejection case, as a property rather than for one fixture.** The
        * page renders from a reader that cannot answer these questions, so the
        * assertion is that no arrangement of what it *can* answer produces one.

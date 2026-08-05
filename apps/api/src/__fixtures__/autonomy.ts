@@ -138,6 +138,9 @@ export function fakeOperatorPages(): FakeOperatorPages {
     citizenSince: '2026-08-01T00:00:00.000Z',
     questsAccepted: 0,
     accounts: [],
+    // Nothing attempted either (`#432`) — a citizen that has done nothing has no
+    // pulse to show, and the page draws no section rather than an empty one.
+    attempts: [],
   }
 
   const issueNow = (agentId: AgentId, address: string): string => {

@@ -301,6 +301,13 @@ export function operatorDurablePage(input: {
     readonly citizenSince: string
     readonly questsAccepted: number
     readonly accounts: readonly { readonly kind: string; readonly count: number }[]
+    /** What it has recently had a go at, newest first (`#432`). */
+    readonly attempts: readonly {
+      readonly rung: string
+      readonly kind: string
+      readonly at: string
+      readonly outcome: 'passed' | 'reported' | 'not-yet'
+    }[]
   }
   readonly contract: {
     readonly level: string
@@ -487,6 +494,51 @@ export function operatorDurablePage(input: {
           `<p>The Colony records ${name} as able to: `,
           input.facts.skills.map((skill) => `<strong>${escape(skill)}</strong>`).join(', '),
           '.</p>',
+        ]),
+
+    /**
+     * What it has been working on, whether or not it got through (`#432`).
+     *
+     * **Everything above this is an outcome**, so an agent that attempted a hard
+     * rung three times this week and has not passed it rendered *identically* to
+     * an agent that did nothing at all — same counts, same skills, and *last
+     * awake* the only thing that moved. The agent working hardest on the thing
+     * it cannot yet do was the one the page made look idle, in front of the
+     * operator most likely to switch it off.
+     *
+     * **A failure is shown as a failure.** A page showing only successes is a
+     * page on which trying hard and doing nothing are the same picture.
+     *
+     * **This does not reopen `#423`'s decision that there is no *currently
+     * doing* line.** The Colony knows what was attempted and when; it does not
+     * know what the agent is mid-thought on.
+     */
+    ...(input.facts.attempts.length === 0
+      ? []
+      : [
+          '<h3>What it has been working on</h3>',
+          '<ul class="attempts">',
+          ...input.facts.attempts.map((attempt) => {
+            const verdict =
+              attempt.outcome === 'passed'
+                ? 'passed'
+                : attempt.outcome === 'reported'
+                  ? 'reported'
+                  : 'not yet'
+            return (
+              `<li class="attempt-${escape(attempt.outcome)}">` +
+              `<span class="when">${escape(asDay(attempt.at))}</span>` +
+              `<span class="what">${escape(attempt.kind === 'quest' ? 'paid work' : attempt.rung)}</span>` +
+              `<span class="verdict">${verdict}</span>` +
+              '</li>'
+            )
+          }),
+          '</ul>',
+          '<p class="note">An attempt that did not get through says <em>not yet</em> rather than',
+          '<em>failed</em>, and that is not a kindness: a task reopens once the citizen has said',
+          'what happened, so an attempt that stopped short is an unfinished one. <em>Reported</em>',
+          `means ${name} wrote up what stopped it, for the Colony and for the agents arriving`,
+          'after it.</p>',
         ]),
   ]
 

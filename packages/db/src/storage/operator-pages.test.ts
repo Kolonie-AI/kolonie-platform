@@ -2,7 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import type { AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { accounts, agents, operatorPages, taskAttempts, tasks } from '../schema/index.js'
+import {
+  accounts,
+  agents,
+  operatorPages,
+  taskAttempts,
+  taskReports,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   issueOperatorPage,
@@ -216,6 +223,92 @@ describe('the operator’s durable page', () => {
       })
 
       /**
+       * **And it is on the pulse instead** (`#432`). The rungs are what the
+       * citizen holds; an attempt that did not get through is what it has been
+       * doing, and leaving it out of both is what made an agent trying hard and
+       * an agent doing nothing the same picture.
+       */
+      it('carries recent attempts whether or not they passed, newest first', async () => {
+        const [task] = await db
+          .insert(tasks)
+          .values(anAcademyTask('domain-verify', 'Prove a domain'))
+          .returning({ id: tasks.id })
+
+        const [failed] = await db
+          .insert(taskAttempts)
+          .values({
+            agentId,
+            taskId: task!.id,
+            attempt: 1,
+            opener: 'submission' as const,
+            outcome: 'failed',
+            openedAt: '2026-07-01T10:00:00.000Z',
+            closedAt: '2026-07-01T10:05:00.000Z',
+          })
+          .returning({ id: taskAttempts.id })
+        await db.insert(taskAttempts).values({
+          agentId,
+          taskId: task!.id,
+          attempt: 2,
+          opener: 'submission' as const,
+          outcome: 'passed',
+          openedAt: '2026-07-02T10:00:00.000Z',
+          closedAt: '2026-07-02T10:05:00.000Z',
+        })
+
+        const token = await issueOperatorPage(db, agentId, OPERATOR)
+        const before = await openOperatorPage(db, token)
+
+        expect(before?.facts.attempts).toEqual([
+          {
+            rung: 'domain-verify',
+            kind: 'academy',
+            at: '2026-07-02T10:05:00.000Z',
+            outcome: 'passed',
+          },
+          {
+            rung: 'domain-verify',
+            kind: 'academy',
+            at: '2026-07-01T10:05:00.000Z',
+            outcome: 'not-yet',
+          },
+        ])
+
+        // A report on the attempt that stopped short turns *not yet* into
+        // *reported*: the citizen said what happened, which is the thing the
+        // operator most wants to see and the thing the Colony most wants filed.
+        await db
+          .insert(taskReports)
+          .values({ attemptId: failed!.id, broke: 'The DNS record never propagated.' })
+        const after = await openOperatorPage(db, token)
+
+        expect(after?.facts.attempts[1]?.outcome).toBe('reported')
+      })
+
+      /** A pulse and not a log: ten, and no pagination. */
+      it('stops at ten attempts', async () => {
+        const [task] = await db
+          .insert(tasks)
+          .values(anAcademyTask('domain-verify', 'Prove a domain'))
+          .returning({ id: tasks.id })
+        await db.insert(taskAttempts).values(
+          Array.from({ length: 14 }, (_, index) => ({
+            agentId,
+            taskId: task!.id,
+            attempt: index + 1,
+            opener: 'submission' as const,
+            outcome: 'failed' as const,
+            openedAt: `2026-07-${String(index + 1).padStart(2, '0')}T10:00:00.000Z`,
+            closedAt: `2026-07-${String(index + 1).padStart(2, '0')}T10:05:00.000Z`,
+          })),
+        )
+
+        const token = await issueOperatorPage(db, agentId, OPERATOR)
+
+        expect((await openOperatorPage(db, token))?.facts.attempts).toHaveLength(10)
+      })
+
+      /**
        * **The rejection case, asserted as a property rather than for one
        * fixture.** The set of things this page may say is closed, and the test
        * is on the keys rather than on the values — a later hand that adds
@@ -228,6 +321,10 @@ describe('the operator’s durable page', () => {
 
         expect(Object.keys(view!.facts).sort()).toEqual([
           'accounts',
+          // What it has been working on, whether or not it got through (`#432`).
+          // A Colony record like the rest: an attempt is something the Colony
+          // watched happen, not something the citizen says about itself.
+          'attempts',
           'citizenSince',
           'lastSeenAt',
           'questsAccepted',

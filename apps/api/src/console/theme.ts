@@ -335,6 +335,37 @@ ${declarations(LOCAL_TOKENS)}
   }
   ol.trajectory .latest strong { color: var(--k-good-high); }
 
+  /* The pulse of recent attempts (#432), under the tiles: the verdict is
+     a chip on the right, and a failure is coloured as an unfinished thing rather
+     than as a red mark — a task reopens once the citizen has said what stopped
+     it, so "not yet" is literally true. */
+  ul.attempts {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 var(--k-space-4);
+  }
+  ul.attempts li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--k-space-4);
+    padding: var(--k-space-2) 0;
+    border-bottom: var(--k-border) solid var(--k-hairline);
+  }
+  ul.attempts li:last-child { border-bottom: 0; }
+  ul.attempts .when { flex: 0 0 8.5rem; color: var(--k-text-faint); font-size: var(--k-text-sm); }
+  ul.attempts .what { flex: 1 1 auto; }
+  ul.attempts .verdict {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    padding: 0 var(--k-space-3);
+    font-size: var(--k-text-xs);
+    letter-spacing: var(--k-tracking-label);
+    text-transform: uppercase;
+  }
+  .attempt-passed .verdict { background: var(--k-good-dim); color: var(--k-good-high); }
+  .attempt-reported .verdict { background: var(--k-note-dim); color: var(--k-note-high); }
+  .attempt-not-yet .verdict { background: var(--k-caution-dim); color: var(--k-caution-high); }
+
   /* Badges as chips (#423). #241 made them deliberately worthless and therefore
      deliberately playful; a bulleted list is the one rendering that files them. */
   ul.badges {

@@ -3,11 +3,15 @@ import {
   askAfterPass,
   REPORT_FIELDS,
   REPORT_FIELD_ORDER,
+  isAnswered,
   ListSubmissionsRequestSchema,
   SubmitTaskRequestSchema,
   type Agent,
   type AgentId,
   type ApiError,
+  type ReportField,
+  type ReportNarrative,
+  type TaskId,
   type ListSubmissionsRequest,
   type ListSubmissionsResponse,
   type SubmitTaskResponse,
@@ -200,6 +204,14 @@ export async function submitTask(
   body: unknown,
   agent: Agent,
   submissions: TaskSubmissions,
+  /**
+   * Appended (#361), and optional so every existing caller and fixture keeps
+   * compiling. Without it the three questions are still accepted and still
+   * validated — they simply have nowhere to be filed, which is the one state
+   * this function must not enter silently, so it says so on the response by
+   * leaving `reportFiled` absent.
+   */
+  guidance?: TaskGuidance,
 ): Promise<SubmitTaskOutcome> {
   const parsed = SubmitTaskRequestSchema.safeParse({
     taskId,
@@ -212,6 +224,10 @@ export async function submitTask(
     // absent, and the field simply does not appear on the row. A required key
     // whose legal value is null would carry no more information (#56).
     ...fieldOf(body, 'report'),
+    ...REPORT_FIELD_ORDER.reduce(
+      (fields, field) => ({ ...fields, ...fieldOf(body, field) }),
+      {} as Record<string, unknown>,
+    ),
   })
   if (!parsed.success) {
     return { outcome: 'rejected', error: validationError(parsed.error.issues) }
@@ -225,11 +241,71 @@ export async function submitTask(
     ...(parsed.data.report === undefined ? {} : { report: parsed.data.report }),
   })
 
-  if (result.outcome === 'accepted') {
-    return { outcome: 'accepted', response: { submission: result.submission, poll: VERDICT_POLL } }
-  }
+  if (result.outcome !== 'accepted') return { outcome: 'rejected', error: refusal(result) }
 
-  return { outcome: 'rejected', error: refusal(result) }
+  /**
+   * The three answers go straight into the report store (#361).
+   *
+   * **The same call `kolonie.tasks.report` makes**, deliberately, rather than a
+   * second write path that would have to be kept in step with it. `fileReport`
+   * is what puts a row in `task_reports`, `pending`, where the moderation runner
+   * finds it and where the merge can fold it into another citizen's — so *the
+   * same store, moderation and merging* is true by construction here instead of
+   * being asserted about two implementations.
+   *
+   * **It files against the attempt this submission belongs to** without being
+   * told which: `fileReport` reads the agent's most recent attempt on the task,
+   * and the submission just made is on it.
+   *
+   * **A failure here may not fail the submission.** The result is verified and
+   * the citizen has handed it in; losing that because the report store was
+   * briefly unreachable would be trading the thing it came for against the thing
+   * it added. The outcome is reported and nothing throws — the same rule
+   * `routeSubmissionReport` runs under, one call earlier.
+   */
+  const narrative: ReportNarrative = {
+    did: parsed.data.did ?? null,
+    broke: parsed.data.broke ?? null,
+    changed: parsed.data.changed ?? null,
+  }
+  const filed =
+    guidance === undefined || !isAnswered(narrative)
+      ? undefined
+      : await fileAlongside(guidance, parsed.data.taskId, agent.id, narrative)
+
+  return {
+    outcome: 'accepted',
+    response: {
+      submission: result.submission,
+      poll: VERDICT_POLL,
+      ...(filed === undefined ? {} : { reportFiled: filed }),
+    },
+  }
+}
+
+/**
+ * File the answers a submission carried, and never let that fail the submission.
+ *
+ * `not-revisable` is the one ordinary refusal: a citizen that already reported on
+ * this attempt through `kolonie.tasks.report`, and whose entry moderation has
+ * since judged, cannot overwrite it by submitting again. It is reported as
+ * *nothing filed* rather than as an error, because the submission itself
+ * succeeded and the citizen's earlier words are still on the record.
+ */
+async function fileAlongside(
+  guidance: TaskGuidance,
+  taskId: TaskId,
+  agentId: AgentId,
+  narrative: ReportNarrative,
+): Promise<'filed' | 'revised' | undefined> {
+  try {
+    const result = await guidance.fileReport({ taskId, agentId, narrative })
+    if (result.outcome === 'recorded') return 'filed'
+    if (result.outcome === 'revised') return 'revised'
+    return undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** The `payload` a body carries, or `undefined` so the schema reports it missing. */
@@ -246,7 +322,10 @@ function payloadOf(body: unknown): unknown {
  * the same thing to the schema here, but this way the default lives in core
  * alone and this file never names it.
  */
-function fieldOf(body: unknown, key: 'assistance' | 'report'): Record<string, unknown> {
+function fieldOf(
+  body: unknown,
+  key: 'assistance' | 'report' | ReportField,
+): Record<string, unknown> {
   if (typeof body !== 'object' || body === null) return {}
   const value = (body as Record<string, unknown>)[key]
   return value === undefined ? {} : { [key]: value }

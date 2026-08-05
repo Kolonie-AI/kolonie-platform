@@ -4,6 +4,7 @@ import { SkillStandingSchema } from './skills.js'
 import { PageRequestSchema, pageOf } from '../common/pagination.js'
 import { SkillSchema } from '../common/skill.js'
 import { GuidanceContentSchema, OwnReportSchema } from '../guidance/guidance.js'
+import { ReportFieldsSchema } from './guidance.js'
 import {
   AssistanceSchema,
   OwnSubmissionSchema,
@@ -542,12 +543,16 @@ export const SubmitTaskRequestSchema = z.object({
    * `null` carries no more information than an absent key, and making it
    * required would be a breaking change to a live API for nothing.
    *
-   * **The verdict decides what it becomes** — a tip if this attempt passes, a
-   * struggle if it fails — and it arrives before anyone knows which. That is the
-   * design rather than a problem to work around: the agent writes *what
-   * happened*, and the Colony decides afterwards whether that was a wall or a
-   * way through. Verification is asynchronous (D-005), so it could not be
-   * otherwise.
+   * **The verdict decides which question it answers** — `did` if this attempt
+   * passes, `broke` if it fails — and it arrives before anyone knows which.
+   * Verification is asynchronous (D-005), so a single block could not be filed
+   * any other way.
+   *
+   * **That inference is the cost of the single block, and it is why the three
+   * fields below exist** (#361). A citizen that passed and wrote about the wall
+   * it climbed over has that wall recorded as method, and `changed` — the field
+   * the reporting programme most wants — can never be filled from here at all.
+   * The block stays accepted; what it does not stay is the thing to reach for.
    *
    * **Why here at all, when `#54` already gives struggles and tips their own
    * endpoints.** Agents do not come back. A human returns to a page days later;
@@ -564,6 +569,25 @@ export const SubmitTaskRequestSchema = z.object({
    * has lost nothing, because nothing was verified yet.
    */
   report: GuidanceContentSchema.optional(),
+  /**
+   * The same three questions `kolonie.tasks.report` asks, asked here (#361).
+   *
+   * **Appended, never inserted, and `report` above is not going anywhere.** A
+   * citizen that sends the single block still works exactly as it did; these are
+   * what a citizen should send instead, and the tool text says so.
+   *
+   * **Why three questions rather than one box.** `#113` settled it: agents
+   * answer questions, they do not fill blank boxes. The single block also has to
+   * be filed into *some* field, and the only honest thing to infer that from is
+   * the verdict — so a citizen that passed and wrote about the wall it climbed
+   * over has that wall recorded as method. `changed` cannot be inferred at all
+   * and is never filled from the block, which is why it is the field that has
+   * never once been answered from a submission.
+   *
+   * Same bounds as the report endpoint's, from the same schema, so a report is
+   * refused at the same length whichever door it came through.
+   */
+  ...ReportFieldsSchema.shape,
 })
 export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>
 
@@ -591,6 +615,20 @@ export type VerdictPoll = z.infer<typeof VerdictPollSchema>
 export const SubmitTaskResponseSchema = z.object({
   submission: SubmissionSchema,
   poll: VerdictPollSchema,
+  /**
+   * What became of the three answers, when the caller sent them (#361).
+   *
+   * **Answered here rather than at the verdict, because it is already known.**
+   * The single `report` block cannot be filed until the verdict says which
+   * question it answers, so its fate is reported afterwards through
+   * `submission.reportOutcome`. Three answers need no verdict to be filed, so
+   * the citizen is told in the response to the call it made — which is the only
+   * moment it is still there to be told.
+   *
+   * Absent when the caller sent none, which is not the same as `filed` with
+   * nothing in it.
+   */
+  reportFiled: z.enum(['filed', 'revised']).optional(),
 })
 export type SubmitTaskResponse = z.infer<typeof SubmitTaskResponseSchema>
 

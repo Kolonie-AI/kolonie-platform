@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import {
   GUIDANCE_CONTENT_MAX_LENGTH,
   SubmissionIdSchema,
+  noStagesRun,
   type AgentId,
   type ReportNarrative,
   type TaskId,
@@ -10,7 +11,8 @@ import {
 import type { Database } from '../client.js'
 import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { fileReport, routeSubmissionReport } from './guidance.js'
+import { briefingCorpus } from './briefing.js'
+import { fileReport, recordModeration, routeSubmissionReport } from './guidance.js'
 
 const target = databaseTestTarget()
 
@@ -420,6 +422,86 @@ describe('a report carried on a submission', () => {
 
       expect(await statusOf(id)).toBe('passed')
       expect(await reports()).toHaveLength(1)
+    })
+  })
+
+  /**
+   * **One store, one moderation, one briefing — from either door** (`#361`).
+   *
+   * The issue was written against a model of the system with two stores in it,
+   * and that model was already wrong here: `routeSubmissionReport` has written
+   * into `task_reports` since `#110`, and prod on 2026-08-05 had 48 of 48
+   * carried reports routed with none stranded. What the issue was really about
+   * survives and is what these assert: the two doors are the same door, and a
+   * verdict does not decide which question a citizen answered.
+   */
+  describe('both doors into the report store', () => {
+    it('put the answers in the same table, and neither reaches a briefing unapproved', async () => {
+      const throughEndpoint = await anAgent()
+      const throughSubmission = await anAgent()
+
+      // The report endpoint's door. It needs an attempt to hang the report on,
+      // which a submission is.
+      await submitted('failed', undefined, taskId, throughEndpoint)
+      const filed = await fileReport(db, {
+        taskId,
+        agentId: throughEndpoint,
+        narrative: aNarrative('The endpoint door: the second step never returned.'),
+      })
+      expect(filed.outcome).toBe('recorded')
+
+      // The submission's door, as the API now takes it: three answers filed
+      // through the very same call, needing no verdict to know which is which.
+      await submitted('passed', undefined, taskId, throughSubmission)
+      const alongside = await fileReport(db, {
+        taskId,
+        agentId: throughSubmission,
+        narrative: aNarrative('The submission door: the wall I climbed over to pass.', 'broke'),
+      })
+      expect(alongside.outcome).toBe('recorded')
+
+      // One table. Both pending, because `fileReport` never names a status.
+      const both = await reports()
+      expect(both).toHaveLength(2)
+      expect(both.map((row) => row.status).sort()).toEqual(['pending', 'pending'])
+
+      // And neither is in the briefing corpus while it is pending — the corpus
+      // reads `approved` only, whichever door the row came through.
+      expect(await briefingCorpus(db, taskId)).toHaveLength(0)
+    })
+
+    /**
+     * The rejection case the definition of done asks for, and it is asserted
+     * from *both* entry points rather than from the convenient one: a rule that
+     * holds for one door and not the other is exactly the defect `#361` was
+     * filed about.
+     */
+    it('keeps a rejected report out of the briefing, whichever door it came through', async () => {
+      const throughEndpoint = await anAgent()
+      const throughSubmission = await anAgent()
+
+      const rejected = []
+      for (const agent of [throughEndpoint, throughSubmission]) {
+        await submitted('failed', undefined, taskId, agent)
+        const narrative = aNarrative(`It did not work, from ${agent}. This is broken.`)
+        const filed = await fileReport(db, { taskId, agentId: agent, narrative })
+        if (filed.outcome !== 'recorded') throw new Error('fixture did not file')
+        rejected.push({ id: filed.entry.id, narrative })
+      }
+
+      for (const entry of rejected) {
+        await recordModeration(db, {
+          id: entry.id,
+          narrative: entry.narrative,
+          verdict: { decision: 'reject', note: 'It says nothing that happened.' },
+          model: 'vendor/some-model-v1',
+          stages: noStagesRun(),
+          confidentialSpans: [],
+        })
+      }
+
+      expect((await reports()).map((row) => row.status).sort()).toEqual(['rejected', 'rejected'])
+      expect(await briefingCorpus(db, taskId)).toHaveLength(0)
     })
   })
 })

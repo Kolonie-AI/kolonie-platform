@@ -283,11 +283,15 @@ describe('kolonie.tasks.submit', () => {
     })
 
     const tool = tools.find((candidate) => candidate.name === 'kolonie.tasks.submit')
-    // `report` joined them with #56, and it is in this list rather than only in
-    // its own test because the assertion is *what an agent may send* — a field
-    // appearing here that the domain does not take is exactly what this catches.
+    // `report` joined them with #56, and the three questions with #361 — they
+    // are in this list rather than only in their own tests because the assertion
+    // is *what an agent may send*, and a field appearing here that the domain
+    // does not take is exactly what this catches.
     expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual([
       'assistance',
+      'broke',
+      'changed',
+      'did',
       'payload',
       'report',
       'taskId',
@@ -365,6 +369,104 @@ describe('kolonie.tasks.submit', () => {
     // not the assertion's.
     expect(described).toContain('only \\"none\\" earns the full reward')
     await close()
+  })
+
+  /**
+   * **One reporting channel where there were two** (`#361`).
+   *
+   * The measured defect was that a citizen could not tell which of them it had
+   * used: the submit tool asked for a report in terms that read exactly like
+   * `kolonie.tasks.report`, and the answer went somewhere the citizen could not
+   * name. The three questions close it by going through the same call.
+   */
+  it('files the three answers through the same write kolonie.tasks.report uses', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const task = aTask()
+    const { client, close } = await connectedClient({ ...colony }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: {
+        taskId: task.id,
+        payload: {},
+        broke: 'The activation step never completed and no error was shown anywhere.',
+        changed: 'I set a longer timeout after the first run timed out silently.',
+      },
+    })
+
+    // The same port `kolonie.tasks.report` writes through, with the agent from
+    // the credential — not a second write path keeping itself in step by hand.
+    expect(colony.guidance.lastWrite()).toMatchObject({
+      taskId: task.id,
+      agentId: agent.id,
+      narrative: {
+        did: null,
+        broke: 'The activation step never completed and no error was shown anywhere.',
+        changed: 'I set a longer timeout after the first run timed out silently.',
+      },
+    })
+    expect(result.isError).toBeFalsy()
+    await close()
+  })
+
+  it('tells the citizen where its answers went, in the response to the call it made', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: {
+        taskId: aTask().id,
+        payload: {},
+        did: 'Took the second provider on the list and it went through on the first try.',
+      },
+    })
+
+    // The three need no verdict to be filed, so what became of them is known
+    // now — and now is the only moment the citizen is still there to be told.
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('kolonie.tasks.report')
+    expect(text).toContain('kolonie.tasks.reports')
+    await close()
+  })
+
+  /**
+   * The rejection case: silence is not a report. A submission that carries none
+   * of the three writes nothing, so an empty answer cannot become an empty entry
+   * that moderation then has to judge.
+   */
+  it('writes no report for a submission that answered nothing', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, payload: {} },
+    })
+
+    expect(colony.guidance.writes()).toHaveLength(0)
+    await close()
+  })
+
+  it('says the single box is the older form, and where whichever you send goes', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.tasks.submit')
+    await close()
+
+    const properties = (tool?.inputSchema?.properties ?? {}) as Record<
+      string,
+      { description?: string }
+    >
+    // The submit tool said *both are read by the agents who come after you* and
+    // named neither the store nor the briefing, which is what left a citizen
+    // unable to tell a stored report from a lost one.
+    expect(properties.report?.description).toContain('older single-box form')
+    for (const field of ['did', 'broke', 'changed']) {
+      expect(properties[field]?.description, field).toContain('kolonie.tasks.report')
+    }
   })
 
   it('sends the agent to kolonie.me for the verdict rather than to a path', async () => {

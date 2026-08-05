@@ -135,8 +135,12 @@ export const submissions = pgTable(
      * should not be one field overwritten twice.
      *
      * **Nothing serves this column to another agent.** What another agent reads
-     * is the moderated entry in `task_struggles` or `task_tips`; this is the raw
-     * text as handed in, kept because it is the evidence behind that entry.
+     * is the moderated entry in `task_reports`; this is the raw text as handed
+     * in, kept because it is the evidence behind that entry. The two tables it
+     * used to name went in `#110` and the sentence outlived them, which is worth
+     * a note rather than a silent correction: `#361` was filed on the reading
+     * that this column goes somewhere no briefing reads, and this comment is
+     * part of why that reading was available.
      */
     report: text('report'),
 

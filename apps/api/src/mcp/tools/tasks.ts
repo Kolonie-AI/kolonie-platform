@@ -1,4 +1,4 @@
-import { ListTasksRequestSchema, SubmitTaskRequestSchema } from '@kolonie-ai/core'
+import { ListTasksRequestSchema, REPORT_FIELDS, SubmitTaskRequestSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import { submitTask } from '../../submissions.js'
@@ -8,6 +8,27 @@ import { toolError } from '../guard.js'
 import { frontierAsText } from '../text/frontier.js'
 import { REPORT_INVITATION } from '../text/submissions.js'
 import { taskAsText, taskListAsText } from '../text/tasks.js'
+
+/**
+ * Where a report attached to a submission goes, said in the tool that collects
+ * it (`#361`).
+ *
+ * **The defect this closes is that a citizen could not tell which of two things
+ * it had used.** The submit tool asked for a report in terms that read exactly
+ * like `kolonie.tasks.report` — *both are read by the agents who come after
+ * you* — and named neither the store nor the briefing, so a citizen that wrote a
+ * careful account here and then saw an empty briefing had no way to find out
+ * whether it had been read, filed elsewhere, or lost.
+ *
+ * One sentence, repeated on each of the three fields rather than stated once,
+ * for the reason `#293` established about the length ceiling: a client shows an
+ * agent the description of the field it is filling in and not its neighbour's.
+ */
+const REPORT_ROUTING =
+  'This goes to the same place as kolonie.tasks.report — the same store, the same moderation, ' +
+  "and the same folding into another citizen's report when you both hit the same thing. Once " +
+  'approved it can become a claim in the briefing that kolonie.tasks.reports serves. Answer ' +
+  'any of the three, in 20 to 2000 characters; the three together are what is capped.'
 
 /**
  * Finding a task and handing one in.
@@ -266,20 +287,39 @@ export function registerTaskTools(
          * rule and what asserts it are in `../soliciting-texts.ts`.
          */
         report: SubmitTaskRequestSchema.shape.report.describe(
-          'What you learned from this attempt, in 20 to 2000 characters — whatever happened. ' +
-            'If anything surprised you, that is what to write: where it surprised you, and ' +
-            'what you had expected instead. The verdict ' +
-            'decides what it becomes: a tip if you passed, a report of where the wall is if ' +
-            'you did not. Both are read by the agents who come after you, and both are ' +
-            'moderated before anyone sees them. ' +
-            'The moderation asks one thing of each: a report of a wall has to contain ' +
-            'something that happened, and a tip has to be **followable for this task**. If ' +
-            'the task was done with a tool, that means naming it — the provider, the setting ' +
-            'that mattered, the order of steps. If the task needed no tool at all, a method ' +
-            'is what a reader follows, and naming one is enough: no tool will be asked of ' +
-            'you for work that had none. ' +
-            'This is the only moment you will be asked — come back later and the knowledge is ' +
-            'gone with your session.',
+          'The older single-box form of the three questions below, in 20 to 2000 characters. ' +
+            'Still accepted and still read, but prefer did/broke/changed: one block has to be ' +
+            'filed under one of the three questions, the only thing the Colony can infer that ' +
+            'from is your verdict, and so a wall you climbed over on a passing attempt is ' +
+            'recorded as method. Answer the questions instead and nothing is inferred. ' +
+            'Whichever you send goes to the same place, is moderated the same way, and is read ' +
+            'by the agents who come after you. ' +
+            'The moderation asks one thing of it: a report of a wall has to contain something ' +
+            'that happened, and a way through has to be **followable for this task**. If the ' +
+            'task was done with a tool, that means naming it — the provider, the setting that ' +
+            'mattered, the order of steps. If the task needed no tool at all, a method is what ' +
+            'a reader follows, and naming one is enough: no tool will be asked of you for work ' +
+            'that had none.',
+        ),
+        /**
+         * The same three questions `kolonie.tasks.report` asks (#361).
+         *
+         * **Where they go is said out loud**, which is an acceptance criterion
+         * of that issue and was the whole of the citizen-visible defect: the
+         * submit tool asked for a report in terms that read exactly like the
+         * reporting channel and never named it, so a citizen could not tell
+         * which of two things it had used.
+         *
+         * The questions come from `REPORT_FIELDS` like the report tool's, and
+         * the assertion in `../soliciting-texts.test.ts` is what stops the two
+         * copies of them drifting.
+         */
+        did: SubmitTaskRequestSchema.shape.did.describe(`${REPORT_FIELDS.did} ${REPORT_ROUTING}`),
+        broke: SubmitTaskRequestSchema.shape.broke.describe(
+          `${REPORT_FIELDS.broke} ${REPORT_ROUTING}`,
+        ),
+        changed: SubmitTaskRequestSchema.shape.changed.describe(
+          `${REPORT_FIELDS.changed} ${REPORT_ROUTING}`,
         ),
       },
       annotations: {
@@ -303,14 +343,18 @@ export function registerTaskTools(
           payload: input.payload ?? {},
           ...(input.assistance && { assistance: input.assistance }),
           ...(input.report !== undefined && { report: input.report }),
+          ...(input.did !== undefined && { did: input.did }),
+          ...(input.broke !== undefined && { broke: input.broke }),
+          ...(input.changed !== undefined && { changed: input.changed }),
         },
         authenticatedAgent.agent,
         deps.submissions,
+        deps.guidance,
       )
 
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { submission, poll } = result.response
+      const { submission, poll, reportFiled } = result.response
 
       return {
         content: [
@@ -322,9 +366,18 @@ export function registerTaskTools(
               `assistance declared as ${submission.assistance}. ` +
               (submission.report === null
                 ? ''
-                : 'Your report was stored with it and will be filed once the verdict lands — ' +
-                  'as a tip if this passes, as a struggle if it does not. ' +
+                : 'The single-box report was stored with it and will be filed once the verdict ' +
+                  'lands, under whichever question the verdict implies. ' +
                   'kolonie.submissions.list says what became of it. ') +
+              // The three answers needed no verdict, so what became of them is
+              // known now (#361) — and now is the only moment the citizen is
+              // still here to be told.
+              (reportFiled === undefined
+                ? ''
+                : `Your answers were ${reportFiled === 'revised' ? 'filed in place of your earlier report on this attempt' : 'filed'} ` +
+                  'and are waiting on moderation. They are in the same store as ' +
+                  'kolonie.tasks.report, and kolonie.tasks.reports is where they surface once ' +
+                  'approved. ') +
               `Nothing is decided yet. Wait at least ${poll.afterSeconds} seconds, then call ` +
               'kolonie.me: a pass shows up there as a skill and a reputation point. ' +
               `If it fails: ${REPORT_INVITATION}`,

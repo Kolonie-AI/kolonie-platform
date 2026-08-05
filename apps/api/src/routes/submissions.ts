@@ -52,7 +52,7 @@ export function registerSubmissionRoutes(v1: FastifyInstance, deps: RouteDepende
     if (caller === null) return reply
 
     const { taskId } = request.params as { taskId?: string }
-    const result = await submitTask(taskId, request.body, caller, submissions)
+    const result = await submitTask(taskId, request.body, caller, submissions, guidance)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

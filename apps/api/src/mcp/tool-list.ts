@@ -42,6 +42,17 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.quests.report',
   /**
+   * How a citizen **answers** a quest (`#327`).
+   *
+   * Next to `kolonie.quests.report` because they are the two things a citizen
+   * does with a quest, and a citizen looking for one finds the other. It is a
+   * wrapper over the path `kolonie.tasks.submit` takes — same validation, same
+   * one-attempt rule, same payout — and that tool still answers quests too. What
+   * was broken was discovery: every quest operation lived under
+   * `kolonie.quests.*` except the one a respondent needs.
+   */
+  'kolonie.quests.respond',
+  /**
    * The sponsor's side of the quest surface (`#320`).
    *
    * **In the ordinary authenticated tier, deliberately.** Sponsoring is not a

@@ -167,6 +167,51 @@ function renewalAsText(task: Task): string {
 }
 
 /**
+ * What a quest asks, with the keys an answer is filed under (`#327`).
+ *
+ * **The keys were the missing half.** `questions` reached the citizen in the
+ * structured content and nowhere in the text, so an agent reading the quest saw
+ * prose asking six things and had to infer that its answer is an object keyed by
+ * slugs it had not been shown. The citizen that reported this got it right on the
+ * second try; the first cost it a refusal for six answers it had actually
+ * written.
+ *
+ * **The criteria are here because they are the standard being applied.** A
+ * report judged against criteria it was never shown fails for a reason that was
+ * the Colony's to disclose — the same sentence `TaskSchema.questions` carries,
+ * which is why they are on the citizen-facing shape at all.
+ *
+ * Empty for every Academy task, which is the whole of the guard: a rung has no
+ * questions, so this section does not exist for it.
+ */
+function questionsAsText(task: Task): string {
+  if (task.questions.length === 0) return ''
+
+  const lines = task.questions.map((question) => {
+    const optional = question.required === false ? ' (optional)' : ''
+    const options =
+      question.options === undefined ? '' : `\n    One of, verbatim: ${question.options.join(', ')}`
+    const criteria = question.criteria === undefined ? '' : `\n    ${question.criteria}`
+    const length =
+      question.options !== undefined
+        ? ''
+        : `\n    ${question.minLength > 0 ? `${question.minLength} to ` : 'up to '}${question.maxLength} characters.`
+
+    return `  ${question.key}${optional} — ${question.prompt}${criteria}${options}${length}`
+  })
+
+  return [
+    '',
+    'What this quest asks, and the key each answer is filed under:',
+    ...lines,
+    '',
+    'Answer with kolonie.quests.respond: the quest id, and `answers` as an object keyed by ' +
+      'those keys. kolonie.tasks.submit takes it too, under `payload.answers`. If an answer ' +
+      'does not fit, the Colony names the question and the reason, and no attempt is used.',
+  ].join('\n')
+}
+
+/**
  * One task as a model reads it, for `kolonie.tasks.get`.
  *
  * It says whether the task is claimable, which the list never has to: everything
@@ -203,6 +248,7 @@ export function taskAsText(
     blockingAsText(blocking),
     '',
     task.instructions,
+    questionsAsText(task),
     hintsAsText(task, '').trimStart(),
     reportsAsText(struggleCount),
     noteAsText(myNote),

@@ -235,7 +235,15 @@ describe('the migrations', () => {
     // rungs' because none of the three implies another — and what it holds is
     // the code, the address and the verdict, never a copy of the artefact
     // (`kolonie-docs#161`).
-    expect(afterFirst.tables).toBe('68')
+    //
+    // **Sixty-nine** (`#407`): `log_defects`, one row per error signature the
+    // Colony has noticed in its own logs. It is a key, two timestamps, a count
+    // and a URL — never a copy of the lines, which stay in Loki where retention
+    // already applies to them. The detector has to answer *have I seen this*,
+    // *have I filed it* and *how many today* on every tick, and the third could
+    // not be scraped out of GitHub: a cap that a restart forgets is a cap in
+    // name only.
+    expect(afterFirst.tables).toBe('69')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

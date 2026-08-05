@@ -226,3 +226,115 @@ export function stripFence(text: string): string {
   const withoutFence = trimmed.replace(/^```[a-zA-Z]*\n?/, '')
   return withoutFence.replace(/```$/, '').trim()
 }
+
+/**
+ * The model's one job in the log detector: sentences (`#407`).
+ *
+ * **It decides nothing.** Whether a defect is new, whether it came back, where
+ * it belongs and whether the caps allow it are all settled in `defects.ts` by
+ * arithmetic, before this is called. What it adds is a summary a person can read
+ * in a board list and a paragraph saying what the lines probably mean — and an
+ * issue is complete without either, which is what keeps a provider outage from
+ * blinding the Colony.
+ */
+export interface DefectWriter {
+  readonly available: boolean
+  describe(input: {
+    readonly signature: string
+    readonly service: string
+    readonly event: string
+    readonly count: number
+    readonly samples: readonly string[]
+    readonly lastStart: string | null
+  }): Promise<{ readonly summary: string; readonly reading: string }>
+}
+
+/** A writer that writes nothing. The issue is filed without prose, and says so. */
+export const noDefectWriter: DefectWriter = {
+  available: false,
+  describe: async () => {
+    throw new Error('no model configured')
+  },
+}
+
+const DEFECT_SYSTEM = `You describe a defect found in the logs of Kolonie AI, a colony of
+autonomous agents, for an issue a coding agent will pick up.
+
+You are given a signature, a count, some sample log lines and when the service last started.
+You are NOT deciding whether this matters — that is already decided. You are writing it up.
+
+Answer with a JSON object and nothing else:
+{
+  "summary": "one line, under 80 characters, saying what is failing — no signature, no counts",
+  "reading": "one or two short paragraphs in Markdown: what these lines probably mean, what a
+              reader should look at first, and what you are NOT sure about. Say plainly when the
+              lines are not enough to tell. Never invent a file, a function or a cause."
+}`
+
+/** The prose half of the log detector, on the same provider triage already uses. */
+export function openRouterDefectWriter(
+  apiKey: string,
+  options: OpenRouterOptions = {},
+): DefectWriter {
+  const model = options.model ?? TRIAGE_MODEL
+  const doFetch = options.fetchImpl ?? fetch
+
+  return {
+    available: true,
+    describe: async (input) => {
+      const response = await doFetch(`${OPENROUTER_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+          'http-referer': 'https://github.com/Kolonie-AI',
+          'x-title': 'Kolonie log defects',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: DEFECT_SYSTEM },
+            {
+              role: 'user',
+              content: [
+                `signature: ${input.signature}`,
+                `service: ${input.service}`,
+                `event: ${input.event}`,
+                `lines in the last hour: ${input.count}`,
+                `the service last started: ${input.lastStart ?? 'not found in the day before'}`,
+                '',
+                'sample lines:',
+                ...input.samples,
+              ].join('\n'),
+            },
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: MAX_TOKENS,
+          temperature: 0.2,
+        }),
+      })
+
+      if (!response.ok) throw new Error(`the model endpoint answered ${response.status}`)
+
+      const body = (await response.json()) as {
+        choices?: ReadonlyArray<{ message?: { content?: string | null }; finish_reason?: string }>
+      }
+      const text = body.choices?.[0]?.message?.content
+      if (text === undefined || text === null || text === '') {
+        throw new Error(
+          `the model returned no content (finish_reason: ${body.choices?.[0]?.finish_reason ?? 'unknown'})`,
+        )
+      }
+
+      const parsed = JSON.parse(stripFence(text)) as { summary?: unknown; reading?: unknown }
+      if (typeof parsed.summary !== 'string' || typeof parsed.reading !== 'string') {
+        throw new Error('the model did not answer with a summary and a reading')
+      }
+
+      // Bounded here rather than trusted from the answer: a title is a board
+      // row, and a model that ignored the instruction must not produce one
+      // nobody can scan.
+      return { summary: parsed.summary.slice(0, 120), reading: parsed.reading }
+    },
+  }
+}

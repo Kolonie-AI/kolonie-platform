@@ -1,5 +1,6 @@
 import { silentLog, type Log, type SupportTicket, type SupportTicketId } from '@kolonie-ai/core'
 import type { Issues, KnownIssue } from './github.js'
+import { watchLogs, type WatchDependencies } from './watch.js'
 import {
   closingNote,
   filing,
@@ -51,6 +52,16 @@ export interface LoopDependencies {
   readonly model: TriageModel
   readonly issues: Issues
   readonly log?: Log
+  /**
+   * The second source: the Colony's own errors (`#407`).
+   *
+   * **Optional, so a deployment that has not been given a log store keeps
+   * triaging tickets.** The two sources share a GitHub App and nothing else —
+   * `#407` chose that over a second runner precisely because two processes each
+   * holding a write credential is the outcome to avoid, and the price is that
+   * this loop now does two jobs and says so.
+   */
+  readonly watch?: WatchDependencies | undefined
 }
 
 /**
@@ -339,6 +350,34 @@ export interface TickOutcome {
  */
 export async function tick(deps: LoopDependencies, batchSize: number): Promise<TickOutcome> {
   const log = deps.log ?? silentLog
+
+  /**
+   * The log pass runs first and on every tick, whether or not a ticket is
+   * waiting (`#407`).
+   *
+   * **Before the queue rather than after it**, because a defect in the logs is
+   * the thing with a clock on it: the target is half an hour from a defect
+   * appearing to an issue existing, and a slow batch of tickets must not spend
+   * that budget. Its own failure is caught here so a broken log store cannot
+   * stop a ticket being triaged — they are two jobs in one process, not one job.
+   */
+  if (deps.watch !== undefined) {
+    try {
+      const found = await watchLogs(deps.watch)
+      if (found.skipped === undefined && found.seen > 0) {
+        log.info(
+          `log pass: ${found.seen} signature(s), ${found.filed} filed, ` +
+            `${found.commented} commented, ${found.quiet} already said, ` +
+            `${found.withheld} withheld by the cap`,
+          { event: 'defects.pass.done', ...found },
+        )
+      }
+    } catch (error) {
+      log.error('the log pass failed; tickets are unaffected', error, {
+        event: 'defects.pass.failed',
+      })
+    }
+  }
 
   let resolved = 0
   try {

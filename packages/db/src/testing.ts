@@ -422,7 +422,10 @@ async function recreateFromTemplate(url: string, baseUrl: string): Promise<void>
  */
 export async function truncateAll(db: Database): Promise<void> {
   await db.execute(
-    sql`truncate table task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
+    // `log_defects` is named explicitly because it hangs off nothing: it has no
+    // foreign key to `agents`, so the cascade below never reaches it and rows
+    // would survive into the next test as a silently growing count (`#407`).
+    sql`truncate table log_defects, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
   )
 }
 

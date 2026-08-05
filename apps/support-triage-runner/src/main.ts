@@ -10,10 +10,22 @@ import {
   ticketContext,
   ticketsAwaitingTheirIssue,
   triagedTickets,
+  defectIssuesFiledSince,
+  recordDefectComment,
+  recordDefectIssue,
+  recordSeenDefects,
 } from '@kolonie-ai/db'
 import { startRunner, type Log, type TriageStore } from './loop.js'
-import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
+import {
+  noDefectWriter,
+  openRouterDefectWriter,
+  openRouterModel,
+  unavailableModel,
+  OPENROUTER_API_KEY_VAR,
+} from './llm.js'
 import { APP_ID_VAR, APP_KEY_PATH_VAR, githubIssues, noIssues } from './github.js'
+import { LOKI_TOKEN_VAR, LOKI_URL_VAR, LOKI_USER_VAR, lokiLogs, noLogs } from './logs.js'
+import type { DefectStore } from './watch.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
 /**
@@ -115,7 +127,70 @@ const store: TriageStore = {
   depth: () => queueDepth(db),
 }
 
-const runner = startRunner({ store, model, issues, log }, { pollIntervalMs: POLL_INTERVAL_MS })
+/**
+ * The log store, or nothing (`#407`).
+ *
+ * **The same credential the Watch Agent reads with**, not a new one: `#407` is
+ * explicit that a second stored credential where a fitting one exists is the
+ * wrong trade, and `ARCHITECTURE.md` is deliberately strict about them.
+ *
+ * Absent means the detector does not run and tickets are triaged exactly as
+ * before — which is honest degradation rather than a process that refuses to
+ * start and takes its own health endpoint down with it.
+ */
+const lokiUrl = process.env[LOKI_URL_VAR] ?? ''
+
+/**
+ * **The URL alone decides whether the detector runs**, and the token is
+ * optional. Loki sits on the same network as this container, so the internal
+ * address passes no edge and there is nothing to authenticate to; the token
+ * exists for `logs.kolonie.ai`, where Traefik's basicAuth is. Requiring it would
+ * make the ordinary configuration look like the missing one.
+ */
+const logs =
+  lokiUrl === ''
+    ? noLogs
+    : lokiLogs({
+        url: lokiUrl,
+        user: process.env[LOKI_USER_VAR] ?? 'watch',
+        token: process.env[LOKI_TOKEN_VAR] ?? '',
+        log,
+      })
+
+if (logs === noLogs) {
+  log.warn(
+    `${LOKI_URL_VAR} is not set. ` +
+      'No defect in the logs will become an issue; the Watch Agent’s daily read is all there is.',
+    { event: 'config.missing', variable: LOKI_URL_VAR },
+  )
+}
+
+const defects: DefectStore = {
+  seen: (found) => recordSeenDefects(db, found),
+  filed: (signature, issueUrl, regression) =>
+    recordDefectIssue(db, signature, issueUrl, regression),
+  commented: (signature) => recordDefectComment(db, signature),
+  filedSince: (since) => defectIssuesFiledSince(db, since),
+}
+
+const runner = startRunner(
+  {
+    store,
+    model,
+    issues,
+    log,
+    watch: {
+      logs,
+      issues,
+      store: defects,
+      // The prose half, on the key triage already uses. Unavailable is a
+      // degradation and not a stop: an issue is complete without a reading.
+      writer: apiKey === '' ? noDefectWriter : openRouterDefectWriter(apiKey),
+      log,
+    },
+  },
+  { pollIntervalMs: POLL_INTERVAL_MS },
+)
 
 const health = createHealthServer({
   port: HEALTH_PORT,

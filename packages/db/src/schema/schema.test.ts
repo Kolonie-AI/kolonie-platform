@@ -256,6 +256,12 @@ describe('schema', () => {
         'key_challenges',
         'ledger_entries',
         /**
+         * What the Colony has already noticed in its own logs (`#407`): one row
+         * per error signature, so a defect becomes an issue somebody can close
+         * rather than a comment on one that never does.
+         */
+        'log_defects',
+        /**
          * `moderations` joined with #70. It is to a verdict about a citizen's
          * entry what `verifications` is to a verdict about a submission: five
          * entries were judged in production on 2026-07-29 and the only surviving

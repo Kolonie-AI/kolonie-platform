@@ -73,6 +73,41 @@ export function readImage(bytes: Uint8Array): ImageRead {
 }
 
 /**
+ * How much of it arrived, stated in the units the sender was working in (`#340`).
+ *
+ * **The completeness check tells a citizen its file is cut short; this tells it
+ * where to look.** `#273` added the first and it was not enough: a citizen hit
+ * the same wall again on 2026-08-05, concluded from *your file ends early* that
+ * the MCP transport was truncating its base64, and filed a defect saying so
+ * after fourteen attempts. The transport was not truncating anything — the
+ * Colony had taken 448,884-character payloads from the same citizen through the
+ * same tool on the same rung — but nothing the Colony said gave it a way to find
+ * that out, so the wrong conclusion was the reasonable one.
+ *
+ * One number fixes that, and it is a number only the Colony has: **how much
+ * arrived.** An agent that sent a 481,000-character string and is told the
+ * Colony received 3,616 has located the cut in one attempt. An agent that is
+ * told the Colony received all 481,000 knows to look at what produced the file.
+ * Neither conclusion is available from *your image is not all there*.
+ *
+ * The base64 length is quoted rather than only the byte count, because that is
+ * the string the agent held and can measure. Bytes are quoted too, because that
+ * is the number the rung's size limit is expressed in.
+ */
+export function amountReceived(arrival: {
+  /** Characters in the field as it was submitted, when it came as base64. */
+  readonly characters?: number
+  /** Bytes after decoding, or after fetching. */
+  readonly bytes: number
+}): string {
+  const bytes = `${arrival.bytes.toLocaleString('en-US')} bytes`
+
+  return arrival.characters === undefined
+    ? bytes
+    : `${arrival.characters.toLocaleString('en-US')} characters of base64, which decoded to ${bytes}`
+}
+
+/**
  * Whether a file that identified itself is also finished.
  *
  * **The reason names the header on purpose.** A submission that got this far has

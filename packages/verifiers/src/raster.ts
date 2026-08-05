@@ -13,7 +13,7 @@ import {
   type VerifyResult,
   type Verifier,
 } from '@kolonie-ai/core'
-import { readImage, type ImageFormat } from './image.js'
+import { amountReceived, readImage, type ImageFormat } from './image.js'
 import { withSupportPointer } from './support.js'
 import { vendorFaultEvidence } from './vendor.js'
 import { safeFetch } from './website-verify.js'
@@ -157,7 +157,18 @@ export class RasterVerifier implements Verifier {
     if (read.outcome === 'unreadable') {
       return {
         status: 'fail',
-        evidence: `The submission could not be read: ${read.reason}`,
+        /**
+         * **The amount is quoted here and nowhere else in this verifier** (`#340`).
+         *
+         * This is the branch a cut short arrives in, and it is the only one where
+         * the citizen has to decide whether to look at its transport or at its
+         * encoder. Every other refusal below is about a picture that arrived
+         * whole and is the wrong picture, where the number is noise.
+         */
+        evidence:
+          `The submission could not be read: ${read.reason} The Colony received ` +
+          `${bytes.arrival} — if that is not what you sent, whatever carried it cut it short, ` +
+          'and the fault is not in what you drew.',
         metadata,
       }
     }
@@ -263,7 +274,12 @@ export class RasterVerifier implements Verifier {
    * but the instructions lead with base64 and so does this.
    */
   async #bytesFrom(payload: { image?: unknown; imageUrl?: unknown } | null): Promise<
-    | { readonly outcome: 'read'; readonly image: Uint8Array }
+    | {
+        readonly outcome: 'read'
+        readonly image: Uint8Array
+        /** How much arrived, for a message that has to say so (`#340`). */
+        readonly arrival: string
+      }
     | {
         readonly outcome: 'refused'
         readonly status: 'fail' | 'pending'
@@ -280,11 +296,17 @@ export class RasterVerifier implements Verifier {
         return {
           outcome: 'refused',
           status: 'fail',
-          evidence: 'The "image" field is not base64 that decodes to anything.',
+          evidence:
+            `The "image" field is not base64 that decodes to anything. ${raw.length} character` +
+            `${raw.length === 1 ? '' : 's'} arrived after the data URL prefix was stripped.`,
         }
       }
 
-      return { outcome: 'read', image: new Uint8Array(image) }
+      return {
+        outcome: 'read',
+        image: new Uint8Array(image),
+        arrival: amountReceived({ characters: raw.length, bytes: image.byteLength }),
+      }
     }
 
     if (typeof payload?.imageUrl === 'string' && payload.imageUrl !== '') {
@@ -338,7 +360,8 @@ export class RasterVerifier implements Verifier {
         }
       }
 
-      return { outcome: 'read', image: new Uint8Array(await response.arrayBuffer()) }
+      const fetched = new Uint8Array(await response.arrayBuffer())
+      return { outcome: 'read', image: fetched, arrival: amountReceived({ bytes: fetched.length }) }
     }
 
     return {

@@ -13,7 +13,7 @@ import {
   type VerifyResult,
   type Verifier,
 } from '@kolonie-ai/core'
-import { readImage, type ImageFormat } from './image.js'
+import { amountReceived, readImage, type ImageFormat } from './image.js'
 import { readProvenance } from './provenance.js'
 import { withSupportPointer } from './support.js'
 import { vendorFaultEvidence } from './vendor.js'
@@ -151,7 +151,16 @@ export class ImageModelVerifier implements Verifier {
     if (read.outcome === 'unreadable') {
       return {
         status: 'fail',
-        evidence: `The submission could not be read: ${read.reason}`,
+        /**
+         * The amount arrived is quoted here and nowhere else in this verifier,
+         * for the reason `raster.ts` gives at the same branch (`#340`): this is
+         * the one refusal where the citizen has to decide whether to look at its
+         * transport or at what produced the file.
+         */
+        evidence:
+          `The submission could not be read: ${read.reason} The Colony received ` +
+          `${bytes.arrival} — if that is not what you sent, whatever carried it cut it short, ` +
+          'and the fault is not in what you drew.',
         metadata,
       }
     }
@@ -267,7 +276,12 @@ export class ImageModelVerifier implements Verifier {
    * generating.
    */
   async #bytesFrom(payload: { image?: unknown; imageUrl?: unknown } | null): Promise<
-    | { readonly outcome: 'read'; readonly image: Uint8Array }
+    | {
+        readonly outcome: 'read'
+        readonly image: Uint8Array
+        /** How much arrived, for a message that has to say so (`#340`). */
+        readonly arrival: string
+      }
     | {
         readonly outcome: 'refused'
         readonly status: 'fail' | 'pending'
@@ -284,11 +298,17 @@ export class ImageModelVerifier implements Verifier {
         return {
           outcome: 'refused',
           status: 'fail',
-          evidence: 'The "image" field is not base64 that decodes to anything.',
+          evidence:
+            `The "image" field is not base64 that decodes to anything. ${raw.length} character` +
+            `${raw.length === 1 ? '' : 's'} arrived after the data URL prefix was stripped.`,
         }
       }
 
-      return { outcome: 'read', image: new Uint8Array(image) }
+      return {
+        outcome: 'read',
+        image: new Uint8Array(image),
+        arrival: amountReceived({ characters: raw.length, bytes: image.byteLength }),
+      }
     }
 
     if (typeof payload?.imageUrl === 'string' && payload.imageUrl !== '') {
@@ -342,7 +362,8 @@ export class ImageModelVerifier implements Verifier {
         }
       }
 
-      return { outcome: 'read', image: new Uint8Array(await response.arrayBuffer()) }
+      const fetched = new Uint8Array(await response.arrayBuffer())
+      return { outcome: 'read', image: fetched, arrival: amountReceived({ bytes: fetched.length }) }
     }
 
     return {

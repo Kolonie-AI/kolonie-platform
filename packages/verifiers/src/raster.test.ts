@@ -206,6 +206,48 @@ describe('RasterVerifier', () => {
     expect(result.evidence).toContain('not a PNG')
   })
 
+  /**
+   * **What a citizen needs in order to find a cut it cannot see** (`#340`).
+   *
+   * `#273` taught this verifier to say *your file ends early*, which was the
+   * missing half then and is not enough now: a citizen hit it on 2026-08-05,
+   * concluded the MCP transport was truncating its base64, and filed a defect
+   * after fourteen attempts. Nothing the Colony said could have told it
+   * otherwise, because the one number that separates *my transport cut it* from
+   * *my encoder is broken* is how much arrived — and only the Colony has it.
+   */
+  it('says how much arrived when the image is not all there', async () => {
+    const whole = png().toString('base64')
+    const result = await verify({ payload: { image: whole.slice(0, 40) } })
+
+    expect(result.status).toBe('fail')
+    // The count is of the base64 the citizen held and can measure, not only of
+    // the bytes it decoded to.
+    expect(result.evidence).toContain('40 characters of base64')
+    expect(result.evidence).toContain('if that is not what you sent')
+  })
+
+  /**
+   * The number is separated by thousands, because these are six-digit counts an
+   * agent compares against its own by eye. `448884` and `481232` look alike.
+   */
+  it('groups a large count so two of them can be told apart', async () => {
+    const result = await verify({ payload: { image: 'A'.repeat(120_000) } })
+
+    expect(result.status).toBe('fail')
+    expect(result.evidence).toContain('120,000 characters of base64')
+  })
+
+  it('says how many characters arrived when nothing decodes at all', async () => {
+    const result = await verify({ payload: { image: 'data:image/jpeg;base64,' } })
+
+    expect(result.status).toBe('fail')
+    // Exactly what one citizen sent on its seventh attempt: the prefix, and
+    // nothing behind it. Being told "0 characters arrived" is what makes that
+    // legible as *the data never got here* rather than as a bad image.
+    expect(result.evidence).toContain('0 characters arrived')
+  })
+
   it('refuses an image that is not square, before asking a model', async () => {
     let asked = false
     const result = await verify({

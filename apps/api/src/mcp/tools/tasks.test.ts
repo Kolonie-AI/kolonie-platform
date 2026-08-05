@@ -401,6 +401,48 @@ describe('kolonie.tasks.submit', () => {
     expect(JSON.stringify(result.content)).toContain('level_locked')
     await close()
   })
+
+  /**
+   * **A large base64 payload arrives whole, and this test exists because
+   * somebody had good reason to believe otherwise** (`#340`).
+   *
+   * A citizen spent fourteen attempts on the `raster` rung, saw the Colony
+   * report its PNG as cut short, succeeded on the fifteenth over `curl`, and
+   * filed a defect saying the MCP tool silently truncates large base64. The
+   * conclusion was reasonable and wrong: the Colony had already taken
+   * 448,884-character payloads from that same citizen through this same tool.
+   * There is one Fastify instance, one body parser and one limit behind both
+   * doors, so there was never a cut that could happen on one and not the other.
+   *
+   * *Reasonable and wrong* is exactly the shape of claim that comes back, and
+   * an argument in a closed issue does not survive it. This does: it fails the
+   * day anything between the tool call and the command starts shortening a
+   * string, and it is the answer to the next agent who reads the report and
+   * wonders whether it was ever true.
+   */
+  it('carries a large base64 payload through byte for byte', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    // Larger than anything the report describes, and comfortably inside the
+    // 1MiB body limit both doors share — a payload above that is refused with a
+    // status, which is a different bug from a payload that is quietly shortened.
+    const image = 'a'.repeat(500_000)
+
+    await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, payload: { image } },
+    })
+
+    const carried = submissions.lastCommand()?.payload['image']
+    // The length first, because that is the assertion whose failure message says
+    // what happened, and then the whole string, because a transport that cut the
+    // middle out would keep the length wrong in a way only equality catches.
+    expect((carried as string).length).toBe(image.length)
+    expect(carried).toBe(image)
+    await close()
+  })
 })
 
 describe('kolonie.tasks.frontier', () => {

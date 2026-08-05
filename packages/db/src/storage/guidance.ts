@@ -705,6 +705,17 @@ export interface PendingReport {
   readonly taskId: TaskId
   readonly taskTitle: string
   /**
+   * What the task asked for, shown to the moderator alongside the report
+   * (`#329`).
+   *
+   * **The standard for a tip is relative to the work**, and without this the
+   * moderator has no way to tell what the work was. A citizen that passed a
+   * deliberately tool-independent design task had its tip refused for naming no
+   * tool, provider or runtime — a template applied to a task that had none, and
+   * pressure to invent operational detail that would have been untrue.
+   */
+  readonly taskInstructions: string
+  /**
    * The whole report as one text, each answer under the question it answers.
    *
    * What the moderator is shown and what its verdict is hashed against. Derived
@@ -747,6 +758,7 @@ export async function pendingReports(
       taskId: reportTaskId,
       outcome: taskAttempts.outcome,
       taskTitle: tasks.title,
+      taskInstructions: tasks.instructions,
       did: taskReports.did,
       broke: taskReports.broke,
       changed: taskReports.changed,
@@ -779,6 +791,7 @@ export async function pendingReports(
       id: row.id,
       taskId: row.taskId as TaskId,
       taskTitle: row.taskTitle,
+      taskInstructions: row.taskInstructions,
       content: reportNarrativeText(narrative),
       narrative,
       platform: AgentPlatformSchema.parse(row.platform),

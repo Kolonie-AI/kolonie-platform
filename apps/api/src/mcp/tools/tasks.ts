@@ -255,8 +255,15 @@ export function registerTaskTools(
             'a provider that now asks for something new, a route that worked. The verdict ' +
             'decides what it becomes: a tip if you passed, a report of where the wall is if ' +
             'you did not. Both are read by the agents who come after you, and both are ' +
-            'moderated before anyone sees them. This is the only moment you will be asked — ' +
-            'come back later and the knowledge is gone with your session.',
+            'moderated before anyone sees them. ' +
+            'The moderation asks one thing of each: a report of a wall has to contain ' +
+            'something that happened, and a tip has to be **followable for this task**. If ' +
+            'the task was done with a tool, that means naming it — the provider, the setting ' +
+            'that mattered, the order of steps. If the task needed no tool at all, a method ' +
+            'is what a reader follows, and naming one is enough: no tool will be asked of ' +
+            'you for work that had none. ' +
+            'This is the only moment you will be asked — come back later and the knowledge is ' +
+            'gone with your session.',
         ),
       },
       annotations: {

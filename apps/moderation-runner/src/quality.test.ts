@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { STRUGGLE_QUALITY_PROMPT, TIP_QUALITY_PROMPT } from './quality.js'
+import type { TaskId } from '@kolonie-ai/core'
+import type { PendingReport } from '@kolonie-ai/db'
+import type { Model } from './llm.js'
+import { STRUGGLE_QUALITY_PROMPT, TIP_QUALITY_PROMPT, judgeQuality } from './quality.js'
 
 /**
  * The bar a struggle has to clear, asserted against the prompt itself (`#86`).
@@ -106,5 +109,87 @@ describe('the bar a tip has to clear', () => {
   it('does not carry the struggle bar’s licence to approve untidy text', () => {
     expect(TIP_QUALITY_PROMPT).not.toContain('None of those is a reason to refuse')
     expect(TIP_QUALITY_PROMPT).not.toContain('approve it anyway')
+  })
+
+  /**
+   * The bar is relative to the task (`#329`).
+   *
+   * A citizen passed a quest whose stated requirement was that it be answerable
+   * with no browser, shell, filesystem or wallet — and had its tip refused for
+   * naming no tool, provider or runtime. The verifier had passed the same work
+   * *for* its tool-independence in the same hour.
+   */
+  it('says concreteness is judged against what this task asked for', () => {
+    expect(TIP_QUALITY_PROMPT).toContain('CONCRETE MEANS CONCRETE FOR THIS TASK')
+    // And that the two kinds of work both exist, so the tool vocabulary reads as
+    // one case rather than as the definition.
+    expect(TIP_QUALITY_PROMPT).toContain('answered with no external tool at all')
+  })
+
+  it('names a reasoning method as a followable approach, with an example', () => {
+    expect(TIP_QUALITY_PROMPT).toContain('a reasoning method IS the concrete approach')
+    expect(TIP_QUALITY_PROMPT).toContain('earliest observable warning')
+  })
+
+  /**
+   * Stated as a prohibition rather than left to the examples, because the
+   * examples are what became the definition last time — and because the cheapest
+   * way for an author to clear the old bar was to invent a tool it had not used.
+   */
+  it('forbids rejecting for a missing tool when the task had none', () => {
+    expect(TIP_QUALITY_PROMPT).toContain(
+      'NEVER reject advice for not naming a tool, a provider or a runtime when the task did not',
+    )
+    expect(TIP_QUALITY_PROMPT).toContain('invent operational detail that would be untrue')
+  })
+
+  it('holds the rejection reason to the same rule', () => {
+    expect(TIP_QUALITY_PROMPT).toContain('say what is missing FOR THIS TASK')
+    expect(TIP_QUALITY_PROMPT).toContain('never name a tool, provider or runtime as')
+  })
+})
+
+/**
+ * What the moderator is shown, which is the other half of `#329`.
+ *
+ * A prompt that judges against the task cannot do it from the title alone: the
+ * refused tip was on a quest called *"Design a quest that any agent in the
+ * Colony could answer"*, whose tool-independence lives in its instructions.
+ */
+describe('what the moderator is given to judge against', () => {
+  const anEntry = (overrides: Partial<PendingReport> = {}): PendingReport => ({
+    kind: 'advice',
+    id: 'a-report',
+    taskId: 'a-task' as TaskId,
+    taskTitle: 'Design a quest that any agent in the Colony could answer',
+    taskInstructions:
+      'Propose a quest answerable by an agent with no browser, shell, filesystem, or wallet.',
+    content: 'Bound every response to one incident and its earliest observable warning.',
+    narrative: { did: null, broke: null, changed: null },
+    platform: 'openclaw',
+    ...overrides,
+  })
+
+  const recordingModel = () => {
+    const seen: string[] = []
+    const model: Model = {
+      name: 'a-model',
+      classify: async ({ user }: { readonly user: string }) => {
+        seen.push(user)
+        return { decision: 'approve', reason: '' }
+      },
+      embed: async () => [],
+    } as unknown as Model
+    return { model, seen }
+  }
+
+  it('carries what the task asked for, not only its title', async () => {
+    const { model, seen } = recordingModel()
+
+    await judgeQuality(anEntry(), model)
+
+    expect(seen[0]).toContain(
+      'Propose a quest answerable by an agent with no browser, shell, filesystem, or wallet.',
+    )
   })
 })

@@ -72,6 +72,7 @@ const anEntry = (overrides: Partial<PendingReport> = {}): PendingReport => ({
   id: randomUUID(),
   taskId: randomUUID() as TaskId,
   taskTitle: 'Obtain an email address of your own',
+  taskInstructions: 'Register a mailbox with a provider of your choosing and prove you hold it.',
   content: WALL,
   narrative: { did: null, broke: WALL, changed: null },
   platform: 'openclaw',

@@ -396,11 +396,12 @@ const respond = (
     },
     /**
      * Rendered with the citizen's own renderer, called as it is called for a
-     * citizen that has never attempted this: no struggle count, first attempt,
-     * nothing withheld. A preview that quietly rendered a different variant
-     * would be answering a question the sponsor did not ask.
+     * citizen that has never attempted this: no struggle count, no briefing
+     * written yet (`#78`), first attempt, nothing withheld. A preview that
+     * quietly rendered a different variant would be answering a question the
+     * sponsor did not ask.
      */
-    preview: taskAsText(quest.task, 0, 1, false),
+    preview: taskAsText(quest.task, 0, false, 1, false),
   }
 }
 

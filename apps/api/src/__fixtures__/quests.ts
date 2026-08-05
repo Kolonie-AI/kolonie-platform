@@ -369,6 +369,20 @@ export function fakeQuests(): FakeQuestDesk {
           ...(parsed.reward !== undefined && { reward: parsed.reward }),
           ...(parsed.slots !== undefined && { slots: parsed.slots }),
           ...(parsed.expiresAt !== undefined && { expiresAt: parsed.expiresAt }),
+          /**
+           * The targeting, which a patch may change like anything else
+           * (`storage/quests/write.ts`). A fake that dropped it would let a test
+           * of what a change costs in reach pass while changing nothing.
+           */
+          ...(parsed.audience !== undefined && { audience: parsed.audience }),
+          ...(parsed.requires !== undefined && { requires: parsed.requires }),
+          ...(parsed.minReputation !== undefined && { minReputation: parsed.minReputation }),
+          ...(parsed.minActivityDays !== undefined && {
+            minActivityDays: parsed.minActivityDays,
+          }),
+          ...(parsed.distinctOperators !== undefined && {
+            distinctOperators: parsed.distinctOperators,
+          }),
         },
         rejectionReason: held.own.rejectionReason,
         awaitingModeration: false,

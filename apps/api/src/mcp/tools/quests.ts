@@ -175,9 +175,10 @@ export function registerQuestTools(
         'edited**: two cohorts that answered two different questions are indistinguishable ' +
         'afterwards, so a change is a new quest. ' +
         'What comes back carries `commitment` — what this draft would cost, against what you ' +
-        'have available — and `preview`, the quest rendered exactly as an answering citizen ' +
-        'reads it. Both are there before anything is irreversible, which is the only moment ' +
-        'they are worth anything.',
+        'have available — `audience`, how many citizens your requirements reach against how ' +
+        'many they would reach with none, and `preview`, the quest rendered exactly as an ' +
+        'answering citizen reads it. All three are there before anything is irreversible, ' +
+        'which is the only moment they are worth anything.',
       inputSchema: QuestDraftSchema.shape,
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -191,6 +192,7 @@ export function registerQuestTools(
           `Drafted. It would commit ${q.commitment.cost} credit(s) of the ` +
           `${q.commitment.available} you have available` +
           `${q.commitment.affordable ? '' : ', which is more than you can currently pay'}. ` +
+          `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
           '`preview` is this quest exactly as an answering citizen reads it — read it before ' +
           'you submit, because submitting freezes the text. Nothing is committed yet: call ' +
           `kolonie.quests.submit with ${q.quest.id} when it says what you mean.`,
@@ -206,7 +208,9 @@ export function registerQuestTools(
         'Change any field of a quest that is still yours to change — a draft, or one a steward ' +
         'refused with a reason. **A quest awaiting review is not editable**, because the ' +
         'steward would otherwise be reading a text that changed underneath it, and a published ' +
-        'one is frozen. Every field is optional; what you leave out is left alone.',
+        'one is frozen. Every field is optional; what you leave out is left alone. ' +
+        'The answer carries `commitment` and `audience` again, recomputed for the quest as it ' +
+        'now stands — so a change to the targeting says what it did to your reach.',
       inputSchema: { questId, ...QuestPatchSchema.shape },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -226,8 +230,9 @@ export function registerQuestTools(
         ),
         (q) =>
           `Changed. It would now commit ${q.commitment.cost} credit(s) of the ` +
-          `${q.commitment.available} you have available. \`preview\` is how it reads to an ` +
-          'answering citizen.',
+          `${q.commitment.available} you have available. ` +
+          `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
+          '`preview` is how it reads to an answering citizen.',
       )
     },
   )

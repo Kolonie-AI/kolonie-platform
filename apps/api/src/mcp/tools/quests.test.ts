@@ -1,8 +1,8 @@
-import type { AgentId, TaskId } from '@kolonie-ai/core'
+import { AUDIENCE_FLOOR, type AgentId, type TaskId } from '@kolonie-ai/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
-import { fakeQuests, type FakeQuestDesk } from '../../__fixtures__/quests.js'
+import { FAKE_AUDIENCE, fakeQuests, type FakeQuestDesk } from '../../__fixtures__/quests.js'
 import { fakeStore, type FakeStore } from '../../__fixtures__/store.js'
 import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../../mcp.js'
 
@@ -157,6 +157,85 @@ describe('the sponsor over MCP', () => {
     })
     expect(String(structured(written).preview)).toContain('A thousand registrations')
     expect(JSON.stringify(written.content)).toContain('300 credit(s)')
+  })
+
+  /**
+   * The cost of the money was stated at the moment it was committed; the cost of
+   * a requirement was stated nowhere (`#351`). A sponsor that narrowed its
+   * audience found out when nobody answered, weeks later.
+   */
+  it('states what the requirement costs in reach, in the answer that took the decision', async () => {
+    const sponsor = anAgent()
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ requires: ['browser', 'mailbox'] }),
+    )
+
+    const audience = structured(written).audience as unknown as {
+      reach: { kind: string; citizens: number }
+      unrestricted: { kind: string; citizens: number }
+      requires: readonly string[]
+      sentence: string
+    }
+    expect(audience.requires).toEqual(['browser', 'mailbox'])
+    expect(audience.reach).toEqual({ kind: 'exact', citizens: FAKE_AUDIENCE })
+    expect(audience.unrestricted).toEqual({ kind: 'exact', citizens: FAKE_AUDIENCE })
+    // The text is what a model acts on, so the sentence has to be in it.
+    expect(JSON.stringify(written.content)).toContain('With browser, mailbox required')
+    expect(JSON.stringify(written.content)).toContain('with no requirement')
+  })
+
+  /**
+   * A field that only appears once you have used it is a field you have to know
+   * about already — which is the complaint `#352` makes about `requires_skills`.
+   */
+  it('answers with an audience for a quest that requires nothing', async () => {
+    const sponsor = anAgent()
+
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+
+    const audience = structured(written).audience as unknown as {
+      requires: readonly string[]
+      sentence: string
+    }
+    expect(audience.requires).toEqual([])
+    expect(audience.sentence).toContain('you have required no skills')
+  })
+
+  it('recomputes the reach when an update changes the requirement', async () => {
+    const sponsor = anAgent()
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const changed = await call(sponsor.key, 'kolonie.quests.update', {
+      questId: id,
+      requires: ['browser'],
+    })
+
+    expect(
+      (structured(changed).audience as unknown as { requires: readonly string[] }).requires,
+    ).toEqual(['browser'])
+    expect(JSON.stringify(changed.content)).toContain('With browser required')
+  })
+
+  /** A count small enough to name a citizen is never a number a sponsor reads. */
+  it('suppresses a reach below the floor rather than naming a population of one', async () => {
+    const sponsor = anAgent()
+    quests.countAudienceAs(1)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ requires: ['browser'] }),
+    )
+
+    expect((structured(written).audience as unknown as { reach: unknown }).reach).toEqual({
+      kind: 'fewer-than',
+      citizens: AUDIENCE_FLOOR,
+    })
+    expect(JSON.stringify(written.content)).toContain(`fewer than ${AUDIENCE_FLOOR} citizens`)
   })
 
   it('says the draft is unaffordable at the moment it is written', async () => {

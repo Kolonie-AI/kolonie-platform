@@ -78,6 +78,52 @@ export function audienceFragment(report: AudienceReport): string {
 }
 
 /**
+ * What a requirement set reaches, and what it cost to require it (`#351`).
+ *
+ * **Two counts and not one**, because a reach on its own is not a cost. *Four
+ * citizens can answer* is a fact a sponsor can do nothing with; *four, against
+ * forty with no requirement* is the decision it is actually taking. The second
+ * number is the same targeting with `requires` emptied — the other axes stay,
+ * since the question is what the **requirement** cost and not what every
+ * criterion together did.
+ */
+export interface QuestAudience {
+  /** The reach of the requirement set as written. */
+  readonly reach: AudienceReport
+  /** The reach the same quest would have with no skills required. */
+  readonly unrestricted: AudienceReport
+  /** The requirement the two numbers are about, so the sentence can be checked. */
+  readonly requires: readonly string[]
+  /** The pair as one sentence, for a reader that will not compute the difference. */
+  readonly sentence: string
+}
+
+/**
+ * The pair as the sentence a sponsor reads.
+ *
+ * **A quest with no requirements gets one too**, and that is deliberate: a field
+ * that only appears once you have used it is a field you have to already know
+ * about, which is the whole complaint `#352` makes about `requires_skills`. The
+ * empty case says what is reachable and that nothing has been given up.
+ */
+export function audienceSentence(input: {
+  readonly reach: AudienceReport
+  readonly unrestricted: AudienceReport
+  readonly requires: readonly string[]
+}): string {
+  if (input.requires.length === 0) {
+    return `${capitalise(audienceFragment(input.reach))} can answer this quest, and you have required no skills.`
+  }
+
+  return (
+    `With ${input.requires.join(', ')} required, ${audienceFragment(input.reach)} can answer ` +
+    `this quest, against ${audienceFragment(input.unrestricted)} with no requirement.`
+  )
+}
+
+const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
+
+/**
  * What may be asked about an audience.
  *
  * The quest's own targeting fields, named identically, so a sponsor that has a

@@ -3,6 +3,7 @@ import {
   AUDIENCE_FLOOR,
   AudienceQueryStringSchema,
   audienceFragment,
+  audienceSentence,
   reportAudience,
 } from './audience.js'
 
@@ -68,5 +69,60 @@ describe('what may be asked', () => {
     expect(AudienceQueryStringSchema.safeParse({ requires: 'Browser Skill' }).success).toBe(false)
     expect(AudienceQueryStringSchema.safeParse({ minActivityDays: '3' }).success).toBe(false)
     expect(AudienceQueryStringSchema.safeParse({ audience: 'everybody' }).success).toBe(false)
+  })
+})
+
+describe('what a requirement cost', () => {
+  /**
+   * A reach on its own is a fact a sponsor can do nothing with. The pair is the
+   * decision it is actually taking, which is why both numbers are in one
+   * sentence (`#351`).
+   */
+  it('states the reach and the reach it gave up, in one sentence', () => {
+    expect(
+      audienceSentence({
+        reach: reportAudience(6),
+        unrestricted: reportAudience(40),
+        requires: ['browser', 'mailbox'],
+      }),
+    ).toBe(
+      'With browser, mailbox required, 6 citizens can answer this quest, against 40 citizens with no requirement.',
+    )
+  })
+
+  it('says what is reachable when nothing is required, rather than saying nothing', () => {
+    expect(
+      audienceSentence({
+        reach: reportAudience(40),
+        unrestricted: reportAudience(40),
+        requires: [],
+      }),
+    ).toBe('40 citizens can answer this quest, and you have required no skills.')
+  })
+
+  /**
+   * The rejection case: a requirement nobody satisfies is rendered as such
+   * rather than omitted, because a silent field reads as a quest with reach.
+   */
+  it('renders a requirement nobody satisfies rather than dropping it', () => {
+    expect(
+      audienceSentence({
+        reach: reportAudience(0),
+        unrestricted: reportAudience(40),
+        requires: ['solana-wallet'],
+      }),
+    ).toBe(
+      'With solana-wallet required, no citizen can answer this quest, against 40 citizens with no requirement.',
+    )
+  })
+
+  it('never states a small reach exactly, in the sentence either', () => {
+    expect(
+      audienceSentence({
+        reach: reportAudience(2),
+        unrestricted: reportAudience(40),
+        requires: ['browser'],
+      }),
+    ).toContain(`fewer than ${AUDIENCE_FLOOR} citizens`)
   })
 })

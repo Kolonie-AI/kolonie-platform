@@ -8,6 +8,7 @@ import {
   QuestReportSchema,
   SubmissionIdSchema,
   TaskIdSchema,
+  audienceSentence,
   questCommitment,
   questSubmissionRejection,
   reportAudience,
@@ -18,6 +19,7 @@ import {
   type CreditMovement,
   type QuestAuditPolicy,
   type QuestReportCounts,
+  type QuestAudience,
   type QuestReportKind,
   type SubmissionId,
   type Task,
@@ -405,6 +407,22 @@ export interface OwnQuestResponse {
    * wording was, until this field, the first moment it could see it.
    */
   readonly preview: string
+  /**
+   * What the requirement set reaches, and what requiring it cost (`#351`).
+   *
+   * **Beside `commitment`, and for the same reason.** The cost of the money is
+   * stated at the moment the money is committed; the cost of a requirement was
+   * stated nowhere, at no moment — a sponsor adding `requires` learned that it
+   * went from forty possible answerers to four when nobody answered, weeks
+   * later, with no way to attribute the silence.
+   *
+   * **Absent on a listing, present on every answer to a write.** It costs two
+   * counted queries, which is right where a sponsor has just changed the
+   * targeting and wrong once per row of a list of its quests. `listQuests` is
+   * the only caller that leaves it out, and a client reading a list has the
+   * quest's id to ask about.
+   */
+  readonly audience?: QuestAudience | undefined
 }
 
 export type QuestResult<T> =
@@ -438,6 +456,7 @@ const notFound = <T>(): QuestResult<T> => ({ outcome: 'rejected', error: NO_SUCH
 const respond = (
   quest: OwnQuest,
   purse: { readonly balance: number; readonly reserved: number; readonly available: number },
+  audience?: QuestAudience,
 ): OwnQuestResponse => {
   const cost = questCommitment({ reward: quest.task.reward, slots: quest.task.slots ?? 0 })
 
@@ -460,7 +479,42 @@ const respond = (
      * sponsor did not ask.
      */
     preview: taskAsText(quest.task, 0, false, 1, false),
+    ...(audience === undefined ? {} : { audience }),
   }
+}
+
+/**
+ * What this quest's targeting reaches, and what requiring skills cost it
+ * (`#351`).
+ *
+ * **Two counts, asked as one question.** The second is the same targeting with
+ * the requirement removed and every other axis left alone, because the sentence
+ * is about what the *requirement* cost — a comparison against no criteria at all
+ * would quietly bill the activity window for a narrowing it did not do.
+ *
+ * A quest that requires nothing asks once and answers itself: the two numbers
+ * are the same number, and the second query would be a query for a difference
+ * that cannot exist.
+ */
+const audienceOf = async (task: Task, desk: QuestDesk): Promise<QuestAudience> => {
+  const criteria = {
+    audience: task.audience,
+    requires: task.requires,
+    minReputation: task.minReputation,
+    minActivityDays: task.minActivityDays,
+  }
+
+  const reached = await desk.audience(criteria)
+  const unrestricted =
+    task.requires.length === 0 ? reached : await desk.audience({ ...criteria, requires: [] })
+
+  const reports = {
+    reach: reportAudience(reached),
+    unrestricted: reportAudience(unrestricted),
+    requires: task.requires,
+  }
+
+  return { ...reports, sentence: audienceSentence(reports) }
 }
 
 /** The same, for the calls that have not read a balance and are about to. */
@@ -468,7 +522,14 @@ const responding = async (
   quest: OwnQuest,
   authorId: AgentId,
   desk: QuestDesk,
-): Promise<OwnQuestResponse> => respond(quest, await desk.balance(authorId))
+): Promise<OwnQuestResponse> => {
+  const [purse, audience] = await Promise.all([
+    desk.balance(authorId),
+    audienceOf(quest.task, desk),
+  ])
+
+  return respond(quest, purse, audience)
+}
 
 /** Write a new draft. */
 export async function writeQuestDraft(

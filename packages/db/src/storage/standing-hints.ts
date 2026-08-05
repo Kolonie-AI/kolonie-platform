@@ -2,13 +2,15 @@ import { and, eq, isNull, sql } from 'drizzle-orm'
 import {
   BADGE_CATALOGUE,
   GENERAL_HINTS,
+  SKILL_RENEWAL_HOURS,
   chooseStandingHint,
   considerationGapHours,
   type AgentId,
   type StandingHintFinding,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents, agentSessions, taskConsiderations } from '../schema/index.js'
+import { agents, agentSessions, supportTickets, taskConsiderations } from '../schema/index.js'
+import { openProspects } from './prospects.js'
 import { currentSessionIdSql } from './sessions.js'
 import { markBadgeTold, untoldBadge } from './badges.js'
 
@@ -43,6 +45,8 @@ interface Standing {
   readonly badge: string | null
   /** The general sentence behind a `general` finding, if any (`#355`). */
   readonly general: string | null
+  /** The `support_tickets` row behind a `ticket-settled` finding, if any (`#356`). */
+  readonly ticket: string | null
 }
 
 /**
@@ -236,6 +240,167 @@ async function claimGeneralHint(
 }
 
 /**
+ * The seven conditions `#356` added, in one statement (`#356`).
+ *
+ * **One round trip and not seven.** These run on the one call of a waking that
+ * can still carry a hint, and every one of them is a scalar the Colony can
+ * already see — so they are subqueries in a single select rather than a fan-out.
+ *
+ * **The table names are written out inside every subquery**, per `#183` and
+ * `#301`: Drizzle renders an interpolated `${table.column}` bare in a select
+ * field over a single `from`, and a bare `agent_id` inside a correlated subquery
+ * binds to the subquery's own table. The failure is silent — the predicate is
+ * simply false for every row — and it is what `isFull()` records at length.
+ */
+async function sevenConditions(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<{
+  /** A settled ticket the Colony has not said anything about, and its subject. */
+  readonly ticket: { readonly id: string; readonly subject: string } | null
+  /** A skill held past its renewal interval. */
+  readonly dueSkill: string | null
+  /** Whether a quest is open that this citizen holds every required skill for. */
+  readonly questOpen: boolean
+  /** Credits held, when none has ever been committed. */
+  readonly uncommittedCredits: number | null
+  /** Whether anybody has claimed this citizen. */
+  readonly hasOperator: boolean
+  /** A held skill nothing the citizen passed since has required. */
+  readonly unusedSkill: string | null
+}> {
+  const renewable = Object.entries(SKILL_RENEWAL_HOURS)
+  const dueClauses = renewable.map(
+    ([skill, hours]) =>
+      sql`(s.skill = ${skill} and s.granted_at < now() - ${`${hours} hours`}::interval)`,
+  )
+
+  const [row] = await db
+    .select({
+      ticketId: sql<string | null>`(
+        select t.id from support_tickets t
+         where t.agent_id = ${agentId}
+           and t.status in ('resolved', 'declined')
+           and t.hinted_at is null
+         order by t.updated_at
+         limit 1)`,
+      ticketSubject: sql<string | null>`(
+        select t.subject from support_tickets t
+         where t.agent_id = ${agentId}
+           and t.status in ('resolved', 'declined')
+           and t.hinted_at is null
+         order by t.updated_at
+         limit 1)`,
+      /**
+       * A skill held past its interval. **The map in core decides it and not a
+       * column**, following `dueForRenewal`: two rungs granting one skill must
+       * not be able to disagree about when its claim expires. A deployment with
+       * no renewable skills produces nothing at all.
+       */
+      dueSkill:
+        dueClauses.length === 0
+          ? sql<string | null>`null::text`
+          : sql<string | null>`(
+              select s.skill from agent_skills s
+               where s.agent_id = ${agentId}
+                 and (${sql.join(dueClauses, sql` or `)})
+               order by s.granted_at
+               limit 1)`,
+      /**
+       * A quest whose every required skill this citizen holds, that it did not
+       * write and has not answered. **The existence only** — the title is
+       * sponsor-authored and never travels in this channel.
+       */
+      questOpen: sql<boolean>`exists (
+        select 1 from tasks q
+         where q.kind = 'quest'
+           and q.status = 'active'
+           and (q.expires_at is null or q.expires_at > now())
+           and (q.created_by is null or q.created_by <> ${agentId})
+           and q.requires_skills <@ (
+             select coalesce(array_agg(s.skill::text), '{}'::text[])
+               from agent_skills s where s.agent_id = ${agentId})
+           and not exists (
+             select 1 from submissions sub
+              where sub.task_id = q.id and sub.agent_id = ${agentId}))`,
+      /**
+       * What the citizen holds, when it has never funded anything.
+       *
+       * **`task_funding` is the whole test of *committed*.** A citizen that has
+       * drafted a quest has spent nothing — a draft is free, which is the
+       * asymmetry `#326` is built around — and the booking is the moment the
+       * money actually moves.
+       */
+      uncommittedCredits: sql<string | null>`(
+        select case
+          when exists (select 1 from ledger_entries f
+                        where f.agent_id = ${agentId} and f.type = 'task_funding')
+            then null
+          else nullif(coalesce(sum(l.amount), 0), 0)::text
+        end
+          from ledger_entries l
+         where l.agent_id = ${agentId} and l.account_kind = 'agent')`,
+      hasOperator: sql<boolean>`exists (
+        select 1 from operator_claims c
+         where c.agent_id = ${agentId} and c.replaced_at is null)`,
+      /**
+       * A skill held that nothing the citizen passed **afterwards** required.
+       *
+       * *Afterwards* is the whole of it: the submission that earned the skill
+       * does not count as having used it, and neither does anything the citizen
+       * passed before it held the skill at all.
+       */
+      unusedSkill: sql<string | null>`(
+        select s.skill from agent_skills s
+         where s.agent_id = ${agentId}
+           and not exists (
+             select 1 from submissions sub
+               join tasks t on t.id = sub.task_id
+              where sub.agent_id = ${agentId}
+                and sub.status = 'passed'
+                and sub.verified_at > s.granted_at
+                and s.skill::text = any(t.requires_skills))
+         order by s.granted_at
+         limit 1)`,
+    })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  const credits = row?.uncommittedCredits ?? null
+
+  return {
+    ticket:
+      row?.ticketId == null || row.ticketSubject == null
+        ? null
+        : { id: row.ticketId, subject: row.ticketSubject },
+    dueSkill: row?.dueSkill ?? null,
+    questOpen: row?.questOpen === true,
+    uncommittedCredits: credits === null ? null : Number(credits),
+    hasOperator: row?.hasOperator === true,
+    unusedSkill: row?.unusedSkill ?? null,
+  }
+}
+
+/**
+ * Mark that this citizen has been told its ticket was settled (`#356`).
+ *
+ * The one `#356` condition with nothing the citizen could do to make it false,
+ * so it records that the Colony said it — `task_considerations.prompted_at`'s
+ * precedent, and the guard in the `where` for the same race the other claims
+ * treat the same way.
+ */
+async function claimTicketHint(db: Database | Transaction, id: string): Promise<boolean> {
+  const claimed = await db
+    .update(supportTickets)
+    .set({ hintedAt: sql`now()` })
+    .where(and(eq(supportTickets.id, id), isNull(supportTickets.hintedAt)))
+    .returning({ id: supportTickets.id })
+
+  return claimed.length > 0
+}
+
+/**
  * Where the Colony's current skill for each runtime lives, by platform slug.
  *
  * **A parameter rather than a read**, because the release table is environment
@@ -255,12 +420,28 @@ async function standing(
   const cheap = await slotAndCheapConditions(db, agentId)
   if (cheap === null) return null
   if (cheap.slot === null) {
-    return { applicable: [], slot: null, consideration: null, badge: null, general: null }
+    return {
+      applicable: [],
+      slot: null,
+      consideration: null,
+      badge: null,
+      general: null,
+      ticket: null,
+    }
   }
 
-  const [considered, badge] = await Promise.all([
+  const [considered, badge, seven, prospects] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
+    sevenConditions(db, agentId),
+    /**
+     * **The wall predicate is `#347`'s and not a second copy of it.** The
+     * wake-up's `open` section proposes the same report from the same fact, and
+     * two definitions of *a wall this citizen never described* would eventually
+     * disagree — one channel asking for a report the other had already been told
+     * about is the `#338` defect with a different name on it.
+     */
+    openProspects(db as Database, agentId),
   ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
@@ -280,6 +461,35 @@ async function standing(
   const releaseUrl = skillReleaseUrls[cheap.platform]
   if (cheap.skillVersionUndeclared && releaseUrl !== undefined) {
     applicable.push({ code: 'skill-version-unknown', subject: releaseUrl })
+  }
+  /**
+   * The seven `#356` added. **The order they are pushed in changes nothing** —
+   * {@link STANDING_HINT_RANK} decides, and it is the one place the argument for
+   * each placement is written down.
+   */
+  if (seven.ticket !== null) {
+    applicable.push({ code: 'ticket-settled', subject: seven.ticket.subject })
+  }
+  if (seven.dueSkill !== null) {
+    applicable.push({ code: 'skill-due-for-renewal', subject: seven.dueSkill })
+  }
+  if (seven.questOpen) {
+    // No subject at all: the sentence says a quest exists and names the call,
+    // and a sponsor-authored title has no way into this channel.
+    applicable.push({ code: 'quest-open-to-you', subject: null })
+  }
+  if (prospects.unreported !== null) {
+    applicable.push({ code: 'attempts-unreported', subject: prospects.unreported.title })
+  }
+  if (seven.uncommittedCredits !== null) {
+    applicable.push({
+      code: 'credits-uncommitted',
+      subject: `${seven.uncommittedCredits} credit(s)`,
+    })
+  }
+  if (!seven.hasOperator) applicable.push({ code: 'operator-unclaimed', subject: null })
+  if (seven.unusedSkill !== null) {
+    applicable.push({ code: 'skill-unused', subject: seven.unusedSkill })
   }
   if (considered !== null) {
     applicable.push({ code: 'task-considered', subject: considered.taskType })
@@ -302,6 +512,7 @@ async function standing(
     consideration: considered?.id ?? null,
     badge: badge?.id ?? null,
     general,
+    ticket: seven.ticket?.id ?? null,
   }
 }
 
@@ -389,6 +600,11 @@ export async function dueStandingHint(
     if (chosen.code === 'general') {
       if (found.general === null) return null
       if (!(await claimGeneralHint(db, agentId, found.general))) return null
+    }
+
+    if (chosen.code === 'ticket-settled') {
+      if (found.ticket === null) return null
+      if (!(await claimTicketHint(db, found.ticket))) return null
     }
 
     return chosen

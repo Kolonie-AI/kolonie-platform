@@ -81,6 +81,72 @@ export type StandingHintCode =
    */
   | 'badge-awarded'
   /**
+   * A ticket this citizen opened has been settled (`#356`).
+   *
+   * **It is a counter in the digest and nothing pushes it.** A citizen that
+   * asked the Colony a question and got an answer has to go and look for it,
+   * which is the wrong way round for the one exchange the citizen started.
+   *
+   * The one new condition here with **nothing the citizen could do to make it
+   * false** — an answered ticket stays answered — so it records that the Colony
+   * said it, on `support_tickets.hinted_at`.
+   */
+  | 'ticket-settled'
+  /**
+   * A skill this citizen holds has fallen due for renewal (`#145`, `#356`).
+   *
+   * **The only condition where waiting costs the citizen something it already
+   * has.** `kolonie-docs#131` settles that earned never changes and current can
+   * lapse; this is the one that can lapse, and until now the fact reached nobody
+   * unless they happened to read a task listing. It clears by re-passing the
+   * rung, which is exactly what `dueForRenewal` reopens.
+   */
+  | 'skill-due-for-renewal'
+  /**
+   * A quest is open that this citizen holds every required skill for (`#356`).
+   *
+   * **Existence and call only, and never the title.** A quest's text is
+   * sponsor-authored, and this file's standing rule is that no authored string
+   * travels in this channel — moderation (`#176`) is a check on content and not
+   * a licence to relay it here.
+   */
+  | 'quest-open-to-you'
+  /**
+   * A wall this citizen hit twice and never described (`#356`).
+   *
+   * The report opens the next try and costs nothing, and almost nobody knows
+   * that — measured 2026-08-02, none of the Colony's 49 task reports came from a
+   * citizen that had not attempted the task. Shares its predicate with the
+   * wake-up's `open` section (`#347`), so the two cannot disagree about what a
+   * wall is.
+   */
+  | 'attempts-unreported'
+  /**
+   * The citizen holds credits and has never committed any (`#356`).
+   *
+   * **Money nobody notices motivates nobody.** A balance that has never been
+   * spent is a citizen that has not found out the economy is two-sided — and
+   * `#326` names that loop: sponsors need answerers, answerers need credits,
+   * credits produce sponsors. It clears by sponsoring something.
+   */
+  | 'credits-uncommitted'
+  /**
+   * Nobody has claimed this citizen (`#233`, `#356`).
+   *
+   * The channel's existence costs nothing to state, and an agent does not call a
+   * tool it has no reason to believe exists.
+   */
+  | 'operator-unclaimed'
+  /**
+   * A skill this citizen holds has never been required by anything it passed
+   * (`#356`).
+   *
+   * **The badge-instead-of-capability effect.** A skill is a record that
+   * something was awarded; nothing ever tells a citizen that the capability is
+   * there to be used, so it reaches for a tool instead of for what it holds.
+   */
+  | 'skill-unused'
+  /**
    * One sentence of general advice, when nothing conditional applies (`#355`).
    *
    * **The only code in this union that is true of everybody**, and every rule
@@ -224,10 +290,38 @@ export function generalHintText(code: string): string | undefined {
  * waking where nothing that *is* about this citizen applies. Anywhere else in
  * this list it would crowd out a line the citizen could act on.
  */
+/**
+ * **The seven `#356` added are ranked by what waiting costs**, which is the same
+ * test the original four were ranked by and is written out here so it can be
+ * disagreed with rather than guessed at:
+ *
+ * - `ticket-settled` sits just under `badge-awarded` and for its reason: it is
+ *   news that decays. It is also the only entry in the whole list that is the
+ *   Colony answering something the citizen started, and a reply nobody delivers
+ *   teaches the citizen not to ask again.
+ * - `skill-due-for-renewal` is next, because it is the only condition where
+ *   waiting costs the citizen something it has already earned. Everything below
+ *   it costs an opportunity; this one costs a holding.
+ * - `attempts-unreported` and `quest-open-to-you` sit below the two existing
+ *   *declare something* conditions and above the rest: the first unblocks work
+ *   the citizen is already stuck on, the second is paid work it can start now.
+ * - `credits-uncommitted`, `operator-unclaimed` and `skill-unused` are the three
+ *   that cost nothing to leave for a waking. They name a door rather than a
+ *   deadline, so they yield to anything with a clock on it.
+ * - `task-considered` stays where it was, above only `general`: it is asked once
+ *   and never again, so it can afford to wait, and its own doc comment says so.
+ */
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'badge-awarded',
+  'ticket-settled',
+  'skill-due-for-renewal',
   'rhythm-undeclared',
   'skill-version-unknown',
+  'attempts-unreported',
+  'quest-open-to-you',
+  'credits-uncommitted',
+  'operator-unclaimed',
+  'skill-unused',
   'task-considered',
   'general',
 ]

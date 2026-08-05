@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
-import { AgentIdSchema, GENERAL_HINTS, type AgentId } from '@kolonie-ai/core'
+import { AgentIdSchema, GENERAL_HINTS, SKILL_RENEWAL_HOURS, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { TaskIdSchema, type TaskId } from '@kolonie-ai/core'
 import {
   agents,
   agentSessions,
+  agentSkills,
+  ledgerEntries,
+  operatorClaims,
+  submissions,
+  supportTickets,
   taskAttempts,
   taskConsiderations,
   taskReports,
@@ -48,7 +53,14 @@ describe('the standing hint a citizen did not ask for', () => {
       .values({ name: `hinted-${++seeded}`, platform: 'openclaw', declaredRhythmHours })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
-    return AgentIdSchema.parse(row.id)
+    const agentId = AgentIdSchema.parse(row.id)
+    // Claimed by default (`#356`): `operator-unclaimed` is true of every freshly
+    // registered agent, and a test about a different condition should not have
+    // to reason about it.
+    await db
+      .insert(operatorClaims)
+      .values({ agentId, handle: `operator-${++seeded}`, postUrl: 'https://example.test/post' })
+    return agentId
   }
 
   /** A run the citizen has named, which is what the once-ness is scoped to. */
@@ -326,7 +338,11 @@ describe('a task the citizen considered and never attempted', () => {
       })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
-    return AgentIdSchema.parse(row.id)
+    const agentId = AgentIdSchema.parse(row.id)
+    await db
+      .insert(operatorClaims)
+      .values({ agentId, handle: `operator-${++seeded}`, postUrl: 'https://example.test/post' })
+    return agentId
   }
 
   const aTask = async (): Promise<TaskId> => {
@@ -587,7 +603,11 @@ describe('the general standing hints', () => {
       })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
-    return AgentIdSchema.parse(row.id)
+    const agentId = AgentIdSchema.parse(row.id)
+    await db
+      .insert(operatorClaims)
+      .values({ agentId, handle: `operator-${++seeded}`, postUrl: 'https://example.test/post' })
+    return agentId
   }
 
   const aSession = async (agentId: AgentId, externalId = `run-${++seeded}`): Promise<void> => {
@@ -688,5 +708,359 @@ describe('the general standing hints', () => {
 
     expect(both.filter((hint) => hint !== null)).toHaveLength(1)
     expect(await told(agentId)).toHaveLength(1)
+  })
+})
+
+/**
+ * Seven conditions the Colony could already see and never said (`#356`).
+ *
+ * `#231` built the channel and four conditions. Each of these is a state
+ * already recorded in the database, true for one citizen, and cleared by acting
+ * — which is the file's own test for whether something belongs in this channel.
+ * So every one below is asserted twice: it fires, and it stops.
+ */
+describe('the seven conditions the Colony kept to itself', () => {
+  let db: Database
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  /**
+   * A citizen with none of the twelve conditions against it, so a test that
+   * turns one on is asserting about that one.
+   */
+  const aQuietCitizen = async (): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({
+        name: `seven-${++seeded}`,
+        platform: 'openclaw',
+        declaredRhythmHours: 6,
+        skillVersion: '1.0.0',
+        generalHintsTold: GENERAL_HINTS.map((hint) => hint.code),
+      })
+      .returning({ id: agents.id })
+    if (row === undefined) throw new Error('inserting an agent returned no row')
+    const agentId = AgentIdSchema.parse(row.id)
+    await db
+      .insert(operatorClaims)
+      .values({ agentId, handle: `operator-${++seeded}`, postUrl: 'https://example.test/post' })
+    return agentId
+  }
+
+  const aSession = async (agentId: AgentId, externalId = `run-${++seeded}`): Promise<void> => {
+    await db.insert(agentSessions).values({ agentId, externalId })
+  }
+
+  /** One waking: a fresh session, and the hint it carries. */
+  const hintInAFreshRun = async (agentId: AgentId) => {
+    await aSession(agentId)
+    return dueStandingHint(db, agentId)
+  }
+
+  const aTask = async (over: Record<string, unknown> = {}): Promise<TaskId> => {
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type: `seven-task-${++seeded}`,
+        title: 'A rung the Academy carries',
+        description: 'What this task is, for a human reading the catalogue.',
+        instructions: 'What the agent must actually do.',
+        rewardCredits: 0,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active' as const,
+        ...over,
+      })
+      .returning({ id: tasks.id })
+    if (row === undefined) throw new Error('inserting a task returned no row')
+    return TaskIdSchema.parse(row.id)
+  }
+
+  /** Give a skill the way a pass does, with the provenance a real grant has. */
+  const grantSkill = async (agentId: AgentId, skill: string, grantedAt?: string): Promise<void> => {
+    const taskId = await aTask({ grantsSkills: [skill], status: 'draft' as const })
+    const [submission] = await db
+      .insert(submissions)
+      .values({
+        taskId,
+        agentId,
+        payload: {},
+        attempt: 1,
+        status: 'passed' as const,
+        verifiedAt: sql`now()`,
+      })
+      .returning({ id: submissions.id })
+    if (submission === undefined) throw new Error('inserting a submission returned no row')
+
+    await db.insert(agentSkills).values({
+      agentId,
+      skill,
+      submissionId: submission.id,
+      ...(grantedAt === undefined ? {} : { grantedAt }),
+    })
+  }
+
+  describe('a ticket the Colony has finished with', () => {
+    const aSettledTicket = async (agentId: AgentId): Promise<void> => {
+      await db.insert(supportTickets).values({
+        agentId,
+        kind: 'question' as const,
+        subject: 'Something was unclear',
+        body: 'The wording of a rung does not say what it wants.',
+        status: 'resolved' as const,
+        resolution: 'The wording has been changed.',
+      })
+    }
+
+    it('is said, with the call that reads it and never the answer itself', async () => {
+      const agentId = await aQuietCitizen()
+      await aSettledTicket(agentId)
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('ticket-settled')
+      expect(hint?.subject).toBe('Something was unclear')
+    })
+
+    /**
+     * The one condition with nothing the citizen could do to make it false. An
+     * answered ticket stays answered, so without the record the line would
+     * repeat for ever and be skipped by the third waking.
+     */
+    it('is said once and never again', async () => {
+      const agentId = await aQuietCitizen()
+      await aSettledTicket(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('ticket-settled')
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing while the ticket is still open', async () => {
+      const agentId = await aQuietCitizen()
+      await db.insert(supportTickets).values({
+        agentId,
+        kind: 'question' as const,
+        subject: 'Still waiting',
+        body: 'The wording of a rung does not say what it wants.',
+      })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+  })
+
+  describe('a skill that has fallen due', () => {
+    /** `memory` and `rhythm` are the renewable ones; the map in core decides. */
+    const renewable = Object.keys(SKILL_RENEWAL_HOURS)[0]
+
+    it('is said, and says nothing was taken away', async () => {
+      if (renewable === undefined) return
+      const agentId = await aQuietCitizen()
+      await grantSkill(agentId, renewable, '2020-01-01T00:00:00.000Z')
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('skill-due-for-renewal')
+      expect(hint?.subject).toBe(renewable)
+    })
+
+    it('says nothing about a skill granted a moment ago', async () => {
+      if (renewable === undefined) return
+      const agentId = await aQuietCitizen()
+      await grantSkill(agentId, renewable)
+      // Otherwise `skill-unused` answers instead, which is a different condition.
+      await aTask({ requiresSkills: [renewable] })
+
+      expect((await hintInAFreshRun(agentId))?.code).not.toBe('skill-due-for-renewal')
+    })
+  })
+
+  describe('a quest the citizen could answer', () => {
+    const aQuest = async (requires: readonly string[]): Promise<TaskId> =>
+      aTask({
+        kind: 'quest' as const,
+        requiresSkills: [...requires],
+        title: 'A sponsor’s own words, which must not travel',
+        rewardCredits: 15,
+        slots: 2,
+        audience: 'citizens' as const,
+      })
+
+    it('is said as existence and a call, never as a title', async () => {
+      const agentId = await aQuietCitizen()
+      await aQuest([])
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('quest-open-to-you')
+      // The rejection case the issue names: no sponsor-authored string travels.
+      expect(hint?.subject).toBeNull()
+    })
+
+    it('says nothing about a quest whose skills the citizen does not hold', async () => {
+      const agentId = await aQuietCitizen()
+      await aQuest(['wallet'])
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing about the citizen’s own quest', async () => {
+      const agentId = await aQuietCitizen()
+      await aTask({
+        kind: 'quest' as const,
+        createdBy: agentId,
+        rewardCredits: 15,
+        slots: 2,
+        audience: 'citizens' as const,
+      })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('stops once the citizen has answered it', async () => {
+      const agentId = await aQuietCitizen()
+      const questId = await aQuest([])
+      expect((await hintInAFreshRun(agentId))?.code).toBe('quest-open-to-you')
+
+      await db
+        .insert(submissions)
+        .values({ taskId: questId, agentId, payload: {}, attempt: 1, status: 'pending' as const })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+  })
+
+  describe('credits nobody has committed', () => {
+    /**
+     * A booking on the citizen's own leg. `transaction_id` is `not null` and
+     * groups the two legs of one booking; only the citizen's leg is its money,
+     * which is the half this condition sums.
+     */
+    const credit = async (agentId: AgentId, amount: number, type = 'faucet_grant') => {
+      const transactionId = crypto.randomUUID()
+      // Both legs, because a trigger enforces double entry: the Colony's own
+      // account carries the other side, and only the citizen's leg is its money.
+      await db.insert(ledgerEntries).values([
+        {
+          transactionId,
+          accountKind: 'agent' as const,
+          agentId,
+          amount,
+          type: type as 'faucet_grant',
+        },
+        {
+          transactionId,
+          accountKind: 'system' as const,
+          systemAccount: 'treasury' as const,
+          amount: -amount,
+          type: type as 'faucet_grant',
+        },
+      ])
+    }
+
+    it('is said to a citizen holding money it has never spent', async () => {
+      const agentId = await aQuietCitizen()
+      await credit(agentId, 40)
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('credits-uncommitted')
+      expect(hint?.subject).toContain('40')
+    })
+
+    /**
+     * The funding booking is the whole test of *committed*. A draft is free —
+     * the asymmetry `#326` is built around — so drafting a quest spends nothing
+     * and must not clear this.
+     */
+    it('stops once the citizen has funded something', async () => {
+      const agentId = await aQuietCitizen()
+      await credit(agentId, 40)
+      await credit(agentId, -30, 'task_funding')
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing to a citizen with no money at all', async () => {
+      const agentId = await aQuietCitizen()
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+  })
+
+  describe('an operator nobody has been', () => {
+    it('is said to a citizen nobody has claimed', async () => {
+      const agentId = await aQuietCitizen()
+      await db.delete(operatorClaims).where(eq(operatorClaims.agentId, agentId))
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('operator-unclaimed')
+    })
+
+    it('stops the moment somebody claims it', async () => {
+      const agentId = await aQuietCitizen()
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+  })
+
+  describe('a skill the citizen has never used', () => {
+    it('is said about a skill nothing it passed since has required', async () => {
+      const agentId = await aQuietCitizen()
+      await grantSkill(agentId, 'browser')
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('skill-unused')
+      expect(hint?.subject).toBe('browser')
+    })
+
+    it('stops once something requiring it has been passed', async () => {
+      const agentId = await aQuietCitizen()
+      await grantSkill(agentId, 'browser')
+      const needsIt = await aTask({ requiresSkills: ['browser'] })
+      await db.insert(submissions).values({
+        taskId: needsIt,
+        agentId,
+        payload: {},
+        attempt: 1,
+        status: 'passed' as const,
+        verifiedAt: sql`now()`,
+      })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+  })
+
+  /**
+   * The rejection case `#356` names, and the assertion that keeps every
+   * placement argument in `STANDING_HINT_RANK` honest: a higher-ranked condition
+   * wins, and the ranking is data rather than a chain of `if`s.
+   */
+  it('answers with the highest-ranked condition when several apply', async () => {
+    const agentId = await aQuietCitizen()
+    await db.delete(operatorClaims).where(eq(operatorClaims.agentId, agentId))
+    await grantSkill(agentId, 'browser')
+    await db.insert(supportTickets).values({
+      agentId,
+      kind: 'question' as const,
+      subject: 'Something was unclear',
+      body: 'The wording of a rung does not say what it wants.',
+      status: 'resolved' as const,
+      resolution: 'The wording has been changed.',
+    })
+
+    // `ticket-settled` outranks `operator-unclaimed` and `skill-unused`, and the
+    // rank is where that argument is written down.
+    expect((await hintInAFreshRun(agentId))?.code).toBe('ticket-settled')
   })
 })

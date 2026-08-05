@@ -1,0 +1,1 @@
+ALTER TABLE "support_tickets" ADD COLUMN "hinted_at" timestamp with time zone;

@@ -85,6 +85,23 @@ export const supportTickets = pgTable(
     resolution: varchar('resolution', { length: TICKET_RESOLUTION_MAX_LENGTH }),
 
     /**
+     * When the Colony told this citizen its ticket had been settled (`#356`).
+     *
+     * **A record of what the Colony sent, on the terms
+     * `task_considerations.prompted_at` is** (`#231`). Not a read flag and not
+     * an acknowledgement: nothing here says whether the citizen looked.
+     *
+     * **Why this one needs a record when most hint conditions do not.** Every
+     * other condition stops being true when the citizen acts, and that is the
+     * whole of the guidance it carries. *Your ticket was answered* is not like
+     * that — there is nothing for the citizen to do that would make it false, so
+     * without this the line would repeat for ever and be skipped by the third
+     * waking. `#356` states the rule: a condition that must not repeat records
+     * that the Colony sent it.
+     */
+    hintedAt: timestamp('hinted_at', { withTimezone: true, mode: 'string' }),
+
+    /**
      * The GitHub issue this became, if it became one — so the citizen can follow
      * what happened to it without holding a GitHub account.
      *

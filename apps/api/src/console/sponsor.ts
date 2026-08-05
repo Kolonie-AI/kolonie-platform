@@ -13,7 +13,13 @@
  * there is no framework and no script.
  */
 
-import { distinctOperatorsNotice, type QuestReportCounts, type Task } from '@kolonie-ai/core'
+import {
+  audienceFragment,
+  distinctOperatorsNotice,
+  reportAudience,
+  type QuestReportCounts,
+  type Task,
+} from '@kolonie-ai/core'
 import type { QuestResult as AcceptedReport, SponsorQuestReport } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import {
@@ -267,7 +273,7 @@ export function questDraftPage(input: {
       ? ''
       : input.audience === 0
         ? `<p><strong>No citizen matches this quest's requirements today.</strong> You may still publish it — the population changes, and a quest is open until it fills or expires. ${escape(activityNote(quest.minActivityDays))}</p>`
-        : `<p>${input.audience} citizen(s) match this quest's requirements today. ${escape(activityNote(quest.minActivityDays))}</p>`
+        : `<p>${escape(audienceFragment(reportAudience(input.audience)))} match this quest's requirements today. ${escape(activityNote(quest.minActivityDays))}</p>`
 
   const refused =
     input.rejectionReason === null

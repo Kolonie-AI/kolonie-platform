@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   ERROR_STATUS,
+  reportAudience,
   type AgentId,
   type ApiError,
   type Task,
@@ -424,7 +425,13 @@ function registerSponsorPages(
             awaitingModeration: own.response.awaitingModeration,
           }),
         )
-      : reply.send({ ...own.response, money, audience })
+      : /**
+         * The JSON answer carries the reported reach and not the raw count
+         * (`#350`): the floor that keeps a small audience from naming a citizen
+         * is a property of what leaves the Colony, and a route that skipped it
+         * because it happens to serve a console would be the one hole in it.
+         */
+        reply.send({ ...own.response, money, audience: reportAudience(audience) })
   })
 
   /**

@@ -698,9 +698,12 @@ describe('the sponsor’s pages', () => {
     const location = created.headers['location'] as string
 
     const page = await asBrowser(location, { signedIn: true })
-    expect(page.body).toContain(`${FAKE_AUDIENCE} citizen(s) match`)
+    expect(page.body).toContain(`${FAKE_AUDIENCE} citizens match`)
     // And an agent sponsor reads the same number without a browser.
-    expect((await asAgent(location)).json().audience).toBe(FAKE_AUDIENCE)
+    expect((await asAgent(location)).json().audience).toEqual({
+      kind: 'exact',
+      citizens: FAKE_AUDIENCE,
+    })
 
     const asked = quests.audienceAsked.at(-1)
     expect(asked?.minActivityDays).toBeNull()

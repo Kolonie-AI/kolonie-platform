@@ -1,4 +1,5 @@
 import {
+  AudienceQueryStringSchema,
   AuditDecisionSchema,
   QUEST_AUDIT_OFF,
   QuestDraftSchema,
@@ -9,7 +10,10 @@ import {
   TaskIdSchema,
   questCommitment,
   questSubmissionRejection,
+  reportAudience,
   type AgentId,
+  type AudienceQuery,
+  type AudienceReport,
   type ApiError,
   type CreditMovement,
   type QuestAuditPolicy,
@@ -710,6 +714,53 @@ export async function readBalance(
   const [purse, quests] = await Promise.all([desk.balance(authorId), desk.commitments(authorId)])
 
   return { outcome: 'ok', response: { ...purse, quests } }
+}
+
+/**
+ * How many citizens a requirement set would reach (`#350`).
+ *
+ * **The count existed and had no route**, in the same shape `readBalance`
+ * describes one function up: `QuestDesk.audience` has been read by one console
+ * page since `#227` and by nothing else, so a sponsor that is not driving a
+ * browser could not learn what a requirement costs it in reach until the quest
+ * ran and nobody answered.
+ *
+ * **A count, never a list**, and never an exact one below {@link AUDIENCE_FLOOR}
+ * — `reportAudience` carries why, and applying it here rather than at each
+ * caller is what makes the rule a property of the answer instead of a habit.
+ *
+ * The criteria are the quest's own targeting fields, so the question can be
+ * asked of a draft that has not been written yet — which is the point: the
+ * decision this informs is taken before there is a quest to attach it to.
+ */
+export async function readAudience(
+  query: unknown,
+  desk: QuestDesk,
+): Promise<
+  QuestResult<{
+    readonly audience: AudienceReport
+    readonly criteria: AudienceQuery
+  }>
+> {
+  const criteria = AudienceQueryStringSchema.safeParse(query ?? {})
+  if (!criteria.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'requires is a comma-separated list of skill slugs, audience is citizens or candidates, ' +
+          'minReputation a whole number and minActivityDays one of 1, 7, 30 or empty.',
+      },
+    }
+  }
+
+  const counted = await desk.audience({ ...criteria.data, requires: criteria.data.requires })
+
+  return {
+    outcome: 'ok',
+    response: { audience: reportAudience(counted), criteria: criteria.data },
+  }
 }
 
 /**

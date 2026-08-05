@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import {
   editQuestDraft,
   exportQuestResults,
+  readAudience,
   readAuditQueue,
   readOwnAnswer,
   readQuestResults,
@@ -94,6 +95,26 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
     }
 
     return send(reply, await readCreditHistory(caller.id, query.data, quests))
+  })
+
+  /**
+   * How many citizens a requirement set reaches (`#350`).
+   *
+   * **A `GET` with the criteria in the query string**, because it is a read and
+   * behaves like one: nothing is stored, the same question answers the same way,
+   * and a sponsor can ask it before it has written anything. A body on a read
+   * would have been the only such route on this prefix.
+   *
+   * Open to any authenticated caller and not to stewards alone: the sponsor
+   * deciding what to require is exactly who the number is for, and it is a count
+   * that names nobody — `reportAudience` is what keeps that true for small
+   * populations.
+   */
+  v1.get('/quests/audience', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    return send(reply, await readAudience(request.query, quests))
   })
 
   /**

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
-import { QUEST_TASK_TYPE, type TaskId } from '@kolonie-ai/core'
+import { AUDIENCE_FLOOR, ERROR_STATUS, QUEST_TASK_TYPE, type TaskId } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
-import { fakeQuests, type FakeQuestDesk } from '../__fixtures__/quests.js'
+import { FAKE_AUDIENCE, fakeQuests, type FakeQuestDesk } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeGuidance } from '../__fixtures__/guidance.js'
 import { fakeSupportDesk } from '../__fixtures__/support.js'
@@ -510,6 +510,84 @@ describe('GET /v1/quests/balance', () => {
   /** Static before parametric: the id route must not swallow it. */
   it('is not read as a quest id', async () => {
     const response = await get('/v1/quests/balance', sponsorKey)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().quest).toBeUndefined()
+  })
+})
+
+describe('GET /v1/quests/audience', () => {
+  /**
+   * The route `#350` added, and the same shape of gap `#320` closed for the
+   * balance: the count was on the desk from `#227` and reachable from one
+   * console page, so a sponsor that is not driving a browser could not learn
+   * what a requirement costs it in reach.
+   */
+  it('answers how many citizens a requirement set reaches', async () => {
+    const response = await get('/v1/quests/audience?requires=browser,mailbox', sponsorKey)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().audience).toEqual({ kind: 'exact', citizens: FAKE_AUDIENCE })
+    expect(quests.audienceAsked.at(-1)).toMatchObject({
+      audience: 'citizens',
+      requires: ['browser', 'mailbox'],
+      minReputation: 0,
+      minActivityDays: null,
+    })
+  })
+
+  /** The baseline a requirement is measured against, and a valid ask. */
+  it('counts everybody who could answer at all when nothing is required', async () => {
+    const response = await get('/v1/quests/audience', sponsorKey)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      audience: { kind: 'exact', citizens: FAKE_AUDIENCE },
+      criteria: { requires: [], audience: 'citizens' },
+    })
+  })
+
+  /**
+   * A count of one is close to a name, and a sponsor can bisect its way to it
+   * by adding skills. The floor is what makes that route stop short.
+   */
+  it('suppresses a count below the floor and never names anybody', async () => {
+    quests.countAudienceAs(1)
+
+    const response = await get('/v1/quests/audience?requires=browser', sponsorKey)
+
+    expect(response.json().audience).toEqual({
+      kind: 'fewer-than',
+      citizens: AUDIENCE_FLOOR,
+    })
+    expect(JSON.stringify(response.json())).not.toContain(sponsorId)
+  })
+
+  /** Zero is publishable and identifies nobody, so it is stated. */
+  it('states zero rather than suppressing it', async () => {
+    quests.countAudienceAs(0)
+
+    const response = await get('/v1/quests/audience?requires=browser', sponsorKey)
+
+    expect(response.json().audience).toEqual({ kind: 'exact', citizens: 0 })
+  })
+
+  it('refuses a requirement that is not a skill slug rather than counting nothing', async () => {
+    const response = await get('/v1/quests/audience?requires=Browser%20Skill', sponsorKey)
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().code).toBe('validation_failed')
+  })
+
+  it('needs a key, like every other route on this prefix', async () => {
+    const response = await app.inject({ method: 'GET', url: '/v1/quests/audience' })
+
+    expect(response.statusCode).toBe(401)
+  })
+
+  /** Static before parametric: the id route must not swallow it. */
+  it('is not read as a quest id', async () => {
+    const response = await get('/v1/quests/audience', sponsorKey)
 
     expect(response.statusCode).toBe(200)
     expect(response.json().quest).toBeUndefined()

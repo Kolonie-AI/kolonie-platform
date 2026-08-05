@@ -48,6 +48,14 @@ export interface FakeQuestDesk extends QuestDesk {
     readonly answers: Readonly<Record<string, string>>
     readonly agentId?: AgentId
   }) => void
+  /**
+   * Fix what the next audience count answers, whatever it is asked (`#350`).
+   *
+   * The floor that suppresses a small count is a rule about counts the real
+   * population would have to be shrunk to produce — so a test of it cannot go
+   * through the criteria, only through the number they returned.
+   */
+  readonly countAudienceAs: (citizens: number) => void
 }
 
 /**
@@ -70,6 +78,7 @@ export function fakeQuests(): FakeQuestDesk {
   >()
   const balances = new Map<string, number>()
   const audienceAsked: AudienceCriteria[] = []
+  let fixedAudience: number | null = null
 
   const task = (input: {
     readonly id: TaskId
@@ -327,6 +336,10 @@ export function fakeQuests(): FakeQuestDesk {
       balances.set(agentId, (balances.get(agentId) ?? 0) + amount)
     },
 
+    countAudienceAs(citizens) {
+      fixedAudience = citizens
+    },
+
     async create({ authorId, draft }) {
       const parsed = QuestDraftSchema.parse(draft)
       const id = TaskIdSchema.parse(randomUUID())
@@ -520,6 +533,8 @@ export function fakeQuests(): FakeQuestDesk {
 
     async audience(criteria) {
       audienceAsked.push(criteria)
+      if (fixedAudience !== null) return fixedAudience
+
       return criteria.minActivityDays === null ? FAKE_AUDIENCE : 0
     },
 

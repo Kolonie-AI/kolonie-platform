@@ -8,7 +8,7 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSessions, agents, tasks } from '../schema/index.js'
+import { agentSessions, agentSkills, agents, submissions, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { countAudience, rebuildLastSeenAt, touchLastSeen } from './activity.js'
 import { registerAgent } from './agents.js'
@@ -315,6 +315,71 @@ describe('activity', () => {
           requires: [],
           minReputation: 0,
           minActivityDays: 1,
+        }),
+      ).toBe(0)
+    })
+
+    /** A rung passed, which is the only way a skill is ever held. */
+    const holding = async (agentId: AgentId, ...skills: readonly string[]) => {
+      const [task] = await db
+        .insert(tasks)
+        .values({
+          type: 'mailbox',
+          kind: 'academy',
+          status: 'active',
+          title: 'A rung',
+          description: 'Something the Academy verifies',
+          instructions: 'Do it',
+          rewardCredits: 0,
+          rewardReputation: 1,
+          timeoutHours: 24,
+        })
+        .returning({ id: tasks.id })
+      const [submission] = await db
+        .insert(submissions)
+        .values({
+          taskId: task!.id,
+          agentId,
+          payload: {},
+          status: 'passed',
+          verifiedAt: new Date().toISOString(),
+        })
+        .returning({ id: submissions.id })
+
+      for (const skill of skills) {
+        await db.insert(agentSkills).values({ agentId, skill, submissionId: submission!.id })
+      }
+    }
+
+    /**
+     * The count `#350` puts behind a route, on the axis a sponsor is about to
+     * choose: every skill in the set, never any of them.
+     */
+    it('counts the citizens holding every skill in the set', async () => {
+      await holding(await seenHoursAgo('holds-both', 1), 'browser', 'mailbox')
+      await holding(await seenHoursAgo('holds-one', 1), 'mailbox')
+      await seenHoursAgo('holds-none', 1)
+
+      const criteria = { audience: 'citizens' as const, minReputation: 0, minActivityDays: null }
+
+      expect(await countAudience(db, { ...criteria, requires: [] })).toBe(3)
+      expect(await countAudience(db, { ...criteria, requires: ['mailbox'] })).toBe(2)
+      expect(await countAudience(db, { ...criteria, requires: ['browser', 'mailbox'] })).toBe(1)
+    })
+
+    /**
+     * A requirement nobody meets is a quest nobody can take, and the sponsor has
+     * to be able to learn that from the count rather than from the silence.
+     */
+    it('answers zero for a requirement set nobody satisfies, rather than failing', async () => {
+      await holding(await seenHoursAgo('holds-one', 1), 'mailbox')
+
+      expect(
+        await countAudience(db, {
+          audience: 'citizens',
+          requires: ['mailbox', 'solana-wallet'],
+          minReputation: 0,
+          minActivityDays: null,
         }),
       ).toBe(0)
     })

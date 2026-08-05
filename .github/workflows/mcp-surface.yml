@@ -1,0 +1,162 @@
+name: MCP surface
+
+# What a citizen pays to be told what it *could* call (`#388`).
+#
+# A client fetches `tools/list` at connect and holds the answer in its system
+# prompt for the whole session. So this is not a payload measured once — it is
+# context-window rent, charged to every citizen in every run, whether or not it
+# calls a single one of the tools described.
+#
+# The surface went from 53 tools on 2026-08-02 (`#211`) to 96 tools and about
+# 171,583 bytes on 2026-08-05, and nothing reported it. Nobody weighed 81 % in
+# three days and decided it was acceptable; nobody was looking, because there was
+# no number to look at.
+#
+# ## This reports and never enforces
+#
+# **There is no threshold here, nothing fails, and no pull request is blocked.** A
+# hard ceiling was considered and refused by the maintainer on the ground that new
+# tools have to be able to exist, and `#388` does not reopen it. What was missing
+# was not a gate but a number, in front of the one person in a position to weigh
+# it: whoever is adding to the surface.
+#
+# `surface-size.test.ts` asserts the same thing from the other side — a surface
+# that doubled still renders a report and still returns one — so turning this into
+# a gate breaks a test, which is what makes it a deliberate decision with an issue
+# behind it rather than a line nobody reviewed.
+#
+# ## Why it runs on `main` as well as on a pull request
+#
+# Because `main` is pushed to directly (D-053), and a check that only ever spoke
+# on pull requests would be silent for most of what changes the surface. On a
+# pull request the report is a sticky comment; on a push it is the job summary,
+# which is the equivalent surface for a commit that had no review page.
+#
+# ## Why two jobs rather than one with a second checkout
+#
+# The change is the whole point, and a delta needs the base measured by the same
+# code path with its own `node_modules` — this is an npm workspace, so a second
+# tree sharing the first's installed dependencies would be building the head's
+# workspace packages and calling the answer *base*. Two ordinary checkouts are
+# slower and are not subtly wrong.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The tip is the only revision anybody reads a size report for.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: Weigh the surface
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # A failure on one side should still leave the other's number readable —
+      # a report that says "base could not be measured" is worth more than no
+      # report, and `render` treats a missing baseline as a missing column.
+      fail-fast: false
+      matrix:
+        side: [head, base]
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # For `head` this is the default checkout. For `base` it is what the
+          # pull request would merge into, or the parent commit of a push — the
+          # revision the reader is implicitly comparing against either way.
+          ref: ${{ matrix.side == 'head' && github.sha || github.event.pull_request.base.sha || format('{0}^', github.sha) }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # No database, no credential and no network: the measurement connects an
+      # in-memory client to a server built from the suite's own dependencies.
+      # `#388` requires exactly that — measuring a tier must not need a
+      # long-lived secret in CI.
+      - name: Measure
+        run: node scripts/measure-mcp-surface.mjs --out ${{ matrix.side }}.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-surface-${{ matrix.side }}
+          path: ${{ matrix.side }}.json
+
+  render:
+    name: Report the change
+    runs-on: ubuntu-latest
+    needs: measure
+    # `always()`, because a base that could not be measured must not swallow the
+    # head's number. The report degrades to a table with no change column.
+    if: always()
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+      # The sticky comment on a pull request, and nothing else.
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mcp-surface-*
+          path: measurements
+          merge-multiple: true
+
+      - name: Render
+        id: render
+        run: |
+          node -e '
+            const { renderSurfaceReport } = await import("./apps/api/dist/mcp/surface-size.js")
+            const { readFile, writeFile } = await import("node:fs/promises")
+            const read = async (path) => { try { return JSON.parse(await readFile(path, "utf8")) } catch { return [] } }
+            const report = renderSurfaceReport(
+              await read("measurements/head.json"),
+              await read("measurements/base.json"),
+            )
+            await writeFile("surface-report.md", report + "\n", "utf8")
+          ' --input-type=module
+          cat surface-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # On a push to `main` there is no comment surface, and the job summary
+      # above is the report. This step is the pull-request half only.
+      - name: Say it where the review is
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # One comment that is edited, not a new one per push: a review page
+          # with nine size reports on it is a page where the size report is
+          # skipped. `--edit-last --create-if-none` is the whole mechanism.
+          gh pr comment "$PR" --body-file surface-report.md --edit-last --create-if-none
+
+      # Nothing above may decide the run. Stated as a step rather than assumed,
+      # because the assumption is exactly what erodes.
+      - name: This reports, it does not gate
+        run: echo "No threshold, no verdict — see #388."

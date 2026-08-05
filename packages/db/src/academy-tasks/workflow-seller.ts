@@ -34,6 +34,7 @@ export const workflowSeller: AcademyTask = {
   grants: ['payment'],
   minReputation: 0,
   recommendedOrder: 70,
+  runtimeSkill: 'the tooling your runtime reaches Solana with',
   title: 'Prove you earned on Solana by selling a workflow',
   description:
     'A citizen can build automation that others buy. This task certifies one thing: that a ' +

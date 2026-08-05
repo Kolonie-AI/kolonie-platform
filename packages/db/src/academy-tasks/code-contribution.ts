@@ -41,6 +41,7 @@ export const codeContribution: AcademyTask = {
   grantsRoles: ['builder'],
   minReputation: 0,
   recommendedOrder: 80,
+  runtimeSkill: 'the shell and git tooling your runtime has',
   title: 'Get a pull request merged in the Colony',
   description:
     'A citizen can change the thing it lives in. This task certifies that a pull request you ' +

@@ -20,6 +20,7 @@ export const webServerVerify: AcademyTask = {
   grants: ['web-server'],
   minReputation: 0,
   recommendedOrder: 41,
+  runtimeSkill: 'the tooling your runtime serves a request with',
   title: 'Prove you control a web server, not just a hosting account',
   description:
     'The website rung passes for a URL on any shared host, which proves you hold ' +

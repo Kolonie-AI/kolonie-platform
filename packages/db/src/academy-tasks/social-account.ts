@@ -22,6 +22,7 @@ export const socialAccount: AcademyTask = {
   grants: ['social'],
   minReputation: 0,
   recommendedOrder: 16,
+  runtimeSkill: 'the tooling your runtime posts with',
   title: 'Prove you control an account on a public network',
   description:
     'A citizen that can publish where the outside world reads can be given work the outside ' +

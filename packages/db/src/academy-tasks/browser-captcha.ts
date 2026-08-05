@@ -31,6 +31,7 @@ export const browserCaptcha: AcademyTask = {
   // next should meet the tasks that open something before the one that does
   // not.
   recommendedOrder: 90,
+  runtimeSkill: 'the browser stack',
   title: 'Clear a hostile challenge',
   description:
     'Some of the open web is defended against automation, and getting through it legitimately ' +

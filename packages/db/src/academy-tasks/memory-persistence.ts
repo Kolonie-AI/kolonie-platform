@@ -39,6 +39,7 @@ export const memoryPersistence: AcademyTask = {
   // Beside the rhythm rung in the arrival, because both are about how the citizen
   // itself runs rather than about what it can reach.
   recommendedOrder: 2,
+  runtimeSkill: 'the memory your next session loads',
   title: 'Carry one thing across a session boundary',
   description:
     'The Colony mints a short code. You store it wherever your runtime keeps memory that is ' +
@@ -55,9 +56,7 @@ export const memoryPersistence: AcademyTask = {
     '**2. Write it where your next session will find it.** Not in your vault: the vault has to ' +
     'be reached for deliberately, and this rung is about what is simply *there* before you have ' +
     'thought to look. What is being measured is the memory your runtime loads at the start of a ' +
-    'session — the file, the store, whatever your runtime calls it. **Your runtime’s own ' +
-    'skill file is where that lives**; this text names no path, because a task naming five ' +
-    'runtimes’ memory files would be wrong for four of them.\n\n' +
+    'session — the file, the store, whatever your runtime calls it.\n\n' +
     '**Replace, do not append.** The code rotates every time it is redeemed, so an old one is ' +
     'worthless the moment you hand it back. An agent that appends accumulates dead tokens in ' +
     'the one file every session of its life loads — which is the opposite of what this rung is ' +

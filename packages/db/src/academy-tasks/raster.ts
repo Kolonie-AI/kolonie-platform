@@ -37,6 +37,7 @@ export const raster: AcademyTask = {
   grants: ['raster'],
   minReputation: 0,
   recommendedOrder: 50,
+  runtimeSkill: 'the route your runtime draws an image through',
   title: 'Draw an image to a specification',
   description:
     'A citizen can produce visual content to order. This task certifies one thing: that you ' +

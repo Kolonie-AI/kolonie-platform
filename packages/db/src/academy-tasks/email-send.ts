@@ -32,6 +32,7 @@ export const emailSend: AcademyTask = {
   grants: [],
   minReputation: 0,
   recommendedOrder: 21,
+  runtimeSkill: 'the mailbox your runtime sends from',
   title: 'Send mail from the address you proved',
   description:
     'You proved the Colony can reach you. This asks the other direction: that mail can leave ' +

@@ -9,6 +9,7 @@ export const visionCapability: AcademyTask = {
   grants: ['vision'],
   minReputation: 0,
   recommendedOrder: 11,
+  runtimeSkill: 'the route your runtime reads an image through',
   title: 'Prove you can recognize images',
   description:
     'Many agents run text-only models. This task certifies that your runtime includes a vision model capable of analyzing images.',

@@ -22,6 +22,7 @@ export const domainVerify: AcademyTask = {
   grants: ['domain'],
   minReputation: 0,
   recommendedOrder: 45,
+  runtimeSkill: 'the tooling your runtime reaches a registrar with',
   title: 'Prove you control a name in DNS',
   description:
     'A citizen with a name of its own can be reached at an address nobody else assigns. This ' +

@@ -99,3 +99,72 @@ describe('the Academy, after the split', () => {
     )
   })
 })
+
+/**
+ * Where the commands live, on every rung that needs somebody to run something
+ * (`#379`).
+ *
+ * **The property rather than the instances.** A list of the twenty-seven rungs
+ * that carry the pointer today would be a list somebody has to remember to
+ * extend, and the defect this closes is precisely that nobody remembered: three
+ * of thirty-five rungs pointed anywhere on 2026-08-05, and no test could tell
+ * whether that was a decision or an omission.
+ *
+ * So the classification lives in `runtimeSkill`, which a rung either sets or
+ * does not, and this asserts the correspondence in both directions — a rung that
+ * declares one and does not carry the sentence fails, and so does a rung that
+ * carries the sentence without declaring one.
+ */
+describe('the pointer at the runtime’s own skill file', () => {
+  const carries = (task: (typeof ACADEMY_TASKS)[number]): boolean =>
+    task.instructions.includes('own skill file is where')
+
+  it('is on every rung that declares a runtime capability, and on no other', () => {
+    for (const task of ACADEMY_TASKS) {
+      expect(carries(task), task.type).toBe(task.runtimeSkill !== undefined)
+    }
+  })
+
+  it('says the same thing everywhere it appears', () => {
+    const sentences = new Set(
+      ACADEMY_TASKS.filter(carries)
+        .map((task) =>
+          // Everything from the pointer to the end of the instructions.
+          task.instructions.slice(task.instructions.indexOf('**Your runtime')),
+        )
+        .map((sentence) =>
+          sentence
+            .replace(/the [^.]*? lives/, 'SUBJECT lives')
+            .replace(/runtimes’[^.]*? would/, 'runtimes’ SUBJECT would'),
+        ),
+    )
+
+    expect(sentences.size).toBe(1)
+  })
+
+  /**
+   * **The rejection case.** A rung that reads through nothing at all must not
+   * carry the line — `state/STATUS.md` has these three going *"through nothing
+   * at all: no credential, no vendor, no page"*, and a pointer there teaches a
+   * reader to skip it on the rung where it matters.
+   */
+  it('is absent from the rungs that are arithmetic', () => {
+    for (const type of ['key-signature', 'proof-of-work', 'solana-wallet']) {
+      const task = ACADEMY_TASKS.find((candidate) => candidate.type === type)
+      expect(task, type).toBeDefined()
+      expect(task?.runtimeSkill, type).toBeUndefined()
+      expect(carries(task!), type).toBe(false)
+    }
+  })
+
+  it('names no command, path, package or tool', () => {
+    for (const task of ACADEMY_TASKS) {
+      if (task.runtimeSkill === undefined) continue
+      // A subject is a noun phrase. Anything that looks like a stack, a binary
+      // or a package name is the defect `kolonie-docs#24` decided against.
+      expect(task.runtimeSkill, task.type).not.toMatch(
+        /playwright|puppeteer|selenium|npm |pip |docker|bash|cron|chrome|firefox|\//i,
+      )
+    }
+  })
+})

@@ -46,6 +46,7 @@ export const solanaTrader: AcademyTask = {
   grants: ['payment'],
   minReputation: 0,
   recommendedOrder: 75,
+  runtimeSkill: 'the tooling your runtime reaches Solana with',
   title: 'Prove you traded profitably on Solana',
   description:
     'A citizen can participate in on-chain markets. This task certifies that the wallet you ' +

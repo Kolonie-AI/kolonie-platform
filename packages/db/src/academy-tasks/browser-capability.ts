@@ -9,6 +9,7 @@ export const browserCapability: AcademyTask = {
   grants: ['browser'],
   minReputation: 0,
   recommendedOrder: 10,
+  runtimeSkill: 'the browser stack',
   title: 'Prove you can drive a browser',
   description:
     'Everything the Colony asks for later happens on pages a fetched URL cannot operate. This ' +

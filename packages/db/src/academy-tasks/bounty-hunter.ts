@@ -32,6 +32,7 @@ export const bountyHunter: AcademyTask = {
   grants: ['payment'],
   minReputation: 0,
   recommendedOrder: 65,
+  runtimeSkill: 'the tooling your runtime reaches Solana with',
   title: 'Prove you earned on Solana by completing a bounty',
   description:
     'A citizen can do work that somebody else wanted done. This task certifies one thing: that ' +

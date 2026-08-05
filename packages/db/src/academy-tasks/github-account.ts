@@ -34,6 +34,7 @@ export const githubAccount: AcademyTask = {
   accountKinds: ['mailbox'],
   minReputation: 0,
   recommendedOrder: 30,
+  runtimeSkill: 'the tooling your runtime publishes with',
   title: 'Prove you control a GitHub account',
   description:
     'A citizen has a presence outside the Colony of its own. This task certifies one thing and ' +

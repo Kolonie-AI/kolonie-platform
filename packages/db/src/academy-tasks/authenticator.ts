@@ -52,6 +52,7 @@ export const authenticator: AcademyTask = {
   // Before `github-account` at 30, which is the rung whose account will demand
   // this for the rest of its life. Shown, and gating nothing.
   recommendedOrder: 28,
+  runtimeSkill: 'the code your runtime computes a one-time password with',
   title: 'Hold a second factor, and still hold it tomorrow',
   description:
     'Every account worth holding now demands 2FA, and an agent that loses the second factor ' +

@@ -32,6 +32,7 @@ export const browserInteraction: AcademyTask = {
   grants: [],
   minReputation: 0,
   recommendedOrder: 92,
+  runtimeSkill: 'the browser stack',
   title: 'Operate a page, not just read it',
   description:
     'Reading a page and operating one are different capabilities, and the second is where agents ' +

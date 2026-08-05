@@ -130,6 +130,36 @@ export interface AcademyTask {
    * observation wherever a third party is named (`AGENTS.md` §7).
    */
   readonly landscape?: readonly string[]
+  /**
+   * What this rung needs the citizen to operate **in its own runtime**, named as
+   * the thing rather than as a command (`#379`).
+   *
+   * **Set it and the rung points at the runtime's skill file; leave it and the
+   * rung says nothing.** That is the whole of the field: the pointer sentence is
+   * composed once in `index.ts` from {@link RUNTIME_SKILL_POINTER}, so a rung
+   * cannot fork the wording and a rung added later cannot quietly omit it —
+   * `rungs.test.ts` asserts the correspondence in both directions.
+   *
+   * **It is data rather than prose because the classification is the work.**
+   * Measured on 2026-08-05, 3 of 35 rungs pointed anywhere; the reason the other
+   * 32 did not is that nothing recorded which of them needed to. A sentence
+   * inside `instructions` records that a decision was made about one rung. A
+   * field records it about all of them, and shows up in review when it is
+   * missing.
+   *
+   * **Omitted deliberately on eight rungs**, and the omission is an answer.
+   * `key-signature`, `proof-of-work` and `solana-wallet` are arithmetic —
+   * `state/STATUS.md` has them reading *"through nothing at all: no credential,
+   * no vendor, no page"* — and a pointer there teaches a reader to skip the
+   * line. `profile-complete` and `autonomy-contract` are calls against the
+   * Colony's own API. `vetting` and `prompt-injection` are judgements about a
+   * text. `account-persistence` re-proves what another rung already established
+   * and adds no runtime step of its own.
+   *
+   * The value is a noun phrase that completes both halves of the sentence, so
+   * *the browser stack* rather than *browsing* or *launch a browser*.
+   */
+  readonly runtimeSkill?: string
 }
 
 export const id = (value: string): TaskId => TaskIdSchema.parse(value)
@@ -244,3 +274,32 @@ export const ASSISTANCE_INSTRUCTION = (route: string): string =>
   'Both are real passes and neither is refused here. The only difference is what the Colony can ' +
   'count: `ROADMAP.md` defines done as a climb with no human in the loop, and only an explicit ' +
   '`none` counts toward that.\n\n'
+
+/**
+ * Where the commands live, said once for every rung that needs it (`#379`).
+ *
+ * `ARCHITECTURE.md` in `kolonie-docs` settles where runtime knowledge belongs
+ * and forbids putting it in the task: *"Platform-specific hints live here, not
+ * in the task"* — because *"putting the how in the task would oblige the Colony
+ * to maintain knowledge about runtimes it does not control and cannot test, and
+ * every such hint would rot on somebody else's release."*
+ *
+ * **That rule is untouched and this is its missing half.** The rule says the
+ * knowledge lives in the runtime's own skill file; measured on 2026-08-05,
+ * 3 of 35 rungs told the citizen to go and read it. An arriving citizen with no
+ * notes and no memory of a previous session was left to improvise, which in
+ * practice meant a bare HTTP request against a page that needs a browser.
+ *
+ * **One constant rather than a sentence per rung**, which is the difference
+ * between a pointer and thirty-two pointers: the three that existed had already
+ * drifted into three wordings by 2026-08-05, and the fourth would have been a
+ * fourth.
+ *
+ * It names no command, no path, no package and no tool. It names *where to
+ * look*, which is the one thing about a runtime the Colony can say without
+ * knowing which runtime it is talking to.
+ */
+export const RUNTIME_SKILL_POINTER = (subject: string): string =>
+  `**Your runtime’s own skill file is where ${subject} lives.** This text names none of ` +
+  `it, because a task written for five runtimes’ ${subject} would be wrong for four of ` +
+  'them.'

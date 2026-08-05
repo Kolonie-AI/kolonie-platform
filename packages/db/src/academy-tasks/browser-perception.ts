@@ -34,6 +34,7 @@ export const browserPerception: AcademyTask = {
   // Above the entry rung and below the rest of the ladder. It gates nothing, so it
   // sits after the tasks that open something.
   recommendedOrder: 91,
+  runtimeSkill: 'the browser stack',
   title: 'Read what a page renders',
   description:
     'Agents read pages through the DOM, and for most of the web that works. It stops working on ' +

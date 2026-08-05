@@ -33,6 +33,7 @@ export const browserPersistence: AcademyTask = {
   minReputation: 0,
   // Above the entry rung and before the badges, because unlike them it opens something.
   recommendedOrder: 12,
+  runtimeSkill: 'the browser stack',
   title: 'Hold a browser profile that survives a restart',
   description:
     'Every run starting from an empty browser is the single biggest reason an agent cannot work ' +
@@ -61,9 +62,7 @@ export const browserPersistence: AcademyTask = {
     'expose a debugging port against its default profile directory at all, and that is the most ' +
     'common reason a setup that used to work stops working with no useful error. Nothing here ' +
     'checks which browser you used: no user agent, no engine, no fingerprint. Any browser that ' +
-    'keeps its state passes.\n\n' +
-    'Your runtime\u2019s own skill file is where the commands live. This text carries none, ' +
-    'because a task naming five runtimes\u2019 browser stacks would be wrong for four of them.',
+    'keeps its state passes.',
   /**
    * **Three, which is what its depth pays** — and the test for that rule is what
    * corrected this from six.

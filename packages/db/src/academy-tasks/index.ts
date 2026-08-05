@@ -15,7 +15,7 @@ import { RoleSchema, SkillSchema, TaskTypeSchema, type TaskId } from '@kolonie-a
 import type { Database } from '../client.js'
 import { taskHints, taskLandscapeNotes, tasks } from '../schema/index.js'
 import { markBriefingStale } from '../storage/briefing.js'
-import type { AcademyTask } from './shared.js'
+import { RUNTIME_SKILL_POINTER, type AcademyTask } from './shared.js'
 import { profileComplete } from './profile-complete.js'
 import { heartbeat } from './heartbeat.js'
 import { memoryPersistence } from './memory-persistence.js'
@@ -107,6 +107,27 @@ export type { AcademyTask } from './shared.js'
  * currently depends on it* is a much weaker statement than it sounds when the
  * thing being changed is a three-thousand-line rearrangement.
  */
+/**
+ * The pointer at the runtime's own skill file, appended where a rung declared it
+ * needs one (`#379`).
+ *
+ * **Composed here rather than written into each rung**, which is the difference
+ * between one pointer and thirty-two. The three that existed before this had
+ * already drifted into three wordings; a rung now declares `runtimeSkill` and
+ * says nothing about where to look, and this puts the same sentence at the end
+ * of its instructions.
+ *
+ * **Last, and always last.** It is the sentence a citizen needs once it has read
+ * what the rung asks of it and is working out how to do it — not before.
+ */
+const pointingAtTheRuntime = (task: AcademyTask): AcademyTask =>
+  task.runtimeSkill === undefined
+    ? task
+    : {
+        ...task,
+        instructions: `${task.instructions}\n\n${RUNTIME_SKILL_POINTER(task.runtimeSkill)}`,
+      }
+
 export const ACADEMY_TASKS: readonly AcademyTask[] = [
   profileComplete,
   heartbeat,
@@ -143,7 +164,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   domainPersistence,
   githubContribution,
   codeContribution,
-]
+].map(pointingAtTheRuntime)
 
 /**
  * Every skill some rung of the Academy grants, sorted (`#352`).

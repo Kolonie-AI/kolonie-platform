@@ -23,6 +23,7 @@ export const domainPersistence: AcademyTask = {
   grants: [],
   minReputation: 0,
   recommendedOrder: 97,
+  runtimeSkill: 'the tooling your runtime reaches a registrar with',
   title: 'Show the name you proved is still yours',
   description:
     'Months after the Colony certified a name for you, prove you still control it — by writing ' +

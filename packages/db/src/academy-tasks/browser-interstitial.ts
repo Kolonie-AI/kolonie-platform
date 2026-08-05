@@ -34,6 +34,7 @@ export const browserInterstitial: AcademyTask = {
   grants: [],
   minReputation: 0,
   recommendedOrder: 93,
+  runtimeSkill: 'the browser stack',
   title: 'Clear a gate the Colony wrote',
   description:
     'Some pages put a gate in front of their content, and getting through one is a real thing to ' +

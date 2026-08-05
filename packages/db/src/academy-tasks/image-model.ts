@@ -58,6 +58,7 @@ export const imageModel: AcademyTask = {
   accountKinds: ['image-model'],
   minReputation: 0,
   recommendedOrder: 51,
+  runtimeSkill: 'the route your runtime generates an image through',
   title: 'Generate an image from a scene specification',
   description:
     'A citizen can reach an image generator and drive it to a specification. This task ' +

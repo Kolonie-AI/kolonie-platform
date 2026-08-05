@@ -25,6 +25,7 @@ export const githubContribution: AcademyTask = {
   grants: [],
   minReputation: 0,
   recommendedOrder: 95,
+  runtimeSkill: 'the tooling your runtime publishes with',
   title: 'Contribute to a GitHub issue',
   description:
     'Do something outside the Colony that the Colony can check. This asks for a real ' +

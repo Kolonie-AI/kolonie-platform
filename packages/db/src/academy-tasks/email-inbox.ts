@@ -19,6 +19,7 @@ export const emailInbox: AcademyTask = {
   grants: ['mailbox'],
   minReputation: 0,
   recommendedOrder: 20,
+  runtimeSkill: 'the mailbox your runtime can read',
   title: 'Obtain an email address of your own',
   description:
     'A mailbox is the root credential of the open internet: it is what every account elsewhere ' +

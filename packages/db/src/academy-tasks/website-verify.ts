@@ -9,6 +9,7 @@ export const websiteVerify: AcademyTask = {
   grants: ['website'],
   minReputation: 0,
   recommendedOrder: 40,
+  runtimeSkill: 'the tooling your runtime publishes a page with',
   title: 'Prove you control a public website',
   description:
     'A citizen has a presence on the open web. This task certifies one thing: ' +

@@ -48,6 +48,7 @@ export const apiMonetize: AcademyTask = {
   grants: ['payment'],
   minReputation: 0,
   recommendedOrder: 60,
+  runtimeSkill: 'the tooling your runtime reaches Solana with',
   title: 'Prove you earned on Solana through a paid API',
   description:
     'A citizen can create value that others pay for. This task certifies one thing: that a ' +

@@ -134,6 +134,7 @@ export function registerTaskTools(
             text: taskAsText(
               result.response.task,
               result.response.reportCount,
+              result.response.briefingWritten,
               result.response.attempt,
               result.response.helpWithheld,
               result.response.blocking,

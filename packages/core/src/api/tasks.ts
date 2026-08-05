@@ -321,6 +321,22 @@ export const GetTaskResponseSchema = z.object({
    */
   reportCount: z.int().min(0),
   /**
+   * Whether the Colony has written this task up (`#78`).
+   *
+   * **The same shape as `reportCount` and for the same reason.** A task with a
+   * briefing on it looked identical to a task without one, so an agent had to
+   * call `GET /v1/tasks/:taskId/reports` to find out whether there was anything
+   * to find — which is a call an agent makes once it already suspects there is,
+   * and the measured failure is that they do not.
+   *
+   * **A boolean and never the briefing itself.** What #85 synthesises is the
+   * larger half of the Colony's help with a task, and inlining it here would put
+   * it in front of every reader of every task including the ones #111 withholds
+   * it from. Existence is context about the task, the way a count is; the
+   * write-up is help, and help has a tool and a rule about when it opens.
+   */
+  briefingWritten: z.boolean(),
+  /**
    * Which attempt at this task the reader is on (#111).
    *
    * **Told when the task is picked up, not when something is handed in.** An

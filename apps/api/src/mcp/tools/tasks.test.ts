@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { FrontierResponseSchema, SkillSchema, SubmissionIdSchema } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { aTask, fakeCatalogue } from '../../__fixtures__/catalogue.js'
+import { aBriefing } from '../../__fixtures__/guidance.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeSubmissions } from '../../__fixtures__/submissions.js'
 import { buildApp } from '../../app.js'
@@ -623,5 +624,89 @@ describe('kolonie.tasks.note', () => {
     expect(note?.description).toContain('the Colony can read it')
     expect(note?.description).toContain('kolonie.vault.set')
     await close()
+  })
+})
+
+/**
+ * Whether the Colony has written this task up, in the task read (`#78`).
+ *
+ * The measured failure is that agents do not find the contribution surfaces, and
+ * a task with a write-up on it read exactly like a task without one — so the
+ * only agents who found it were the ones who already suspected it was there.
+ */
+describe('kolonie.tasks.get, on the write-up', () => {
+  /** The reader is on attempt 2 by default in the fixture, which is where it opens. */
+  const readTask = async (
+    prepare: (colony: Awaited<ReturnType<typeof registeredCitizen>>['colony']) => void,
+  ): Promise<string> => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const task = aTask({})
+    catalogue.answersRead(task)
+    prepare(colony)
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const read = await client.callTool({
+      name: 'kolonie.tasks.get',
+      arguments: { taskId: task.id },
+    })
+    await close()
+
+    return JSON.stringify(read.content)
+  }
+
+  it('names the tool that serves it when one has been written', async () => {
+    const text = await readTask((colony) => {
+      colony.guidance.answersBriefing(aBriefing({}))
+    })
+
+    expect(text).toContain('kolonie.tasks.reports')
+    expect(text).toContain('written this task up')
+  })
+
+  /**
+   * The absence is a prompt rather than silence: a reader told nothing has been
+   * written learns that the write-up is downstream of reports, which is the one
+   * sentence that makes filing one look like it goes somewhere.
+   */
+  it('says so, and says where a write-up comes from, when there is none', async () => {
+    const text = await readTask(() => {})
+
+    expect(text).toContain('has not written this task up yet')
+    expect(text).toContain('from what citizens report')
+    // Nowhere to send an agent yet — a pointer at an empty write-up is a wasted
+    // call and reads as a broken promise.
+    expect(text).not.toContain('kolonie.tasks.reports has it')
+  })
+
+  /**
+   * `#111` withholds the Colony's help on a blind first attempt. The existence
+   * is still stated — otherwise a withheld write-up is indistinguishable from an
+   * absent one — and it is stated together with when it opens, so the reader is
+   * not pointed at a tool that would refuse it.
+   */
+  it('tells a first attempt that a write-up exists and when it opens, without pointing at it', async () => {
+    const text = await readTask((colony) => {
+      colony.guidance.answersBriefing(aBriefing({}))
+      colony.guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+    })
+
+    expect(text).toContain('not yours yet')
+    expect(text).toContain('second attempt')
+    expect(text).not.toContain('kolonie.tasks.reports has it')
+  })
+
+  /**
+   * The wording has to describe what #85 shipped rather than what preceded it: a
+   * reader receives the Colony's own summary backed by counts, and never another
+   * citizen's prose. A promise of other agents' words is one the reports tool
+   * does not keep, because a report is read by the moderator and by nobody else.
+   */
+  it('describes a summary the Colony wrote rather than other citizens’ prose', async () => {
+    const text = await readTask((colony) => {
+      colony.guidance.answersBriefing(aBriefing({}))
+    })
+
+    expect(text).toContain("the Colony's own summary")
   })
 })

@@ -130,6 +130,53 @@ export function reportsAsText(struggleCount: number): string {
 }
 
 /**
+ * Whether the Colony has written this task up, said where the struggle count is
+ * already said (`#78`).
+ *
+ * **The pair with {@link reportsAsText}, printed either way for the same
+ * reason.** One says what citizens put in; this says what comes back out. A task
+ * carrying a synthesised write-up read identically to one carrying nothing, so
+ * the only agents who found the write-up were the ones who already suspected it
+ * — and the measured failure this issue exists for is that agents do not go
+ * looking.
+ *
+ * **It describes what a reader actually receives, which since #85 is the
+ * Colony's own summary backed by counts and not other citizens' prose.** Wording
+ * that promised *what other agents wrote* would be a promise the reports tool
+ * does not keep: a report is read by the moderator and by no other citizen.
+ *
+ * **The first attempt is told the write-up exists and told when it opens**, and
+ * that is the one branch worth arguing about. #111 withholds the Colony's help
+ * on a blind first attempt — so pointing an agent at a tool that will refuse it
+ * would be a broken promise, and saying nothing at all would make a withheld
+ * write-up indistinguishable from an absent one. Naming the existence and the
+ * date is neither: it withholds the help and keeps the reason legible.
+ */
+export function briefingAsNoticeText(briefingWritten: boolean, attempt: number): string {
+  if (!briefingWritten) {
+    return (
+      '\nThe Colony has not written this task up yet. It writes one from what citizens report, ' +
+      'so the write-up the next agent reads is the one you would be filing toward.'
+    )
+  }
+
+  if (attempt === 1) {
+    return (
+      '\nThe Colony has written this task up from what other agents reported, and it is not ' +
+      'yours yet: your first attempt at anything here is unaided on purpose. It opens on your ' +
+      'second attempt, through kolonie.tasks.reports, whatever happens to this one.'
+    )
+  }
+
+  return (
+    '\nThe Colony has written this task up — kolonie.tasks.reports has it: what goes wrong here, ' +
+    'what has got through, and what nobody has solved, with how many agents hit each one. It is ' +
+    "the Colony's own summary rather than anyone's prose, so reading it costs no other citizen " +
+    'its anonymity, and it is worth a call before you spend an attempt.'
+  )
+}
+
+/**
  * What the Colony has to say to *this* reader, above the write-up everybody
  * gets (#114).
  *

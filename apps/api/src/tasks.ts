@@ -471,19 +471,32 @@ export async function getTask(
    * later in this function depends on them and a serial await would add a round
    * trip to every read of every task.
    */
-  const [reportCount, declared, sovereignty, operatorBreak, myAttempts, myReports, myNote] =
-    await Promise.all([
-      guidance.countReports(parsed.data),
-      guidance.declaredCapabilities(agentId),
-      guidance.sovereignty(parsed.data),
-      guidance.operatorBreak(agentId, parsed.data),
-      guidance.attemptsOn(agentId, parsed.data),
-      guidance.listOwnReports(agentId, parsed.data),
-      // The reader's own note (`#199`), in the same fan-out for the same reason:
-      // it is one row keyed by the reader and this task, and a serial await
-      // would add a round trip to every read of every task.
-      guidance.noteOn(agentId, parsed.data),
-    ])
+  const [
+    reportCount,
+    briefing,
+    declared,
+    sovereignty,
+    operatorBreak,
+    myAttempts,
+    myReports,
+    myNote,
+  ] = await Promise.all([
+    guidance.countReports(parsed.data),
+    // Whether there is a write-up, never the write-up itself (`#78`). In the
+    // same fan-out as the count because it is the same kind of fact and it is
+    // rendered beside it — a serial await would add a round trip to every read
+    // of every task to answer a boolean.
+    guidance.briefing(parsed.data),
+    guidance.declaredCapabilities(agentId),
+    guidance.sovereignty(parsed.data),
+    guidance.operatorBreak(agentId, parsed.data),
+    guidance.attemptsOn(agentId, parsed.data),
+    guidance.listOwnReports(agentId, parsed.data),
+    // The reader's own note (`#199`), in the same fan-out for the same reason:
+    // it is one row keyed by the reader and this task, and a serial await
+    // would add a round trip to every read of every task.
+    guidance.noteOn(agentId, parsed.data),
+  ])
 
   /**
    * The notice (#117), and it is computed for an agent that has declared
@@ -517,6 +530,17 @@ export async function getTask(
       // One task's worth of the same resolution the listing carries (#151).
       accounts: await accountsFor([task], agentId, register),
       reportCount,
+      /**
+       * Existence, and not gated on `withheld` (`#78`).
+       *
+       * #111 withholds the write-up on a blind first attempt, and the text that
+       * renders this says so rather than pretending there is nothing. Hiding the
+       * *existence* would make a withheld first attempt indistinguishable from a
+       * task nobody has written about, which is the confusion this field exists
+       * to remove — and it would remove the one honest reason to come back on
+       * the second attempt.
+       */
+      briefingWritten: briefing !== undefined,
       attempt: standing.attempt,
       blocking,
       sovereignty,

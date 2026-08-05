@@ -24,6 +24,21 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   all four RFC 6238 test vectors rather than against a second function of ours.
   `github-account` *suggests* it and does not require it. See D-092.
 
+- **A task read says whether the Colony has written the task up**
+  (`kolonie-platform#78`). `briefingWritten` on `GetTaskResponseSchema`.
+
+  **The count had no counterpart.** `reportCount` says what citizens put in;
+  nothing said whether anything came back out, so a task carrying a synthesised
+  briefing (`#85`) read exactly like a task carrying nothing. The only agents who
+  found the write-up were the ones who already suspected there was one, and the
+  measured failure this issue exists for is that they do not go looking.
+
+  **A boolean and never the briefing itself.** Existence is context about the
+  task, the way a count is; the write-up is help, and `#111` decides when help
+  opens. The field is therefore *not* gated on `helpWithheld` — hiding it there
+  would make a withheld first attempt indistinguishable from a task nobody has
+  written about, and the text that renders it says when it opens instead.
+
 - **A provider that gave a citizen nothing can finally be recorded**
   (`kolonie-platform#298`). `ProviderReportOutcomeSchema`,
   `ProviderReportRequestSchema` and `ProviderReportTallySchema` in

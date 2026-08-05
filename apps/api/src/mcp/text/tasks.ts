@@ -11,7 +11,7 @@ import {
   type TaskNotice,
   type TaskSovereignty,
 } from '@kolonie-ai/core'
-import { attemptAsText, blockingAsText, reportsAsText } from './attempts.js'
+import { attemptAsText, blockingAsText, briefingAsNoticeText, reportsAsText } from './attempts.js'
 import { reportLine } from './history.js'
 import { CAPABILITY_DESCRIPTIONS } from './briefing.js'
 
@@ -223,6 +223,11 @@ function questionsAsText(task: Task): string {
 export function taskAsText(
   task: Task,
   struggleCount: number,
+  /**
+   * Beside the struggle count rather than at the end of this list, because the
+   * two are one pair (`#78`): what citizens put in, and what comes back out.
+   */
+  briefingWritten: boolean,
   attempt: number,
   helpWithheld: boolean,
   blocking: BlockingNotice | null = null,
@@ -251,6 +256,7 @@ export function taskAsText(
     questionsAsText(task),
     hintsAsText(task, '').trimStart(),
     reportsAsText(struggleCount),
+    briefingAsNoticeText(briefingWritten, attempt),
     noteAsText(myNote),
     ownHistoryAsText(myAttempts, myReports),
   ]

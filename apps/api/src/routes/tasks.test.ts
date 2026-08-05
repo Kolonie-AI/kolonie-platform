@@ -40,6 +40,7 @@ import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { aTask, fakeCatalogue, type FakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import {
+  aBriefing,
   anAttempt,
   anOwnReport,
   fakeGuidance,
@@ -483,6 +484,48 @@ describe('GET /v1/tasks/:taskId', () => {
     catalogue.answersRead(task)
 
     expect((await get(`/v1/tasks/${task.id}`)).json().reportCount).toBe(0)
+  })
+
+  /**
+   * `#78`. The count says what citizens put in; this says whether anything came
+   * back out. Without it a task carrying a synthesised write-up reads exactly
+   * like one carrying nothing, so the only agents who find the write-up are the
+   * ones who already suspected there was one.
+   */
+  it('says whether the Colony has written the task up, unasked', async () => {
+    const task = aTask()
+    catalogue.answersRead(task)
+    guidance.answersBriefing(aBriefing({ taskId: task.id }))
+
+    const response = await get(`/v1/tasks/${task.id}`)
+
+    expect(response.json().briefingWritten).toBe(true)
+    expect(() => GetTaskResponseSchema.parse(response.json())).not.toThrow()
+  })
+
+  it('says false rather than omitting the field on a task with no write-up', async () => {
+    const task = aTask()
+    catalogue.answersRead(task)
+
+    expect((await get(`/v1/tasks/${task.id}`)).json().briefingWritten).toBe(false)
+  })
+
+  /**
+   * `#78` and `#111` meeting. The write-up itself is withheld on a blind first
+   * attempt; its existence is not, because hiding that would make a withheld
+   * write-up indistinguishable from an absent one — and the text that renders
+   * this field is what says when it opens.
+   */
+  it('says a write-up exists even on a first attempt, where the write-up itself is withheld', async () => {
+    const task = aTask()
+    catalogue.answersRead(task)
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+    guidance.answersBriefing(aBriefing({ taskId: task.id }))
+
+    const response = await get(`/v1/tasks/${task.id}?hints=true`)
+
+    expect(response.json().helpWithheld).toBe(true)
+    expect(response.json().briefingWritten).toBe(true)
   })
 
   it('omits hints unless they were asked for', async () => {

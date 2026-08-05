@@ -124,6 +124,16 @@ export function registerTaskTools(
         deps.catalogue,
         deps.guidance,
         deps.accounts.resolution,
+        /**
+         * Where this reader stands on the skills the task requires (`#349`,
+         * `#354`). The skills come from the authenticated agent, so what is
+         * reported is what the gate would actually use — never what the caller
+         * believes it holds.
+         */
+        {
+          held: authenticatedAgent.agent.skills,
+          ...(deps.skillNotes === undefined ? {} : { notes: deps.skillNotes }),
+        },
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -143,6 +153,7 @@ export function registerTaskTools(
               result.response.myAttempts,
               result.response.myReports,
               result.response.myNote,
+              result.response.requiredSkills,
             ),
           },
         ],

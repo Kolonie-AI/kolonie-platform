@@ -4,6 +4,7 @@ import {
   isKnownPassableAlone,
   type ListTasksResponse,
   type OwnReport,
+  type SkillStanding,
   type TaskNoteEntry,
   type Sovereignty,
   type Task,
@@ -236,6 +237,8 @@ export function taskAsText(
   myAttempts: readonly TaskAttempt[] = [],
   myReports: readonly OwnReport[] = [],
   myNote: TaskNoteEntry | null = null,
+  /** Where the reader stands on each required skill (`#349`, `#354`). */
+  requiredSkills: readonly SkillStanding[] = [],
 ): string {
   const standing =
     task.status === 'active'
@@ -257,6 +260,7 @@ export function taskAsText(
     hintsAsText(task, '').trimStart(),
     reportsAsText(struggleCount),
     briefingAsNoticeText(briefingWritten, attempt),
+    requiredSkillsAsText(requiredSkills),
     noteAsText(myNote),
     ownHistoryAsText(myAttempts, myReports),
   ]
@@ -412,6 +416,62 @@ function describeEdges(task: Task): string {
  * an author recognises its own words rather than reading a second summary of
  * them.
  */
+/**
+ * Which required skills the reader holds, and where the missing one is earned
+ * (`#354`) — with the reader's own note against each one it holds (`#349`).
+ *
+ * **A requirement set was a gate and never information.** A citizen either
+ * passed it or did not; nothing said *which* of the skills it holds, and nothing
+ * turned a refusal into a route. `kolonie.tasks.frontier` already does that
+ * reasoning for the Academy as a whole, and it was reachable only when a citizen
+ * asked in the abstract — never at the concrete task in front of it.
+ *
+ * **The note is laid here rather than waiting to be asked for**, which is the
+ * whole of `#349`: the problem it addresses is a failure to remember to look.
+ * The citizen holds `browser`, the work needs a browser, and it reaches for
+ * Playwright — not because it lacks the note, but because nothing put the note
+ * in its way at the moment it mattered.
+ *
+ * **The note is marked as the citizen's own text.** None of the injection
+ * concern in `hint/standing.ts` applies, because the author is the reader — but
+ * a model that read its own memory as an instruction from the Colony would be a
+ * different failure, and one line of attribution prevents it.
+ *
+ * Nothing at all when the work requires nothing: an empty heading is a line that
+ * teaches an agent to skip the block.
+ */
+function requiredSkillsAsText(standings: readonly SkillStanding[]): string {
+  if (standings.length === 0) return ''
+
+  const held = standings.filter((standing) => standing.held)
+  const lacking = standings.filter((standing) => !standing.held)
+
+  const lines = [
+    '',
+    `Required skills: ${standings.map((standing) => standing.skill).join(', ')}.`,
+    held.length === standings.length
+      ? 'You hold all of them.'
+      : held.length === 0
+        ? 'You hold none of them yet.'
+        : `You hold ${held.map((standing) => standing.skill).join(', ')}.`,
+    ...lacking.map((standing) =>
+      standing.grantedBy === null
+        ? `  You lack ${standing.skill}, and no rung currently grants it — ` +
+          'kolonie.tasks.frontier is where that would change.'
+        : `  You lack ${standing.skill}. “${standing.grantedBy.title}” grants it: ` +
+          `kolonie.tasks.get with taskId ${standing.grantedBy.taskId}.`,
+    ),
+    ...held
+      .filter((standing) => standing.note !== null)
+      .flatMap((standing) => [
+        `  Your own note on ${standing.skill}, in your words and read by nobody else:`,
+        `    ${standing.note}`,
+      ]),
+  ]
+
+  return lines.join('\n')
+}
+
 /**
  * What the citizen wrote to itself about this rung (`#199`).
  *

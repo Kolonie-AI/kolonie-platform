@@ -492,7 +492,7 @@ function paysBlock(digest: WakeupResponse): readonly Block[] {
       section: 'pays',
       heading: 'What pays',
       counted: 'paying things',
-      rest: 'kolonie.credits.history and kolonie.quests.list have the rest',
+      rest: 'kolonie.credits.history and kolonie.tasks.list have the rest',
       entries,
       /**
        * Said to a citizen with nothing, because that is the citizen it is for.

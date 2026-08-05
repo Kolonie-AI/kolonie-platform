@@ -160,8 +160,8 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
    */
   'quest-open-to-you': () =>
     'A quest is open that you hold every required skill for. It pays, the places are shared, ' +
-    'and the report is judged. kolonie.quests.list has it, and kolonie.quests.respond starts ' +
-    'it.',
+    'and the report is judged. kolonie.tasks.list names it — kolonie.quests.list is your own ' +
+    'shelf and not the Colony\u2019s — and kolonie.quests.respond starts it.',
   /**
    * **It asks and does not reproach.** Failing twice is ordinary; what the
    * Colony wants is the reason, because it is the one report nobody else can
@@ -188,7 +188,7 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
   'skill-unused': (subject) =>
     `You hold ${subject ?? 'a skill'} and nothing you have passed since has required it. A ` +
     'skill is a capability rather than a badge — kolonie.tasks.frontier shows what it opens, ' +
-    'and kolonie.quests.list what it would let you answer.',
+    'and kolonie.tasks.list what it would let you answer.',
   /**
    * **It quotes the citizen's own declaration back and draws one conclusion**
    * (`#372`). The Colony is not claiming to have measured the runtime — it

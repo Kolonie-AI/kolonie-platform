@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { NOTE_MAX_LENGTH } from '../common/note.js'
+import { SkillStandingSchema } from './skills.js'
 import { PageRequestSchema, pageOf } from '../common/pagination.js'
 import { SkillSchema } from '../common/skill.js'
 import { GuidanceContentSchema, OwnReportSchema } from '../guidance/guidance.js'
@@ -259,13 +261,12 @@ export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
 /**
  * How long a private note on a task may be, in characters.
  *
- * **Two thousand, and the bound is what makes it a note.** The failure this
- * exists for is *"Outlook needs the REST API, not IMAP"* — one operational fact
- * that cost a citizen a day to find twice. A field big enough to hold a session
- * transcript would attract one, and the note a citizen has to skim is a note it
- * will not read on the way into an attempt.
+ * The number itself lives in {@link NOTE_MAX_LENGTH} since `#348`, because a
+ * second kind of note now shares it and two limits that started equal and
+ * drifted would be a difference nobody decided. This name stays, because it is
+ * what the tool descriptions and the refusal messages already say.
  */
-export const TASK_NOTE_MAX_LENGTH = 2000
+export const TASK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
 
 /**
  * What a citizen writes to itself about one rung (`#199`).
@@ -315,6 +316,13 @@ export type SetTaskNoteResponse = z.infer<typeof SetTaskNoteResponseSchema>
 
 export const GetTaskResponseSchema = z.object({
   task: TaskSchema,
+  /**
+   * Where the reader stands on each skill this task requires (`#349`, `#354`).
+   *
+   * Empty when the task requires nothing, and the rendering says so rather than
+   * printing an empty heading.
+   */
+  requiredSkills: z.array(SkillStandingSchema),
   /** The same resolution the listing carries, for one task (`#151`). */
   accounts: z.array(TaskAccountsSchema),
   /**

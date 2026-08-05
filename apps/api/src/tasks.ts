@@ -11,6 +11,8 @@ import {
   type FrontierResponse,
   type GetTaskResponse,
   type ListTasksResponse,
+  type SkillNoteEntry,
+  type SkillStanding,
   type Task,
   type TaskAccounts,
   type TaskId,
@@ -460,6 +462,87 @@ export type GetTaskOutcome =
  * the cheapest way to make filing a report read as ordinary rather than as a
  * complaint (`#73`). Nothing about it can be un-read to an agent's disadvantage.
  */
+/**
+ * What the reader holds and what it wrote, for the skills a piece of work
+ * requires (`#349`, `#354`).
+ *
+ * A pair of reads rather than a desk, because there are two questions and they
+ * come from two places the caller already holds: the skills are on the
+ * authenticated agent, and the notes are `#348`'s store.
+ */
+export interface SkillStandingSource {
+  /** What this citizen currently holds, from the credential and never the request. */
+  readonly held: readonly string[]
+  /** The reader's own notes, keyed by skill (`#348`). Absent means none are served. */
+  readonly notes?: {
+    readMany(agentId: AgentId, skills: readonly string[]): Promise<readonly SkillNoteEntry[]>
+  }
+}
+
+/**
+ * Assemble one standing per required skill (`#349`, `#354`).
+ *
+ * **The route for a skill the reader lacks comes from the graph**, which is the
+ * same answer `kolonie.tasks.frontier` gives — *what one more skill would open
+ * and which task grants it* — arriving at the concrete task instead of only in
+ * the abstract. `null` where nothing grants it, because `KNOWN_SKILLS` says
+ * outright that a skill nothing grants is a planned rung, and naming a wrong
+ * rung would be worse than naming none.
+ *
+ * **It never throws.** A task read that failed because the graph was unhappy
+ * would be a worse answer than one without the routes in it.
+ */
+async function skillStandings(
+  agentId: AgentId,
+  requires: readonly string[],
+  catalogue: TaskCatalogue,
+  source: SkillStandingSource | undefined,
+): Promise<readonly SkillStanding[]> {
+  if (source === undefined || requires.length === 0) return []
+
+  const held = new Set(source.held)
+  const lacking = requires.filter((skill) => !held.has(skill))
+
+  const [notes, granting] = await Promise.all([
+    source.notes === undefined
+      ? Promise.resolve([] as readonly SkillNoteEntry[])
+      : source.notes.readMany(
+          agentId,
+          [...held].filter((skill) => requires.includes(skill)),
+        ),
+    lacking.length === 0
+      ? Promise.resolve(new Map<string, { taskId: TaskId; title: string }>())
+      : catalogue
+          .graph()
+          .then((entries) => {
+            const granters = new Map<string, { taskId: TaskId; title: string }>()
+            for (const entry of entries) {
+              // Only what can actually be started: a retired or draft rung
+              // grants nothing anybody can go and earn.
+              if (entry.task.status !== 'active') continue
+              for (const grants of entry.task.grants) {
+                if (!granters.has(grants)) {
+                  granters.set(grants, { taskId: entry.task.id, title: entry.task.title })
+                }
+              }
+            }
+            return granters
+          })
+          .catch(() => new Map<string, { taskId: TaskId; title: string }>()),
+  ])
+
+  const bySkill = new Map(notes.map((note) => [String(note.skill), note.note]))
+
+  return requires.map((skill) => ({
+    skill: skill as SkillStanding['skill'],
+    held: held.has(skill),
+    // A note only ever travels for a skill the reader holds: it is written
+    // against something it proved, and there is nothing to hand back otherwise.
+    note: held.has(skill) ? (bySkill.get(skill) ?? null) : null,
+    grantedBy: held.has(skill) ? null : (granting.get(skill) ?? null),
+  }))
+}
+
 export async function getTask(
   taskId: string | undefined,
   query: unknown,
@@ -467,6 +550,14 @@ export async function getTask(
   catalogue: TaskCatalogue,
   guidance: TaskGuidance,
   register: AccountResolution,
+  /**
+   * Where the reader stands on the skills this task requires (`#349`, `#354`).
+   *
+   * **Appended and optional**, so every existing caller reads exactly as it did:
+   * a caller that cannot answer it gets an empty list, and the rendering says
+   * nothing rather than saying something wrong.
+   */
+  standings?: SkillStandingSource,
 ): Promise<GetTaskOutcome> {
   const parsed = TaskIdSchema.safeParse(taskId)
   if (!parsed.success) return { outcome: 'rejected', error: noSuchTask }
@@ -561,6 +652,7 @@ export async function getTask(
     outcome: 'found',
     response: {
       task,
+      requiredSkills: [...(await skillStandings(agentId, task.requires, catalogue, standings))],
       // One task's worth of the same resolution the listing carries (#151).
       accounts: await accountsFor([task], agentId, register),
       reportCount,

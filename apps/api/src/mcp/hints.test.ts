@@ -168,6 +168,42 @@ describe('the line attached to a tool result', () => {
   })
 
   /**
+   * **Both calls, because the condition is the condition for both** (`#363`).
+   *
+   * `task_set_asides` held zero rows on 2026-08-05 while this hint had fired
+   * seventeen times, at exactly the moment setting aside applies — and named one
+   * of the two calls. What the sentence has to do is name both *and* say which
+   * is which, because a citizen shown two calls with no line between them picks
+   * the first, and the first costs a moderation call for a shrug.
+   */
+  it('names both routes, says which is which, and steers toward neither reason', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('task-considered', 'raster-image')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const { text } = (result.structuredContent as { hint: { text: string } }).hint
+    await close()
+
+    expect(text).toContain('kolonie.tasks.report')
+    expect(text).toContain('kolonie.tasks.set-aside')
+    // The line between them, in the tools' own terms.
+    expect(text).toContain('never started')
+
+    // `runtime-cannot` is the reason the Colony most wants and therefore the one
+    // a hint must not put in a citizen's mouth: a reason suggested is a reason
+    // over-reported, and this channel is only worth having as evidence.
+    expect(text).not.toContain('runtime-cannot')
+    expect(text).not.toContain('needs-operator')
+    expect(text).not.toContain('not-now')
+  })
+
+  /**
    * **Colony templates only.** The one string that can reach this field is
    * written in `hints.ts`; there is no path by which a citizen-authored string —
    * a quest title, a profile bio, a session id — could be interpolated into it,

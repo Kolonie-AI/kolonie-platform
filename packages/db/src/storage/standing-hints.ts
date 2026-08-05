@@ -188,6 +188,23 @@ async function unpromptedConsideration(
         sql`not exists (select 1 from task_reports r
               where r.agent_id = ${taskConsiderations.agentId}
                 and r.task_id = ${taskConsiderations.taskId})`,
+        /**
+         * **A fourth table, and it arrives with the second call** (`#363`).
+         *
+         * The sentence now names `kolonie.tasks.set-aside` as well, and a hint
+         * that keeps offering a route the citizen has already taken is the same
+         * defect `#338` was about, one call over: being asked to set aside a
+         * task you set aside is the strongest available signal that setting it
+         * aside did nothing.
+         *
+         * `task_set_asides` is keyed by `(agent, task)` and holds a row exactly
+         * while the task is down — `kolonie.tasks.take-up` deletes it — so a
+         * citizen that picks the task back up is in scope for this hint again,
+         * which is right: it is considering it afresh.
+         */
+        sql`not exists (select 1 from task_set_asides s
+              where s.agent_id = ${taskConsiderations.agentId}
+                and s.task_id = ${taskConsiderations.taskId})`,
       ),
     )
     .orderBy(taskConsiderations.firstFetchedAt)

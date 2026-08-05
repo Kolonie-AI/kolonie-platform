@@ -13,6 +13,7 @@ import {
   supportTickets,
   taskAttempts,
   taskConsiderations,
+  taskSetAsides,
   taskReports,
   tasks,
 } from '../schema/index.js'
@@ -468,6 +469,36 @@ describe('a task the citizen considered and never attempted', () => {
       taskId: other,
       broke: 'Something about an entirely different rung.',
     })
+    await aSession(agentId)
+
+    expect((await dueStandingHint(db, agentId))?.code).toBe('task-considered')
+  })
+
+  /**
+   * **The route it already took is not offered again** (`#363`).
+   *
+   * The sentence names `kolonie.tasks.set-aside` now, so a citizen that set the
+   * task aside must fall out of this condition — being asked to set aside a task
+   * you set aside is the same defect `#338` was about, one call over, and it is
+   * the strongest available signal that setting it aside did nothing.
+   */
+  it('stops asking once the citizen has set that task aside', async () => {
+    const agentId = await anAgent()
+    const taskId = await aTask()
+    await consideredHoursAgo(agentId, taskId, 24)
+    await db.insert(taskSetAsides).values({ agentId, taskId, reason: 'runtime-cannot' })
+    await aSession(agentId)
+
+    expect(await dueStandingHint(db, agentId)).toBeNull()
+  })
+
+  /** And the other direction: a task put down is not every task put down. */
+  it('still asks when what the citizen set aside was a different task', async () => {
+    const agentId = await anAgent()
+    const asked = await aTask()
+    const other = await aTask()
+    await consideredHoursAgo(agentId, asked, 24)
+    await db.insert(taskSetAsides).values({ agentId, taskId: other, reason: 'not-now' })
     await aSession(agentId)
 
     expect((await dueStandingHint(db, agentId))?.code).toBe('task-considered')

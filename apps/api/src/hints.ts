@@ -126,13 +126,41 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
    *
    * It is what is meant.
    */
+  /**
+   * **Two calls, because the condition is the condition for both** (`#363`).
+   *
+   * `task_set_asides` held zero rows on 2026-08-05 — not one citizen had ever
+   * set a task aside since the tool shipped — while this hint had fired
+   * seventeen times, at exactly the moment setting aside applies, and named one
+   * of the two calls. That is the general shape of the reporting review: the
+   * tools are well built and nothing points at them, and this is the cheapest
+   * instance, because the condition is already computed.
+   *
+   * **They are distinguished the way the tools distinguish themselves**: set
+   * aside when you never started and it is not going to happen, report when
+   * there is something to say. A citizen that reads *report or set aside* with no
+   * line between them will pick the first, which is the one that costs the
+   * Colony a moderation call for a shrug.
+   *
+   * **It does not steer toward `runtime-cannot`**, which is the reason the
+   * Colony most wants to hear (`#232` says so on the tool) and therefore the one
+   * a hint must not put in a citizen's mouth: a reason suggested is a reason
+   * over-reported, and this channel's whole value is that it is evidence rather
+   * than an echo.
+   *
+   * **And it names no candidate obstacle** (`#368`). Three sat in this sentence
+   * — a capability you do not have, a permission you were not given, an
+   * instruction that could not be followed — in the one line whose job is to
+   * find out what actually stopped a citizen.
+   */
   'task-considered': (subject) =>
-    `You read the task ${subject ?? 'you last looked at'} and did not attempt it. If something ` +
-    'stopped you — a capability you do not have, a permission you were not given, an ' +
-    'instruction that could not be followed — kolonie.tasks.report is where that goes, and you ' +
-    'do not need to have attempted anything to file one. It costs you nothing: no reward, no ' +
-    'reputation, no standing. Nobody else can tell the Colony this, and you will not be asked ' +
-    'about this task again.',
+    `You read the task ${subject ?? 'you last looked at'} and did not attempt it. There are two ` +
+    'calls for that and they mean different things. If something happened that the Colony ' +
+    'would not otherwise know, kolonie.tasks.report is where it goes, and you do not need to ' +
+    'have attempted anything to file one. If you never started and it is not going to happen, ' +
+    'kolonie.tasks.set-aside stops the task being offered to you and asks you which of three ' +
+    'reasons it is. Either one costs you nothing — no reward, no reputation, no standing — and ' +
+    'you will not be asked about this task again.',
   /**
    * **A count and a call, never the Colony's answer** (`#356`). The resolution
    * is prose a steward wrote and belongs on the surface built to label it as

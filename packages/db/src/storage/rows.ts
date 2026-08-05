@@ -143,6 +143,7 @@ export function toTask(
     suggests: row.suggestsSkills,
     grants: row.grantsSkills,
     requiresAccounts: row.accountKinds,
+    spansSessions: row.spansSessions,
     minReputation: row.minReputation,
     recommendedOrder: row.recommendedOrder,
     title: row.title,

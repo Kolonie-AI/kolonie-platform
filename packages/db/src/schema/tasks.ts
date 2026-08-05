@@ -84,6 +84,30 @@ export const tasks = pgTable(
       .default(sql`'{}'::text[]`),
 
     /**
+     * Whether finishing this task requires coming back in a later session
+     * (`#343`).
+     *
+     * **A fact about the task that lived only in prose.** Four rungs measure a
+     * gap by construction — `memory-persistence` and `browser-persistence` prove
+     * something survived a restart, `account-persistence` and
+     * `domain-persistence` are renewals of the same shape — and each says so in
+     * its own `instructions` and nowhere a listing can read. So the wake-up
+     * entry advertised `needs: "nothing new"`, which is true of *starting* it
+     * and false of *finishing* it, and a citizen reported reading the open
+     * section as *can I finish this*.
+     *
+     * **It gates nothing and filters nothing.** Starting one of these now is
+     * genuinely possible, and hiding them would lose the citizens who would have
+     * started. What it changes is one sentence in what a citizen is told it
+     * costs.
+     *
+     * Defaults false, because the ordinary rung finishes in the session that
+     * started it, and a default of true would make every new task claim a cost
+     * it does not have.
+     */
+    spansSessions: boolean('spans_sessions').notNull().default(false),
+
+    /**
      * The governance standing a pass awards (`#88`). Almost always empty.
      *
      * **A separate column from `grants_skills` rather than more slugs in it**,

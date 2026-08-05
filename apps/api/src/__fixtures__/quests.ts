@@ -104,6 +104,9 @@ export function fakeQuests(): FakeQuestDesk {
     suggests: [],
     grants: [],
     requiresAccounts: [],
+    // A quest is answered in the sitting it is taken up in; `#343`'s flag is
+    // about the four Academy rungs that measure a gap.
+    spansSessions: false,
     minReputation: input.draft.minReputation,
     recommendedOrder: 100,
     title: input.draft.title,

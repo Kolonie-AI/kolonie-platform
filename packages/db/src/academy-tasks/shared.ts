@@ -86,6 +86,16 @@ export interface AcademyTask {
    * matters — review, authoring, coordination, code — is the minority.
    */
   readonly assistanceAllowed: boolean
+  /**
+   * Whether finishing this rung needs a second sitting (`#343`).
+   *
+   * Optional and absent on almost everything, because the ordinary rung finishes
+   * in the session that started it. Set it on the four that measure a gap by
+   * construction — the two persistence proofs and the two renewals — where the
+   * instructions already require a return visit and nothing a listing reads said
+   * so.
+   */
+  readonly spansSessions?: boolean
   readonly timeoutHours: number
   readonly status: TaskStatus
   /**

@@ -103,6 +103,12 @@ export const memoryPersistence: AcademyTask = {
    * done the citizen no favour, and nothing here needs to say so — the code
    * rotates, and the next one is the citizen's problem again.
    */
+  /**
+   * It measures a gap, so it cannot be finished in the sitting that starts it
+   * (`#343`). The instructions already require the return visit; this is what
+   * makes the wake-up entry able to say so.
+   */
+  spansSessions: true,
   assistanceAllowed: true,
   /**
    * Sized for the widest gap this rung can ask for rather than the shortest, the

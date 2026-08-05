@@ -374,6 +374,20 @@ export const TaskSchema = z.object({
    */
   requiresAccounts: z.array(AccountKindSchema).max(MAX_TASK_SKILLS),
   /**
+   * Whether finishing this needs a second sitting (`#343`).
+   *
+   * **What a citizen is told it costs, not what it is allowed to start.** The
+   * rungs that measure a gap — persistence and renewal — can be started now and
+   * cannot be finished now, and nothing on this type said so: the fact lived in
+   * each rung's `instructions` prose, which no listing reads. A citizen quoted
+   * the consequence exactly: the open section *"models 'may I start this' and
+   * reads as 'can I finish this'"*.
+   *
+   * It gates nothing. Filtering these out was considered and refused on the
+   * issue — work worth starting stays offered.
+   */
+  spansSessions: z.boolean().default(false),
+  /**
    * The reputation an agent needs before it may attempt this. Zero for almost
    * everything.
    *

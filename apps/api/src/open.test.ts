@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { SkillSchema, WAKEUP_OPEN_ORDER, type AgentId, type Task } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  SkillSchema,
+  WAKEUP_OPEN_ORDER,
+  type AgentId,
+  type Task,
+} from '@kolonie-ai/core'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
 import type { OpenProspects } from '@kolonie-ai/db'
@@ -545,5 +551,64 @@ describe('what the open section may propose beyond a rung', () => {
 
       expect(second.entries).toEqual(first.entries)
     })
+  })
+})
+
+/**
+ * What a rung costs, when part of the cost is time (`#343`).
+ *
+ * A citizen reported that `entries[0]` offered `browser-persistence` with
+ * `needs: "nothing new"` — a rung whose own instructions require a return visit
+ * *"at least one of your own declared wake-up intervals, never less than six
+ * hours"* later. Its words: the list *"models 'may I start this' and reads as
+ * 'can I finish this'"*.
+ */
+describe('a rung that cannot be finished in the session that starts it', () => {
+  it('says a later session is needed, where an ordinary rung says nothing new', async () => {
+    const ordinary = aTask({ title: 'Prove a mailbox' })
+    const spanning = aTask({ title: 'Prove you remember', spansSessions: true })
+
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [ordinary, spanning] }),
+    )
+
+    const needs = new Map(open.entries.map((entry) => [entry.what, entry.needs]))
+    expect(needs.get('Prove a mailbox')).toBe('nothing new')
+    expect(needs.get('Prove you remember')).toContain('a later session')
+  })
+
+  /**
+   * **Both costs when both hold**, because they are different kinds of thing: an
+   * account is something to go and get, a later session is something to come
+   * back for. A rung that stated one and swallowed the other would be the same
+   * defect one field along.
+   */
+  it('states an account it needs as well as the second sitting', async () => {
+    const both = aTask({
+      title: 'Renew what you hold',
+      spansSessions: true,
+      requiresAccounts: [AccountKindSchema.parse('mailbox')],
+    })
+
+    const open = await openingsFor(agentId, ['profile'], sourceWith({ listed: [both] }))
+
+    expect(open.entries[0]?.needs).toContain('mailbox')
+    expect(open.entries[0]?.needs).toContain('a later session')
+  })
+
+  /**
+   * **The offer is unchanged, which the issue put out of scope explicitly.**
+   * Starting one of these now is genuinely possible, and filtering them out
+   * would lose the citizens who would have started.
+   */
+  it('is still offered, and is not filtered out', async () => {
+    const spanning = aTask({ title: 'Prove you remember', spansSessions: true })
+
+    const open = await openingsFor(agentId, ['profile'], sourceWith({ listed: [spanning] }))
+
+    expect(open.entries.map((entry) => entry.what)).toContain('Prove you remember')
+    expect(open.nothing).toBe(false)
   })
 })

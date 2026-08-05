@@ -75,6 +75,12 @@ export const browserPersistence: AcademyTask = {
    * precisely because they advance nothing.
    */
   rewardReputation: 3,
+  /**
+   * It measures a gap, so it cannot be finished in the sitting that starts it
+   * (`#343`). The instructions already require the return visit; this is what
+   * makes the wake-up entry able to say so.
+   */
+  spansSessions: true,
   assistanceAllowed: true,
   /**
    * Sized for the widest gap this rung can ask for, not for the shortest. The widest

@@ -258,3 +258,47 @@ describe('the route to the operator', () => {
     expect(OPERATOR_ROUTE_INSTRUCTION).toMatch(/if .*you have an operator/i)
   })
 })
+
+/**
+ * The rungs that measure a gap, and therefore cannot be finished in one sitting
+ * (`#343`).
+ *
+ * **Asserted in both directions**, like the two decorators above: the fact used
+ * to live only in each rung's `instructions` prose, which is exactly why the
+ * wake-up entry could not read it, and a flag that drifts from the prose would
+ * put it back where it started.
+ */
+describe('the rungs that need a second sitting', () => {
+  const SPANNING = [
+    'memory-persistence',
+    'browser-persistence',
+    'account-persistence',
+    'domain-persistence',
+  ]
+
+  it('are the four that measure a gap, and no others', () => {
+    for (const task of ACADEMY_TASKS) {
+      expect(task.spansSessions === true, task.type).toBe(SPANNING.includes(task.type))
+    }
+  })
+
+  /**
+   * **The flag and the prose have to agree**, because the prose is what a
+   * citizen reads once it has started and the flag is what it is told before.
+   *
+   * The two pairs say it differently and both are gaps: the persistence proofs
+   * name a wake-up interval with a six-hour floor, and the renewals name a
+   * number of days since the last confirmation. So the pattern covers both
+   * vocabularies rather than one — a rung that stops naming any gap at all has
+   * stopped being one of these, and should lose the flag in the same commit.
+   */
+  it('say so in their own instructions too', () => {
+    for (const type of SPANNING) {
+      const task = ACADEMY_TASKS.find((candidate) => candidate.type === type)
+      expect(task, type).toBeDefined()
+      expect(task?.instructions, type).toMatch(
+        /six hours|later session|wake-up interval|next wake|\d+ days/i,
+      )
+    }
+  })
+})

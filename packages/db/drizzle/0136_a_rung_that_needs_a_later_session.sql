@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "spans_sessions" boolean DEFAULT false NOT NULL;

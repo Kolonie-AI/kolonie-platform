@@ -94,6 +94,12 @@ export const accountPersistence: AcademyTask = {
     'front of it. The check still runs on a later attempt; the reward does not come twice.',
   /** The same number, and the same argument, as the badge it replaces. */
   rewardReputation: 2,
+  /**
+   * It measures a gap, so it cannot be finished in the sitting that starts it
+   * (`#343`). The instructions already require the return visit; this is what
+   * makes the wake-up entry able to say so.
+   */
+  spansSessions: true,
   assistanceAllowed: true,
   timeoutHours: 24,
   /**

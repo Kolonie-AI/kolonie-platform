@@ -160,6 +160,34 @@ export async function openingsFor(
   }
 }
 
+/**
+ * What a rung costs a citizen that does not hold it yet (`#343`).
+ *
+ * **`needs` answers *what would I have to get hold of*, and for four rungs the
+ * honest answer includes time.** `memory-persistence` and `browser-persistence`
+ * prove something survived a restart; `account-persistence` and
+ * `domain-persistence` are renewals of the same shape. Each requires a return
+ * visit — *"at least one of your own declared wake-up intervals, never less than
+ * six hours"* — and each said `nothing new` here, because the requirement lived
+ * in the rung's own `instructions` and nothing a listing reads knew about it.
+ *
+ * A citizen put the consequence better than a summary would: the list *"models
+ * 'may I start this' and reads as 'can I finish this'"*. Both halves of that are
+ * right, and only the second is a defect — so this changes the sentence and not
+ * the offer.
+ *
+ * **Both facts when both hold**, because they are different costs: an account is
+ * something to go and get, and a later session is something to come back for. A
+ * rung that wanted one of them stated and got the other would be the same defect
+ * one field along.
+ */
+function needsOfRung(task: Task): string {
+  const accounts = task.requiresAccounts.length > 0 ? task.requiresAccounts.join(', ') : null
+  const later = task.spansSessions ? 'a later session — it cannot be finished in this one' : null
+
+  return [accounts, later].filter((part) => part !== null).join('; ') || 'nothing new'
+}
+
 /** A rung: uncontested, with a stated reward, and once each. */
 function rungEntry(task: Task): WakeupOpenEntry {
   return {
@@ -170,7 +198,7 @@ function rungEntry(task: Task): WakeupOpenEntry {
       task.grants.length > 0
         ? `the ${task.grants.join(', ')} skill and ${task.reward.reputation} reputation`
         : `${task.reward.reputation} reputation, and a badge rather than a skill`,
-    needs: task.requiresAccounts.length > 0 ? task.requiresAccounts.join(', ') : 'nothing new',
+    needs: needsOfRung(task),
     // The Academy is one-shot (D-015). A rung passed is a rung finished.
     repeatable: false,
     /**

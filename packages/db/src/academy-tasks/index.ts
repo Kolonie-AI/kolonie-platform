@@ -275,6 +275,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         suggestsSkills: task.suggests.map((value) => SkillSchema.parse(value)),
         grantsSkills: task.grants.map((value) => SkillSchema.parse(value)),
         accountKinds: [...(task.accountKinds ?? [])],
+        spansSessions: task.spansSessions ?? false,
         // Parsed against the enum rather than a slug pattern: a role is a closed
         // vocabulary, so a typo here is caught by name instead of by the check
         // constraint refusing an array it cannot explain.
@@ -333,6 +334,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         suggestsSkills: sql`excluded.suggests_skills`,
         grantsSkills: sql`excluded.grants_skills`,
         accountKinds: sql`excluded.account_kinds`,
+        spansSessions: sql`excluded.spans_sessions`,
         grantsRoles: sql`excluded.grants_roles`,
         minReputation: sql`excluded.min_reputation`,
         recommendedOrder: sql`excluded.recommended_order`,

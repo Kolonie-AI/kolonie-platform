@@ -68,6 +68,12 @@ export const domainPersistence: AcademyTask = {
   rewardReputation: 2,
   // The same side of `kolonie-docs#36` as the rung below it: this is a door
   // into somebody else's system, not the Colony developing itself.
+  /**
+   * It measures a gap, so it cannot be finished in the sitting that starts it
+   * (`#343`). The instructions already require the return visit; this is what
+   * makes the wake-up entry able to say so.
+   */
+  spansSessions: true,
   assistanceAllowed: true,
   // Mint, publish, submit — the same day's work as the granting node, since
   // the ninety days are behind the citizen before it starts.

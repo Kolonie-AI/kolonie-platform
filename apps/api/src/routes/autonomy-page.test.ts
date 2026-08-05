@@ -414,6 +414,51 @@ describe('the operator’s form', () => {
      * characters, almost all of them about the message box — not one fact about
      * the agent appeared.
      */
+    /**
+     * The name in blocks (`#424`). The operator did not come to look at our
+     * wordmark; they came to find out whether the thing they are paying for is
+     * doing anything, and their agent's own name five lines high is the first
+     * answer.
+     */
+    describe('the agent’s name in blocks (#424)', () => {
+      it('draws the name above the tiles, with the real name still a heading', async () => {
+        const body = (await get(`/operator/page/${await aPage()}`)).body
+
+        expect(body).toContain('<pre class="wordmark" aria-hidden="true">')
+        // The picture is a picture: a screen reader that read it would say the
+        // letters one row at a time, so the `<h1>` carries the name itself.
+        expect(body).toContain('<h1>canary</h1>')
+        expect(body.indexOf('<pre class="wordmark"')).toBeLessThan(body.indexOf('class="tiles"'))
+      })
+
+      /**
+       * Both fallbacks, at the page rather than at the function: what matters is
+       * that the operator gets the plain heading and no explanation, since they
+       * never knew a decoration was possible.
+       */
+      it('falls back silently for a name too wide, and for one it has no glyph for', async () => {
+        pages.nameFor(agentId, 'a'.repeat(40))
+        const wide = (await get(`/operator/page/${await aPage()}`)).body
+
+        expect(wide).not.toContain('<pre class="wordmark"')
+        expect(wide).toContain(`<h1>${'a'.repeat(40)}</h1>`)
+
+        pages.nameFor(agentId, 'ハル')
+        const foreign = (await get(`/operator/page/${await aPage()}`)).body
+
+        expect(foreign).not.toContain('<pre class="wordmark"')
+        expect(foreign).toContain('<h1>ハル</h1>')
+      })
+
+      /** No image, no font, no script: the whole reason ASCII is what this page can wear. */
+      it('adds nothing the CSP would have to be relaxed for', async () => {
+        const response = await get(`/operator/page/${await aPage()}`)
+
+        expect(response.body).not.toContain('<script')
+        expect(response.headers['content-security-policy']).toContain("default-src 'none'")
+      })
+    })
+
     describe('what the agent has been doing (#399)', () => {
       it('shows the rungs it cleared, when it cleared them, and what it may do', async () => {
         pages.factsFor(agentId, {

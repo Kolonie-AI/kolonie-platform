@@ -244,6 +244,18 @@ ${declarations(LOCAL_TOKENS)}
   .note { color: var(--k-text-faint); font-size: var(--k-text-sm); }
   .note strong { color: var(--k-text-muted); }
 
+  /* The agent's name in blocks (#424). Sized against the viewport rather than
+     in rem: the block is 69 columns at its widest and has to fit a phone held in
+     one hand as well as a desktop window, and the one failure the fallback
+     exists to prevent is a horizontal scrollbar in a mail client's browser. */
+  pre.wordmark {
+    color: var(--k-accent);
+    font-size: min(0.8rem, 2.2vw);
+    line-height: 1.05;
+    margin: 0 0 var(--k-space-4);
+    overflow: hidden;
+  }
+
   /* The operator's four numbers (#423). A number in a table cell is a record;
      the same number set large is an achievement, and grid is the whole of it —
      four tiles on a desktop, two on a phone, no JavaScript anywhere. */

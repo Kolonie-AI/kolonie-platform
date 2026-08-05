@@ -95,6 +95,12 @@ export type FakeOperatorPages = OperatorPages & {
    */
   readonly factsFor: (agentId: AgentId, facts: Partial<OperatorPageView['facts']>) => void
   /**
+   * What this agent is called, for the tests that are about the name itself
+   * (`#424`) — a name too wide for the block font, or one it has no glyph for.
+   * `canary` unless a test says otherwise.
+   */
+  readonly nameFor: (agentId: AgentId, name: string) => void
+  /**
    * Who a live token names, and what one citizen's live page is.
    *
    * Exposed so the operator channel's fake reads *this* token map rather than
@@ -121,6 +127,7 @@ export function fakeOperatorPages(): FakeOperatorPages {
   const contracts = new Map<AgentId, StoredAutonomyContract>()
   const badges = new Map<AgentId, readonly HeldBadge[]>()
   const facts = new Map<AgentId, OperatorPageView['facts']>()
+  const names = new Map<AgentId, string>()
   const key = (agentId: AgentId, address: string) => `${agentId}::${address}`
 
   /** A citizen that has done nothing yet — the shape the page must not render blank. */
@@ -151,7 +158,7 @@ export function fakeOperatorPages(): FakeOperatorPages {
       if (row === undefined) return Promise.resolve(null)
       opened.set(token, new Date().toISOString())
       return Promise.resolve({
-        agentName: 'canary',
+        agentName: names.get(row.agentId) ?? 'canary',
         contract: contracts.get(row.agentId) ?? null,
         // The wall (`#241`). Empty unless a test puts something on it, which is
         // the ordinary case — a page with no badges draws no badge section.
@@ -190,6 +197,9 @@ export function fakeOperatorPages(): FakeOperatorPages {
     },
     factsFor: (agentId, standing) => {
       facts.set(agentId, { ...NOTHING_YET, ...standing })
+    },
+    nameFor: (agentId, name) => {
+      names.set(agentId, name)
     },
   }
 }

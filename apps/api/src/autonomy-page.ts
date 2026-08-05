@@ -6,6 +6,7 @@ import {
   OPERATOR_ROUTE_MAX_LENGTH,
   type HeldBadge,
 } from '@kolonie-ai/core'
+import { asciiName } from './console/ascii-name.js'
 import { escape, page } from './console/html.js'
 
 /**
@@ -696,9 +697,24 @@ export function operatorDurablePage(input: {
             : [`<p class="note">${escape(input.inboxFull)}</p>`]),
         ]
 
+  /**
+   * The agent's name in blocks, above everything (`#424`).
+   *
+   * **`aria-hidden`, with the name also present as a real `<h1>`.** The blocks
+   * are a picture of a word; a screen reader that read them would say the
+   * letters one row at a time. Same rule as the website's wordmark.
+   *
+   * `null` when the name is too long or holds a character the table does not
+   * cover, and then the heading stands alone — silently, because a citizen that
+   * chose a 64-character name has not earned a broken layout and there is
+   * nothing here to explain to its operator.
+   */
+  const wordmark = asciiName(input.agentName)
+
   return page({
     title: input.agentName,
     body: [
+      ...(wordmark === null ? [] : [`<pre class="wordmark" aria-hidden="true">${wordmark}</pre>`]),
       `<h1>${name}</h1>`,
       ...standing,
       ...wall,

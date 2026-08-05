@@ -38,6 +38,7 @@ import {
   questReviewQueue as questReviewQueueInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   availableBalance,
+  commitmentsBy,
   countAudience,
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
@@ -46,6 +47,7 @@ import {
   type AudienceCriteria,
   type Database,
   type OwnQuest,
+  type QuestCommitmentRow,
   type QuestPublishOutcome,
   type QuestRefuseOutcome,
   type AuditCandidate,
@@ -116,6 +118,15 @@ export interface QuestDesk {
     readonly reserved: number
     readonly available: number
   }>
+  /**
+   * The same money, decomposed per quest (`#324`).
+   *
+   * `reserved` is a scalar, and a sponsor with two quests settling could not
+   * tell which of them had released what — so the refund rule was unobservable
+   * even to somebody watching for it. This is the same rows summed differently
+   * rather than a second record of the same fact.
+   */
+  commitments(authorId: AgentId): Promise<readonly QuestCommitmentRow[]>
   /**
    * How many citizens this targeting could reach today (`#227`).
    *
@@ -211,6 +222,7 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
     submit: (input) => submitQuestForReviewInDatabase(db, input),
     withdraw: (input) => withdrawQuestFromReviewInDatabase(db, input),
     balance: (authorId) => availableBalance(db, authorId),
+    commitments: (authorId) => commitmentsBy(db, authorId),
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
@@ -650,9 +662,12 @@ export async function readBalance(
     readonly balance: number
     readonly reserved: number
     readonly available: number
+    readonly quests: readonly QuestCommitmentRow[]
   }>
 > {
-  return { outcome: 'ok', response: await desk.balance(authorId) }
+  const [purse, quests] = await Promise.all([desk.balance(authorId), desk.commitments(authorId)])
+
+  return { outcome: 'ok', response: { ...purse, quests } }
 }
 
 /** The steward's queue: moderated quests awaiting a human decision. */

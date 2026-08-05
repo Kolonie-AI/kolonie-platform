@@ -403,6 +403,37 @@ export function fakeQuests(): FakeQuestDesk {
     },
 
     /**
+     * The same money per quest (`#324`), reproducing the one property the route
+     * relies on: the rows sum to the scalar above.
+     */
+    async commitments(authorId) {
+      return [...quests.values()]
+        .filter((held) => held.own.task.createdBy === authorId)
+        .filter(
+          (held) => held.own.task.status === 'pending_review' || held.own.task.status === 'active',
+        )
+        .map((held) => ({
+          taskId: held.own.task.id,
+          title: held.own.task.title,
+          status: held.own.task.status,
+          reserved:
+            held.own.task.status === 'pending_review'
+              ? questCommitment({
+                  reward: held.own.task.reward,
+                  slots: held.own.task.slots ?? 0,
+                })
+              : 0,
+          escrowed:
+            held.own.task.status === 'active'
+              ? questCommitment({
+                  reward: held.own.task.reward,
+                  slots: held.own.task.slots ?? 0,
+                })
+              : 0,
+        }))
+    },
+
+    /**
      * The undo for `submit` (`#323`), reproducing the one rule the route is
      * allowed to rely on: it works from `pending_review` and from nowhere else.
      * The reservation needs no unwinding here for the same reason it needs none

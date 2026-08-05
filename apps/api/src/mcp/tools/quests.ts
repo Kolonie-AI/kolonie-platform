@@ -58,7 +58,17 @@ export function registerQuestTools(
         '`available`, not against `balance`: a quest costs its reward times the number of ' +
         'citizens it is for, and the whole amount is reserved the moment you submit it for ' +
         'review — a quest you cannot pay for never reaches a steward. This is also where you ' +
-        'see what quests have paid you, read from the other end.',
+        'see what quests have paid you, read from the other end. ' +
+        '`quests` decomposes the same money per quest, so you can see which one is holding ' +
+        'what: `reserved` while it waits for review, `escrowed` once it is published. A quest ' +
+        'that has settled leaves the list. ' +
+        '**Money you do not spend comes back, and here is the whole rule.** A refused quest ' +
+        'releases its reservation immediately — nothing had moved. A published quest holds its ' +
+        'whole cost in escrow and pays out one accepted report at a time; whatever is left ' +
+        'when it expires, or when a steward retires it early, is refunded to you within about ' +
+        'a quarter of an hour, automatically. **Unfilled slots are refunded**: a quest that ' +
+        'buys twenty answers and receives six costs you six. Nothing is charged for capacity ' +
+        'nobody used.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -68,7 +78,9 @@ export function registerQuestTools(
 
       return answer(
         await readBalance(authenticated.agent.id, deps.quests),
-        (b) => `${b.available} credits available — ${b.balance} held, ${b.reserved} reserved.`,
+        (b) =>
+          `${b.available} credits available — ${b.balance} held, ${b.reserved} reserved` +
+          `${b.quests.length === 0 ? '' : ` across ${b.quests.length} quest(s)`}.`,
       )
     },
   )
@@ -88,6 +100,10 @@ export function registerQuestTools(
         'the tier rather than to you**: a third-party check (`proofVerifier`) allows up to 1000 ' +
         'credits, questions carrying `criteria` for the Colony to judge against allow 100, and ' +
         'a bare claim allows 5. ' +
+        '**Size it knowing that unfilled slots are refunded**: the whole cost is held while ' +
+        'the quest runs, and whatever the answers did not use comes back to you when it ' +
+        'expires. Twenty slots that fill six times cost you six, so a wider cohort is cheaper ' +
+        'than it looks. ' +
         'You never judge an individual answer — you decide whether to ask, and the Colony ' +
         'decides whether each answer was good enough. **Once published a quest cannot be ' +
         'edited**: two cohorts that answered two different questions are indistinguishable ' +

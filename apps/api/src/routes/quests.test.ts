@@ -228,6 +228,39 @@ describe('what comes back with a quest of your own', () => {
   })
 })
 
+/**
+ * Where a sponsor watches its own money (`#324`).
+ *
+ * The scalar could not say which quest had released what, so the refund rule
+ * was unobservable even to somebody watching for it.
+ */
+describe('the balance decomposes per quest', () => {
+  it('names the quest holding each reservation', async () => {
+    quests.credit(sponsorId as never, 10_000)
+    const first = await write(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }))
+    const id = first.json().quest.id
+    await post(`/v1/quests/${id}/submit`, sponsorKey)
+
+    const balance = (await get('/v1/quests/balance', sponsorKey)).json()
+
+    expect(balance.reserved).toBe(50)
+    expect(balance.quests).toEqual([
+      expect.objectContaining({ taskId: id, reserved: 50, escrowed: 0 }),
+    ])
+  })
+
+  it('empties as the quest leaves the queue', async () => {
+    quests.credit(sponsorId as never, 10_000)
+    const written = await write(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }))
+    const id = written.json().quest.id
+    await post(`/v1/quests/${id}/submit`, sponsorKey)
+
+    await post(`/v1/quests/${id}/withdraw`, sponsorKey)
+
+    expect((await get('/v1/quests/balance', sponsorKey)).json().quests).toEqual([])
+  })
+})
+
 describe('POST /v1/quests/:questId/withdraw', () => {
   it('takes a quest out of the queue and back to a draft', async () => {
     const id = await awaitingReview()

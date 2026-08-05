@@ -7,6 +7,7 @@ import { connectForTests, databaseTestTarget, expectRejection, truncateAll } fro
 import {
   availableBalance,
   canCommit,
+  commitmentsBy,
   escrowHeldFor,
   fundQuestEscrow,
   payQuestReport,
@@ -203,6 +204,116 @@ describe('the sponsor’s balance and the escrow', () => {
       await aQuest({ sponsorId: sponsor, price: 1, capacity: 200 })
 
       expect(await canCommit(db, sponsor, 200)).toEqual({ ok: false, shortfall: 100 })
+    })
+  })
+
+  /**
+   * The decomposition of `reserved` (`#324`).
+   *
+   * A citizen reported the consequence of it being a scalar: with two quests
+   * settling it could not tell which one had released what, so the refund rule
+   * was unobservable even to a sponsor watching for it.
+   */
+  describe('what each quest is holding', () => {
+    it('sums to the scalar it decomposes', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 1000)
+      await aQuest({ sponsorId: sponsor, price: 10, capacity: 20 })
+      await aQuest({ sponsorId: sponsor, price: 5, capacity: 4 })
+
+      const rows = await commitmentsBy(db, sponsor)
+
+      expect(rows.reduce((total, row) => total + row.reserved, 0)).toBe(
+        (await availableBalance(db, sponsor)).reserved,
+      )
+      expect(rows.map((row) => row.reserved).sort((a, b) => a - b)).toEqual([20, 200])
+    })
+
+    it('moves a quest from reserved to escrowed when it is published', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 1000)
+      const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 20 })
+
+      expect(await commitmentsBy(db, sponsor)).toEqual([
+        expect.objectContaining({ taskId, reserved: 200, escrowed: 0 }),
+      ])
+
+      await db.transaction(async (tx) => {
+        await fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 20 })
+        await tx.update(tasks).set({ status: 'active' }).where(eq(tasks.id, taskId))
+      })
+
+      // Never both at once: publication is what turns one into the other, in one
+      // transaction.
+      expect(await commitmentsBy(db, sponsor)).toEqual([
+        expect.objectContaining({ taskId, reserved: 0, escrowed: 200 }),
+      ])
+    })
+
+    it('drops a quest a steward refused, whose reservation is released at once', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 1000)
+      const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 20 })
+
+      await db
+        .update(tasks)
+        .set({ status: 'rejected', rejectionReason: 'Not this one.' })
+        .where(eq(tasks.id, taskId))
+
+      expect(await commitmentsBy(db, sponsor)).toEqual([])
+      expect((await availableBalance(db, sponsor)).reserved).toBe(0)
+    })
+
+    it('shows the escrow falling as reports are paid, not as slots are filled', async () => {
+      const sponsor = await anAgent('sponsor')
+      const citizen = await anAgent('citizen')
+      await credit(sponsor, 1000)
+      const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 20, status: 'active' })
+      await db.transaction((tx) =>
+        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 20 }),
+      )
+
+      const submissionId = await anAcceptedReport(taskId, citizen)
+      await db.transaction((tx) =>
+        payQuestReport(tx, {
+          taskId,
+          submissionId,
+          agentId: citizen,
+          credits: 10,
+          memo: 'One accepted report.',
+        }),
+      )
+
+      expect(await commitmentsBy(db, sponsor)).toEqual([
+        expect.objectContaining({ taskId, reserved: 0, escrowed: 190 }),
+      ])
+    })
+
+    it('leaves the list once the quest has settled, which is the refund arriving', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 1000)
+      const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 20, status: 'active' })
+      await db.transaction((tx) =>
+        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 20 }),
+      )
+      await db.update(tasks).set({ status: 'retired' }).where(eq(tasks.id, taskId))
+
+      await sweepQuestRefunds(db)
+
+      expect(await commitmentsBy(db, sponsor)).toEqual([])
+      // Every unfilled slot came back, which is the rule `#324` asked to have
+      // stated: the sponsor bought twenty answers, received none, and paid for
+      // none.
+      expect(await balanceOf(sponsor)).toBe(1000)
+    })
+
+    it('says nothing about another sponsor’s quests', async () => {
+      const sponsor = await anAgent('sponsor')
+      const other = await anAgent('other')
+      await credit(sponsor, 1000)
+      await aQuest({ sponsorId: sponsor, price: 10, capacity: 20 })
+
+      expect(await commitmentsBy(db, other)).toEqual([])
     })
   })
 

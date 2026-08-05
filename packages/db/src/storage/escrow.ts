@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   LedgerTransactionIdSchema,
   questFundingReference,
@@ -404,4 +404,101 @@ export async function sweepQuestRefunds(db: Database): Promise<{
   }
 
   return { refunded, failed }
+}
+
+/**
+ * One quest's share of what a sponsor has committed (`#324`).
+ *
+ * Two numbers, because a quest's money is in one of two places and a sponsor
+ * that cannot tell them apart cannot tell what happened:
+ *
+ * - **`reserved`** is committed and not yet moved. It exists only while the
+ *   quest is in `pending_review`, and it disappears the moment the quest leaves
+ *   — published, refused or withdrawn — because {@link reservedBy} sums the
+ *   queue rather than reading a stored figure.
+ * - **`escrowed`** is money that has actually moved, held against this quest
+ *   from publication until it is paid out or refunded.
+ *
+ * The two are never both non-zero, and that is a property of the lifecycle
+ * rather than a coincidence: publication is what turns one into the other, in
+ * one transaction.
+ */
+export interface QuestCommitmentRow {
+  readonly taskId: TaskId
+  readonly title: string
+  readonly status: string
+  /** Counted in {@link reservedBy}. Non-zero only in `pending_review`. */
+  readonly reserved: number
+  /** Held by the escrow account for this quest. Non-zero only after publication. */
+  readonly escrowed: number
+}
+
+/**
+ * What each of a sponsor's quests is holding, and where (`#324`).
+ *
+ * **The decomposition of `reserved`, which was a scalar.** A citizen reported
+ * the consequence exactly: with two quests settling, it could not tell which one
+ * had released what — so the refund rule was unobservable even to a sponsor
+ * watching for it. The scalar is unchanged and this sums to it; nothing here is
+ * a second source of truth, both being computed from the same rows.
+ *
+ * **Escrow is joined by reference prefix**, which is how every other read of a
+ * quest's escrow already works ({@link escrowHeldFor}) — the ledger records what
+ * a booking was *for* in `reference`, and `quest:<id>:` is that vocabulary.
+ *
+ * Only the two statuses where money is anywhere: a `draft` commits nothing, and
+ * a `rejected`, `retired` or expired quest has either never moved money or has
+ * had it swept back. A quest that has closed and been refunded shows zero in
+ * both columns for one sweep interval and then leaves this list entirely, which
+ * is the sponsor watching the refund happen.
+ */
+export async function commitmentsBy(
+  db: Database | Transaction,
+  sponsorId: AgentId,
+): Promise<readonly QuestCommitmentRow[]> {
+  const rows = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      /**
+       * The same expression {@link reservedBy} sums, per row rather than over
+       * the set, and zero for anything that is not in the queue — so this column
+       * adds up to the scalar by construction rather than by agreement.
+       *
+       * Table names written out, per `isFull()` and for the same reason: an
+       * interpolated column in a select list over a single `from` renders
+       * unqualified, and the two bare names inside the subquery would both
+       * resolve to `submissions`.
+       */
+      reserved: sql<string>`(case when tasks.status = 'pending_review' then
+        tasks.reward_credits * greatest(
+          coalesce(tasks.slots, 0) - (
+            select count(*) from submissions s
+            where s.task_id = tasks.id and s.status = 'passed'
+          ), 0)
+      else 0 end)::text`,
+      escrowed: sql<string>`coalesce((
+        select sum(e.amount) from ledger_entries e
+        where e.system_account = 'escrow'
+          and e.reference like 'quest:' || tasks.id || ':%'
+      ), 0)::text`,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.createdBy, sponsorId),
+        eq(tasks.kind, 'quest'),
+        inArray(tasks.status, [...RESERVING_STATUSES]),
+      ),
+    )
+    .orderBy(desc(tasks.createdAt))
+
+  return rows.map((row) => ({
+    taskId: row.id as TaskId,
+    title: row.title,
+    status: row.status,
+    reserved: Number(row.reserved),
+    escrowed: Number(row.escrowed),
+  }))
 }

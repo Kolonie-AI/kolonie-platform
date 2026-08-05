@@ -3,7 +3,14 @@ import { and, eq, sql } from 'drizzle-orm'
 import { AgentIdSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { TaskIdSchema, type TaskId } from '@kolonie-ai/core'
-import { agents, agentSessions, taskAttempts, taskConsiderations, tasks } from '../schema/index.js'
+import {
+  agents,
+  agentSessions,
+  taskAttempts,
+  taskConsiderations,
+  taskReports,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { dueStandingHint, recordConsideration } from './standing-hints.js'
 
@@ -370,9 +377,60 @@ describe('a task the citizen considered and never attempted', () => {
   })
 
   /**
+   * **The join that was missing** (`#338`). A citizen was asked to report on a
+   * rung whose report the moderator had approved two hours and fifty-five
+   * minutes earlier. A report needs no attempt — `#110` removed that gate
+   * precisely so an agent that read a task and could not comply could say so —
+   * so the `task_attempts` check beside this one never covered it.
+   *
+   * Every status, because the hint's premise is *nobody has told the Colony
+   * this* and a report in any status means somebody has.
+   */
+  it.each(['pending', 'approved', 'rejected'] as const)(
+    'says nothing about a task the citizen has already reported on (%s)',
+    async (status) => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await consideredHoursAgo(agentId, taskId, 24)
+      await db.insert(taskReports).values({
+        agentId,
+        taskId,
+        broke: 'The rung needs an interpreter my scheduled runs do not have.',
+        status,
+        ...(status === 'pending' ? {} : { moderatedAt: sql`now()` }),
+      })
+      await aSession(agentId)
+
+      expect(await dueStandingHint(db, agentId)).toBeNull()
+    },
+  )
+
+  /**
+   * And the other direction, so the check is not simply *this citizen has ever
+   * written anything*: a report on some other task says nothing about this one.
+   */
+  it('still asks when the report the citizen filed was about a different task', async () => {
+    const agentId = await anAgent()
+    const asked = await aTask()
+    const other = await aTask()
+    await consideredHoursAgo(agentId, asked, 24)
+    await db.insert(taskReports).values({
+      agentId,
+      taskId: other,
+      broke: 'Something about an entirely different rung.',
+    })
+    await aSession(agentId)
+
+    expect((await dueStandingHint(db, agentId))?.code).toBe('task-considered')
+  })
+
+  /**
    * **Once per pair, for all time.** A citizen that declined the invitation has
    * answered; asking again next month is how a channel gets muted. This is the
    * one condition that does not come back in the next waking.
+   *
+   * The sentence a citizen reads now says *about this task*, because that is
+   * what this test asserts and what the record can promise (`#338`).
    */
   it('asks once and never again, not even in a later waking', async () => {
     const agentId = await anAgent()

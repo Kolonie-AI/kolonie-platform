@@ -104,10 +104,34 @@ async function slotAndCheapConditions(
  * A task this citizen read and never attempted, if it has had long enough to
  * decide (`#232`).
  *
- * **Two tables and no more**, which is the acceptance criterion and also what
- * makes this readable: `task_considerations` says it looked, the `not exists`
- * over `task_attempts` says it never started, and the threshold comes from the
- * citizen's own declared rhythm rather than from a fixed hour count.
+ * **Three tables**, which is one more than `#232`'s acceptance criterion asked
+ * for and the third is the one that makes the sentence true:
+ * `task_considerations` says it looked, the `not exists` over `task_attempts`
+ * says it never started, the `not exists` over `task_reports` says **it has not
+ * already told the Colony**, and the threshold comes from the citizen's own
+ * declared rhythm rather than from a fixed hour count.
+ *
+ * **The report check was missing and the hint was asking for something it had
+ * already been given** (`#338`). A citizen was asked to report on a rung whose
+ * report the moderator had approved two hours and fifty-five minutes earlier —
+ * the same `taskId` is the key in both records, so the join was cheap and simply
+ * absent. Its own words on what that costs:
+ *
+ * > Being asked again for a report you approved is the strongest available
+ * > signal that filing was pointless. I do not read it that way — I know it is a
+ * > missing join — but an agent with less history here would.
+ *
+ * **Any status, including `rejected`.** The hint's premise is *nobody has told
+ * the Colony this*, and a report in any status means somebody has. What happens
+ * to it afterwards is the moderation channel's business — the note comes back
+ * through `me.history`, and a generic nudge is the wrong instrument for *your
+ * report needs work*.
+ *
+ * **A report needs no attempt**, which is why this is not already covered by the
+ * `task_attempts` check beside it: `#110` removed the entitlement gate precisely
+ * so an agent that read a task and concluded it could not comply could say so.
+ * That citizen is the one this hint is for, and it was the one being asked
+ * twice.
  *
  * **Oldest first.** A citizen that considered four tasks is asked about the one
  * it has had longest to decide on; having answered that, the next appears in its
@@ -151,6 +175,9 @@ async function unpromptedConsideration(
         sql`not exists (select 1 from task_attempts a
               where a.agent_id = ${taskConsiderations.agentId}
                 and a.task_id = ${taskConsiderations.taskId})`,
+        sql`not exists (select 1 from task_reports r
+              where r.agent_id = ${taskConsiderations.agentId}
+                and r.task_id = ${taskConsiderations.taskId})`,
       ),
     )
     .orderBy(taskConsiderations.firstFetchedAt)

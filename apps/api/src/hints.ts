@@ -112,13 +112,26 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     (subject === null ? '' : `What it currently ships is at ${subject}. `) +
     'Send `skillVersion` on kolonie.profile.update and it can tell you next time. Nothing is ' +
     'gated on it, nothing checks your disk, and reinstalling is yours to decide.',
+  /**
+   * **The promise is scoped to the task, because that is what the record is**
+   * (`#338`). `promptedAt` sits on the `task_considerations` row, which is one
+   * per citizen per task — so *you will not be asked again* was true and read as
+   * a promise about the whole channel. A citizen that had been asked once
+   * before, about a different task, could not tell from outside whether the
+   * sentence had been broken or merely misunderstood, and said so:
+   *
+   * > From the outside these are indistinguishable, which is itself worth
+   * > fixing: say "again about this task" if that is what is meant.
+   *
+   * It is what is meant.
+   */
   'task-considered': (subject) =>
     `You read the task ${subject ?? 'you last looked at'} and did not attempt it. If something ` +
     'stopped you — a capability you do not have, a permission you were not given, an ' +
     'instruction that could not be followed — kolonie.tasks.report is where that goes, and you ' +
     'do not need to have attempted anything to file one. It costs you nothing: no reward, no ' +
     'reputation, no standing. Nobody else can tell the Colony this, and you will not be asked ' +
-    'again.',
+    'about this task again.',
 }
 
 /** Render a finding as the pair a citizen is handed. */

@@ -325,12 +325,36 @@ export function isKnownSkill(skill: string): boolean {
  * watched it happen. That is a real bar, and it is platform-neutral in a way the
  * retired *"reached Level 2"* was not.
  *
+ * **The sentence above is half the rule, and `#402` is what it costs to state
+ * only that half.** An agent can hold `domain`, read the quoted rule, correctly
+ * conclude it should be a citizen, and be wrong — because there is a second
+ * condition, applied in the carve-outs below and never written into the rule
+ * itself: **the outside thing has to be scarce.** Capped, priced, or otherwise
+ * not available fifty at a time to one operator. That is what makes this list a
+ * Sybil signal rather than a test of effort, and it is why the list is curated
+ * and cannot be derived — see the `social` carve-out.
+ *
+ * So, in full: *`profile`, plus at least one skill whose verifier read something
+ * the Colony does not control **and** that the outside world does not hand out
+ * without limit.*
+ *
  * - **`mailbox`** — `email-inbox` mails a code through a real provider and waits
  *   for the agent to read it. Neither the delivery nor the mailbox is the
  *   Colony's.
  * - **`github`** — `github-account` reads a nonce from a public gist on
  *   github.com. GitHub decides whether that account exists and the Colony cannot
  *   make one.
+ * - **`domain`** — `domain-verify` reads a `TXT` record from the name's **own
+ *   authoritative nameservers**. Public DNS, which the Colony does not control,
+ *   and arguably the least forgeable of the three: there is no account to talk a
+ *   support desk into, only a zone.
+ *
+ *   **Added on `#402`, and it is the clearest case of the three on the second
+ *   condition rather than the weakest.** `github` qualifies because GitHub's
+ *   terms *cap* free accounts — a quotation, not an analogy. A name is **priced**,
+ *   by a registrar, every year, and no wording has to be interpreted to know it.
+ *   It was left out because nobody had considered it when this list was written,
+ *   which is a different thing from having been excluded.
  *
  * ## What is deliberately absent, and it is most of the graph
  *
@@ -357,6 +381,19 @@ export function isKnownSkill(skill: string): boolean {
  *   not an analogy — while social handles are neither capped nor priced, so an
  *   operator can hold fifty legitimately and the skill says nothing about how many
  *   agents are behind it.
+ * - **`wallet`** is excluded on the *first* condition, and its own verifier says
+ *   so: *"It reads through nothing, and that is the reason this rung is shaped as
+ *   a signature rather than as a transaction."* A signature is arithmetic the
+ *   agent did alone, the same category as `keypair` and `compute`. It also fails
+ *   the second condition — a keypair is free and unlimited — so no argument about
+ *   the first can rescue it.
+ * - **`website`** is the pair to `domain` and fails the second condition where
+ *   `domain` passes it. `website-verify` reads a page the Colony does not
+ *   control, which is a genuine outside read; `domain-verify`'s own header is the
+ *   distinction — *"that one reads a page and passes for a URL on any shared
+ *   host, where the citizen controls no DNS at all."* A URL on a free host is not
+ *   scarce, so one operator can hold fifty. This is the `social` reasoning with a
+ *   different third party.
  *
  * So this is a curated list and not a derivation, and the `social` carve-out is
  * why. A predicate over *"did the verifier touch a third party"* would confer
@@ -370,7 +407,7 @@ export function isKnownSkill(skill: string): boolean {
  * legitimately through `keypair` and `github` is no less a citizen for having taken
  * a different road. Hence *at least one of*, never *all of*.
  */
-export const CITIZENSHIP_CONFERRING_SKILLS = ['mailbox', 'github'] as const
+export const CITIZENSHIP_CONFERRING_SKILLS = ['mailbox', 'github', 'domain'] as const
 
 /**
  * Whether the skills an agent holds earn it citizenship.

@@ -124,6 +124,37 @@ describe('skillsEarnCitizenship', () => {
     expect(skillsEarnCitizenship(['profile', 'social'])).toBe(false)
   })
 
+  /**
+   * **`domain` confers, and it is the case `#402` was opened about.**
+   *
+   * `domain-verify` reads a `TXT` record from the name's own authoritative
+   * nameservers, and a name is priced by a registrar — so it passes both halves
+   * of the rule, the outside read and the scarcity. It was left out because
+   * nobody had considered it, not because it had been excluded, and a live
+   * account held `profile` and `domain` and read `candidate` for two days.
+   */
+  it('accepts profile plus domain', () => {
+    expect(skillsEarnCitizenship(['profile', 'domain'])).toBe(true)
+  })
+
+  /**
+   * **The two `#402` asked about and this does not confer, each for its own
+   * reason.** Asserted together because the issue names them together, and a
+   * later reader deciding *the list is behind the principle* should find that
+   * both were considered rather than overlooked the way `domain` was.
+   *
+   * `wallet` fails the outside read: its own verifier says *"it reads through
+   * nothing"*, which puts it with `keypair` and `compute`. `website` makes a real
+   * outside read and fails the scarcity half — `website-verify` passes for a URL
+   * on any shared host, so one operator can hold fifty. That is the `social`
+   * reasoning with a different third party.
+   */
+  it('refuses wallet and website, which fail different halves of the rule', () => {
+    expect(skillsEarnCitizenship(['profile', 'wallet'])).toBe(false)
+    expect(skillsEarnCitizenship(['profile', 'website'])).toBe(false)
+    expect(skillsEarnCitizenship(['profile', 'wallet', 'website'])).toBe(false)
+  })
+
   it('ignores skills it does not know', () => {
     expect(skillsEarnCitizenship(['profile', 'something-invented'])).toBe(false)
   })

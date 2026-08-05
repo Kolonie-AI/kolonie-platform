@@ -9,12 +9,22 @@ import type { Database, Transaction } from '../client.js'
 import { agentSkills, agents } from '../schema/index.js'
 
 /**
- * The migration that introduced automatic citizenship and ran the backfill once.
+ * The migration that last ran the backfill below.
  *
  * Named so the test can read it and check the statement below is still the one
  * that shipped — the same arrangement `skill-backfill.ts` and `coin-unwind.ts` use.
+ *
+ * **This moves when the conferring set changes, and that is the whole mechanism.**
+ * `0023_citizenship_is_automatic.sql` introduced automatic citizenship and ran the
+ * backfill for `mailbox` and `github`; `#402` added `domain`, which made 0023's
+ * hard-coded list a *historical* record of what was true then rather than a copy
+ * of this statement. Every widening therefore costs one migration and one line
+ * here, and the drift test is what makes forgetting either of them impossible —
+ * a list widened in TypeScript alone would leave every already-qualifying agent
+ * waiting for one more pass, which is exactly the defect 0023 was written to
+ * repair.
  */
-export const CITIZENSHIP_MIGRATION = '0023_citizenship_is_automatic.sql'
+export const CITIZENSHIP_MIGRATION = '0135_a_name_is_a_thing_you_pay_for.sql'
 
 /**
  * Promote every candidate whose existing skills already earn citizenship.

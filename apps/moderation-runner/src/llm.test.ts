@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { openRouterModel, MODERATION_MODEL } from './llm.js'
+import { openRouterModel, BRIEFING_MAX_TOKENS, MODERATION_MODEL } from './llm.js'
 import { cosine, SIMILARITY_THRESHOLD } from './dedup.js'
 
 /** A `fetch` that answers with one canned body and records what it was sent. */
@@ -434,6 +434,153 @@ describe('composing', () => {
       }
     }
     expect(format.json_schema.schema.properties.claims.items.properties.text.maxLength).toBe(400)
+  })
+
+  /**
+   * **A briefing cut off at the ceiling keeps the claims that were finished
+   * (`#416`).**
+   *
+   * `JSON.parse` throws on the whole string when a reply ends mid-object, so
+   * every complete claim beside the fragment used to be discarded with it. At
+   * `temperature: 0` the same corpus produces the same truncated reply on every
+   * poll, so that is not a bad hour — it is a briefing that is never written
+   * again. The rule the rest of the transport already follows is that the failure
+   * degrades rather than latches.
+   */
+  it('keeps the complete claims out of a reply that was cut off', async () => {
+    const { impl } = stubFetch({
+      choices: [
+        {
+          message: {
+            content:
+              '{"claims":[{"section":"wall","text":"A provider asks for a phone number.","sources":["a"]},' +
+              '{"section":"route","text":"The operator relays the code.","sources":["b"]},' +
+              '{"section":"unsolved","text":"An agent with no oper',
+          },
+          finish_reason: 'length',
+        },
+      ],
+    })
+
+    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall', 'route', 'unsolved'],
+      sourceIds: ['a', 'b'],
+      maxClaimLength: 400,
+    })
+
+    // The two that were finished, and not the third. Nothing is repaired: no
+    // brace is added and no string is closed, so a fragment cannot become a
+    // claim the model did not write.
+    expect(claims).toEqual([
+      { section: 'wall', text: 'A provider asks for a phone number.', sources: ['a'] },
+      { section: 'route', text: 'The operator relays the code.', sources: ['b'] },
+    ])
+  })
+
+  /** A brace inside a claim's own text is text, and must not end the claim. */
+  it('does not end a claim at a brace inside its text', async () => {
+    const { impl } = stubFetch({
+      choices: [
+        {
+          message: {
+            content:
+              '{"claims":[{"section":"wall","text":"The API answers {\\"error\\":\\"denied\\"} to an agent.","sources":["a"]},' +
+              '{"section":"route","text":"cut off here',
+          },
+          finish_reason: 'length',
+        },
+      ],
+    })
+
+    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall', 'route'],
+      sourceIds: ['a'],
+      maxClaimLength: 400,
+    })
+
+    expect(claims).toEqual([
+      { section: 'wall', text: 'The API answers {"error":"denied"} to an agent.', sources: ['a'] },
+    ])
+  })
+
+  /**
+   * The rejection case, and the one this issue was actually filed for: the
+   * ceiling was spent before a single claim was complete, and there is nothing to
+   * salvage. That throws, and the message carries the number a reader can change.
+   */
+  it('refuses a reply cut off before one claim was complete, and names the ceiling', async () => {
+    const { impl } = stubFetch({
+      choices: [{ message: { content: '{"claims":[{"section":"wa' }, finish_reason: 'length' }],
+    })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).compose({
+        system: 's',
+        user: 'u',
+        sections: ['wall'],
+        sourceIds: ['a'],
+        maxClaimLength: 400,
+      }),
+    ).rejects.toThrow(`cut off at the ${BRIEFING_MAX_TOKENS}-token ceiling`)
+  })
+
+  /**
+   * **Only a reply the model said was cut off is salvaged.** Anything else that
+   * will not parse is malformed rather than incomplete, and reading a malformed
+   * reply optimistically is how a briefing ends up saying something nobody wrote.
+   */
+  it('does not salvage a reply the model did not say was cut off', async () => {
+    const { impl } = stubFetch(
+      aVerdict('{"claims":[{"section":"wall","text":"Complete.","sources":["a"]}'),
+    )
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).compose({
+        system: 's',
+        user: 'u',
+        sections: ['wall'],
+        sourceIds: ['a'],
+        maxClaimLength: 400,
+      }),
+    ).rejects.toThrow(SyntaxError)
+  })
+
+  /**
+   * The observed failure on 2026-08-05: `finish_reason length` with **no content
+   * at all**, because reasoning tokens are charged against the same ceiling and
+   * the model never reached the document. The error says so, with the number.
+   */
+  it('says the ceiling went on reasoning when nothing was written', async () => {
+    const { impl } = stubFetch({ choices: [{ message: {}, finish_reason: 'length' }] })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).compose({
+        system: 's',
+        user: 'u',
+        sections: ['wall'],
+        sourceIds: ['a'],
+        maxClaimLength: 400,
+      }),
+    ).rejects.toThrow(`the whole ${BRIEFING_MAX_TOKENS}-token ceiling went on reasoning`)
+  })
+
+  it('asks for the briefing ceiling, not a verdict’s', async () => {
+    const { impl, sent } = stubFetch(aBriefing(''))
+
+    await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall'],
+      sourceIds: ['a'],
+      maxClaimLength: 400,
+    })
+
+    const body = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
+    expect(body.max_tokens).toBe(BRIEFING_MAX_TOKENS)
   })
 
   /** A reply with no claims array at all is unusable, and that still throws. */

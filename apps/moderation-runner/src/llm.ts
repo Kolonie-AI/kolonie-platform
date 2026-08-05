@@ -60,6 +60,33 @@ export const MODERATION_MODEL = 'deepseek/deepseek-v4-flash'
  */
 export const EMBEDDING_MODEL = 'openai/text-embedding-3-small'
 
+/**
+ * The token ceiling on a synthesis, which is the only call here whose answer is a
+ * document rather than a verdict.
+ *
+ * **2000 was too low, and the way it failed is the reason this is a named
+ * constant rather than a literal.** `briefing.failed` fired on two seeded tasks
+ * on 2026-08-05 with `finish_reason length` and **no content at all** — not a
+ * truncated briefing, an empty one. A reply cut off inside its own JSON is at
+ * least partly salvageable; a reply that never began is not.
+ *
+ * What was not accounted for is that **reasoning tokens are charged against this
+ * ceiling and do not appear in the reply.** The model reasons first and writes
+ * afterwards, so a budget sized for the document alone can be spent before the
+ * first character of it is emitted — and from outside, that is indistinguishable
+ * from a model that answered nothing.
+ *
+ * 8000 is four times the document this call has ever needed, deliberately: the
+ * cost of a ceiling that is too high is tokens on a call that runs a few times an
+ * hour, and the cost of one that is too low is a task whose briefing never gets
+ * written, retried every poll for ever. Those are not the same size of mistake.
+ *
+ * Still bounded, for the reason the old comment gave and which still holds: a
+ * briefing that wanted more than this is one claim per entry, which is the list
+ * it was supposed to replace.
+ */
+export const BRIEFING_MAX_TOKENS = 8000
+
 /** What a classification prompt is allowed to answer. */
 export interface Classification {
   readonly decision: string
@@ -234,7 +261,7 @@ function redact(text: string, apiKey: string): string {
  * An empty string now throws where it used to be returned. That is not a new
  * refusal: the parse a line later threw on it, less usefully.
  */
-function messageContent(body: unknown): string {
+function messageContent(body: unknown, ceiling?: number): string {
   const choice = (
     body as {
       choices?: {
@@ -254,7 +281,15 @@ function messageContent(body: unknown): string {
     typeof refusal === 'string' && refusal !== ''
       ? `the model refused: ${refusal.slice(0, 200)}`
       : undefined,
-    typeof finishReason === 'string' ? `finish_reason ${finishReason}` : undefined,
+    typeof finishReason === 'string'
+      ? // The ceiling is named because it is the number somebody reading this line
+        // would otherwise have to come into this file to find, and it is the one
+        // they can change. `#416` was two log lines that said `finish_reason
+        // length` and nothing about what the length was.
+        finishReason === 'length' && ceiling !== undefined
+        ? `finish_reason length — the whole ${ceiling}-token ceiling went on reasoning, and nothing was written`
+        : `finish_reason ${finishReason}`
+      : undefined,
     content === '' ? 'content was the empty string' : undefined,
   ].filter((part): part is string => part !== undefined)
 
@@ -263,6 +298,71 @@ function messageContent(body: unknown): string {
       ? 'OpenRouter returned no message content'
       : `OpenRouter returned no message content — ${why.join('; ')}`,
   )
+}
+
+/** Why the model stopped, when it said. */
+function finishReason(body: unknown): string | undefined {
+  const reason = (body as { choices?: { finish_reason?: unknown }[] }).choices?.[0]?.finish_reason
+  return typeof reason === 'string' ? reason : undefined
+}
+
+/**
+ * The claims that were complete when the reply was cut off.
+ *
+ * **A truncated briefing is worth more than no briefing, and it used to be worth
+ * nothing.** A reply cut off at the token ceiling ends mid-object, `JSON.parse`
+ * throws on the whole string, and every claim the model finished writing — which
+ * may be all but the last — was discarded with the fragment. At `temperature: 0`
+ * that is not a bad hour: the same corpus produces the same truncated reply on
+ * every poll, so the task's briefing is never written again.
+ *
+ * This is the same rule the rest of this file already follows in two other
+ * places: **the failure has to degrade rather than latch.**
+ *
+ * It scans rather than repairs — no brace is added and no string is closed. Every
+ * balanced object inside the array is handed to `JSON.parse` on its own, and one
+ * that does not parse is dropped rather than guessed at. So the worst case is
+ * fewer claims than the model wrote, never a claim it did not write.
+ */
+function salvageClaims(content: string): readonly unknown[] {
+  const start = content.indexOf('[')
+  if (start === -1) return []
+
+  const claims: unknown[] = []
+  let depth = 0
+  let objectStart = -1
+  let inString = false
+  let escaped = false
+
+  for (let i = start; i < content.length; i++) {
+    const character = content[i]
+
+    // A brace inside a string is text, and a claim's text may contain one.
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+
+    if (character === '"') inString = true
+    else if (character === '{') {
+      if (depth === 0) objectStart = i
+      depth++
+    } else if (character === '}') {
+      depth--
+      if (depth === 0 && objectStart !== -1) {
+        try {
+          claims.push(JSON.parse(content.slice(objectStart, i + 1)))
+        } catch {
+          // Balanced but not parseable. Dropped, for the reason above.
+        }
+        objectStart = -1
+      }
+    }
+  }
+
+  return claims
 }
 
 /**
@@ -536,21 +636,44 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
             },
           },
         },
-        /**
-         * The largest ceiling in this file, because this is the only call whose
-         * answer is a document rather than a verdict. Still bounded: a briefing
-         * that wanted more than this is one claim per entry, which is the list it
-         * was supposed to replace.
-         */
-        max_tokens: 2000,
+        // The largest ceiling in this file, because this is the only call whose
+        // answer is a document rather than a verdict. See BRIEFING_MAX_TOKENS for
+        // why the number is what it is and what happened at the previous one.
+        max_tokens: BRIEFING_MAX_TOKENS,
         temperature: 0,
       })
 
-      const content = messageContent(body)
+      const content = messageContent(body, BRIEFING_MAX_TOKENS)
+      const truncated = finishReason(body) === 'length'
 
-      const parsed = JSON.parse(content) as { claims?: unknown }
-      if (!Array.isArray(parsed.claims)) {
-        throw new Error('the model returned a briefing without a claims array')
+      let claims: readonly unknown[]
+      try {
+        const parsed = JSON.parse(content) as { claims?: unknown }
+        if (!Array.isArray(parsed.claims)) {
+          throw new Error('the model returned a briefing without a claims array')
+        }
+        claims = parsed.claims
+      } catch (error) {
+        // Only a reply the model itself said was cut off is salvaged. Anything
+        // else that will not parse is malformed rather than incomplete, and
+        // reading a malformed reply optimistically is how a briefing ends up
+        // saying something nobody wrote.
+        if (!truncated) throw error
+
+        claims = salvageClaims(content)
+        if (claims.length === 0) {
+          throw new Error(
+            `the briefing was cut off at the ${BRIEFING_MAX_TOKENS}-token ceiling before one claim was complete`,
+            { cause: error },
+          )
+        }
+
+        log.warn(`${model} was cut off mid-briefing; kept ${claims.length} complete claim(s)`, {
+          event: 'model.briefing.truncated',
+          model,
+          kept: claims.length,
+          ceiling: BRIEFING_MAX_TOKENS,
+        })
       }
 
       /**
@@ -574,7 +697,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
        * lost *everything* was visible — one level up, in `briefingTick`.
        */
       let dropped = 0
-      const kept = parsed.claims.flatMap((claim) => {
+      const kept = claims.flatMap((claim) => {
         const { section, text, sources } = claim as Partial<ComposedClaim>
         if (typeof section !== 'string' || typeof text !== 'string') {
           dropped++

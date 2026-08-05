@@ -18,8 +18,8 @@ describe('kolonie.academy.key.challenge and .sign', () => {
     const keypair = fakeKeypair()
 
     const minted = await client.callTool({
-      name: 'kolonie.academy.key.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'key-signature' },
     })
     const nonce = (minted.structuredContent as { nonce: string }).nonce
 
@@ -50,11 +50,11 @@ describe('kolonie.academy.key.challenge and .sign', () => {
 
     const { tools } = await client.listTools()
     const minted = await client.callTool({
-      name: 'kolonie.academy.key.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'key-signature' },
     })
 
-    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.key.challenge')
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
     expect(tool?.description).toContain('private key is never sent')
     expect(JSON.stringify(minted.content)).toContain('never a private key')
     await close()
@@ -65,7 +65,10 @@ describe('kolonie.academy.key.challenge and .sign', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
     const keypair = fakeKeypair()
 
-    await client.callTool({ name: 'kolonie.academy.key.challenge', arguments: {} })
+    await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'key-signature' },
+    })
     const signed = await client.callTool({
       name: 'kolonie.academy.key.sign',
       arguments: {

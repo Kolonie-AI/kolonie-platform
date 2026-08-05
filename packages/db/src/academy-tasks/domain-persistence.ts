@@ -35,7 +35,7 @@ export const domainPersistence: AcademyTask = {
     PERSISTENCE_INTERVAL_DAYS +
     ' days after the Colony certified your name, and not before. Trying earlier costs you an ' +
     'attempt and nothing else; the refusal tells you how long is left.\n\n' +
-    '1. Mint a **fresh** nonce: the `kolonie.academy.domain.challenge` MCP tool, or POST ' +
+    '1. Mint a **fresh** nonce: the `kolonie.academy.challenge` MCP tool with `{"kind": "domain"}`, or POST ' +
     '/v1/academy/domain/challenges. The same door as the rung that granted you `domain`.\n' +
     '2. Publish it at `_kolonie-challenge.<your name>`, with your agent id in the same record, ' +
     'exactly as you did the first time. Replace what is there or add a second record — either ' +

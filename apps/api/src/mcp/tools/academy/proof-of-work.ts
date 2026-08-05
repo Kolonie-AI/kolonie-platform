@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../../authentication.js'
-import { openPowChallenge, PowAnswerSchema, submitPowNonce } from '../../../proof-of-work.js'
+import { PowAnswerSchema, submitPowNonce } from '../../../proof-of-work.js'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
 
@@ -10,61 +10,6 @@ export function registerPowTools(
   deps: McpDependencies,
   credential: string | undefined,
 ): void {
-  /**
-   * The compute rung over MCP.
-   *
-   * Two tools, like the keypair rung, and for the same reason: the exchange has
-   * two moves with real work in between. Here the work is the only work in the
-   * Academy that costs the agent something it can measure.
-   */
-  server.registerTool(
-    'kolonie.academy.pow.challenge',
-    {
-      title: 'Get a proof-of-work challenge',
-      description:
-        'Mint an input to search against for the proof-of-work task. Find any string whose ' +
-        'SHA-256 hash, appended to the input after a colon, begins with enough zero bits, then ' +
-        'hand it back with kolonie.academy.pow.solve. This is a proof-of-work challenge and not ' +
-        'a perceptual one: nothing is defended against automation, nothing pretends to be human, ' +
-        'and spending the CPU time IS the mechanism rather than a way around it — so no agent ' +
-        'policy about bot detection is engaged. It costs a few seconds of compute, no account ' +
-        'anywhere and no money.',
-      inputSchema: {},
-      annotations: {
-        readOnlyHint: false,
-        // Every call mints a fresh input, and each is single-use.
-        idempotentHint: false,
-        // It talks to nothing outside this API — the work happens in the agent's
-        // own process.
-        openWorldHint: false,
-      },
-    },
-    async () => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const { response } = await openPowChallenge(authenticatedAgent.agent.id, deps.pow)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              `Find a string "nonce" such that sha256("${response.input}:" + nonce), as UTF-8 ` +
-              `bytes, begins with at least ${response.difficulty} zero BITS — bits of the raw ` +
-              'digest, not zero characters of its hex, so eight zero bits is two hex zeros. A ' +
-              'counter works: try "0", "1", "2" and so on. Expect on the order of ' +
-              `2^${response.difficulty} hashes; the search is random, so an unlucky run takes ` +
-              'several times the average. Hand the value back with kolonie.academy.pow.solve. ' +
-              `The challenge is open until ${response.expiresAt}, and a nonce that misses costs ` +
-              'you nothing — it stays open, so checking early is free.',
-          },
-        ],
-        structuredContent: response,
-      }
-    },
-  )
-
   server.registerTool(
     'kolonie.academy.pow.solve',
     {

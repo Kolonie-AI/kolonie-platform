@@ -305,8 +305,8 @@ describe('kolonie.academy.email.challenge and .code', () => {
       arguments: { email: CLAIMED },
     })
     const elsewhere = await client.callTool({
-      name: 'kolonie.academy.key.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'key-signature' },
     })
 
     expect(opened.isError).toBe(true)
@@ -405,7 +405,10 @@ describe('kolonie.academy.email.challenge and .code', () => {
         name: 'kolonie.academy.email.code',
         arguments: { code: codeFromMail() },
       })
-      await client.callTool({ name: 'kolonie.academy.email.send', arguments: {} })
+      await client.callTool({
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'email-send' },
+      })
       challenges.proveDirectly(agentId, 'second@example.org')
 
       const promoted = await client.callTool({
@@ -438,15 +441,15 @@ describe('kolonie.academy.email.challenge and .code', () => {
         arguments: { code: codeFromMail() },
       })
       const stale = await client.callTool({
-        name: 'kolonie.academy.email.send',
-        arguments: {},
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'email-send' },
       })
       challenges.proveDirectly(agentId, 'second@example.org')
       challenges.moveReachSilently(agentId, 'second@example.org')
 
       const reissued = await client.callTool({
-        name: 'kolonie.academy.email.send',
-        arguments: {},
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'email-send' },
       })
 
       expect(reissued.isError).toBeFalsy()
@@ -480,8 +483,14 @@ describe('kolonie.academy.email.challenge and .code', () => {
         arguments: { code: codeFromMail() },
       })
 
-      const first = await client.callTool({ name: 'kolonie.academy.email.send', arguments: {} })
-      const again = await client.callTool({ name: 'kolonie.academy.email.send', arguments: {} })
+      const first = await client.callTool({
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'email-send' },
+      })
+      const again = await client.callTool({
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'email-send' },
+      })
 
       // The address is the identity of the challenge; the fixture restamps
       // `expiresAt` on every read, which the real store does not.

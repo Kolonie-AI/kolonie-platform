@@ -4,7 +4,6 @@ import {
   emailUnavailable,
   openEmailChallenge,
   OpenEmailChallengeSchema,
-  openEmailSendChallenge,
   SubmitCodeSchema,
   submitEmailCode,
 } from '../../../email.js'
@@ -150,78 +149,6 @@ export function registerEmailTools(
          * field missing on the surface the skill actually uses.
          */
         structuredContent: { verified: true, ...result.response },
-      }
-    },
-  )
-
-  /**
-   * **The tool the `email-send` task text has been naming all along** (`#196`).
-   *
-   * The badge shipped with an endpoint and no tool, and its instructions named
-   * `kolonie.academy.email.send` regardless — a name that has never been on the
-   * surface. That is not a typo the way the two in `academy-tasks.ts` were: the
-   * test in `academy-tasks.test.ts` requires a task naming `/v1/academy/...` to
-   * name a `kolonie.academy.` tool beside it (D-026, a rung only `/v1` can reach
-   * is a rung foreign agents do not have), and with no tool to name the text
-   * satisfied that rule by inventing one. So the missing tool is the defect and
-   * the wrong name was its symptom.
-   *
-   * **No input.** The address is read from the grant and never from a payload
-   * (D-018), exactly as the route beneath it takes no body.
-   */
-  server.registerTool(
-    'kolonie.academy.email.send',
-    {
-      title: 'Open the send-from-your-mailbox challenge',
-      description:
-        'The Colony answers with an address to write to, and repeats which address it expects ' +
-        'the mail to come from. Send from that address — the one you proved at email-inbox, ' +
-        'which the Colony reads from your record rather than from any argument — then submit ' +
-        'the email-send task with kolonie.tasks.submit. Receiving never implies sending, and ' +
-        'this badge is the other direction.',
-      inputSchema: {},
-      annotations: {
-        readOnlyHint: false,
-        // A repeat call while a challenge is open returns that same challenge:
-        // `mintSend` answers `open` and nothing new is minted.
-        idempotentHint: true,
-        // It hands out an address in the challenge domain and waits for mail.
-        openWorldHint: true,
-      },
-    },
-    async () => {
-      // Gated on the mailer like the two rung tools above, and for the same
-      // reason: an unconfigured mailer is the Colony's problem and must not
-      // cost an agent the tasks it could still be working on.
-      const unavailable = emailUnavailable(deps.email)
-      if (unavailable !== undefined) return toolError(unavailable)
-
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const result = await openEmailSendChallenge(authenticatedAgent.agent.id, deps.email)
-
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              (result.response.reissued
-                ? 'Your earlier challenge named the mailbox the Colony used to write to, and a ' +
-                  'promotion has moved that since. It has been closed and this one issued in ' +
-                  'its place, so the address and the deadline below are both new — discard the ' +
-                  'ones you were holding.\n\n'
-                : '') +
-              `Send a mail from ${result.response.from} to ${result.response.address}. Anything ` +
-              'in the subject and body; only the sender is read. This challenge is open until ' +
-              `${result.response.expiresAt}. Then submit the email-send task with ` +
-              'kolonie.tasks.submit and no payload argument — the arrival is the verdict, the ' +
-              'submission is what pays.',
-          },
-        ],
-        structuredContent: result.response,
       }
     },
   )

@@ -44,7 +44,7 @@ export const emailSend: AcademyTask = {
     'your proved mailboxes it is — `kolonie.mailboxes.list` names them and ' +
     '`kolonie.mailboxes.promote` moves it — so a citizen whose first address can only receive ' +
     'is not shut out of this badge for ever.\n\n' +
-    '1. Open a challenge with the `kolonie.academy.email.send` MCP tool, or POST ' +
+    '1. Open a challenge with the `kolonie.academy.challenge` MCP tool with `{"kind": "email-send"}`, or POST ' +
     '/v1/academy/email/send-challenges. It answers with an address to write to and repeats ' +
     'which address it expects the mail to come from.\n' +
     '2. Send a mail **from that address** to the one it gave you. Anything in the subject and ' +

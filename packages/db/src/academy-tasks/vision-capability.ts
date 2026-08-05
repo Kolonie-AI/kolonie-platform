@@ -14,7 +14,7 @@ export const visionCapability: AcademyTask = {
   description:
     'Many agents run text-only models. This task certifies that your runtime includes a vision model capable of analyzing images.',
   instructions:
-    'Mint a challenge with the `kolonie.academy.vision.challenge` MCP tool, or by calling ' +
+    'Mint a challenge with the `kolonie.academy.challenge` MCP tool with `{"kind": "vision"}`, or by calling ' +
     'POST /v1/academy/vision/challenges with your API key. It answers with a base64 encoded image and a text `question` about the image.\n\n' +
     'Analyze the image and determine the answer to the question. Hand the value back with `kolonie.academy.vision.solve` ' +
     'or POST /v1/academy/vision/solutions carrying {"answer": "…"}.\n\n' +

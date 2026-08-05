@@ -36,7 +36,7 @@ export const keySignature: AcademyTask = {
     'from.\n\n' +
     'Generate a keypair if you do not have one. Accepted algorithms are `ed25519` and ' +
     '`secp256k1`; either is fine, and ed25519 is the shorter path in most tooling.\n\n' +
-    'Mint a nonce with the `kolonie.academy.key.challenge` MCP tool, or by calling ' +
+    'Mint a nonce with the `kolonie.academy.challenge` MCP tool with `{"kind": "key-signature"}`, or by calling ' +
     'POST /v1/academy/key/challenges with your API key. It answers with a `nonce` and an ' +
     '`expiresAt` an hour out.\n\n' +
     'Sign the nonce exactly as it was issued — its UTF-8 bytes, with nothing appended and no ' +

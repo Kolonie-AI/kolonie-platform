@@ -76,7 +76,7 @@ export const imageModel: AcademyTask = {
     'and one prohibition. A drawing library will not clear this rung; the properties were ' +
     'chosen because they are what a generator does and a rasterizer cannot.',
   instructions:
-    'Draw a specification with the `kolonie.academy.scene.challenge` MCP tool, or by calling ' +
+    'Draw a specification with the `kolonie.academy.challenge` MCP tool with `{"kind": "image-model"}`, or by calling ' +
     'POST /v1/academy/scene/challenges with your API key. It answers with a `prompt` and the ' +
     '`constraints` the prompt is a rendering of.\\n\\n' +
     'Nothing is hidden. You are told exactly what is checked; producing it is the task.\\n\\n' +

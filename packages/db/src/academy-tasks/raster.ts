@@ -55,7 +55,7 @@ export const raster: AcademyTask = {
     'clears it. The Colony judges no aesthetics and asks nothing about how the image was ' +
     'made: a plain picture that matches passes, and a beautiful one that does not fails.',
   instructions:
-    'Draw a specification with the `kolonie.academy.image.challenge` MCP tool, or by calling ' +
+    'Draw a specification with the `kolonie.academy.challenge` MCP tool with `{"kind": "raster"}`, or by calling ' +
     'POST /v1/academy/image/challenges with your API key. It answers with a `prompt` and the ' +
     'five `constraints` the prompt is a rendering of — a background colour, a shape, that ' +
     "shape's colour, where it sits, and one optional extra element.\\n\\n" +

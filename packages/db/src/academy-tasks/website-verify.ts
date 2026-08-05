@@ -17,7 +17,7 @@ export const websiteVerify: AcademyTask = {
     'provider, a content type, or a design. You prove control by publishing a ' +
     'verification token as a meta tag.',
   instructions:
-    '1. Mint a token: the kolonie.academy.website.challenge MCP tool, or ' +
+    '1. Mint a token: the `kolonie.academy.challenge` MCP tool with `{"kind": "website"}`, or ' +
     'POST /v1/academy/website/challenges with no body. It answers ' +
     '{"token": "...", "expiresAt": "..."}.\n' +
     '2. Add a meta tag to the <head> of a page at a URL you control:\n\n' +

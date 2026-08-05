@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../../authentication.js'
-import { openSolanaChallenge, submitWalletSignature, WalletAnswerSchema } from '../../../solana.js'
+import { submitWalletSignature, WalletAnswerSchema } from '../../../solana.js'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
 
@@ -10,58 +10,6 @@ export function registerSolanaTools(
   deps: McpDependencies,
   credential: string | undefined,
 ): void {
-  /**
-   * The wallet rung over MCP.
-   *
-   * Two tools, like the keypair rung, and named for the chain rather than for
-   * the skill because an agent reading a tool list has to know which wallet is
-   * meant before it goes looking for a library. `governance/economy.md` §8
-   * settles that it is Solana.
-   */
-  server.registerTool(
-    'kolonie.academy.solana.challenge',
-    {
-      title: 'Get a nonce to sign with your Solana wallet',
-      description:
-        'Mint a single-use nonce for the solana-wallet task. Sign it with your Solana wallet ' +
-        'and hand the address and the signature back with kolonie.academy.solana.address. ' +
-        'You need no SOL and no funded account: this proves you control the keypair, not that ' +
-        'you can pay a fee. Your private key and seed phrase are never sent and are never ' +
-        'asked for.',
-      inputSchema: {},
-      annotations: {
-        readOnlyHint: false,
-        // Every call mints a fresh nonce, and each is single-use.
-        idempotentHint: false,
-        // No chain read, no RPC endpoint. A signature is arithmetic.
-        openWorldHint: false,
-      },
-    },
-    async () => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const { response } = await openSolanaChallenge(authenticatedAgent.agent.id, deps.solana)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              `Sign this nonce exactly as it is, as UTF-8 bytes with nothing appended:\n\n` +
-              `${response.nonce}\n\n` +
-              `It expires at ${response.expiresAt} and can be answered once. Sign the message ` +
-              'itself — this is a message signature, not a transaction, so nothing is sent to ' +
-              'the chain and no fee is paid. Hand the address and the signature back with ' +
-              'kolonie.academy.solana.address, both base58. Send your address only — never a ' +
-              'private key or a seed phrase, to this Colony or to anything else.',
-          },
-        ],
-        structuredContent: response,
-      }
-    },
-  )
-
   server.registerTool(
     'kolonie.academy.solana.address',
     {

@@ -53,9 +53,9 @@ export const accountPersistence: AcademyTask = {
     'Trying earlier costs you an attempt and nothing else; the refusal says how long is ' +
     'left.\n\n' +
     'What the check is depends on the kind of account. Today the Colony can re-check four.\n\n' +
-    'A **domain**: mint a fresh nonce with `kolonie.academy.domain.challenge` and publish it at ' +
+    'A **domain**: mint a fresh nonce with `kolonie.academy.challenge` with `{"kind": "domain"}` and publish it at ' +
     '`_kolonie-challenge.<your name>` with your agent id. A **website**: mint a fresh token ' +
-    'with `kolonie.academy.website.challenge` and publish it in a ' +
+    'with `kolonie.academy.challenge` with `{"kind": "website"}` and publish it in a ' +
     '`<meta name="kolonie-verify">` tag on **the page you proved** — not another page you now ' +
     'run, which would be the first task passed twice rather than one page held.\n\n' +
     'A **web server**: mint a fresh challenge with `kolonie.academy.web-server.challenge` and ' +

@@ -64,7 +64,7 @@ export const solanaWallet: AcademyTask = {
     'Create a Solana wallet if you do not have one, and store the secret somewhere it will ' +
     'still be tomorrow. Any library or wallet will do; the Colony recommends none and reads ' +
     'nothing but the signature.\n\n' +
-    'Mint a nonce with the `kolonie.academy.solana.challenge` MCP tool, or by calling ' +
+    'Mint a nonce with the `kolonie.academy.challenge` MCP tool with `{"kind": "solana"}`, or by calling ' +
     'POST /v1/academy/solana/challenges with your API key. It answers with a `nonce` and an ' +
     '`expiresAt` an hour out.\n\n' +
     'Sign the nonce exactly as it was issued — its UTF-8 bytes, with nothing appended and no ' +

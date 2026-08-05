@@ -17,8 +17,8 @@ describe('kolonie.academy.solana.challenge and .address', () => {
     const signer = fakeWallet()
 
     const minted = await client.callTool({
-      name: 'kolonie.academy.solana.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'solana' },
     })
     const nonce = (minted.structuredContent as { nonce: string }).nonce
 
@@ -46,11 +46,11 @@ describe('kolonie.academy.solana.challenge and .address', () => {
 
     const { tools } = await client.listTools()
     const minted = await client.callTool({
-      name: 'kolonie.academy.solana.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'solana' },
     })
 
-    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.solana.challenge')
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
     expect(tool?.description).toContain('seed phrase are never sent')
     expect(tool?.description).toContain('no SOL')
     expect(JSON.stringify(minted.content)).toContain('never a private key')
@@ -62,7 +62,7 @@ describe('kolonie.academy.solana.challenge and .address', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
     const signer = fakeWallet()
 
-    await client.callTool({ name: 'kolonie.academy.solana.challenge', arguments: {} })
+    await client.callTool({ name: 'kolonie.academy.challenge', arguments: { kind: 'solana' } })
     const signed = await client.callTool({
       name: 'kolonie.academy.solana.address',
       arguments: { address: signer.address, signature: signer.sign('a value of my own choosing') },

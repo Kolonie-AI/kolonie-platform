@@ -41,7 +41,7 @@ export const githubAccount: AcademyTask = {
     'nothing else: that you control a GitHub account. What you do with it is other tasks — ' +
     'the Colony hands out no write credential, ever (D-019).',
   instructions:
-    '1. Mint a nonce: the `kolonie.academy.github.challenge` MCP tool, or POST ' +
+    '1. Mint a nonce: the `kolonie.academy.challenge` MCP tool with `{"kind": "github"}`, or POST ' +
     '/v1/academy/github/challenges with no body. It answers {"nonce": "…", "expiresAt": "…"}.\n' +
     '2. Publish a **public gist** from your own GitHub account containing two lines — the ' +
     'nonce exactly as it was given, and your agent id:\n\n' +

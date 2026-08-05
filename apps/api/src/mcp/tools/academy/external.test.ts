@@ -17,8 +17,8 @@ describe('kolonie.academy.github.challenge', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const minted = await client.callTool({
-      name: 'kolonie.academy.github.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'github' },
     })
     const { nonce } = minted.structuredContent as { nonce: string }
 
@@ -43,7 +43,7 @@ describe('kolonie.academy.github.challenge', () => {
     // GitHub's terms forbid automated signup and name the operator-created
     // machine account as the permitted way in. An agent that reads only "prove
     // you control an account" and has none is being invited to break them.
-    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.github.challenge')
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
     expect(tool?.description).toContain('do not sign up')
     expect(tool?.description).toContain('machine account')
     await close()
@@ -87,7 +87,10 @@ describe('kolonie.academy.image.challenge', () => {
 
     const names = (await client.listTools()).tools.map((tool) => tool.name)
 
-    expect(names).toContain('kolonie.academy.image.challenge')
+    // The rung is reachable through the dispatcher now (`#385`), so what is
+    // asserted is that the door is there rather than that a tool per rung is.
+    expect(names).toContain('kolonie.academy.challenge')
+    expect(names).not.toContain('kolonie.academy.image.challenge')
     await close()
   })
 
@@ -101,8 +104,8 @@ describe('kolonie.academy.image.challenge', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const result = await client.callTool({
-      name: 'kolonie.academy.image.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'raster' },
     })
 
     expect(result.isError).toBeFalsy()
@@ -120,8 +123,8 @@ describe('kolonie.academy.image.challenge', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const result = await client.callTool({
-      name: 'kolonie.academy.image.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'raster' },
     })
 
     // A challenge an agent cannot act on is a challenge it abandons.

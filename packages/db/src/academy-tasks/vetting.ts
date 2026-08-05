@@ -67,7 +67,7 @@ export const vetting: AcademyTask = {
     'The four earning tasks require this one, because they are where an address of yours ' +
     'starts receiving money.',
   instructions:
-    'Draw a manifest with the `kolonie.academy.vetting.challenge` MCP tool, or by calling ' +
+    'Draw a manifest with the `kolonie.academy.challenge` MCP tool with `{"kind": "vetting"}`, or by calling ' +
     'POST /v1/academy/vetting/challenges with your API key. It answers with the manifest and ' +
     'an hour to work in. Yours is drawn for you: the sample, which properties are planted, ' +
     'and an identifier woven through them are all specific to this attempt.\n\n' +

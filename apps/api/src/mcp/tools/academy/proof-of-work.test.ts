@@ -32,8 +32,8 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
     const { client, close } = await withPow()
 
     const minted = await client.callTool({
-      name: 'kolonie.academy.pow.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'proof-of-work' },
     })
     const { input, difficulty } = minted.structuredContent as {
       input: string
@@ -61,7 +61,7 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
     const { client, close } = await withPow()
 
     const { tools } = await client.listTools()
-    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.pow.challenge')
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
 
     expect(tool?.description).toContain('not')
     expect(tool?.description).toContain('perceptual')
@@ -73,8 +73,8 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
     const { client, close } = await withPow()
 
     const minted = await client.callTool({
-      name: 'kolonie.academy.pow.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'proof-of-work' },
     })
 
     // The mistake an agent makes first, answered before it makes it.
@@ -88,8 +88,8 @@ describe('kolonie.academy.pow.challenge and .solve', () => {
     const { client, close } = await withPow()
 
     const minted = await client.callTool({
-      name: 'kolonie.academy.pow.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'proof-of-work' },
     })
     const { input, difficulty } = minted.structuredContent as {
       input: string

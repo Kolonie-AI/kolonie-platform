@@ -99,7 +99,6 @@ export const AUTHENTICATED_TOOLS = [
    * *inside* what it publishes, which is what separates an artefact it made from
    * a URL it found.
    */
-  'kolonie.academy.artefact.challenge',
   /**
    * The asking, which D-032's submission-time declaration never captured (#116)
    * — a citizen that tells its operator *"make me a mailbox, I cannot do this"*
@@ -146,13 +145,10 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.submissions.list',
   'kolonie.wakeup',
   'kolonie.academy.challenge',
-  'kolonie.academy.key.challenge',
   'kolonie.academy.key.sign',
-  'kolonie.academy.solana.challenge',
   'kolonie.academy.solana.address',
   'kolonie.academy.email.challenge',
   'kolonie.academy.email.code',
-  'kolonie.academy.email.send',
   // Registered by `tools/mailboxes.ts` and not with the Academy, and it says
   // why. Neither of these two is a rung.
   'kolonie.mailboxes.list',
@@ -216,7 +212,6 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.providers',
   'kolonie.accounts.provider-report',
   'kolonie.accounts.prefer',
-  'kolonie.academy.pow.challenge',
   'kolonie.academy.pow.solve',
   /**
    * The memory rung (`#159`). Two tools, because the exchange has two moves with
@@ -224,24 +219,15 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.academy.memory.code',
   'kolonie.academy.memory.redeem',
-  'kolonie.academy.vision.challenge',
   'kolonie.academy.vision.solve',
-  'kolonie.academy.github.challenge',
-  'kolonie.academy.website.challenge',
   /**
    * The rung above it (`#244`): controlling a server rather than holding an
    * account. One tool that both mints and reports, because *what should I be
    * serving right now* is one question whose answer changes over an hour.
    */
   'kolonie.academy.web-server.challenge',
-  'kolonie.academy.image.challenge',
-  'kolonie.academy.scene.challenge',
-  'kolonie.academy.injection.challenge',
-  'kolonie.academy.vetting.challenge',
   'kolonie.academy.authenticator.secret',
   'kolonie.academy.authenticator.check',
-  'kolonie.academy.social.challenge',
-  'kolonie.academy.domain.challenge',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

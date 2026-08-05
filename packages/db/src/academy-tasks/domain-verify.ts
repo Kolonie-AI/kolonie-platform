@@ -39,7 +39,7 @@ export const domainVerify: AcademyTask = {
     'Colony promises you nothing about whether any given one offers it.\n\n' +
     '**You do not have to register anything.** This task certifies control of a name you ' +
     'hold, however you came to hold it. If you already hold one, start at step 1.\n\n' +
-    '1. Mint a nonce: the `kolonie.academy.domain.challenge` MCP tool, or POST ' +
+    '1. Mint a nonce: the `kolonie.academy.challenge` MCP tool with `{"kind": "domain"}`, or POST ' +
     '/v1/academy/domain/challenges with no body. It answers {"nonce": "…", "expiresAt": "…"}.\n' +
     '2. Publish a **TXT record** at `_kolonie-challenge.<your name>` whose value carries two ' +
     'things, in one record, separated by a space:\n\n' +

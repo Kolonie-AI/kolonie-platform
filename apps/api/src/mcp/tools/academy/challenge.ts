@@ -1,5 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { z } from 'zod'
 import {
+  browserStage,
   CAPABILITY_STAGE,
   mintableBrowserStages,
   mintableInterstitialKinds,
@@ -15,6 +17,7 @@ import {
 import { authenticate } from '../../../authentication.js'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
+import { ARGUMENT_LESS_MINTS, argumentLessMint, mintVocabulary, outOfReach } from './mints.js'
 
 /**
  * The stages this tool can mint, as a sentence, read from the registry.
@@ -98,26 +101,47 @@ export function registerAcademyChallengeTool(
   server.registerTool(
     'kolonie.academy.challenge',
     {
-      title: 'Open a browser challenge',
+      title: 'Open a challenge for a rung',
       description:
-        'Mint a single-use challenge and get the URL to open in a browser you drive — ' +
-        `Playwright, Puppeteer, a browser tool, anything real. Every browser task routes ` +
-        `through this one tool; which one you get is the kind: ${stageVocabulary()}. It ` +
-        `defaults to "${CAPABILITY_STAGE}", the page that runs by itself once it loads, with ` +
-        'nothing to solve, nothing to type and no third party involved. They never satisfy ' +
-        'each other. Challenges expire in minutes, so open one immediately and leave it open ' +
-        'until the page says it is done. Then hand in the matching task with ' +
-        'kolonie.tasks.submit to claim it.',
+        'Mint a single-use challenge for one rung. Which rung is the kind, and there are two ' +
+        `families of them. The browser stages — ${stageVocabulary()} — answer with a URL to ` +
+        'open in a browser you drive: Playwright, Puppeteer, a browser tool, anything real. ' +
+        `It defaults to "${CAPABILITY_STAGE}", the page that runs by itself once it loads, ` +
+        'with nothing to solve, nothing to type and no third party involved. The rest answer ' +
+        `with whatever that rung needs — a nonce, a token, a specification: ${mintVocabulary()}. ` +
+        'They never satisfy each other, so a pass at one says nothing about another. ' +
+        'Challenges expire in minutes, so open one immediately. Then hand in the matching task ' +
+        'with kolonie.tasks.submit to claim it. The answer half of a rung is its own tool — ' +
+        'kolonie.academy.pow.solve, .key.sign, .solana.address, .vision.solve, .email.code — ' +
+        'because those take arguments this one does not.',
       // The two arguments are *which* challenge and, where a stage has kinds,
       // which kind. Whose it is comes from the credential and is not a
       // parameter: the page carries no key, so the id it is given is what says
       // whose gate was cleared (D-024), and a subject here would be an
       // invitation to mint one for somebody else.
       inputSchema: {
-        kind: MintChallengeRequestSchema.shape.kind.describe(
-          `Which challenge: ${stageVocabulary()}. Defaults to "${CAPABILITY_STAGE}". They ` +
-            'never satisfy each other, so a pass at one says nothing about another.',
-        ),
+        /**
+         * **A plain string here, and validated in the handler** (`#385`).
+         *
+         * `MintChallengeRequestSchema.shape.kind` refines against the browser
+         * stage registry, and it must keep doing so: it is the REST body's
+         * schema, and `/v1` behaviour is unchanged by this issue. Reusing it here
+         * would have refused every folded rung before the handler saw it, and
+         * widening it would have widened the REST door as a side effect.
+         *
+         * So this surface takes the string and decides, which is also what lets
+         * an unknown kind be refused with **both** vocabularies rather than only
+         * the stages.
+         */
+        kind: z
+          .string()
+          .optional()
+          .describe(
+            `Which rung. Browser stages: ${stageVocabulary()}. Everything else: ` +
+              `${ARGUMENT_LESS_MINTS.map((mint) => `"${mint.kind}"`).join(', ')}. Defaults to ` +
+              `"${CAPABILITY_STAGE}". They never satisfy each other, so a pass at one says ` +
+              'nothing about another.',
+          ),
         /**
          * **Declared, where it was previously accepted and undocumented** (`#213`).
          *
@@ -147,6 +171,72 @@ export function registerAcademyChallengeTool(
     async (input) => {
       const kind = input.kind ?? 'capability'
 
+      /**
+       * The folded half (`#385`): fourteen rungs that used to be a tool each.
+       *
+       * **Handled before the browser-stage path and never inside it**, because
+       * these are not browser stages and must not be measured against the stage
+       * registry — `mintUnavailable` would answer *no such stage* for every one
+       * of them, which is a true sentence about the wrong question.
+       */
+      const folded = argumentLessMint(kind)
+      if (folded !== undefined) {
+        const cannotServe = folded.unavailable?.(deps)
+        if (cannotServe !== undefined) return toolError(cannotServe)
+
+        const authenticated = await authenticate(credential, deps.store)
+        if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+
+        /**
+         * Reachability, refused the way an unusable `variant` is refused.
+         *
+         * The catalogue is read rather than a table here, and a read that fails
+         * lets the mint go ahead: the submission is gated either way, so a
+         * citizen loses nothing it would otherwise have had.
+         */
+        const rung = await deps.catalogue
+          .graph()
+          .then((entries) => entries.find((entry) => entry.task.type === folded.taskType)?.task)
+          .catch(() => undefined)
+
+        const unreachable = outOfReach(folded, rung, authenticated.agent.skills)
+        if (unreachable !== undefined) {
+          return toolError({ code: 'validation_failed', message: unreachable })
+        }
+
+        return folded.mint(authenticated.agent, deps)
+      }
+
+      /**
+       * A kind that is neither a folded rung nor a browser stage, refused with
+       * **both** vocabularies (`#385`).
+       *
+       * `mintUnavailable` would answer *no such browser stage* and list only the
+       * six, which after the fold is a true sentence that hides most of the
+       * answer. This is the one place that knows about both families, so it is
+       * the one place that can say so.
+       */
+      const stage = browserStage(kind)
+      if (stage === undefined) {
+        return toolError({
+          code: 'validation_failed',
+          message: `No rung is called "${kind}". Browser stages: ${mintableBrowserStages()
+            .map((stage) => stage.kind)
+            .join(', ')}. Everything else: ${ARGUMENT_LESS_MINTS.map((mint) => mint.kind).join(
+            ', ',
+          )}.`,
+        })
+      }
+
+      /**
+       * Everything below is the browser-stage path, unchanged.
+       *
+       * `stage.kind` rather than the raw string, so the brand travels: the
+       * refusal above is what establishes that this is a real stage, and reading
+       * the name back off the registry entry is how the type says so too.
+       */
+      const stageKind = stage.kind
+
       // The rung degrades rather than taking the surface down: when it is not
       // configured this one tool refuses, with the same message the REST routes
       // answer 503 with, and the rest of the tier keeps working.
@@ -154,7 +244,7 @@ export function registerAcademyChallengeTool(
       // It asks about the kind being minted, and the two have different reasons
       // to be unavailable. Asking the wrong one is how a missing third-party
       // sitekey used to disable the Colony's own promoting rung (`#29`).
-      const unavailable = mintUnavailable(kind, deps.academy)
+      const unavailable = mintUnavailable(stageKind, deps.academy)
       if (unavailable !== undefined) return toolError(unavailable)
 
       /**
@@ -168,7 +258,7 @@ export function registerAcademyChallengeTool(
        * asked for does not exist* rather than *this cannot serve right now* —
        * which is why it is a second call and not a branch of the first.
        */
-      const badVariant = variantUnusable(kind, input.variant)
+      const badVariant = variantUnusable(stageKind, input.variant)
       if (badVariant !== undefined) return toolError(badVariant)
 
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -183,7 +273,7 @@ export function registerAcademyChallengeTool(
       const { response } = await openChallenge(
         authenticatedAgent.agent.id,
         deps.academy,
-        kind,
+        stageKind,
         input.variant ?? null,
       )
 
@@ -207,7 +297,7 @@ export function registerAcademyChallengeTool(
                * The default is now the honest general case, and the CAPTCHA text
                * is reached only by the stage that actually has one.
                */
-              instructionsFor(kind) +
+              instructionsFor(stageKind) +
               ' The page asks for nothing but the challenge itself: no name, no address, no ' +
               'key. Never type your API key into it, or into any page.',
           },

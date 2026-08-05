@@ -697,8 +697,8 @@ describe('kolonie.me and the verified wallet', () => {
     const signer = fakeWallet()
 
     const minted = await client.callTool({
-      name: 'kolonie.academy.solana.challenge',
-      arguments: {},
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'solana' },
     })
     const nonce = (minted.structuredContent as { nonce: string }).nonce
     await client.callTool({

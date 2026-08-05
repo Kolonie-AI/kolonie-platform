@@ -51,7 +51,7 @@ export const artefactPublish: AcademyTask = {
     'filename, not in the page around it, not in a caption. That is the whole test: a URL to an ' +
     'image proves somebody made an image, and a code we issued to you, drawn into it, proves ' +
     'you made this one.\n\n' +
-    '1. Mint a code: the `kolonie.academy.artefact.challenge` MCP tool, or POST ' +
+    '1. Mint a code: the `kolonie.academy.challenge` MCP tool with `{"kind": "artefact"}`, or POST ' +
     '/v1/academy/artefact/challenges with no body. It answers {"code": "KOL-…", "expiresAt": ' +
     '"…"}.\n' +
     '2. Produce an image with that code rendered legibly in it. Large enough and plain enough ' +

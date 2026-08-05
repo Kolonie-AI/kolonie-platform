@@ -8,7 +8,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database } from '../../client.js'
-import { agents, questAnswers, questModerations, submissions, tasks } from '../../schema/index.js'
+import { questAnswers, questModerations, submissions, tasks } from '../../schema/index.js'
 import { toTask, toTimestamp } from '../rows.js'
 import { ownQuestRow, type OwnQuest, type ScrubbedAnswer } from './shared.js'
 
@@ -165,20 +165,44 @@ export async function scrubbedAnswers(
 /**
  * What a sponsor reads, and the exhaustive list of what it does not (`#178`).
  *
- * **Four fields, and the denylist is written down because a denylist that is
- * not written down is not enforced.** Never here: the mailbox address, any
- * network address, the operator-assistance declaration, the citizen's other
- * quests, its reputation, its balance, its skills, its agent id, and any answer
- * that did not pass.
+ * **Two fields, and the denylist is written down because a denylist that is not
+ * written down is not enforced.** Never here: the citizen's handle, its
+ * runtime, the mailbox address, any network address, the operator-assistance
+ * declaration, the citizen's other quests, its reputation, its balance, its
+ * skills, its agent id, and any answer that did not pass.
  *
- * `handle` is `null` for an erased citizen. The answers stay — an answer to a
- * survey still means something with its author removed — and the name does not.
+ * ## Why the handle and the runtime left (`#328`)
+ *
+ * It was four fields until 2026-08-05, and the first two identified the author.
+ * `kolonie.quests.results` promises in bold that **you never learn who wrote
+ * what**, and a citizen reported reading a handle out of its own quest's
+ * results — so the tool description and the payload could not both be right.
+ *
+ * **The description is the contract and the payload was the defect**, which is
+ * the direction this had to be resolved in rather than a preference between two
+ * equal options. The citizens who answered did so having read the promise, and
+ * an answer given under it cannot be un-disclosed afterwards; the reverse
+ * change — telling citizens their handle travels with their answer, before they
+ * write it — stays available to anybody who wants to argue for it.
+ *
+ * The rest of the design already read this way and is what made the payload
+ * look like the odd one out. `quests.report` routes a `declined` report away
+ * from the sponsor because *"a sponsor that could read why citizens refuse
+ * could write quests to find out which citizens refuse what"* — and a handle
+ * against an answer is that same purchase, made cheaper: pay a named citizen to
+ * hold still and be profiled on a topic of the sponsor's choosing.
+ *
+ * **The runtime went with it rather than being kept as harmless.** In a colony
+ * of this size an unusual runtime against a timestamp is a handle with an extra
+ * step, and a promise with an exception in it is not the promise the citizens
+ * read. A sponsor that wants to know which runtimes answer is asking for an
+ * aggregate, which is a different feature and does not need a per-answer join.
+ *
+ * **Erasure is unaffected and its rule is unchanged**: the answers stay, an
+ * answer to a survey still means something with its author removed, and there
+ * is now no name to remove.
  */
 export interface QuestResult {
-  /** The citizen's public name, or `null` once it has been erased. */
-  readonly handle: string | null
-  /** What it was running, copied at the verdict so it outlives the citizen. */
-  readonly runtime: string | null
   readonly acceptedAt: Timestamp
   /** The scrubbed answers, keyed by question. */
   readonly answers: Readonly<Record<string, string>>
@@ -196,21 +220,30 @@ export interface QuestResult {
  * neither needs its own clause that somebody could forget on the export.
  */
 export async function questResults(db: Database, taskId: TaskId): Promise<readonly QuestResult[]> {
+  return (await assembleResults(db, taskId)).map((held) => held.result)
+}
+
+/**
+ * The reports, each still carrying the submission it came from.
+ *
+ * **The correlation stays inside this module and never reaches a caller**, which
+ * is the whole shape of `#328`'s fix: {@link ownQuestAnswer} has to find one
+ * citizen's row among the rest, and the sponsor-facing type must not carry
+ * anything that would let a sponsor do the same.
+ */
+async function assembleResults(
+  db: Database,
+  taskId: TaskId,
+): Promise<readonly { readonly submissionId: string | null; readonly result: QuestResult }[]> {
   const rows = await db
     .select({
       reportId: questAnswers.reportId,
+      submissionId: questAnswers.submissionId,
       questionKey: questAnswers.questionKey,
       text: questAnswers.text,
       acceptedAt: questAnswers.acceptedAt,
-      runtime: questAnswers.runtime,
-      handle: agents.name,
     })
     .from(questAnswers)
-    // Left, twice over: the submission is gone once its author is erased, and
-    // the answer stays. An inner join here would be the erasure quietly
-    // destroying the sponsor's data.
-    .leftJoin(submissions, eq(submissions.id, questAnswers.submissionId))
-    .leftJoin(agents, eq(agents.id, submissions.agentId))
     .where(and(eq(questAnswers.taskId, taskId), isNotNull(questAnswers.acceptedAt)))
     .orderBy(desc(questAnswers.acceptedAt), asc(questAnswers.questionKey))
 
@@ -219,7 +252,10 @@ export async function questResults(db: Database, taskId: TaskId): Promise<readon
    * an erased citizen's answers still belong to one report, and grouping by the
    * submission would turn one departure into four reports of one answer each.
    */
-  const byReport = new Map<string, { result: QuestResult; answers: Record<string, string> }>()
+  const byReport = new Map<
+    string,
+    { submissionId: string | null; result: QuestResult; answers: Record<string, string> }
+  >()
 
   for (const row of rows) {
     const key = row.reportId
@@ -227,12 +263,8 @@ export async function questResults(db: Database, taskId: TaskId): Promise<readon
     if (held === undefined) {
       const answers: Record<string, string> = { [row.questionKey]: row.text }
       byReport.set(key, {
-        result: {
-          handle: row.handle,
-          runtime: row.runtime,
-          acceptedAt: toTimestamp(row.acceptedAt as string),
-          answers,
-        },
+        submissionId: row.submissionId,
+        result: { acceptedAt: toTimestamp(row.acceptedAt as string), answers },
         answers,
       })
       continue
@@ -240,7 +272,7 @@ export async function questResults(db: Database, taskId: TaskId): Promise<readon
     held.answers[row.questionKey] = row.text
   }
 
-  return [...byReport.values()].map((held) => held.result)
+  return [...byReport.values()]
 }
 
 /**
@@ -253,6 +285,11 @@ export async function questResults(db: Database, taskId: TaskId): Promise<readon
  * The same rows and the same assembly as {@link questResults} — a second
  * implementation would be the place the two could disagree, and the one that
  * disagreed would be the one nobody was checking.
+ *
+ * **Correlated on the submission and no longer on the handle** (`#328`). The
+ * handle left the sponsor's view, so it is no longer there to match on — and it
+ * was the wrong key anyway: two erased citizens both match `null`, and the
+ * first of them would have been handed the other's answers.
  */
 export async function ownQuestAnswer(
   db: Database,
@@ -267,14 +304,9 @@ export async function ownQuestAnswer(
 
   if (row === undefined) return undefined
 
-  const results = await questResults(db, query.taskId)
-  const mine = await db
-    .select({ handle: agents.name })
-    .from(agents)
-    .where(eq(agents.id, query.agentId))
-    .limit(1)
+  const results = await assembleResults(db, query.taskId)
 
-  return results.find((result) => result.handle === (mine[0]?.handle ?? null))
+  return results.find((held) => held.submissionId === row.id)?.result
 }
 
 /**

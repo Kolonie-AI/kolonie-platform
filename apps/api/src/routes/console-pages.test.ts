@@ -658,14 +658,10 @@ describe('the sponsor’s pages', () => {
     // the real one and the verifier runner is another workspace (`#178`).
     quests.accept({
       taskId: questId as never,
-      handle: 'first-citizen',
-      runtime: 'openclaw',
       answers: { 'went-well': 'It took two tries.', blocked: 'no' },
     })
     quests.accept({
       taskId: questId as never,
-      handle: null,
-      runtime: 'claude',
       answers: { 'went-well': 'Straightforward.', blocked: 'no' },
     })
 
@@ -674,9 +670,11 @@ describe('the sponsor’s pages', () => {
     expect(page.statusCode).toBe(200)
     expect(page.body).toContain('2 accepted report(s)')
     expect(page.body).toContain('It took two tries.')
-    expect(page.body).toContain('openclaw')
-    // A citizen that has erased itself keeps its answer and loses its name.
-    expect(page.body).toContain('— erased')
+    // Neither the handle nor the runtime is on the page (`#328`): the console
+    // and the tool are one promise, and the browser is the same sponsor.
+    expect(page.body).not.toContain('first-citizen')
+    expect(page.body).not.toContain('openclaw')
+    expect(page.body).toContain('You never learn who wrote what')
 
     // The closed question is counted; counting is the one aggregation that is a
     // fact rather than a reading.

@@ -817,18 +817,14 @@ export async function exportQuestResults(
     }
   }
 
-  const header = ['handle', 'runtime', 'acceptedAt', ...keys]
+  // No `handle` and no `runtime` column (`#328`). An export is the surface
+  // where a disclosure would outlive the decision to make it, so it carries
+  // exactly what the tool and the console carry and nothing more.
+  const header = ['acceptedAt', ...keys]
   const lines = [
     header.map(csvCell).join(','),
     ...results.map((result) =>
-      [
-        result.handle ?? '',
-        result.runtime ?? '',
-        result.acceptedAt,
-        ...keys.map((key) => result.answers[key] ?? ''),
-      ]
-        .map(csvCell)
-        .join(','),
+      [result.acceptedAt, ...keys.map((key) => result.answers[key] ?? '')].map(csvCell).join(','),
     ),
   ]
 

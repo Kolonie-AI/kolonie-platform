@@ -309,7 +309,9 @@ describe('distinct operators', () => {
     expect(serialised).not.toContain('example.org')
     // Not only the value: no key on this shape is about operators at all, so a
     // count cannot be added to it without changing the type.
-    expect(Object.keys(results[0]!).sort()).toEqual(['acceptedAt', 'answers', 'handle', 'runtime'])
+    // Two since `#328`, the handle and the runtime having gone the same way the
+    // operator address never came.
+    expect(Object.keys(results[0]!).sort()).toEqual(['acceptedAt', 'answers'])
   })
 
   it('books nothing for a refused acceptance', async () => {

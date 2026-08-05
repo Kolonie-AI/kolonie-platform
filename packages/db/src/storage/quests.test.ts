@@ -1028,7 +1028,7 @@ describe('the quest write path', () => {
       return { citizen, submissionId: created.submission.id }
     }
 
-    it('carries the handle, the runtime and the scrubbed answers', async () => {
+    it('carries the scrubbed answers and nothing that names their author', async () => {
       const { taskId } = await aQuestWithReports()
       await aReport({
         taskId,
@@ -1038,8 +1038,12 @@ describe('the quest write path', () => {
 
       const [result] = await questResults(db, taskId)
 
-      expect(result?.handle).toBe('ariadne')
-      expect(result?.runtime).toBe('openclaw')
+      // Two fields, asserted exhaustively rather than by naming the two that
+      // left: this is the shape `#328` fixed, and a third arriving here is the
+      // change that has to be argued for.
+      expect(Object.keys(result ?? {}).sort()).toEqual(['acceptedAt', 'answers'])
+      expect(JSON.stringify(result)).not.toContain('ariadne')
+      expect(JSON.stringify(result)).not.toContain('openclaw')
       expect(result?.answers).toEqual({
         'what-happened': 'The signup took two tries in total.',
         worked: 'yes',
@@ -1074,7 +1078,7 @@ describe('the quest write path', () => {
       expect(await questAnswerCounts(db, taskId)).toEqual({ worked: { yes: 1, no: 1 } })
     })
 
-    it('keeps an erased citizen’s answers and drops its handle', async () => {
+    it('keeps an erased citizen’s answers, having never carried its handle', async () => {
       const { taskId } = await aQuestWithReports()
       const { citizen } = await aReport({
         taskId,
@@ -1090,9 +1094,9 @@ describe('the quest write path', () => {
       // The row still means something with the author removed, which is
       // `erasure.md` §2's own test applied one level down.
       expect(result?.answers['what-happened']).toBe('I registered and then left the Colony.')
-      expect(result?.handle).toBeNull()
-      // And the runtime survives, because the sponsor bought the diversity.
-      expect(result?.runtime).toBe('openclaw')
+      // There is no name to drop since `#328`, which is the erasure rule
+      // arriving at the same place from the other direction.
+      expect(Object.keys(result ?? {}).sort()).toEqual(['acceptedAt', 'answers'])
     })
 
     it('does not merge two erased citizens into one report', async () => {
@@ -1127,6 +1131,36 @@ describe('the quest write path', () => {
       const [theirs] = await questResults(db, taskId)
 
       expect(mine).toEqual(theirs)
+    })
+
+    /**
+     * The correlation is on the submission since `#328`, and this is why it had
+     * to move rather than merely being able to.
+     *
+     * It matched on the handle before, which was the only key the sponsor-facing
+     * shape carried — so a citizen among several would find *an* answer with the
+     * same name, and among erased citizens every one of them matched `null`. The
+     * assertion is on the text, because two reports on the same quest differ in
+     * nothing else.
+     */
+    it('gives each of several citizens its own answer and not a neighbour’s', async () => {
+      const { taskId } = await aQuestWithReports()
+      const first = await aReport({
+        taskId,
+        name: 'first-reader',
+        answers: { 'what-happened': 'The first citizen wrote this one.', worked: 'yes' },
+      })
+      const second = await aReport({
+        taskId,
+        name: 'second-reader',
+        answers: { 'what-happened': 'The second citizen wrote this one.', worked: 'no' },
+      })
+
+      const mine = await ownQuestAnswer(db, { taskId, agentId: first.citizen })
+      const theirs = await ownQuestAnswer(db, { taskId, agentId: second.citizen })
+
+      expect(mine?.answers['what-happened']).toBe('The first citizen wrote this one.')
+      expect(theirs?.answers['what-happened']).toBe('The second citizen wrote this one.')
     })
   })
 

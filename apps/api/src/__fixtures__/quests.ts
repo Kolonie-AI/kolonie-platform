@@ -45,8 +45,6 @@ export interface FakeQuestDesk extends QuestDesk {
    */
   readonly accept: (input: {
     readonly taskId: TaskId
-    readonly handle: string | null
-    readonly runtime: string | null
     readonly answers: Readonly<Record<string, string>>
     readonly agentId?: AgentId
   }) => void
@@ -263,11 +261,9 @@ export function fakeQuests(): FakeQuestDesk {
       }
     },
 
-    accept({ taskId, handle, runtime, answers, agentId }) {
+    accept({ taskId, answers, agentId }) {
       const held = accepted.get(taskId) ?? []
       held.push({
-        handle,
-        runtime,
         acceptedAt: new Date().toISOString(),
         answers,
         ...(agentId !== undefined && { agentId }),
@@ -276,9 +272,7 @@ export function fakeQuests(): FakeQuestDesk {
     },
 
     async results(taskId) {
-      return (accepted.get(taskId) ?? []).map(({ handle, runtime, acceptedAt, answers }) => ({
-        handle,
-        runtime,
+      return (accepted.get(taskId) ?? []).map(({ acceptedAt, answers }) => ({
         acceptedAt,
         answers,
       }))
@@ -309,8 +303,8 @@ export function fakeQuests(): FakeQuestDesk {
     async ownAnswer({ taskId, agentId }) {
       const mine = (accepted.get(taskId) ?? []).find((report) => report.agentId === agentId)
       if (mine === undefined) return undefined
-      const { handle, runtime, acceptedAt, answers } = mine
-      return { handle, runtime, acceptedAt, answers }
+      const { acceptedAt, answers } = mine
+      return { acceptedAt, answers }
     },
 
     moderate(taskId, decision = 'approved') {

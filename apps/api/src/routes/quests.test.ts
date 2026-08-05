@@ -490,27 +490,30 @@ describe('GET /v1/quests/:questId/results', () => {
     await post(`/v1/quests/${id}/publish`, stewardKey)
     quests.accept({
       taskId: id as TaskId,
-      handle: 'ariadne',
-      runtime: 'openclaw',
       answers: { 'what-happened': 'The signup took two tries.' },
       agentId: sponsorId as never,
     })
     return id
   }
 
-  it('carries exactly the four fields a sponsor is entitled to', async () => {
+  it('carries exactly the two fields a sponsor is entitled to', async () => {
     const id = await withAccepted()
 
     const response = await get(`/v1/quests/${id}/results`, sponsorKey)
 
     expect(response.statusCode).toBe(200)
     const [result] = response.json().results
-    expect(Object.keys(result).sort()).toEqual(['acceptedAt', 'answers', 'handle', 'runtime'])
-    expect(result.handle).toBe('ariadne')
-    expect(result.runtime).toBe('openclaw')
+    expect(Object.keys(result).sort()).toEqual(['acceptedAt', 'answers'])
   })
 
   it.each([
+    /**
+     * The two that were here until 2026-08-05 and are now on the denylist
+     * (`#328`). `kolonie.quests.results` promises in bold that a sponsor never
+     * learns who wrote what, and these are the two fields that broke it.
+     */
+    'handle',
+    'runtime',
     'agentId',
     'email',
     'mailbox',
@@ -565,14 +568,10 @@ describe('GET /v1/quests/:questId/results', () => {
     await post(`/v1/quests/${id}/publish`, stewardKey)
     quests.accept({
       taskId: id as TaskId,
-      handle: 'a',
-      runtime: 'openclaw',
       answers: { worked: 'yes', notes: 'It was quick.' },
     })
     quests.accept({
       taskId: id as TaskId,
-      handle: 'b',
-      runtime: 'kilo',
       answers: { worked: 'yes', notes: 'Two tries.' },
     })
 
@@ -591,8 +590,6 @@ describe('GET /v1/quests/:questId/results/export', () => {
     await post(`/v1/quests/${id}/publish`, stewardKey)
     quests.accept({
       taskId: id as TaskId,
-      handle: 'ariadne',
-      runtime: 'openclaw',
       answers: { 'what-happened': 'It worked, eventually' },
     })
     return id
@@ -606,8 +603,10 @@ describe('GET /v1/quests/:questId/results/export', () => {
     expect(response.statusCode).toBe(200)
     expect(response.headers['content-type']).toContain('text/csv')
     const [header, row] = response.body.split('\n')
-    expect(header).toBe('handle,runtime,acceptedAt,what-happened')
-    expect(row).toContain('ariadne,openclaw')
+    expect(header).toBe('acceptedAt,what-happened')
+    // The row opens with the timestamp, because the two columns in front of it
+    // named the author and left with `#328`.
+    expect(row).not.toContain('ariadne')
     // The answer itself is one quoted cell, which the next test is about.
     expect(row).toContain('"It worked, eventually"')
   })
@@ -626,7 +625,7 @@ describe('GET /v1/quests/:questId/results/export', () => {
     const response = await get(`/v1/quests/${id}/results/export?format=json`, sponsorKey)
 
     const [result] = JSON.parse(response.body).results
-    expect(Object.keys(result).sort()).toEqual(['acceptedAt', 'answers', 'handle', 'runtime'])
+    expect(Object.keys(result).sort()).toEqual(['acceptedAt', 'answers'])
   })
 
   it('refuses a format that is neither', async () => {
@@ -654,8 +653,6 @@ describe('GET /v1/quests/:questId/answer', () => {
     const citizen = store.issue({})
     quests.accept({
       taskId: id as TaskId,
-      handle: 'ariadne',
-      runtime: 'openclaw',
       answers: { 'what-happened': 'The signup took two tries.' },
       agentId: citizen.agent.id,
     })

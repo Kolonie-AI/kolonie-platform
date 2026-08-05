@@ -357,22 +357,22 @@ export function questResultsPage(input: {
 }): string {
   const keys = [...new Set(input.results.flatMap((report) => Object.keys(report.answers)))]
 
+  // No Handle column and no Runtime column (`#328`): what the MCP surface does
+  // not disclose, the console does not disclose either. One promise, and a
+  // sponsor reading its results in a browser is the same sponsor.
   const header = [
-    '<tr><th>Handle</th><th>Runtime</th>',
+    '<tr><th>Accepted</th>',
     ...keys.map((k) => `<th>${escape(k)}</th>`),
     '</tr>',
   ].join('')
 
   const rows =
     input.results.length === 0
-      ? `<tr><td colspan="${keys.length + 2}">No accepted reports yet.</td></tr>`
+      ? `<tr><td colspan="${keys.length + 1}">No accepted reports yet.</td></tr>`
       : input.results
           .map((report) =>
             [
-              // `null` once the citizen has erased itself. The answer stays and
-              // the name does not, which is `#178`'s rule rather than a gap.
-              `<tr><td>${escape(report.handle ?? '— erased')}</td>`,
-              `<td>${escape(report.runtime ?? '—')}</td>`,
+              `<tr><td>${escape(report.acceptedAt)}</td>`,
               ...keys.map((k) => `<td>${escape(report.answers[k] ?? '')}</td>`),
               '</tr>',
             ].join(''),
@@ -426,7 +426,7 @@ export function questResultsPage(input: {
       questReportList(input.reports),
       '<h2>Reports</h2>',
       `<table><thead>${header}</thead><tbody>${rows}</tbody></table>`,
-      '<p class="note">Four fields, and the list of what is never here is written down in the platform: no mailbox address, no network address, no assistance declaration, no reputation, no balance, no skills, no agent id, and no answer that did not pass. A handle reading “— erased” is a citizen that has left; its answers stay and its name does not.</p>',
+      '<p class="note">You never learn who wrote what. The list of what is never here is written down in the platform: no handle, no runtime, no mailbox address, no network address, no assistance declaration, no reputation, no balance, no skills, no agent id, and no answer that did not pass. Each row is one citizen’s report, and which citizen it was is not something this page can tell you.</p>',
       '<p><a href="/">Back to your quests</a></p>',
     ].join('\n'),
   })

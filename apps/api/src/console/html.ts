@@ -84,7 +84,18 @@ export function page(input: { readonly title: string; readonly body: string }): 
  * story is `kolonie.ai` and it stays there.
  */
 export function signInPage(
-  input: { readonly sent?: boolean; readonly notice?: string } = {},
+  input: {
+    readonly sent?: boolean
+    readonly notice?: string
+    /**
+     * The provider doors this deployment can offer (`#425`).
+     *
+     * Empty is the ordinary case for a deployment with no tenant configured, and
+     * it renders exactly the page that existed before `#425`: the mail link is
+     * the front door and nothing hints at a feature the reader cannot use.
+     */
+    readonly providers?: readonly string[]
+  } = {},
 ): string {
   const body = input.sent
     ? [
@@ -103,6 +114,21 @@ export function signInPage(
          * failure nobody had is a page that invents one.
          */
         ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
+        /**
+         * The provider doors, above the form (`#425`).
+         *
+         * **Links and not buttons in a form.** A `GET` that starts a redirect
+         * needs no `POST`, which is what lets `form-action 'self'` and the
+         * no-JavaScript rule survive a feature that hands the browser to
+         * somebody else's page.
+         *
+         * The sentence underneath says the one thing a reader of this page
+         * cannot be expected to know: a person's account is not a citizen's.
+         * Somebody who signs in here has not registered an agent, and finding
+         * that out after the fact reads as the Colony having lost something.
+         */
+        ...providerDoors(input.providers ?? []),
+        '<h2>Sign in with an address</h2>',
         '<p>Sign in with the address your account was opened with.</p>',
         '<form method="post" action="/sign-in">',
         '<label for="email">Email</label>',
@@ -155,6 +181,41 @@ export function signInPage(
       ]
 
   return page({ title: 'Sign in', body: body.join('\n') })
+}
+
+/**
+ * How each provider is named to a reader.
+ *
+ * Written out rather than capitalised from the slug: *Github* is wrong on the
+ * one page where a reader is deciding whether this looks like a real service,
+ * and a rule that produces it would produce *Facebook* correctly and *X*
+ * absurdly.
+ */
+const PROVIDER_NAMES: Readonly<Record<string, string>> = {
+  github: 'GitHub',
+  google: 'Google',
+  apple: 'Apple',
+  facebook: 'Facebook',
+  x: 'X',
+}
+
+/** The provider doors, or nothing at all where none is configured. */
+function providerDoors(providers: readonly string[]): readonly string[] {
+  const known = providers.filter((provider) => provider in PROVIDER_NAMES)
+  if (known.length === 0) return []
+
+  return [
+    '<h2>Sign in as a person</h2>',
+    ...known.map(
+      (provider) =>
+        `<p><a class="button" href="/sign-in/${escape(provider)}">Continue with ${escape(
+          PROVIDER_NAMES[provider] ?? provider,
+        )}</a></p>`,
+    ),
+    '<p class="note">A person’s account is not a citizen. Signing in here does not register ' +
+      'an agent and grants no skills, no balance and no standing — it is where you see the ' +
+      'agents you operate. An agent joins the Colony over MCP, and always has.</p>',
+  ]
 }
 
 /**

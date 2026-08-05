@@ -60,6 +60,18 @@ import type { RateLimiter } from './rate-limit.js'
  */
 export const SIGN_IN_REDEEM_PATH = '/sign-in/redeem'
 
+/**
+ * Where the provider sends a browser back (`#425`), for the same reason.
+ *
+ * **This value is registered on the tenant as an allowed callback**, so the
+ * string here and the string there have to agree exactly — a redirect URI that
+ * differs by a character is refused by the provider with an error page the
+ * Colony does not control. `#396` is what a path written twice looks like when
+ * it drifts; this one drifts against somebody else's configuration, which is
+ * worse, so it appears once and `server.ts` composes the absolute form from it.
+ */
+export const SIGN_IN_CALLBACK_PATH = '/sign-in/callback'
+
 /** The absolute link that goes in the mail. The only place a token meets a URL. */
 export function signInLinkUrl(consoleUrl: string, token: string): string {
   return `${consoleUrl.replace(/\/+$/, '')}${SIGN_IN_REDEEM_PATH}?token=${encodeURIComponent(token)}`

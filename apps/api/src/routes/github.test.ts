@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ERROR_STATUS } from '@kolonie-ai/core'
@@ -106,6 +107,7 @@ const baseDependencies = () => ({
   injection: fakeInjection(),
   vetting: fakeVetting(),
   authenticator: fakeAuthenticator(),
+  humans: fakeHumans(),
 })
 
 beforeEach(async () => {

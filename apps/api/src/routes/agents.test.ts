@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
@@ -54,6 +55,7 @@ let app: FastifyInstance
 
 const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
   app = buildApp({
+    humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),

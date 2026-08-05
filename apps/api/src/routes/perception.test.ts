@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { CAPABILITY_STAGE, PERCEPTION_STAGE, perceptionCodeFor } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
@@ -62,6 +63,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
   challenges = fakeChallenges()
   academy = { ...fakeAcademy('passed', challenges), ...overrides }
   return buildApp({
+    humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),

@@ -4,6 +4,7 @@ import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
+import type { HumanDependencies } from './humans/humans.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { StandingHintSource } from './hints.js'
 import type { SkillNotes } from './skills.js'
@@ -259,6 +260,14 @@ export interface AppDependencies {
   readonly accounts: AccountDependencies
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
   readonly console: ConsoleDependencies
+  /**
+   * People with accounts (`#425`).
+   *
+   * The store is always there — a person's account is a table, not a
+   * configuration — and the tenant is not: absent, the console offers the mail
+   * link alone, which is what it offered before this existed.
+   */
+  readonly humans: HumanDependencies
   /**
    * The range a citizen may declare its wake-up rhythm inside (#142).
    *

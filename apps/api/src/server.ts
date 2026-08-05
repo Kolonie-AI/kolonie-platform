@@ -23,7 +23,9 @@ import { databaseErasureDesk, erasure } from './erasure.js'
 import { databaseRetesting } from './retest.js'
 import { databaseRegistry } from './registration.js'
 import { databaseChallenges, hcaptchaService } from './academy.js'
-import { databaseConsoleStore } from './console.js'
+import { SIGN_IN_CALLBACK_PATH, databaseConsoleStore } from './console.js'
+import { databaseHumanStore } from './humans/humans.js'
+import { auth0Tenant } from './humans/auth0.js'
 import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { mailerFromEnv } from './mail-config.js'
@@ -212,6 +214,46 @@ if ((process.env['CONSOLE_URL'] ?? '') === '') {
   log.warn('autonomy form disabled — CONSOLE_URL not set', {
     event: 'autonomy.form.disabled',
     variables: 'CONSOLE_URL',
+  })
+}
+
+/**
+ * The identity provider, or nothing at all (`#425`).
+ *
+ * **All three or none.** A domain with no secret would render a *Continue with
+ * GitHub* button whose redirect the tenant refuses, and a stranger's first
+ * impression of the Colony would be somebody else's error page. Nothing here is
+ * required to boot: with none of them set the console is the mail link, which is
+ * what it was before this existed.
+ *
+ * The redirect URI is composed from `CONSOLE_URL` rather than configured
+ * separately — it is a path on a host this process already knows, and a fourth
+ * variable naming the same host is a fourth thing to get wrong. It must match a
+ * callback registered on the tenant exactly, which is why it is built from the
+ * one constant the route is registered at.
+ */
+const auth0Domain = process.env['AUTH0_DOMAIN'] ?? ''
+const auth0ClientId = process.env['AUTH0_CONSOLE_CLIENT_ID'] ?? ''
+const auth0ClientSecret = process.env['AUTH0_CONSOLE_CLIENT_SECRET'] ?? ''
+const consoleUrlForAuth0 = (process.env['CONSOLE_URL'] ?? '').replace(/\/+$/, '')
+
+const auth0 =
+  auth0Domain !== '' &&
+  auth0ClientId !== '' &&
+  auth0ClientSecret !== '' &&
+  consoleUrlForAuth0 !== ''
+    ? auth0Tenant({
+        domain: auth0Domain,
+        clientId: auth0ClientId,
+        clientSecret: auth0ClientSecret,
+        redirectUri: `${consoleUrlForAuth0}${SIGN_IN_CALLBACK_PATH}`,
+      })
+    : undefined
+
+if (auth0 === undefined) {
+  log.warn('signing in with a provider is disabled — AUTH0_* or CONSOLE_URL not set', {
+    event: 'humans.provider.disabled',
+    variables: 'AUTH0_DOMAIN,AUTH0_CONSOLE_CLIENT_ID,AUTH0_CONSOLE_CLIENT_SECRET,CONSOLE_URL',
   })
 }
 
@@ -505,6 +547,19 @@ const app = buildApp({
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.
   accounts: { register: databaseAccounts(db), resolution: databaseAccountResolution(db) },
+  /**
+   * People with accounts (`#425`).
+   *
+   * The store is unconditional; the tenant appears only when all three
+   * variables are set. **Partly configured is treated as not configured**,
+   * deliberately: a domain with no secret would render a button that redirects
+   * to a page the tenant refuses, and a stranger's first impression of the
+   * Colony would be somebody else's error screen.
+   */
+  humans: {
+    store: databaseHumanStore(db),
+    ...(auth0 === undefined ? {} : { tenant: auth0 }),
+  },
   console: {
     store: databaseConsoleStore(db),
     // The same mailer the mailbox rung gets, present on the same three variables.

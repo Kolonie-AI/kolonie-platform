@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
@@ -67,6 +68,7 @@ const build = (webhookSecret: string | null = SECRET, watcher?: DepositWatcher) 
   store = fakeStore()
   desk = fakeDeposits()
   return buildApp({
+    humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),

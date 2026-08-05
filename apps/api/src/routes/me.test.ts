@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
@@ -55,6 +56,7 @@ let store: FakeStore
 const withStore = async () => {
   store = fakeStore()
   app = buildApp({
+    humans: fakeHumans(),
     quests: fakeQuests(),
     deposits: fakeDepositDependencies(fakeDeposits()),
     vault: { vault: fakeVault() },
@@ -409,6 +411,7 @@ describe('GET /v1/agents/me', () => {
         authenticate: async (key: string) => (lookups++, store.authenticate(key)),
       }
       app = buildApp({
+        humans: fakeHumans(),
         quests: fakeQuests(),
         deposits: fakeDepositDependencies(fakeDeposits()),
         vault: { vault: fakeVault() },

@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { API_KEY_PREFIX, type ApiError, type ApiKey, GetMeResponseSchema } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
@@ -93,6 +94,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('answers an initialize handshake over HTTP', async () => {
     app = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
@@ -147,6 +149,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('is served unversioned — MCP negotiates its own version', async () => {
     app = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
@@ -208,6 +211,7 @@ describe('the MCP surface over HTTP', () => {
    */
   it('completes the handshake at the address the agent guide documents', async () => {
     app = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
@@ -262,6 +266,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('still answers at /mcp, so a client configured before the change keeps working', async () => {
     app = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
@@ -316,6 +321,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('offers the same tools whichever of its addresses is used', async () => {
     app = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
@@ -379,6 +385,7 @@ describe('the MCP surface over HTTP', () => {
     // A stranger is who this surface exists for. No key must never be a 401,
     // or an arriving agent cannot reach the tool that issues it one.
     app = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
@@ -534,6 +541,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('refuses a key that does not resolve, the same way /v1 does', async () => {
     app = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },

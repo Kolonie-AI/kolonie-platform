@@ -258,7 +258,16 @@ describe('the migrations', () => {
     // exchange right — about one task, one open at a time, closed by the citizen,
     // words — are all wrong for this, which is the same argument `#239` made for
     // notes one surface along.
-    expect(afterFirst.tables).toBe('71')
+    //
+    // **Seventy-four** (`#425`): `humans`, `human_identities` and
+    // `human_sessions` — three at once, because a person's account is not one
+    // fact. The account is what other things hang off, the identities are a list
+    // so that signing in with a second provider finds the same person rather
+    // than making a new one, and the sessions are separate from `credentials`
+    // because that table returns an `Agent` and a person is not one. What the
+    // account may never hold — skills, balance, reputation, standing, votes — is
+    // the half `kolonie-docs#170` decided and the schema comment states.
+    expect(afterFirst.tables).toBe('74')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -322,7 +331,12 @@ describe('the migrations', () => {
     // world has to a citizen, on one attempt. An enum for the reason above: the
     // whole value is comparing across citizens, *every agent that passed had X*
     // is a count, and a sixth member would change what that count means.
-    expect(afterFirst.enums).toBe('38')
+    // And `identity_provider` makes thirty-nine (`#425`) — which door a person
+    // came in through. All five the design allows and not only the one switched
+    // on: the column has to accept whatever the tenant is later configured to
+    // offer, and a provider enabled in Auth0 but absent from the enum is
+    // somebody who signs in successfully and cannot be written down.
+    expect(afterFirst.enums).toBe('39')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

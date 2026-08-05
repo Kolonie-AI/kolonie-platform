@@ -1,3 +1,4 @@
+import { fakeHumans } from '../../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../../__fixtures__/artefact.js'
 import { API_KEY_PREFIX, RegisterAgentResponseSchema } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../../__fixtures__/deposits.js'
@@ -297,6 +298,7 @@ describe('kolonie.register', () => {
     // but that they cannot disagree. One registry, two doors.
     const registry = fakeRegistry()
     const app = buildApp({
+      humans: fakeHumans(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

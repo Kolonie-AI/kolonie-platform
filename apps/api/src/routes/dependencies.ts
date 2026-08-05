@@ -5,6 +5,7 @@ import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
 import type { ConsoleDependencies } from '../console.js'
+import type { HumanDependencies } from '../humans/humans.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { StandingHintSource } from '../hints.js'
 import type { WakeupSource } from '../wakeup.js'
@@ -182,6 +183,8 @@ export interface RouteDependencies {
   readonly accounts: AccountDependencies
   /** Browser sign-in and the console's own front door (`#172`). */
   readonly console: ConsoleDependencies
+  /** People with accounts, and the provider they sign in through (`#425`). */
+  readonly humans: HumanDependencies
   /** Resolved from `AppDependencies.rhythm`, so a route never sees `undefined`. */
   readonly rhythm: RhythmBounds
   /** Resolved from `AppDependencies.skillReleases`, so a route never sees `undefined`. */

@@ -93,3 +93,36 @@ export type OperatorNoteId = z.infer<typeof OperatorNoteIdSchema>
  */
 export const PermissionReportIdSchema = z.uuid().brand<'PermissionReportId'>()
 export type PermissionReportId = z.infer<typeof PermissionReportIdSchema>
+
+/**
+ * A person who signed in, and who is not a citizen (`#425`).
+ *
+ * **Branded apart from `AgentId` deliberately and not for tidiness.** A human
+ * account holds no skills, no balance, no reputation and no standing
+ * (`kolonie-docs#170`); an agent holds all four. The two are never
+ * interchangeable, and the one place a mix-up would be catastrophic — resolving
+ * who a session belongs to — is a place where the compiler now refuses the
+ * substitution rather than a place where a reviewer has to notice it.
+ */
+export const HumanIdSchema = z.uuid().brand<'HumanId'>()
+export type HumanId = z.infer<typeof HumanIdSchema>
+
+/**
+ * One provider identity a person signed in with (`#425`).
+ *
+ * Its own id because a person may attach several and detach one, and a row a
+ * caller cannot name is a row it cannot take back — the reason
+ * {@link PermissionReportIdSchema} gives, for the same shape.
+ */
+export const HumanIdentityIdSchema = z.uuid().brand<'HumanIdentityId'>()
+export type HumanIdentityId = z.infer<typeof HumanIdentityIdSchema>
+
+/**
+ * One browser session a person holds (`#425`, listed and ended by `#431`).
+ *
+ * Named by the person themselves — *end that one, I do not recognise it* — which
+ * is exactly the surface `#431` exists to provide, and the reason this id is
+ * carried out of storage rather than kept inside it.
+ */
+export const HumanSessionIdSchema = z.uuid().brand<'HumanSessionId'>()
+export type HumanSessionId = z.infer<typeof HumanSessionIdSchema>

@@ -1,6 +1,8 @@
 import type { AutonomyDependencies } from '../../autonomy.js'
 import type { OperatorClaimDependencies } from '../../operator-claim.js'
 import type { AccountDependencies } from '../../accounts.js'
+import { fakeHumans } from '../humans.js'
+import type { HumanDependencies } from '../../humans/humans.js'
 import { support as supportSurface, type Support } from '../../support.js'
 import { erasure as erasureSurface, type Erasure } from '../../erasure.js'
 import {
@@ -48,6 +50,8 @@ export interface FakeDesks {
   readonly erasureDesk: FakeErasureDesk
   /** The account register, behind both surfaces. Overridable the same way (#150). */
   readonly accounts: AccountDependencies
+  /** People with accounts, and the tenant they sign in through (`#425`). */
+  readonly humans: HumanDependencies
   readonly operatorClaim: OperatorClaimDependencies
   readonly autonomy: AutonomyDependencies
   /**
@@ -126,6 +130,7 @@ export function fakeDesks(): FakeDesks {
     erasure: erasureSurface({ desk: erasureDesk }),
     erasureDesk,
     accounts: fakeAccounts(),
+    humans: fakeHumans(),
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(pages, autonomyStore),
     autonomyStore,

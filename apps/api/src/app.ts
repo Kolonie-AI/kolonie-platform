@@ -91,6 +91,7 @@ export type { AppDependencies } from './dependencies.js'
  * `app.inject()` instead of binding a port.
  */
 export function buildApp({
+  humans,
   registry: unlimitedRegistry,
   store,
   catalogue,
@@ -307,6 +308,7 @@ export function buildApp({
    */
   const routes: RouteDependencies = {
     log,
+    humans,
     registry,
     store,
     catalogue,

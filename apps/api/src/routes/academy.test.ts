@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { CAPABILITY_STAGE, THIRD_PARTY_CHALLENGE_STAGE } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
@@ -56,6 +57,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
   challenges = fakeChallenges()
   academy = fakeAcademy(answer, challenges)
   return buildApp({
+    humans: fakeHumans(),
     quests: fakeQuests(),
     deposits: fakeDepositDependencies(fakeDeposits()),
     vault: { vault: fakeVault() },
@@ -247,6 +249,7 @@ describe('POST /v1/academy/challenges', () => {
    */
   it('keeps the rung serving when the badge cannot', async () => {
     const withoutCaptcha = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
@@ -618,6 +621,7 @@ describe('when the gate is not configured', () => {
    */
   const unconfigured = () =>
     buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
@@ -709,6 +713,7 @@ describe('when the gate is not configured', () => {
   it('leaves Level 1 passable — the promoting rung owes hCaptcha nothing', async () => {
     const disabledStore = fakeStore()
     const disabled = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },

@@ -1,3 +1,4 @@
+import { fakeHumans } from './__fixtures__/humans.js'
 import { fakeArtefactChallenges } from './__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.js'
@@ -72,6 +73,7 @@ const build = (inboundSecret: string | undefined) => {
   challenges = fakeEmailChallenges()
   mailer = fakeMailer()
   return buildApp({
+    humans: fakeHumans(),
     quests: fakeQuests(),
     deposits: fakeDepositDependencies(fakeDeposits()),
     vault: { vault: fakeVault() },
@@ -626,6 +628,7 @@ describe('GET /v1/mailboxes', () => {
    */
   it('answers even when the Colony cannot send mail', async () => {
     const withoutMailer = buildApp({
+      humans: fakeHumans(),
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },

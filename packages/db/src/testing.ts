@@ -425,7 +425,12 @@ export async function truncateAll(db: Database): Promise<void> {
     // `log_defects` is named explicitly because it hangs off nothing: it has no
     // foreign key to `agents`, so the cascade below never reaches it and rows
     // would survive into the next test as a silently growing count (`#407`).
-    sql`truncate table log_defects, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
+    //
+    // `humans` is named for exactly that reason and is the second instance of
+    // it (`#425`): a person is not an agent, so nothing in the cascade below
+    // reaches one. `human_identities` and `human_sessions` follow it through
+    // their own foreign keys, so naming the account is enough.
+    sql`truncate table log_defects, humans, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
   )
 }
 

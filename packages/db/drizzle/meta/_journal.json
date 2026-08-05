@@ -981,6 +981,13 @@
       "when": 1785957992525,
       "tag": "0139_a_sponsor_may_keep_the_obstacles",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1785972976298,
+      "tag": "0140_a_person_who_joined_nothing",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ERROR_STATUS } from '@kolonie-ai/core'
@@ -71,6 +72,7 @@ beforeEach(async () => {
   quests = fakeQuests()
   console_ = { ...fakeConsole(), consoleUrl: CONSOLE_URL }
   app = buildApp({
+    humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: console_,
@@ -612,6 +614,7 @@ describe('when the console throws', () => {
     const failing = fakeQuests()
     const boom = new Error(`ENOENT: no such file, open '${process.cwd()}/secret.txt'`)
     const app2 = buildApp({
+      humans: fakeHumans(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },

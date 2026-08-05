@@ -679,6 +679,30 @@ describe('nothing decides on a session', () => {
      */
     'memory-codes.ts',
     'memory-codes.test.ts',
+    /**
+     * **`humans.ts`, which says `sessionId` about a different kind of session
+     * entirely** (`#425`).
+     *
+     * This is the one entry in the list that is not an argument about what a
+     * session may decide — it is an argument that the word means something else
+     * here. A `human_sessions` row is a person's browser cookie: it is not
+     * declared by anybody, it is minted by the Colony, and no citizen can name
+     * one or influence one. It never reaches `agent_sessions`, no Academy rung
+     * reads it, and nothing about a skill, a reward, a rung or an eligibility is
+     * downstream of it.
+     *
+     * What it does decide is *whether this browser is signed in*, which is the
+     * whole purpose of a session cookie and is not the axis this rule protects.
+     * The filter above matches on the word rather than the table, deliberately
+     * — that is what catches a hand-written join — and the cost of that
+     * precision is exactly this entry.
+     *
+     * If a human session ever becomes something a citizen can name, or anything
+     * an Academy verdict reads, this entry is where the argument has to be
+     * revisited.
+     */
+    'humans.ts',
+    'humans.test.ts',
   ])
 
   it('is referenced by no storage module that decides anything', async () => {

@@ -1,3 +1,4 @@
+import { fakeHumans } from './__fixtures__/humans.js'
 import { fakeArtefactChallenges } from './__fixtures__/artefact.js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.js'
@@ -46,6 +47,7 @@ let app: FastifyInstance
 
 beforeAll(async () => {
   app = buildApp({
+    humans: fakeHumans(),
     email: fakeEmail(),
     registry: fakeRegistry(),
     store: fakeStore(),

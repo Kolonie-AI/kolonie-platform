@@ -1,3 +1,4 @@
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
@@ -74,6 +75,7 @@ const someProfile: AgentProfile = {
 const withStore = async (): Promise<FakeStore> => {
   const store = fakeStore()
   app = buildApp({
+    humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),

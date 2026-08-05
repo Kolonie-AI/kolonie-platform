@@ -10,6 +10,7 @@ import {
   AuthorityActionSchema,
   BanMarkKindSchema,
   CitizenshipStatusSchema,
+  IdentityProviderSchema,
   InboundRouteSchema,
   CredentialKindSchema,
   EmailChallengePurposeSchema,
@@ -361,3 +362,16 @@ export const providerReportOutcome = pgEnum(
  * nullable as well.
  */
 export const inboundRoute = pgEnum('inbound_route', valuesOf(InboundRouteSchema.options))
+
+/**
+ * Which door a person came in through (`#425`).
+ *
+ * All five the design allows, not only the one that is switched on: the column
+ * has to accept whatever the tenant is later configured to offer, and a
+ * provider enabled in Auth0 but absent from this enum is a person who signs in
+ * successfully and cannot be written down.
+ */
+export const identityProvider = pgEnum(
+  'identity_provider',
+  valuesOf(IdentityProviderSchema.options),
+)

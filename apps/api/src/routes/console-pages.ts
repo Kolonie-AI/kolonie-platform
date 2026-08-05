@@ -13,6 +13,7 @@ import {
   CHECK_YOUR_MAIL,
   KEY_MINT_CONFIRM_PATH,
   RequestLinkSchema,
+  SIGN_IN_CALLBACK_PATH,
   SIGN_IN_REDEEM_PATH,
   SignUpSchema,
   redeemKeyMint,
@@ -53,8 +54,18 @@ import {
 } from '../quests.js'
 import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
-import { sessionCookie } from './authenticated.js'
+import { cookieValue, sessionCookie } from './authenticated.js'
 import { SESSION_COOKIE } from './console.js'
+import { mintOauthState } from '../humans/auth0.js'
+import {
+  OAUTH_STATE_COOKIE,
+  OFFERED_PROVIDERS,
+  browserFamily,
+  clearedOauthStateCookie,
+  coarseLocation,
+  oauthStateCookie,
+  stateMatches,
+} from '../humans/humans.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -123,6 +134,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return true
   }
 
+  /**
+   * The provider doors this deployment can actually offer (`#425`).
+   *
+   * Read once, from whether a tenant was configured — not from a list in the
+   * page. A button that leads to a 404 is worse than no button, and the only
+   * thing that knows whether the redirect has anywhere to go is the dependency.
+   */
+  const providers = deps.humans.tenant === undefined ? [] : OFFERED_PROVIDERS
+
   /** Whoever this is, or `null` — without sending a refusal, which the pages own. */
   const caller = async (request: FastifyRequest) => {
     const authenticated = await authenticate(
@@ -146,7 +166,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const agent = await caller(request)
     if (agent === null) {
       return wantsHtml(request)
-        ? html(reply, signInPage())
+        ? html(reply, signInPage({ providers }))
         : reply.send({ signedIn: false, signIn: '/sign-in' })
     }
 
@@ -177,7 +197,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const parsed = RequestLinkSchema.safeParse(request.body)
     if (!parsed.success) {
       return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS.validation_failed), signInPage())
+        ? html(reply.status(ERROR_STATUS.validation_failed), signInPage({ providers }))
         : reply.status(ERROR_STATUS.validation_failed).send({
             code: 'validation_failed',
             message: 'A sign-in request carries one field: `email`.',
@@ -192,12 +212,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     if (result.outcome === 'rejected') {
       return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS[result.error.code]), signInPage())
+        ? html(reply.status(ERROR_STATUS[result.error.code]), signInPage({ providers }))
         : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
     return wantsHtml(request)
-      ? html(reply.status(200), signInPage({ sent: true }))
+      ? html(reply.status(200), signInPage({ sent: true, providers }))
       : reply.status(202).send(CHECK_YOUR_MAIL)
   })
 
@@ -223,7 +243,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const parsed = SignUpSchema.safeParse(request.body)
     if (!parsed.success) {
       return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS.validation_failed), signInPage())
+        ? html(reply.status(ERROR_STATUS.validation_failed), signInPage({ providers }))
         : reply.status(ERROR_STATUS.validation_failed).send({
             code: 'validation_failed',
             message: 'A sign-up carries one field, `email`, and may carry a `name`.',
@@ -238,7 +258,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     if (result.outcome === 'name-taken') {
       return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS.conflict), signInPage())
+        ? html(reply.status(ERROR_STATUS.conflict), signInPage({ providers }))
         : reply.status(ERROR_STATUS.conflict).send({
             code: 'conflict',
             message: `The name "${result.name}" is taken.`,
@@ -247,7 +267,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     if (result.outcome === 'rejected') {
       return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS[result.error.code]), signInPage())
+        ? html(reply.status(ERROR_STATUS[result.error.code]), signInPage({ providers }))
         : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
@@ -293,7 +313,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS[result.error.code]),
-            signInPage({ notice: result.error.message }),
+            signInPage({ notice: result.error.message, providers }),
           )
         : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
@@ -308,6 +328,113 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply.status(303).header('location', '/').send()
       : reply.status(200).send({ agentId: result.agentId })
+  })
+
+  /**
+   * The way out to the provider (`#425`).
+   *
+   * A `GET` and a redirect, so the page that offers it needs no form, no
+   * JavaScript and no change to `form-action`. The `state` is minted here, put
+   * in a `__Host-` cookie, and checked when it comes back — without it, a
+   * callback prepared by somebody else and delivered to this browser signs this
+   * person into that person's account.
+   *
+   * **404 when no tenant is configured**, which is the same answer the path gave
+   * before this feature existed. A route that answered *not configured* would
+   * tell a stranger what the deployment is missing, and a person who never saw
+   * the button has no reason to be here.
+   */
+  app.get('/sign-in/:provider', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const { provider } = request.params as { provider?: string }
+    const tenant = deps.humans.tenant
+    const offered = OFFERED_PROVIDERS.find((known) => known === provider)
+
+    if (tenant === undefined || offered === undefined) {
+      return wantsHtml(request)
+        ? html(reply.status(404), notFoundPage())
+        : reply.status(404).send({ code: 'not_found', message: 'No such sign-in route.' })
+    }
+
+    const state = mintOauthState()
+
+    return reply
+      .status(303)
+      .header('set-cookie', oauthStateCookie(state))
+      .header('location', tenant.authorizeUrl({ connection: offered, state }))
+      .send()
+  })
+
+  /**
+   * And the way back (`#425`).
+   *
+   * Three things have to be true before a session is issued, and each of them is
+   * a different attack if it is not: the browser presents the state it was
+   * given, the tenant recognises the code, and the profile carries a subject.
+   * Any of them missing renders the sign-in page with a plain sentence — never
+   * with the provider's own error text, which is somebody else's wording
+   * arriving through the query string.
+   *
+   * **The state cookie is cleared on every path out of here**, including the
+   * failures. A one-time value that survives its use is not one-time.
+   */
+  app.get(SIGN_IN_CALLBACK_PATH, async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    reply.header('set-cookie', clearedOauthStateCookie())
+
+    const tenant = deps.humans.tenant
+    if (tenant === undefined) {
+      return wantsHtml(request)
+        ? html(reply.status(404), notFoundPage())
+        : reply.status(404).send({ code: 'not_found', message: 'No such sign-in route.' })
+    }
+
+    const query = request.query as { code?: unknown; state?: unknown }
+    const refuse = (notice: string): FastifyReply =>
+      wantsHtml(request)
+        ? html(reply.status(ERROR_STATUS.validation_failed), signInPage({ notice, providers }))
+        : reply.status(ERROR_STATUS.validation_failed).send({
+            code: 'validation_failed',
+            message: notice,
+          })
+
+    if (!stateMatches(cookieValue(request.headers.cookie, OAUTH_STATE_COOKIE), query.state)) {
+      return refuse('That sign-in did not start in this browser, or it took too long. Try again.')
+    }
+
+    if (typeof query.code !== 'string' || query.code === '') {
+      return refuse('The provider sent us back without a sign-in. Nothing was changed.')
+    }
+
+    const identity = await tenant.exchangeCode(query.code)
+    if (identity === undefined) {
+      return refuse('The provider could not confirm that sign-in. Nothing was changed.')
+    }
+
+    const { human } = await deps.humans.store.findOrCreate(identity)
+    const session = await deps.humans.store.openSession(human.id, {
+      browser: browserFamily(request.headers['user-agent']),
+      location: coarseLocation(request.headers as Record<string, unknown>),
+    })
+
+    /**
+     * Both cookies in one reply: the state is cleared and the session is set.
+     * `reply.header` replaces, so they are appended as an array — a second
+     * `set-cookie` written the obvious way silently drops the first, and the
+     * symptom is a state cookie that outlives its handover.
+     */
+    reply.header('set-cookie', [
+      clearedOauthStateCookie(),
+      `${SESSION_COOKIE}=${session.session}; Max-Age=${session.maxAgeSeconds}; Path=/; Secure; HttpOnly; SameSite=Lax`,
+    ])
+
+    // Redirected rather than rendered, for the reason the mail link is: the code
+    // leaves the address bar, and history holds a page rather than a credential.
+    return wantsHtml(request)
+      ? reply.status(303).header('location', '/').send()
+      : reply.status(200).send({ signedIn: true })
   })
 
   /**

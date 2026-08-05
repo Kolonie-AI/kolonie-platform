@@ -1,3 +1,4 @@
+import { fakeHumans } from './__fixtures__/humans.js'
 import { fakeArtefactChallenges } from './__fixtures__/artefact.js'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.js'
@@ -62,6 +63,7 @@ describe('the console front door', () => {
     store = fakeStore()
 
     return buildApp({
+      humans: fakeHumans(),
       registry: fakeRegistry(),
       store,
       catalogue: fakeCatalogue(),

@@ -235,6 +235,34 @@ describe('schema', () => {
         'erasures',
         'github_challenges',
         /**
+         * A person's provider identities, keyed `(provider, subject)` (`#425`).
+         *
+         * A list rather than two columns on `humans`, because somebody who
+         * signs in with GitHub today and Google tomorrow is one person — and a
+         * pair on the account itself would have forced a second account on them
+         * the first time they used the other door.
+         */
+        'human_identities',
+        /**
+         * A person's browser sessions (`#425`), listed and ended by `#431`.
+         *
+         * Not a `credentials` row, deliberately: that table's `agent_id` is
+         * `not null` and the function that reads it returns an `Agent` with its
+         * skills. Making a person fit there would put a human on the path where
+         * a mistake hands somebody a citizen's authority; a separate table makes
+         * that substitution impossible to write rather than merely wrong.
+         */
+        'human_sessions',
+        /**
+         * A person with an account, who is **not** a citizen (`#425`,
+         * `kolonie-docs#170`).
+         *
+         * Three columns, and the list of what it may never hold is the
+         * load-bearing half: no skills, no balance, no reputation, no standing,
+         * no votes. Those are what a citizen climbed for.
+         */
+        'humans',
+        /**
          * `image_challenges` joined with the image rung (#60). Its columns are
          * the five constraints a vision model is asked about one at a time,
          * which is why they are columns rather than a blob: they are read by a

@@ -241,6 +241,26 @@ ${declarations(LOCAL_TOKENS)}
   }
   button:hover { background: var(--k-accent-strong); border-color: var(--k-accent-strong); }
 
+  /* A link that starts a redirect, dressed as the button it is doing the job of
+     (#425). It is an anchor and not a form so that a GET hands the browser to
+     the provider — which is what leaves form-action 'self' and the absence of
+     JavaScript both intact. */
+  a.button {
+    display: inline-block;
+    font-weight: 600;
+    color: var(--k-on-accent);
+    background: var(--k-accent);
+    border: var(--k-border) solid var(--k-accent);
+    border-radius: var(--k-radius);
+    padding: var(--k-space-2) var(--k-space-5);
+    text-decoration: none;
+  }
+  a.button:hover {
+    color: var(--k-on-accent);
+    background: var(--k-accent-strong);
+    border-color: var(--k-accent-strong);
+  }
+
   .note { color: var(--k-text-faint); font-size: var(--k-text-sm); }
   .note strong { color: var(--k-text-muted); }
 

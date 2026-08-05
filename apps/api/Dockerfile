@@ -27,6 +27,17 @@ RUN npm prune --omit=dev
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+# npm's update notifier, off (kolonie-infra#81).
+#
+# It writes five lines into the log on every container boot — a production
+# container being told about an npm release — and on a day with roughly fifteen
+# deploys that is a few hundred lines whose information content is zero. Worse,
+# they are unlabelled, so they were the reason this image's unlabelled count
+# looked alarming while its own logging was in fact properly structured.
+#
+# Set in the image rather than as a flag at one call site, so it holds for every
+# command the container runs, including one a later hand adds.
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 # What this image cannot start without, for the deploy that has to provide it
 # (kolonie-infra#42). `preflight_env()` in kolonie-infra/scripts/deploy.sh reads

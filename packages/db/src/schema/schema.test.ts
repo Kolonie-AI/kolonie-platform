@@ -358,6 +358,15 @@ describe('schema', () => {
          * afterwards, in work that has nothing to do with the examination.
          */
         'skill_notes',
+        /**
+         * `sms_sends` joined with the phone rungs (`#409`). One row per message
+         * the vendor accepted, which is what the two spend caps are counted off
+         * — so it is load-bearing rather than an audit trail. It exists at all
+         * because this is the only place in the Colony where a citizen's input
+         * causes money to leave, and the answer to *what has this cost us* must
+         * not have to come from a vendor's console.
+         */
+        'sms_sends',
         'social_challenges',
         /**
          * `solana_wallet_challenges` joined with the wallet rung

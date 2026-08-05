@@ -243,7 +243,15 @@ describe('the migrations', () => {
     // *have I filed it* and *how many today* on every tick, and the third could
     // not be scraped out of GitHub: a cap that a restart forgets is a cap in
     // name only.
-    expect(afterFirst.tables).toBe('69')
+    //
+    // **Seventy** (`#409`): `sms_sends`, one row per message the vendor
+    // accepted. It is here rather than in a log because the two spend caps are
+    // counted off it — this is the only place in the Colony where a citizen's
+    // input causes money to leave, Twilio has no true prepaid mode, and so the
+    // ceiling has to be ours. What it does *not* hold is the message body: the
+    // row answers *how many, to where, at what price*, and a code the Colony
+    // sent is worth nothing the moment it is used.
+    expect(afterFirst.tables).toBe('70')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

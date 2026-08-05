@@ -1071,6 +1071,20 @@ describe('the erasure boundary', () => {
       'scene_challenges.agent_id c',
       /** `#348`. Cascades, on `task_notes`' terms: written to nobody but its author. */
       'skill_notes.agent_id c',
+      /**
+       * `#409`. Cascades, and the consequence is worth naming rather than
+       * inheriting: an erased citizen's sends stop counting toward the global
+       * daily cap, so an erasure frees a little headroom on the Colony's own
+       * spend ceiling.
+       *
+       * Accepted, because the alternative is keeping a row that points at a
+       * citizen the Colony has promised to forget — and the row holds a phone
+       * number belonging to a person, which is the most identifying column in
+       * the table. The cap is a bound on runaway spend rather than an
+       * accounting ledger, and `erasure.md` §2 already puts what a citizen
+       * tried among the things that do not survive.
+       */
+      'sms_sends.agent_id c',
       'social_challenges.agent_id c',
       'solana_wallet_challenges.agent_id c',
       'submissions.agent_id c',

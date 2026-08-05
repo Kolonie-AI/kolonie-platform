@@ -1,0 +1,1 @@
+ALTER TYPE "public"."provider_report_outcome" ADD VALUE 'no-service' BEFORE 'signup-refused';

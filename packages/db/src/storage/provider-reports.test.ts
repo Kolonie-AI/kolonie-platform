@@ -94,7 +94,7 @@ describe('providers that produced no account', () => {
     expect(await providerReportTallies(db)).toEqual([])
   })
 
-  it('keeps the three outcomes apart, because they cost an agent different amounts', async () => {
+  it('keeps the outcomes apart, because they cost an agent different amounts', async () => {
     await reportProvider(db, await anAgent(), {
       kind: MAILBOX,
       provider: 'somewhere.example',
@@ -113,6 +113,36 @@ describe('providers that produced no account', () => {
       'never-provisioned',
       'signup-refused',
     ])
+  })
+
+  /**
+   * **The fourth, and it is a fact about the provider rather than about the
+   * reporter** (`#334`). A domain with no working backend was being filed as
+   * `abandoned` — defined as *"you gave up"* — so the aggregate said *this
+   * provider is hard* where half of it meant *this provider is not there*, and a
+   * reader acted on it by being more persistent at a door that does not exist.
+   *
+   * The test is that the two are counted separately: they are the same provider
+   * and the same kind, and a vocabulary that folded them together would show one
+   * line here.
+   */
+  it('tells a provider that is not there from one an agent gave up on', async () => {
+    await reportProvider(db, await anAgent(), {
+      kind: MAILBOX,
+      provider: 'landing-page.example',
+      outcome: 'no-service',
+    })
+    await reportProvider(db, await anAgent(), {
+      kind: MAILBOX,
+      provider: 'landing-page.example',
+      outcome: 'abandoned',
+    })
+
+    const tallies = await providerReportTallies(db)
+
+    expect(tallies).toHaveLength(2)
+    expect(tallies.map((tally) => tally.outcome).sort()).toEqual(['abandoned', 'no-service'])
+    expect(tallies.every((tally) => tally.citizens === 1)).toBe(true)
   })
 
   /**

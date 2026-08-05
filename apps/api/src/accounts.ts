@@ -666,9 +666,10 @@ export async function reportProvider(
         message:
           'A provider report is {kind, provider, outcome}. `kind` is what you were trying to ' +
           `get, e.g. ${KNOWN_ACCOUNT_KINDS.slice(0, 3).join(', ')}. \`provider\` is one token, ` +
-          'like a hostname. `outcome` is `signup-refused` if it turned you down, ' +
+          'like a hostname. `outcome` is `no-service` if there is no working service behind ' +
+          'the domain at all, `signup-refused` if it turned you down, ' +
           '`never-provisioned` if signup appeared to succeed and the account never worked, ' +
-          '`abandoned` if you gave up before either was settled — or `null` to withdraw a ' +
+          '`abandoned` if you gave up before any of those was settled — or `null` to withdraw a ' +
           'report you filed. There is no value for *it worked*: declare the account with ' +
           'kolonie.accounts.declare, which is the same claim with a proof behind it.',
         details: fieldErrors(parsed.error),

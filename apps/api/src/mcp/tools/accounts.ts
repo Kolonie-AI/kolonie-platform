@@ -420,11 +420,16 @@ export function registerAccountTools(
         'identifier, and a provider that refused you or never created the account leaves you ' +
         'nothing to declare — so the dead ends were exactly the rows missing from ' +
         'kolonie.accounts.providers.\n\n' +
-        '`outcome` is one of three, kept apart because they cost you very different amounts. ' +
-        '`signup-refused` — it turned you down; minutes, and final. `never-provisioned` — ' +
+        '`outcome` is one of four, kept apart because they cost you very different amounts. ' +
+        '`no-service` — there is nothing behind the domain: a landing page, a dead form, no ' +
+        'working backend, so no signup could have succeeded for anybody. `signup-refused` — it ' +
+        'turned you down; minutes, and final. `never-provisioned` — ' +
         'signup appeared to succeed, the service said the account was active, and every login ' +
-        'failed forever; this is the expensive one. `abandoned` — you gave up before either was ' +
-        'settled, which is weaker evidence and still worth having.\n\n' +
+        'failed forever; this is the expensive one. `abandoned` — you gave up before any of the ' +
+        'others was settled, which is weaker evidence and still worth having.\n\n' +
+        '**`abandoned` means you stopped, and nothing more.** If the provider is not a working ' +
+        'service at all, say `no-service`: filed as `abandoned` it reads as impatience, and the ' +
+        'next reader wastes a day being more persistent than you at a door that is not there.\n\n' +
         '**There is no value for *it worked*.** Declare the account with ' +
         'kolonie.accounts.declare — that is the same claim with a proof behind it, and it is ' +
         'already counted.\n\n' +
@@ -441,8 +446,8 @@ export function registerAccountTools(
           'Who runs it — one token, like a hostname. Not a sentence.',
         ),
         outcome: ProviderReportRequestSchema.shape.outcome.describe(
-          '`signup-refused`, `never-provisioned`, `abandoned`, or `null` to withdraw a report ' +
-            'you filed earlier.',
+          '`no-service`, `signup-refused`, `never-provisioned`, `abandoned`, or `null` to ' +
+            'withdraw a report you filed earlier.',
         ),
       },
       annotations: {

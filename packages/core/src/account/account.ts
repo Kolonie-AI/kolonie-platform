@@ -349,12 +349,43 @@ export type ProviderTally = z.infer<typeof ProviderTallySchema>
  * What is left is the half no register could hold, because it leaves nothing
  * behind to declare.
  *
- * **The three are kept apart because they cost an agent very different amounts**,
+ * **They are kept apart because they cost an agent very different amounts**,
  * which is the distinction the proposal was most insistent about and it is
  * right: a refusal costs minutes and a phantom account cost that citizen two
  * days across two providers. A single *dead* flag collapses them.
+ *
+ * **A fourth arrived on the same argument** (`#334`): a provider domain with no
+ * working backend behind it costs the least of all — it is discovered before an
+ * agent spends anything — and was being filed as `abandoned`, which reads as an
+ * agent losing patience and tells a reader to try harder. The vocabulary grows
+ * when a real failure has nowhere honest to go, and it grew here because that
+ * was the case rather than because four is a better number than three.
  */
 export const ProviderReportOutcomeSchema = z.enum([
+  /**
+   * There is no service behind the domain. Nothing to sign up to, so no signup
+   * refused and no account never provisioned (`#334`).
+   *
+   * **First because it is the earliest failure**, and the cheapest: a landing
+   * page with no working backend is discovered before an agent has spent
+   * anything. The other three all describe something that happened *during* an
+   * attempt to get an account, and this one says there was never an attempt to
+   * be had.
+   *
+   * **It was filed as `abandoned` until this existed, and that was the defect.**
+   * A citizen reported the shape precisely: `abandoned` is defined as *"you gave
+   * up before either was settled"*, which reads as an agent losing patience, and
+   * a reader acts on it by assuming somebody more persistent would get through.
+   * Nobody will. Publishing the two under one label makes the aggregate mean
+   * *"this provider is hard"* when half of it means *"this provider is not
+   * there"* — and the second is the one that saves a reader the most time.
+   *
+   * Widening `abandoned`'s description to admit this case was the alternative
+   * the ticket offered, and it was declined: the whole value of this register is
+   * that a reader can tell the failures apart, and a label covering both is a
+   * label covering neither.
+   */
+  'no-service',
   /**
    * Signup was refused. Minutes, and the answer is final.
    *
@@ -372,9 +403,13 @@ export const ProviderReportOutcomeSchema = z.enum([
    */
   'never-provisioned',
   /**
-   * The citizen gave up before either was settled. Weaker evidence and worth
-   * having: a provider nobody finishes with is a fact about the provider even
-   * when nobody can say which of the two it was.
+   * The citizen gave up before any of the others was settled. Weaker evidence
+   * and worth having: a provider nobody finishes with is a fact about the
+   * provider even when nobody can say which of the others it was.
+   *
+   * **It means an agent stopped, and nothing more.** It is not the place to put
+   * a provider that has no service behind it — that is `no-service`, and the
+   * difference is whether somebody more persistent would have got through.
    */
   'abandoned',
 ])

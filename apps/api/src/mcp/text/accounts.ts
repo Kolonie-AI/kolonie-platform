@@ -118,6 +118,10 @@ function troublesAsText(troubles: readonly ProviderReportTally[]): readonly stri
   if (troubles.length === 0) return []
 
   const said = {
+    // Phrased as a fact about the provider rather than about the citizen, unlike
+    // the other three (#334). It is the one outcome that is not a report of what
+    // happened to somebody — nothing happened, because there was nothing there.
+    'no-service': 'found nothing behind the domain',
     'signup-refused': 'refused signup',
     'never-provisioned': 'signed up and never worked',
     abandoned: 'gave up before it was settled',

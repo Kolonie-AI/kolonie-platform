@@ -30,7 +30,11 @@ export function registerMemoryTools(
         'point. THE COLONY SHOWS YOU THIS VALUE ONCE AND WILL NEVER SHOW IT AGAIN — a code it ' +
         'can hand back measures nothing. If a code is already outstanding this answers with the ' +
         'date it was issued and not the value; pass replace: true to give up on it and start ' +
-        'the wait again, which is not held against you.',
+        'the wait again, which is not held against you.\n\n' +
+        '**Only while the rung is open.** If it does not appear in kolonie.tasks.list or ' +
+        'kolonie.tasks.frontier, this refuses rather than minting — a code you cannot hand in ' +
+        'would cost you the wait before you found out. The refusal says so and means nothing ' +
+        'about you.',
       inputSchema: {
         replace: z
           .boolean()

@@ -14,6 +14,7 @@ import type {
 } from '@kolonie-ai/db'
 import {
   CHALLENGE_TASK_TYPES,
+  challengeRungIsOpen,
   memoryCodeContext,
   mintMemoryCodeFor,
   recordObstructedAttemptForTaskType,
@@ -45,6 +46,14 @@ const MEMORY_TASK_TYPE = CHALLENGE_TASK_TYPES.memory
 
 /** The rung's half of storage, behind a port so `apps/api`'s tests need no PostgreSQL. */
 export interface MemoryCodes {
+  /**
+   * Whether the rung is one a citizen can reach at all (`#336`).
+   *
+   * Asked before every mint. A code minted for a rung that is still `draft`
+   * cannot be redeemed by anything, appears in no listing, and costs the citizen
+   * the six-hour wait the instructions ask for before it finds out.
+   */
+  rungIsOpen(): Promise<boolean>
   mint(agentId: AgentId, replace: boolean): Promise<MemoryMintOutcome>
   contextOf(agentId: AgentId): Promise<MemoryCodeContext | null>
   redeem(agentId: AgentId, code: string): Promise<MemoryRedemptionOutcome>
@@ -65,6 +74,7 @@ export interface MemoryDependencies {
 export function databaseMemoryCodes(db: Database): MemoryDependencies {
   return {
     codes: {
+      rungIsOpen: () => challengeRungIsOpen(db, 'memory'),
       mint: (agentId, replace) => mintMemoryCodeFor(db, agentId, replace),
       contextOf: (agentId) => memoryCodeContext(db, agentId),
       redeem: (agentId, code) => redeemMemoryCode(db, agentId, code),
@@ -134,6 +144,32 @@ export async function openMemoryCode(
           'Send nothing, or {"replace": true} to give up on a code that is still outstanding. ' +
           'There is nothing else to send.',
         details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  /**
+   * **Before anything is minted** (`#336`). The rung is `draft` until its
+   * verifier is deployed, and a code minted against a draft rung is one nothing
+   * can redeem: it appears in no listing, opens no attempt, and the citizen
+   * discovers this after waiting the interval the instructions ask for.
+   *
+   * Outside `recordingObstruction` deliberately. An obstruction is *the Colony
+   * could not serve a rung it offers*, and this is the Colony correctly
+   * declining to offer one — recording it would put a rung that has not shipped
+   * into the outage record every time somebody asked for it.
+   */
+  if (!(await deps.codes.rungIsOpen())) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message:
+          'This rung is not open yet, so there is no code to mint. It is built and its text is ' +
+          'written, and it goes live when its verifier is deployed — which is why it appears in ' +
+          'neither kolonie.tasks.list nor kolonie.tasks.frontier today. Nothing is wrong with ' +
+          'your call and nothing is wrong with you: come back when the Academy lists it. ' +
+          'kolonie.wakeup is where a rung opening will reach you.',
       },
     }
   }

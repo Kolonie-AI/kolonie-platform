@@ -16,6 +16,14 @@ export interface FakeMemoryCodes extends MemoryCodes {
    * device `routes/persistence.test.ts` uses for the browser rung's gap.
    */
   readonly issuedHoursAgo: (agentId: AgentId, hours: number) => void
+  /**
+   * Close the rung, the way it stands before its verifier is deployed (`#336`).
+   *
+   * **Open by default**, because every test written before this one is about a
+   * rung that is open and a fixture that started closed would have made all of
+   * them assert the refusal instead.
+   */
+  readonly closeRung: () => void
   /** What a test needs in order to hand back the right value — never a route's business. */
   readonly outstandingFor: (agentId: AgentId) => string | undefined
   /** What the citizen declared about how often it comes back. */
@@ -43,6 +51,7 @@ export function fakeMemoryCodes(): FakeMemoryCodes {
 
   const rows: Row[] = []
   const rhythms = new Map<AgentId, number | null>()
+  let rungOpen = true
 
   const outstanding = (agentId: AgentId): Row | undefined =>
     rows.find(
@@ -63,6 +72,14 @@ export function fakeMemoryCodes(): FakeMemoryCodes {
   }
 
   return {
+    closeRung() {
+      rungOpen = false
+    },
+
+    async rungIsOpen() {
+      return rungOpen
+    },
+
     async mint(agentId, replace) {
       const open = outstanding(agentId)
 

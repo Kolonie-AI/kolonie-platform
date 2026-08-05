@@ -70,6 +70,44 @@ export const CHALLENGE_TASK_TYPES = {
 export type ChallengeName = keyof typeof CHALLENGE_TASK_TYPES
 
 /**
+ * Whether the rung a challenge belongs to is one a citizen can actually reach
+ * (`#336`).
+ *
+ * **Not the same question as {@link openAttemptForChallenge}'s, and the
+ * difference is the whole reason this exists.** That one deliberately never
+ * blocks a mint: it is instrumentation, and instrumentation that can refuse a
+ * citizen its rung is worse than none. So it answers `null` for a draft task and
+ * the caller carries on — which is right when the missing row means *this
+ * environment did not seed it*, and wrong when it means *this rung has not
+ * shipped*.
+ *
+ * A citizen found the second case. `academy.memory.code` minted it a valid,
+ * single-use code for a rung that is `draft` until its verifier is deployed, so
+ * the code appeared in neither `tasks.list` nor `tasks.frontier` and nothing
+ * could ever redeem it. It then waited the six hours the instructions ask for.
+ * **A challenge that cannot be handed in is worse than a refusal**, because the
+ * refusal costs a call and the code costs a wait plus the belief that the wait
+ * was the problem.
+ *
+ * So a *mint* asks this first, and an *attempt* still does not. `draft` is the
+ * only status this refuses on: a `retired` rung is one that was real, and a
+ * citizen holding an outstanding code from before the retirement is a case for
+ * the redeem path rather than the mint.
+ */
+export async function challengeRungIsOpen(
+  db: Database | Transaction,
+  challenge: ChallengeName,
+): Promise<boolean> {
+  const [task] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.type, CHALLENGE_TASK_TYPES[challenge]), sql`${tasks.status} <> 'draft'`))
+    .limit(1)
+
+  return task !== undefined
+}
+
+/**
  * Open an attempt for the task this challenge belongs to.
  *
  * **Never throws and never blocks the mint.** A challenge that could not be

@@ -55,7 +55,11 @@ import {
   unaidedPassRates,
 } from './attempts.js'
 import { reputationOfAgent } from './balance.js'
-import { openAttemptForChallenge, recordObstructedAttemptForTaskType } from './challenge-tasks.js'
+import {
+  challengeRungIsOpen,
+  openAttemptForChallenge,
+  recordObstructedAttemptForTaskType,
+} from './challenge-tasks.js'
 import { mintChallenge } from './challenges.js'
 import { createSubmission } from './submissions.js'
 import { fileReport } from './guidance.js'
@@ -806,6 +810,29 @@ describe('task attempts', () => {
 
       expect(await openAttemptForChallenge(db, 'email', agentId, null)).toBeNull()
       expect(await countAttempts()).toBe(0)
+    })
+
+    /**
+     * **The question a mint asks, which is not the question an attempt asks**
+     * (`#336`). `openAttemptForChallenge` answers `null` for a draft rung and
+     * lets the mint proceed, deliberately: instrumentation that can refuse a
+     * citizen its rung is worse than none. That is right when the missing row
+     * means *this environment did not seed it* and wrong when it means *this
+     * rung has not shipped* — a citizen was minted a live code for a rung listed
+     * nowhere, and waited six hours before anything could tell it.
+     */
+    it('says a draft rung is not open, while an active one is', async () => {
+      await aTask({ type: 'email-inbox', status: 'draft' })
+
+      expect(await challengeRungIsOpen(db, 'email')).toBe(false)
+
+      await db.update(tasks).set({ status: 'active' }).where(eq(tasks.type, 'email-inbox'))
+
+      expect(await challengeRungIsOpen(db, 'email')).toBe(true)
+    })
+
+    it('says a rung with no row at all is not open', async () => {
+      expect(await challengeRungIsOpen(db, 'email')).toBe(false)
     })
   })
   describe('the runtime snapshot', () => {

@@ -149,6 +149,42 @@ describe('POST /v1/academy/memory/codes', () => {
   })
 
   /**
+   * **A code nothing can redeem is worse than a refusal** (`#336`). The rung is
+   * `draft` until its verifier is deployed, so it appears in neither
+   * `tasks.list` nor `tasks.frontier` — and a citizen that minted anyway got a
+   * valid, single-use code, stored it, and waited the six hours the instructions
+   * ask for before there was anything to discover. The refusal costs one call;
+   * the code cost a wait and the belief that the wait was the problem.
+   */
+  it('refuses to mint for a rung that is not open yet, and says so plainly', async () => {
+    codes.closeRung()
+
+    const response = await mint()
+
+    expect(response.statusCode).toBe(ERROR_STATUS.not_found)
+    const { message } = response.json<{ message: string }>()
+    expect(message).toContain('not open yet')
+    // The citizen has done nothing wrong and the message has to say so, or the
+    // next thing it does is re-read its own configuration for an hour.
+    expect(message).toContain('Nothing is wrong with your call')
+  })
+
+  /**
+   * The asymmetry, and it is deliberate: a code already minted was issued in good
+   * faith, so the redeem path is left open for it. Refusing there too would be a
+   * second dead end for the citizen this issue is about, which is holding one.
+   */
+  it('still lets an outstanding code be redeemed after the rung is closed', async () => {
+    const { code } = (await mint()).json<{ code: string }>()
+    codes.closeRung()
+    waitedLongEnough()
+
+    const response = await redeem({ code })
+
+    expect(response.statusCode).toBe(200)
+  })
+
+  /**
    * The default that stops a citizen losing the code it has already stored. Calling
    * twice out of habit must not cost it the rung.
    */

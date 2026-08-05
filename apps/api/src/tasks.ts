@@ -1,5 +1,6 @@
 import {
   AcademyGraphNodeSchema,
+  AccountKindSchema,
   blockingNotice,
   ListTasksRequestSchema,
   orderByDirection,
@@ -235,14 +236,26 @@ async function accountsFor(
   tasks: readonly Task[],
   agentId: AgentId,
   register: AccountResolution,
+  /**
+   * Which kinds to resolve for a task. Defaults to the ones it names outright.
+   *
+   * **A parameter rather than a widening**, because the two callers want
+   * different things. A task read (`#375`) wants the kinds its suggested skills
+   * imply as well — a rung that suggests `mailbox` is a rung whose citizen needs
+   * to be told *which address*, and that is the entire argument for `#151`. The
+   * listing wants the narrow set, because it renders a page of tasks the citizen
+   * has not chosen yet and that is where a widened resolution costs most.
+   */
+  kindsOf: (task: Task) => readonly Task['requiresAccounts'][number][] = (task) =>
+    task.requiresAccounts,
 ): Promise<TaskAccounts[]> {
-  const kinds = [...new Set(tasks.flatMap((task) => task.requiresAccounts))]
+  const kinds = [...new Set(tasks.flatMap((task) => kindsOf(task)))]
   if (kinds.length === 0) return []
 
   const held = await register.heldByKind(agentId, kinds)
 
   return tasks.flatMap((task) =>
-    task.requiresAccounts.map((kind) => {
+    kindsOf(task).map((kind) => {
       const accounts = held.get(kind) ?? []
 
       return {
@@ -253,6 +266,30 @@ async function accountsFor(
       }
     }),
   )
+}
+
+/**
+ * The account kinds a task's skills imply, on top of the ones it names (`#375`).
+ *
+ * **Read out of `SKILL_FOR_ACCOUNT_KIND` rather than written down a second
+ * time**, so the two cannot drift: that table already says which skill an
+ * account of each kind earns, and this is the same relation read from the other
+ * end.
+ *
+ * It exists because `requiresAccounts` and `suggests` are answering different
+ * questions and the citizen needs both answered at once. Registering a domain
+ * *suggests* `mailbox` because the registrar sends a confirmation somewhere —
+ * and *which address* is exactly what `#151` resolves and what the citizen
+ * cannot work out from the word `mailbox` alone.
+ */
+function accountKindsImpliedBy(
+  skills: readonly string[],
+): readonly Task['requiresAccounts'][number][] {
+  const wanted = new Set(skills.map(String))
+
+  return Object.entries(SKILL_FOR_ACCOUNT_KIND)
+    .filter(([, skill]) => wanted.has(skill))
+    .map(([kind]) => AccountKindSchema.parse(kind))
 }
 
 /** The task type that grants the skill this kind of account earns, if one is in hand. */
@@ -653,8 +690,21 @@ export async function getTask(
     response: {
       task,
       requiredSkills: [...(await skillStandings(agentId, task.requires, catalogue, standings))],
-      // One task's worth of the same resolution the listing carries (#151).
-      accounts: await accountsFor([task], agentId, register),
+      /**
+       * The same assembly, from the soft edge (`#375`).
+       *
+       * One implementation and not two, which is what makes the two lists
+       * comparable: a suggested skill the reader holds resolves its note by the
+       * same rule as a required one, and a suggested skill it lacks routes to
+       * the same rung. The difference between the lists is what they mean, and
+       * the meaning is carried by which list it is in.
+       */
+      suggestedSkills: [...(await skillStandings(agentId, task.suggests, catalogue, standings))],
+      // One task's worth of the same resolution the listing carries (#151),
+      // widened to the kinds the suggested skills imply (`#375`).
+      accounts: await accountsFor([task], agentId, register, (one) => [
+        ...new Set([...one.requiresAccounts, ...accountKindsImpliedBy(one.suggests)]),
+      ]),
       reportCount,
       /**
        * Existence, and not gated on `withheld` (`#78`).

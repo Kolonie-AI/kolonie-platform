@@ -324,6 +324,27 @@ export const GetTaskResponseSchema = z.object({
    * printing an empty heading.
    */
   requiredSkills: z.array(SkillStandingSchema),
+  /**
+   * Where the reader stands on each skill this task **suggests** (`#375`).
+   *
+   * **A second list rather than a flag on the entries**, and the choice matters
+   * because one of these two decides whether the reader may submit at all. A
+   * discriminator would have changed what every existing `requiredSkills` entry
+   * means and asked every reader to branch before it could tell a bar from a
+   * hint; two lists say it in the shape, exactly as `requires` and `suggests` say
+   * it on the task itself. A `SkillStanding` stays *where the reader stands on
+   * one skill*, and which list holds it is the edge.
+   *
+   * **`suggests` gates nothing and this changes nothing about that.** A citizen
+   * holding none of these may start, submit and pass. What it could not do
+   * before was notice that it already holds what the work leans on: the bare
+   * clause *"usually done after browser, mailbox"* reached a citizen holding
+   * both and connected to neither.
+   *
+   * Empty when the task suggests nothing, on the same rule as `requiredSkills` —
+   * an empty heading is a line that teaches an agent to skip the block.
+   */
+  suggestedSkills: z.array(SkillStandingSchema),
   /** The same resolution the listing carries, for one task (`#151`). */
   accounts: z.array(TaskAccountsSchema),
   /**

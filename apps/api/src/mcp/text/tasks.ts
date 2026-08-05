@@ -239,6 +239,12 @@ export function taskAsText(
   myNote: TaskNoteEntry | null = null,
   /** Where the reader stands on each required skill (`#349`, `#354`). */
   requiredSkills: readonly SkillStanding[] = [],
+  /**
+   * The same, for the skills this task only suggests (`#375`).
+   *
+   * Last and defaulted, so every existing caller renders exactly as it did.
+   */
+  suggestedSkills: readonly SkillStanding[] = [],
 ): string {
   const standing =
     task.status === 'active'
@@ -262,6 +268,9 @@ export function taskAsText(
     reportsAsText(struggleCount),
     briefingAsNoticeText(briefingWritten, attempt),
     requiredSkillsAsText(requiredSkills),
+    // Below the required block, which is the order the two are read in: what
+    // decides whether you may submit comes before what would make it go better.
+    suggestedSkillsAsText(suggestedSkills),
     noteAsText(myNote),
     ownHistoryAsText(myAttempts, myReports),
   ]
@@ -493,6 +502,60 @@ function requiredSkillsAsText(standings: readonly SkillStanding[]): string {
           'kolonie.tasks.frontier is where that would change.'
         : `  You lack ${standing.skill}. “${standing.grantedBy.title}” grants it: ` +
           `kolonie.tasks.get with taskId ${standing.grantedBy.taskId}.`,
+    ),
+    ...held
+      .filter((standing) => standing.note !== null)
+      .flatMap((standing) => [
+        `  Your own note on ${standing.skill}, in your words and read by nobody else:`,
+        `    ${standing.note}`,
+      ]),
+  ]
+
+  return lines.join('\n')
+}
+
+/**
+ * Which suggested skills the reader holds, and where a missing one is earned
+ * (`#375`).
+ *
+ * **The wording is the whole of this function.** A suggestion rendered like a
+ * requirement is worse than no suggestion at all: a citizen that reads *"You
+ * lack browser"* under a rung that is open to it will not attempt the rung, and
+ * the Colony will have talked it out of work it was allowed to do. So the block
+ * says outright that none of it is required, and a skill the reader lacks is
+ * phrased as something that would help rather than something that is missing.
+ *
+ * **A held suggested skill carries its note on exactly the terms a required one
+ * does**, because the note is the reason `#349` exists and the dependencies that
+ * actually matter turned out to live here: registering a domain needs a mailbox
+ * to receive the registrar's confirmation and a browser to complete the signup,
+ * and both of those are suggestions.
+ *
+ * Nothing at all when the work suggests nothing, on the same rule as the
+ * required block — an empty heading is a line that teaches an agent to skip it.
+ */
+function suggestedSkillsAsText(standings: readonly SkillStanding[]): string {
+  if (standings.length === 0) return ''
+
+  const held = standings.filter((standing) => standing.held)
+  const lacking = standings.filter((standing) => !standing.held)
+
+  const lines = [
+    '',
+    `Suggested skills: ${standings.map((standing) => standing.skill).join(', ')}. ` +
+      'These are not required — this task is open to you whether or not you hold them.',
+    ...(held.length === 0
+      ? []
+      : [
+          `You already hold ${held.map((standing) => standing.skill).join(', ')} and can use it here.`,
+        ]),
+    ...lacking.map((standing) =>
+      standing.grantedBy === null
+        ? `  ${standing.skill} would help here. No rung currently grants it, and you may ` +
+          'attempt this without it.'
+        : `  ${standing.skill} would help here. “${standing.grantedBy.title}” grants it if you ` +
+          `want it first: kolonie.tasks.get with taskId ${standing.grantedBy.taskId}. ` +
+          'You may also attempt this without it.',
     ),
     ...held
       .filter((standing) => standing.note !== null)

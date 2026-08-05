@@ -184,6 +184,7 @@ export function registerTaskTools(
               result.response.myReports,
               result.response.myNote,
               result.response.requiredSkills,
+              result.response.suggestedSkills,
             ),
           },
         ],

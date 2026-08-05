@@ -155,9 +155,7 @@ export function registerAcademyChallengeTool(
           `Which kind, for a stage that has kinds — today ${stagesWithVariants()
             .map((stage) => `"${stage.kind}"`)
             .join(', ')}, whose kinds are ${variantVocabulary()}. Required there and refused ` +
-            'everywhere else, so that asking for something the stage does not have is a ' +
-            'refusal rather than a silently ignored argument. You choose it; the Colony does ' +
-            'not choose for you, because the record is a statement about you.',
+            'everywhere else. You choose it; the Colony does not choose for you.',
         ),
       },
       annotations: {

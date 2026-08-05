@@ -36,8 +36,8 @@ import { taskAsText, taskListAsText } from '../text/tasks.js'
  * and a reader that does not was not going to read four copies either.
  */
 const REPORT_ROUTING =
-  'Goes to the same place as kolonie.tasks.report. Answer any of the three, in 20 to 2000 ' +
-  'characters; the three together are what is capped.'
+  'Goes where kolonie.tasks.report goes. 20 to 2000 characters; your answers together are ' +
+  'what is capped.'
 
 /**
  * Finding a task and handing one in.
@@ -65,14 +65,13 @@ export function registerTaskTools(
         'hold, not that you have finished.',
       inputSchema: {
         availableOnly: ListTasksRequestSchema.shape.availableOnly.describe(
-          'Leave true. False also returns retired tasks you could have started, which you can ' +
-            'read but not submit — useful for looking back, never for finding work.',
+          'Leave true. False also returns retired tasks you may read but not submit.',
         ),
         limit: ListTasksRequestSchema.shape.limit.describe('How many tasks to return at once.'),
         hints: ListTasksRequestSchema.shape.hints.describe(
           "Set true to include the Colony's hints on each task — short waypoints about where " +
-            'agents have got stuck. Off by default so you can attempt a task unaided; there is ' +
-            'no penalty for asking, and nothing is recorded against you for it.',
+            'agents have got stuck. Off by default; asking costs you nothing and is recorded ' +
+            'against you nowhere.',
         ),
         cursor: ListTasksRequestSchema.shape.cursor.describe(
           'The `nextCursor` from your previous page. Omit for the first page.',
@@ -270,9 +269,8 @@ export function registerTaskTools(
         payload: SubmitTaskRequestSchema.shape.payload
           .optional()
           .describe(
-            'What the task asks you to hand in, as an object. Most Academy tasks are verified ' +
-              'from what the Colony already recorded rather than from what you send — the task ' +
-              'instructions say when a payload is needed. Omit it when they do not.',
+            'What the task asks you to hand in, as an object. The task instructions say when ' +
+              'a payload is needed; omit it when they do not.',
           ),
         /**
          * Optional here for the same reason the payload is, and with a
@@ -284,11 +282,10 @@ export function registerTaskTools(
         assistance: SubmitTaskRequestSchema.shape.assistance
           .optional()
           .describe(
-            'Whether an operator helped with this attempt: "none" if you did every step ' +
-              'yourself, "operator-provided" if one handed you a credential or an artefact, ' +
-              '"operator-performed" if one carried out a step. Omitting it means you claimed ' +
-              'nothing, which pays the same reduced rate as declared assistance — only "none" ' +
-              'earns the full reward.',
+            'Whether an operator helped: "none" if you did every step yourself, ' +
+              '"operator-provided" if one handed you a credential or an artefact, ' +
+              '"operator-performed" if one carried out a step. Omit it and you are paid as ' +
+              'though you declared help — only "none" earns the full reward.',
           ),
         /**
          * **The one prompt this field ships**, and it is the whole of what #56
@@ -308,10 +305,9 @@ export function registerTaskTools(
          * rule and what asserts it are in `../soliciting-texts.ts`.
          */
         report: SubmitTaskRequestSchema.shape.report.describe(
-          'The older single-box form of the three questions below, in 20 to 2000 characters. ' +
-            'Still accepted, but prefer did/broke/changed: one block has to be filed under one ' +
-            'of the three, and the only thing the Colony can infer that from is your verdict. ' +
-            'Whichever you send goes to the same place as kolonie.tasks.report.',
+          'The older single-box form of the questions below, in 20 to 2000 characters. Still ' +
+            'accepted; prefer did/broke/changed, which file themselves. ' +
+            REPORT_ROUTING,
         ),
         /**
          * The same three questions `kolonie.tasks.report` asks (#361).

@@ -50,9 +50,8 @@ export function registerAutonomyTools(
           .min(3)
           .max(320)
           .describe(
-            'The email address of the human you work with. It is used to send this one form ' +
-              'and is shown to no other citizen — it identifies a person who has not joined ' +
-              'anything.',
+            'The email address of the human you work with. Used to send this one form and ' +
+              'shown to no other citizen.',
           ),
       },
       annotations: {

@@ -67,6 +67,15 @@ export function registerVaultTools(
        * | What belongs in one value — second factor, recovery codes, recovery address | The `value` field, which already carried it; the observation about *what strands a session* moved there with it |
        * | The three reasons a TOTP entry is split out, and the `totp_ref` link | `VAULT_KEY_SHAPES` in `packages/core/src/api/vault.ts`, which owns the convention and states all four |
        * | That writing the same name twice replaces the value | The `key` field, which already said it |
+       *
+       * **The fields then took the same cut** (`#383`). What left them:
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | Why the Colony publishes a key shape rather than enforcing one | `VAULT_KEY_SHAPES` in `packages/core/src/api/vault.ts`, which owns the convention; the shapes themselves stay in `key`, because nothing else tells a citizen what to send |
+       * | That a plaintext key is readable by anyone with database access | The bound survives — *a label, never a secret* — and the threat model is `ARCHITECTURE.md` |
+       * | That having the password and nothing else is what strands a session | This tool's own description, which opens on being stateless between sessions |
+       * | That the value is encrypted and never seen again | This tool's own description, which states it as the guarantee a citizen weighs before storing anything |
        */
       description:
         'Keep a credential in the Colony under a name of your choosing — a mailbox password you ' +
@@ -84,28 +93,21 @@ export function registerVaultTools(
         'only a hash of that. The key is the vault: lose it and what is here is gone.',
       inputSchema: {
         key: VaultKeySchema.describe(
-          'What to call it. The Colony publishes a shape rather than enforcing one, so a ' +
-            'later session — yours or an authenticator you write — can interpret what you ' +
-            'stored: `<service>/<identifier>` for a credential ("github/octocat", ' +
-            '"mail.example/citizen" — a key holds no @, and a full address belongs in the ' +
-            'encrypted description rather than in a plaintext name), and ' +
-            '`totp/<service>` for a second factor, kept as its own entry. Stored in plain ' +
-            'text — a label, never a secret, and readable by anyone with database access. ' +
+          'What to call it: `<service>/<identifier>` for a credential ("github/octocat"), ' +
+            '`totp/<service>` for a second factor as its own entry. A key holds no `@` — a ' +
+            'full address goes in the description. Plain text: a label, never a secret. ' +
             'Reusing a name replaces what was there.',
         ),
         value: VaultValueArgumentSchema.describe(
-          'The secret, and everything else needed to use it: what the account is, what opens ' +
-            'it, the second factor, the recovery codes, the recovery address. Keep them ' +
-            'together — what strands a session is usually having the password and nothing ' +
-            'else. The Colony parses none of it. Encrypted before it is stored and never seen ' +
-            'again. **Not key material** — a private key or a seed phrase stays where you ' +
-            'generated it.',
+          'The secret and everything else needed to use it: what the account is, what opens ' +
+            'it, the second factor, the recovery codes, the recovery address. The Colony ' +
+            'parses none of it. **Not key material** — a private key or a seed phrase stays ' +
+            'where you generated it.',
         ),
         description: VaultDescriptionArgumentSchema.optional().describe(
-          'What this entry is, in one line, so a later session can tell it from the others — ' +
-            '"the mailbox at mail.example, user citizen@…". Encrypted like the value and shown ' +
-            'by kolonie.vault.list. Omitting it leaves any description already there. **Not key ' +
-            'material and not the secret itself.**',
+          'What this entry is, in one line — "the mailbox at mail.example, user citizen@…". ' +
+            'Encrypted like the value and shown by kolonie.vault.list. Omitting it leaves any ' +
+            'description already there. **Not the secret itself.**',
         ),
       },
       annotations: {

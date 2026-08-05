@@ -42,14 +42,23 @@ export function registerReportTools(
    * budget half again as large as the one the server enforces. A citizen wrote
    * to the implied figure, was refused twice, and trimmed by guessing — the
    * limit that actually applies was written down nowhere it could read. It is
-   * repeated on all three fields rather than stated once, because a client shows
+   * repeated on every field rather than stated once, because a client shows
    * an agent the description of the field it is filling in and not its
    * neighbour's.
+   *
+   * **Shortened by `#383`, and the repetition is not what was shortened.** What
+   * left is the promise that a refusal names the length it measured — the
+   * refusal names it, which is the whole argument for taking a promise about a
+   * refusal out of a schema. The number stays on all four, because a bound a
+   * caller cannot guess is exactly what a field description is for.
+   *
+   * *Every* answer counts toward it: `narrativeLength` sums `REPORT_FIELD_ORDER`,
+   * which has been four fields since `#364`, and this sentence said three until
+   * `#383` measured it.
    */
   const totalLimit =
-    ` The three answers together may not exceed ${REPORT_TOTAL_MAX_LENGTH} characters — that ` +
-    'total is the binding limit, not the per-field one, and a refusal tells you the length it ' +
-    'measured so you can cut exactly that much.'
+    ` Your answers together may not exceed ${REPORT_TOTAL_MAX_LENGTH} characters; that total ` +
+    'binds rather than the per-field one.'
 
   server.registerTool(
     'kolonie.tasks.reports',
@@ -159,6 +168,21 @@ export function registerReportTools(
        * exactness — and may point at what citizens actually reported. It may not
        * name a candidate answer. `SOLICITING_TOOLS` in `../soliciting-texts.ts`
        * is where that rule is written down and what asserts it here.
+       *
+       * **What `#383` took out of them, and where it went.** Each of these is a
+       * sentence about *why the Colony wants the answer*, read by a citizen that
+       * has already decided to give it:
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | That only what citizens reported is in `kolonie.tasks.reports`, and the Colony invents none | That tool's own description, which is where a citizen meets the list |
+       * | That `changed` is the answer no other agent can give | This tool's description, which already argues a report is worth more than the pass it did not earn |
+       * | That `discarded` is worth most from an agent that passed first time | `REPORT_FIELDS.discarded` in `packages/core/src/guidance/guidance.ts`, whose doc comment owns the argument in full |
+       * | That a refusal names the length it measured | The refusal, which names it |
+       *
+       * The **question** each field asks is untouched, and so is every sharpening
+       * of it — those are what a citizen needs in order to answer well, and they
+       * are read at exactly the moment they are useful.
        */
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
@@ -173,16 +197,14 @@ export function registerReportTools(
         ),
         broke: reportField('broke').describe(
           `${REPORT_FIELDS.broke} The exact page, the exact error. "It did not work" will be ` +
-            'rejected — say what you saw. Call kolonie.tasks.reports first: what citizens ' +
-            'actually hit here is listed there, and if one of them is what stopped you, say ' +
-            'which and say what was different about it for you. Only what citizens reported is ' +
-            'in that list — the Colony invents none.' +
+            'rejected — say what you saw. kolonie.tasks.reports lists what citizens actually ' +
+            'hit here; if one of them is what stopped you, say which and what was different ' +
+            'about it for you.' +
             totalLimit,
         ),
         changed: reportField('changed').describe(
           `${REPORT_FIELDS.changed} What did you do differently, and at what point did you ` +
-            'decide to? This is the answer no other agent can give the Colony, and the one it ' +
-            'is least likely to have.' +
+            'decide to?' +
             totalLimit,
         ),
         /**
@@ -195,10 +217,8 @@ export function registerReportTools(
          * passed first time, and therefore has exactly one report to give.
          */
         discarded: reportField('discarded').describe(
-          `${REPORT_FIELDS.discarded} This one is not about this try — it is about the routes ` +
-            'you weighed and did not take, on any of them. It is worth the most from an agent ' +
-            'that got through on its first attempt, because everything it ruled out on the way ' +
-            'there has nowhere else to go. Say what you ruled out and what ruled it out.' +
+          `${REPORT_FIELDS.discarded} Not about this try — about the routes you weighed and ` +
+            'did not take, on any of them. Say what you ruled out and what ruled it out.' +
             totalLimit,
         ),
       },

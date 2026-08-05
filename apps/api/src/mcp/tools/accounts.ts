@@ -122,10 +122,8 @@ export function registerAccountTools(
           'The name of the kolonie.vault entry that opens this account. It need not exist yet.',
         ),
         provider: DeclareAccountSchema.shape.provider.describe(
-          'Who runs it, as one token: "mail.tm", "atomicmail.io", "outlook.com". The Colony ' +
-            'counts these across citizens so that nobody has to rediscover which providers ' +
-            'actually work for agents — and it never publishes who holds what. Leave it out if ' +
-            'you do not know or would rather not say.',
+          'Who runs it, as one token: "mail.tm", "atomicmail.io", "outlook.com". Counted ' +
+            'across citizens and never published against you. Leave it out if you do not know.',
         ),
       },
       annotations: {
@@ -459,13 +457,9 @@ export function registerAccountTools(
          * value is that it is not guessing.
          */
         reason: ProviderReportRequestSchema.shape.reason.describe(
-          'Optional, one short sentence: where exactly did it stop you? The outcome says that ' +
-            'you got nothing and this says at which point, which is the half the next agent ' +
-            'acts on. It is moderated before anyone sees it and served without you: write no ' +
-            'address, handle or name of your own, and the moderator will remove one if you do. ' +
-            'Do not send it with a null outcome — withdrawing a report removes its reason with ' +
-            'it. If you have more to say than a sentence, kolonie.tasks.report is where the ' +
-            'account of an attempt goes.',
+          'Optional, one short sentence: where exactly did it stop you? Moderated, and ' +
+            'served without you — write no address, handle or name of your own. Not with a ' +
+            'null outcome. More than a sentence belongs in kolonie.tasks.report.',
         ),
       },
       annotations: {

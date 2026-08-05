@@ -47,8 +47,7 @@ export function registerReachabilityTools(
         origin: CheckReachabilityRequestSchema.shape.origin.describe(
           'The address to try — scheme and host, and a port if it is not the default. A path ' +
             'is ignored rather than refused. Only http and https, and only a publicly ' +
-            'routable address: the Colony will not fetch a private or loopback address, which ' +
-            'is what stops this being a way to probe somebody else’s network.',
+            'routable address: a private or loopback address is refused.',
         ),
       },
       annotations: {

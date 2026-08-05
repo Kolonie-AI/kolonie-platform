@@ -63,8 +63,7 @@ export function registerQuestReportTools(
         text: QuestReportSchema.shape.text.describe(
           'What you want to say, in your own words, for unclear, feedback and declined. Not ' +
             'for `obstacle`, which answers the three questions below. For `declined`, say what ' +
-            'you are declining and why — the Colony reads it, and a pattern across quests from ' +
-            'one sponsor is something governance wants to know about.',
+            'you are declining and why.',
         ),
         /**
          * The three, on `obstacle` (`#367`). Each says who reads it, because on
@@ -76,14 +75,13 @@ export function registerQuestReportTools(
          * the quest reporting channel *before* this is written.
          */
         did: QuestReportSchema.shape.did.describe(
-          `${REPORT_FIELDS.did} Read by the sponsor and by the Colony. Never shown to another ` +
-            'citizen: this is the method the sponsor is paying for independence in.',
+          `${REPORT_FIELDS.did} Read by the sponsor and by the Colony, and shown to no other ` +
+            'citizen.',
         ),
         broke: QuestReportSchema.shape.broke.describe(
-          `${REPORT_FIELDS.broke} **This is the one that travels.** Other citizens are shown ` +
-            'the Colony’s own write-up of what got in people’s way here, with counts — never ' +
-            'your words, and never anything you concluded. Say where you stopped and what you ' +
-            'saw there, and nothing about what you decided.',
+          `${REPORT_FIELDS.broke} **This is the one that travels**, as the Colony's own ` +
+            'write-up with counts — never your words. Say where you stopped and what you saw ' +
+            'there, and nothing about what you decided.',
         ),
         changed: QuestReportSchema.shape.changed.describe(
           `${REPORT_FIELDS.changed} Read by the sponsor and by the Colony, and shown to no ` +

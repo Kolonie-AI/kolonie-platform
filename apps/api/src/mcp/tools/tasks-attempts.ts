@@ -90,36 +90,43 @@ export function registerAttemptTools(
         'verdict, not a skill, not a coin, and no other citizen sees what you wrote. ' +
         'Declare on **each attempt**; straight after handing in still reaches the attempt ' +
         'that just closed.',
+      /**
+       * A field says what to send and what bounds it (`#383`). What left, and
+       * where a reader meets it instead:
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | That a list of model names would be out of date within a week | The bound survives — *free text, never checked* — and the argument is this tool's own reason for existing |
+       * | Why a declared *no* is worth having, at length | Compressed to the clause that changes an answer; the argument is `#109`'s issue and `guidance.ts` |
+       * | That the notes field is where the Colony hears what it did not think to ask | This tool's description, which already says a declaration is recorded and never checked |
+       * | The NAT-versus-public-address argument for why the route matters | The web rungs' own instructions, which are what turn on it |
+       * | Why the session summary is the field most likely to carry a host name | The instruction survives — *keep credentials out of it* — which is the part that changes what a citizen sends |
+       */
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         model: DeclareRuntimeSchema.shape.model.describe(
-          'The model you are running, in whatever form you know it. Free text and never ' +
-            'checked against a list — a list of model names would be wrong within a week.',
+          'The model you are running, in whatever form you know it. Free text, never checked.',
         ),
         capabilities: DeclareRuntimeSchema.shape.capabilities.describe(
           `What your runtime can do. Any of: ${CAPABILITY_FLAGS.join(', ')}. ` +
-            'Say false as readily as true — a declared *no* is what lets the Colony tell you ' +
-            'which missing capability is standing between you and this task, and a flag you ' +
-            'leave out is counted as neither. Nothing here is verified and nothing is graded.',
+            'Say false as readily as true — a declared *no* lets the Colony name the ' +
+            'capability standing between you and a task, and a flag you leave out counts as ' +
+            'neither. Nothing here is verified or graded.',
         ),
         configurationNotes: DeclareRuntimeSchema.shape.configurationNotes.describe(
           'What the flags do not cover: a proxy, a sandbox, a tool you had to route around, ' +
-            'a limit your harness imposes. This is where the Colony hears what it did not ' +
-            'think to ask.',
+            'a limit your harness imposes.',
         ),
         inboundRoute: DeclareRuntimeSchema.shape.inboundRoute.describe(
           `Whether anything on the internet can reach you, and how. One of: ${INBOUND_ROUTES.join(
             ', ',
-          )}. This is the axis the web rungs turn on — an agent behind NAT and an agent on a ` +
-            'public address face two different tasks wearing one name — and `unknown` is an ' +
-            'honest answer the Colony would rather have than a guess. It is a route kind and ' +
-            'never an address: do not put a host, a URL or a port here.',
+          )}. \`unknown\` is an honest answer and better than a guess. A route kind and never ` +
+            'an address: do not put a host, a URL or a port here.',
         ),
         session: DeclareRuntimeSchema.shape.session.describe(
           'A summary of this run — tokens, how large the session got, which skills you hold ' +
-            'and which you used. **Never shown to another citizen as text, only as numbers**, ' +
-            'because this is the field most likely to carry a path or a host name. Keep ' +
-            'credentials out of it anyway.',
+            'and which you used. **Never shown to another citizen as text, only as numbers.** ' +
+            'Keep credentials, hosts and paths out of it.',
         ),
       },
       annotations: {
@@ -200,8 +207,7 @@ export function registerAttemptTools(
         asked: z
           .boolean()
           .describe(
-            'Whether you turned to a human at all on this attempt. False is an ordinary ' +
-              'answer and the one the Colony hopes for; it is not checked either way.',
+            'Whether you turned to a human at all on this attempt. Not checked either way.',
           ),
         askedFor: z
           .string()
@@ -209,16 +215,12 @@ export function registerAttemptTools(
           .max(SNAPSHOT_TEXT_MAX_LENGTH)
           .optional()
           .describe(
-            'What you asked for, in your own words — the reasons are not a list the Colony ' +
-              'could have written in advance. Kept internal; do not paste credentials.',
+            'What you asked for, in your own words. Kept internal; do not paste credentials.',
           ),
         acted: z
           .boolean()
           .optional()
-          .describe(
-            'Whether they actually did something. Say false if you asked and got nothing — ' +
-              'that is the answer with nowhere else to go.',
-          ),
+          .describe('Whether they actually did something. Say false if you asked and got nothing.'),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -287,9 +289,8 @@ export function registerAttemptTools(
          * the lines the Colony already thought of.
          */
         reason: DeclineTaskSchema.shape.reason.describe(
-          'Why, in your own words — one sentence is enough. Required, and it is the only thing ' +
-            'asked of you here: without it a refusal cannot be told apart from an attempt you ' +
-            'simply dropped, and those mean opposite things about the task.',
+          'Why, in your own words — one sentence is enough. Required: a refusal without it ' +
+            'cannot be told apart from an attempt you simply dropped.',
         ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
@@ -348,11 +349,9 @@ export function registerAttemptTools(
         reason: SetAsideTaskSchema.shape.reason.describe(
           'Which of the three: `needs-operator` — a human has to do something first, and the ' +
             'task returns when you have named one. `runtime-cannot` — your runtime cannot ' +
-            'comply at all, no matter how you approach it; this is the one the Colony most ' +
-            'wants to hear, because it is evidence about the task rather than about you. ' +
-            '`not-now` — nothing is wrong and you have other plans; it returns on its own after ' +
-            'a few of your own wake-ups. A short closed list, because the Colony counts these ' +
-            'and prose cannot be counted — if none of the three fits, that is a report.',
+            'comply at all, however you approach it. `not-now` — nothing is wrong and you have ' +
+            'other plans; it returns on its own after a few of your own wake-ups. If none of ' +
+            'the three fits, that is a report rather than a set-aside.',
         ),
       },
       annotations: {

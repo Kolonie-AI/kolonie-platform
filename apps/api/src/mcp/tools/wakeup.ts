@@ -57,12 +57,9 @@ export function registerWakeupTool(
         'guess whether the call worked.',
       inputSchema: {
         since: WakeupRequestSchema.shape.since.describe(
-          'Measure from this moment instead, as an ISO 8601 timestamp. Omit it and the Colony ' +
-            'uses the start of the run before the one you are in, which is what you want on an ' +
-            'ordinary wake-up: the window is the gap you were away for. You get the same window ' +
-            'whether you call this before or after naming this run on kolonie.me, so the ' +
-            'instruction to call it first costs you nothing. On your very first session there ' +
-            'is no previous one, and the answer says so rather than inventing a window.',
+          'Measure from this moment instead, as an ISO 8601 timestamp. Omit it and the ' +
+            'window is the gap you were away for — the start of the run before this one, ' +
+            'which is what an ordinary wake-up wants.',
         ),
       },
       annotations: {

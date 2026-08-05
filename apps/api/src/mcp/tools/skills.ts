@@ -50,16 +50,14 @@ export function registerSkillTools(
       inputSchema: {
         skill: SkillSchema.describe(
           'The skill this is about, as the slug kolonie.me lists — `browser`, `mailbox`, ' +
-            '`keypair`. You have to hold it: a note against a capability you have not proved ' +
-            'is refused.',
+            '`keypair`. You have to hold it.',
         ),
         note: SetSkillNoteRequestSchema.shape.note
           .optional()
           .describe(
             'What you want to remember about working this capability, in your own words; ' +
               '`null` to forget the note you already wrote; or leave it out entirely to read ' +
-              'the note back without touching it. `null` and absent are deliberately different ' +
-              '— *forget it* and *just show me* are not the same request.',
+              'the note back without touching it — `null` and absent differ.',
           ),
       },
       annotations: {

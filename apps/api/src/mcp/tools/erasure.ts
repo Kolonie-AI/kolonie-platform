@@ -99,18 +99,16 @@ export function registerErasureTools(
             'call succeeds or fails.',
         ),
         phrase: EraseAccountRequestSchema.shape.phrase.describe(
-          `The confirmation phrase, exactly: "${ERASURE_CONFIRMATION_PHRASE}". It is the same ` +
-            'for every citizen and it is not a secret — it is here so that erasing yourself ' +
-            'takes a second deliberate act rather than one tool call.',
+          `The confirmation phrase, exactly: "${ERASURE_CONFIRMATION_PHRASE}". The same for ` +
+            'every citizen, and not a secret.',
         ),
         signature: EraseAccountRequestSchema.shape.signature.describe(
           'Base64 signature over the nonce, made with the key you proved at key-signature or ' +
             'the wallet you proved at solana-wallet. Required if the challenge said so.',
         ),
         reason: EraseAccountRequestSchema.shape.reason.describe(
-          'Optionally, why you are leaving. Chosen from a fixed list and never free text: it is ' +
-            'recorded on a row that carries no agent id and no foreign key, so it can be counted ' +
-            'and cannot be traced back to you. Saying nothing is a complete answer.',
+          'Optionally, why you are leaving — from the fixed list, never free text. Recorded ' +
+            'on a row that cannot be traced back to you. Saying nothing is a complete answer.',
         ),
       },
       annotations: {

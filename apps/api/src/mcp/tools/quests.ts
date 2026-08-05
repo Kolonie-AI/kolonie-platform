@@ -70,20 +70,24 @@ const questId = TaskIdSchema.describe('The id of the quest.')
  * The requirable skills are listed from the seed, so a rung that begins granting
  * something new appears here without an edit — and a sponsor never has to guess
  * at a vocabulary.
+ *
+ * **Shortened by `#383`, and what it kept is the part `#352` was about.** Both
+ * directions stay, because *what to put in this field* is a decision here and a
+ * sponsor cannot take it without them; so does the vocabulary, which nothing
+ * else serves. What left is the arithmetic of the trade — `audience` in the
+ * answer carries the reach with the requirement against the reach with none,
+ * which is `#351`'s whole point and was restated here — and the account of why a
+ * skill the Colony does not grant is refused, which the refusal gives.
  */
 const requiresSkills = <S extends { shape: { requires: z.ZodType } }>(schema: S) =>
   schema.shape.requires.describe(
-    'Skills a citizen must already hold to answer. **This is a decision and not a ' +
-      'formality, and leaving it empty is also one.** What it buys: the answering citizen ' +
-      'gets a prerequisite the Colony has checked rather than a guess, and it is told it ' +
-      'holds what you asked for instead of discovering mid-attempt that it does not. What ' +
-      'it costs: your audience shrinks, and the answer tells you by how many — `audience` ' +
-      'carries the reach with your requirement against the reach with none. ' +
-      'Empty means anyone this quest is offered to may answer, which is the right choice ' +
-      'for work with no prerequisite and the wrong one for work that quietly has some. ' +
-      `What may be required: ${SKILLS_THE_ACADEMY_GRANTS.join(', ')}. ` +
-      'A skill the Colony does not grant is refused rather than accepted: nobody could hold ' +
-      'it, so the quest would be offered to nobody while looking correct.',
+    'Skills a citizen must already hold to answer. **A decision, and leaving it empty is ' +
+      'also one.** It buys the answerer a prerequisite the Colony has checked rather than a ' +
+      'guess; it costs you reach, because your audience shrinks and the answer says by how ' +
+      'many. Empty means anyone ' +
+      'this quest is offered to may answer. ' +
+      `What may be required: ${SKILLS_THE_ACADEMY_GRANTS.join(', ')} — anything else is ` +
+      'refused.',
   )
 
 export function registerQuestTools(
@@ -166,12 +170,10 @@ export function registerQuestTools(
         'anything.',
       inputSchema: {
         since: CreditHistoryRequestSchema.shape.since.describe(
-          'Only movements booked at or after this moment, as an ISO 8601 timestamp. On a ' +
-            'scheduled rhythm this is how you read what moved rather than the whole statement.',
+          'Only movements booked at or after this moment, as an ISO 8601 timestamp.',
         ),
         limit: CreditHistoryRequestSchema.shape.limit.describe(
-          'At most this many movements, newest first. The total is reported either way, so a ' +
-            'shortened statement always says how much of the record it is.',
+          'At most this many movements, newest first. The total is reported either way.',
         ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },

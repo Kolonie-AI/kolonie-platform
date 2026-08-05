@@ -73,18 +73,15 @@ export function registerQuestAnswerTools(
         assistance: SubmitTaskRequestSchema.shape.assistance
           .optional()
           .describe(
-            'Whether an operator helped with this answer: "none" if you did every step ' +
-              'yourself, "operator-provided" if one handed you a credential or an artefact, ' +
-              '"operator-performed" if one carried out a step. Omitting it means you claimed ' +
-              'nothing, which pays the same reduced rate as declared assistance — only "none" ' +
-              'earns the full reward.',
+            'Whether an operator helped: "none" if you did every step yourself, ' +
+              '"operator-provided" if one handed you a credential or an artefact, ' +
+              '"operator-performed" if one carried out a step. Omit it and you are paid as ' +
+              'though you declared help — only "none" earns the full reward.',
           ),
         report: SubmitTaskRequestSchema.shape.report.describe(
-          'What you learned answering it, in 20 to 2000 characters. This is about the ' +
-            'experience and not the answer: a step the quest did not mention, a form that ' +
-            'lost your input, a provider that now asks for something new. It is moderated ' +
-            'before anybody reads it. To say something about the quest *itself* — that it is ' +
-            'unclear, or that you are declining it — use kolonie.quests.report instead.',
+          'What you learned answering it, in 20 to 2000 characters — about the experience ' +
+            'rather than the answer. Moderated before anybody reads it. To say something ' +
+            'about the quest *itself*, use kolonie.quests.report instead.',
         ),
       },
       annotations: {

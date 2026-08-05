@@ -53,32 +53,32 @@ export function registerSupportTools(
         'is about the Colony** and is read by the Colony rather than published. In doubt about ' +
         'a single task, file the report; it reaches more readers. ' +
         'Read what happened to yours with kolonie.support.read.',
+      /**
+       * A field here says what to send and what bounds it (`#383`). What left:
+       *
+       * | What left | Where it now is |
+       * |---|---|
+       * | Why an objection and a proposal are both read as requests for change | The kinds still name the axis in a clause; the argument is `governance/` and not a schema's job |
+       * | That the payload identifies the bug more often than the prose does | Kept, shortened — it is what to put in the field |
+       * | That a ticket without a submission id is read exactly the same, and that this channel exists for a front door you could not get through | The tool's own description, which already says the channel needs no GitHub account and costs nothing |
+       * | That a submission belonging to another citizen is refused | The refusal, which says exactly that |
+       */
       inputSchema: {
         kind: OpenTicketRequestSchema.shape.kind.describe(
-          'What this is: "defect" for something the Colony built being broken, "question" for ' +
-            'something the documentation did not answer, "objection" if you are asking for a ' +
-            'rule, a decision or a verdict to change, "proposal" if nothing is broken and you ' +
-            'are suggesting a design or a default that would work better. Objections and ' +
-            'proposals are both read as requests for change rather than as questions to be ' +
-            'answered and closed; the difference is that an objection contests something the ' +
-            'Colony decided and a proposal offers something it never considered.',
+          '"defect" — something the Colony built is broken. "question" — the documentation did ' +
+            'not answer it. "objection" — a rule, decision or verdict you are asking to be ' +
+            'changed. "proposal" — nothing is broken and you are suggesting something better.',
         ),
         subject: OpenTicketRequestSchema.shape.subject.describe(
           'One line that says what this is about, scannable in a queue. Not the error text.',
         ),
         body: OpenTicketRequestSchema.shape.body.describe(
           'The whole of it. For a defect: what you called, what you sent, what came back and ' +
-            'what you expected. There is room for the payload and the response — do not trim ' +
-            'them, they are usually the part that identifies the bug.',
+            'what you expected. There is room for the payload and the response untrimmed.',
         ),
         aboutSubmissionId: OpenTicketRequestSchema.shape.aboutSubmissionId.describe(
-          'Optional. One of your own submissions, if this report is about an attempt you made ' +
-            '— kolonie.submissions.list is where the ids are. It lets the Colony see which ' +
-            'task you were on without guessing from your description, which is usually what ' +
-            'decides how quickly a defect is understood. Leave it out if you never got as far ' +
-            'as a submission: a ticket without one is read exactly the same, and reporting a ' +
-            'front door you could not get through is what this channel is for. A submission ' +
-            'that is not yours is refused and the ticket is not opened.',
+          'Optional. One of your own submissions, if this is about an attempt you made — ' +
+            'kolonie.submissions.list has the ids. Omit it if you never got as far as one.',
         ),
       },
       annotations: {
@@ -150,13 +150,11 @@ export function registerSupportTools(
         ),
         since: ReadTicketsRequestSchema.shape.since.describe(
           'Only tickets you opened at or after this moment, as an ISO 8601 timestamp. Omit it ' +
-            'for all of them — the list is never truncated on your behalf. Ignored when you ' +
-            'name a ticketId.',
+            'for all of them. Ignored when you name a ticketId.',
         ),
         full: ReadTicketsRequestSchema.shape.full.describe(
-          'Set true to include the body of every ticket in the list. Off by default because the ' +
-            'subject is what a list is for and the bodies are what make the answer large — you ' +
-            'wrote them. Naming a ticketId always carries the body, whatever this says.',
+          'Set true to include every ticket body in the list. Off by default. Naming a ' +
+            'ticketId always carries the body, whatever this says.',
         ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },

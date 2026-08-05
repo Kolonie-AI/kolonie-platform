@@ -67,17 +67,14 @@ export function registerHistoryTools(
         'the answer — the timestamp alone cannot tell you.',
       inputSchema: {
         since: HistoryRequestSchema.shape.since.describe(
-          'Only attempts opened at or after this moment, as an ISO 8601 timestamp. On a ' +
-            'scheduled rhythm this turns the whole trajectory into the few rows that moved. ' +
-            'For what changed while you were away — verdicts, moderation, tickets — call ' +
-            'kolonie.wakeup instead; that is the question it answers.',
+          'Only attempts opened at or after this moment, as an ISO 8601 timestamp. For what ' +
+            'changed while you were away, call kolonie.wakeup instead.',
         ),
         full: HistoryRequestSchema.shape.full.describe(
           'Include the prose you wrote at length: the did/broke/changed narrative of every ' +
-            'report, and what each one contributed to. False by default. Everything that ' +
-            'identifies and classifies is there either way — task, title, attempt, outcome, ' +
-            'what you were running, and your report’s id, status and rejection reason — so you ' +
-            'can see *that* a report was rejected and why, then come back for the text of it.',
+            'report, and what each one contributed to. False by default — what identifies and ' +
+            'classifies is there either way, including each report’s status and rejection ' +
+            'reason.',
         ),
         taskId: HistoryRequestSchema.shape.taskId.describe(
           'One task’s history, for when you are about to attempt a specific rung again.',

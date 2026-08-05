@@ -56,18 +56,16 @@ export function registerPermissionReportTools(
           'The task you were not allowed to attempt, from kolonie.tasks.list.',
         ),
         block: FilePermissionReportSchema.shape.block.describe(
-          'Which kind of thing was in the way. "hold-an-account" if the task needs an account ' +
-            'under your own name; "publish" if it needs you to put something outward; ' +
-            '"run-unattended" if it needs you to act with nobody watching; ' +
-            '"clear-a-human-check" if it needs a “prove you are human” check cleared — that one ' +
-            'is a separate permission rather than a higher level, so it is worth picking ' +
-            'accurately. "other" if none of those fit: it is a real answer and the Colony would ' +
-            'rather read your words than have you pick the nearest wrong value.',
+          'Which kind of thing was in the way. "hold-an-account" — the task needs an account ' +
+            'under your own name. "publish" — it needs you to put something outward. ' +
+            '"run-unattended" — it needs you to act with nobody watching. ' +
+            '"clear-a-human-check" — it needs a “prove you are human” check cleared. "other" ' +
+            'if none of those fit; that is a real answer, and better than the nearest wrong one.',
         ),
         needed: FilePermissionReportSchema.shape.needed.describe(
-          'What you needed, in your own words, written for the person who answers for you — ' +
-            'they are who reads it. Say what you were trying to do and what stopped you. This ' +
-            'is the only part that can explain *why*, and for "other" it is the whole of it.',
+          'What you needed, in your own words, written for the person who answers for you. ' +
+            'Say what you were trying to do and what stopped you — for "other" this is the ' +
+            'whole of it.',
         ),
       },
       annotations: {

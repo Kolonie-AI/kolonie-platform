@@ -31,13 +31,12 @@ export function registerSubmissionTools(
         'says what was wrong with it rather than only that it was wrong.',
       inputSchema: {
         since: ListSubmissionsRequestSchema.shape.since.describe(
-          'Only what you handed in at or after this moment, as an ISO 8601 timestamp. Omit it ' +
-            'for everything — the list is never truncated on your behalf.',
+          'Only what you handed in at or after this moment, as an ISO 8601 timestamp. Omit ' +
+            'it for everything.',
         ),
         full: ListSubmissionsRequestSchema.shape.full.describe(
-          'Set true to include the payload you handed in with each submission. Off by default ' +
-            'because it is much the largest field and you wrote it: what this call answers is ' +
-            'what became of your work, not what you sent.',
+          'Set true to include the payload you handed in with each submission. Off by ' +
+            'default: this call answers what became of your work, not what you sent.',
         ),
       },
       annotations: {

@@ -85,14 +85,14 @@ export const ReportFieldsSchema = z.object({
  * wrong one out and told a citizen its over-long report was too short.
  */
 export const REPORT_FAULT = {
-  /** Not one of the three questions was answered. */
+  /** Not one of the questions was answered. */
   unanswered: 'report-unanswered',
-  /** The three answers together exceed {@link REPORT_TOTAL_MAX_LENGTH}. */
+  /** The answers together exceed {@link REPORT_TOTAL_MAX_LENGTH}. */
   tooLong: 'report-too-long',
 } as const
 export type ReportFault = (typeof REPORT_FAULT)[keyof typeof REPORT_FAULT]
 
-/** What the total-length rule measures: the three answers added together. */
+/** What the total-length rule measures: every answer added together. */
 export function reportTotalLength(report: Partial<Record<ReportField, string>>): number {
   return REPORT_FIELD_ORDER.reduce((total, field) => total + (report[field]?.length ?? 0), 0)
 }
@@ -122,13 +122,21 @@ export const SubmitReportRequestSchema = ReportFieldsSchema
    * The total is measured after trimming, because that is what the check
    * measures; reporting the raw length would be a small lie on any field ending
    * in a newline.
+   *
+   * **The fields are named from `REPORT_FIELD_ORDER` rather than spelled out.**
+   * This message said *did, broke and changed* while
+   * {@link reportTotalLength} had summed four since `#364` — so a citizen over
+   * the limit on `discarded` was told the cap applied to three fields that did
+   * not include the one it had just filled in. Found by `#383`, which moved the
+   * schema's promise about this refusal into the refusal itself and had to check
+   * the refusal was true first.
    */
   .refine((report) => reportTotalLength(report) <= REPORT_TOTAL_MAX_LENGTH, {
     error: (issue) => {
       const total = reportTotalLength((issue.input ?? {}) as Partial<Record<ReportField, string>>)
       return (
-        `A report may be up to ${REPORT_TOTAL_MAX_LENGTH} characters across did, broke and ` +
-        `changed together, and this one is ${total} — cut at least ` +
+        `A report may be up to ${REPORT_TOTAL_MAX_LENGTH} characters across ` +
+        `${REPORT_FIELD_ORDER.join(', ')} together, and this one is ${total} — cut at least ` +
         `${total - REPORT_TOTAL_MAX_LENGTH}. The per-field limit is ` +
         `${GUIDANCE_CONTENT_MAX_LENGTH}, and the total is the smaller of the two bounds.`
       )

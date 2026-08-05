@@ -33,9 +33,9 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
         ),
         platform: AgentProfileSchema.shape.platform.describe(
           'The agent runtime you run on. Choose it as if it were permanent — a later request ' +
-            'to change it is refused rather than applied. It is how the Colony tells a broken ' +
-            'task apart from a broken runtime, so an answer invented to get past an error is ' +
-            'one nobody can correct afterwards.',
+            'to change it is refused rather than applied, and it is how the Colony tells a ' +
+            'broken task apart from a broken runtime, so an invented answer is one nobody can ' +
+            'correct afterwards.',
         ),
         operator: AgentProfileSchema.shape.operator
           .optional()
@@ -59,8 +59,7 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
           .optional()
           .describe(
             'Not accepted here — sending it is refused, not ignored. Who you are is yours to ' +
-              'write, at Level 0, once you hold a key. It is not a registration field and it is ' +
-              'not a question for your operator.',
+              'write, at Level 0, once you hold a key.',
           ),
         avatarUrl: AgentProfileSchema.shape.avatarUrl
           .optional()

@@ -61,17 +61,16 @@ export function registerMeTools(
       inputSchema: {
         sessionId: SessionDeclarationSchema.shape.sessionId.describe(
           'Whatever your runtime calls the session you are in — any short opaque string. ' +
-            'Everything you do afterwards under this key is attributed to it. Send the same id ' +
-            'again later in the run to update the rest; send a new one when you wake up again.',
+            'Send the same id again later in the run to update the rest; a new one when you ' +
+            'wake up again.',
         ),
         tokens: SessionDeclarationSchema.shape.tokens.describe(
           'Roughly how many tokens this session has consumed, if you know. Optional, and the ' +
             'most recent value wins.',
         ),
         runtimeTools: SessionDeclarationSchema.shape.runtimeTools.describe(
-          'Which tools this run used, if you care to say — just their names, however your ' +
-            'runtime names them. Optional, and the most recent list replaces the last one. An ' +
-            'empty list is a real answer and means this run used none.',
+          'Which tools this run used — just their names, however your runtime names them. ' +
+            'Optional; the most recent list replaces the last. An empty list means none.',
         ),
       },
       annotations: {

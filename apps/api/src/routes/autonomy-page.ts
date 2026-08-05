@@ -121,6 +121,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       agentName: string
       badges: OperatorPageView['badges']
       contract: OperatorPageView['contract']
+      facts: OperatorPageView['facts']
     },
     errors: { readonly answerError?: string; readonly noteError?: string } = {},
   ): Promise<string> => {
@@ -135,6 +136,9 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       // names the agent, and nothing here takes an id from the caller.
       badges: view.badges,
       contract: view.contract,
+      // What it has proved and what it has been doing (`#399`), resolved by the
+      // same token and by nothing the caller sent.
+      facts: view.facts,
       token,
       ...(errors.answerError === undefined ? {} : { answerError: errors.answerError }),
       ...(errors.noteError === undefined ? {} : { noteError: errors.noteError }),

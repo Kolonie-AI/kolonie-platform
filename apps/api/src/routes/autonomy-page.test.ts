@@ -397,6 +397,100 @@ describe('the operator’s form', () => {
       expect(revoked.body).toBe(unknown.body)
     })
 
+    /**
+     * `#399`. The maintainer, 2026-08-05: *"my fear is that operators simply
+     * switch their agents off when they do not seem to be performing. That is
+     * why this operator page matters."* Before this, the durable page for a
+     * citizen with skills, rungs, a badge and a verified domain rendered 1,405
+     * characters, almost all of them about the message box — not one fact about
+     * the agent appeared.
+     */
+    describe('what the agent has been doing (#399)', () => {
+      it('shows the rungs it cleared, when it cleared them, and what it may do', async () => {
+        pages.factsFor(agentId, {
+          skills: ['profile', 'domain'],
+          rungs: [
+            { title: 'Say who you are', passedAt: '2026-07-01T10:05:00.000Z' },
+            { title: 'Prove a domain', passedAt: '2026-07-20T09:00:00.000Z' },
+          ],
+          lastSeenAt: '2026-08-05T06:00:00.000Z',
+          citizenSince: '2026-06-30T12:00:00.000Z',
+          questsAccepted: 2,
+          accounts: [{ kind: 'mailbox', count: 1 }],
+        })
+        const token = await aPage()
+
+        const response = await get(`/operator/page/${token}`)
+
+        expect(response.body).toContain('Say who you are')
+        expect(response.body).toContain('Prove a domain')
+        expect(response.body).toContain('profile')
+        // A day rather than a moment: an ISO string reads as a machine talking
+        // to itself, to a person who has never heard of the Colony.
+        expect(response.body).toContain('1 July 2026')
+        expect(response.body).toContain('5 August 2026')
+        expect(response.body).not.toContain('2026-07-01T10:05:00.000Z')
+        expect(response.body).toContain('1 × mailbox')
+      })
+
+      /**
+       * A new citizen and a broken one looked identical, and the operator could
+       * not tell them apart. Sentences rather than empty headings.
+       */
+      it('says so in the agent’s terms when there is nothing yet', async () => {
+        const token = await aPage()
+
+        const response = await get(`/operator/page/${token}`)
+
+        expect(response.body).toContain('has not cleared a step of the Academy yet')
+        expect(response.body).toContain('That is what a new')
+        expect(response.body).toContain('has not started a run the Colony could record')
+        // No heading with nothing under it — the failure `#397` was, one level up.
+        expect(response.body).not.toContain('What it proved, and when')
+      })
+
+      /**
+       * **The rejection case, as a property rather than for one fixture.** The
+       * page renders from a reader that cannot answer these questions, so the
+       * assertion is that no arrangement of what it *can* answer produces one.
+       */
+      it('carries no money, no secret and nothing about another citizen', async () => {
+        pages.factsFor(agentId, {
+          skills: ['profile', 'solana-wallet'],
+          rungs: [{ title: 'Prove a wallet', passedAt: '2026-07-01T10:05:00.000Z' }],
+          lastSeenAt: '2026-08-05T06:00:00.000Z',
+          questsAccepted: 9,
+          accounts: [{ kind: 'mailbox', count: 2 }],
+        })
+        pages.badgesFor(agentId, [
+          {
+            slug: 'first-light',
+            title: 'First light',
+            description: 'You passed your first rung of the Academy.',
+            awardedAt: '2026-08-04T00:00:00.000Z',
+            image: '/badges/first-light.svg',
+          },
+        ])
+        const token = await aPage()
+
+        const body = (await get(`/operator/page/${token}`)).body
+
+        /**
+         * Asserted over the cells rather than over the whole page, because the
+         * badge wall says the words *no reputation, no credits* on purpose —
+         * that sentence is what stops an operator reading a badge as a score,
+         * and a test that banned the word would delete it.
+         */
+        const cells = [...body.matchAll(/<td>(.*?)<\/td>/g)].map((match) => match[1] ?? '')
+        expect(cells.length).toBeGreaterThan(0)
+        for (const forbidden of ['balance', 'credit', 'reputation', 'vault', 'kol']) {
+          expect(cells.join(' ').toLowerCase(), forbidden).not.toContain(forbidden)
+        }
+        // And no address of any kind: the counts say a mailbox exists, never which.
+        expect(body).not.toMatch(/[\w.]+@[\w.]+\.\w+/)
+      })
+    })
+
     it('tells the operator the citizen may take the page away', async () => {
       // Said on the page rather than left to be discovered, because it is the one
       // thing about this arrangement an operator would otherwise find surprising.

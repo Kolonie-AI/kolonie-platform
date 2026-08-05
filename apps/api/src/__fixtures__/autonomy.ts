@@ -6,6 +6,7 @@ import {
   type StoredAutonomyContract,
   type HeldBadge,
 } from '@kolonie-ai/core'
+import type { OperatorPageView } from '@kolonie-ai/db'
 import type { AutonomyDependencies, AutonomyStore, OperatorPages } from '../autonomy.js'
 import type { Mailer } from '../email.js'
 
@@ -86,6 +87,14 @@ export type FakeOperatorPages = OperatorPages & {
   /** What this agent's wall shows (`#241`). Empty unless a test puts one there. */
   readonly badgesFor: (agentId: AgentId, held: readonly HeldBadge[]) => void
   /**
+   * What this agent has proved and has been doing (`#399`).
+   *
+   * **The default is a citizen with nothing yet**, which is the case the page had
+   * to stop rendering as a blank — so every test that does not arrange standing
+   * is asserting against the empty shape rather than against an absent one.
+   */
+  readonly factsFor: (agentId: AgentId, facts: Partial<OperatorPageView['facts']>) => void
+  /**
    * Who a live token names, and what one citizen's live page is.
    *
    * Exposed so the operator channel's fake reads *this* token map rather than
@@ -111,7 +120,18 @@ export function fakeOperatorPages(): FakeOperatorPages {
   const opened = new Map<string, string>()
   const contracts = new Map<AgentId, StoredAutonomyContract>()
   const badges = new Map<AgentId, readonly HeldBadge[]>()
+  const facts = new Map<AgentId, OperatorPageView['facts']>()
   const key = (agentId: AgentId, address: string) => `${agentId}::${address}`
+
+  /** A citizen that has done nothing yet — the shape the page must not render blank. */
+  const NOTHING_YET: OperatorPageView['facts'] = {
+    skills: [],
+    rungs: [],
+    lastSeenAt: null,
+    citizenSince: '2026-08-01T00:00:00.000Z',
+    questsAccepted: 0,
+    accounts: [],
+  }
 
   const issueNow = (agentId: AgentId, address: string): string => {
     const existing = byPair.get(key(agentId, address))
@@ -136,6 +156,9 @@ export function fakeOperatorPages(): FakeOperatorPages {
         // The wall (`#241`). Empty unless a test puts something on it, which is
         // the ordinary case — a page with no badges draws no badge section.
         badges: badges.get(row.agentId) ?? [],
+        // What it has proved (`#399`). A citizen with nothing yet by default,
+        // because that is the case the page has to say something about.
+        facts: facts.get(row.agentId) ?? NOTHING_YET,
       })
     },
     revoke: (agentId, address) => {
@@ -164,6 +187,9 @@ export function fakeOperatorPages(): FakeOperatorPages {
     contractFor: (agentId, contract) => contracts.set(agentId, contract),
     badgesFor: (agentId, held) => {
       badges.set(agentId, held)
+    },
+    factsFor: (agentId, standing) => {
+      facts.set(agentId, { ...NOTHING_YET, ...standing })
     },
   }
 }

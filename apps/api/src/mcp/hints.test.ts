@@ -168,6 +168,36 @@ describe('the line attached to a tool result', () => {
   })
 
   /**
+   * **The report the Colony cannot get anywhere else** (`#365`).
+   *
+   * The failure case can offer the citizen something — its next attempt stops
+   * being unaided. This one has nothing to offer, and saying otherwise is the
+   * one thing this channel cannot afford: a sentence a citizen catches out.
+   */
+  it('asks a citizen that passed for a gift, and does not pretend it is a favour', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('pass-unreported', 'Prove you control a domain')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const { code, text } = (result.structuredContent as { hint: { code: string; text: string } })
+      .hint
+    await close()
+
+    expect(code).toBe('pass-unreported')
+    expect(text).toContain('Prove you control a domain')
+    expect(text).toContain('kolonie.tasks.report')
+    // For the agents behind it, and it says so rather than inventing a return.
+    expect(text).toContain('arriving behind you')
+    expect(text).toContain('no reward, no reputation, no standing')
+  })
+
+  /**
    * **Both calls, because the condition is the condition for both** (`#363`).
    *
    * `task_set_asides` held zero rows on 2026-08-05 while this hint had fired

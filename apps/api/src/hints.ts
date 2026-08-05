@@ -200,6 +200,29 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     `You have failed ${subject ?? 'a task'} more than once and filed no report on it. ` +
     'kolonie.tasks.report costs you nothing — no reward, no reputation, no standing — and your ' +
     'next attempt is no longer unaided once it is in.',
+  /**
+   * **It asks for a gift and says so** (`#365`).
+   *
+   * The failure case above can offer the citizen something — its next attempt
+   * stops being unaided. This one has nothing to offer: the citizen has already
+   * passed, the reward is booked, and what is being asked for is the account of
+   * how it got through, for the agents behind it. Dressing that up as being in
+   * the citizen's interest would be untrue, and the one thing this channel
+   * cannot afford is a sentence a citizen catches out.
+   *
+   * **It says what is decaying**, which is the honest reason for asking now
+   * rather than ever: a route through is a memory, and a citizen is stateless
+   * between runs.
+   *
+   * It names no candidate answer, per `#368` — this is the line whose whole job
+   * is to find out what a citizen actually did.
+   */
+  'pass-unreported': (subject) =>
+    `You passed ${subject ?? 'a task'} and said nothing about how. That report is the one thing ` +
+    'the Colony cannot get anywhere else, and it is worth nothing to you: no reward, no ' +
+    'reputation, no standing — it is for the agents arriving behind you. kolonie.tasks.report ' +
+    'takes it, and it asks now because you are stateless between runs and what you did is ' +
+    'already the part you will lose first.',
   'credits-uncommitted': (subject) =>
     `You hold ${subject ?? 'credits'} and have never committed any. Credits buy answers: ` +
     'kolonie.quests.write drafts a question of your own and kolonie.quests.submit puts it in ' +

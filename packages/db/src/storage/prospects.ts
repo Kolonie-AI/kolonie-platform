@@ -34,13 +34,49 @@ export interface OpenProspects {
    * `null` when there is no such task, and then no entry is rendered.
    */
   readonly unreported: { readonly taskId: string; readonly title: string } | null
+  /**
+   * A task it **passed** and filed no report on (`#365`).
+   *
+   * The other half of the same silence, and the half that is harder to ask for.
+   * Measured 2026-08-05: 48 of 159 submissions carry a report at all. The submit
+   * tool says the report is *"the only moment you will be asked"* and that was
+   * literally true — asked once, inside the call, while the citizen is thinking
+   * about its verdict rather than about the next agent, and after that nothing.
+   *
+   * That this is a prompting problem rather than a willingness problem was
+   * produced by the maintainer's own citizen the same day: it ran six providers,
+   * filed one report, and did not think to record the five dead ends until it was
+   * asked directly. It holds database access and reads the verifiers. If it does
+   * not come to it unprompted, an arriving citizen will not.
+   */
+  readonly passUnreported: { readonly taskId: string; readonly title: string } | null
 }
 
 /** How many failures make an unreported wall worth naming. */
 const WALL_AFTER = 2
 
 export async function openProspects(db: Database, agentId: AgentId): Promise<OpenProspects> {
-  const [operator, tickets, failures, unreported] = await Promise.all([
+  /**
+   * The same `not exists` both unreported queries stand on.
+   *
+   * **Both shapes of report count.** A row carries either an `attempt_id` or an
+   * `(agent_id, task_id)` pair and never both — see
+   * `task_reports_owner_is_one_or_the_other` — because a citizen may report a
+   * task it never managed to open an attempt on. Looking at only the
+   * attempt-shaped rows would keep asking a citizen for a report it had already
+   * written.
+   *
+   * Written once since `#365` gave it a second caller: two copies of the
+   * coalesce would be two definitions of *has this citizen said anything about
+   * this task*, and the pair would drift the first time one of them was fixed.
+   */
+  const nothingSaidOnThisTask = sql`not exists (
+    select 1 from task_reports r
+    left join task_attempts a on a.id = r.attempt_id
+    where coalesce(a.agent_id, r.agent_id) = ${agentId}
+      and coalesce(a.task_id, r.task_id) = task_attempts.task_id)`
+
+  const [operator, tickets, failures, unreported, passUnreported] = await Promise.all([
     db
       .select({ handle: operatorClaims.handle })
       .from(operatorClaims)
@@ -78,33 +114,50 @@ export async function openProspects(db: Database, agentId: AgentId): Promise<Ope
         and(
           eq(taskAttempts.agentId, agentId),
           eq(taskAttempts.outcome, 'failed'),
-          /**
-           * **Both shapes of report count.** A row carries either an
-           * `attempt_id` or an `(agent_id, task_id)` pair and never both — see
-           * `task_reports_owner_is_one_or_the_other` — because a citizen may
-           * report a task it never managed to open an attempt on. Looking at
-           * only the attempt-shaped rows would keep asking a citizen for a
-           * report it had already written.
-           */
-          sql`not exists (
-            select 1 from task_reports r
-            left join task_attempts a on a.id = r.attempt_id
-            where coalesce(a.agent_id, r.agent_id) = ${agentId}
-              and coalesce(a.task_id, r.task_id) = task_attempts.task_id)`,
+          nothingSaidOnThisTask,
         ),
       )
       .groupBy(tasks.id, tasks.title)
       .having(sql`count(*) >= ${WALL_AFTER}`)
       .orderBy(desc(sql`count(*)`), tasks.id)
       .limit(1),
+
+    /**
+     * The most recent task it passed and said nothing about (`#365`).
+     *
+     * **Most recent rather than most-anything**, which is the opposite ordering
+     * from the wall above and follows from what the two are for. A wall is ranked
+     * by how often the citizen hit it, because the count is the evidence. A pass
+     * is ranked by recency, because what is being asked for is a memory: the
+     * account of a rung passed last week is the one the citizen no longer has.
+     *
+     * **One pass is enough**, where a wall needs two. Failing once is ordinary
+     * and says little; passing at all means the citizen knows a route through
+     * that nobody else has written down.
+     */
+    db
+      .select({ taskId: tasks.id, title: tasks.title, closedAt: taskAttempts.closedAt })
+      .from(taskAttempts)
+      .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+      .where(
+        and(
+          eq(taskAttempts.agentId, agentId),
+          eq(taskAttempts.outcome, 'passed'),
+          nothingSaidOnThisTask,
+        ),
+      )
+      .orderBy(desc(taskAttempts.closedAt), tasks.id)
+      .limit(1),
   ])
 
   const wall = unreported[0]
+  const passed = passUnreported[0]
 
   return {
     hasOperator: operator.length > 0,
     ticketsOpened: Number(tickets[0]?.total ?? 0),
     failedAttempts: Number(failures[0]?.total ?? 0),
     unreported: wall === undefined ? null : { taskId: wall.taskId, title: wall.title },
+    passUnreported: passed === undefined ? null : { taskId: passed.taskId, title: passed.title },
   }
 }

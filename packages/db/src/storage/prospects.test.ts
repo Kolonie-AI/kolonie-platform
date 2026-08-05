@@ -81,6 +81,23 @@ describe('what else is open to a citizen', () => {
     return row.id
   }
 
+  /** A closed attempt that passed, which is what an unwritten route is made of. */
+  const aPass = async (agentId: AgentId, taskId: TaskId, attempt = 1): Promise<string> => {
+    const [row] = await db
+      .insert(taskAttempts)
+      .values({
+        agentId,
+        taskId,
+        attempt,
+        opener: 'submission' as const,
+        outcome: 'passed' as const,
+        closedAt: sql`now()`,
+      })
+      .returning({ id: taskAttempts.id })
+    if (row === undefined) throw new Error('inserting an attempt returned no row')
+    return row.id
+  }
+
   describe('an operator', () => {
     it('is absent until somebody claims the citizen', async () => {
       const agentId = await anAgent('unclaimed')
@@ -189,6 +206,53 @@ describe('what else is open to a citizen', () => {
       ticketsOpened: 0,
       failedAttempts: 0,
       unreported: null,
+      passUnreported: null,
+    })
+  })
+
+  /**
+   * **The other half of the same silence** (`#365`).
+   *
+   * 48 of 159 submissions carried a report on 2026-08-05, and the submit tool's
+   * claim that it is *"the only moment you will be asked"* was literally true.
+   * This is what asks a second time.
+   */
+  describe('a task passed and never reported on', () => {
+    it('names it, on one pass and with no second failure needed', async () => {
+      const agentId = await anAgent('quiet-winner')
+      const taskId = await aRung('Prove you control a domain')
+      await aPass(agentId, taskId)
+
+      const { passUnreported } = await openProspects(db, agentId)
+
+      expect(passUnreported?.taskId).toBe(taskId)
+    })
+
+    /**
+     * The rejection case the definition of done asks for: neither hint fires for
+     * an attempt that already carries a report.
+     */
+    it('says nothing once the citizen has reported on that task', async () => {
+      const agentId = await anAgent('spoke-up')
+      const taskId = await aRung('Prove you control a domain')
+      const attemptId = await aPass(agentId, taskId)
+      await db.insert(taskReports).values({
+        attemptId,
+        did: 'Took the second provider on the list and it went through first time.',
+      })
+
+      expect((await openProspects(db, agentId)).passUnreported).toBeNull()
+    })
+
+    /** A pass on one task says nothing about silence on another. */
+    it('names the task it actually passed, not a neighbour', async () => {
+      const agentId = await anAgent('two-rungs')
+      const passed = await aRung('Prove you control a domain')
+      const other = await aRung('Receive mail at your own address')
+      await aPass(agentId, passed)
+      await aFailure(agentId, other, 1)
+
+      expect((await openProspects(db, agentId)).passUnreported?.taskId).toBe(passed)
     })
   })
 })

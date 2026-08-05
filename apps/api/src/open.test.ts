@@ -48,6 +48,7 @@ const sourceWith = (options: {
     ticketsOpened: 0,
     failedAttempts: 0,
     unreported: null,
+    passUnreported: null,
     ...(options.prospects ?? {}),
   }
 

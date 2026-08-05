@@ -121,6 +121,7 @@ export type StandingHintCode =
    * wall is.
    */
   | 'attempts-unreported'
+  | 'pass-unreported'
   /**
    * The citizen holds credits and has never committed any (`#356`).
    *
@@ -338,6 +339,19 @@ export function generalHintText(code: string): string | undefined {
  * - `task-considered` stays where it was, above only `general`: it is asked once
  *   and never again, so it can afford to wait, and its own doc comment says so.
  *
+ * **`pass-unreported` ranks directly below `attempts-unreported`** (`#365`), and
+ * the gap between the two is the whole reasoning. Both ask for the report the
+ * Colony is missing; the failure one unblocks work the citizen is stuck on right
+ * now — its next attempt stops being unaided once the report is in — while the
+ * pass one asks for a gift, from a citizen that has already got what it came
+ * for. A gift is worth asking for and it is not worth crowding out a citizen's
+ * own unblocking, so it sits one line lower and never higher.
+ *
+ * It ranks above `quest-open-to-you` for a reason that is about decay rather
+ * than value: a citizen that has just passed still remembers what it did, and a
+ * quest that is open stays open. This is the condition in the whole list with
+ * the shortest useful life.
+ *
  * **`runtime-shell-absent` sits above the three doors and below everything the
  * citizen can finish alone** (`#372`), and both halves of that are the argument.
  * It outranks them because it names a wall rather than a door: a citizen in this
@@ -354,6 +368,7 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'rhythm-undeclared',
   'skill-version-unknown',
   'attempts-unreported',
+  'pass-unreported',
   'quest-open-to-you',
   'runtime-shell-absent',
   'credits-uncommitted',

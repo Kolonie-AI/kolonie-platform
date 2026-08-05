@@ -229,6 +229,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       ticketsOpened: 0,
       failedAttempts: 0,
       unreported: null,
+      passUnreported: null,
     }),
     skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),

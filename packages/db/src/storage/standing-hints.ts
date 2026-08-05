@@ -535,6 +535,19 @@ async function standing(
   if (prospects.unreported !== null) {
     applicable.push({ code: 'attempts-unreported', subject: prospects.unreported.title })
   }
+  /**
+   * **The other half of the same silence** (`#365`), and it ranks one line lower
+   * than the failure it sits beside — see `STANDING_HINT_RANK` for why: the
+   * failure case unblocks work this citizen is stuck on, and this one asks for a
+   * gift from a citizen that already has what it came for.
+   *
+   * The two cannot both fire in a run, because the channel serves one line per
+   * run; they can both be *applicable*, and then the rank decides, which is the
+   * whole reason the rank is data.
+   */
+  if (prospects.passUnreported !== null) {
+    applicable.push({ code: 'pass-unreported', subject: prospects.passUnreported.title })
+  }
   if (seven.uncommittedCredits !== null) {
     applicable.push({
       code: 'credits-uncommitted',

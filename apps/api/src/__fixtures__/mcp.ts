@@ -129,6 +129,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
       ticketsOpened: 0,
       failedAttempts: 0,
       unreported: null,
+      passUnreported: null,
     }),
     skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),

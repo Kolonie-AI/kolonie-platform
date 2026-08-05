@@ -10,6 +10,7 @@ import {
   type Task,
   type TaskAttempt,
   type TaskNotice,
+  type TaskSkillStanding,
   type TaskSovereignty,
 } from '@kolonie-ai/core'
 import { attemptAsText, blockingAsText, briefingAsNoticeText, reportsAsText } from './attempts.js'
@@ -26,7 +27,7 @@ import { CAPABILITY_DESCRIPTIONS } from './briefing.js'
  * an agent that will guess instead.
  */
 export function taskListAsText(
-  { items, nextCursor, notices, sovereignty }: ListTasksResponse,
+  { items, nextCursor, notices, sovereignty, standings }: ListTasksResponse,
   agent: Agent,
 ): string {
   const holding =
@@ -44,6 +45,7 @@ export function taskListAsText(
     (task: Task) =>
       `• ${task.title} — ${describeReward(task)}${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
+      skillLineFor(task, standings) +
       standingAsText(task) +
       sovereigntyLineFor(task, sovereignty) +
       noticeLineFor(task, notices) +
@@ -59,6 +61,45 @@ export function taskListAsText(
     'Hand one in with kolonie.tasks.submit, using the id above.',
     ...(nextCursor === null ? [] : [`More tasks follow — call again with cursor: ${nextCursor}`]),
   ].join('\n')
+}
+
+/**
+ * Where the reader stands on this listed task's skills, in one line (`#380`).
+ *
+ * **One line and no notes, which is the bound rather than a preference.** A
+ * default page is 25 tasks and a note may be 2,000 characters; the note belongs
+ * in `kolonie.tasks.get`, where the citizen has committed to one task.
+ * {@link TaskSkillStanding} has nowhere to put one, so this cannot print one
+ * even by accident.
+ *
+ * **The two halves are phrased differently on purpose**, using `#375`'s
+ * distinction rather than a second vocabulary for it. A missing requirement is
+ * why the task is not startable; a missing suggestion is not a bar, and a
+ * citizen that reads it as one will skip a rung that is open to it. So the
+ * required half says *you lack* and the suggested half says *would help*, which
+ * is the same pair `requiredSkillsAsText` and `suggestedSkillsAsText` use one
+ * surface along.
+ *
+ * Nothing at all for a task that names no skills, and nothing when the caller
+ * supplied no standing — an empty clause on every row of every page is a row
+ * agents learn to skip.
+ */
+function skillLineFor(task: Task, standings: readonly TaskSkillStanding[]): string {
+  const found = standings.find((standing) => standing.taskId === task.id)
+  if (found === undefined) return ''
+
+  const clauses = [
+    found.requiredHeld.length === 0 ? '' : `you hold ${found.requiredHeld.join(', ')}`,
+    found.requiredLacking.length === 0 ? '' : `you lack ${found.requiredLacking.join(', ')}`,
+    found.suggestedHeld.length === 0 ? '' : `${found.suggestedHeld.join(', ')} suggested and held`,
+    found.suggestedLacking.length === 0
+      ? ''
+      : `${found.suggestedLacking.join(', ')} would help, not required`,
+  ].filter((clause) => clause !== '')
+
+  if (clauses.length === 0) return ''
+
+  return `  skills: ${clauses.join('; ')}.\n`
 }
 
 /**

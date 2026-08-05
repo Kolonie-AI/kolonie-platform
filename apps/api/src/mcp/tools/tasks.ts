@@ -106,6 +106,17 @@ export function registerTaskTools(
         deps.catalogue,
         deps.guidance,
         deps.accounts.resolution,
+        /**
+         * The skills come from the credential and never the request (`#380`),
+         * which is the same distinction between a filter and a permission the
+         * rest of this file is built around.
+         *
+         * **The note store is deliberately not passed**, unlike
+         * `kolonie.tasks.get` one tool below. A default page is 25 tasks and a
+         * note may be 2,000 characters; notes belong where the citizen has
+         * committed to one task.
+         */
+        { held: authenticatedAgent.agent.skills },
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 

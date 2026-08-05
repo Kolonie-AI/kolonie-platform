@@ -26,7 +26,18 @@ export function registerTaskRoutes(v1: FastifyInstance, deps: RouteDependencies)
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    const result = await listTasks(request.query, caller.id, catalogue, guidance, resolution)
+    /**
+     * The standing comes from the authenticated caller, so this surface and
+     * `kolonie.tasks.list` answer the same thing (`#380`).
+     *
+     * It costs nothing to supply here: `callerFor` has already resolved the
+     * agent, and the listing standings are computed from the page in hand
+     * without a round trip. The note store is not passed on either surface —
+     * see `listingStandings`.
+     */
+    const result = await listTasks(request.query, caller.id, catalogue, guidance, resolution, {
+      held: caller.skills,
+    })
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

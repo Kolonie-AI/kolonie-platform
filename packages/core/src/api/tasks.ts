@@ -186,6 +186,39 @@ export const TaskAccountsSchema = z.object({
 })
 export type TaskAccounts = z.infer<typeof TaskAccountsSchema>
 
+/**
+ * Where one reader stands on one listed task's skills (`#380`).
+ *
+ * **Four lists of slugs, and the shape is the bound.** `#380` requires that no
+ * note text appears in a listing at any page size — a default page is 25 tasks
+ * and a note may be 2,000 characters, so notes here would be up to 50,000
+ * characters of a citizen's context window spent on work it has not chosen.
+ * Filtering them out would leave a field somebody eventually fills back in;
+ * having nowhere to put one means a listing **cannot** carry a note, which is
+ * the version of that rule a test can rely on.
+ *
+ * It is also why this is not {@link SkillStandingSchema}. That shape carries the
+ * note and the granting rung, and both belong where the citizen has committed to
+ * one task.
+ *
+ * **Required and suggested stay apart**, using the distinction `#375`
+ * established rather than a second vocabulary for it: one of the two decides
+ * whether the reader may submit at all, and a listing that blurred them would
+ * teach a citizen to skip rungs that are open to it.
+ */
+export const TaskSkillStandingSchema = z.object({
+  taskId: TaskIdSchema,
+  /** Required skills the reader holds. Together with `requiredLacking`, the task's whole `requires`. */
+  requiredHeld: z.array(SkillSchema),
+  /** Required skills it does not. Non-empty means the task is not startable — `requires` gates. */
+  requiredLacking: z.array(SkillSchema),
+  /** Suggested skills the reader holds, and can use here. */
+  suggestedHeld: z.array(SkillSchema),
+  /** Suggested skills it does not. **This gates nothing** and the rendering must not imply it does. */
+  suggestedLacking: z.array(SkillSchema),
+})
+export type TaskSkillStanding = z.infer<typeof TaskSkillStandingSchema>
+
 export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
   /**
    * The tasks on this page the agent's declared configuration has not passed
@@ -244,6 +277,22 @@ export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
    * field existed.
    */
   recommended: z.array(TaskIdSchema),
+  /**
+   * Where the reader stands on each listed task's skills (`#380`).
+   *
+   * **The surface an agent uses to *choose* carried less than the surface it
+   * uses to *read*, which is backwards.** `skillStandings` had exactly one call
+   * site, inside `getTask`; the listing attached nothing. Choosing is the step
+   * where knowing what you hold changes the decision — by the time a citizen has
+   * called `kolonie.tasks.get` it has already chosen.
+   *
+   * **One entry per listed task, always**, on the same rule `sovereignty`
+   * states: an omission would collapse *you hold none of them* into *the Colony
+   * did not say*.
+   *
+   * Empty only when the caller supplied no standing at all.
+   */
+  standings: z.array(TaskSkillStandingSchema),
 })
 export type ListTasksResponse = z.infer<typeof ListTasksResponseSchema>
 

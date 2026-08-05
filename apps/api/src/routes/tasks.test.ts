@@ -187,6 +187,10 @@ describe('GET /v1/tasks', () => {
       // nothing could be recommended. A citizen that declared no vocation gets
       // the same empty array against a full page.
       recommended: [],
+      // And again (`#380`): one standing per listed task, of which there are
+      // none. This route supplies the reader's skills, so an empty array here
+      // is *nothing was listed* rather than *nothing was asked*.
+      standings: [],
     })
   })
 

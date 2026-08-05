@@ -2,6 +2,7 @@ import {
   AcademyGraphNodeSchema,
   AccountKindSchema,
   blockingNotice,
+  SkillSchema,
   ListTasksRequestSchema,
   orderByDirection,
   recommendedFor,
@@ -20,6 +21,7 @@ import {
   type TaskType,
   type TaskNotice,
   type TaskReference,
+  type TaskSkillStanding,
 } from '@kolonie-ai/core'
 import type { AccountResolution } from './accounts.js'
 import {
@@ -300,12 +302,61 @@ function producerOf(kind: string, tasks: readonly Task[]): TaskType | undefined 
   return tasks.find((task) => task.grants.some((granted) => String(granted) === skill))?.type
 }
 
+/**
+ * Where the reader stands on a page of tasks' skills (`#380`).
+ *
+ * **No round trips at all, which is how the per-page cost stays flat.** It reads
+ * `source.held` and the tasks already in hand and asks nothing of anything else
+ * — no note store, no graph. The two things `skillStandings` fetches are the
+ * note and the granting rung, and both belong where the citizen has committed to
+ * one task rather than on a page of twenty-five it has not chosen from.
+ *
+ * **`source.notes` is not even reachable from here**, deliberately. That is the
+ * `#380` bound expressed as code rather than as a filter somebody has to
+ * remember: a listing cannot carry a note because nothing in this function can
+ * read one, and {@link TaskSkillStanding} has nowhere to put one if it could.
+ */
+function listingStandings(
+  tasks: readonly Task[],
+  source: SkillStandingSource | undefined,
+): TaskSkillStanding[] {
+  if (source === undefined) return []
+
+  const held = new Set(source.held)
+  const split = (skills: readonly string[]) => ({
+    held: skills.filter((skill) => held.has(skill)).map((skill) => SkillSchema.parse(skill)),
+    lacking: skills.filter((skill) => !held.has(skill)).map((skill) => SkillSchema.parse(skill)),
+  })
+
+  return tasks.map((task) => {
+    const required = split(task.requires)
+    const suggested = split(task.suggests)
+
+    return {
+      taskId: task.id,
+      requiredHeld: required.held,
+      requiredLacking: required.lacking,
+      suggestedHeld: suggested.held,
+      suggestedLacking: suggested.lacking,
+    }
+  })
+}
+
 export async function listTasks(
   query: unknown,
   agentId: AgentId,
   catalogue: TaskCatalogue,
   guidance: TaskGuidance,
   register: AccountResolution,
+  /**
+   * Where the reader stands on the listed tasks' skills (`#380`).
+   *
+   * **Appended and optional**, exactly as it is on `getTask`: a caller that
+   * cannot answer it gets an empty list and the rendering says nothing rather
+   * than saying something wrong. Only `held` is read — see
+   * {@link listingStandings} for why the note half must stay unreachable here.
+   */
+  standings?: SkillStandingSource,
 ): Promise<ListTasksOutcome> {
   const parsed = ListTasksRequestSchema.safeParse(fromQueryString(query))
   if (!parsed.success) {
@@ -375,6 +426,9 @@ export async function listTasks(
         taskId: task.id,
         sovereignty: byType.get(task.type) ?? { passes: 0, unattended: 0, share: null },
       })),
+      // Computed from the page in hand and the reader's own skills, with no
+      // round trip of its own (`#380`).
+      standings: listingStandings(items, standings),
     },
   }
 }

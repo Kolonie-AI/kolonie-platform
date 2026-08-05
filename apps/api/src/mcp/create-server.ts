@@ -3,6 +3,7 @@ import { createLog, type AgentId } from '@kolonie-ai/core'
 import { standingHintText } from '../hints.js'
 import type { McpDependencies } from './dependencies.js'
 import { guardTools } from './guard.js'
+import { advertiseOnlyWhatIsSent } from './handshake.js'
 import { publishLeanSchemas } from './published-schema.js'
 import { registerAboutTools } from './tools/about.js'
 import { registerAcademyTools } from './tools/academy/index.js'
@@ -165,6 +166,14 @@ export function createMcpServer(
    * nothing to be covered.
    */
   publishLeanSchemas(server)
+
+  /**
+   * The handshake promises only what this transport can deliver (`#386`).
+   *
+   * Beside `publishLeanSchemas` and for its reason: both are rules about what
+   * leaves the server, so both sit on the seam everything leaves through.
+   */
+  advertiseOnlyWhatIsSent(server)
 
   registerAboutTools(server, deps)
   registerRegistrationTool(server, deps)

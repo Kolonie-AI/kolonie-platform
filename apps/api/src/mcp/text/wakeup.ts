@@ -31,6 +31,29 @@ import { unreadNotesLine } from './operator-notes.js'
  * that says what to do next, and what did not fit is stated as a count rather
  * than dropped in silence.
  */
+
+/**
+ * The sentence that replaces a notification nothing can send (`#386`).
+ *
+ * **The handshake stopped claiming `listChanged`**, because the transport is
+ * stateless and there is no open stream to notify on — `handshake.ts` carries
+ * the argument and D-101 records it. What is left is the citizen's problem
+ * rather than the protocol's: D-013 rebuilds the list from the credential on
+ * every request, so a citizen whose tier changed gets the right list the moment
+ * it reconnects, and had no way of knowing it should.
+ *
+ * So the answer that reports the change says it, which is
+ * `kolonie-docs#159`'s rule applied to the one fact the Colony knows and the
+ * citizen cannot discover: *put it in the way rather than expect a poll.*
+ *
+ * **On the three lines that move a tier and no others.** A skill grant, a role
+ * grant and a role revocation are exactly what `D-013` and `#387` build the
+ * list from. Appending it to a line that changed nothing would make the sentence
+ * mean nothing, which is the failure the notification had in the first place.
+ */
+export const LIST_IS_STALE =
+  ' — the tool list you are holding was built before this, so reconnect to see what it changed'
+
 export const WAKEUP_SECTION_ORDER = [
   /** Where you stand: a position, which the digest never carried before `#344`. */
   'standing',
@@ -293,7 +316,7 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
     ),
     ...(digest.skillsGranted.length === 0
       ? []
-      : [`skills granted: ${digest.skillsGranted.join(', ')}`]),
+      : [`skills granted: ${digest.skillsGranted.join(', ')}${LIST_IS_STALE}`]),
     /**
      * Said with what it opens and closes rather than as a bare name (`#330`).
      *
@@ -306,13 +329,13 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
       ? []
       : [
           `roles granted: ${digest.rolesGranted.join(', ')} — ` +
-            'tools these open are yours from now, and kolonie.me lists what you hold',
+            `tools these open are yours from now, and kolonie.me lists what you hold${LIST_IS_STALE}`,
         ]),
     ...(digest.rolesRevoked.length === 0
       ? []
       : [
           `roles taken back: ${digest.rolesRevoked.join(', ')} — ` +
-            'tools these gated will refuse you now, so do not plan around them',
+            `tools these gated will refuse you now, so do not plan around them${LIST_IS_STALE}`,
         ]),
     ...digest.tasksRetired.map((task) => `retired: ${task.title} — ${task.taskId}`),
     /**

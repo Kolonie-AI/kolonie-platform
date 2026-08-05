@@ -158,7 +158,24 @@ export async function fileReport(
             target: [taskReports.agentId, taskReports.taskId],
             where: isNull(taskReports.attemptId),
           }
-        : { target: taskReports.attemptId },
+        : /**
+           * **The predicate has to match the index's** (#360). `task_reports_
+           * attempt_unique` is partial on `status <> 'merged'`, and an
+           * `on conflict` whose target does not name the same predicate does not
+           * resolve to a partial index at all — Postgres answers *no unique or
+           * exclusion constraint matching the ON CONFLICT specification* rather
+           * than quietly doing the wrong thing, which is the good failure of the
+           * two available.
+           *
+           * What it buys is the whole of this issue: an attempt whose only
+           * report was merged has no live row, so this insert simply succeeds,
+           * and the citizen's second finding gets its own entry instead of the
+           * refusal that said its author had nothing left to say.
+           */
+          {
+            target: taskReports.attemptId,
+            where: sql`${taskReports.status} <> 'merged'`,
+          },
     )
     .returning({ id: taskReports.id })
 
@@ -322,6 +339,16 @@ async function whyNotRevisable(db: Database, key: ReportKey): Promise<RevisionRe
     .from(taskReports)
     .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
     .where(reportMatching(key))
+    /**
+     * **The live row first, since an attempt may now carry more than one**
+     * (#360). A merged row no longer occupies the attempt's report slot, so a key
+     * can name a merged row *and* the row that was filed after it — and reporting
+     * the merged one's reason would answer *this was folded into another entry* to
+     * a citizen whose current report was refused for being confirmed by somebody
+     * else. `limit(1)` was total when a key named one row; it is a choice now, and
+     * this is it.
+     */
+    .orderBy(sql`case when ${taskReports.status} = 'merged' then 1 else 0 end`)
     .limit(1)
 
   if (row === undefined) return 'confirmed-by-others'
@@ -1245,7 +1272,13 @@ export async function routeSubmissionReport(
   const inserted = await db
     .insert(taskReports)
     .values({ attemptId: row.attemptId, [field]: row.report })
-    .onConflictDoNothing({ target: taskReports.attemptId })
+    // The same predicate as the index, for the reason `fileReport` gives (#360):
+    // `task_reports_attempt_unique` is partial on `status <> 'merged'`, and an
+    // `on conflict` that does not name it resolves to no index at all.
+    .onConflictDoNothing({
+      target: taskReports.attemptId,
+      where: sql`${taskReports.status} <> 'merged'`,
+    })
     .returning({ id: taskReports.id })
 
   if (inserted[0] !== undefined) {

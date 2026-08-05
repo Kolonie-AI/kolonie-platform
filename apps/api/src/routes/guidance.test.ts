@@ -344,6 +344,20 @@ describe('POST /v1/tasks/:taskId/reports', () => {
     expect(response.json().details).toEqual({ reason: 'merged-into-another' })
   })
 
+  /**
+   * **A refusal that names no route out is a dead end** (`#360`). This one now
+   * only reaches a citizen with no attempt behind its report, where one row per
+   * task is the whole ceiling on the moderation it can spend — so the thing it
+   * has to say is the thing that would make the call succeed.
+   */
+  it('tells a merged author what would let it say something different', async () => {
+    guidance.answersWrite({ outcome: 'not-revisable', because: 'merged-into-another' })
+
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
+
+    expect(response.json().message).toContain('kolonie.tasks.submit')
+  })
+
   it('answers not_found for a task id that names nothing', async () => {
     guidance.answersWrite('no-such-task')
 

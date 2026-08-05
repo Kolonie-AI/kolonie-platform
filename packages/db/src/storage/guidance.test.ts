@@ -331,6 +331,45 @@ describe('what citizens write about a task', () => {
       expect(second.entry.id).toBe(first.entry.id)
     })
 
+    /**
+     * **The asymmetry `#360` decided, asserted rather than left to reading.**
+     *
+     * A merged row stops holding an *attempt's* report slot, because the ceiling
+     * on that branch is the attempts a citizen can open — real work the Colony
+     * watches. On this branch there is no attempt at all and one row per task is
+     * the entire ceiling, so exempting merged rows would let a citizen that
+     * attempts nothing spend a moderation call per merge, for as long as it
+     * likes. The refusal stands here, and what it owes the citizen is the route
+     * out, which `apps/api` is where it says.
+     */
+    it('still refuses a merged attempt-less author, where one row per task is the whole bound', async () => {
+      const canonicalAuthor = await anAgent('unattempted-canonical')
+      const canonical = await fileReport(db, {
+        taskId,
+        agentId: canonicalAuthor,
+        narrative: aNarrative(CONTENT),
+      })
+      if (canonical.outcome !== 'recorded') throw new Error(canonical.outcome)
+
+      const agentId = await anAgent('unattempted-merged')
+      const merged = await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: aNarrative('The same wall, from an agent that never attempted it.'),
+      })
+      if (merged.outcome !== 'recorded') throw new Error(merged.outcome)
+      await mergeInto(canonical.entry.id, merged.entry.id)
+
+      const again = await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: aNarrative('Something else entirely, from the same unattempting agent.'),
+      })
+
+      expect(again.outcome).toBe('not-revisable')
+      expect(again.outcome === 'not-revisable' && again.because).toBe('merged-into-another')
+    })
+
     /** One per citizen per task, not one across the Colony. */
     it('lets a second citizen file its own attempt-less report on the same task', async () => {
       const one = await anAgent('first-bystander')
@@ -1166,8 +1205,17 @@ describe('what citizens write about a task', () => {
         expect(own?.status).toBe('approved')
       })
 
-      /** Its content is never served; it is a pointer and a counted confirmation. */
-      it('refuses a revision of a merged entry', async () => {
+      /**
+       * **A merge counts a confirmation; it does not close the channel** (#360).
+       *
+       * The refusal that used to be here was sound about the merged text and
+       * wrong about its author. *Changing it would change nothing* is true of a
+       * row nobody reads, and it is not true of a citizen that now has something
+       * different to say — measured on 2026-08-05, where the second finding was
+       * about five providers that could not be used at all and it is recorded
+       * nowhere.
+       */
+      it('gives a merged author a new entry rather than refusing it', async () => {
         const canonical = await anAgent('canonical-author')
         const canonicalId = await fileFor(canonical)
         const author = await anAgent('merged-author')
@@ -1180,8 +1228,90 @@ describe('what citizens write about a task', () => {
           narrative: aNarrative(REVISED),
         })
 
-        expect(result.outcome).toBe('not-revisable')
-        expect(result.outcome === 'not-revisable' && result.because).toBe('merged-into-another')
+        // A new row, not a revision of the merged one: the merged entry keeps
+        // its pointer and the confirmation it moved stays counted where it is.
+        expect(result.outcome).toBe('recorded')
+        if (result.outcome !== 'recorded') throw new Error(result.outcome)
+        expect(result.entry.id).not.toBe(mergedId)
+
+        const own = await listOwnReports(db, author)
+        expect(own).toHaveLength(2)
+        expect(own.map((entry) => entry.status).sort()).toEqual(['merged', 'pending'])
+        expect(own.find((entry) => entry.status === 'merged')?.narrative.broke).toBe(
+          'The same wall, said again.',
+        )
+      })
+
+      /**
+       * **The rejection case the definition of done asks for**: re-filing the
+       * *same* finding still folds, rather than buying a second entry.
+       *
+       * This is what makes the relaxation safe. The slot reopening is not a
+       * licence to say the same thing twice — the new row goes to moderation
+       * like any other, a merge verdict folds it, and `confirmations` counts
+       * distinct agents, so an author that keeps restating one wall moves
+       * nothing and publishes nothing.
+       */
+      it('folds a re-filed identical finding instead of standing it up as a second entry', async () => {
+        const canonical = await anAgent('canonical-author')
+        const canonicalId = await fileFor(canonical)
+        await approve(canonicalId, 1)
+        const author = await anAgent('says-it-again')
+        const firstMerge = await fileFor(author, 'The same wall, said again.')
+        await recordModeration(db, {
+          id: firstMerge,
+          narrative: aNarrative('The same wall, said again.'),
+          verdict: { decision: 'merge', duplicateOf: canonicalId },
+          model: 'vendor/some-model-v1',
+          stages: noStagesRun(),
+          confidentialSpans: [],
+        })
+
+        // Now the same author says the same thing a third time. The slot is open,
+        // so this is a row — and the moderator folds it exactly as before.
+        const again = await fileReport(db, {
+          taskId,
+          agentId: author,
+          narrative: aNarrative('The same wall, said again.'),
+        })
+        expect(again.outcome).toBe('recorded')
+        if (again.outcome !== 'recorded') throw new Error(again.outcome)
+        await recordModeration(db, {
+          id: again.entry.id,
+          narrative: aNarrative('The same wall, said again.'),
+          verdict: { decision: 'merge', duplicateOf: canonicalId },
+          model: 'vendor/some-model-v1',
+          stages: noStagesRun(),
+          confidentialSpans: [],
+        })
+
+        // One entry a reader ever sees, and the count is agents rather than rows:
+        // this author was already in it, so saying it twice more moved nothing.
+        const served = await listReports(db, { taskId })
+        expect(served).toHaveLength(1)
+        expect(served[0]?.id).toBe(canonicalId)
+        expect(served[0]?.confirmations).toBe(2)
+      })
+
+      /**
+       * And the half that does not move: **at most one live report per
+       * attempt.** Relaxing the index for merged rows must not turn a second
+       * thought about a live report into a second entry, because the per-attempt
+       * sequence is what `#110` bought.
+       */
+      it('still revises rather than adding a second live report on one attempt', async () => {
+        const author = await anAgent('still-one-slot')
+        const first = await fileFor(author)
+
+        const result = await fileReport(db, {
+          taskId,
+          agentId: author,
+          narrative: aNarrative(REVISED),
+        })
+
+        expect(result.outcome).toBe('revised')
+        expect(result.outcome === 'revised' && result.entry.id).toBe(first)
+        expect(await listOwnReports(db, author)).toHaveLength(1)
       })
 
       /**

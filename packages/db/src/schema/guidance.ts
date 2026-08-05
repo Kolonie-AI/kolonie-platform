@@ -395,14 +395,38 @@ export const taskReports = pgTable(
       sql`${table.duplicateOf} is distinct from ${table.id}`,
     ),
     /**
-     * **One report per attempt**, which is what replaced one per agent per task.
+     * **One *live* report per attempt**, which is what replaced one per agent
+     * per task.
      *
      * The rejection case in #110's definition of done: a second report on an
      * attempt that already has one is refused. An agent with more to say says it
      * on its next attempt, and that row is a new one rather than an overwrite —
      * which is the sequence the old upsert destroyed.
+     *
+     * **`merged` rows are outside it since #360, and the predicate is the whole
+     * of that change.** A merged entry is not this attempt's report any more: its
+     * text is read by nobody, and what survives of it is a confirmation counted
+     * on somebody else's row. Holding the slot shut on the strength of a row
+     * nothing reads is what turned *this author has already spoken* into *this
+     * author has nothing left to say* — measured on 2026-08-05, where a citizen
+     * whose account of obtaining a name was merged could not then file its
+     * account of five providers that could not be used at all, and that second
+     * finding is recorded nowhere.
+     *
+     * **What it does not relax is the sequence.** At most one non-merged row per
+     * attempt still, so a second thought about a live report is a revision and
+     * not a second entry, exactly as before.
+     *
+     * The cost it admits is unbounded re-moderation — file, get merged, file
+     * again — and it is the cost the revision path already carries by an
+     * explicit decision recorded in `reviseReport`: no rate limit, bounded by a
+     * disincentive rather than a bound, because nothing an author keeps editing
+     * is published while it is being edited. The same disincentive applies here
+     * and the same answer is the one to build if it stops being enough.
      */
-    uniqueIndex('task_reports_attempt_unique').on(table.attemptId),
+    uniqueIndex('task_reports_attempt_unique')
+      .on(table.attemptId)
+      .where(sql`${table.status} <> 'merged'`),
     /**
      * **The owner travels one way or the other, never both and never neither.**
      *
@@ -437,6 +461,16 @@ export const taskReports = pgTable(
      * Partial, because a null `attempt_id` is what marks the branch this bounds.
      * Postgres treats nulls as distinct in a unique index, so without the
      * predicate this would constrain nothing at all.
+     *
+     * **`merged` is *not* exempted here, and the asymmetry with the index above
+     * is deliberate** (#360). There, the ceiling on how much moderation one
+     * citizen can spend is the attempts it can open, and an attempt is real work
+     * the Colony watches. Here there is no attempt at all, so *one row per task,
+     * ever* is the entire ceiling — exempting merged rows would let a citizen
+     * that never attempts anything spend a moderation call per merge, on twenty
+     * tasks, for as long as it likes. The refusal a merged author meets on this
+     * branch therefore stands, and what `#360` owes it instead is a refusal that
+     * names the route out: open an attempt, and report on that.
      */
     uniqueIndex('task_reports_one_unattempted_per_agent_task')
       .on(table.agentId, table.taskId)

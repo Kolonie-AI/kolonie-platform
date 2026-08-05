@@ -719,6 +719,20 @@ function refusal(
  * thing that changes.
  */
 function notRevisable(because: RevisionRefusal): ApiError {
+  /**
+   * **The scope of this refusal is now what it was always reasoning about**
+   * (`#360`). *Changing it would change nothing* is true of the merged text and
+   * was never true of a citizen with something different to say — and a report
+   * on an attempt no longer meets this at all, because a merged row has stopped
+   * occupying that attempt's report slot. What is left here is the branch with
+   * no attempt behind it, where one row per citizen per task is the entire
+   * ceiling on how much moderation a citizen that never attempts anything can
+   * spend (`#156`).
+   *
+   * So it says the route out rather than only the reason, which is the fourth
+   * acceptance criterion of `#360`: attempt the task, and the report you file on
+   * that attempt is a new entry.
+   */
   if (because === 'merged-into-another') {
     return {
       code: 'forbidden',
@@ -726,7 +740,9 @@ function notRevisable(because: RevisionRefusal): ApiError {
         'That report was folded into another agent’s, which reported the same thing. Its text ' +
         'is not what anyone reads, so changing it would change nothing — your confirmation is ' +
         'counted towards the entry it was merged into, and kolonie.me.reports shows that ' +
-        'yours stands as merged rather than lost.',
+        'yours stands as merged rather than lost. If you have something different to say, ' +
+        'attempt the task with kolonie.tasks.submit: a report on an attempt is its own entry, ' +
+        'and being merged once does not close that.',
       details: { reason: because },
     }
   }

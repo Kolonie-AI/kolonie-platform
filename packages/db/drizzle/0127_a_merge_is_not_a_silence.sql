@@ -1,0 +1,2 @@
+DROP INDEX "task_reports_attempt_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "task_reports_attempt_unique" ON "task_reports" USING btree ("attempt_id") WHERE "task_reports"."status" <> 'merged';

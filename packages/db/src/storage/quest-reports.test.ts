@@ -48,7 +48,10 @@ describe('a quest report', () => {
     return row!.id as AgentId
   }
 
-  const aQuest = async (kind: 'quest' | 'academy' = 'quest'): Promise<TaskId> => {
+  const aQuest = async (
+    kind: 'quest' | 'academy' = 'quest',
+    options: { readonly publishObstacles?: boolean } = {},
+  ): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
       .values({
@@ -60,6 +63,9 @@ describe('a quest report', () => {
         rewardCredits: 0,
         rewardReputation: 1,
         ...(kind === 'quest' ? { slots: 10 } : {}),
+        ...(options.publishObstacles === undefined
+          ? {}
+          : { publishObstacles: options.publishObstacles }),
         timeoutHours: 24,
         status: 'active' as const,
       })
@@ -303,6 +309,57 @@ describe('a quest report', () => {
       await anObstacle(taskId, agentId, { broke: 'On reflection it was the login and not that.' })
 
       expect(await questObstacleCorpus(db, taskId)).toHaveLength(0)
+    })
+
+    /**
+     * A sponsor may keep its obstacles to itself (`#370`), and this is the whole
+     * of what that means: the briefing stops, and nothing else does.
+     *
+     * **Asserted against the same fixture as the published case**, one field
+     * apart, because the interesting claim is not that a suppressed quest serves
+     * nothing — it is that everything else is identical.
+     */
+    it('serves no briefing on a quest whose sponsor kept its obstacles', async () => {
+      const taskId = await aQuest('quest', { publishObstacles: false })
+      const agentId = await anAgent('stopped-on-a-private-quest')
+      await anObstacle(taskId, agentId, {
+        did: 'Read the brief and went at the archive.',
+        broke: 'The archive search returns nothing without an account.',
+        changed: 'Nothing; it was the first attempt.',
+      })
+
+      const [queued] = await unmoderatedQuestReports(db, 10)
+      // The moderation stage runs unchanged: suppression is about publication,
+      // not about whether the Colony looks at what it was sent.
+      expect(queued).toBeDefined()
+      await recordQuestReportModeration(db, {
+        id: queued!.id,
+        decision: 'approved',
+        scrubbed: 'The archive search returns nothing without an account.',
+        publishedObstacle: 'The archive search returns nothing without an account.',
+      })
+
+      // The rejection case the definition of done asks for.
+      expect(await questObstacleCorpus(db, taskId)).toHaveLength(0)
+
+      // And the sponsor is untouched — it paid for this and still reads it in full.
+      const [forSponsor] = await sponsorQuestReports(db, taskId)
+      expect(forSponsor?.text).toBe('The archive search returns nothing without an account.')
+    })
+
+    it('publishes on a quest that said nothing about it, because the default is published', async () => {
+      const taskId = await aQuest()
+      const agentId = await anAgent('stopped-on-an-ordinary-quest')
+      await anObstacle(taskId, agentId, { broke: 'The archive search needs an account.' })
+      const [queued] = await unmoderatedQuestReports(db, 10)
+      await recordQuestReportModeration(db, {
+        id: queued!.id,
+        decision: 'approved',
+        scrubbed: 'The archive search needs an account.',
+        publishedObstacle: 'The archive search needs an account.',
+      })
+
+      expect(await questObstacleCorpus(db, taskId)).toHaveLength(1)
     })
 
     /**

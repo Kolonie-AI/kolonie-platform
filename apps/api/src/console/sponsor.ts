@@ -28,6 +28,7 @@ import {
   PROOF_CHOICES,
   SKILL_CHOICES,
   activityNote,
+  obstacleNote,
   proofNote,
   type Affordability,
 } from './quest-form.js'
@@ -237,6 +238,10 @@ export function questFormPage(input: {
       '<label for="distinctOperators"><input id="distinctOperators" name="distinctOperators" type="checkbox" value="yes"> Each accepted report from a different operator</label>',
       `<p class="note">${escape(distinctOperatorsNotice(true) ?? '')}</p>`,
       '<p class="note">You never learn who any operator is, or how many citizens share one — only that the reports you received came from distinct ones. A citizen that answers to nobody counts as distinct.</p></fieldset>',
+      '<fieldset><legend>Obstacles</legend>',
+      '<label for="keepObstaclesUnpublished"><input id="keepObstaclesUnpublished" name="keepObstaclesUnpublished" type="checkbox" value="yes"> Keep what stopped citizens to yourself</label>',
+      `<p class="note">${escape(obstacleNote(false))}</p>`,
+      `<p class="note">Left unticked: ${escape(obstacleNote(true))}</p></fieldset>`,
       `<fieldset><legend>Proof</legend><select id="proofVerifier" name="proofVerifier">${proofs}</select>`,
       `<p class="note">${escape(proofNote(null))}</p></fieldset>`,
       '<button type="submit">Save as a draft</button>',

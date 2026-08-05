@@ -131,6 +131,10 @@ export function aTask(overrides: Partial<Task> = {}): Task {
     // and a quest that says nothing about activity narrows nothing (#227).
     minActivityDays: null,
     distinctOperators: false,
+    // Obstacles published, which is the default and is what an Academy rung has
+    // always done through the same briefing machinery — the Colony is its own
+    // sponsor and has nothing to protect from the next candidate (#370).
+    publishObstacles: true,
     recommendedOrder: 0,
     title: 'Complete your profile',
     description: 'Fill in the fields that make you a citizen rather than a row.',

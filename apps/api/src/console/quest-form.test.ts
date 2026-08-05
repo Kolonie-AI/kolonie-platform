@@ -3,6 +3,7 @@ import { KNOWN_SKILLS, QUEST_PROOF_VERIFIERS, QUEST_TIER_CAPS } from '@kolonie-a
 import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import {
   affordability,
+  obstacleNote,
   parseQuestForm,
   proofNote,
   QUEST_FORM_FIELDS,
@@ -69,9 +70,47 @@ describe('the quest form', () => {
       // description, it is objective and factual, and no sponsor can name a
       // citizen with it. A fourth needs an argument at least this good.
       'distinctOperators',
+      // Added by `#370`, and it is **not** a fourth targeting axis — which is
+      // why it passes a list whose whole purpose is to stop one. It narrows
+      // nobody: every citizen that would have been offered this quest is still
+      // offered it, and what changes is whether the Colony writes a briefing
+      // from what stopped the ones before them. The `#175` test a targeting
+      // field has to pass does not apply, and the test that does is that it
+      // affects publication only.
+      'keepObstaclesUnpublished',
       'proofVerifier',
       'rewardCredits',
     ])
+  })
+
+  /**
+   * A sponsor may keep its obstacles to itself (`#370`), and the form is the
+   * one surface where the switch is inverted — an unticked checkbox sends
+   * nothing, so a box labelled *publish* would have suppressed publication for
+   * every sponsor that did not notice it.
+   */
+  describe('the obstacle switch (#370)', () => {
+    it('publishes when the box was not ticked, which is what saying nothing means', () => {
+      const result = parseQuestForm(aForm())
+
+      expect(result.outcome).toBe('parsed')
+      if (result.outcome !== 'parsed') return
+      expect(result.draft['publishObstacles']).toBe(true)
+    })
+
+    it('withholds when the sponsor ticked it', () => {
+      const result = parseQuestForm(aForm({ keepObstaclesUnpublished: 'yes' }))
+
+      expect(result.outcome).toBe('parsed')
+      if (result.outcome !== 'parsed') return
+      expect(result.draft['publishObstacles']).toBe(false)
+    })
+
+    it('states the cost where the choice is made, and says nothing about the default', () => {
+      expect(obstacleNote(false)).toContain('pays the discovery cost again')
+      expect(obstacleNote(true)).not.toContain('pays the discovery cost again')
+      expect(obstacleNote(true)).toContain('never anybody’s words')
+    })
   })
 
   describe('the activity window (#227)', () => {

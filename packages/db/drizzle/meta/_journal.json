@@ -974,6 +974,13 @@
       "when": 1785956366902,
       "tag": "0138_where_to_put_it_instead",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1785957992525,
+      "tag": "0139_a_sponsor_may_keep_the_obstacles",
+      "breakpoints": true
     }
   ]
 }

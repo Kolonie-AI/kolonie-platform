@@ -97,6 +97,7 @@ export const FROZEN_WHEN_ACTIVE = [
   'audience',
   'minActivityDays',
   'distinctOperators',
+  'publishObstacles',
   'assistanceAllowed',
   'timeoutHours',
   'expiresAt',
@@ -482,6 +483,22 @@ export const TaskSchema = z.object({
    * second-class citizenship that issue argues against.
    */
   distinctOperators: z.boolean(),
+  /**
+   * Whether obstacles hit on this quest are published to later citizens
+   * (`#370`).
+   *
+   * **What the sponsor is choosing between**, and it is not a privacy setting:
+   * published means the Colony writes a briefing from what stopped people, in
+   * its own prose and with counts, and no citizen's wording travels either way.
+   * Suppressed means every citizen after the first pays the discovery cost
+   * again.
+   *
+   * `true` on every task that is not a quest, and meaningless there: an Academy
+   * rung publishes what stopped people through the same briefing machinery and
+   * has never had a switch for it, because the Colony is its own sponsor and has
+   * nothing to protect from the next candidate.
+   */
+  publishObstacles: z.boolean(),
   /**
    * Whether every slot is taken right now. Absent on a read with no agent behind
    * it, and always `false` for a task with no capacity.

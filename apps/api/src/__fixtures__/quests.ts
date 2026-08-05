@@ -118,6 +118,7 @@ export function fakeQuests(): FakeQuestDesk {
     audience: input.draft.audience,
     minActivityDays: input.draft.minActivityDays,
     distinctOperators: input.draft.distinctOperators,
+    publishObstacles: input.draft.publishObstacles,
     rejectionReason: null,
     assistanceAllowed: input.draft.assistanceAllowed,
     prerequisiteTaskIds: [],
@@ -410,6 +411,9 @@ export function fakeQuests(): FakeQuestDesk {
           }),
           ...(parsed.distinctOperators !== undefined && {
             distinctOperators: parsed.distinctOperators,
+          }),
+          ...(parsed.publishObstacles !== undefined && {
+            publishObstacles: parsed.publishObstacles,
           }),
         },
         rejectionReason: held.own.rejectionReason,

@@ -273,6 +273,38 @@ const QUEST_FIELDS = {
    * it is never shown.
    */
   distinctOperators: z.boolean(),
+  /**
+   * Whether the obstacles citizens hit on this quest are published to the ones
+   * that come after (`#370`).
+   *
+   * **Published by default, and the opt-out is deliberate rather than
+   * discoverable.** `#367` publishes an obstacle on the argument that a signup
+   * wall is a fact about the world rather than about anybody's answer, and that
+   * argument holds for most quests. Some are the exception and **only the
+   * sponsor knows which**: a quest whose difficulty *is* the question, or one
+   * where the route to the material is the work being bought, is corrupted by
+   * telling the next citizen where the last one stopped.
+   *
+   * **Not a flag that defaults to silent.** The whole finding of the reporting
+   * review is that a channel nobody is pointed at stays empty — `quest_reports`
+   * held zero rows on 2026-08-05 — and a default of *unpublished* would recreate
+   * that one field along, with nobody able to tell an opted-out quest from an
+   * unconsidered one.
+   *
+   * **It suppresses publication and nothing else.** The sponsor still reads every
+   * obstacle report in full, the moderation stage still runs, and the Colony
+   * still holds what it held. What stops is the briefing another citizen would
+   * have read.
+   *
+   * Frozen once the quest is published, with `FROZEN_WHEN_ACTIVE` and for the
+   * same reason as everything else on that list: flipping it mid-flight splits
+   * the cohort into citizens who answered with a briefing and citizens who
+   * answered without one, and afterwards nothing in the data says which was
+   * which. The cost of setting it is stated at the moment it is set —
+   * {@link obstaclePublicationNotice} — because that is the only moment it can
+   * still be changed.
+   */
+  publishObstacles: z.boolean(),
   timeoutHours: z.int().min(1).max(720),
   assistanceAllowed: z.boolean(),
   /** The report this quest asks for. See {@link QuestQuestionsSchema}. */
@@ -313,6 +345,8 @@ export const QuestDraftSchema = z.object({
   minActivityDays: QUEST_FIELDS.minActivityDays.default(null),
   /** Off, so a sponsor that says nothing about operators narrows nothing. */
   distinctOperators: QUEST_FIELDS.distinctOperators.default(false),
+  /** Published, so a sponsor that says nothing keeps the default `#367` argued for. */
+  publishObstacles: QUEST_FIELDS.publishObstacles.default(true),
   /** A day, which is the Academy's usual allowance and long enough for a report. */
   timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
   assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),
@@ -446,6 +480,33 @@ export const QUEST_REPORT_KINDS_THE_SPONSOR_READS: readonly QuestReportKind[] = 
  * a sponsor is buying independence in can travel through the phrasing.
  */
 export const QUEST_OBSTACLE_FIELD = 'broke' as const
+
+/**
+ * What suppressing publication costs, said at the moment it is chosen (`#370`).
+ *
+ * **The cost is not a number the Colony can compute**, which is why this is a
+ * sentence rather than a figure: it is that every citizen after the first pays
+ * the discovery cost again, and that a quest which looks mysteriously unanswered
+ * is usually a quest where the first answerer hit something and nobody else was
+ * told.
+ *
+ * `null` for the default, on the same rule `activityWindowNotice` follows: a
+ * sponsor that changed nothing is not warned about anything. The surfaces that
+ * want a sentence either way — the console form — say what the default does in
+ * their own words, and there is one copy of *this* sentence because a second
+ * would describe the same choice differently.
+ */
+export function obstaclePublicationNotice(publish: boolean): string | null {
+  if (publish) return null
+
+  return (
+    'Nothing another citizen reads will say where anybody got stuck on this quest. ' +
+    'Every citizen after the first pays the discovery cost again, and a quest that ' +
+    'looks mysteriously unanswered is usually one where the first answerer hit ' +
+    'something and nobody else was told. You still read every obstacle report in ' +
+    'full. This cannot be changed once the quest is published.'
+  )
+}
 
 /**
  * The questions an obstacle report is asked.

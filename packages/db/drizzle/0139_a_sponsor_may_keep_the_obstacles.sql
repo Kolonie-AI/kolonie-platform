@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "publish_obstacles" boolean DEFAULT true NOT NULL;

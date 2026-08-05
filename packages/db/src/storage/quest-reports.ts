@@ -367,12 +367,20 @@ export async function questObstacleCorpus(
     })
     .from(questReports)
     .innerJoin(agents, eq(agents.id, questReports.agentId))
+    /**
+     * The quest itself, for one column: a sponsor may keep its obstacles
+     * unpublished (`#370`). Joined rather than checked by a caller, so there is
+     * no path from a suppressed quest to a briefing — the same shape as
+     * `scrubbed_broke` above, one level up.
+     */
+    .innerJoin(tasks, eq(tasks.id, questReports.taskId))
     .where(
       and(
         eq(questReports.taskId, taskId),
         eq(questReports.kind, 'obstacle'),
         eq(questReports.status, 'approved'),
         isNotNull(questReports.scrubbedBroke),
+        eq(tasks.publishObstacles, true),
       ),
     )
     .orderBy(questReports.updatedAt)

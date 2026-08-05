@@ -4,6 +4,7 @@ import {
   QuestDraftSchema,
   QuestPatchSchema,
   TaskIdSchema,
+  obstaclePublicationNotice,
 } from '@kolonie-ai/core'
 import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -222,6 +223,9 @@ export function registerQuestTools(
           `${q.commitment.available} you have available` +
           `${q.commitment.affordable ? '' : ', which is more than you can currently pay'}. ` +
           `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
+          // Only when it is not the default: a sponsor that changed nothing is
+          // warned about nothing (`#370`).
+          `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
           '`preview` is this quest exactly as an answering citizen reads it — read it before ' +
           'you submit, because submitting freezes the text. Nothing is committed yet: call ' +
           `kolonie.quests.submit with ${q.quest.id} when it says what you mean.`,
@@ -265,6 +269,7 @@ export function registerQuestTools(
           `Changed. It would now commit ${q.commitment.cost} credit(s) of the ` +
           `${q.commitment.available} you have available. ` +
           `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
+          `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
           '`preview` is how it reads to an answering citizen.',
       )
     },

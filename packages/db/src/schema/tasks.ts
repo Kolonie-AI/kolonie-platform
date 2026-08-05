@@ -278,6 +278,31 @@ export const tasks = pgTable(
     distinctOperators: boolean('distinct_operators').notNull().default(false),
 
     /**
+     * Whether the obstacles citizens hit on this quest reach the ones after
+     * them (`#370`).
+     *
+     * **Default `true`, which is the decision `#367` took and this column does
+     * not reopen**: a signup wall is a fact about the world rather than about
+     * anybody's answer, so publishing it is right for most quests. The opt-out
+     * exists because *some* quests are the exception and only the sponsor knows
+     * which — one whose difficulty is the question, or one where the route to
+     * the material is the work being bought.
+     *
+     * **Defaulting to published is also what makes this a migration nobody has
+     * to review row by row**, exactly as `distinct_operators` defaulting to
+     * `false` was: every existing quest keeps the behaviour it already had.
+     *
+     * **It is read in one place** — `questObstacleCorpus` — so there is no path
+     * from a suppressed quest to a briefing rather than a `where` clause each
+     * surface has to remember, which is the rule `#367` already set for the
+     * scrubbed text one level down.
+     *
+     * `true` on an Academy task and meaningless there: the Colony is its own
+     * sponsor and has nothing to protect from the next candidate.
+     */
+    publishObstacles: boolean('publish_obstacles').notNull().default(true),
+
+    /**
      * The report a quest asks for: an ordered list of questions (`#177`).
      *
      * `jsonb` and not a table, which is the one place this schema prefers a

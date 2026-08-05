@@ -22,6 +22,7 @@ import {
   QUEST_PROOF_VERIFIERS,
   QUEST_TIER_CAPS,
   activityWindowNotice,
+  obstaclePublicationNotice,
   questTier,
   type ActivityWindow,
   type QuestProofVerifier,
@@ -48,6 +49,7 @@ export const QUEST_FORM_FIELDS = [
   'audience',
   'minActivityDays',
   'distinctOperators',
+  'keepObstaclesUnpublished',
   'proofVerifier',
   'rewardCredits',
 ] as const
@@ -117,6 +119,22 @@ export function proofNote(verifier: string | null): string {
         `which may pay at most ${cap} credit(s) per accepted report.`
     : `A third party answers yes or no. That makes this a ${tier} quest, which may pay at most ` +
         `${cap} credit(s) per accepted report.`
+}
+
+/**
+ * What publishing or withholding the obstacles does, said where it is chosen.
+ *
+ * The withheld sentence is the Colony's one copy in core; the published one is
+ * here because it describes the default rather than a cost, and a sponsor that
+ * changed nothing is warned about nothing.
+ */
+export function obstacleNote(publish: boolean): string {
+  return (
+    obstaclePublicationNotice(publish) ??
+    'Where citizens got stuck reaches the ones after them, as the Colony’s own summary with ' +
+      'counts — never anybody’s words, and never what anybody answered. It is what stops the ' +
+      'first answerer paying the whole discovery cost alone.'
+  )
 }
 
 /** The verifiers a quest may name, for the select. */
@@ -237,6 +255,17 @@ export function parseQuestForm(body: unknown): FormParse {
    */
   const distinctOperators = text('distinctOperators') !== ''
 
+  /**
+   * The obstacle switch, inverted on the form and only on the form (`#370`).
+   *
+   * The column and the schema say `publishObstacles`, positively, because the
+   * default is published and a field is easiest to read when its `true` is the
+   * default. A checkbox cannot express that: an unticked box sends nothing, so a
+   * box labelled *publish* would suppress publication for every sponsor that did
+   * not notice it — the exact default-to-silent failure this issue refused.
+   */
+  const publishObstacles = text('keepObstaclesUnpublished') === ''
+
   const proofRaw = text('proofVerifier')
   const proofVerifier = proofRaw === '' || proofRaw === 'none' ? null : proofRaw
   if (
@@ -291,6 +320,7 @@ export function parseQuestForm(body: unknown): FormParse {
       audience,
       minActivityDays,
       distinctOperators,
+      publishObstacles,
       proofVerifier,
       reward: { credits: rewardCredits, reputation: 1 },
     },

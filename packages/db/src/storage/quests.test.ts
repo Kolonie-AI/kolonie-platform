@@ -234,6 +234,9 @@ describe('the quest write path', () => {
     minActivityDays: null,
     // And no operator criterion, for the same reason (#238).
     distinctOperators: false,
+    // And obstacles published, which is what #367 argued for and #370 kept as
+    // the default a sponsor has to opt out of deliberately.
+    publishObstacles: true,
     timeoutHours: 24,
     assistanceAllowed: true,
     ...overrides,

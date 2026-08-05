@@ -161,6 +161,73 @@ describe('the sponsor over MCP', () => {
   })
 
   /**
+   * A sponsor may keep its obstacles unpublished, and learns what that costs at
+   * the moment it chooses — not when nobody answers (`#370`).
+   *
+   * The cost is not a figure the Colony can compute, so the assertion is on the
+   * sentence: every citizen after the first pays the discovery cost again.
+   */
+  it('says what withholding the obstacles costs, in the answer that took the decision', async () => {
+    const sponsor = anAgent()
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ publishObstacles: false }),
+    )
+
+    const said = JSON.stringify(written.content)
+    expect(said).toContain('pays the discovery cost again')
+    expect(said).toContain('You still read every obstacle report in full')
+    expect(
+      (structured(written).quest as unknown as { publishObstacles: boolean }).publishObstacles,
+    ).toBe(false)
+  })
+
+  /**
+   * And the default says nothing, which is the same rule the activity window
+   * follows: a sponsor that changed nothing is warned about nothing.
+   */
+  it('publishes by default, and warns a sponsor that chose the default about nothing', async () => {
+    const sponsor = anAgent()
+
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+
+    expect(
+      (structured(written).quest as unknown as { publishObstacles: boolean }).publishObstacles,
+    ).toBe(true)
+    expect(JSON.stringify(written.content)).not.toContain('discovery cost')
+  })
+
+  /**
+   * **The behaviour on changing it after answers exist**, which `#370` asks to
+   * be stated and tested rather than discovered.
+   *
+   * It is refused, and the refusal is the one every frozen field already gets:
+   * flipping publication mid-flight splits the cohort into citizens who answered
+   * with a briefing and citizens who answered without one, and afterwards
+   * nothing in the data says which was which. A change is a new quest.
+   */
+  it('refuses to change publication once the quest is published', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 100)
+    const steward = anAgent(['steward'])
+
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+    await call(steward.key, 'kolonie.quests.publish', { questId: id })
+
+    const changed = await call(sponsor.key, 'kolonie.quests.update', {
+      questId: id,
+      publishObstacles: false,
+    })
+
+    expect(changed.isError).toBeTruthy()
+    expect(JSON.stringify(changed.content)).toContain('only a draft or a refused quest')
+  })
+
+  /**
    * The cost of the money was stated at the moment it was committed; the cost of
    * a requirement was stated nowhere (`#351`). A sponsor that narrowed its
    * audience found out when nobody answered, weeks later.

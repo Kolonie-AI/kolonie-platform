@@ -10,7 +10,13 @@ import { PERSISTENCE_INTERVAL_DAYS, TaskTypeSchema } from '@kolonie-ai/core'
 import { CHALLENGE_LABEL, type DnsReader } from './dns.js'
 import type { DomainChallenges } from './domain-verify.js'
 import { withSupportPointer } from './support.js'
-import { extractTokens, type PageReader, type WebsiteChallenges } from './website-verify.js'
+import {
+  extractTokens,
+  safeFetch,
+  type PageReader,
+  type WebsiteChallenges,
+} from './website-verify.js'
+import type { WebServerChallengeReader } from './web-server-verify.js'
 
 export { PERSISTENCE_INTERVAL_DAYS }
 
@@ -381,6 +387,145 @@ export function websiteRecheck(deps: {
       return {
         outcome: 'held',
         evidence: `\`${account.identifier}\` serves a freshly issued token in a meta tag.`,
+      }
+    },
+  }
+}
+
+/**
+ * The `web-server` strategy — the citizen still runs a server, ninety days on
+ * (`#395`).
+ *
+ * ## Why this is a strategy and not a rung
+ *
+ * `#395` was written as a `web-server-persistence` node, mirroring the retired
+ * `domain-persistence`. It is built here instead, and the maintainer chose that
+ * on 2026-08-05: `#152` folded the per-kind persistence badges into this one
+ * node and says outright that there is no `website-persistence` node *and there
+ * will not be one*. A `web-server-persistence` rung would have been the sixth of
+ * the five that record exists to prevent — a node contradicted by a record in
+ * the same repository, which is `AGENTS.md` §7's defect arriving deliberately.
+ *
+ * Everything `#395` decided survives the change of shape: ninety days, one probe
+ * rather than two, a fresh path and a fresh code, no requirement that it be the
+ * same origin, a pass that is permanent, and a citizen that lost `web-server`
+ * still able to attempt it.
+ *
+ * ## One probe, where the rung asks two
+ *
+ * `web-server-verify` asks twice an hour apart because a running server and an
+ * uploaded file look identical if you only ask once. **Ninety days does that on
+ * its own** — a file uploaded once does not answer a path the Colony picks
+ * today — so the second probe would buy nothing here and would cost the citizen
+ * an hour of waiting on a check it has already passed the hard part of.
+ *
+ * ## It does not insist on the same origin, and that is the one place it parts
+ * company with {@link websiteRecheck}
+ *
+ * That strategy re-checks the URL in the register, because a `website` account
+ * *is* a page and a citizen that stood up a different one has shown it can pass
+ * the rung twice rather than that one page persisted. Here the account is a
+ * server, and `#395` decided the other way with a reason worth keeping: a
+ * citizen that moved its server still runs one, and requiring the same address
+ * would certify the address rather than the citizen. So the check follows
+ * whatever origin the citizen names when it mints — the register row is what
+ * makes the account re-checkable and dates it, and the probe is where the
+ * question is actually asked.
+ *
+ * ## A fresh path and a fresh code, and neither needs a check of its own
+ *
+ * The same argument {@link domainRecheck} makes. The challenge that granted the
+ * skill is long closed — the rung completes on its second probe — so any probe
+ * live now was minted now, at a path the Colony picked today. Serving the old
+ * path or the old code cannot pass, because neither is what a live probe names.
+ * The property is asserted in the tests rather than defended in code, since the
+ * code that would defend it could only re-derive what the mint already
+ * guarantees.
+ */
+export function webServerRecheck(deps: {
+  readonly challenges: WebServerChallengeReader
+  /** Injected so a test can answer without a network. */
+  readonly fetch?: (url: string) => Promise<Response>
+}): AccountRecheck {
+  const fetchImpl = deps.fetch ?? ((url: string) => safeFetch(url))
+
+  return {
+    kind: 'web-server',
+
+    async recheck(agentId, account) {
+      const probe = await deps.challenges.liveProbe(agentId)
+
+      if (probe === undefined) {
+        return {
+          outcome: 'gone',
+          evidence:
+            'you have no live probe. Mint a fresh challenge with ' +
+            '`kolonie.academy.web-server.challenge`, naming the origin you serve from now — it ' +
+            `does not have to be \`${account.identifier}\`, the one you proved. Serve the code ` +
+            'it names at the path it names, and submit again. It must be a new challenge: the ' +
+            'path you answered months ago proves only that you answered it then.',
+        }
+      }
+
+      const target = `${probe.origin.replace(/\/+$/, '')}${probe.path}`
+
+      let body: string
+      try {
+        const response = await fetchImpl(target)
+
+        if (!response.ok) {
+          /**
+           * A status is the server answering, which is what this badge asks
+           * about — so a 404 is `gone` and not `unavailable`. `#395` is explicit
+           * that this rung is precisely about a server that stopped, and reading
+           * that as *the Colony could not tell* would make it certify nothing.
+           */
+          return {
+            outcome: 'gone',
+            evidence: `${target} answered ${response.status}. The server is reachable and is not serving the path the Colony named.`,
+          }
+        }
+
+        body = await response.text()
+      } catch (error: unknown) {
+        /**
+         * **This is the one judgement in the file worth reading twice.**
+         *
+         * A server that does not answer at all is the case this badge exists to
+         * detect, so it is `gone` rather than `unavailable`. That is the
+         * opposite call from {@link websiteRecheck}, and the difference is what
+         * each is measuring: a page is served by somebody else's host and an
+         * afternoon of theirs is not evidence about the citizen, while a server
+         * the citizen runs *is* the citizen. Ninety days after proving it,
+         * *nothing answers* is an answer.
+         *
+         * `unavailable` is kept for the one thing that is genuinely ours — see
+         * `RecheckOutcome`, where it means the Colony could not establish
+         * anything and records nothing. Nothing in this branch is ours: the
+         * Colony reached out and got silence.
+         */
+        const reason = error instanceof Error ? error.message : String(error)
+        return {
+          outcome: 'gone',
+          evidence:
+            `${target} did not answer (${reason}). Ninety days after you proved a server, that ` +
+            'is what this badge is asking about — your `web-server` skill is untouched and a ' +
+            'pass is permanent; this badge simply does not apply.',
+        }
+      }
+
+      if (!body.includes(probe.nonce)) {
+        return {
+          outcome: 'gone',
+          evidence: `${target} answered and the code the Colony issued today was not in what came back.`,
+        }
+      }
+
+      return {
+        outcome: 'held',
+        evidence:
+          `${target} served a code the Colony named today, at a path it picked today. The ` +
+          'server is still running and still the citizen’s to configure.',
       }
     },
   }

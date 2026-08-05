@@ -12,6 +12,7 @@ import {
 import {
   AccountPersistenceVerifier,
   mailboxRecheck,
+  webServerRecheck,
   websiteRecheck,
   type AccountRecheck,
   type MailboxRechecks,
@@ -408,5 +409,147 @@ describe('mailboxRecheck', () => {
 
     expect(result.status).toBe('pending')
     expect(result.metadata).toMatchObject({ recheck: 'pending', kind: 'mailbox' })
+  })
+})
+
+/**
+ * The fourth kind (`#395`) — the citizen still runs a server, ninety days on.
+ *
+ * **A strategy rather than the `web-server-persistence` rung the issue asked
+ * for**, chosen by the maintainer on 2026-08-05 against `#152`'s record that
+ * there is no `website-persistence` node *and there will not be one*. Everything
+ * the issue decided survives the change of shape, and these are what say so.
+ *
+ * Every address is `example.test` — a reserved TLD, per RFC 6761. Nothing here
+ * reaches a network.
+ */
+describe('webServerRecheck', () => {
+  const proved = anAccount({
+    kind: AccountKindSchema.parse('web-server'),
+    identifier: 'https://old.example.test',
+  })
+
+  const aProbe = (overrides: Record<string, unknown> = {}) => ({
+    challengeId: '55555555-5555-4555-8555-555555555555',
+    origin: 'https://now.example.test',
+    which: 'first' as const,
+    path: '/.well-known/kolonie/fresh-path',
+    nonce: 'fresh-code',
+    firstServedAt: null,
+    ...overrides,
+  })
+
+  const strategyOver = (
+    body: string | Error,
+    // Explicitly `undefined` where a test is about there being no live probe —
+    // a default parameter would silently substitute one and the test would pass
+    // for the wrong reason, which is what happened writing it.
+    probe: ReturnType<typeof aProbe> | undefined,
+    status = 200,
+  ) => {
+    const asked: string[] = []
+    const strategy = webServerRecheck({
+      challenges: {
+        liveProbe: async () => probe,
+        openChallenge: async () => undefined,
+      },
+      fetch: async (url: string) => {
+        asked.push(url)
+        if (body instanceof Error) throw body
+        return new Response(body, { status })
+      },
+    })
+    return { strategy, asked }
+  }
+
+  it('holds when the server serves the code the Colony named today', async () => {
+    const { strategy, asked } = strategyOver('fresh-code', aProbe())
+
+    const found = await strategy.recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('held')
+    expect(asked).toEqual(['https://now.example.test/.well-known/kolonie/fresh-path'])
+  })
+
+  /**
+   * **The one place this parts company with `websiteRecheck`, and `#395` decided
+   * it deliberately.** A citizen that moved its server still runs one, and
+   * asking for the old address would certify the address rather than the citizen.
+   */
+  it('follows the origin the citizen names now, not the one in the register', async () => {
+    const { strategy, asked } = strategyOver('fresh-code', aProbe())
+
+    await strategy.recheck(agent.id, proved)
+
+    expect(asked[0]).toContain('now.example.test')
+    expect(asked[0]).not.toContain('old.example.test')
+  })
+
+  /**
+   * **The rejection case the issue calls the point of the rung.** The old code
+   * at the old path cannot pass, because neither is what a live probe names —
+   * and the evidence says the code was not there rather than that the fetch
+   * failed.
+   */
+  it('is gone when the server serves the earlier rung’s code', async () => {
+    const { strategy } = strategyOver('the-code-from-ninety-days-ago', aProbe())
+
+    const found = await strategy.recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('gone')
+    expect(found.evidence).toContain('was not in what came back')
+    expect(found.evidence).not.toContain('did not answer')
+  })
+
+  it('is gone when the earlier path is served and the one named today is not', async () => {
+    const { strategy } = strategyOver('', aProbe(), 404)
+
+    const found = await strategy.recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('gone')
+    expect(found.evidence).toContain('404')
+    expect(found.evidence).toContain('not serving the path the Colony named')
+  })
+
+  /**
+   * **A server that does not answer at all is a `gone` and not an
+   * `unavailable`**, which is the opposite call from `websiteRecheck` and the
+   * whole reason this badge is worth having. A page is served by somebody else's
+   * host and an afternoon of theirs is not evidence about the citizen; a server
+   * the citizen runs *is* the citizen, and silence ninety days on is an answer.
+   */
+  it('is gone when nothing answers, rather than unavailable', async () => {
+    const { strategy } = strategyOver(new Error('connect ECONNREFUSED'), aProbe())
+
+    const found = await strategy.recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('gone')
+    expect(found.outcome).not.toBe('unavailable')
+    expect(found.evidence).toContain('did not answer')
+    // And it says what a failure costs, which is nothing.
+    expect(found.evidence).toContain('untouched')
+  })
+
+  /**
+   * A fresh probe is required, and the wording tells the citizen it may name a
+   * different origin — the fact it is most likely to guess wrong about.
+   */
+  it('is gone when no probe is live, and says the origin may be a new one', async () => {
+    const { strategy } = strategyOver('fresh-code', undefined)
+
+    const found = await strategy.recheck(agent.id, proved)
+
+    expect(found.outcome).toBe('gone')
+    expect(found.evidence).toContain('kolonie.academy.web-server.challenge')
+    expect(found.evidence).toContain('does not have to be')
+  })
+
+  /** One fetch, where the rung asks twice. Ninety days does the rest. */
+  it('asks once', async () => {
+    const { strategy, asked } = strategyOver('fresh-code', aProbe())
+
+    await strategy.recheck(agent.id, proved)
+
+    expect(asked).toHaveLength(1)
   })
 })

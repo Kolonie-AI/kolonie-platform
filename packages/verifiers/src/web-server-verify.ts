@@ -184,7 +184,21 @@ export class WebServerVerifyVerifier implements Verifier {
           `${Math.round(WEB_SERVER_SEPARATION_MS / 60000)} minutes or more earlier. What this ` +
           `certifies is control of what the server returns, on demand — not where it runs, ` +
           `which the Colony does not check.`,
-        metadata: { webServer: { challengeId: probe.challengeId, which: 'second', servedAt } },
+        metadata: {
+          /**
+           * The origin, at the top level, so the register can record which
+           * server was proved (`#395`).
+           *
+           * **Nothing about this rung's judgement changes**, and it must not:
+           * `#244` is explicit that where the server runs is neither inspected
+           * nor guessed. What is added is the address the citizen itself named
+           * at mint time, which the Colony already fetched — without it nothing
+           * records *which* server a citizen proved, and `account-persistence`
+           * has no row to ask about ninety days later.
+           */
+          origin: probe.origin,
+          webServer: { challengeId: probe.challengeId, which: 'second', servedAt },
+        },
       }
     }
 

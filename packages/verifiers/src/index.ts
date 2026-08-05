@@ -48,6 +48,7 @@ import {
   AccountPersistenceVerifier,
   domainRecheck,
   mailboxRecheck,
+  webServerRecheck,
   websiteRecheck,
   type AccountRecheck,
   type MailboxRechecks,
@@ -220,6 +221,7 @@ export {
   AccountPersistenceVerifier,
   domainRecheck,
   mailboxRecheck,
+  webServerRecheck,
   websiteRecheck,
   type AccountPersistenceDependencies,
   type AccountRecheck,
@@ -957,6 +959,17 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
           challenges: deps.websiteChallenges,
         }),
       )
+    }
+
+    /**
+     * The fourth kind (`#395`), on the challenge reader the rung itself uses.
+     *
+     * No new port: the probe a re-check reads is the same probe
+     * `web-server-verify` reads, minted through the same door — which is what
+     * `#152`'s *the check is a strategy, not a task* buys, one kind further on.
+     */
+    if (deps.webServerChallenges !== undefined) {
+      checks.push(webServerRecheck({ challenges: deps.webServerChallenges }))
     }
 
     if (deps.mailboxRechecks !== undefined) {

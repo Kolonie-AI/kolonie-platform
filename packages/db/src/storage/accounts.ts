@@ -229,6 +229,19 @@ export const ACCOUNT_FROM_SKILL: Readonly<
   social: { kind: 'social', from: 'metadata', key: 'account', proves: ['publish'] },
   domain: { kind: 'domain', from: 'metadata', key: 'name', proves: ['control'] },
   website: { kind: 'website', from: 'payload', key: 'url', proves: ['control'] },
+  /**
+   * The server itself, where `website` above is the hosting account (`#395`).
+   *
+   * **Its own kind rather than a second `website` row**, for the reason the two
+   * rungs are two rungs: a page on a shared host and a server the citizen
+   * configured are different things, and one register row covering both would
+   * make `account-persistence` ask about whichever was written last.
+   *
+   * `from: 'metadata'` and not `'payload'`, unlike `website` beside it. The
+   * rung's submission payload is `{}` — the Colony supplies the path — so the
+   * origin exists only where the verifier puts it.
+   */
+  'web-server': { kind: 'web-server', from: 'metadata', key: 'origin', proves: ['control'] },
   wallet: { kind: 'wallet', from: 'metadata', key: 'address', proves: ['sign'] },
 }
 

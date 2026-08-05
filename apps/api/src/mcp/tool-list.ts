@@ -71,6 +71,7 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.quests.write',
   'kolonie.quests.update',
   'kolonie.quests.submit',
+  'kolonie.quests.withdraw',
   'kolonie.quests.list',
   'kolonie.quests.read',
   'kolonie.quests.results',

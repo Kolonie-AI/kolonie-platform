@@ -22,7 +22,7 @@ import {
   verifications,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { escrowHeldFor } from './escrow.js'
+import { availableBalance, escrowHeldFor } from './escrow.js'
 import { createSubmission } from './submissions.js'
 import { eraseAgent } from './erasure.js'
 import { listTasks } from './tasks.js'
@@ -48,6 +48,7 @@ import {
   recordQuestModeration,
   refuseQuest,
   submitQuestForReview,
+  withdrawQuestFromReview,
   updateQuestDraft,
 } from './quests/index.js'
 
@@ -416,6 +417,102 @@ describe('the quest write path', () => {
       })
 
       expect(result).toEqual({ outcome: 'not-editable', status: 'pending_review' })
+    })
+  })
+
+  /**
+   * The undo for a submission (`#323`), which the write path was missing —
+   * `submitQuestForReview`'s own `queue-occupied` refusal has named the move
+   * since `#176`.
+   */
+  describe('withdrawing from review', () => {
+    it('puts the quest back in draft, editable again', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+
+      const result = await withdrawQuestFromReview(db, {
+        authorId: sponsor,
+        taskId: task.id,
+        at: now(),
+      })
+
+      expect(result.outcome).toBe('withdrawn')
+      expect((await readOwnQuest(db, sponsor, task.id))?.task.status).toBe('draft')
+      expect(
+        (
+          await updateQuestDraft(db, {
+            authorId: sponsor,
+            taskId: task.id,
+            patch: { title: 'A better question' },
+            at: now(),
+          })
+        ).outcome,
+      ).toBe('written')
+    })
+
+    /**
+     * By arithmetic and not by a second write: `availableBalance` sums the
+     * quests in `pending_review`, so a quest that leaves the queue stops being
+     * reserved without anything being unbooked.
+     */
+    it('releases the reservation and the queue slot', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 100)
+      const first = await createQuestDraft(db, {
+        authorId: sponsor,
+        draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+      })
+      const second = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
+
+      expect((await availableBalance(db, sponsor)).reserved).toBe(100)
+
+      await withdrawQuestFromReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
+
+      expect((await availableBalance(db, sponsor)).reserved).toBe(0)
+      expect(
+        (await submitQuestForReview(db, { authorId: sponsor, taskId: second.task.id, at: now() }))
+          .outcome,
+      ).toBe('submitted')
+    })
+
+    it('refuses a draft, which is where withdrawing would have put it', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+
+      expect(
+        await withdrawQuestFromReview(db, { authorId: sponsor, taskId: task.id, at: now() }),
+      ).toEqual({ outcome: 'not-in-review', status: 'draft' })
+    })
+
+    it('refuses a published quest, which a steward has already decided', async () => {
+      const sponsor = await anAgent('sponsor')
+      await credit(sponsor, 10_000)
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+      const steward = await anAgent('steward', ['steward'])
+      await publishQuest(db, { stewardId: steward, taskId: task.id, at: now(), audit: AUDIT_ON })
+
+      const result = await withdrawQuestFromReview(db, {
+        authorId: sponsor,
+        taskId: task.id,
+        at: now(),
+      })
+
+      expect(result.outcome).toBe('not-in-review')
+    })
+
+    it('refuses a quest belonging to somebody else', async () => {
+      const sponsor = await anAgent('sponsor')
+      const stranger = await anAgent('stranger')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+
+      expect(
+        await withdrawQuestFromReview(db, { authorId: stranger, taskId: task.id, at: now() }),
+      ).toEqual({ outcome: 'not-yours' })
     })
   })
 

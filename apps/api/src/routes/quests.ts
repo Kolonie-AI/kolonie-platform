@@ -14,6 +14,7 @@ import {
   readReviewQueue,
   refuseQuest,
   submitQuest,
+  withdrawQuest,
   writeQuestDraft,
   type QuestResult,
 } from '../quests.js'
@@ -115,6 +116,22 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { questId } = request.params as { questId?: string }
     return send(reply, await submitQuest({ authorId: caller.id, questId, at: now() }, quests))
+  })
+
+  /**
+   * Take it back out of the queue (`#323`).
+   *
+   * The undo for the step above, and the only one the write path was missing:
+   * submitting freezes the text and takes the account's single queue slot, so a
+   * sponsor that spotted its own error could do nothing but wait for a steward
+   * to read a text it already knew was wrong.
+   */
+  v1.post('/quests/:questId/withdraw', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    return send(reply, await withdrawQuest({ authorId: caller.id, questId, at: now() }, quests))
   })
 
   /** Publish it, which is also when its money moves. */

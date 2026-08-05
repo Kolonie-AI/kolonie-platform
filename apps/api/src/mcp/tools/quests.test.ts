@@ -134,6 +134,86 @@ describe('the sponsor over MCP', () => {
   })
 
   /**
+   * What a sponsor is shown before the step it cannot take back (`#323`).
+   *
+   * Asserted on the text as well as on the structure, because the text is what a
+   * model acts on: a cost that only appears in `structuredContent` is a cost the
+   * reader has to go looking for, which is close to the failure being fixed.
+   */
+  it('echoes the cost and the citizen view when a draft is written', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 500)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ reward: { credits: 15, reputation: 0 }, slots: 20 }),
+    )
+
+    expect(structured(written).commitment).toMatchObject({
+      cost: 300,
+      available: 500,
+      affordable: true,
+    })
+    expect(String(structured(written).preview)).toContain('A thousand registrations')
+    expect(JSON.stringify(written.content)).toContain('300 credit(s)')
+  })
+
+  it('says the draft is unaffordable at the moment it is written', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 100)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ reward: { credits: 15, reputation: 0 }, slots: 200 }),
+    )
+
+    expect(structured(written).commitment).toMatchObject({ cost: 3000, affordable: false })
+    expect(JSON.stringify(written.content)).toContain('more than you can currently pay')
+  })
+
+  it('withdraws a quest from review, freeing the reservation and the slot', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 1_000)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }),
+    )
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+
+    expect(structured(await call(sponsor.key, 'kolonie.quests.balance')).reserved).toBe(50)
+
+    const withdrawn = await call(sponsor.key, 'kolonie.quests.withdraw', { questId: id })
+
+    expect(withdrawn.isError).toBeFalsy()
+    expect((structured(withdrawn).quest as unknown as { status: string }).status).toBe('draft')
+    expect(structured(await call(sponsor.key, 'kolonie.quests.balance')).reserved).toBe(0)
+
+    // Editable again, which is the whole reason a sponsor withdraws.
+    const changed = await call(sponsor.key, 'kolonie.quests.update', {
+      questId: id,
+      title: 'A hundred registrations',
+    })
+    expect(changed.isError).toBeFalsy()
+  })
+
+  it('refuses to withdraw a quest that was never in the queue', async () => {
+    const sponsor = anAgent()
+
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const withdrawn = await call(sponsor.key, 'kolonie.quests.withdraw', { questId: id })
+
+    expect(withdrawn.isError).toBe(true)
+    expect(JSON.stringify(withdrawn.content)).toContain('already a draft')
+  })
+
+  /**
    * *No such quest* and *not yours* are one answer on both surfaces, and the
    * reason is the same: a distinguishable refusal enumerates which task ids are
    * quests and who owns them.

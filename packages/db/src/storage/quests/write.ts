@@ -46,6 +46,21 @@ export type QuestSubmitOutcome =
   | { readonly outcome: 'insufficient-funds'; readonly shortfall: number }
 
 /**
+ * Whether a quest came back out of the queue (`#323`).
+ *
+ * `not-in-review` rather than `not-editable`, because the two say opposite
+ * things about what to do next: a quest that cannot be *edited* is one this
+ * caller should stop touching, and a quest that cannot be *withdrawn* is either
+ * already a draft — nothing to do, it is where the caller wanted it — or already
+ * decided, which is a different sentence again.
+ */
+export type QuestWithdrawOutcome =
+  | { readonly outcome: 'withdrawn'; readonly quest: OwnQuest }
+  | { readonly outcome: 'unknown-quest' }
+  | { readonly outcome: 'not-yours' }
+  | { readonly outcome: 'not-in-review'; readonly status: Task['status'] }
+
+/**
  * Write a new draft, owned by its author.
  *
  * **`created_by` comes from the credential and is not a field.** It is the whole
@@ -264,6 +279,80 @@ export async function submitQuestForReview(
         task: toTask(submitted),
         rejectionReason: null,
         awaitingModeration: true,
+      },
+    }
+  })
+}
+
+/**
+ * Take a quest back out of the review queue, to `draft` (`#323`).
+ *
+ * **The one move the write path was missing, and it was the expensive one to be
+ * missing.** Submitting freezes the text and takes the account's single queue
+ * slot; a sponsor that spotted its own error a minute later could do nothing but
+ * wait for a steward to spend review time on a text the sponsor already knew was
+ * wrong, and could author nothing else meanwhile. `submitQuestForReview`'s own
+ * `queue-occupied` refusal has said *"wait for that decision, or withdraw it"*
+ * since `#176`, naming a move that did not exist.
+ *
+ * **It releases the reservation by arithmetic rather than by a second write.**
+ * `availableBalance` sums `pending_review` quests, so a quest back in `draft`
+ * stops being reserved the moment the status changes — nothing is booked at
+ * submission, and there is correspondingly nothing to unbook here.
+ *
+ * ## Why it is allowed even once a steward is reading
+ *
+ * The proposal asked for it only while nobody had opened the quest, by analogy
+ * with the edit refusal. The analogy does not hold, and the difference is worth
+ * stating: an **edit** changes the text under a reviewer who has already read
+ * some of it, so the decision that comes back is about a text nobody is
+ * offering. A **withdrawal** removes the item — a steward that opens it next
+ * finds nothing to decide, which costs it a page load rather than a wrong
+ * verdict. There is also no *opened* to condition on: the Colony records a
+ * moderation verdict and a steward's decision, and nothing in between.
+ *
+ * Against that, the cost of refusing: a sponsor holding a text it knows is
+ * wrong, and a steward spending real attention on it. Wasting a page load is
+ * cheaper than wasting the review.
+ *
+ * **The race is settled by the `where`.** The status is checked and changed in
+ * one statement, so a withdrawal and a publication landing together cannot both
+ * win: whichever writes first leaves the other reading a row that is no longer
+ * `pending_review`, and the loser is told what the status became.
+ */
+export async function withdrawQuestFromReview(
+  db: Database,
+  command: { readonly authorId: AgentId; readonly taskId: TaskId; readonly at: Timestamp },
+): Promise<QuestWithdrawOutcome> {
+  return await db.transaction(async (tx) => {
+    const found = await ownQuestRow(tx, command.authorId, command.taskId)
+    if (found.outcome !== 'found') return found
+
+    if (found.row.status !== 'pending_review') {
+      return { outcome: 'not-in-review', status: found.row.status }
+    }
+
+    const [withdrawn] = await tx
+      .update(tasks)
+      .set({ status: 'draft', updatedAt: command.at })
+      .where(and(eq(tasks.id, command.taskId), eq(tasks.status, 'pending_review')))
+      .returning()
+
+    // Lost the race to a steward's decision, which had the same row open.
+    if (withdrawn === undefined) return { outcome: 'not-in-review', status: found.row.status }
+
+    return {
+      outcome: 'withdrawn',
+      quest: {
+        task: toTask(withdrawn),
+        rejectionReason: withdrawn.rejectionReason,
+        /**
+         * False, and it is not a lie about the moderation queue: the quest is a
+         * draft again, and a draft is not waiting for a verdict. If it is
+         * submitted again the moderation is re-run on whatever `#182`'s
+         * `text_revised_at` rule says about the text at that point.
+         */
+        awaitingModeration: false,
       },
     }
   })

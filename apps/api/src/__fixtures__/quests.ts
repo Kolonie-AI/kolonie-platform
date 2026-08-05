@@ -403,6 +403,34 @@ export function fakeQuests(): FakeQuestDesk {
     },
 
     /**
+     * The undo for `submit` (`#323`), reproducing the one rule the route is
+     * allowed to rely on: it works from `pending_review` and from nowhere else.
+     * The reservation needs no unwinding here for the same reason it needs none
+     * in storage — `reserved` is summed from the quests currently in the queue.
+     */
+    async withdraw({ authorId, taskId }) {
+      const held = mine(authorId, taskId)
+      if (held === undefined) {
+        return quests.has(taskId) ? { outcome: 'not-yours' } : { outcome: 'unknown-quest' }
+      }
+
+      const { status } = held.own.task
+      if (status !== 'pending_review') return { outcome: 'not-in-review', status }
+
+      return {
+        outcome: 'withdrawn',
+        quest: put(
+          {
+            task: { ...held.own.task, status: 'draft' },
+            rejectionReason: held.own.rejectionReason,
+            awaitingModeration: false,
+          },
+          null,
+        ),
+      }
+    },
+
+    /**
      * Balance minus what is reserved, reproducing `#174`'s rule rather than
      * returning the raw balance.
      *

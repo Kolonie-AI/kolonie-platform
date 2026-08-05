@@ -162,6 +162,136 @@ const awaitingReview = async (draft = aDraft()) => {
   return id
 }
 
+/**
+ * What a sponsor is told before the step it cannot take back (`#323`).
+ *
+ * The three things a citizen reported missing, and they are one complaint: a
+ * sponsor committed irreversibly to a text it had never been able to look at
+ * from the reading side, at a price it had computed itself.
+ */
+describe('what comes back with a quest of your own', () => {
+  it('echoes what the draft would cost, against what is available', async () => {
+    quests.credit(sponsorId as never, 500)
+
+    const written = await write(aDraft({ reward: { credits: 15, reputation: 0 }, slots: 20 }))
+
+    // The sponsor that reported this computed 300 by hand and was right. The
+    // point is that it could not find out it was right until after submitting.
+    expect(written.json().commitment).toMatchObject({
+      cost: 300,
+      balance: 500,
+      reserved: 0,
+      available: 500,
+      affordable: true,
+    })
+  })
+
+  it('says plainly when the draft costs more than is available', async () => {
+    quests.credit(sponsorId as never, 100)
+
+    // The reported trap: a fat-fingered 200 where 20 was meant, which used to
+    // fail at submission — one step after the moment it could be corrected.
+    const written = await write(aDraft({ reward: { credits: 15, reputation: 0 }, slots: 200 }))
+
+    expect(written.json().commitment).toMatchObject({ cost: 3000, affordable: false })
+  })
+
+  it('carries the quest as an answering citizen reads it', async () => {
+    const written = await write(
+      aDraft({
+        title: 'A thousand registrations',
+        instructions: 'Register at the address in the brief and report what happened.',
+      }),
+    )
+
+    const { preview } = written.json()
+    expect(preview).toContain('A thousand registrations')
+    expect(preview).toContain('Register at the address in the brief')
+    // The question keys, which are the half a citizen cannot guess (`#327`).
+    expect(preview).toContain('what-happened')
+  })
+
+  it('echoes both on a change, which is the last moment either can be acted on', async () => {
+    quests.credit(sponsorId as never, 10_000)
+    const written = await write(aDraft())
+    const id = written.json().quest.id
+
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/v1/quests/${id}`,
+      headers: { authorization: `Bearer ${sponsorKey}`, 'content-type': 'application/json' },
+      payload: { title: 'A thousand mailboxes', reward: { credits: 2, reputation: 0 } } as never,
+    })
+
+    expect(patched.json().commitment.cost).toBe(20)
+    expect(patched.json().preview).toContain('A thousand mailboxes')
+  })
+})
+
+describe('POST /v1/quests/:questId/withdraw', () => {
+  it('takes a quest out of the queue and back to a draft', async () => {
+    const id = await awaitingReview()
+
+    const withdrawn = await post(`/v1/quests/${id}/withdraw`, sponsorKey)
+
+    expect(withdrawn.statusCode).toBe(200)
+    expect(withdrawn.json().quest.status).toBe('draft')
+    expect(withdrawn.json().awaitingModeration).toBe(false)
+  })
+
+  /** The two things submitting took, and the whole reason the move is worth having. */
+  it('frees the reservation and the queue slot', async () => {
+    const id = await awaitingReview(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }))
+
+    expect((await get('/v1/quests/balance', sponsorKey)).json().reserved).toBe(50)
+
+    await post(`/v1/quests/${id}/withdraw`, sponsorKey)
+
+    expect((await get('/v1/quests/balance', sponsorKey)).json().reserved).toBe(0)
+    // The slot: a second quest can now be submitted, which is what was blocked.
+    const second = await write(aDraft())
+    const secondId = second.json().quest.id
+    expect((await post(`/v1/quests/${secondId}/submit`, sponsorKey)).statusCode).toBe(200)
+  })
+
+  it('leaves the text exactly as it was, so submitting again is a re-submission', async () => {
+    const id = await awaitingReview(aDraft({ title: 'A thousand registrations' }))
+
+    await post(`/v1/quests/${id}/withdraw`, sponsorKey)
+    const read = await get(`/v1/quests/${id}`, sponsorKey)
+
+    expect(read.json().quest.title).toBe('A thousand registrations')
+    expect((await post(`/v1/quests/${id}/submit`, sponsorKey)).statusCode).toBe(200)
+  })
+
+  it('refuses a quest that is already a draft, and says nothing is wrong', async () => {
+    const written = await write(aDraft())
+    const id = written.json().quest.id
+
+    const response = await post(`/v1/quests/${id}/withdraw`, sponsorKey)
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().message).toContain('already a draft')
+  })
+
+  it('refuses once a steward has decided it', async () => {
+    const id = await awaitingReview()
+    await post(`/v1/quests/${id}/publish`, stewardKey)
+
+    const response = await post(`/v1/quests/${id}/withdraw`, sponsorKey)
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().message).toContain('steward decided it first')
+  })
+
+  it('refuses another sponsor the same way it refuses a stranger', async () => {
+    const id = await awaitingReview()
+    const other = store.issue({})
+
+    expect((await post(`/v1/quests/${id}/withdraw`, String(other.apiKey))).statusCode).toBe(404)
+  })
+})
+
 describe('POST /v1/quests', () => {
   it('writes a draft owned by the caller', async () => {
     const response = await write(aDraft())

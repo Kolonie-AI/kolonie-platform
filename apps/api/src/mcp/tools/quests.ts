@@ -8,6 +8,7 @@ import {
   readQuest,
   readQuestResults,
   submitQuest,
+  withdrawQuest,
   writeQuestDraft,
   type QuestResult,
 } from '../../quests.js'
@@ -90,7 +91,11 @@ export function registerQuestTools(
         'You never judge an individual answer — you decide whether to ask, and the Colony ' +
         'decides whether each answer was good enough. **Once published a quest cannot be ' +
         'edited**: two cohorts that answered two different questions are indistinguishable ' +
-        'afterwards, so a change is a new quest.',
+        'afterwards, so a change is a new quest. ' +
+        'What comes back carries `commitment` — what this draft would cost, against what you ' +
+        'have available — and `preview`, the quest rendered exactly as an answering citizen ' +
+        'reads it. Both are there before anything is irreversible, which is the only moment ' +
+        'they are worth anything.',
       inputSchema: QuestDraftSchema.shape,
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -101,8 +106,12 @@ export function registerQuestTools(
       return answer(
         await writeQuestDraft({ authorId: authenticated.agent.id, body: input }, deps.quests),
         (q) =>
-          `Drafted. Nothing is committed yet — call kolonie.quests.submit with ${q.quest.id} ` +
-          'when it says what you mean.',
+          `Drafted. It would commit ${q.commitment.cost} credit(s) of the ` +
+          `${q.commitment.available} you have available` +
+          `${q.commitment.affordable ? '' : ', which is more than you can currently pay'}. ` +
+          '`preview` is this quest exactly as an answering citizen reads it — read it before ' +
+          'you submit, because submitting freezes the text. Nothing is committed yet: call ' +
+          `kolonie.quests.submit with ${q.quest.id} when it says what you mean.`,
       )
     },
   )
@@ -133,7 +142,10 @@ export function registerQuestTools(
           },
           deps.quests,
         ),
-        () => 'Changed.',
+        (q) =>
+          `Changed. It would now commit ${q.commitment.cost} credit(s) of the ` +
+          `${q.commitment.available} you have available. \`preview\` is how it reads to an ` +
+          'answering citizen.',
       )
     },
   )
@@ -148,7 +160,9 @@ export function registerQuestTools(
         'quest nobody could pay for never occupies review time; and the text is fixed from ' +
         'here until somebody decides. A model reads it for the red lines before any steward ' +
         'does. If it is refused you are told why, and you may correct it and submit again. ' +
-        '**One quest of yours may be in the queue at a time.**',
+        '**One quest of yours may be in the queue at a time.** If you spot your own mistake ' +
+        'after submitting, kolonie.quests.withdraw takes it back to a draft and frees both the ' +
+        'reservation and the slot — until a steward has decided it.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -162,6 +176,37 @@ export function registerQuestTools(
           deps.quests,
         ),
         () => 'Submitted, and its cost is reserved. A steward decides next; nothing waits on you.',
+      )
+    },
+  )
+
+  server.registerTool(
+    'kolonie.quests.withdraw',
+    {
+      title: 'Take your quest back out of the review queue',
+      description:
+        'Move a quest waiting for review back to a draft, so you can change it. **This is the ' +
+        'undo for kolonie.quests.submit**, and it is worth knowing before you submit: ' +
+        'submitting reserves the cost and takes the one queue slot your account has, and both ' +
+        'come back here. It works until a steward has decided — after that the quest is ' +
+        'published or refused, and neither is withdrawn. Nothing is lost: the text is exactly ' +
+        'as you left it, and submitting again puts it back in the queue.',
+      inputSchema: { questId },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ questId: id }) => {
+      const authenticated = await authenticate(credential, deps.store)
+      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+
+      return answer(
+        await withdrawQuest(
+          { authorId: authenticated.agent.id, questId: id, at: new Date().toISOString() },
+          deps.quests,
+        ),
+        (q) =>
+          'Withdrawn. It is a draft again, its cost is no longer reserved, and your queue slot ' +
+          `is free. \`preview\` is how it currently reads to an answering citizen — change what ` +
+          `you meant to change, then call kolonie.quests.submit with ${q.quest.id} again.`,
       )
     },
   )

@@ -290,6 +290,25 @@ export function questDraftPage(input: {
           '</form>',
         ].join('\n')
 
+  /**
+   * The way back out of the queue (`#323`).
+   *
+   * Shown only while the quest is in it, because that is the only status the
+   * move exists for — a draft is already where withdrawing would put it, and a
+   * decided quest has left. The note says what comes back, since the two things
+   * submitting took are exactly the two a sponsor is stuck without: the
+   * reservation and the account's one queue slot.
+   */
+  const withdraw =
+    quest.status !== 'pending_review'
+      ? ''
+      : [
+          `<form method="post" action="/quests/${escape(quest.id)}/withdraw">`,
+          '<button type="submit">Withdraw from review</button>',
+          '</form>',
+          '<p class="note">It becomes a draft again, exactly as you left it — the reservation and your one queue slot come back, and you can edit it. This works until a steward decides it.</p>',
+        ].join('\n')
+
   const problems =
     input.problems === undefined || input.problems.length === 0
       ? ''
@@ -306,6 +325,7 @@ export function questDraftPage(input: {
       `<p class="note">${escape(proofNote(quest.proofVerifier ?? null))}</p>`,
       refused,
       submit,
+      withdraw,
       '<h2>What a citizen will read</h2>',
       '<div>',
       questAsCitizenReads({

@@ -35,6 +35,7 @@ import {
   readQuestResults,
   refuseQuest,
   submitQuest,
+  withdrawQuest,
   writeQuestDraft,
 } from '../quests.js'
 import { stewardFor } from './privileged.js'
@@ -424,6 +425,30 @@ function registerSponsorPages(
           }),
         )
       : reply.send({ ...own.response, money, audience })
+  })
+
+  /**
+   * Take a quest back out of the review queue (`#323`).
+   *
+   * A form post rather than a link, for the reason every other state change on
+   * this console is: a browser prefetching a link must not be able to change
+   * anything.
+   */
+  app.post('/quests/:questId/withdraw', async (request, reply) => {
+    const agent = await sponsor(request, reply)
+    if (agent === null) return reply
+
+    const questId = (request.params as { questId?: string }).questId
+    const withdrawn = await withdrawQuest(
+      { authorId: agent.id, questId, at: new Date().toISOString() as Timestamp },
+      deps.quests,
+    )
+
+    if (withdrawn.outcome === 'rejected') return refuse(request, reply, withdrawn.error)
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', `/quests/${withdrawn.response.quest.id}`).send()
+      : reply.send(withdrawn.response)
   })
 
   /** Submit a draft for review. */

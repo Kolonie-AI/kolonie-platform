@@ -7,6 +7,7 @@ import {
   QuestReportSchema,
   SubmissionIdSchema,
   TaskIdSchema,
+  questCommitment,
   questSubmissionRejection,
   type AgentId,
   type ApiError,
@@ -41,6 +42,7 @@ import {
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
+  withdrawQuestFromReview as withdrawQuestFromReviewInDatabase,
   type AudienceCriteria,
   type Database,
   type OwnQuest,
@@ -51,12 +53,24 @@ import {
   type QuestResult as AcceptedReport,
   type FileQuestReportOutcome,
   type QuestSubmitOutcome,
+  type QuestWithdrawOutcome,
   type QuestWriteOutcome,
   type ColonyNumbers,
   type QuestUnderReview,
   type RetireQuestOutcome,
   type SponsorQuestReport,
 } from '@kolonie-ai/db'
+/**
+ * The citizen's own renderer, imported rather than reimplemented (`#323`).
+ *
+ * It lives under `mcp/text` because that is the surface an answering citizen
+ * reads through, and the preview a sponsor is shown has to be *that* text or it
+ * is not a preview. `console/sponsor.ts` already states the rule for the browser
+ * half — one renderer, two callers — and this is the same rule across one more
+ * boundary: a second composition of the quest is a second answer to what it
+ * says, and the one that drifts is the one nobody is reading.
+ */
+import { taskAsText } from './mcp/text/tasks.js'
 
 /**
  * Writing a quest, reviewing one, and publishing it (`#176`).
@@ -82,6 +96,12 @@ export interface QuestDesk {
     readonly taskId: TaskId
     readonly at: Timestamp
   }): Promise<QuestSubmitOutcome>
+  /** Take it back out of the queue, to `draft` (`#323`). */
+  withdraw(input: {
+    readonly authorId: AgentId
+    readonly taskId: TaskId
+    readonly at: Timestamp
+  }): Promise<QuestWithdrawOutcome>
   /**
    * What this sponsor may still commit: its balance minus what it has reserved
    * (`#174`).
@@ -189,6 +209,7 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
         at: input.at,
       }),
     submit: (input) => submitQuestForReviewInDatabase(db, input),
+    withdraw: (input) => withdrawQuestFromReviewInDatabase(db, input),
     balance: (authorId) => availableBalance(db, authorId),
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
@@ -260,17 +281,72 @@ export async function fileQuestReport(
 }
 
 /**
+ * What this quest would commit, against what the account has (`#323`).
+ *
+ * **Echoed at every step and not only at the one that spends it.** The
+ * arithmetic is `reward.credits × slots` and a sponsor can do it — the one that
+ * reported this did, correctly, for its whole balance. What it could not do is
+ * find out that it had done it right before the irreversible step: the first
+ * confirmation the Colony gave was the reservation appearing *after* submission,
+ * which is also the step that freezes the text and takes the queue slot. A
+ * mistyped `200` for `20` failed at submission with an unpayable-quest error,
+ * one step after the moment it could have been corrected for free.
+ *
+ * **`cost` is computed by `questCommitment`**, the same function
+ * `submitQuestForReview` checks against. An echo derived a second way would be a
+ * number that agrees until it does not, and the failure would be a sponsor
+ * shown an affordable quest and refused it.
+ */
+export interface QuestCommitment {
+  /** `reward.credits × slots` — what publication would reserve. */
+  readonly cost: number
+  readonly balance: number
+  /** Committed to quests already in the queue. */
+  readonly reserved: number
+  /** `balance - reserved`: what is left to commit. */
+  readonly available: number
+  /**
+   * Whether `available` covers `cost` **today**.
+   *
+   * A statement about now and not a promise about submission: another quest of
+   * this account entering the queue moves `reserved`, and a deposit moves
+   * `balance`. It is the number `#180` requires the form to show before it
+   * commits anything, said in one boolean so a client does not have to
+   * re-derive the comparison.
+   */
+  readonly affordable: boolean
+}
+
+/**
  * What a sponsor is told about its own quest.
  *
- * The task as everybody else would read it, plus the two things only its author
- * is entitled to: why a steward refused it, and whether it is still waiting on
- * the moderation stage. The second is there so a sponsor watching a quest that
- * has not reached the queue is not left wondering whether anything is happening.
+ * The task as everybody else would read it, plus the things only its author is
+ * entitled to: why a steward refused it, whether it is still waiting on the
+ * moderation stage, what it would cost, and how it reads from the other side.
+ * The moderation flag is there so a sponsor watching a quest that has not
+ * reached the queue is not left wondering whether anything is happening.
  */
 export interface OwnQuestResponse {
   readonly quest: Task
   readonly rejectionReason: string | null
   readonly awaitingModeration: boolean
+  readonly commitment: QuestCommitment
+  /**
+   * The quest as an answering citizen reads it (`#323`).
+   *
+   * **The same renderer `kolonie.tasks.get` uses, and that is the whole of why
+   * it can be trusted.** A preview composed separately is a second answer to
+   * *what does this say*, and the one that drifts is the one nobody is reading
+   * — which is the failure the sponsor console already avoids by making its
+   * preview and the citizen's view one function.
+   *
+   * It matters most at the step that cannot be undone. `update` is refused once
+   * a quest is `pending_review` and a published quest is frozen for a reason
+   * `#178` is right about — two cohorts that answered two different questions
+   * are indistinguishable afterwards — so the last moment a sponsor can fix its
+   * wording was, until this field, the first moment it could see it.
+   */
+  readonly preview: string
 }
 
 export type QuestResult<T> =
@@ -294,11 +370,46 @@ const NO_SUCH_QUEST: ApiError = {
 
 const notFound = <T>(): QuestResult<T> => ({ outcome: 'rejected', error: NO_SUCH_QUEST })
 
-const respond = (quest: OwnQuest): OwnQuestResponse => ({
-  quest: quest.task,
-  rejectionReason: quest.rejectionReason,
-  awaitingModeration: quest.awaitingModeration,
-})
+/**
+ * One shape for every answer about a sponsor's own quest.
+ *
+ * The balance is passed in rather than read here, so a list of quests costs one
+ * read of it rather than one per row — and so this function stays what it is,
+ * which is an assembly with no questions of its own.
+ */
+const respond = (
+  quest: OwnQuest,
+  purse: { readonly balance: number; readonly reserved: number; readonly available: number },
+): OwnQuestResponse => {
+  const cost = questCommitment({ reward: quest.task.reward, slots: quest.task.slots ?? 0 })
+
+  return {
+    quest: quest.task,
+    rejectionReason: quest.rejectionReason,
+    awaitingModeration: quest.awaitingModeration,
+    commitment: {
+      cost,
+      balance: purse.balance,
+      reserved: purse.reserved,
+      available: purse.available,
+      affordable: purse.available >= cost,
+    },
+    /**
+     * Rendered with the citizen's own renderer, called as it is called for a
+     * citizen that has never attempted this: no struggle count, first attempt,
+     * nothing withheld. A preview that quietly rendered a different variant
+     * would be answering a question the sponsor did not ask.
+     */
+    preview: taskAsText(quest.task, 0, 1, false),
+  }
+}
+
+/** The same, for the calls that have not read a balance and are about to. */
+const responding = async (
+  quest: OwnQuest,
+  authorId: AgentId,
+  desk: QuestDesk,
+): Promise<OwnQuestResponse> => respond(quest, await desk.balance(authorId))
 
 /** Write a new draft. */
 export async function writeQuestDraft(
@@ -317,7 +428,7 @@ export async function writeQuestDraft(
   }
 
   const quest = await desk.create({ authorId: input.authorId, draft: parsed.data })
-  return { outcome: 'ok', response: respond(quest) }
+  return { outcome: 'ok', response: await responding(quest, input.authorId, desk) }
 }
 
 /** Change a draft, or correct a refused quest. */
@@ -347,7 +458,7 @@ export async function editQuestDraft(
 
   switch (result.outcome) {
     case 'written':
-      return { outcome: 'ok', response: respond(result.quest) }
+      return { outcome: 'ok', response: await responding(result.quest, input.authorId, desk) }
     case 'not-editable':
       return {
         outcome: 'rejected',
@@ -411,7 +522,7 @@ export async function submitQuest(
 
   switch (result.outcome) {
     case 'submitted':
-      return { outcome: 'ok', response: respond(result.quest) }
+      return { outcome: 'ok', response: await responding(result.quest, input.authorId, desk) }
     case 'not-editable':
       return { outcome: 'rejected', error: { code: 'conflict', message: frozen(result.status) } }
     case 'queue-occupied':
@@ -421,7 +532,8 @@ export async function submitQuest(
           code: 'conflict',
           message:
             `Quest ${result.by} of yours is already waiting for review, and an account may ` +
-            'have one at a time. Wait for that decision, or withdraw it.',
+            'have one at a time. Wait for that decision, or withdraw it — ' +
+            `POST /v1/quests/${result.by}/withdraw takes it back to a draft and frees the slot.`,
         },
       }
     case 'insufficient-funds':
@@ -439,13 +551,68 @@ export async function submitQuest(
   }
 }
 
+/**
+ * Take a quest back out of the review queue (`#323`).
+ *
+ * The undo for `submitQuest`, and the reason it exists is what submission
+ * costs: the text freezes and the account's one queue slot is taken. A sponsor
+ * that spotted its own error had no move but to wait for a steward to read a
+ * text it already knew was wrong.
+ *
+ * **Nothing is refunded because nothing was booked.** The reservation is derived
+ * from the quests in `pending_review`, so it releases as the status changes.
+ */
+export async function withdrawQuest(
+  input: {
+    readonly authorId: AgentId
+    readonly questId: string | undefined
+    readonly at: Timestamp
+  },
+  desk: QuestDesk,
+): Promise<QuestResult<OwnQuestResponse>> {
+  const taskId = questIdFrom(input.questId)
+  if (taskId === undefined) return notFound()
+
+  const result = await desk.withdraw({ authorId: input.authorId, taskId, at: input.at })
+
+  switch (result.outcome) {
+    case 'withdrawn':
+      return { outcome: 'ok', response: await responding(result.quest, input.authorId, desk) }
+    /**
+     * Two different sentences under one outcome, because the two states mean
+     * opposite things to the caller. A quest already in `draft` is where the
+     * caller wanted it and nothing is wrong; anything else has been decided,
+     * and the withdrawal arrived after the decision it was racing.
+     */
+    case 'not-in-review':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            result.status === 'draft'
+              ? 'That quest is already a draft: it is not in the review queue, so there is ' +
+                'nothing to withdraw. Edit it and submit it again when it says what you mean.'
+              : `That quest is ${result.status} and has left the review queue, so it cannot be ` +
+                'withdrawn. A steward decided it first.',
+        },
+      }
+    default:
+      return notFound()
+  }
+}
+
 /** Everything this account has written. */
 export async function listQuests(
   authorId: AgentId,
   desk: QuestDesk,
 ): Promise<QuestResult<{ readonly quests: readonly OwnQuestResponse[] }>> {
   const quests = await desk.listOwn(authorId)
-  return { outcome: 'ok', response: { quests: quests.map(respond) } }
+  // One balance read for the whole list: the purse is a fact about the account
+  // and not about each row, and a read per quest would say the same thing N
+  // times.
+  const purse = await desk.balance(authorId)
+  return { outcome: 'ok', response: { quests: quests.map((quest) => respond(quest, purse)) } }
 }
 
 /** One of this account's own quests. */
@@ -459,7 +626,7 @@ export async function readQuest(
   const quest = await desk.readOwn(input.authorId, taskId)
   if (quest === undefined) return notFound()
 
-  return { outcome: 'ok', response: respond(quest) }
+  return { outcome: 'ok', response: await responding(quest, input.authorId, desk) }
 }
 
 /**

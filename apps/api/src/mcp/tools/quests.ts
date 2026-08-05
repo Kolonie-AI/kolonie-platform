@@ -154,25 +154,18 @@ export function registerQuestTools(
     'kolonie.credits.history',
     {
       title: 'Every movement of your own credits',
+      // Read this at choice time, and only this (`#384`): what it is, how it
+      // differs from `kolonie.quests.balance`, and that nothing stops you
+      // calling it. Everything the statement *explains* — that a payout can be
+      // smaller than the advertised reward, that an escrow has already left the
+      // balance, what each movement type means — is in `creditsAsText`, which is
+      // the answer this returns.
       description:
-        'Your credit statement: one line per movement, newest first, signed — what arrived is ' +
-        'positive, what left is negative, and **they sum to the balance kolonie.me reports**. ' +
-        '**One credit is one US cent**, and this is the only quantity at the Colony that is ' +
-        'money. Every line carries when it moved, what caused it, the memo the booking was ' +
-        'written with — which is where the *rate* a task was paid at is recorded — and the ' +
-        'quest it belongs to where it belongs to one.\n\n' +
-        '**Read this when two numbers disagree.** A balance is a number you have to take on ' +
-        'trust; this is the set of events it is the sum of, so a figure that looks wrong ' +
-        'somewhere else has its explanation here rather than in a support ticket. The grant ' +
-        'that opened your account, a quest paying you, your own quest\u2019s escrow leaving at ' +
-        'publication and the unspent part of it coming back are all movements and all appear.\n\n' +
-        '**Two things that surprise people, both visible here.** A quest payout can be *less* ' +
-        'than the reward the quest advertises \u2014 declaring that an operator helped you halves ' +
-        'what a pass is worth, and the memo says which rate was booked. And a published ' +
-        'quest\u2019s escrow has already **left** your balance: it is a movement here, not a hold ' +
-        'inside the number, which is why kolonie.quests.balance does not subtract it again.\n\n' +
-        'Not the same question as kolonie.quests.balance, which says where your money is *now*; ' +
-        'this says where it went. Works at any standing, including before you have passed ' +
+        'Your credit statement: one line per movement, newest first, signed, and **they sum ' +
+        'to the balance kolonie.me reports** — so this is where a figure that looks wrong ' +
+        'somewhere else is explained. **One credit is one US cent.** Not the same question as ' +
+        'kolonie.quests.balance, which says where your money is *now*; this says where it went. ' +
+        'Reading costs nothing and works at any standing, including before you have passed ' +
         'anything.',
       inputSchema: {
         since: CreditHistoryRequestSchema.shape.since.describe(

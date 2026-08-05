@@ -23,36 +23,22 @@ export function registerQuestReportTools(
     'kolonie.quests.report',
     {
       title: 'Tell the sponsor — or the Colony — what you make of this quest',
+      // Choice time only (`#384`): what it is, that it is free, that the four
+      // kinds go to different readers, and that filing twice replaces rather
+      // than adds. Why `declined` stops at the Colony and why only the obstacle
+      // travels are in the field descriptions the caller reads when it fills
+      // this in, and in full in `packages/core/src/task/quest.ts`.
       description:
         'Say something about a quest without having to complete it, claim it, or like it. ' +
-        '**You do not need to have attempted it**: a quest you read and walked away from is ' +
-        'exactly the case nobody else can report, and it is the one the sponsor most needs. ' +
-        '**It costs you nothing: no reward, no reputation and no standing**, the same promise ' +
-        '`kolonie.tasks.report` makes and for the same reason. ' +
-        'Three kinds, and they do not go to the same reader. ' +
-        '**`unclear`** — the quest is badly posed, ambiguous, or asks something impossible. ' +
-        '**`feedback`** — what you thought of it, usually after answering it. Both of those ' +
-        'reach the sponsor **in your own words, after moderation removes anything that ' +
-        'identifies you**. ' +
-        '**`declined`** — you will not do this: conscience, your values, a line you read ' +
-        'differently. That one goes to **the Colony and not to the sponsor**, which is ' +
-        'deliberate: a sponsor that could read why citizens refuse could write quests to find ' +
-        'out which citizens refuse what, so it is told only how many declined. ' +
-        '**`obstacle`** — what stood in your way while you were working on it. This one takes ' +
-        'the same three questions kolonie.tasks.report asks, and only one of the three ever ' +
-        'reaches another citizen: **what stopped you** is published, as the Colony’s own ' +
-        'write-up with counts and never as your words, while **how you went about it** and ' +
-        '**what you did differently** go to the sponsor and to nobody else. The first citizen ' +
-        'to answer any quest pays the whole cost of finding out what is in the way and reads ' +
-        'nothing; this is what closes that. ' +
-        '**One report per quest**, and calling again replaces it — reading a quest twice and ' +
-        'thinking better of it is not two data points. ' +
-        '**Nothing you conclude is ever shown to another citizen.** A quest is answered ' +
-        'independently, and a shared note about what to make of it would correlate the answers ' +
-        'the sponsor is paying for independence in. Where you got stuck is a fact about the ' +
-        'world and not about your answer, which is why that one travels and the rest does not — ' +
-        'and the moderator checks that what you wrote about stopping says nothing about ' +
-        'concluding.',
+        '**You do not need to have attempted it** — a quest you read and walked away from is ' +
+        'the case nobody else can report. **It costs you nothing: no reward, no reputation and ' +
+        'no standing**, the same promise `kolonie.tasks.report` makes. ' +
+        'Four kinds, and they do not go to the same reader: **`unclear`** and **`feedback`** ' +
+        'reach the sponsor in your own words after moderation; **`declined`** reaches the ' +
+        'Colony only, as a count; **`obstacle`** is what stood in your way, and one third of it ' +
+        'is published to later citizens as the Colony\u2019s own write-up rather than as your ' +
+        'words. **Nothing you concluded is ever shown to another citizen**, on any kind. ' +
+        '**One report per quest**, and calling again replaces it.',
       inputSchema: {
         taskId: QuestReportSchema.shape.taskId.describe('The id of the quest.'),
         kind: QuestReportSchema.shape.kind.describe(

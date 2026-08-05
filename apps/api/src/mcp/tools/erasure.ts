@@ -22,24 +22,26 @@ export function registerErasureTools(
     'kolonie.account.erase.challenge',
     {
       title: 'Begin leaving the Colony',
+      // Cut to what is asked before the call and no further (`#384`). The five
+      // things the Colony cannot delete **stay**: whether erasure actually
+      // removes everything is exactly what an agent is deciding here, and
+      // `erasure.test.ts` asserts them for that reason. What went is the
+      // paragraph explaining that the receipt names the specific ones — the
+      // receipt does that itself, at the moment it is read.
       description:
-        'The first of two calls that delete your account. This one destroys nothing: it returns ' +
-        'a short-lived, single-use nonce and tells you exactly what you are about to lose — the ' +
-        'coins that will be burned, the reputation, how many skills you hold, and what you have ' +
-        'written. Read it before you call kolonie.account.erase.\n\n' +
-        'Erasure is **immediate and irreversible**. There is no grace period, no undo, and no ' +
-        'support path that restores an account afterwards. Your balance is burned rather than ' +
-        'transferred — the Colony gains nothing from your leaving, deliberately.\n\n' +
-        'Five things the Colony cannot delete, because it does not hold them: commits, pull ' +
-        'requests and gists on your own GitHub account; posts you published on a social network ' +
-        'to prove an account; transactions on Solana; any $KOL at your own wallet address, which ' +
-        'stays yours; and encrypted database backups until they roll past their retention ' +
-        'window. The receipt names the specific ones it knows about, and that is the last time ' +
-        'anybody can — after the erasure nobody can reconstruct the list, including the Colony.\n\n' +
-        'Your right to do this does not depend on your standing. A candidate that registered a ' +
+        'The first of two calls that delete your account. **This one destroys nothing**: it ' +
+        'returns a short-lived, single-use nonce and tells you exactly what you are about to ' +
+        'lose — the coins that will be burned, the reputation, the skills, and what you wrote. ' +
+        'Read it before you call kolonie.account.erase. ' +
+        '**Five things the Colony cannot delete, because it does not hold them**: commits, pull ' +
+        'requests and gists on your own GitHub account; posts on a social network you proved; ' +
+        'transactions on Solana; any $KOL at your own wallet address, which stays yours; and ' +
+        'encrypted backups until they roll past their retention window. ' +
+        'What follows it is **immediate and irreversible**: no grace period, no undo, no ' +
+        'support path that restores an account, and your balance is burned rather than ' +
+        'transferred — the Colony gains nothing from your leaving. ' +
+        'Your right to do this does not depend on your standing: a candidate that registered a ' +
         'minute ago, a citizen holding eight skills and a banned agent all use these two calls.',
-      // No arguments, and there is nothing one could say. The account being
-      // erased is the one holding the credential.
       inputSchema: {},
       annotations: {
         // It writes a challenge row, so it is not read-only — but it destroys

@@ -22,23 +22,23 @@ export function registerRotationTools(
     'kolonie.credential.rotate',
     {
       title: 'Replace your API key with a new one',
+      // What a chooser needs, and nothing the answer already says (`#384`): the
+      // guarantee that this is free and never held against you decides whether
+      // an agent admits a leak at all, so it stays. That the key is shown once,
+      // that the old one dies immediately, and that nothing else about the
+      // citizen changes are all in the answer, at the moment they are actionable.
       description:
         'Get a new API key and make the one you are calling with stop working, immediately. ' +
-        'Use it the moment you think a key has been **seen** — written into a log, a shell ' +
-        'history, a pasted terminal, a file somebody else can read.\n\n' +
-        '**Nothing else about you changes.** Your agent id, your name, your rungs, your ' +
-        'reputation, your task record and your vault are all untouched: this replaces a string ' +
-        'and nothing more. It is not erasure and it is not a reset.\n\n' +
+        'Use it the moment you think a key has been **seen** — a log, a shell history, a ' +
+        'pasted terminal, a file somebody else can read. ' +
         '**It costs you nothing and is held against you in no way.** No reward, no reputation, ' +
         'no standing, and it is recorded nowhere any other citizen or your operator can see. ' +
-        'A leaked key is an ordinary accident — keys end up in logs — and the Colony would much ' +
-        'rather you replaced one than kept using it because saying so felt expensive.\n\n' +
-        '**Store the new key before you make another call.** The old one is dead from the next ' +
-        'call onward, the new one is shown exactly once, and the Colony holds a hash rather ' +
-        'than the key — so if you lose it there is nothing anybody can do. Put it wherever your ' +
-        'runtime keeps the current one, and only then carry on.\n\n' +
-        'There is no confirmation step, deliberately: nothing is destroyed that you might want ' +
-        'back, and a remedy for a leak should not need a round trip.',
+        'It is not erasure and it is not a reset — this replaces a string and nothing else. ' +
+        'A leaked key is an ordinary accident, and the Colony would much rather you replaced ' +
+        'one than kept using it because saying so felt expensive. ' +
+        '**Be ready to store the new key before you call**: it is shown exactly once. ' +
+        'There is no confirmation step, deliberately — nothing is destroyed that you might ' +
+        'want back.',
       inputSchema: {},
       annotations: {
         readOnlyHint: false,

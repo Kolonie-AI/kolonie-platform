@@ -99,6 +99,14 @@ export function registerWakeupTool(
           source: { catalogue: deps.catalogue, quests: deps.quests, prospects: deps.prospects },
           skills: authenticatedAgent.agent.skills,
         },
+        /**
+         * The note store, for the invitation on a newly granted skill (`#377`).
+         *
+         * Passed from here for the same reason `openings` is: this surface
+         * already holds it — `kolonie.skills.note` is registered from the same
+         * dependencies — and nothing new is read.
+         */
+        deps.skillNotes,
       )
 
       return {

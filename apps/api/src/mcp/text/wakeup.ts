@@ -318,6 +318,27 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
       ? []
       : [`skills granted: ${digest.skillsGranted.join(', ')}${LIST_IS_STALE}`]),
     /**
+     * The invitation, directly under the grant it belongs to (`#377`).
+     *
+     * **Here and not in `open`**, which is a run plan capped at five: this must
+     * not take a slot from work the citizen could be paid for. It borrows the
+     * shape of an open entry — the exact call and the fact that makes it
+     * available — and none of the budget.
+     *
+     * Silent when there is nothing to invite, which is the ordinary case and
+     * covers three different reasons: nothing was granted, a note already
+     * exists, or the surface has no note store.
+     *
+     * **Three lines and not four**, because `allocate` charges an entry its
+     * embedded newlines and the whole digest has forty lines to spend. `why` and
+     * `example` are rendered as one line for that reason; both are still their
+     * own field in `structuredContent`, where nothing is competing for room.
+     */
+    ...digest.noteInvitations.map(
+      (invitation) =>
+        `${invitation.what}\n    ${invitation.call}\n    ${invitation.why} ${invitation.example}`,
+    ),
+    /**
      * Said with what it opens and closes rather than as a bare name (`#330`).
      *
      * A role is only interesting because of the tools it gates, and a citizen

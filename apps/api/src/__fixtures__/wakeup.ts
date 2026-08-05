@@ -3,7 +3,16 @@ import type { WakeupSource } from '../wakeup.js'
 
 type Changes = Omit<
   WakeupResponse,
-  'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread' | 'open' | 'standing' | 'pays'
+  | 'since'
+  | 'firstSession'
+  | 'contributions'
+  | 'operatorNotesUnread'
+  | 'open'
+  | 'standing'
+  | 'pays'
+  // Computed by `wakeup` from `skillsGranted` and the note store, never by the
+  // source (`#377`).
+  | 'noteInvitations'
 >
 
 /** A citizen at the very start: nothing held, nothing earned (`#344`). */

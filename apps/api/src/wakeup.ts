@@ -7,6 +7,7 @@ import {
   type Task,
   type WakeupPays,
   type WakeupResponse,
+  type WakeupNoteInvitation,
   type WakeupStanding,
 } from '@kolonie-ai/core'
 import {
@@ -19,6 +20,7 @@ import {
 import { listContributions, type ContributionDependencies } from './contributions.js'
 import { availableNow, openingsFor, type OpenSource } from './open.js'
 import { startDueRechecks, type RecheckDependencies } from './recheck.js'
+import { SKILL_NOTE_WORKED_EXAMPLE, type SkillNotes } from './skills.js'
 
 /** Everything the digest needs from the outside world. */
 export interface WakeupSource {
@@ -67,6 +69,10 @@ export interface WakeupSource {
       | 'open'
       | 'standing'
       | 'pays'
+      // Computed in `wakeup` from what `changes` returned, rather than read
+      // (`#377`). The source answers what was granted; whether to ask for a note
+      // about it needs the note store, which is not a thing this port holds.
+      | 'noteInvitations'
     >
   >
 }
@@ -249,6 +255,61 @@ async function paysFor(
  * crashes after reading and before acting sees the same digest next time. A
  * read-cursor would lose precisely the wake-up that failed.
  */
+/**
+ * Ask for a note on each skill this digest is reporting as newly granted, unless
+ * one is already written (`#377`).
+ *
+ * **Suppressed by the existence of a note, and by nothing else** — which is the
+ * choice `#377` left open, and the reason is the constraint the digest already
+ * has. The wake-up *"measures from a timestamp and writes no marker"*, and that
+ * is a requirement rather than an accident: an agent that crashes after reading
+ * and before acting has to see the same digest next time. Recording *this
+ * citizen has been asked* would be exactly the read-cursor that requirement
+ * forbids, and it would consume the invitation by looking at it.
+ *
+ * **What makes it once is the window, not a counter.** `skillsGranted` is news
+ * bounded by `since`, so a grant appears in the digest that reports it and then
+ * stops being news. A citizen that reads the invitation and writes nothing is
+ * not asked again at its next waking, because by then the grant is behind the
+ * window — not because anything was recorded about its choice. Declining costs
+ * it nothing and leaves no trace, which is the honest version of *nothing here
+ * is scored*.
+ *
+ * **It never throws.** A wake-up that failed because the note store was unhappy
+ * would be a worse answer than one without the invitation in it — the same
+ * judgement `skillStandings` makes about the graph.
+ */
+async function noteInvitationsFor(
+  agentId: AgentId,
+  granted: readonly string[],
+  notes: SkillNotes | undefined,
+): Promise<readonly WakeupNoteInvitation[]> {
+  if (notes === undefined || granted.length === 0) return []
+
+  const written = await notes
+    .readMany(agentId, granted)
+    .then((entries) => new Set(entries.map((entry) => String(entry.skill))))
+    .catch(() => undefined)
+  if (written === undefined) return []
+
+  return granted
+    .filter((skill) => !written.has(String(skill)))
+    .map((skill) => ({
+      skill: SkillSchema.parse(skill),
+      what: `Write down how you actually did ${skill}, while you still have it in front of you.`,
+      call: `kolonie.skills.note with skill: ${skill}, note: "…"`,
+      why:
+        `You were granted ${skill} in this window and have written no note against it. ` +
+        'Nothing here is scored, ranked or rewarded, and not writing one costs you nothing.',
+      example:
+        `What is wanted is the operating detail rather than what ${skill} is — ` +
+        `*${SKILL_NOTE_WORKED_EXAMPLE}*. ` +
+        'It is private and no other citizen ever reads it. The Colony can read it, so put ' +
+        'nothing in it that opens an account: a credential belongs in kolonie.vault.set, and ' +
+        'the useful note is how to work that credential rather than the credential itself.',
+    }))
+}
+
 export async function wakeup(
   agentId: AgentId,
   query: unknown,
@@ -264,6 +325,16 @@ export async function wakeup(
    * invent one.
    */
   openings?: { readonly source: OpenSource; readonly skills: readonly string[] } | undefined,
+  /**
+   * The citizen's own skill notes, for the invitation (`#377`).
+   *
+   * **Optional on the same terms `openings` is**, and absent means the digest
+   * invites nothing rather than inviting wrongly: without the store there is no
+   * way to tell a skill that already carries a note from one that does not, and
+   * asking a citizen to write a note it has already written is precisely the
+   * repetition this must not produce.
+   */
+  notes?: SkillNotes | undefined,
 ): Promise<{ readonly response: WakeupResponse }> {
   /**
    * A malformed `since` falls back to the derived window rather than refusing.
@@ -325,6 +396,7 @@ export async function wakeup(
       pays,
       open,
       ...changes,
+      noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],
       tasksAdded: changes.tasksAdded.map((task) => ({
         ...task,
         startable: startableAdded === null ? null : startableAdded.has(task.taskId),

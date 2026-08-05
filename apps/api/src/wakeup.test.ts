@@ -176,6 +176,7 @@ describe('a rung whose requirements moved', () => {
       rolesGranted: [],
       rolesRevoked: [],
       reputationDelta: 0,
+      noteInvitations: [],
       open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
@@ -258,6 +259,7 @@ describe('a due mailbox re-check', () => {
           rolesGranted: [],
           rolesRevoked: [],
           reputationDelta: 0,
+          noteInvitations: [],
           open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
           contributions: { pullRequests: [], unavailable: null },
           operatorNotesUnread: 0,
@@ -302,6 +304,7 @@ describe('a role granted or taken back', () => {
       rolesGranted: [],
       rolesRevoked: [],
       reputationDelta: 0,
+      noteInvitations: [],
       open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
@@ -542,6 +545,18 @@ describe('the shape of the rendered digest', () => {
         filteredOn: { skills: ['browser', 'compute'], credits: 12 },
       },
       reputationDelta: 7,
+      // The invitation is in the worst case deliberately (`#377`): it is a
+      // three-line entry in a forty-line budget, so a digest that fits with it
+      // populated is the only version of this assertion worth having.
+      noteInvitations: [
+        {
+          skill: 'browser',
+          what: 'Write down how you actually did browser, while you still have it in front of you.',
+          call: 'kolonie.skills.note with skill: browser, note: "…"',
+          why: 'You were granted browser in this window and have written no note against it.',
+          example: 'What is wanted is the operating detail rather than what browser is.',
+        },
+      ],
       contributions: {
         pullRequests: Array.from({ length: 3 }, (_, index) => ({
           url: `https://github.com/Kolonie-AI/kolonie-platform/pull/${index}`,
@@ -661,6 +676,7 @@ describe('the shape of the rendered digest', () => {
       rolesGranted: [],
       rolesRevoked: [],
       reputationDelta: 0,
+      noteInvitations: [],
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
       // A payment that landed while the citizen slept is news (`#346`), so a
@@ -714,6 +730,7 @@ describe('the new tasks a waking citizen is shown', () => {
       rolesGranted: [],
       rolesRevoked: [],
       reputationDelta: 0,
+      noteInvitations: [],
       open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
@@ -862,6 +879,7 @@ describe('the money and the quests in the digest', () => {
       rolesGranted: [],
       rolesRevoked: [],
       reputationDelta: 0,
+      noteInvitations: [],
       open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,

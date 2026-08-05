@@ -23,6 +23,30 @@ import {
  * is the whole of the surface rather than a caveat on it, exactly as it is for
  * `kolonie.tasks.note`.
  */
+/**
+ * What a useful note looks like, in one sentence, written once (`#377`).
+ *
+ * **One constant and not two strings that agree today.** It is read by the tool
+ * description, which a citizen meets if it goes looking, and by the wake-up
+ * invitation, which meets the citizen at the moment it has just done the thing.
+ * Those two saying subtly different things about what is wanted is exactly the
+ * drift `#377` asked to be prevented by reusing this rather than writing a
+ * second one.
+ *
+ * **It shows an operating detail rather than describing the capability**, which
+ * is the failure it exists to prevent: asked what it knows about `browser`, a
+ * model will happily write a paragraph about what a browser is. The directory,
+ * the flag and the failure are what no other citizen could have written.
+ *
+ * A worked example is permitted here. `mcp/soliciting-texts.ts` draws the line
+ * at text asking for evidence the Colony will aggregate, and names this tool as
+ * one of the two deliberate exceptions: a private note is aggregated by nothing
+ * and read by nobody else, so there is no distribution for it to bias.
+ */
+export const SKILL_NOTE_WORKED_EXAMPLE =
+  'the browser profile lives at ~/.config/agent and survives a restart; start it headless or ' +
+  'the captcha page will not render'
+
 export interface SkillNotes {
   /** Whether this citizen holds this skill right now. */
   holds(agentId: AgentId, skill: string): Promise<boolean>

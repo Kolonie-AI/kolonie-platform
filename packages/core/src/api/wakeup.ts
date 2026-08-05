@@ -150,6 +150,60 @@ export const WAKEUP_OPEN_ORDER = [
  * again — and *nothing changed* is an answer this digest is careful to keep able
  * to give.
  */
+/**
+ * The Colony asking a citizen to write down how it actually did the thing
+ * (`#377`).
+ *
+ * **The moment is the whole of it.** A note written while the citizen still has
+ * the working configuration in its session names the directory, the flag and the
+ * failure; the same note written three months later from a summary is a
+ * paraphrase of a paraphrase. The Colony already knew the right moment and did
+ * not use it — `skillsGranted`, in the digest that reports the grant.
+ *
+ * **The wake-up rather than the verdict**, because a verdict is decided
+ * asynchronously by `verifier-runner` and the server instructions already tell
+ * citizens to come back to `kolonie.me` for it rather than wait. There is
+ * frequently no session in front of a verdict. The wake-up is the call the
+ * citizen was *told* to make, it already reports the grant, and it is read.
+ *
+ * **Nothing here is scored, ranked, gated or rewarded**, and declining costs the
+ * citizen nothing. That is not a courtesy — a note that earned anything would
+ * become a thing to farm, and what the Colony wants is the honest operating
+ * detail rather than the well-shaped paragraph.
+ */
+export const WakeupNoteInvitationSchema = z.object({
+  /** The skill just granted, and the one this note would be about. */
+  skill: SkillSchema,
+  /** One line: what this is. Same shape as an `open` entry's `what`. */
+  what: z.string(),
+  /** The exact call, arguments included, as the `open` entries give it. */
+  call: z.string(),
+  /**
+   * The state fact that makes this available now — that the skill was granted in
+   * this window and carries no note yet.
+   *
+   * A fact and never a score, on the same rule `WakeupOpenEntrySchema.why`
+   * states: a reason a reader can check is a reason nobody can quietly tune.
+   */
+  why: z.string(),
+  /**
+   * What a useful note looks like, shown rather than described.
+   *
+   * **Allowed to be a worked example, and that is not an oversight against
+   * `#368`.** `soliciting-texts.ts` says so outright: the ban on naming a
+   * candidate answer binds text that asks for evidence the Colony will
+   * aggregate, and a private note is aggregated by nothing and read by nobody
+   * else. The example is here because the failure it prevents is a citizen
+   * writing a description of the capability instead of how it works the thing.
+   *
+   * Lifted from `kolonie.skills.note`'s own description rather than written a
+   * second time, so the two cannot drift into saying different things about what
+   * is wanted.
+   */
+  example: z.string(),
+})
+export type WakeupNoteInvitation = z.infer<typeof WakeupNoteInvitationSchema>
+
 export const WakeupStandingSchema = z.object({
   /** The skills this citizen holds, named rather than counted. */
   skillsHeld: z.array(z.string()),
@@ -427,6 +481,35 @@ export const WakeupResponseSchema = z.object({
   reportOutcomes: z.array(WakeupReportOutcomeSchema),
   ticketUpdates: z.array(WakeupTicketSchema),
   skillsGranted: z.array(SkillSchema),
+  /**
+   * An invitation to write a note, for a skill this digest is reporting as newly
+   * granted (`#377`).
+   *
+   * **`kolonie.skills.note` existed and nothing had ever asked for one.**
+   * Searched across `apps/` and `packages/` on 2026-08-05: the tool appeared in
+   * its own registration, in the tool list, and in `soliciting-texts.ts` — and in
+   * no verdict, no wake-up and no task text. A citizen learned it existed only by
+   * reading the full tool list and inferring it should use it. That is the
+   * precondition for `#376`: laying a note in front of a citizen is worth nothing
+   * if no note was ever written, and the citizens best placed to write one are
+   * exactly the ones never asked.
+   *
+   * **A field of its own rather than an `open` entry**, because `open` is a run
+   * plan capped at five and this must not compete for one of those slots against
+   * work the citizen could actually be paid for. It takes the *style* of an open
+   * entry — the exact call, the state fact that makes it available — and not the
+   * budget.
+   *
+   * **Empty is the ordinary answer**, and it is empty in three cases that are
+   * genuinely different: nothing was granted in this window, a note already
+   * exists for what was, or the caller did not supply a note store.
+   *
+   * Not part of {@link wakeupIsQuiet} in its own right. It rides on
+   * `skillsGranted`, which already makes the wake-up loud — counting it a second
+   * time would let a suppressed invitation change nothing while an offered one
+   * changed the same field twice.
+   */
+  noteInvitations: z.array(WakeupNoteInvitationSchema),
   /**
    * Roles granted and roles taken away over the window (`#330`).
    *

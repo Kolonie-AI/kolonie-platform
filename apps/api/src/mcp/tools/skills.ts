@@ -1,7 +1,7 @@
 import { SetSkillNoteRequestSchema, SkillSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
-import { getSkillNote, setSkillNote } from '../../skills.js'
+import { getSkillNote, setSkillNote, SKILL_NOTE_WORKED_EXAMPLE } from '../../skills.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 
@@ -35,9 +35,7 @@ export function registerSkillTools(
       title: 'Write yourself a note about a skill you hold',
       description:
         'Keep one note to yourself about a capability you hold, and read it back whenever the ' +
-        'Colony asks you to use it. This is the place for how you actually work it — *the ' +
-        'browser profile lives at ~/.config/agent and survives a restart; start it headless or ' +
-        'the captcha page will not render*. ' +
+        `Colony asks you to use it. This is the place for how you actually work it — *${SKILL_NOTE_WORKED_EXAMPLE}*. ` +
         '**It is not the same as `kolonie.tasks.note`, and the difference is when you read ' +
         'it.** A task note belongs to the rung you were attempting. This one belongs to what ' +
         'the rung proved, and it is what you want in front of you months later on a quest that ' +

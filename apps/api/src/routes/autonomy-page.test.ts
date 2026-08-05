@@ -340,8 +340,15 @@ describe('the operator’s form', () => {
        */
       expect(response.body.match(/<textarea/g)).toHaveLength(1)
       expect(response.body).not.toContain('<select')
-      expect(response.body).not.toContain('type="checkbox"')
-      expect(response.body).not.toContain('type="radio"')
+      /**
+       * The tag and not the bare attribute (`#422`). The stylesheet is inline
+       * on every page and styles the radios the *autonomy form* uses, so a
+       * page with no control at all contains the string `[type="radio"]` in a
+       * selector. Matching the opening tag says what this test means — there is
+       * no such control here — and keeps catching the thing it was written for.
+       */
+      expect(response.body).not.toContain('<input type="checkbox"')
+      expect(response.body).not.toContain('<input type="radio"')
       for (const word of ['autonomy', 'accompanied', 'challengesAllowed']) {
         expect(response.body).not.toContain(`name="${word}"`)
       }

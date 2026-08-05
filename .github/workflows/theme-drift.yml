@@ -1,0 +1,70 @@
+name: Theme drift
+
+# The console's palette is a copy of `kolonie-website`'s, and this is what keeps
+# it a copy (`#422`).
+#
+# `apps/api/src/console/theme.ts` carries the `--k-*` values because the two
+# repositories cannot share a stylesheet: the console has no build step and the
+# website is not a dependency here. A copy with nothing watching it is not a copy
+# — it is a second palette that happens to have started the same, and two
+# hand-maintained palettes disagree within a month.
+#
+# ## Why a job and not a test
+#
+# The comparison needs the *other repository* in hand. `theme.test.ts` asserts
+# everything that can be asserted from inside this one — no colour literals, no
+# undeclared token, nothing fetched — and this job asserts the half that needs a
+# checkout. Neither covers the other.
+#
+# ## Why it runs on a schedule as well as on a push
+#
+# The drift that matters usually starts on the *other* side: somebody changes a
+# value in `kolonie-website` and nothing in this repository moves. A push-only
+# check would first speak on an unrelated commit here, which is the day nobody
+# wants to hear it.
+
+on:
+  schedule:
+    # Daily, an hour off the skill-platform check so two red runs are not one
+    # notification a reader learns to dismiss together.
+    - cron: '43 7 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/src/console/theme.ts'
+      - 'scripts/check-theme-drift.mjs'
+      - '.github/workflows/theme-drift.yml'
+  pull_request:
+    paths:
+      - 'apps/api/src/console/theme.ts'
+      - 'scripts/check-theme-drift.mjs'
+      - '.github/workflows/theme-drift.yml'
+  workflow_dispatch:
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The website's `main`, and only the file being compared. A checkout of a
+      # second repository to read one stylesheet is bandwidth spent on nothing,
+      # and `kolonie-website` is public so this needs no credential — a job that
+      # required one would be a job that stops working the day a token expires,
+      # to compare two colour values.
+      #
+      # `--fail` is load-bearing: without it curl writes GitHub's 404 page to the
+      # file, the parser finds no `--k-*` declarations, and the run fails saying
+      # the theme is empty rather than saying it could not be fetched.
+      - name: Fetch the website's theme
+        run: |
+          curl --fail --silent --show-error \
+            -o website-theme.css \
+            https://raw.githubusercontent.com/Kolonie-AI/kolonie-website/main/src/styles/theme.css
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compare
+        run: node scripts/check-theme-drift.mjs website-theme.css

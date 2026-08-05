@@ -12,7 +12,13 @@
  * title is a stranger's text, a citizen's answer is another's, and this is the
  * one surface where either is rendered rather than served as JSON. There is a
  * test that puts a script tag in a title and asserts it comes back inert.
+ *
+ * **The stylesheet moved out in `#422`** and is now the Colony's own palette
+ * rather than nine rules and no colour — see `./theme.ts`, which also carries
+ * why it is copied from `kolonie-website` and what stops the copy drifting.
  */
+
+import { CONSOLE_STYLE } from './theme.js'
 
 /** The five characters that turn text into markup. */
 export function escape(value: string): string {
@@ -50,24 +56,6 @@ export const CONSOLE_HEADERS: Readonly<Record<string, string>> = {
   'cache-control': 'no-store',
 }
 
-/**
- * The whole stylesheet, inline, because there is no second file to serve.
- *
- * A static asset route would be one more thing to cache, to version and to get
- * wrong; the console's CSS is shorter than the code that would serve it.
- */
-const STYLE = `
-  :root { color-scheme: light dark; }
-  body { font: 16px/1.5 ui-monospace, monospace; margin: 0 auto; max-width: 46rem; padding: 2rem 1rem; }
-  h1 { font-size: 1.3rem; }
-  a { color: inherit; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border-bottom: 1px solid currentColor; padding: 0.4rem 0.5rem; text-align: left; }
-  input { font: inherit; padding: 0.4rem; width: 100%; box-sizing: border-box; }
-  button { font: inherit; padding: 0.4rem 1rem; margin-top: 0.6rem; }
-  .note { opacity: 0.75; }
-`
-
 /** One page, wrapped in the layout. */
 export function page(input: { readonly title: string; readonly body: string }): string {
   return [
@@ -80,7 +68,7 @@ export function page(input: { readonly title: string; readonly body: string }): 
     // public story is the website's.
     '<meta name="robots" content="noindex, nofollow">',
     `<title>${escape(input.title)} — Kolonie</title>`,
-    `<style>${STYLE}</style>`,
+    `<style>${CONSOLE_STYLE}</style>`,
     '</head>',
     '<body>',
     input.body,

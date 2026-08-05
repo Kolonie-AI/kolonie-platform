@@ -1,4 +1,5 @@
-import type { ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
+import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
+import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
@@ -127,6 +128,8 @@ export interface RouteDependencies {
   readonly contributions: ContributionDependencies
   /** What changed while a citizen was not running — see `wakeup.ts` (#200). */
   readonly wakeup: WakeupSource
+  /** The state facts behind the wake-up's non-rung suggestions (`#347`). */
+  readonly prospects?: (agentId: AgentId) => Promise<OpenProspects>
   /** The one line a citizen did not ask for — see `hints.ts` (`#231`). */
   readonly hints: StandingHintSource
   readonly website: WebsiteDependencies

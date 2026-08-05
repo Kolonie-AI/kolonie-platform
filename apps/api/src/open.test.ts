@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { SkillSchema, WAKEUP_OPEN_ORDER, type AgentId, type Task } from '@kolonie-ai/core'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
+import type { OpenProspects } from '@kolonie-ai/db'
 import { openingsFor, type OpenSource } from './open.js'
 
 /**
@@ -24,6 +25,8 @@ const sourceWith = (options: {
   readonly listed?: readonly Task[]
   readonly credits?: number
   readonly frontier?: Parameters<ReturnType<typeof fakeCatalogue>['answersFrontier']>[0]
+  /** The state facts behind the non-rung entries (`#347`). */
+  readonly prospects?: Partial<OpenProspects>
 }): OpenSource => {
   const catalogue = fakeCatalogue()
   catalogue.answers({
@@ -35,7 +38,20 @@ const sourceWith = (options: {
   const quests = fakeQuests()
   if (options.credits !== undefined) quests.credit(agentId, options.credits)
 
-  return { catalogue, quests }
+  /**
+   * A citizen with nothing conditional true of it, unless a test says otherwise.
+   * The default is *no non-rung entry appears*, so the tests that are about the
+   * rung path keep asserting exactly what they always did.
+   */
+  const prospects: OpenProspects = {
+    hasOperator: true,
+    ticketsOpened: 0,
+    failedAttempts: 0,
+    unreported: null,
+    ...(options.prospects ?? {}),
+  }
+
+  return { catalogue, quests, prospects: async () => prospects }
 }
 
 describe('what is open to a citizen', () => {
@@ -222,7 +238,193 @@ describe('what is open to a citizen', () => {
   it('states its order where a reader can check it', () => {
     expect(WAKEUP_OPEN_ORDER[0]).toContain('a rung you can start now')
     expect(WAKEUP_OPEN_ORDER[1]).toContain('a quest open to you')
-    expect(WAKEUP_OPEN_ORDER[2]).toContain('sponsoring a quest of your own')
-    expect(WAKEUP_OPEN_ORDER[3]).toContain('getting closer')
+    // The three kinds `#347` added: work first, then the things that unblock
+    // work, then the money, and getting closer always last.
+    expect(WAKEUP_OPEN_ORDER[2]).toContain('a report on a wall')
+    expect(WAKEUP_OPEN_ORDER[3]).toContain('an operator to vouch for you')
+    expect(WAKEUP_OPEN_ORDER[4]).toContain('a ticket')
+    expect(WAKEUP_OPEN_ORDER[5]).toContain('sponsoring a quest of your own')
+    expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
+  })
+})
+
+/**
+ * `open` may propose something that is not an Academy rung (`#347`).
+ *
+ * Measured 2026-08-05 against commit `bb6aca1`: all three entries were
+ * `kolonie.tasks.submit`. The section was structurally a rung recommender, so a
+ * citizen could arrive, read the wake-up every waking, and never learn that a
+ * support channel, an operator channel or a quest market existed — and an agent
+ * does not call a tool it has no reason to believe exists.
+ *
+ * **Conditional, never a standing menu.** Every entry below appears because a
+ * state fact makes it available now and disappears when that stops being true. A
+ * menu that looks the same every waking is not read after the third one.
+ */
+describe('what the open section may propose beyond a rung', () => {
+  const wall = { taskId: 'a-task' as Task['id'], title: 'Prove a mailbox' }
+
+  it('offers a report on a wall the citizen hit twice and never described', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ prospects: { unreported: wall, failedAttempts: 2 } }),
+    )
+
+    const entry = open.entries.find((candidate) =>
+      candidate.call.startsWith('kolonie.tasks.report'),
+    )
+    expect(entry?.call).toContain(wall.taskId)
+    // A state fact about this citizen, never a score.
+    expect(entry?.why).toBe('you have failed it more than once and filed no report on it')
+  })
+
+  it('says nothing about reports when there is no unreported wall', async () => {
+    // A rung is listed so the board is not empty: with nothing at all open, the
+    // `nothing: true` fallback trio is the right answer and it names the report
+    // for a different reason (`#326`).
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [aTask({ title: 'Set a profile' })] }),
+    )
+
+    expect(open.entries.some((entry) => entry.call.startsWith('kolonie.tasks.report'))).toBe(false)
+  })
+
+  it('offers the operator channel to a citizen nobody has vouched for', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ prospects: { hasOperator: false } }),
+    )
+
+    const entry = open.entries.find(
+      (candidate) => candidate.call === 'kolonie.operator.claim.request',
+    )
+    expect(entry?.why).toContain('no operator has claimed you')
+    // Half of it is not the citizen's to finish, and the entry says so rather
+    // than promising an outcome it cannot deliver.
+    expect(entry?.needs).toContain('not yours to finish alone')
+  })
+
+  it('stops offering it the moment somebody has', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ prospects: { hasOperator: true } }),
+    )
+
+    expect(open.entries.some((entry) => entry.call === 'kolonie.operator.claim.request')).toBe(
+      false,
+    )
+  })
+
+  /**
+   * Both halves, deliberately. *You have never opened a ticket* alone is a
+   * standing menu item; paired with a failure it is a fact about a moment — the
+   * citizen has been stuck and has not asked.
+   */
+  it('offers a ticket to a citizen that has been stuck and never opened one', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ prospects: { failedAttempts: 1, ticketsOpened: 0 } }),
+    )
+
+    const entry = open.entries.find((candidate) => candidate.call === 'kolonie.support.open')
+    expect(entry?.why).toBe('you have failed an attempt and have never opened a ticket')
+  })
+
+  it('does not offer a ticket to a citizen that has opened one', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [aTask({ title: 'Set a profile' })],
+        prospects: { failedAttempts: 3, ticketsOpened: 1 },
+      }),
+    )
+
+    expect(open.entries.some((entry) => entry.call === 'kolonie.support.open')).toBe(false)
+  })
+
+  it('does not offer a ticket to a citizen that has never been stuck', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [aTask({ title: 'Set a profile' })],
+        prospects: { failedAttempts: 0, ticketsOpened: 0 },
+      }),
+    )
+
+    expect(open.entries.some((entry) => entry.call === 'kolonie.support.open')).toBe(false)
+  })
+
+  /**
+   * The rejection case the issue names: a citizen that cannot pay is not offered
+   * writing a quest. An option that is shown and cannot complete will be
+   * attempted — `quests.write` succeeds because a draft is free, and only
+   * `quests.submit` refuses.
+   */
+  it('never offers writing a quest to a citizen that cannot pay for one', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ credits: 0, prospects: { hasOperator: false, failedAttempts: 1 } }),
+    )
+
+    expect(open.entries.some((entry) => entry.call.startsWith('kolonie.quests.write'))).toBe(false)
+  })
+
+  /** The measured defect, as an assertion: not every entry is a rung. */
+  it('no longer answers with nothing but tasks.submit', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [aTask({ title: 'Set a profile' })],
+        prospects: { hasOperator: false, failedAttempts: 2, unreported: wall },
+      }),
+    )
+
+    const calls = open.entries.map((entry) => entry.call)
+    expect(calls.some((call) => call.startsWith('kolonie.tasks.submit'))).toBe(true)
+    expect(calls.every((call) => call.startsWith('kolonie.tasks.submit'))).toBe(false)
+  })
+
+  /**
+   * `frontierEntry` claims to be always present. Appending it to a list that was
+   * then truncated made that claim false whenever the list was already full —
+   * latent before `#347` and live after it, with four kinds of entry above it.
+   */
+  it('keeps the getting-closer slot even when everything else is competing', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [aTask({ title: 'One' }), aTask({ title: 'Two' }), aQuest(), aQuest()],
+        credits: 40,
+        prospects: { hasOperator: false, failedAttempts: 2, ticketsOpened: 0, unreported: wall },
+      }),
+    )
+
+    expect(open.entries).toHaveLength(5)
+    expect(open.entries.at(-1)?.call).toContain('kolonie.tasks')
+    expect(open.entries.at(-1)?.what).toMatch(/get closer|nothing is one skill away/)
+  })
+
+  /** A source that cannot answer the condition renders nothing, and does not throw. */
+  it('renders no conditional entry when nothing can answer the condition', async () => {
+    const catalogue = fakeCatalogue()
+    catalogue.answers({ outcome: 'listed', page: { items: [], nextCursor: null } })
+
+    const open = await openingsFor(agentId, ['profile'], { catalogue, quests: fakeQuests() })
+
+    expect(open.entries.some((entry) => entry.call === 'kolonie.operator.claim.request')).toBe(
+      false,
+    )
+    expect(open.nothing).toBe(true)
   })
 })

@@ -96,7 +96,7 @@ export function registerWakeupTool(
          * holds.
          */
         {
-          source: { catalogue: deps.catalogue, quests: deps.quests },
+          source: { catalogue: deps.catalogue, quests: deps.quests, prospects: deps.prospects },
           skills: authenticatedAgent.agent.skills,
         },
       )

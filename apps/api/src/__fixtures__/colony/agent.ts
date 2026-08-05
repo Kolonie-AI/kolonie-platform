@@ -20,7 +20,12 @@ import {
   type RegisterAgentRequest,
   type StoredAutonomyContract,
 } from '@kolonie-ai/core'
-import type { AuthenticationResult, ObservedOrigin, RegisterAgentResult } from '@kolonie-ai/db'
+import type {
+  AuthenticationResult,
+  ObservedOrigin,
+  OpenProspects,
+  RegisterAgentResult,
+} from '@kolonie-ai/db'
 import type { CredentialRotation } from '../../rotation.js'
 import type { AgentStore } from '../../authentication.js'
 import type { SolanaChallenges } from '../../solana.js'
@@ -75,6 +80,14 @@ export interface FakeAgent {
    */
   readonly rotation: CredentialRotation
   readonly wakeup: WakeupSource
+  /**
+   * The state facts behind the wake-up's non-rung suggestions (`#347`).
+   *
+   * The default is a citizen with nothing conditional true of it, so a test that
+   * is not about this section is not quietly handed extra suggestions to assert
+   * around. A test that *is* about it overrides this.
+   */
+  readonly prospects: (agentId: AgentId) => Promise<OpenProspects>
   /** The one line a citizen did not ask for (`#231`). */
   readonly hints: StandingHintSource
   /** The range a declared rhythm has to fall inside (#142). */
@@ -208,6 +221,12 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
     caller: { ip: FAKE_CALLER_IP },
 
     wakeup: fakeWakeup(),
+    prospects: async () => ({
+      hasOperator: true,
+      ticketsOpened: 0,
+      failedAttempts: 0,
+      unreported: null,
+    }),
     hints: fakeStandingHints(),
     /**
      * The default range (#142). A test that cares about the bounds passes its

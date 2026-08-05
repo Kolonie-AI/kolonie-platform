@@ -128,6 +128,9 @@ export type WakeupOpen = z.infer<typeof WakeupOpenSchema>
 export const WAKEUP_OPEN_ORDER = [
   'a rung you can start now — a defined unit of work, uncontested, with a stated reward',
   'a quest open to you — paid, but slots are shared and a report is judged',
+  'a report on a wall you hit twice and never described — free, and it opens your next try',
+  'an operator to vouch for you, when nobody has — half of it is somebody else’s to finish',
+  'a ticket, when you have been stuck and never opened one',
   'sponsoring a quest of your own — only when your balance can actually pay for it',
   'getting closer: the one skill that would open the most, and where to earn it',
 ] as const

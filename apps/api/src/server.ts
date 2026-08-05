@@ -32,7 +32,7 @@ import {
   httpClaimReader,
   httpContributionReader,
 } from '@kolonie-ai/verifiers'
-import { githubAccountOf, recordObstructedAttemptForTaskType } from '@kolonie-ai/db'
+import { githubAccountOf, openProspects, recordObstructedAttemptForTaskType } from '@kolonie-ai/db'
 import { databaseWebServerChallenges } from './web-server.js'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
@@ -265,6 +265,8 @@ const app = buildApp({
   registry: databaseRegistry(db),
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
+  // The state facts behind the wake-up's non-rung suggestions (`#347`).
+  prospects: (agentId) => openProspects(db, agentId),
   quests: databaseQuests(db, questAuditPolicy()),
   /**
    * The way in (`#219`).

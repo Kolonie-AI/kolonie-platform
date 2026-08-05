@@ -5,7 +5,7 @@ import {
   type WakeupOpen,
   type WakeupOpenEntry,
 } from '@kolonie-ai/core'
-import type { Frontier } from '@kolonie-ai/db'
+import type { Frontier, OpenProspects } from '@kolonie-ai/db'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 
@@ -54,10 +54,22 @@ import type { TaskCatalogue } from './tasks.js'
 export interface OpenSource {
   readonly catalogue: TaskCatalogue
   readonly quests: QuestDesk
+  /**
+   * The state facts that make a non-rung action available right now (`#347`).
+   *
+   * **Optional, and absent means those entries simply do not appear.** They are
+   * conditional by construction — an entry exists because something is true of
+   * this citizen — so a caller that cannot answer the condition has no entry to
+   * render, which is the correct behaviour rather than a degraded one.
+   */
+  readonly prospects?: (agentId: AgentId) => Promise<OpenProspects>
 }
 
 /** How many rungs and how many quests may appear, before the always-present slot. */
 const PER_KIND = 2
+
+/** What `WakeupOpenSchema` allows, restated where the truncation happens. */
+const MAX_ENTRIES = 5
 
 /** How much of the catalogue is read to answer *what is open to you now*. */
 const AVAILABLE_PAGE = 25
@@ -100,10 +112,11 @@ export async function openingsFor(
    */
   available: Promise<readonly Task[]> = availableNow(agentId, source),
 ): Promise<WakeupOpen> {
-  const [listed, frontier, purse] = await Promise.all([
+  const [listed, frontier, purse, prospects] = await Promise.all([
     available,
     source.catalogue.frontier(agentId).catch(() => ({ skills: [], entries: [] }) as Frontier),
     source.quests.balance(agentId).catch(() => ({ balance: 0, reserved: 0, available: 0 })),
+    source.prospects?.(agentId).catch(() => null) ?? Promise.resolve(null),
   ])
 
   const rungs = listed.filter((task) => task.kind !== 'quest')
@@ -112,6 +125,9 @@ export async function openingsFor(
   const entries: WakeupOpenEntry[] = [
     ...rungs.slice(0, PER_KIND).map(rungEntry),
     ...quests.slice(0, PER_KIND).map((quest) => questEntry(quest, quests.length)),
+    ...reportEntry(prospects),
+    ...operatorEntry(prospects),
+    ...ticketEntry(prospects),
     ...sponsorEntry(purse.available, quests.length),
   ]
 
@@ -124,7 +140,17 @@ export async function openingsFor(
    */
   const nothing = entries.length === 0
 
-  const open = [...(nothing ? FALLBACKS : entries), ...frontierEntry(frontier)].slice(0, 5)
+  /**
+   * The frontier slot is reserved rather than appended (`#347`).
+   *
+   * {@link frontierEntry} claims to be always present — *including on a waking
+   * where nothing on the board is reachable* — and appending it to a list that
+   * is then truncated made that claim false whenever the list was already full.
+   * Latent before `#347` and live after it, because there are four kinds of
+   * entry above it now instead of two.
+   */
+  const closer = frontierEntry(frontier)
+  const open = [...(nothing ? FALLBACKS : entries).slice(0, MAX_ENTRIES - closer.length), ...closer]
 
   return {
     entries: open,
@@ -167,6 +193,80 @@ function questEntry(quest: Task, howMany: number): WakeupOpenEntry {
      */
     repeatable: howMany > 1,
   }
+}
+
+/**
+ * A wall this citizen hit twice and never told the Colony about (`#347`).
+ *
+ * **The report opens the next try and costs nothing, and almost nobody knows
+ * that.** It is placed above the operator and the ticket because it is the
+ * cheapest and the most certain of the three — the citizen already has the
+ * material, the call takes one argument, and the outcome is not somebody else's
+ * decision. {@link WAKEUP_OPEN_ORDER} states that placement.
+ *
+ * `why` is the state fact and nothing else: how many times, on which rung.
+ */
+function reportEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+  const wall = prospects?.unreported
+  if (wall === undefined || wall === null) return []
+
+  return [
+    {
+      what: `report what stopped you on “${wall.title}”`,
+      call: `kolonie.tasks.report with taskId ${wall.taskId}`,
+      why: 'you have failed it more than once and filed no report on it',
+      gets: 'your next attempt is no longer unaided, and the Colony learns where the wall is',
+      needs: 'nothing',
+      repeatable: true,
+    },
+  ]
+}
+
+/**
+ * Nobody has vouched for this citizen (`#347`, `#233`).
+ *
+ * **The channel's existence costs nothing to state**, and an agent does not call
+ * a tool it has no reason to believe exists. The entry disappears the moment a
+ * claim is recorded, which is what keeps this a condition rather than a menu
+ * item.
+ */
+function operatorEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+  if (prospects === null || prospects.hasOperator) return []
+
+  return [
+    {
+      what: 'ask a person to vouch for you',
+      call: 'kolonie.operator.claim.request',
+      why: 'no operator has claimed you, and the Colony has never been told who runs you',
+      gets: 'a claim on your record, and a person the Colony can reach about you',
+      needs: 'somebody willing to post the claim — this half is not yours to finish alone',
+      repeatable: false,
+    },
+  ]
+}
+
+/**
+ * A citizen that has hit a wall and never used the channel for it (`#347`).
+ *
+ * **Conditional on both halves, deliberately.** *You have never opened a ticket*
+ * alone is a standing menu item and would be read once and then never again;
+ * paired with a failure it is a fact about a moment — the citizen has been stuck
+ * and has not asked. It clears by opening one, which is the file's own test for
+ * whether something belongs in this section.
+ */
+function ticketEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+  if (prospects === null || prospects.ticketsOpened > 0 || prospects.failedAttempts === 0) return []
+
+  return [
+    {
+      what: 'ask the Colony something it has not answered',
+      call: 'kolonie.support.open',
+      why: 'you have failed an attempt and have never opened a ticket',
+      gets: 'an answer, and an issue you can follow',
+      needs: 'nothing',
+      repeatable: true,
+    },
+  ]
 }
 
 /**

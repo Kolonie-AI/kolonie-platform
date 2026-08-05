@@ -118,6 +118,17 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     github: fakeGithub(),
     contributions: fakeContributions(),
     wakeup: fakeWakeup(),
+    /**
+     * A citizen with nothing conditional true of it (`#347`), so a test that is
+     * not about the wake-up's non-rung suggestions is not handed four extra
+     * entries to assert around.
+     */
+    prospects: async () => ({
+      hasOperator: true,
+      ticketsOpened: 0,
+      failedAttempts: 0,
+      unreported: null,
+    }),
     hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),

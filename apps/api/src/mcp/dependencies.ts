@@ -1,4 +1,5 @@
-import type { RhythmBounds, SkillReleases } from '@kolonie-ai/core'
+import type { AgentId, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
+import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
@@ -83,6 +84,20 @@ export interface McpDependencies {
   readonly contributions: ContributionDependencies
   /** What changed while the citizen was not running — see `wakeup.ts` (#200). */
   readonly wakeup: WakeupSource
+  /**
+   * The state facts behind the wake-up's non-rung suggestions — see `open.ts`
+   * (`#347`).
+   *
+   * **Optional, unlike `hints`, and the difference is what an absence means.** A
+   * missing hint source removes a channel that always has something to say, so
+   * it has to be a compile error. These entries are conditional by construction
+   * — they appear because something is true of *this* citizen — so a deployment
+   * that cannot answer the condition renders nothing, which is exactly what a
+   * citizen with nothing conditional true of it already sees. Requiring it would
+   * put a mechanical line into three dozen test files to buy a guarantee weaker
+   * than the one `hints` needs.
+   */
+  readonly prospects?: (agentId: AgentId) => Promise<OpenProspects>
   /**
    * The one line a citizen did not ask for — see `hints.ts` (`#231`).
    *

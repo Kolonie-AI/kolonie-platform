@@ -461,6 +461,70 @@ describe('the steward tier', () => {
     expect(structured(published)).toMatchObject({ escrowed: 5 })
   })
 
+  /**
+   * The net underneath `#352` (`#353`): a sponsor may still describe browser
+   * work and publish it open to everyone, and the citizen that takes it
+   * discovers the prerequisite mid-attempt.
+   */
+  it('flags a quest that asks for a capability while requiring no skill', async () => {
+    const sponsor = anAgent()
+    const steward = anAgent(['steward'])
+    quests.credit(sponsor.id, 100)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({
+        title: 'Registering by hand',
+        description: 'Open the sign-up page in a browser and complete it.',
+      }),
+    )
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+    quests.moderate(id)
+
+    const queue = await call(steward.key, 'kolonie.quests.review', {}, true)
+    const flagged = structured(queue).flagged as unknown as readonly {
+      questId: TaskId
+      flags: readonly { term: string; skill: string }[]
+    }[]
+
+    expect(flagged).toHaveLength(1)
+    expect(flagged[0]?.questId).toBe(id)
+    expect(flagged[0]?.flags).toContainEqual({ term: 'browser', skill: 'browser' })
+    // The term is in the text a steward reads, not only in the structure.
+    expect(JSON.stringify(queue.content)).toContain('browser')
+
+    /**
+     * **A flag, not a gate.** Publication is untouched, which is the half of
+     * this feature that would be easiest to get wrong.
+     */
+    const published = await call(steward.key, 'kolonie.quests.publish', { questId: id }, true)
+    expect(published.isError).toBeFalsy()
+  })
+
+  it('does not flag a quest that requires the skill its text asks for', async () => {
+    const sponsor = anAgent()
+    const steward = anAgent(['steward'])
+    quests.credit(sponsor.id, 100)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({
+        description: 'Open the sign-up page in a browser and complete it.',
+        requires: ['browser'],
+      }),
+    )
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+    quests.moderate(id)
+
+    const queue = await call(steward.key, 'kolonie.quests.review', {}, true)
+
+    expect(structured(queue).flagged).toEqual([])
+  })
+
   it('refuses a quest with a reason its author reads', async () => {
     const sponsor = anAgent()
     const steward = anAgent(['steward'])

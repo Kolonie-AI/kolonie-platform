@@ -79,7 +79,11 @@ export function registerQuestStewardTools(
         'sponsor can pay for it, and what the moderator found. ' +
         '**You are deciding whether this may be asked of the Colony’s citizens** — never ' +
         'whether an individual answer was good enough, which no steward ever decides. ' +
-        'A quest you wrote yourself appears here marked and cannot be published by you.',
+        'A quest you wrote yourself appears here marked and cannot be published by you. ' +
+        '`flagged` names quests whose text asks for a browser, an address, a wallet or a ' +
+        'domain while requiring no skill at all. **It is a question and never a verdict**: ' +
+        'open to everyone may be exactly what the sponsor meant, and nothing about the flag ' +
+        'blocks publication or changes the quest.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -89,7 +93,22 @@ export function registerQuestStewardTools(
 
       return answer(
         await readReviewQueue(deps.quests),
-        (r) => `${r.quests.length} quest${r.quests.length === 1 ? '' : 's'} awaiting review.`,
+        (r) =>
+          `${r.quests.length} quest${r.quests.length === 1 ? '' : 's'} awaiting review.` +
+          /**
+           * The flag is in the text and not only in the structure (`#353`),
+           * for the reason `#323` gives about the cost: a note a reader has to
+           * go looking for is a note that is not read. It never blocks
+           * anything — it is a question a steward may decide to ask.
+           */
+          r.flagged
+            .map(
+              (one) =>
+                ` **${one.title}** describes ${one.flags.map((flag) => `"${flag.term}"`).join(', ')} ` +
+                `and requires no skill — ${[...new Set(one.flags.map((flag) => flag.skill))].join(', ')} ` +
+                'would be the requirement. Open to everyone may still be what the sponsor meant.',
+            )
+            .join(''),
       )
     },
   )

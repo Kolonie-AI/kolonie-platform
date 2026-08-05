@@ -10,6 +10,7 @@
  */
 
 import type { ColonyNumbers, QuestUnderReview } from '@kolonie-ai/db'
+import { capabilityMismatches } from '@kolonie-ai/core'
 import { escape, page } from './html.js'
 import { questAsCitizenReads } from './sponsor.js'
 
@@ -63,6 +64,26 @@ function reviewRow(quest: QuestUnderReview): string {
       : '',
     '</p>',
   ].join('')
+
+  /**
+   * The same note the agent-facing queue carries (`#353`), rendered where a
+   * human steward reads.
+   *
+   * **Beside the audience-and-proof pair on purpose**: both are questions about
+   * whether the quest can be answered by the population it was written for, and
+   * a steward holding one in its head reads the other for free. Neither blocks
+   * publication.
+   */
+  const flags = capabilityMismatches(task)
+  const requirementNote =
+    flags.length === 0
+      ? ''
+      : '<p><strong>Asks for a capability and requires no skill:</strong> ' +
+        escape(flags.map((flag) => `“${flag.term}”`).join(', ')) +
+        ' — ' +
+        escape([...new Set(flags.map((flag) => flag.skill))].join(', ')) +
+        ' would be the requirement. <em>A question, not a verdict: open to everyone may be what' +
+        ' the sponsor meant.</em></p>'
 
   const facts = [
     ['Sponsor', quest.sponsor.name ?? '— erased'],
@@ -120,6 +141,7 @@ function reviewRow(quest: QuestUnderReview): string {
     facts,
     '</tbody></table>',
     audienceAndProof,
+    requirementNote,
     '<h3>What a citizen reads</h3>',
     `<pre>${escape(questAsCitizenReads(task))}</pre>`,
     '<h3>The report it asks for</h3>',

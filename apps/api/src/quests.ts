@@ -9,12 +9,14 @@ import {
   SubmissionIdSchema,
   TaskIdSchema,
   audienceSentence,
+  capabilityMismatches,
   questCommitment,
   questSubmissionRejection,
   reportAudience,
   type AgentId,
   type AudienceQuery,
   type AudienceReport,
+  type RequirementFlag,
   type ApiError,
   type CreditMovement,
   type QuestAuditPolicy,
@@ -885,11 +887,42 @@ export async function readCreditHistory(
   return { outcome: 'ok', response: await desk.movements(agentId, input) }
 }
 
-/** The steward's queue: moderated quests awaiting a human decision. */
+/** One quest in the queue that describes work it requires no skill for (`#353`). */
+export interface FlaggedQuest {
+  readonly questId: TaskId
+  readonly title: string
+  /** The terms that fired, each with the skill it points at. */
+  readonly flags: readonly RequirementFlag[]
+}
+
+/**
+ * The steward's queue: moderated quests awaiting a human decision.
+ *
+ * **`flagged` is beside the queue rather than inside each quest** (`#353`). The
+ * quest shape is what a citizen reads and what four other surfaces already
+ * parse; a note *about* a quest, addressed to a steward and to nobody else,
+ * is not part of it. This also keeps the flag from ever reaching the sponsor or
+ * the answering citizen through a shape they share.
+ *
+ * A quest missing from `flagged` is a quest nothing fired on, which is the
+ * ordinary case and stays cheap to read.
+ */
 export async function readReviewQueue(
   desk: QuestDesk,
-): Promise<QuestResult<{ readonly quests: readonly Task[] }>> {
-  return { outcome: 'ok', response: { quests: await desk.reviewQueue() } }
+): Promise<
+  QuestResult<{ readonly quests: readonly Task[]; readonly flagged: readonly FlaggedQuest[] }>
+> {
+  const quests = await desk.reviewQueue()
+
+  const flagged = quests
+    .map((quest) => ({
+      questId: quest.id,
+      title: quest.title,
+      flags: capabilityMismatches(quest),
+    }))
+    .filter((entry) => entry.flags.length > 0)
+
+  return { outcome: 'ok', response: { quests, flagged } }
 }
 
 /** Publish a quest, moving its escrow in the same transaction. */

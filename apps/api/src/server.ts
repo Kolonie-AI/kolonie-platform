@@ -494,6 +494,11 @@ const app = buildApp({
     // `mail-config.ts`. Falls back to the Academy's sender, so a deployment that
     // sets nothing sends exactly what it sent before.
     ...(mail.consoleSender === undefined ? {} : { senderAddress: mail.consoleSender }),
+    // The process's own logger, so a console send that is refused leaves a trace
+    // the caller must not be given (`#406`). Required on the interface for
+    // exactly this line: an optional one omitted here would be silence that
+    // looks like a working fix.
+    log,
     addressLimiter: signInAddressLimiter(),
     clientLimiter: signInClientLimiter(),
   },

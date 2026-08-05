@@ -9,7 +9,7 @@ import { fakeWakeup } from './__fixtures__/wakeup.js'
 import { fakeAccounts } from './__fixtures__/accounts.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
-import { fakeConsole } from './__fixtures__/console.js'
+import { fakeConsole, fakeMailer, recordingLog, type RecordingLog } from './__fixtures__/console.js'
 import { fakeContributions } from './__fixtures__/github.js'
 import { fakeDomain } from './__fixtures__/domain.js'
 import { fakeEmail } from './__fixtures__/email.js'
@@ -347,6 +347,96 @@ describe('the console front door', () => {
 
       expect(response.statusCode).toBe(500)
       expect(consoleDeps.store.tokens()).toHaveLength(0)
+    })
+  })
+
+  /**
+   * **A send that was refused is recorded, and the caller is told nothing new**
+   * (`#406`).
+   *
+   * `cloudflareMailer` returns a failure rather than throwing it, and both
+   * console calls dropped the answer on the floor. The reader was told *check
+   * your mail* and waited for a mail that had never been accepted; nothing
+   * anywhere recorded that it had not. Walking the sponsor path on 2026-08-05
+   * cost ten minutes reading the resolver and the database to work out what had
+   * broken — and the api container's whole log output since its last start was
+   * one line, `service.started`.
+   *
+   * **Why the fix cannot be the one the other four send sites use.** A reply
+   * saying *the Colony could not deliver the mail* can only occur for an address
+   * that has an account, because a mail is only attempted when an identity
+   * exists. It would be a perfect oracle for which addresses are registered,
+   * which is exactly what `CHECK_YOUR_MAIL` prevents and what D-044 makes exact.
+   * So the record goes where the caller cannot see it.
+   */
+  describe('a console mail that is never delivered', () => {
+    const refusing = () =>
+      build({ mailer: fakeMailer('cloudflare answered 502'), log: recordingLog() })
+
+    const linesFrom = () => (consoleDeps.log as RecordingLog).lines()
+
+    it('records the refusal, with the reason and the surface', async () => {
+      app = refusing()
+      await app.ready()
+      consoleDeps.store.hold('known@example.org')
+
+      await requestLink('known@example.org')
+
+      const [line, ...rest] = linesFrom()
+      expect(rest).toEqual([])
+      expect(line?.fields['event']).toBe('console.mail.failed')
+      expect(line?.fields['surface']).toBe('sign-in')
+      expect(line?.fields['reason']).toBe('cloudflare answered 502')
+    })
+
+    it('never writes the address, which is the identifier the flow protects', async () => {
+      app = refusing()
+      await app.ready()
+      consoleDeps.store.hold('known@example.org')
+
+      await requestLink('known@example.org')
+
+      // Serialised whole rather than field by field: a future field carrying the
+      // address would pass a check that only named the fields we thought of.
+      expect(JSON.stringify(linesFrom())).not.toContain('known@example.org')
+    })
+
+    it('answers byte-identically to a send that worked', async () => {
+      app = build()
+      await app.ready()
+      consoleDeps.store.hold('known@example.org')
+      const delivered = await requestLink('known@example.org')
+
+      app = refusing()
+      await app.ready()
+      consoleDeps.store.hold('known@example.org')
+      const refused = await requestLink('known@example.org')
+
+      expect(refused.statusCode).toBe(delivered.statusCode)
+      expect(refused.body).toBe(delivered.body)
+    })
+
+    it('records a refused sign-up under its own surface', async () => {
+      app = refusing()
+      await app.ready()
+
+      await app.inject({
+        method: 'POST',
+        url: '/v1/console/sign-up',
+        payload: { email: 'fresh@example.org' },
+      })
+
+      expect(linesFrom()[0]?.fields['surface']).toBe('sign-up')
+    })
+
+    it('says nothing at all when the mail was delivered', async () => {
+      app = build({ log: recordingLog() })
+      await app.ready()
+      consoleDeps.store.hold('known@example.org')
+
+      await requestLink('known@example.org')
+
+      expect(linesFrom()).toEqual([])
     })
   })
 

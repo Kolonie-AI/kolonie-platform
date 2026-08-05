@@ -4,6 +4,7 @@ import {
   type AgentId,
   type ApiError,
   type CredentialId,
+  type Log,
 } from '@kolonie-ai/core'
 import {
   redeemKeyMintLink,
@@ -134,6 +135,21 @@ export interface ConsoleDependencies {
    * one place rather than at each `send`.
    */
   readonly senderAddress?: string | undefined
+  /**
+   * Where this module says the things it must not tell the caller (`#406`).
+   *
+   * **Required, not optional, and that is the whole point of the field.** An
+   * optional log defaults to silence, and a deployment that forgot to wire it
+   * would be indistinguishable from the defect this fixes — a console send that
+   * fails and leaves no trace anywhere. The type is what makes the wiring
+   * impossible to forget, so every construction site says `silentLog` on
+   * purpose rather than by omission.
+   *
+   * The shape is `recheck`'s. What is different is the reason: `recheck` logs
+   * because nobody is watching that path, and this one logs because the caller
+   * **must not be told** — see {@link recordUndelivered}.
+   */
+  readonly log: Log
   /** Per-address brake on both endpoints. */
   readonly addressLimiter: RateLimiter
   /**
@@ -200,6 +216,54 @@ export const CHECK_YOUR_MAIL = {
 export type LinkOutcome =
   { readonly outcome: 'accepted' } | { readonly outcome: 'rejected'; readonly error: ApiError }
 
+/**
+ * Record a console send that was not delivered, where the caller cannot see it
+ * (`#406`).
+ *
+ * **`cloudflareMailer` returns a failure rather than throwing it**, so a refused
+ * send was invisible in both directions at once: the reader was told *check your
+ * mail* and waited for a mail that had never been accepted, and nothing anywhere
+ * recorded that it had not. The only evidence a send was attempted was a
+ * `credentials` row of kind `email-link`, which is written whether or not the
+ * mail left. Measured on production 2026-08-05, the api container's whole log
+ * output since its last start was one line, `service.started`.
+ *
+ * **Four of the six send sites in this repository already check.**
+ * `academy/email`, `recheck`, `autonomy` and `operator-requests` all read
+ * `delivered` and answer the caller accordingly — `autonomy` even has copy
+ * written for it. The two console calls could not, and the reason is the
+ * interesting part of this issue rather than an oversight:
+ *
+ * **The console must not tell the caller.** `requestSignIn` answers identically
+ * for an address that names somebody and one that names nobody — D-044 makes
+ * that exact rather than statistical — and a mail is only ever attempted when an
+ * identity exists. So *"the Colony could not deliver the mail"* is a sentence
+ * that can only occur for a registered address, which makes it **a perfect
+ * oracle for which addresses have accounts**: precisely what
+ * {@link CHECK_YOUR_MAIL} is written to prevent. `signUp` has the same shape one
+ * step along, where a fresh address sends and a taken one does not.
+ *
+ * So the answer goes somewhere the caller cannot see, and that is a log line.
+ *
+ * **The address is not in it, and that is not caution — it is the same rule.**
+ * It is the identifier this whole flow is arranged to protect, and a log line is
+ * not a private place. What goes in is what a reader needs to find the failure:
+ * which surface, and what the mailer said about itself.
+ */
+function recordUndelivered(
+  deps: ConsoleDependencies,
+  surface: 'sign-in' | 'sign-up' | 'key-mint',
+  sent: { readonly delivered: boolean; readonly reason?: string },
+): void {
+  if (sent.delivered) return
+
+  deps.log.warn(`a console ${surface} mail could not be delivered`, {
+    event: 'console.mail.failed',
+    surface,
+    reason: sent.reason ?? null,
+  })
+}
+
 function rateLimited(retryAfterSeconds: number): ApiError {
   return {
     code: 'rate_limited',
@@ -237,12 +301,15 @@ export async function requestSignIn(
   // caller is told the same thing either way, one return statement further down.
   if (identity !== undefined) {
     const link = await deps.store.requestLink(identity)
-    await mailer.send({
+    const sent = await mailer.send({
       to: link.address,
       subject: SIGN_IN_SUBJECT,
       text: signInMailBody(deps.consoleUrl, link.token),
       from: deps.senderAddress,
     })
+    // Recorded, never answered. See recordUndelivered for why this one branch
+    // cannot reach the caller the way the other four send sites do.
+    recordUndelivered(deps, 'sign-in', sent)
   }
 
   return { outcome: 'accepted' }
@@ -279,12 +346,13 @@ export async function signUp(
 
   if (created.outcome === 'registered') {
     const link = await deps.store.requestLink(created.identity)
-    await mailer.send({
+    const sent = await mailer.send({
       to: link.address,
       subject: NEW_ACCOUNT_SUBJECT,
       text: newAccountMailBody(deps.consoleUrl, link.token),
       from: deps.senderAddress,
     })
+    recordUndelivered(deps, 'sign-up', sent)
   }
 
   return { outcome: 'accepted' }
@@ -421,12 +489,28 @@ export async function requestKeyMint(
     }
   }
 
-  await deps.mailer.send({
+  const sent = await deps.mailer.send({
     to: link.address,
     subject: KEY_MINT_SUBJECT,
     text: keyMintMailBody(deps.consoleUrl, link.token),
     ...(deps.senderAddress === undefined ? {} : { from: deps.senderAddress }),
   })
+  /**
+   * **A third console send, which `#406` counts as two.**
+   *
+   * That issue says the two calls above are the only ones in this repository
+   * that do not read `delivered`; `#400` added this one afterwards, with the
+   * same gap. It is covered here rather than left for a second issue, because
+   * *the console records a send it could not make* is one property and a module
+   * where it holds in two places out of three is a module nobody can rely on.
+   *
+   * **What is not copied across is the silence.** The reader here is signed in
+   * and asking about its own account, so telling it that delivery failed reveals
+   * nothing it does not already know — there is no oracle to protect. That is a
+   * separate change to what this route answers, and this issue is about the
+   * record rather than the reply.
+   */
+  recordUndelivered(deps, 'key-mint', sent)
 
   return { outcome: 'accepted' }
 }

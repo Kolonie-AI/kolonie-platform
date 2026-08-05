@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { AgentIdSchema, CredentialIdSchema, type AgentId } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  CredentialIdSchema,
+  silentLog,
+  type AgentId,
+  type Log,
+  type LogFields,
+} from '@kolonie-ai/core'
 import type { ConsoleDependencies, ConsoleStore } from '../console.js'
 import type { Mailer } from '../email.js'
 import { signInAddressLimiter, signInClientLimiter } from '../rate-limit.js'
@@ -20,14 +27,43 @@ export interface FakeMailer extends Mailer {
   }[]
 }
 
-export function fakeMailer(): FakeMailer {
+export function fakeMailer(refusal?: string): FakeMailer {
   const sent: { to: string; subject: string; text: string; from?: string | undefined }[] = []
   return {
     send: async (message) => {
       sent.push({ ...message })
-      return { delivered: true }
+      /**
+       * **A refusal is returned, not thrown, because that is what the real one
+       * does** (`#406`). `cloudflareMailer` answers `{ delivered: false, reason }`
+       * on a non-2xx, so a caller that ignores the answer sees no failure at
+       * all — which is the defect, and a fixture that threw would make it
+       * untestable by making it loud.
+       */
+      return refusal === undefined ? { delivered: true } : { delivered: false, reason: refusal }
     },
     sent: () => sent,
+  }
+}
+
+/** A log that keeps what it was told, so a test can assert on a line nobody is shown. */
+export interface RecordingLog extends Log {
+  readonly lines: () => readonly { level: string; message: string; fields: LogFields }[]
+}
+
+export function recordingLog(): RecordingLog {
+  const lines: { level: string; message: string; fields: LogFields }[] = []
+  const at =
+    (level: string) =>
+    (message: string, fields: LogFields = {}): void => {
+      lines.push({ level, message, fields })
+    }
+  return {
+    info: at('info'),
+    warn: at('warn'),
+    error: (message, _error, fields = {}) => {
+      lines.push({ level: 'error', message, fields })
+    },
+    lines: () => lines,
   }
 }
 
@@ -198,6 +234,10 @@ export function fakeConsole(
     store: fakeConsoleStore(),
     mailer: fakeMailer(),
     consoleUrl: 'https://console.example.test',
+    // Silent on purpose rather than by omission — the field is required so that
+    // a construction site cannot forget it (`#406`). A test that cares about
+    // what was logged overrides it.
+    log: silentLog,
     addressLimiter: signInAddressLimiter(),
     clientLimiter: signInClientLimiter(),
     ...overrides,

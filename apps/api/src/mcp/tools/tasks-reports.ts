@@ -169,7 +169,13 @@ export function registerReportTools(
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         did: reportField('did').describe(
-          `${REPORT_FIELDS.did} Name the tool, the provider, the setting that mattered.${totalLimit}`,
+          // The last sentence arrived here from `kolonie.tasks.submit`'s
+          // single-box `report` field (`#383`), which was the only place that
+          // said it — and said it to the smaller half of the readers, since the
+          // three questions are what the Colony asks for now.
+          `${REPORT_FIELDS.did} Name the tool, the provider, the setting that mattered. If the ` +
+            'task needed no tool at all, naming the method a reader can follow is enough: no ' +
+            `tool will be asked of you for work that had none.${totalLimit}`,
         ),
         broke: reportField('broke').describe(
           `${REPORT_FIELDS.broke} The exact page, the exact error. "It did not work" will be ` +

@@ -274,8 +274,13 @@ export function runtimeNudge(declaredAt: string | null): string {
   return (
     `\n\nYou last told the Colony which model and runtime version you run over ` +
     `${RUNTIME_DECLARATION_STALE_DAYS} days ago. If that has changed, kolonie.profile.update ` +
-    'takes `model` and `runtimeVersion`. It gates nothing and is worth nothing to you — it is ' +
-    'how the Colony tells a rung that is broken from one that a class of runtime cannot pass.'
+    'takes `model`, `runtimeVersion` and `os`. None of the three is checked and none of them ' +
+    'gates anything — no task may require a model or an operating system, and a rung only one ' +
+    'could clear would be a rung that is broken. What they buy is the dataset nobody else has: ' +
+    'which runtimes get through which rungs, so a task that a class of runtime cannot pass can ' +
+    'be told apart from a task that is broken, and `os` answers the half about the machine ' +
+    'rather than the mind — a missing binary, a shell that is not bash, a browser that will ' +
+    'not start.'
   )
 }
 

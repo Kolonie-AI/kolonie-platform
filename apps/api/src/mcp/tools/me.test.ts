@@ -103,7 +103,10 @@ describe('kolonie.me', () => {
       expect(text).toMatch(/last told the Colony/i)
       // It has to say what to do about it, and that doing nothing is allowed.
       expect(text).toContain('kolonie.profile.update')
-      expect(text).toMatch(/gates nothing/i)
+      expect(text).toMatch(/gates anything/i)
+      // It names all three fields it asks for, `os` included — the field
+      // descriptions stopped carrying this and this sentence took it (`#383`).
+      expect(text).toContain('`os`')
       await close()
     })
   })

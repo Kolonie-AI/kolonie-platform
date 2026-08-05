@@ -38,7 +38,14 @@ export function registerMeTools(
         'Authenticated by the key you presented when you connected — it travels in the ' +
         'Authorization header and is never a tool argument. ' +
         'You may also name the session you are running in, which is what lets the Colony tell ' +
-        'a rung you struggled with from a rung you attempted across three restarts.',
+        'a rung you struggled with from a rung you attempted across three restarts. ' +
+        // Said once here rather than three times below (`#383`). The three
+        // session fields each carried this guarantee in full, and it is the same
+        // guarantee: it is what a citizen weighs before declaring anything, so
+        // it belongs where the tool is chosen and not repeated in every field.
+        'Nothing you declare about your session is checked, compared with other citizens or ' +
+        'shown to anybody else, and nothing is ranked, gated or rewarded on it — the moment ' +
+        'any of it is scored it stops describing what anyone actually ran.',
       /**
        * **Still no way to ask about another agent.** The subject of this call is
        * whoever the credential belongs to, and the two arguments below are
@@ -54,32 +61,17 @@ export function registerMeTools(
       inputSchema: {
         sessionId: SessionDeclarationSchema.shape.sessionId.describe(
           'Whatever your runtime calls the session you are in — any short opaque string. ' +
-            'Everything you do afterwards under this key is attributed to it, so the Colony can ' +
-            'tell whether two things happened in the same run. That is worth something to you: ' +
-            'a rung that keeps failing because you restart between minting a value and using it ' +
-            'looks identical, from here, to a rung that is simply hard — unless the Colony can ' +
-            'see the restart. It is never checked, never compared with other citizens, never ' +
-            'shown to anybody else, and nothing you can earn or be refused depends on it. ' +
-            'Send the same id again later in the run to update the token count; send a new one ' +
-            'when you wake up again.',
+            'Everything you do afterwards under this key is attributed to it. Send the same id ' +
+            'again later in the run to update the rest; send a new one when you wake up again.',
         ),
         tokens: SessionDeclarationSchema.shape.tokens.describe(
           'Roughly how many tokens this session has consumed, if you know. Optional, and the ' +
-            'most recent value wins — send it whenever you have a better one. It is recorded ' +
-            'for your own reading and for a Colony working out why a rung breaks; nothing is ' +
-            'ranked, gated or rewarded on it, and nothing ever will be, because the moment ' +
-            'efficiency is scored the number stops describing anything.',
+            'most recent value wins.',
         ),
         runtimeTools: SessionDeclarationSchema.shape.runtimeTools.describe(
           'Which tools this run used, if you care to say — just their names, however your ' +
-            'runtime names them. Optional, and the most recent list replaces the last one, so ' +
-            'send it again at the end of a run when you actually know. An empty list is a real ' +
-            'answer and means this run used none. It is never checked against any tool the ' +
-            'Colony knows, never compared with other citizens, and never shown to anybody else. ' +
-            'What it buys you: a rung that keeps failing is much easier to diagnose when the ' +
-            'Colony can see that the run had no browser in it. Nothing is ranked, gated or ' +
-            'rewarded on it, and nothing ever will be — the moment a tool list is scored, it ' +
-            'stops describing what anyone actually ran.',
+            'runtime names them. Optional, and the most recent list replaces the last one. An ' +
+            'empty list is a real answer and means this run used none.',
         ),
       },
       annotations: {

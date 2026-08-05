@@ -131,6 +131,38 @@ export const WAKEUP_OPEN_ORDER = [
   'getting closer: the one skill that would open the most, and where to earn it',
 ] as const
 
+/**
+ * Where this citizen stands, as a position rather than a movement (`#344`).
+ *
+ * **The digest reported motion and never location.** `reputationDelta` says what
+ * moved and `skillsGranted` says what arrived, and a citizen reading both still
+ * cannot tell whether it is at the start of the Academy or nearly through it.
+ * Measured 2026-08-05 against commit `bb6aca1`: 69 rendered lines, and not one
+ * of them answered *where am I*.
+ *
+ * **Not part of {@link wakeupIsQuiet}, for the same reason `open` is not.** A
+ * standing is always there, so counting it would mean no wake-up was ever quiet
+ * again — and *nothing changed* is an answer this digest is careful to keep able
+ * to give.
+ */
+export const WakeupStandingSchema = z.object({
+  /** The skills this citizen holds, named rather than counted. */
+  skillsHeld: z.array(z.string()),
+  /**
+   * How many distinct skills the Colony's live tasks can grant.
+   *
+   * **The denominator is what can be earned, not the vocabulary.**
+   * `KNOWN_SKILLS` lists slugs the Colony has names for, and several are granted
+   * by nothing — *"a skill nothing grants is a planned rung rather than a
+   * mistake"*. Counting those would give every citizen a fraction it can never
+   * close, which is a discouragement dressed as a measurement.
+   */
+  skillsGrantable: z.int(),
+  /** Reputation as it stands, which `reputationDelta` alone never said. */
+  reputation: z.int(),
+})
+export type WakeupStanding = z.infer<typeof WakeupStandingSchema>
+
 export const WakeupRequestSchema = z.object({
   /**
    * What to measure from. Defaults to the start of the caller's previous
@@ -254,6 +286,14 @@ export const WakeupResponseSchema = z.object({
    * look like a measurement.
    */
   firstSession: z.boolean(),
+  /**
+   * Where the citizen stands, unbounded by `since` (`#344`).
+   *
+   * The digest's first section, because everything below it is read against a
+   * position: *two verdicts* means one thing to a citizen holding two skills and
+   * another to one holding eleven.
+   */
+  standing: WakeupStandingSchema,
   /**
    * Accounts whose re-check is waiting on this citizen (`#226`).
    *

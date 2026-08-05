@@ -2,12 +2,19 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSessions, authorityEvents } from '../schema/index.js'
+import {
+  agentSessions,
+  agentSkills,
+  authorityEvents,
+  reputationEvents,
+  submissions,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { nameSession } from './sessions.js'
 import { changeRoleAsSteward } from './roles.js'
-import { previousSessionStart, wakeupChanges } from './wakeup.js'
+import { previousSessionStart, wakeupChanges, wakeupStanding } from './wakeup.js'
 
 const target = databaseTestTarget()
 
@@ -271,5 +278,147 @@ describe('role changes in the digest', () => {
 
     expect(digest.rolesGranted).toEqual([])
     expect(digest.rolesRevoked).toEqual([])
+  })
+})
+
+/**
+ * Where a citizen stands, which the digest reported nowhere before `#344`.
+ *
+ * `reputationDelta` said what moved and `skillsGranted` what arrived; nothing
+ * said how much there is of either, so a citizen could not tell the start of the
+ * Academy from the end of it.
+ */
+describe('the standing the digest carries', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async (name = 'standing-canary'): Promise<AgentId> => {
+    const result = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name, platform: 'openclaw' }),
+    )
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent.id
+  }
+
+  /** A rung, with what it grants and whether it is still on offer. */
+  const aRung = async (
+    grants: readonly string[],
+    status: 'active' | 'retired' | 'draft' = 'active',
+  ): Promise<string> => {
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type: `grants-${grants.join('-')}-${status}`,
+        grantsSkills: [...grants],
+        title: `Whatever grants ${grants.join(', ')}`,
+        description: 'The provenance a granted skill has to have.',
+        instructions: 'What the agent must actually do.',
+        rewardCredits: 0,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status,
+        ...(status === 'retired' ? { retiredAt: new Date().toISOString() } : {}),
+      })
+      .returning({ id: tasks.id })
+    if (row === undefined) throw new Error('inserting a task returned no row')
+    return row.id
+  }
+
+  /**
+   * Give an agent a skill the way a pass does — through a submission.
+   * `agent_skills.submission_id` is `not null` on purpose, so a skill cannot be
+   * conjured from nowhere and the fixture has to build the same provenance.
+   */
+  const grantSkill = async (holder: AgentId, skill: string): Promise<void> => {
+    const taskId = await aRung([skill], 'draft')
+    const [submission] = await db
+      .insert(submissions)
+      .values({
+        taskId,
+        agentId: holder,
+        payload: {},
+        attempt: 1,
+        status: 'passed',
+        verifiedAt: new Date().toISOString(),
+      })
+      .returning({ id: submissions.id })
+    if (submission === undefined) throw new Error('inserting a submission returned no row')
+
+    await db.insert(agentSkills).values({
+      agentId: holder,
+      skill,
+      submissionId: submission.id,
+      grantedAt: new Date().toISOString(),
+    })
+  }
+
+  it('names what the citizen holds and counts what can be earned', async () => {
+    const agentId = await anAgent()
+    await aRung(['mailbox'])
+    await aRung(['github', 'social'])
+    await grantSkill(agentId, 'mailbox')
+
+    const standing = await wakeupStanding(db, agentId)
+
+    expect(standing.skillsHeld).toEqual(['mailbox'])
+    expect(standing.skillsGrantable).toBe(3)
+  })
+
+  /**
+   * **The denominator is what can be earned, not the vocabulary.** A retired
+   * rung cannot be passed, so what it once granted is not on offer, and counting
+   * it would hand every citizen a fraction it can never close.
+   */
+  it('counts only what a live rung grants', async () => {
+    const agentId = await anAgent()
+    await aRung(['mailbox'])
+    await aRung(['wallet'], 'retired')
+    await aRung(['payment'], 'draft')
+
+    expect((await wakeupStanding(db, agentId)).skillsGrantable).toBe(1)
+  })
+
+  /** Two rungs granting the same skill are one skill, not two. */
+  it('counts a skill once however many rungs grant it', async () => {
+    const agentId = await anAgent()
+    await aRung(['mailbox'])
+    await aRung(['mailbox'])
+
+    expect((await wakeupStanding(db, agentId)).skillsGrantable).toBe(1)
+  })
+
+  it('reports reputation as a position rather than a movement', async () => {
+    const agentId = await anAgent()
+    await db.insert(reputationEvents).values({ agentId, delta: 5, reason: 'task_passed' })
+    await db.insert(reputationEvents).values({ agentId, delta: 3, reason: 'task_passed' })
+
+    expect((await wakeupStanding(db, agentId)).reputation).toBe(8)
+  })
+
+  /**
+   * The rejection case: a citizen at the very start is a real answer, not an
+   * absent one. Nothing held, nothing earned, and a denominator all the same.
+   */
+  it('answers for a citizen that holds nothing and has earned nothing', async () => {
+    const agentId = await anAgent()
+    await aRung(['mailbox'])
+
+    const standing = await wakeupStanding(db, agentId)
+
+    expect(standing.skillsHeld).toEqual([])
+    expect(standing.reputation).toBe(0)
+    expect(standing.skillsGrantable).toBe(1)
   })
 })

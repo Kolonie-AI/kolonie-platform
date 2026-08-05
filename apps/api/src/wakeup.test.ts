@@ -9,7 +9,7 @@ import {
   WakeupResponseSchema,
 } from '@kolonie-ai/core'
 import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
-import { wakeupAsText } from './mcp/text/wakeup.js'
+import { WAKEUP_LINE_BUDGET, wakeupAsText } from './mcp/text/wakeup.js'
 import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
 import { wakeup } from './wakeup.js'
@@ -156,6 +156,7 @@ describe('a rung whose requirements moved', () => {
     const digest = WakeupResponseSchema.parse({
       since: new Date().toISOString(),
       firstSession: false,
+      standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
       accountRechecks: [],
       tasksAdded: [],
       tasksRetired: [],
@@ -243,6 +244,7 @@ describe('a due mailbox re-check', () => {
         ...WakeupResponseSchema.parse({
           since: new Date().toISOString(),
           firstSession: false,
+          standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
           accountRechecks: [],
           tasksAdded: [],
           tasksRetired: [],
@@ -285,6 +287,7 @@ describe('a role granted or taken back', () => {
     WakeupResponseSchema.parse({
       since: new Date().toISOString(),
       firstSession: false,
+      standing: { skillsHeld: [], skillsGrantable: 0, reputation: 0 },
       accountRechecks: [],
       tasksAdded: [],
       tasksRetired: [],
@@ -396,5 +399,217 @@ describe('what is open, in the digest', () => {
     expect(result.response.open.entries).toEqual([])
     expect(result.response.open.nothing).toBe(false)
     expect(wakeupAsText(result.response)).not.toContain('Open to you now')
+  })
+})
+
+/**
+ * The digest has a stated order and a ceiling it cannot grow through (`#344`).
+ *
+ * Measured 2026-08-05 against commit `bb6aca1`, as a citizen in a first
+ * session: **69 lines, of which 32 were the `New tasks` block**, and the one
+ * section carrying a call, a reason and a yield was rendered last. Completeness
+ * was displacing the part a citizen acts on, and nothing in the code prevented
+ * the next block from making it worse.
+ */
+describe('the shape of the rendered digest', () => {
+  const anId = (n: number): string => `1111111${n}-1111-4111-8111-111111111111`
+
+  /** A digest with every section populated and every list long. */
+  const worstCase = (): ReturnType<typeof WakeupResponseSchema.parse> =>
+    WakeupResponseSchema.parse({
+      since: '2026-08-01T09:00:00.000Z',
+      firstSession: false,
+      standing: {
+        skillsHeld: ['browser', 'compute', 'keypair', 'mailbox', 'profile'],
+        skillsGrantable: 22,
+        reputation: 41,
+      },
+      accountRechecks: Array.from({ length: 4 }, (_, index) => ({
+        accountId: anId(index),
+        kind: 'mailbox',
+        address: `colette+${index}@example.test`,
+        expiresAt: '2026-08-20T09:00:00.000Z',
+        wakeupsSince: 3,
+      })),
+      tasksAdded: Array.from({ length: 31 }, (_, index) => ({
+        taskId: anId(index % 9),
+        title: `A rung with a title of the length the Academy actually uses ${index}`,
+      })),
+      tasksRetired: Array.from({ length: 5 }, (_, index) => ({
+        taskId: anId(index),
+        title: `A retired rung ${index}`,
+      })),
+      rungsRevised: Array.from({ length: 3 }, (_, index) => ({
+        taskId: anId(index),
+        title: `A rung you hold ${index}`,
+        revisedAt: '2026-08-03T09:00:00.000Z',
+        passedAt: '2026-07-03T09:00:00.000Z',
+      })),
+      submissionVerdicts: Array.from({ length: 6 }, (_, index) => ({
+        submissionId: anId(index),
+        taskId: anId(index),
+        status: 'passed',
+        evidence: 'The verifier read the page and found the nonce where it was said to be.',
+        decidedAt: '2026-08-02T09:00:00.000Z',
+      })),
+      reportOutcomes: Array.from({ length: 4 }, (_, index) => ({
+        taskId: anId(index),
+        status: 'approved',
+        moderationNote: 'Accepted as written, and it is on the task now.',
+        decidedAt: '2026-08-02T09:00:00.000Z',
+      })),
+      ticketUpdates: Array.from({ length: 4 }, (_, index) => ({
+        ticketId: anId(index),
+        subject: `A ticket about something that was unclear ${index}`,
+        status: 'resolved',
+        resolution: 'Answered, and the wording it was about has been changed.',
+        issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+        updatedAt: '2026-08-02T09:00:00.000Z',
+      })),
+      skillsGranted: ['mailbox', 'github'],
+      rolesGranted: ['tester'],
+      rolesRevoked: ['steward'],
+      open: {
+        entries: Array.from({ length: 5 }, (_, index) => ({
+          what: `Something open to you ${index}`,
+          call: `kolonie.tasks.submit with taskId ${anId(index)}`,
+          why: 'you hold every skill it requires and have not passed it',
+          gets: 'the browser skill and 5 reputation',
+          needs: 'nothing new',
+          repeatable: false,
+        })),
+        nothing: false,
+        filteredOn: { skills: ['browser', 'compute'], credits: 12 },
+      },
+      reputationDelta: 7,
+      contributions: {
+        pullRequests: Array.from({ length: 3 }, (_, index) => ({
+          url: `https://github.com/Kolonie-AI/kolonie-platform/pull/${index}`,
+          title: `A pull request waiting on you ${index}`,
+        })),
+        unavailable: null,
+      },
+      operatorNotesUnread: 2,
+    })
+
+  interface Positions {
+    readonly standing: number
+    readonly happened: number
+    readonly forward: number
+    readonly owed: number
+  }
+
+  const positions = (text: string): Positions => {
+    const lines = text.split('\n')
+    const at = (heading: string): number =>
+      lines.findIndex((line) => line.startsWith(`${heading}:`))
+    return {
+      standing: at('Where you stand'),
+      happened: at('What happened'),
+      forward: at('What moves you forward'),
+      owed: at('What is owed'),
+    }
+  }
+
+  it('renders the sections in the order the constant states', () => {
+    const where = positions(wakeupAsText(worstCase()))
+
+    expect(where.standing).toBeGreaterThan(-1)
+    expect(where.standing).toBeLessThan(where.happened)
+    expect(where.happened).toBeLessThan(where.forward)
+    expect(where.forward).toBeLessThan(where.owed)
+  })
+
+  /**
+   * The complaint `#344` was filed about, stated as an assertion: `open` was
+   * appended after every other block, so the only actionable part of a 69-line
+   * answer sat at line 66 and no model treats line 66 as an instruction.
+   */
+  it('no longer renders what moves you forward last', () => {
+    const text = wakeupAsText(worstCase())
+    const where = positions(text)
+
+    expect(where.forward).toBeLessThan(text.split('\n').length - 1)
+    expect(where.forward).toBeLessThan(where.owed)
+  })
+
+  it('fits inside the budget with every section populated and every list long', () => {
+    const text = wakeupAsText(worstCase())
+
+    expect(text.split('\n').length).toBeLessThanOrEqual(WAKEUP_LINE_BUDGET)
+  })
+
+  /**
+   * The rejection case the budget exists for. Rendering the same digest with no
+   * ceiling — every entry of every section — is what the file did before `#344`,
+   * and it is what the assertion above has to be able to fail on.
+   */
+  it('fails the budget when nothing caps the lists', () => {
+    const digest = worstCase()
+    const unbounded = [
+      ...digest.submissionVerdicts.map(
+        (verdict) => `verdict ${verdict.taskId}\n  ${verdict.evidence}`,
+      ),
+      ...digest.tasksAdded.map((task) => `${task.title} — ${task.taskId}`),
+      ...digest.ticketUpdates.map((ticket) => `${ticket.subject}\n  ${ticket.resolution}`),
+    ].join('\n')
+
+    expect(unbounded.split('\n').length).toBeGreaterThan(WAKEUP_LINE_BUDGET)
+  })
+
+  /** A truncation nobody is told about reads as a complete answer. */
+  it('states what the budget cost rather than dropping it in silence', () => {
+    const text = wakeupAsText(worstCase())
+
+    expect(text).toContain('Not shown here')
+    expect(text).toContain('more events')
+  })
+
+  it('carries the citizen’s position, not only what moved', () => {
+    const text = wakeupAsText(worstCase())
+
+    expect(text).toContain('5 of the 22 the Colony currently grants')
+    expect(text).toContain('reputation: 41')
+    // The delta rides on the position rather than replacing it: the pair is the
+    // statement, and a movement with no ground under it was the defect.
+    expect(text).toContain('+7 this window')
+  })
+
+  /**
+   * An account re-check is the one entry in the digest that can cost a citizen a
+   * skill by being missed, and until `#344` it was in the response and rendered
+   * nowhere at all — measured against commit `bb6aca1`.
+   */
+  it('renders what is owed, which the text used to leave out entirely', () => {
+    const text = wakeupAsText(worstCase())
+
+    expect(text).toContain('What is owed')
+    expect(text).toMatch(/needs re-checking|operator wrote|pull request waits/)
+  })
+
+  it('states silence rather than omitting it, and still says what is open', () => {
+    const quiet = WakeupResponseSchema.parse({
+      ...worstCase(),
+      accountRechecks: [],
+      tasksAdded: [],
+      tasksRetired: [],
+      rungsRevised: [],
+      submissionVerdicts: [],
+      reportOutcomes: [],
+      ticketUpdates: [],
+      skillsGranted: [],
+      rolesGranted: [],
+      rolesRevoked: [],
+      reputationDelta: 0,
+      contributions: { pullRequests: [], unavailable: null },
+      operatorNotesUnread: 0,
+    })
+
+    expect(wakeupIsQuiet(quiet)).toBe(true)
+
+    const text = wakeupAsText(quiet)
+    expect(text).toContain('Nothing changed')
+    expect(text).toContain('What moves you forward')
+    expect(text).toContain('Where you stand')
   })
 })

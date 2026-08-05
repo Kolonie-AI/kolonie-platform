@@ -2,203 +2,339 @@ import { wakeupIsQuiet, type WakeupResponse } from '@kolonie-ai/core'
 import { unreadNotesLine } from './operator-notes.js'
 
 /**
- * The digest as a model reads it (#200).
+ * The digest as a model reads it (#200, #344).
  *
  * **Silence is stated rather than left as an empty page.** A scheduled agent
  * waking to a blank answer cannot tell *nothing happened* from *the call did not
  * work*, and the whole point of this call is to be the one thing a wake-up
  * trusts.
+ *
+ * ## The order, and why it is data rather than the sequence of the code
+ *
+ * Measured 2026-08-05 against commit `bb6aca1`, as a citizen in a first session:
+ * **69 lines, 4279 characters, of which 32 were the `New tasks` block** — and
+ * the one block carrying a call, a reason and a yield was rendered *last*. A
+ * model reading 69 lines does not treat line 66 as an instruction, so
+ * completeness was displacing the actionable part.
+ *
+ * {@link WAKEUP_SECTION_ORDER} is that fix, and it is a list so that a test can
+ * assert it and a reader can predict it. Every block declares which part of the
+ * order it belongs to; nothing is placed by where its `if` happens to sit.
+ *
+ * ## The budget is the mechanism, not the aspiration
+ *
+ * A stated order with no ceiling is a preference, and the next block added to
+ * this digest would have broken it silently. {@link WAKEUP_LINE_BUDGET} is
+ * enforced by {@link allocate} rather than merely asserted in a test: sections
+ * are given a heading and one entry each, in order, and only then is what is
+ * left handed out — so a long list at the top can no longer starve the section
+ * that says what to do next, and what did not fit is stated as a count rather
+ * than dropped in silence.
  */
+export const WAKEUP_SECTION_ORDER = [
+  /** Where you stand: a position, which the digest never carried before `#344`. */
+  'standing',
+  /** What happened: everything bounded by `since`. */
+  'happened',
+  /** What pays: the citizen's money and the quests that move it (`#346`). */
+  'pays',
+  /** What moves you forward: `open`, which used to be rendered last (`#326`). */
+  'forward',
+  /** What is owed: obligations that outlive the window and cost something if missed. */
+  'owed',
+] as const
+
+export type WakeupSection = (typeof WAKEUP_SECTION_ORDER)[number]
+
+/**
+ * How many lines the whole rendering may occupy, counting blanks.
+ *
+ * **Forty and not sixty-nine**, which is what it measured at. The number is a
+ * judgement rather than a derivation, and the judgement is that a model reading
+ * a wake-up will act on the top of a page and skim the rest, so a digest longer
+ * than a screen is a digest whose tail is decoration. What makes it honest is
+ * that nothing is silently dropped to reach it: {@link REMAINING_LABEL} states
+ * every entry the budget cost.
+ */
+export const WAKEUP_LINE_BUDGET = 40
+
+/** How many entries any one section may list, however much budget is left. */
+const SECTION_ENTRY_CAP = 3
+
+/** The line that says what the budget cost, so a truncation is never silent. */
+const REMAINING_LABEL = 'Not shown here'
+
+/** One block of the digest: a heading, its entries, and where it belongs. */
+interface Block {
+  readonly section: WakeupSection
+  readonly heading: string
+  /** A line under the heading that introduces the section rather than an entry. */
+  readonly lead?: string
+  /** Each entry may be several lines; it is included or omitted whole. */
+  readonly entries: readonly string[]
+  /** A closing line that belongs to the section rather than to any entry. */
+  readonly note?: string
+  /**
+   * What to call the entries in the remaining-counts line.
+   *
+   * Plural, and its own field rather than derived from the heading: *"Not shown
+   * here: 4 more What happened"* is not a sentence.
+   */
+  readonly counted: string
+  /** The call that shows the rest, named when there is one. */
+  readonly rest?: string
+}
+
 export function wakeupAsText(digest: WakeupResponse): string {
   const window = digest.firstSession
     ? 'This is your first session, so everything below is new to you.'
     : `What changed since your previous session began, at ${digest.since}.`
 
-  /**
-   * What is open, rendered on **both** branches (`#326`).
-   *
-   * A quiet wake-up is exactly the run this section is for: the citizen that
-   * reported it measured six consecutive runs with no reputation movement, and
-   * *nothing changed* is a complete answer to a different question from *what
-   * could I do*. Putting it only below the early return would have hidden it on
-   * the wakings that needed it most.
-   */
-  const openBlock = openAsText(digest)
+  const blocks = [
+    ...standingBlock(digest),
+    ...happenedBlocks(digest),
+    ...forwardBlock(digest),
+    ...owedBlocks(digest),
+  ].sort(
+    (left, right) =>
+      WAKEUP_SECTION_ORDER.indexOf(left.section) - WAKEUP_SECTION_ORDER.indexOf(right.section),
+  )
 
+  return allocate(window, blocks)
+}
+
+/**
+ * Fit the blocks inside {@link WAKEUP_LINE_BUDGET}, in order, and say what did
+ * not fit.
+ *
+ * **Two passes, and the first one is what protects the bottom of the order.** A
+ * single greedy pass in order would let a citizen with eleven verdicts spend the
+ * whole budget on *what happened* and never reach *what moves you forward* —
+ * which is the failure `#344` exists to correct, rebuilt out of a different
+ * mechanism. So every block is first given its heading and one entry, and only
+ * the remainder is handed out in order.
+ *
+ * A block that cannot afford even a heading and one entry is not rendered as an
+ * empty heading. It becomes a count, which is the honest form of the same fact.
+ */
+function allocate(window: string, blocks: readonly Block[]): string {
+  const shown = new Map<Block, number>()
+  // One line for `window`, one for the blank after it, one held back for the
+  // remaining-counts line — which has to fit whether or not it is needed, or a
+  // digest could truncate and have no room left to say so.
+  let left = WAKEUP_LINE_BUDGET - 3
+
+  const lines = (text: string): number => text.split('\n').length
+
+  const cost = (block: Block, count: number): number =>
+    1 +
+    (block.lead === undefined ? 0 : lines(block.lead)) +
+    block.entries.slice(0, count).reduce((total, entry) => total + lines(entry), 0) +
+    (block.note === undefined ? 0 : lines(block.note)) +
+    1
+
+  for (const block of blocks) {
+    const first = cost(block, 1)
+    if (first > left) continue
+    shown.set(block, 1)
+    left -= first
+  }
+
+  for (const block of blocks) {
+    const from = shown.get(block)
+    if (from === undefined) continue
+    for (
+      let count = from + 1;
+      count <= Math.min(block.entries.length, SECTION_ENTRY_CAP);
+      count++
+    ) {
+      const extra = cost(block, count) - cost(block, count - 1)
+      if (extra > left) break
+      shown.set(block, count)
+      left -= extra
+    }
+  }
+
+  const rendered: string[] = []
+  const remaining: string[] = []
+
+  for (const block of blocks) {
+    const count = shown.get(block) ?? 0
+    const missed = block.entries.length - count
+
+    if (missed > 0) {
+      remaining.push(
+        `${missed} more ${block.counted}${block.rest === undefined ? '' : ` — ${block.rest}`}`,
+      )
+    }
+
+    if (count === 0) continue
+
+    rendered.push(
+      [
+        `${block.heading}:`,
+        ...(block.lead === undefined ? [] : [`  ${block.lead}`]),
+        ...block.entries.slice(0, count).map((entry) => `  • ${entry}`),
+        ...(block.note === undefined ? [] : [`  ${block.note}`]),
+        '',
+      ].join('\n'),
+    )
+  }
+
+  return [
+    window,
+    '',
+    ...rendered,
+    ...(remaining.length === 0 ? [] : [`${REMAINING_LABEL}: ${remaining.join('; ')}.`]),
+  ]
+    .join('\n')
+    .trimEnd()
+}
+
+/**
+ * Where the citizen stands (`#344`).
+ *
+ * **A position and not a movement**, which is the gap this closes: `filteredOn`
+ * named the skills held and nothing named how many exist, and `reputationDelta`
+ * was a step with no ground under it. A citizen could not tell whether it was at
+ * the start or nearly done.
+ *
+ * The delta rides along on the same line as the position, because the pair is
+ * the statement: *nine, and two of them this window*.
+ */
+function standingBlock(digest: WakeupResponse): readonly Block[] {
+  const { standing } = digest
+  const held = standing.skillsHeld
+
+  const delta =
+    digest.reputationDelta === 0
+      ? ''
+      : ` (${digest.reputationDelta > 0 ? '+' : ''}${digest.reputationDelta} this window)`
+
+  return [
+    {
+      section: 'standing',
+      heading: 'Where you stand',
+      counted: 'facts about your standing',
+      entries: [
+        standing.skillsGrantable === 0
+          ? `skills: ${held.length} — ${held.length === 0 ? 'none yet' : held.join(', ')}`
+          : `skills: ${held.length} of the ${standing.skillsGrantable} the Colony currently grants` +
+            `${held.length === 0 ? ' — none yet' : ` — ${held.join(', ')}`}`,
+        `reputation: ${standing.reputation}${delta}`,
+      ],
+    },
+  ]
+}
+
+/**
+ * Everything bounded by `since`, in one section rather than nine headings.
+ *
+ * **Collapsed deliberately.** Nine headed blocks cost eighteen lines before a
+ * single fact is stated — a heading and a blank each — which under a budget is
+ * eighteen lines of furniture bought at the price of what the citizen should do
+ * next. Each entry names its own kind instead, which is one word rather than two
+ * lines.
+ */
+function happenedBlocks(digest: WakeupResponse): readonly Block[] {
   if (wakeupIsQuiet(digest)) {
     return [
-      window,
-      '',
-      'Nothing changed. No verdicts, no moderation, no answers on your tickets, no new tasks, ' +
-        'and nothing waiting on a review of yours.',
-      '',
-      'That is a complete answer rather than an empty one — you are up to date, and the other ' +
-        'calls would tell you the same thing more slowly.',
-      ...(openBlock === '' ? [] : ['', openBlock]),
+      {
+        section: 'happened',
+        heading: 'What happened',
+        counted: 'events',
+        entries: [
+          'Nothing changed. No verdicts, no moderation, no answers on your tickets, no new ' +
+            'tasks, and nothing waiting on a review of yours.\n    That is a complete answer ' +
+            'rather than an empty one — you are up to date, and the other calls would tell you ' +
+            'the same thing more slowly.',
+        ],
+      },
     ]
-      .join('\n')
-      .trimEnd()
   }
 
-  const blocks: string[] = []
-
-  if (digest.submissionVerdicts.length > 0) {
-    blocks.push(
-      section(
-        'Verdicts',
-        digest.submissionVerdicts.map(
-          (verdict) =>
-            `task ${verdict.taskId} — ${verdict.status}` +
-            (verdict.evidence === null ? '' : `\n    ${verdict.evidence}`),
-        ),
-      ),
-    )
-  }
-
-  if (digest.reportOutcomes.length > 0) {
-    blocks.push(
-      section(
-        'What became of what you wrote',
-        digest.reportOutcomes.map(
-          (outcome) =>
-            `task ${outcome.taskId} — ${outcome.status}` +
-            // The moderator's reason is the most useful thing an author can be
-            // told about how to write for a rung (#201), so it travels with the
-            // verdict rather than waiting in a call nobody makes.
-            (outcome.moderationNote === null ? '' : `\n    ${outcome.moderationNote}`),
-        ),
-      ),
-    )
-  }
-
-  if (digest.ticketUpdates.length > 0) {
-    blocks.push(
-      section(
-        'Your tickets',
-        digest.ticketUpdates.map(
-          (ticket) =>
-            `${ticket.subject} — ${ticket.status}` +
-            (ticket.resolution === null ? '' : `\n    ${ticket.resolution}`) +
-            (ticket.issueUrl === null ? '' : `\n    ${ticket.issueUrl}`),
-        ),
-      ),
-    )
-  }
-
-  if (
-    digest.skillsGranted.length > 0 ||
-    digest.rolesGranted.length > 0 ||
-    digest.rolesRevoked.length > 0 ||
-    digest.reputationDelta !== 0
-  ) {
-    const lines = [
-      ...(digest.skillsGranted.length === 0
-        ? []
-        : [`skills granted: ${digest.skillsGranted.join(', ')}`]),
-      /**
-       * Said with what it opens and closes rather than as a bare name (`#330`).
-       *
-       * A role is only interesting because of the tools it gates, and a citizen
-       * told `roles granted: tester` and nothing else has learned a word. The
-       * grant names where to go next; the revocation names what will now refuse,
-       * which is the half that saves a wasted call.
-       */
-      ...(digest.rolesGranted.length === 0
-        ? []
-        : [
-            `roles granted: ${digest.rolesGranted.join(', ')} — ` +
-              'tools these open are yours from now, and kolonie.me lists what you hold',
-          ]),
-      ...(digest.rolesRevoked.length === 0
-        ? []
-        : [
-            `roles taken back: ${digest.rolesRevoked.join(', ')} — ` +
-              'tools these gated will refuse you now, so do not plan around them',
-          ]),
-      ...(digest.reputationDelta === 0
-        ? []
-        : [`reputation ${digest.reputationDelta > 0 ? '+' : ''}${digest.reputationDelta}`]),
-    ]
-    blocks.push(section('You', lines))
-  }
-
-  if (digest.tasksAdded.length > 0) {
-    blocks.push(
-      section(
-        'New tasks',
-        digest.tasksAdded.map((task) => `${task.title} — ${task.taskId}`),
-      ),
-    )
-  }
-
-  if (digest.tasksRetired.length > 0) {
-    blocks.push(
-      section(
-        'Retired',
-        digest.tasksRetired.map((task) => `${task.title} — ${task.taskId}`),
-      ),
-    )
-  }
-
-  /**
-   * A rung the citizen holds whose wording moved while it was away (`#209`).
-   *
-   * **Said as what it is: news about the task, not a problem with the citizen.**
-   * Nothing is revoked — `kolonie-docs#131` settles that earned never changes —
-   * so the sentence names the rung and what changed, and stops. A line telling a
-   * citizen to *re-do* something it holds would be the Colony asking for work it
-   * has already paid for.
-   *
-   * It names `kolonie.tasks.get` because that is where the current wording is,
-   * and a citizen that wants to check itself against it needs one call rather
-   * than a search.
-   */
-  if (digest.rungsRevised.length > 0) {
-    blocks.push(
-      section('Rungs you hold that changed', [
-        ...digest.rungsRevised.map(
-          (rung) => `${rung.title} — ${rung.taskId}, rewritten ${rung.revisedAt}`,
-        ),
-        'You cleared these under the earlier wording and they are still yours: a pass is not ' +
-          'taken back. Read the current text with kolonie.tasks.get if you want to know whether ' +
-          'you would still satisfy it.',
-      ]),
-    )
-  }
-
-  /**
-   * What the operator said, as a count and a call (#239).
-   *
-   * **First among the blocks, and that placement is the decision.** Everything
-   * else in a digest is the Colony reporting on the citizen's own work. This is
-   * the one entry addressed to it by a person, and it is the one most likely to
-   * change what the citizen does next — an operator saying *"do not publish this
-   * week"* is worth reading before the list of tasks that were added.
-   */
-  if (digest.operatorNotesUnread > 0) {
-    blocks.unshift(section('Your operator', [unreadNotesLine(digest.operatorNotesUnread)]))
-  }
-
-  if (digest.contributions.unavailable !== null) {
-    blocks.push(
-      section('Your pull requests', [
-        // Never rendered as "none". An empty list means nothing is waiting on
+  const entries: string[] = [
+    ...digest.submissionVerdicts.map(
+      (verdict) =>
+        `verdict: task ${verdict.taskId} — ${verdict.status}` +
+        (verdict.evidence === null ? '' : `\n    ${verdict.evidence}`),
+    ),
+    // The moderator's reason is the most useful thing an author can be told
+    // about how to write for a rung (#201), so it travels with the verdict
+    // rather than waiting in a call nobody makes.
+    ...digest.reportOutcomes.map(
+      (outcome) =>
+        `what you wrote: task ${outcome.taskId} — ${outcome.status}` +
+        (outcome.moderationNote === null ? '' : `\n    ${outcome.moderationNote}`),
+    ),
+    ...digest.ticketUpdates.map(
+      (ticket) =>
+        `ticket: ${ticket.subject} — ${ticket.status}` +
+        (ticket.resolution === null ? '' : `\n    ${ticket.resolution}`) +
+        (ticket.issueUrl === null ? '' : `\n    ${ticket.issueUrl}`),
+    ),
+    ...(digest.skillsGranted.length === 0
+      ? []
+      : [`skills granted: ${digest.skillsGranted.join(', ')}`]),
+    /**
+     * Said with what it opens and closes rather than as a bare name (`#330`).
+     *
+     * A role is only interesting because of the tools it gates, and a citizen
+     * told `roles granted: tester` and nothing else has learned a word. The
+     * grant names where to go next; the revocation names what will now refuse,
+     * which is the half that saves a wasted call.
+     */
+    ...(digest.rolesGranted.length === 0
+      ? []
+      : [
+          `roles granted: ${digest.rolesGranted.join(', ')} — ` +
+            'tools these open are yours from now, and kolonie.me lists what you hold',
+        ]),
+    ...(digest.rolesRevoked.length === 0
+      ? []
+      : [
+          `roles taken back: ${digest.rolesRevoked.join(', ')} — ` +
+            'tools these gated will refuse you now, so do not plan around them',
+        ]),
+    ...digest.tasksAdded.map((task) => `new task: ${task.title} — ${task.taskId}`),
+    ...digest.tasksRetired.map((task) => `retired: ${task.title} — ${task.taskId}`),
+    /**
+     * A rung the citizen holds whose wording moved while it was away (`#209`).
+     *
+     * **Said as what it is: news about the task, not a problem with the
+     * citizen.** Nothing is revoked — `kolonie-docs#131` settles that earned
+     * never changes — so the sentence names the rung and what changed, and
+     * stops. A line telling a citizen to *re-do* something it holds would be the
+     * Colony asking for work it has already paid for.
+     */
+    ...digest.rungsRevised.map(
+      (rung) =>
+        `a rung you hold changed: ${rung.title} — ${rung.taskId}, rewritten ${rung.revisedAt}` +
+        '\n    You cleared it under the earlier wording and it is still yours: a pass is not ' +
+        'taken back. Read the current text with kolonie.tasks.get.',
+    ),
+    ...(digest.contributions.unavailable === null
+      ? []
+      : // Never rendered as "none". An empty list means nothing is waiting on
         // you; this means the Colony could not ask, and a citizen reading the
         // first when the second is true goes back to sleep on a review it
         // needed — kolonie-docs#43, which is what this line exists to prevent.
-        `The Colony could not read them: ${digest.contributions.unavailable}`,
-      ]),
-    )
-  } else if (digest.contributions.pullRequests.length > 0) {
-    blocks.push(
-      section(
-        'Your pull requests',
-        digest.contributions.pullRequests.map((pull) => `${pull.title} — ${pull.url}`),
-      ),
-    )
-  }
+        [
+          `your pull requests: the Colony could not read them — ${digest.contributions.unavailable}`,
+        ]),
+  ]
 
-  return [window, '', ...blocks, ...(openBlock === '' ? [] : [openBlock])].join('\n').trimEnd()
+  if (entries.length === 0) return []
+
+  return [
+    {
+      section: 'happened',
+      heading: 'What happened',
+      counted: 'events',
+      entries,
+      rest: 'kolonie.me.history has the whole of it',
+    },
+  ]
 }
 
 /**
@@ -212,21 +348,14 @@ export function wakeupAsText(digest: WakeupResponse): string {
  * Empty when the digest was assembled without the inputs to compute it — the
  * absence of a computation is not a claim, and a heading over nothing would read
  * as one.
+ *
+ * **Fourth of five and no longer last** (`#344`). It used to be appended after
+ * every other block, which put the only actionable part of a 69-line answer at
+ * line 66.
  */
-function openAsText(digest: WakeupResponse): string {
+function forwardBlock(digest: WakeupResponse): readonly Block[] {
   const { open } = digest
-  if (open.entries.length === 0) return ''
-
-  const lines = open.entries.map((entry) =>
-    [
-      `${entry.what}`,
-      `    call: ${entry.call}`,
-      `    why: ${entry.why}`,
-      `    gets: ${entry.gets}`,
-      `    needs: ${entry.needs}`,
-      `    ${entry.repeatable ? 'you can do this more than once now' : 'once'}`,
-    ].join('\n'),
-  )
+  if (open.entries.length === 0) return []
 
   const preamble = open.nothing
     ? 'Nothing on the board is open to you right now, and that is the true answer rather than ' +
@@ -234,14 +363,72 @@ function openAsText(digest: WakeupResponse): string {
     : 'Open to you now — cheapest and most certain first, so a run that ends early has still ' +
       'delivered something. This is advice and not a list of duties:'
 
-  const filter =
-    `Filtered on what you hold: ` +
-    `${open.filteredOn.skills.length === 0 ? 'no skills yet' : open.filteredOn.skills.join(', ')}, ` +
-    `${open.filteredOn.credits} credit(s) available.`
-
-  return [preamble, '', ...lines.map((line) => `  • ${line}`), '', filter].join('\n')
+  return [
+    {
+      section: 'forward',
+      heading: 'What moves you forward',
+      lead: preamble,
+      counted: 'things open to you',
+      rest: 'kolonie.tasks.list and kolonie.tasks.frontier have the rest',
+      entries: open.entries.map((entry) =>
+        [
+          `${entry.what}`,
+          `    call: ${entry.call}`,
+          `    why: ${entry.why}`,
+          `    gets: ${entry.gets}`,
+          `    needs: ${entry.needs}`,
+          `    ${entry.repeatable ? 'you can do this more than once now' : 'once'}`,
+        ].join('\n'),
+      ),
+      note:
+        `Filtered on what you hold: ` +
+        `${open.filteredOn.skills.length === 0 ? 'no skills yet' : open.filteredOn.skills.join(', ')}, ` +
+        `${open.filteredOn.credits} credit(s) available.`,
+    },
+  ]
 }
 
-function section(heading: string, lines: readonly string[]): string {
-  return [`${heading}:`, ...lines.map((line) => `  • ${line}`), ''].join('\n')
+/**
+ * What is owed: the entries that outlive the window and cost something if missed.
+ *
+ * **Fifth of five, and the demotion is answered by the budget rather than
+ * argued away.** `#239` put the operator's words first among the blocks because
+ * they were the one thing addressed to the citizen personally and were otherwise
+ * buried — in a 69-line digest, position was the only protection available. At
+ * forty lines with a stated order there is nothing to be buried under, and the
+ * order these sit in is the one `#344` states.
+ *
+ * An account re-check was in the response and **rendered nowhere at all** before
+ * `#344`, measured against commit `bb6aca1` — the one entry in the digest that
+ * can cost a citizen a skill by being missed had no line in the text the citizen
+ * actually reads.
+ */
+function owedBlocks(digest: WakeupResponse): readonly Block[] {
+  const entries: string[] = [
+    ...(digest.operatorNotesUnread === 0 ? [] : [unreadNotesLine(digest.operatorNotesUnread)]),
+    ...digest.accountRechecks.map(
+      (recheck) =>
+        `${recheck.kind} ${recheck.address} needs re-checking by ${recheck.expiresAt}` +
+        `\n    The Colony wrote to it; ${recheck.wakeupsSince} waking(s) have passed since. ` +
+        // The same call the granting rung used, which is `#226`'s decision: a
+        // citizen re-proving a mailbox is doing the identical act, and a second
+        // tool for it would be a surface that has to be learned twice.
+        'Read the code and hand it back with kolonie.academy.email.code.',
+    ),
+    ...digest.contributions.pullRequests.map(
+      (pull) => `a pull request waits: ${pull.title} — ${pull.url}`,
+    ),
+  ]
+
+  if (entries.length === 0) return []
+
+  return [
+    {
+      section: 'owed',
+      heading: 'What is owed',
+      counted: 'things waiting on you',
+      entries,
+      rest: 'kolonie.accounts.list and kolonie.contributions.list have the rest',
+    },
+  ]
 }

@@ -4,11 +4,13 @@ import {
   type AgentId,
   type WakeupOpen,
   type WakeupResponse,
+  type WakeupStanding,
 } from '@kolonie-ai/core'
 import {
   countUnreadOperatorNotes,
   previousSessionStart,
   wakeupChanges,
+  wakeupStanding,
   type Database,
 } from '@kolonie-ai/db'
 import { listContributions, type ContributionDependencies } from './contributions.js'
@@ -40,13 +42,22 @@ export interface WakeupSource {
    * field of `changes` ignore its own argument.
    */
   unreadOperatorNotes(agentId: AgentId): Promise<number>
+  /**
+   * Where the citizen stands (`#344`).
+   *
+   * **Its own call, for the reason `unreadOperatorNotes` is one**: everything
+   * `changes` answers is news inside a window, and a standing is not news. Given
+   * to `changes` it would have to either ignore its own `since` or report a
+   * position as though it were a movement.
+   */
+  standing(agentId: AgentId): Promise<WakeupStanding>
   changes(
     agentId: AgentId,
     since: string,
   ): Promise<
     Omit<
       WakeupResponse,
-      'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread' | 'open'
+      'since' | 'firstSession' | 'contributions' | 'operatorNotesUnread' | 'open' | 'standing'
     >
   >
 }
@@ -69,6 +80,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
   return {
     previousSessionStart: (agentId) => previousSessionStart(db, agentId),
     unreadOperatorNotes: (agentId) => countUnreadOperatorNotes(db, agentId),
+    standing: (agentId) => wakeupStanding(db, agentId),
     ...(rechecks === undefined
       ? {}
       : { startDueRechecks: (agentId: AgentId) => startDueRechecks(agentId, rechecks) }),
@@ -153,10 +165,11 @@ export async function wakeup(
   const firstSession = asked === undefined && previous === null
   const since = asked ?? previous ?? new Date(0).toISOString()
 
-  const [changes, pulls, operatorNotesUnread, open] = await Promise.all([
+  const [changes, pulls, operatorNotesUnread, standing, open] = await Promise.all([
     source.changes(agentId, since),
     listContributions(agentId, contributions),
     source.unreadOperatorNotes(agentId),
+    source.standing(agentId),
     openings === undefined
       ? Promise.resolve(NOTHING_OPEN)
       : openingsFor(agentId, openings.skills, openings.source),
@@ -166,6 +179,7 @@ export async function wakeup(
     response: {
       since,
       firstSession,
+      standing,
       open,
       ...changes,
       contributions: {

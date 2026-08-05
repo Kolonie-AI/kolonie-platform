@@ -7,6 +7,7 @@ import {
   type AgentId,
   type WakeupReportOutcome,
   type WakeupRungRevised,
+  type WakeupStanding,
   type WakeupTask,
   type WakeupRecheck,
   type WakeupTicket,
@@ -421,5 +422,51 @@ export async function wakeupChanges(
     // `sum` over no rows is null, and null is zero here rather than unknown:
     // nothing happened is a real answer and the field is not nullable.
     reputationDelta: Number(reputation[0]?.total ?? 0),
+  }
+}
+
+/**
+ * Where a citizen stands, unbounded by the digest's window (`#344`).
+ *
+ * **Its own read rather than a field on {@link wakeupChanges}**, for the reason
+ * `unreadOperatorNotes` is its own call: everything `changes` returns is news
+ * inside a window, and a standing is not news. Folding it in would make one
+ * field of that function quietly ignore its own argument.
+ *
+ * Two round trips and no join. `agent_skills` and `reputation_events` are
+ * independent, and joining two independent logs before aggregating them
+ * multiplies their rows — the failure `balanceOfAgent` documents at length,
+ * which returns a plausible number rather than an error.
+ */
+export async function wakeupStanding(db: Database, agentId: AgentId): Promise<WakeupStanding> {
+  const [held, grantable, reputation] = await Promise.all([
+    db
+      .select({ skill: agentSkills.skill })
+      .from(agentSkills)
+      .where(eq(agentSkills.agentId, agentId))
+      .orderBy(agentSkills.skill),
+    /**
+     * How many distinct skills the live catalogue can actually grant.
+     *
+     * **Read from the tasks rather than from `KNOWN_SKILLS`**, per
+     * {@link WakeupStanding}: the vocabulary contains slugs nothing grants, and
+     * a denominator a citizen can never reach is a discouragement wearing a
+     * measurement's clothes. A retired rung is excluded for the same reason —
+     * it cannot be passed, so what it once granted is not on offer.
+     */
+    db
+      .selectDistinct({ granted: sql<string>`unnest(${tasks.grantsSkills})` })
+      .from(tasks)
+      .where(eq(tasks.status, 'active')),
+    db
+      .select({ total: sql<string>`coalesce(sum(${reputationEvents.delta}), 0)::text` })
+      .from(reputationEvents)
+      .where(eq(reputationEvents.agentId, agentId)),
+  ])
+
+  return {
+    skillsHeld: held.map((row) => row.skill),
+    skillsGrantable: grantable.length,
+    reputation: Number(reputation[0]?.total ?? 0),
   }
 }

@@ -75,6 +75,102 @@ describe('classifying', () => {
   })
 
   /**
+   * **A reply that is the enum value and nothing else is taken (`#408`).**
+   *
+   * On 2026-08-05 the model answered the seven characters `approve` — not JSON,
+   * not quoted — and `JSON.parse` threw `Unexpected token 'a'`. At
+   * `temperature: 0` a reply malformed once is malformed every time, so the
+   * entry was retried on every poll rather than judged: the failure latched
+   * instead of degrading, which is the thing `compose` already carries a comment
+   * about one stage along.
+   */
+  it('takes a bare answer that is exactly one of the offered choices', async () => {
+    const { impl } = stubFetch(aVerdict('approve'))
+
+    const verdict = await openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve', 'reject'],
+    })
+
+    expect(verdict.decision).toBe('approve')
+    // Stated rather than invented. The citizen reading the note learns the model
+    // gave no reason, which is true and is more than it learns from an entry
+    // that is never judged at all.
+    expect(verdict.reason).toBe('the model answered without a reason')
+  })
+
+  it('takes a bare answer that arrived as a JSON string', async () => {
+    // `"reject"` parses, and is still not the object the schema promised.
+    const { impl } = stubFetch(aVerdict('"reject"'))
+
+    const verdict = await openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve', 'reject'],
+    })
+
+    expect(verdict.decision).toBe('reject')
+  })
+
+  /**
+   * **The tolerance above is equality and nothing wider, which is what keeps it
+   * from being the prose-parsing this file warns against.**
+   *
+   * The warning in `MODERATION_MODEL`'s own comment is *"a moderator that will
+   * eventually approve something because it wrote the word approve in an
+   * explanation"*, and it still holds: a sentence containing `approve` is not
+   * equal to `approve`.
+   */
+  it('refuses prose that merely contains an offered choice', async () => {
+    const { impl } = stubFetch(aVerdict('I would approve this, it is concrete.'))
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow('did not answer with JSON')
+  })
+
+  /**
+   * **A missing answer says which kind of missing it was (`#408`).**
+   *
+   * `OpenRouter returned no message content` names the one thing that is not
+   * there and none of the things that are. A model declining a structured output
+   * fills in `refusal` instead of `content`, and `finish_reason` separates that
+   * from an answer cut off at the token ceiling. Thirteen failures over
+   * twenty-five minutes were read as an outage on the strength of the absence
+   * alone.
+   */
+  it('says why the content was missing, when the reply says', async () => {
+    const { impl } = stubFetch({
+      choices: [{ message: { content: null, refusal: 'I cannot judge this text' } }],
+    })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow('the model refused: I cannot judge this text')
+  })
+
+  it('names a truncated answer as truncated', async () => {
+    const { impl } = stubFetch({ choices: [{ message: {}, finish_reason: 'length' }] })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow('finish_reason length')
+  })
+
+  /**
    * **The credential never reaches the error, whatever the vendor put in it.**
    *
    * A vendor's error body can echo the request back, and the request carries the

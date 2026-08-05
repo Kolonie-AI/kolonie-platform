@@ -26,6 +26,7 @@ import {
   listOwnReports,
   listReports,
   moderationsOf,
+  pendingReports,
   recordModeration,
   voteReport,
 } from './guidance.js'
@@ -1858,6 +1859,88 @@ describe('what citizens write about a task', () => {
 
       const [own] = await listOwnReports(db, author)
       expect(own?.confidentialSpans).toEqual([])
+    })
+  })
+  /**
+   * **The moderator's queue, which had no test at all until `#408`.**
+   *
+   * That is how the defect below survived: the condition was written once,
+   * read twice, and never asked a question by anything.
+   */
+  describe('what the moderator is handed', () => {
+    const CONTENT_FOR_QUEUE = 'The provider refused the registration and said nothing about why.'
+
+    const filed = async (name: string, opened: 'none' | 'open' | 'finished') => {
+      const agentId = await anAgent(name)
+      if (opened === 'open') await attempt(agentId, 'pending')
+      if (opened === 'finished') await attempt(agentId, 'failed')
+      const result = await fileReport(db, {
+        taskId,
+        agentId,
+        narrative: aNarrative(CONTENT_FOR_QUEUE),
+      })
+      if (result.outcome !== 'recorded') throw new Error(result.outcome)
+      return result.entry.id
+    }
+
+    const judge = async (id: string) =>
+      await recordModeration(db, {
+        id,
+        narrative: aNarrative(CONTENT_FOR_QUEUE),
+        verdict: { decision: 'approve' },
+        model: 'vendor/some-model-v1',
+        stages: {
+          redLine: { outcome: 'clear' },
+          quality: { outcome: 'approve' },
+          confidentiality: { outcome: 'clean' },
+          dedup: { outcome: 'distinct' },
+        },
+        confidentialSpans: [],
+      })
+
+    const queued = async () => (await pendingReports(db, 10)).map((entry) => entry.id)
+
+    it('hands over a pending report whose attempt has finished', async () => {
+      const id = await filed('finished-attempt', 'finished')
+      expect(await queued()).toEqual([id])
+    })
+
+    it('hands over an attempt-less report, which has no outcome to wait for', async () => {
+      const id = await filed('no-attempt', 'none')
+      expect(await queued()).toEqual([id])
+    })
+
+    it('holds back a report whose attempt is still open', async () => {
+      await filed('open-attempt', 'open')
+      expect(await queued()).toEqual([])
+    })
+
+    /**
+     * **The one that failed, and the reason `#408` reads as an OpenRouter
+     * outage without being one.**
+     *
+     * The condition was `and(status = 'pending', sql`outcome is not null or
+     * attempt_id is null`)`. `and` binds tighter than `or` and a raw fragment
+     * carries no brackets of its own, so Postgres read it as
+     * `(pending and finished) or attempt-less` — and **every attempt-less
+     * report came back for ever, whatever its status**.
+     *
+     * Measured on production 2026-08-05: one such row, approved since 01:24 that
+     * morning, re-judged on every 60-second poll since. Each pass spent a model
+     * call on already-published text, wrote nothing because `recordModeration`
+     * writes only over `pending`, and filed an `error` line whenever the model
+     * hiccupped — which is what the log detector saw and reported.
+     */
+    it('stops handing over an attempt-less report once it has been judged', async () => {
+      const id = await filed('judged-wall', 'none')
+      await judge(id)
+      expect(await queued()).toEqual([])
+    })
+
+    it('stops handing over a report with a finished attempt once it has been judged', async () => {
+      const id = await filed('judged-struggle', 'finished')
+      await judge(id)
+      expect(await queued()).toEqual([])
     })
   })
 })

@@ -213,6 +213,112 @@ function redact(text: string, apiKey: string): string {
 }
 
 /**
+ * The reply text, or an error that says what arrived instead of it.
+ *
+ * `OpenRouter returned no message content` was the whole of what this said, and
+ * it names the one thing that is *not* there rather than any of the things that
+ * are. The reply carries two fields that answer *why* directly: `finish_reason`,
+ * which separates an answer cut off at the token ceiling from one the model
+ * declined to give, and `refusal`, which a model that will not produce a
+ * structured output fills in **instead of** `content`. Neither reached a log
+ * line. Thirteen failures over twenty-five minutes on 2026-08-05 were read as an
+ * OpenRouter outage on the strength of the absence alone (`#408`), and the
+ * absence is the one part of a reply that cannot say which failure it is.
+ *
+ * **Safe to quote, unlike an error body.** `diagnose()` whitelists fields
+ * because a vendor's error body can echo the request back, and the request
+ * carries the key. These two are the model's own words about its own answer;
+ * the request is not in them. Bounded anyway, because a field somebody else
+ * controls is a field that can be arbitrarily long.
+ *
+ * An empty string now throws where it used to be returned. That is not a new
+ * refusal: the parse a line later threw on it, less usefully.
+ */
+function messageContent(body: unknown): string {
+  const choice = (
+    body as {
+      choices?: {
+        message?: { content?: unknown; refusal?: unknown }
+        finish_reason?: unknown
+      }[]
+    }
+  ).choices?.[0]
+
+  const content = choice?.message?.content
+  if (typeof content === 'string' && content !== '') return content
+
+  const refusal = choice?.message?.refusal
+  const finishReason = choice?.finish_reason
+  const why = [
+    choice === undefined ? 'the reply carried no choices' : undefined,
+    typeof refusal === 'string' && refusal !== ''
+      ? `the model refused: ${refusal.slice(0, 200)}`
+      : undefined,
+    typeof finishReason === 'string' ? `finish_reason ${finishReason}` : undefined,
+    content === '' ? 'content was the empty string' : undefined,
+  ].filter((part): part is string => part !== undefined)
+
+  throw new Error(
+    why.length === 0
+      ? 'OpenRouter returned no message content'
+      : `OpenRouter returned no message content — ${why.join('; ')}`,
+  )
+}
+
+/**
+ * A verdict, from JSON or from a model that answered the enum and nothing else.
+ *
+ * **A strict schema is the vendor's promise, and it is not always kept.** On
+ * 2026-08-05 a reply was the seven characters `approve` — not JSON, not quoted,
+ * the enum value on its own — and `JSON.parse` threw `Unexpected token 'a'`.
+ * That latches: at `temperature: 0` a reply malformed once is malformed every
+ * time, so the entry is retried on every poll for ever rather than judged
+ * (`#408`). It is the same failure `compose` already carries a comment about,
+ * one stage earlier — *the failure has to degrade rather than latch.*
+ *
+ * So an answer that is **exactly** one of the offered choices is taken, whether
+ * it arrived bare or as a JSON string, and everything else still throws.
+ *
+ * **This is not the prose-parsing the header of this file warns against.** That
+ * warning is about *"a moderator that will eventually approve something because
+ * it wrote the word approve in an explanation"*, and it stands: a sentence
+ * containing `approve` is not equal to `approve`, and only equality is read
+ * here. Nothing is accepted that the enum would not have accepted.
+ *
+ * The reason is what is lost, and it is stated rather than invented — a citizen
+ * reading the note learns that the model gave none, which is true and is more
+ * than it learns from an entry that is never judged at all.
+ */
+function parseVerdict(content: string, choices: readonly string[]): Classification {
+  const bare = content.trim()
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(bare)
+  } catch {
+    if (choices.includes(bare)) {
+      return { decision: bare, reason: 'the model answered without a reason' }
+    }
+    throw new Error(`the model did not answer with JSON: ${bare.slice(0, 120)}`)
+  }
+
+  // `"approve"` — valid JSON, and still not the object the schema promised.
+  if (typeof parsed === 'string' && choices.includes(parsed)) {
+    return { decision: parsed, reason: 'the model answered without a reason' }
+  }
+
+  const verdict = parsed as Partial<Classification>
+  if (typeof verdict.decision !== 'string' || typeof verdict.reason !== 'string') {
+    throw new Error('the model returned a verdict without a decision and a reason')
+  }
+  if (!choices.includes(verdict.decision)) {
+    throw new Error(`the model answered '${verdict.decision}', which was not on offer`)
+  }
+
+  return { decision: verdict.decision, reason: verdict.reason }
+}
+
+/**
  * A model whose calls all fail, for a process started without a key.
  *
  * **The runner starts anyway**, which is the rule `createVerifiers` follows and
@@ -303,22 +409,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         temperature: 0,
       })
 
-      const content = (body as { choices?: { message?: { content?: string } }[] }).choices?.[0]
-        ?.message?.content
-
-      if (typeof content !== 'string') {
-        throw new Error('OpenRouter returned no message content')
-      }
-
-      const parsed = JSON.parse(content) as Partial<Classification>
-      if (typeof parsed.decision !== 'string' || typeof parsed.reason !== 'string') {
-        throw new Error('the model returned a verdict without a decision and a reason')
-      }
-      if (!choices.includes(parsed.decision)) {
-        throw new Error(`the model answered '${parsed.decision}', which was not on offer`)
-      }
-
-      return { decision: parsed.decision, reason: parsed.reason }
+      return parseVerdict(messageContent(body), choices)
     },
 
     async mark({ system, user, kinds }) {
@@ -370,12 +461,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         temperature: 0,
       })
 
-      const content = (body as { choices?: { message?: { content?: string } }[] }).choices?.[0]
-        ?.message?.content
-
-      if (typeof content !== 'string') {
-        throw new Error('OpenRouter returned no message content')
-      }
+      const content = messageContent(body)
 
       const parsed = JSON.parse(content) as { spans?: unknown }
       if (!Array.isArray(parsed.spans)) {
@@ -460,12 +546,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         temperature: 0,
       })
 
-      const content = (body as { choices?: { message?: { content?: string } }[] }).choices?.[0]
-        ?.message?.content
-
-      if (typeof content !== 'string') {
-        throw new Error('OpenRouter returned no message content')
-      }
+      const content = messageContent(body)
 
       const parsed = JSON.parse(content) as { claims?: unknown }
       if (!Array.isArray(parsed.claims)) {

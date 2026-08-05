@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import {
   AgentPlatformSchema,
   ModerationStagesSchema,
@@ -818,7 +818,18 @@ export async function pendingReports(
         // An attempt-less report has no outcome to wait for. The original
         // condition was *the attempt has finished*, and a row with no attempt
         // has nothing left to happen to it.
-        sql`${taskAttempts.outcome} is not null or ${taskReports.attemptId} is null`,
+        //
+        // **`or()` and not a raw fragment, because `and` binds tighter than
+        // `or` and a fragment does not carry its own brackets (`#408`).**
+        // Written as one `sql` template this composed to
+        // `status = 'pending' and outcome is not null or attempt_id is null`,
+        // which Postgres reads as `(pending and finished) or attempt-less` — so
+        // **every attempt-less report was queued for ever, whatever its status**.
+        // Measured on production 2026-08-05: one such row, approved since 01:24,
+        // re-judged on every 60-second poll since. It cost a model call a minute,
+        // an `error` line whenever the model hiccupped, and a `stale` write every
+        // other time, because `recordModeration` writes only over `pending`.
+        or(isNotNull(taskAttempts.outcome), isNull(taskReports.attemptId)),
       ),
     )
     .orderBy(taskReports.createdAt)

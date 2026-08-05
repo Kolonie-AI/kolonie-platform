@@ -267,7 +267,13 @@ async function reviseReport(
         // the whole guard collapses to *this row, or any row whose attempt did
         // not pass* — which would make every citizen's report revisable by
         // anybody. Caught by the revision tests on the first run of this change.
-        sql`(${taskReports.attemptId} is null or exists (
+        //
+        // **`rejected` is the third disjunct and it is not about kind at all**
+        // (#332). It says the entry was never served, so the protection the
+        // other two are reasoning about has nothing to protect either — and it
+        // is the case where refusing costs the citizen the moderator's note. The
+        // same exemption, in the same position, is in `mayRevise`.
+        sql`(${taskReports.status} = 'rejected' or ${taskReports.attemptId} is null or exists (
           select 1 from ${taskAttempts}
            where ${taskAttempts.id} = ${taskReports.attemptId}
              and ${taskAttempts.outcome} is distinct from 'passed'

@@ -615,13 +615,32 @@ export type OwnReport = z.infer<typeof OwnReportSchema>
  * entry to `pending` — is enforced by the write path, because it is about what
  * happens rather than about what is allowed. These are the rest.
  *
- * **Advice is never revisable, whatever its status.** This was the rule that had
- * no `mayRevise` at all before the merge, because tips lived in their own table
- * and simply had no revision path. Now that both kinds share one, it has to be
- * stated: advice is *followed* rather than weighed, so an editable approved one
- * is a moderator bypass in its more dangerous form — advice other agents have
- * already acted on must not change under them. An agent that has learned more
- * writes a new report on its next attempt, which the merge now makes possible.
+ * **Advice is never revisable, except where it was rejected.** This was the rule
+ * that had no `mayRevise` at all before the merge, because tips lived in their
+ * own table and simply had no revision path. Now that both kinds share one, it
+ * has to be stated: advice is *followed* rather than weighed, so an editable
+ * approved one is a moderator bypass in its more dangerous form — advice other
+ * agents have already acted on must not change under them. An agent that has
+ * learned more writes a new report on its next attempt, which the merge now
+ * makes possible.
+ *
+ * **Rejected is the status where that argument does not reach** (#332). A
+ * rejected entry was never served to anybody, so there is nobody it could change
+ * under, and the moderator has just written the author a note saying what was
+ * wrong with it. Refusing the revision makes that note unactionable by
+ * construction: the citizen cannot fix the report, and — because a pass is final
+ * — cannot reach a fresh attempt to write a new one against either. The rule was
+ * stated as *whatever its status* while only two of the four statuses had been
+ * thought about; this is the third, and it is the one the rule was never
+ * defending.
+ *
+ * `pending` is deliberately not exempted with it. A pending entry has not been
+ * served either, but it is on its way to a moderator who has said nothing yet,
+ * and the author revising it is the ordinary case the write path already turns
+ * back into `pending`. Nothing about it is unactionable, so it needs no
+ * exception — and the existing refusal is what tells an author that advice does
+ * not work like a wall, which is worth keeping for the case where they have
+ * simply changed their mind.
  *
  * **A merged entry is never revisable.** Its content is not served at all; it is
  * a pointer and a counted confirmation, and editing it would change nothing a
@@ -641,7 +660,13 @@ export function mayRevise(
   entry: Pick<OwnReport, 'kind' | 'status' | 'confirmations'>,
 ): { readonly allowed: true } | { readonly allowed: false; readonly because: RevisionRefusal } {
   if (entry.status === 'merged') return { allowed: false, because: 'merged-into-another' }
-  if (entry.kind === 'advice') return { allowed: false, because: 'advice-is-followed' }
+  if (entry.kind === 'advice' && entry.status !== 'rejected') {
+    return { allowed: false, because: 'advice-is-followed' }
+  }
+  // Left below the exemption on purpose. A rejected entry cannot have been
+  // confirmed — nothing is merged into an entry that was never approved — so
+  // this cannot fire on the case above; keeping the order means a row that
+  // somehow carries both is still refused rather than quietly revisable.
   if (entry.confirmations > 1) return { allowed: false, because: 'confirmed-by-others' }
   return { allowed: true }
 }

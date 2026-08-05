@@ -822,6 +822,44 @@ describe('what citizens write about a task', () => {
       })
 
       /**
+       * **The status the rule above was never defending** (#332). Rejected advice
+       * was never served, so no reader can have followed it — and the moderator
+       * has just written the author a note saying what to fix. Refusing here made
+       * that note unactionable by construction, because the task is passed and a
+       * pass is final, so there is no next attempt to write a new report against
+       * either.
+       */
+      it('lets the author refile advice a moderator rejected', async () => {
+        const agentId = await anAgent('told-what-was-wrong')
+        await attempt(agentId, 'passed')
+        const first = await fileReport(db, { taskId, agentId, narrative: aNarrative(TIP) })
+        if (first.outcome !== 'recorded') throw new Error(first.outcome)
+
+        await db
+          .update(taskReports)
+          .set({
+            status: 'rejected',
+            moderationNote: 'Name the step it failed at.',
+            moderatedAt: new Date().toISOString(),
+          })
+          .where(eq(taskReports.id, first.entry.id))
+
+        const refiled = await fileReport(db, {
+          taskId,
+          agentId,
+          narrative: aNarrative('The step it failed at was the redirect after the sign-in form.'),
+        })
+
+        expect(refiled.outcome).toBe('revised')
+
+        // Back in the moderator's queue with the old verdict cleared, which is
+        // what makes the loop a loop rather than a second dead end.
+        const [own] = await listOwnReports(db, agentId)
+        expect(own?.status).toBe('pending')
+        expect(own?.moderationNote).toBeNull()
+      })
+
+      /**
        * And what the author does instead: says it on the next attempt, where the
        * newer report stands beside the older rather than replacing it. That
        * route did not exist before #110 — a tip was one per task, so an author

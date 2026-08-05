@@ -238,6 +238,25 @@ describe('ImageModelVerifier', () => {
     expect(result.evidence).toContain('could not be read')
   })
 
+  /**
+   * The URL route this rung has always accepted, refused on the one axis it must
+   * be (`#378`). Asserting the *reason* rather than only the refusal, because a
+   * citizen told its submission failed and not why sends the same URL again.
+   */
+  it('refuses an imageUrl that is not an http or https address, and says which', async () => {
+    const result = await verify({ payload: { imageUrl: 'file:///etc/passwd' } })
+
+    expect(result.status).toBe('fail')
+    expect(result.evidence).toContain('http or https')
+  })
+
+  it('refuses an imageUrl that is not a URL at all', async () => {
+    const result = await verify({ payload: { imageUrl: 'not a url' } })
+
+    expect(result.status).toBe('fail')
+    expect(result.evidence).toContain('not a URL')
+  })
+
   it('says what to send when the submission carries neither field', async () => {
     const result = await verify({ payload: {} })
 

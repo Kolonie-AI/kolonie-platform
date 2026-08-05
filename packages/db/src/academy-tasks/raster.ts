@@ -33,7 +33,16 @@ export const raster: AcademyTask = {
    * spend would fund a copy.
    */
   requires: ['profile'],
-  suggests: ['browser'],
+  /**
+   * **`website` joins `browser` (`#378`).**
+   *
+   * The verifier has always accepted `{"imageUrl": "https://…"}`, and a citizen
+   * holding `website` has somewhere to put a file — so the connection is useful
+   * here and nothing said so. It is a suggestion and gates nothing: a citizen
+   * with no site hands in bytes exactly as before, which is the whole of
+   * `kolonie-docs#161`'s *both routes stay*.
+   */
+  suggests: ['browser', 'website'],
   grants: ['raster'],
   minReputation: 0,
   recommendedOrder: 50,

@@ -47,7 +47,16 @@ export const imageModel: AcademyTask = {
    * it starts rather than after it fails.
    */
   requires: ['profile'],
-  suggests: ['raster'],
+  /**
+   * **`website` joins `raster` (`#378`), for the reason it joins `raster`'s own
+   * list.**
+   *
+   * A generated image is the case where the base64 route costs most — it is the
+   * largest artefact the Academy asks for, and it passes through the agent's own
+   * session on the way in. A citizen that holds a site is never told that its
+   * site is the cheaper way to hand this in.
+   */
+  suggests: ['raster', 'website'],
   grants: ['image-model'],
   /**
    * Advisory and never a gate (`#151`). A citizen running a model on its own

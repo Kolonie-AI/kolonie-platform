@@ -660,6 +660,62 @@ describe('the Academy task definitions', () => {
     })
   })
 
+  /**
+   * Both image rungs take an address as readily as bytes, and say so (`#378`).
+   *
+   * **Two identical capabilities described differently is the shape of a rule
+   * nobody wrote down** — `AGENTS.md` §7's defect that survives any number of
+   * careful individual reads. `kolonie-docs#161` is now the record; these are
+   * what stop the two files drifting apart again.
+   */
+  describe('the two image rungs, which accept an address as well as bytes', () => {
+    const rungs = ACADEMY_TASKS.filter(
+      (task) => task.type === 'raster' || task.type === 'image-model',
+    )
+
+    it('are both here', () => {
+      expect(rungs.map((task) => task.type).sort()).toEqual(['image-model', 'raster'])
+    })
+
+    it('both name the URL route in their instructions, not only base64', () => {
+      for (const task of rungs) {
+        expect(task.instructions, `${task.type} never mentions imageUrl`).toContain('imageUrl')
+        expect(task.instructions, `${task.type} does not say it must be reachable`).toContain(
+          'publicly reachable',
+        )
+      }
+    })
+
+    /**
+     * **Byte-identical rather than two variants**, which is what the acceptance
+     * asked for and what the two files already were. Asserted rather than
+     * checked by eye, so the next edit to one of them has to move both.
+     */
+    it('say it in exactly the same words', () => {
+      const sentence =
+        'Hand it in with `kolonie.tasks.submit` as {"image": "<base64>"}, or the body ' +
+        '{"payload": {"image": "…"}}. If what produced it gives you a hosted link instead, ' +
+        '{"imageUrl": "https://…"} works and the page must be publicly reachable.'
+
+      for (const task of rungs) {
+        expect(task.instructions, `${task.type} has its own wording`).toContain(sentence)
+      }
+    })
+
+    /**
+     * A citizen holding a site has somewhere to put a file, and until `#378`
+     * neither rung said the connection was useful. It suggests and gates
+     * nothing: a citizen with no site hands in bytes exactly as before, which is
+     * `kolonie-docs#161`'s *both routes stay*.
+     */
+    it('both suggest website, and neither requires it', () => {
+      for (const task of rungs) {
+        expect(task.suggests, `${task.type} does not suggest website`).toContain('website')
+        expect(task.requires, `${task.type} requires website`).not.toContain('website')
+      }
+    })
+  })
+
   describe('what the Academy may say about attribution', () => {
     const mentions = ACADEMY_TASKS.filter((task) =>
       `${task.description} ${task.instructions}`.includes('/attribution'),
@@ -789,6 +845,49 @@ describe('seeding the Academy', () => {
    * exists in this repository and never reaches a row is a note no citizen ever
    * reads, and every surface would keep looking correct.
    */
+  /**
+   * The `suggests` edge as the database actually holds it (`#378`).
+   *
+   * The block above checks the definitions, which is where a typo lives; this
+   * checks the seed, which is where a definition stops mattering. And it checks
+   * the re-seed, because the edge arrives through an upsert that has to be
+   * idempotent — running it twice is a deploy, not an exception.
+   */
+  describe('what the image rungs suggest, once seeded', () => {
+    const suggestsFor = async (type: string): Promise<string[]> => {
+      const [row] = await db
+        .select({ suggests: tasks.suggestsSkills })
+        .from(tasks)
+        .where(eq(tasks.type, type))
+      return [...(row?.suggests ?? [])]
+    }
+
+    it('carries website on both, and requires it on neither', async () => {
+      await seedAcademyTasks(db)
+
+      for (const type of ['raster', 'image-model']) {
+        expect(await suggestsFor(type), `${type}`).toContain('website')
+      }
+
+      const [rowRaster] = await db
+        .select({ requires: tasks.requiresSkills })
+        .from(tasks)
+        .where(eq(tasks.type, 'raster'))
+      // Suggested and never required: a citizen with no site hands in bytes
+      // exactly as before, which is `kolonie-docs#161`'s *both routes stay*.
+      expect(rowRaster?.requires ?? []).not.toContain('website')
+    })
+
+    it('is unchanged by a second seed', async () => {
+      await seedAcademyTasks(db)
+      const before = await suggestsFor('image-model')
+
+      await seedAcademyTasks(db)
+
+      expect(await suggestsFor('image-model')).toEqual(before)
+    })
+  })
+
   describe('the landscape the seed writes', () => {
     const notesFor = async (type: string): Promise<string[]> => {
       const rows = await db

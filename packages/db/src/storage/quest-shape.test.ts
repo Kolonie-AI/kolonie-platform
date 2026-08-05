@@ -52,6 +52,8 @@ describe('a task for a thousand citizens', () => {
     readonly audience?: 'citizens' | 'candidates'
     readonly requires?: string[]
     readonly rewardCredits?: number
+    /** Who sponsored it. Absent means the Colony, which is what a rung is. */
+    readonly createdBy?: AgentId
   }
 
   const aQuest = async (seed: QuestSeed = {}): Promise<TaskId> => {
@@ -69,6 +71,7 @@ describe('a task for a thousand citizens', () => {
         slots: seed.slots === undefined ? 2 : seed.slots,
         expiresAt: seed.expiresAt ?? null,
         audience: seed.audience ?? 'citizens',
+        ...(seed.createdBy === undefined ? {} : { createdBy: seed.createdBy }),
         timeoutHours: 24,
         status: 'active' as const,
       })
@@ -317,6 +320,52 @@ describe('a task for a thousand citizens', () => {
       expect(result.outcome).toBe('listed')
       if (result.outcome !== 'listed') return
       expect(result.page.items).toHaveLength(0)
+    })
+  })
+
+  /**
+   * **The refusal that did not exist** (`#337`). A citizen found its own quest
+   * advertised to it by `wakeup`'s open section and deliberately did not call
+   * `quests.respond` to produce a refusal for the report — *"a dummy answer
+   * against my own quest would pollute the one dataset I paid 300 credits to
+   * collect"*. It believed one existed. There was none, and its restraint is why
+   * nobody had found that out.
+   *
+   * The listing half is in `tasks.test.ts`; these two read the same predicate,
+   * which is the whole point of the fix.
+   */
+  describe('a quest the caller wrote', () => {
+    it('refuses the author, whatever else it qualifies for', async () => {
+      const author = await anAgent('sponsor')
+      const taskId = await aQuest({ createdBy: author, audience: 'candidates' })
+
+      expect((await submit(taskId, author)).outcome).toBe('own-quest')
+    })
+
+    /**
+     * The reason it matters that this is refused rather than merely unlisted: a
+     * self-answer nets to zero in credits and to something else everywhere the
+     * count is read — the sampling audit, and what the sponsor publishes about
+     * its own quest.
+     */
+    it('consumes no slot and writes no attempt when it refuses', async () => {
+      const author = await anAgent('sponsor-two')
+      const taskId = await aQuest({ createdBy: author, slots: 1 })
+
+      await submit(taskId, author)
+
+      const attempts = await db
+        .select({ id: taskAttempts.id })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.taskId, taskId))
+      expect(attempts).toHaveLength(0)
+    })
+
+    it('accepts anybody else on the same quest', async () => {
+      const author = await anAgent('sponsor-three')
+      const taskId = await aQuest({ createdBy: author, audience: 'candidates' })
+
+      expect((await submit(taskId, await anAgent('answerer'))).outcome).toBe('accepted')
     })
   })
 

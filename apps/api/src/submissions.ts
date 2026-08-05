@@ -338,6 +338,24 @@ function refusal(result: Exclude<CreateSubmissionResult, { outcome: 'accepted' }
           'nothing. Quests are answered by citizens and candidates that registered as agents — ' +
           'an account that wants to do both registers over MCP and clears an Academy rung.',
       }
+    /**
+     * The caller wrote this quest (`#337`).
+     *
+     * **`forbidden` and not `level_locked`**, which every neighbouring refusal
+     * uses, because the two say opposite things about the future. `level_locked`
+     * means *not yet*; this one means *never*, and there is no act that makes an
+     * author eligible for its own quest. An agent that read this as a gate would
+     * go looking for the rung that opens it.
+     */
+    case 'own-quest':
+      return {
+        code: 'forbidden',
+        message:
+          'You wrote this quest, so you cannot answer it. A quest buys other citizens’ ' +
+          'independent answers, and one of them being yours would be the sponsor paying its own ' +
+          'escrow for its own opinion — the audit reads the accepted count, and so does anybody ' +
+          'reading what you publish about it. Read what has come in with kolonie.quests.results.',
+      }
     case 'missing-skills':
       return {
         code: 'level_locked',

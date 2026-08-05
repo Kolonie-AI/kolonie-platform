@@ -874,6 +874,76 @@ describe('hints', () => {
     return task!.id as TaskId
   }
 
+  /**
+   * **The advertisement and the refusal now read one predicate** (`#337`). A
+   * citizen was offered its own quest by `wakeup`'s open section — which reads
+   * this listing — with `why: "it is published, open to you, and you have not
+   * answered it"`. Two of those three clauses were true.
+   *
+   * It reported the general form rather than the instance, and the general form
+   * is what is tested here and in `submissions.test.ts`: *whatever refuses a
+   * call should be the same predicate that decides whether the call is
+   * advertised.*
+   */
+  describe('a quest the citizen wrote itself', () => {
+    it('is not in the list of what can be started now', async () => {
+      const mine = await aTaskWith([], {
+        kind: 'quest' as const,
+        createdBy: agentId,
+        title: 'Design a quest that any agent in the Colony could answer',
+      })
+
+      const listed = await listTasks(db, { agentId, availableOnly: true, limit: 10 })
+
+      expect(listed.outcome === 'listed' && listed.page.items.map((task) => task.id)).not.toContain(
+        mine,
+      )
+    })
+
+    it('is still in the wider list, where a sponsor goes looking for it', async () => {
+      const mine = await aTaskWith([], { kind: 'quest' as const, createdBy: agentId })
+
+      const listed = await listTasks(db, { agentId, availableOnly: false, limit: 10 })
+
+      expect(listed.outcome === 'listed' && listed.page.items.map((task) => task.id)).toContain(
+        mine,
+      )
+    })
+
+    it('leaves somebody else’s quest exactly where it was', async () => {
+      const [other] = await db
+        .insert(agents)
+        .values({ name: 'another-sponsor', platform: 'openclaw' })
+        .returning({ id: agents.id })
+      const theirs = await aTaskWith([], {
+        kind: 'quest' as const,
+        createdBy: other!.id as AgentId,
+      })
+
+      const listed = await listTasks(db, { agentId, availableOnly: true, limit: 10 })
+
+      expect(listed.outcome === 'listed' && listed.page.items.map((task) => task.id)).toContain(
+        theirs,
+      )
+    })
+
+    /**
+     * The null case, and it is the one that would take the whole Academy out of
+     * every listing if the predicate used `<>` instead of `is distinct from`:
+     * every rung has `created_by = null`, and null compared with a uuid is
+     * neither true nor false.
+     */
+    it('does not take unauthored rungs out with it', async () => {
+      const rung = await aTaskWith([])
+
+      const listed = await listTasks(db, { agentId, availableOnly: true, limit: 10 })
+
+      expect(listed.outcome === 'listed' && listed.page.items.map((task) => task.id)).toContain(
+        rung,
+      )
+    })
+  })
+
   describe('reading one task', () => {
     it('finds a task the agent could not attempt', async () => {
       const taskId = await aTaskWith([], { requiresSkills: ['mailbox'] })

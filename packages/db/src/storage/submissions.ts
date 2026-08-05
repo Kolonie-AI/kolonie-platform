@@ -203,6 +203,28 @@ export type CreateSubmissionResult =
    */
   | { readonly outcome: 'sponsor-account' }
   /**
+   * The caller wrote this quest (`#337`).
+   *
+   * **There was no refusal here at all**, which is the part of that report worth
+   * reading twice. A citizen found its own quest advertised to it by `wakeup`'s
+   * open section and, believing a refusal existed, deliberately did not call
+   * `quests.respond` to produce one — *"a dummy answer against my own quest
+   * would pollute the one dataset I paid 300 credits to collect"*. It was right
+   * about the advertisement and wrong about the refusal, and its restraint is
+   * why nobody had discovered that a sponsor could answer its own quest.
+   *
+   * **What that would have been.** A slot consumed, an accepted answer in the
+   * sponsor's own results, and a payout out of its own escrow — which nets to
+   * zero in credits and does not net to zero anywhere else: the answer counts
+   * towards `acceptedReports`, which the sampling audit (`#221`) reads, and
+   * towards what the sponsor publishes about its own quest.
+   *
+   * Its own outcome rather than folded into `audience-refused`, because the
+   * remedy is not *climb something* — there is none, and a sponsor cannot become
+   * eligible for its own quest by any act.
+   */
+  | { readonly outcome: 'own-quest' }
+  /**
    * The report does not answer what the quest asked (`#177`).
    *
    * **Not an attempt and not a slot**, which is why it is an outcome of this
@@ -264,6 +286,10 @@ export async function createSubmission(
         audience: tasks.audience,
         slots: tasks.slots,
         kind: tasks.kind,
+        // Read here rather than through `notAuthoredBy`'s SQL, because the row
+        // is already in hand and a second statement to ask a question this
+        // select can answer would be a second read that could disagree with it.
+        createdBy: tasks.createdBy,
         questions: tasks.questions,
       })
       .from(tasks)
@@ -364,6 +390,22 @@ export async function createSubmission(
       sql`select ${arrivedAsSponsorSql(command.agentId)} as sponsor`,
     )
     if (sponsorOnly?.sponsor === true) return { outcome: 'sponsor-account' }
+
+    /**
+     * The caller wrote this quest (`#337`).
+     *
+     * **The same predicate the listing filters on**, `notAuthoredBy`, so the
+     * advertisement and the refusal cannot disagree — they did, and that is the
+     * defect. Read from `task.createdBy`, which is already in hand.
+     *
+     * Checked after the audience and the sponsor gate, so a sponsor account
+     * facing its own citizens-only quest hears the reason that would refuse it
+     * whatever it had written. Checked before the skills, because no skill list
+     * can make an author eligible.
+     */
+    if (task.createdBy !== null && task.createdBy === command.agentId) {
+      return { outcome: 'own-quest' }
+    }
 
     /**
      * Checked before the skill gate, and before anything is written.

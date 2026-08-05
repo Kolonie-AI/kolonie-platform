@@ -159,6 +159,30 @@ const attemptableBy = (agentId: AgentId): SQL =>
   sql`${tasks.requiresSkills} <@ ${skillsHeldBy(agentId)} and ${tasks.minReputation} <= ${reputationOf(agentId)} and ${withinAudience(agentId)}`
 
 /**
+ * Whether this citizen is somebody other than the task's author (`#337`).
+ *
+ * **Exported, because the whole defect was that one place knew and the other did
+ * not.** A citizen was offered its own quest by `wakeup`'s open section, with
+ * `why: "it is published, open to you, and you have not answered it"` — two
+ * clauses true and one checkably false. It reported the general form of the fix
+ * rather than the instance, and the general form is the right one:
+ *
+ * > whatever refuses a call should be the same predicate that decides whether
+ * > the call is advertised.
+ *
+ * So this expression is the listing's filter *and* `createSubmission`'s refusal,
+ * and neither has its own copy.
+ *
+ * **`is distinct from` rather than `<>`, and that is load-bearing.** Every
+ * Academy rung has `created_by = null`, so `<>` would be null for all of them —
+ * neither true nor false — and a `where` treating null as false would empty the
+ * Academy out of every listing. `is distinct from` is null-safe and answers true
+ * for an unauthored task, which is what an Academy rung is.
+ */
+export const notAuthoredBy = (agentId: AgentId): SQL =>
+  sql`${tasks.createdBy} is distinct from ${agentId}`
+
+/**
  * Whether a task's expiry has passed, in the form a `where` clause takes.
  *
  * `null` never expires, which is every Academy rung.
@@ -330,6 +354,19 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
      * is inside at that moment would be the Colony arguing with its own clock.
      */
     conditions.push(seenBeforeThisRun(query.agentId))
+    /**
+     * A quest this citizen wrote (`#337`).
+     *
+     * **On `availableOnly`, following the set-asides exactly**, and for a
+     * stronger reason than any of them: the others are about a task the citizen
+     * *may* start and has chosen not to, while this is one it can never start at
+     * all. `createSubmission` refuses it with `own-quest`, and this is the same
+     * predicate one moment earlier so that the advertisement and the refusal
+     * cannot disagree — which is exactly how the defect arrived. The wider list
+     * still carries it: a sponsor reading everything must be able to find its
+     * own quest, and `quests.list` is where it is supposed to look.
+     */
+    conditions.push(notAuthoredBy(query.agentId))
   }
 
   if (after !== undefined) {

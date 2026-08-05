@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { TaskId } from '@kolonie-ai/core'
+import type { TaskId, TaskReport } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import {
   aBriefing,
@@ -243,6 +243,63 @@ describe('kolonie.me', () => {
     expect(text).toContain('What I wrote that was folded into another.')
     expect(text).toContain('What I wrote that was refused.')
     expect(text).toContain('Name the provider and the error you saw.')
+    await close()
+  })
+
+  /**
+   * **A rejection says what kind of refusal it is** (`#366`).
+   *
+   * The note has reached its author since `#201`. What it did not say is whether
+   * the citizen may answer it — and a citizen that cannot tell *we will not
+   * publish this* from *we will not accept anything from you here* reads the
+   * second, which is the reading that ends the relationship.
+   */
+  it('tells a rejected author it may answer the rejection, and names the call', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    colony.guidance.answersOwnReports([
+      anOwnReport({
+        status: 'rejected',
+        narrative: aNarrative('What I wrote that was refused.'),
+        moderationNote: 'Name the provider and the error you saw.',
+      }),
+    ])
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.me.history', arguments: {} })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('refusal to publish')
+    expect(text).toContain('kolonie.tasks.report')
+    await close()
+  })
+
+  /**
+   * **The rejection case the definition of done asks for**: the note is the
+   * author's and nobody else's.
+   *
+   * It holds structurally rather than by a filter — `TaskReportSchema`, which is
+   * what every other citizen reads, has no field for a moderation note — and this
+   * asserts that through the surface a stranger actually calls, so a field added
+   * to that shape later fails here.
+   */
+  it('serves the moderator’s reason to no citizen but its author', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const note = 'Name the provider and the error you saw.'
+    const taskId = randomUUID() as TaskId
+
+    // Handed the note deliberately, on the shape every other citizen reads. It
+    // does not survive being parsed into that shape, which is the point: there
+    // is no field for it, so there is no output path that could get it wrong.
+    colony.guidance.answersReports([
+      aReport({ taskId, ...({ moderationNote: note } as Partial<TaskReport>) }),
+    ])
+    colony.guidance.answersBriefing(undefined)
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.reports', arguments: { taskId } })
+
+    expect(JSON.stringify(result.content)).not.toContain(note)
+    expect(JSON.stringify(result.content)).not.toContain('moderationNote')
     await close()
   })
 

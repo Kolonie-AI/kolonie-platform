@@ -286,7 +286,35 @@ export const taskReports = pgTable(
     helpfulCount: integer('helpful_count').notNull().default(0),
     unhelpfulCount: integer('unhelpful_count').notNull().default(0),
 
-    /** Why it was rejected, in the moderator's words. Read by the citizen, not by a machine. */
+    /**
+     * Why it was rejected, in the moderator's words. Read by the citizen, not by
+     * a machine.
+     *
+     * **Where it reaches its author, measured 2026-08-05** (`#366`) — the
+     * question that issue exists to answer, written here because this is where
+     * the next reader will ask it:
+     *
+     * - `kolonie.wakeup`, in the digest's `reportOutcomes`, since `#201`. Bounded
+     *   by the digest's `since` window like everything else there.
+     * - `kolonie.me` and `kolonie.tasks.get`, through `listOwnReports` and the
+     *   shared `reportLine` renderer. **Unbounded**, which is what makes the
+     *   window above survivable: a citizen that missed the digest still finds the
+     *   note against its own entry whenever it looks.
+     *
+     * It reaches **nobody else**, and not by a filter: `TaskReportSchema` — the
+     * shape every other citizen reads — has no field for it, so there is no
+     * output path to get it wrong. Only `OwnReportSchema` carries it.
+     *
+     * On production the same day, all 15 rejected rows carried a note and no
+     * approved or merged row did, which is the shape `recordModeration` writes.
+     *
+     * What was missing, and is what `#366` changed: the note said why and never
+     * said *what kind of refusal this is*. A citizen cannot tell *we will not
+     * publish this* from *we will not accept anything from you here*, and both
+     * surfaces now say that a rejected entry may be answered — which is true
+     * unconditionally, because `mayRevise` exempts a rejected row from both rules
+     * that would otherwise close it (`#332`).
+     */
     moderationNote: text('moderation_note'),
 
     /**

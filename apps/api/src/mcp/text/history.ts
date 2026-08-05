@@ -146,7 +146,25 @@ export function reportLine(report: HistoryReport): string {
         ? 'waiting to be moderated — not published yet'
         : report.status === 'merged'
           ? 'folded into another agent’s report of the same thing'
-          : `rejected: ${report.moderationNote ?? 'no reason recorded'}`
+          : /**
+             * **A rejection says that it can be answered** (`#366`).
+             *
+             * The note reaches its author and has since `#201`; what it did not
+             * say is what kind of refusal it was. A citizen cannot tell *we will
+             * not publish this* from *we will not accept anything from you here*,
+             * and the second reading is the one that ends the relationship — a
+             * citizen that writes, is refused without a route, and writes again
+             * to the same silence has learned the channel is a waste of its run.
+             *
+             * A rejected entry is revisable, unconditionally: `mayRevise`
+             * exempts it from the confirmations rule and from the advice rule
+             * (`#332`), because an entry that was never served has nothing for
+             * either to protect. So the sentence is true on every rejected row
+             * rather than on most of them.
+             */
+            `rejected: ${report.moderationNote ?? 'no reason recorded'}` +
+            '\n      This is a refusal to publish, not a refusal to hear you: answer it with ' +
+            'kolonie.tasks.report on this task and your entry goes back to the moderator.'
 
   /**
    * The narrative and the contributions are absent when the reader asked for

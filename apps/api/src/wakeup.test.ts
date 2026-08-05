@@ -327,6 +327,35 @@ describe('a role granted or taken back', () => {
     expect(revoked).toContain('will refuse you now')
   })
 
+  /**
+   * **A rejection says what kind of refusal it is** (`#366`).
+   *
+   * The reason travels with the verdict rather than waiting in a call nobody
+   * makes — that is `#201`, and it was already true. What it did not carry is
+   * whether the citizen may answer it, and a refusal with no route reads as *do
+   * not come back*, which is a more durable lesson than any hint can undo.
+   */
+  it('tells a rejected author it may answer, and says nothing of the sort on an approval', () => {
+    const outcome = (status: string) => ({
+      reportOutcomes: [
+        {
+          taskId: TaskIdSchema.parse(randomUUID()),
+          status,
+          moderationNote: 'Name the step you got to and what you saw there.',
+          decidedAt: new Date().toISOString(),
+        },
+      ],
+    })
+
+    const rejected = wakeupAsText(digestWith(outcome('rejected')))
+    expect(rejected).toContain('Name the step you got to and what you saw there.')
+    expect(rejected).toContain('not a refusal to hear you')
+    expect(rejected).toContain('kolonie.tasks.report')
+
+    // And not on an approval, where there is nothing to answer.
+    expect(wakeupAsText(digestWith(outcome('approved')))).not.toContain('not a refusal to hear you')
+  })
+
   it('says nothing at all when no role moved', () => {
     expect(wakeupAsText(digestWith({ skillsGranted: ['mailbox'] }))).not.toContain('roles ')
   })

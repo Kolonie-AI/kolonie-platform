@@ -273,10 +273,17 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
     // The moderator's reason is the most useful thing an author can be told
     // about how to write for a rung (#201), so it travels with the verdict
     // rather than waiting in a call nobody makes.
+    // And a rejection says what kind of refusal it is (#366). The note has
+    // travelled here since #201; what it did not say is whether the citizen may
+    // answer it, and a refusal with no route reads as *do not come back*.
     ...digest.reportOutcomes.map(
       (outcome) =>
         `what you wrote: task ${outcome.taskId} — ${outcome.status}` +
-        (outcome.moderationNote === null ? '' : `\n    ${outcome.moderationNote}`),
+        (outcome.moderationNote === null ? '' : `\n    ${outcome.moderationNote}`) +
+        (outcome.status === 'rejected'
+          ? '\n    Not published, and not a refusal to hear you — kolonie.tasks.report on that ' +
+            'task sends a new answer back to the moderator.'
+          : ''),
     ),
     ...digest.ticketUpdates.map(
       (ticket) =>

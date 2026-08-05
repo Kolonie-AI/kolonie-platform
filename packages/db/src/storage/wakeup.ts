@@ -16,7 +16,7 @@ import {
 import type { Database } from '../client.js'
 import {
   accounts,
-  agentSessions,
+  agents,
   agentSkills,
   authorityEvents,
   emailChallenges,
@@ -28,7 +28,7 @@ import {
   tasks,
 } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
-import { currentSessionIdSql } from './sessions.js'
+import { previousSessionStartSql } from './sessions.js'
 
 /** Everything the digest reads out of the database (`#200`). */
 export interface WakeupChanges {
@@ -96,29 +96,24 @@ export interface WakeupChanges {
  * `null` where there is no earlier session. The caller turns that into *this is
  * your first session* rather than inventing a window, because a made-up
  * boundary would read exactly like a measured one.
+ *
+ * **The query itself is `previousSessionStartSql` and lives beside
+ * `currentSessionIdSql`** (`#417`). It used to be written out here, as a select
+ * of two rows and a decision in TypeScript about which of them to take. The
+ * standing hints now bound `ticket-settled` by the same boundary, from inside a
+ * select they were already making — and a window that two channels compute
+ * separately is a window they will eventually disagree about, which is the
+ * specific way this defect arrived: one channel said a fact was inside the
+ * window and the other announced it as news.
  */
 export async function previousSessionStart(db: Database, agentId: AgentId): Promise<string | null> {
-  const rows = await db
-    .select({
-      firstSeenAt: agentSessions.firstSeenAt,
-      /**
-       * Whether this row is the run the caller is in. The table name is written
-       * out rather than interpolated, for the reason the counts below give: an
-       * interpolated column renders bare and would bind inside the subquery.
-       */
-      current: sql<boolean>`agent_sessions.id = ${currentSessionIdSql(agentId)}`,
-    })
-    .from(agentSessions)
-    .where(eq(agentSessions.agentId, agentId))
-    // By `namedAt`, matching `currentSessionIdSql` rather than the older
-    // `firstSeenAt`: a citizen that resumes yesterday's id has said that run is
-    // the current one, and two orderings that disagree about which row is
-    // newest would make *the one before it* mean two things.
-    .orderBy(desc(agentSessions.namedAt))
-    .limit(2)
+  const [row] = await db
+    .select({ startedAt: previousSessionStartSql(agentId) })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
 
-  const previous = rows[0]?.current === true ? rows[1] : rows[0]
-  return previous === undefined ? null : toTimestamp(previous.firstSeenAt)
+  return row?.startedAt == null ? null : toTimestamp(row.startedAt)
 }
 
 /**

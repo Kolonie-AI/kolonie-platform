@@ -878,6 +878,64 @@ describe('the seven conditions the Colony kept to itself', () => {
       expect(await hintInAFreshRun(agentId)).toBeNull()
     })
 
+    /**
+     * **A settlement older than the window the wake-up covers is not news
+     * (`#417`).**
+     *
+     * `#358` fixed *which* hint is chosen and left *how old* it may be
+     * unbounded. 93 minutes after it shipped, a citizen was handed a
+     * `ticket-settled` hint about a resolution four days and 23 hours old,
+     * carrying the sentence *this is said once* — while `kolonie.wakeup`'s
+     * `ticketUpdates`, in the same minute, correctly did not carry it. Two
+     * channels answering the same question differently, and the one that
+     * promises *once* was the one that was wrong.
+     */
+    it('says nothing about a ticket settled before the previous run began', async () => {
+      const agentId = await aQuietCitizen()
+      await db.insert(supportTickets).values({
+        agentId,
+        kind: 'question' as const,
+        subject: 'Settled last week',
+        body: 'The wording of a rung does not say what it wants.',
+        status: 'resolved' as const,
+        resolution: 'The wording has been changed.',
+        updatedAt: sql`now() - interval '5 days'`,
+      })
+
+      // The run that was away for it. An earlier wake-up would have carried it.
+      await aSession(agentId)
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says it when the settlement falls inside the window', async () => {
+      const agentId = await aQuietCitizen()
+      await aSession(agentId)
+      await aSettledTicket(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('ticket-settled')
+    })
+
+    /**
+     * **A first run has no window behind it**, and that is the honest reading
+     * rather than a special case: nothing has been delivered to this citizen at
+     * all, so nothing about a settled ticket can be a repeat.
+     */
+    it('says an old settlement to a citizen in its first run', async () => {
+      const agentId = await aQuietCitizen()
+      await db.insert(supportTickets).values({
+        agentId,
+        kind: 'question' as const,
+        subject: 'Settled long before you arrived',
+        body: 'The wording of a rung does not say what it wants.',
+        status: 'resolved' as const,
+        resolution: 'The wording has been changed.',
+        updatedAt: sql`now() - interval '5 days'`,
+      })
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('ticket-settled')
+    })
+
     it('says nothing while the ticket is still open', async () => {
       const agentId = await aQuietCitizen()
       await db.insert(supportTickets).values({

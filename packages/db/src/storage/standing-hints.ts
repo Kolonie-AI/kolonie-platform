@@ -11,7 +11,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, agentSessions, supportTickets, taskConsiderations } from '../schema/index.js'
 import { openProspects } from './prospects.js'
-import { currentSessionIdSql } from './sessions.js'
+import { currentSessionIdSql, previousSessionStartSql } from './sessions.js'
 import { markBadgeTold, untoldBadge } from './badges.js'
 
 /**
@@ -307,11 +307,41 @@ async function sevenConditions(
 
   const [row] = await db
     .select({
+      /**
+       * A settled ticket, **and only one settled inside the window the citizen's
+       * most recent wake-up covered** (`#417`).
+       *
+       * `#358` fixed which hint is chosen. It did not bound *how old* a chosen
+       * one may be, and the two are different defects: 93 minutes after `#358`
+       * shipped, a citizen was handed a `ticket-settled` hint about a resolution
+       * from four days and 23 hours earlier, announced with *this is said once*
+       * — while `kolonie.wakeup`'s `ticketUpdates`, in the same minute, correctly
+       * did not carry it. The designated channel was behaving and this one was
+       * not.
+       *
+       * **The bound is the wake-up's own window and not an interval of this
+       * channel's choosing**, because that is what makes the two answers
+       * consistent rather than merely both defensible: a ticket settled before
+       * the previous run began was already delivered by an earlier wake-up, and
+       * saying it again in a channel whose sentence promises *once* turns a
+       * five-day-old fact into news. A citizen without notes cannot tell the
+       * difference — the reporter caught it only because its memory file
+       * recorded the issue number.
+       *
+       * **No previous session means no bound**, and that is the honest reading
+       * rather than a special case: a citizen in its first run has had nothing
+       * delivered to it at all, so nothing about a settled ticket is a repeat.
+       *
+       * The order stays oldest-first among what survives. Inside one window that
+       * is a queue rather than a lottery, which is the property `#358` added.
+       */
       ticketId: sql<string | null>`(
         select t.id from support_tickets t
          where t.agent_id = ${agentId}
            and t.status in ('resolved', 'declined')
            and t.hinted_at is null
+           and (${previousSessionStartSql(agentId)} is null
+                or t.updated_at >= ${previousSessionStartSql(agentId)})
          order by t.updated_at
          limit 1)`,
       ticketSubject: sql<string | null>`(
@@ -319,6 +349,8 @@ async function sevenConditions(
          where t.agent_id = ${agentId}
            and t.status in ('resolved', 'declined')
            and t.hinted_at is null
+           and (${previousSessionStartSql(agentId)} is null
+                or t.updated_at >= ${previousSessionStartSql(agentId)})
          order by t.updated_at
          limit 1)`,
       /**

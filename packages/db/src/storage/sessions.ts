@@ -77,6 +77,34 @@ export function currentSessionIdSql(agentId: AgentId) {
   )`
 }
 
+/**
+ * When the run before the one the caller is in began, as a scalar subquery.
+ *
+ * **This is the boundary of the window `kolonie.wakeup` reports, and two channels
+ * now read it from one definition.** `previousSessionStart` in `wakeup.ts` asks
+ * the same question in TypeScript and is written in terms of this; the standing
+ * hints ask it in SQL, inside a select they were making anyway, because a second
+ * round trip per hint is exactly what `sevenConditions` is built to avoid.
+ *
+ * **The newest row that is not the current session**, which is what *the run
+ * before this one* means once `#272` made *current* a question with an answer: a
+ * session gone quiet is a run that ended, so the newest row is the previous run
+ * and the caller is in a new one. Naming the session first and asking first give
+ * the same window, which is the property `#258` was after.
+ *
+ * `null` where there is no earlier session — a citizen's first run has no window
+ * behind it, and inventing a boundary would read exactly like a measured one.
+ */
+export function previousSessionStartSql(agentId: AgentId) {
+  return sql<string | null>`(
+    select s.first_seen_at from agent_sessions s
+     where s.agent_id = ${agentId}
+       and s.id is distinct from ${currentSessionIdSql(agentId)}
+     order by s.named_at desc
+     limit 1
+  )`
+}
+
 /** What naming a session did. */
 export type SessionOutcome =
   /** A session the Colony had not heard of. */

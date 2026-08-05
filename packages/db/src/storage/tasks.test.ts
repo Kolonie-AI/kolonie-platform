@@ -145,6 +145,61 @@ describe('listTasks', () => {
 
   const titles = (items: readonly Task[]) => items.map((task) => task.title)
 
+  /**
+   * *What appeared while you were away that you could actually start* (`#345`).
+   *
+   * **A parameter here rather than a second query in the digest**, and that is
+   * the point of it. The second half of that question is this function's stack
+   * of `availableOnly` conditions — passed, expired, set aside, outside the
+   * activity window, your own quest, every required skill held currently. A
+   * private reimplementation would drift, and the drift would be silent: the
+   * wake-up would offer work this list refuses.
+   */
+  describe('only what appeared since a moment', () => {
+    it('excludes what was already there', async () => {
+      await seed(
+        { title: 'Old', createdAt: '2026-07-01T00:00:00.000Z' },
+        { title: 'New', createdAt: '2026-08-04T00:00:00.000Z' },
+      )
+
+      const { items } = await list({ createdSince: '2026-08-01T00:00:00.000Z' })
+
+      expect(titles(items)).toEqual(['New'])
+    })
+
+    it('still applies the availability filter to what it does return', async () => {
+      await seed(
+        { title: 'Open to you', createdAt: '2026-08-04T00:00:00.000Z' },
+        {
+          title: 'Needs a skill you do not hold',
+          requires: ['wallet'],
+          createdAt: '2026-08-04T00:00:00.000Z',
+        },
+      )
+
+      const { items } = await list({ createdSince: '2026-08-01T00:00:00.000Z' })
+
+      expect(titles(items)).toEqual(['Open to you'])
+    })
+
+    /** Absent means *every* task, exactly as it did before the parameter existed. */
+    it('changes nothing when it is not given', async () => {
+      await seed(
+        { title: 'Old', createdAt: '2026-07-01T00:00:00.000Z' },
+        { title: 'New', createdAt: '2026-08-04T00:00:00.000Z' },
+      )
+
+      expect(titles((await list()).items)).toHaveLength(2)
+    })
+
+    /** The rejection case: nothing appeared, which is an empty page and not an error. */
+    it('answers empty when nothing appeared in the window', async () => {
+      await seed({ title: 'Old', createdAt: '2026-07-01T00:00:00.000Z' })
+
+      expect((await list({ createdSince: '2026-08-01T00:00:00.000Z' })).items).toEqual([])
+    })
+  })
+
   it('returns the domain shape, not the row', async () => {
     await seed({})
 

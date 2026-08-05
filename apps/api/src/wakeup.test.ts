@@ -434,10 +434,14 @@ describe('the shape of the rendered digest', () => {
       tasksAdded: Array.from({ length: 31 }, (_, index) => ({
         taskId: anId(index % 9),
         title: `A rung with a title of the length the Academy actually uses ${index}`,
+        // Four of the thirty-one are open to this citizen — the shape the first
+        // session actually has, and the one `#345` exists for.
+        startable: index < 4,
       })),
       tasksRetired: Array.from({ length: 5 }, (_, index) => ({
         taskId: anId(index),
         title: `A retired rung ${index}`,
+        startable: null,
       })),
       rungsRevised: Array.from({ length: 3 }, (_, index) => ({
         taskId: anId(index),
@@ -611,5 +615,146 @@ describe('the shape of the rendered digest', () => {
     expect(text).toContain('Nothing changed')
     expect(text).toContain('What moves you forward')
     expect(text).toContain('Where you stand')
+  })
+})
+
+/**
+ * New tasks, capped at three the citizen could start now (`#345`).
+ *
+ * Measured 2026-08-05 against commit `bb6aca1`, calling `kolonie.wakeup` as a
+ * citizen in a first session: `since` was `1970-01-01`, so *new* excluded
+ * nothing and the block was the Colony's entire catalogue — 31 Academy rungs and
+ * 1 quest, 32 lines, each with a title and a UUID. Among them, to a candidate
+ * holding one skill, *"Prove you traded profitably on Solana"*.
+ */
+describe('the new tasks a waking citizen is shown', () => {
+  const anId = (n: number): string => `2222222${n}-2222-4222-8222-222222222222`
+
+  const digestWith = (
+    tasksAdded: readonly { taskId: string; title: string; startable: boolean | null }[],
+  ) =>
+    WakeupResponseSchema.parse({
+      since: '1970-01-01T00:00:00.000Z',
+      firstSession: true,
+      standing: { skillsHeld: ['profile'], skillsGrantable: 22, reputation: 0 },
+      accountRechecks: [],
+      tasksAdded,
+      tasksRetired: [],
+      rungsRevised: [],
+      submissionVerdicts: [],
+      reportOutcomes: [],
+      ticketUpdates: [],
+      skillsGranted: [],
+      rolesGranted: [],
+      rolesRevoked: [],
+      reputationDelta: 0,
+      open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
+      contributions: { pullRequests: [], unavailable: null },
+      operatorNotesUnread: 0,
+    })
+
+  /** The first session, with the whole catalogue as the input. */
+  const wholeCatalogue = (startableCount: number) =>
+    digestWith(
+      Array.from({ length: 32 }, (_, index) => ({
+        taskId: anId(index % 9),
+        title: `A rung the Academy actually carries ${index}`,
+        startable: index < startableCount,
+      })),
+    )
+
+  it('names at most three, and only ones the citizen could start now', () => {
+    const text = wakeupAsText(wholeCatalogue(6))
+    const named = text.split('\n').filter((line) => line.includes('A rung the Academy actually'))
+
+    expect(named).toHaveLength(3)
+    // The three named are the startable ones, in the order they arrived.
+    expect(named[0]).toContain('actually carries 0')
+    expect(named[2]).toContain('actually carries 2')
+  })
+
+  /**
+   * The rejection case: a task whose requirements the citizen does not hold does
+   * not appear as an entry. As a candidate holding one skill, the measured call
+   * offered *"Prove you traded profitably on Solana"*.
+   */
+  it('never names a task the citizen could not start', () => {
+    const text = wakeupAsText(
+      digestWith([
+        { taskId: anId(0), title: 'Set a profile', startable: true },
+        { taskId: anId(1), title: 'Prove you traded profitably on Solana', startable: false },
+      ]),
+    )
+
+    expect(text).toContain('Set a profile')
+    expect(text).not.toContain('Prove you traded profitably on Solana')
+  })
+
+  it('reports the rest as a count with the call that lists them', () => {
+    const text = wakeupAsText(wholeCatalogue(6))
+
+    // 32 appeared, 3 named — 29 left, whether they were filtered out or did not
+    // fit. One mechanism for *left out*, so a reader learns one thing.
+    expect(text).toContain('29 more new tasks')
+    expect(text).toContain('kolonie.tasks.list')
+  })
+
+  /**
+   * **New and unreachable is not news, it is noise**, and per `#326` an
+   * unreachable option that is listed will be attempted. So the answer is a
+   * count, never a list of doors that do not open.
+   */
+  it('says so as a count when none of them is startable', () => {
+    const text = wakeupAsText(wholeCatalogue(0))
+
+    expect(text).toContain('32 appeared and none of them is open to you yet')
+    expect(text).not.toContain('A rung the Academy actually carries')
+    expect(text).toContain('kolonie.tasks.frontier')
+  })
+
+  /**
+   * `null` is *the Colony did not compute it*, which is not the same claim as
+   * *you cannot start this* — the distinction `NOTHING_OPEN` makes one field
+   * over. A caller that supplied no catalogue gets the list under the same cap
+   * and a line saying what was not asked.
+   */
+  it('does not claim unreachability it never computed', () => {
+    const text = wakeupAsText(
+      digestWith([
+        { taskId: anId(0), title: 'Set a profile', startable: null },
+        { taskId: anId(1), title: 'Prove a mailbox', startable: null },
+      ]),
+    )
+
+    expect(text).toContain('Set a profile')
+    expect(text).toContain('was not computed for this call')
+  })
+
+  it('asks the catalogue for what appeared, with the availability filter on', async () => {
+    const catalogue = fakeCatalogue()
+    catalogue.answers({ outcome: 'listed', page: { items: [], nextCursor: null } })
+    source.answersPreviousSession('2026-08-01T09:00:00.000Z')
+
+    await wakeup(agentId, {}, source, noContributions, {
+      source: { catalogue, quests: fakeQuests() },
+      skills: ['profile'],
+    })
+
+    const asked = catalogue.queries().find((query) => query.createdSince !== undefined)
+    expect(asked?.createdSince).toBe('2026-08-01T09:00:00.000Z')
+    // The predicate is the catalogue's, not a second copy in the digest: a
+    // private reimplementation would drift, and the drift would be silent.
+    expect(asked?.availableOnly).toBe(true)
+  })
+
+  /** Nothing computed at all when no catalogue was supplied, and nothing claimed. */
+  it('leaves startability uncomputed when the caller asked for no catalogue', async () => {
+    source.answersChanges({
+      tasksAdded: [{ taskId: TaskIdSchema.parse(randomUUID()), title: 'A rung', startable: null }],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.tasksAdded[0]?.startable).toBeNull()
   })
 })

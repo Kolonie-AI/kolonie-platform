@@ -358,9 +358,18 @@ export async function wakeupChanges(
       .where(and(eq(reputationEvents.agentId, agentId), gte(reputationEvents.createdAt, since))),
   ])
 
+  /**
+   * `startable` is `null` here and filled in above this layer (`#345`).
+   *
+   * The predicate that answers it is `listTasks`' stack of `availableOnly`
+   * conditions, and this function deliberately does not own a second copy of it
+   * — see {@link ListTasksQuery.createdSince}. `null` says *not computed*, which
+   * is the honest thing for a read that did not ask the question.
+   */
   const asTask = (row: { taskId: string; title: string }): WakeupTask => ({
     taskId: row.taskId as WakeupTask['taskId'],
     title: row.title,
+    startable: null,
   })
 
   return {

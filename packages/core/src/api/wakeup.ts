@@ -183,6 +183,19 @@ export type WakeupRequest = z.infer<typeof WakeupRequestSchema>
 export const WakeupTaskSchema = z.object({
   taskId: TaskIdSchema,
   title: z.string(),
+  /**
+   * Whether this citizen could start it now (`#345`).
+   *
+   * **`null` is *the Colony did not compute it*, and it is not the same claim as
+   * `false`.** The startable set is answered by the catalogue, which a caller
+   * that did not ask for `open` never supplies — and an absent computation
+   * reported as *you cannot start this* would be a lie told by a missing
+   * argument, exactly as `NOTHING_OPEN` refuses to say the board is empty.
+   *
+   * Only ever `true` for `tasksAdded`. A retired task is startable by nobody,
+   * and the field would be answering a question that block does not ask.
+   */
+  startable: z.boolean().nullable(),
 })
 export type WakeupTask = z.infer<typeof WakeupTaskSchema>
 

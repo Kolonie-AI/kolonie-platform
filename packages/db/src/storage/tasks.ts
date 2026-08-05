@@ -1,4 +1,4 @@
-import { and, arrayOverlaps, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
+import { and, arrayOverlaps, asc, desc, eq, gte, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import {
   SkillSchema,
   TaskIdSchema,
@@ -43,6 +43,19 @@ export interface ListTasksQuery {
   readonly cursor?: string | null | undefined
   /** Whether to attach each task's hints. Absent is the same as `false`. */
   readonly hints?: boolean | undefined
+  /**
+   * Only tasks that appeared at or after this moment (`#345`).
+   *
+   * **Appended here rather than reimplemented anywhere else**, and that is the
+   * whole reason it exists as a parameter. The wake-up digest needs *what
+   * appeared while you were away that you could actually start*, and the second
+   * half of that is this function's stack of `availableOnly` conditions —
+   * passed, expired, set aside, outside the activity window, your own quest. A
+   * second copy of that predicate in the digest's own query would be a copy that
+   * drifts, and the drift would be silent: the digest would offer work the
+   * catalogue refuses.
+   */
+  readonly createdSince?: string | undefined
 }
 
 /**
@@ -367,6 +380,12 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
      * own quest, and `quests.list` is where it is supposed to look.
      */
     conditions.push(notAuthoredBy(query.agentId))
+  }
+
+  // Keyed on `created_at`, matching the digest's own `tasksAdded` read: *new*
+  // means the row appeared, and nothing else about it moving makes it news.
+  if (query.createdSince !== undefined) {
+    conditions.push(gte(tasks.createdAt, query.createdSince))
   }
 
   if (after !== undefined) {

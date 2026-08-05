@@ -85,6 +85,14 @@ export interface CatalogueQuery {
   readonly cursor?: string | null | undefined
   /** Whether the caller asked for the Colony's hints on each task. */
   readonly hints: boolean
+  /**
+   * Only tasks that appeared at or after this moment (`#345`).
+   *
+   * Not reachable from `GET /v1/tasks`: it exists for the wake-up digest, which
+   * needs *what appeared while you were away that you could actually start* and
+   * must not own a second copy of the availability predicate to answer it.
+   */
+  readonly createdSince?: string | undefined
 }
 
 /** What `GET /v1/tasks` resolved to, in the API's own vocabulary. */

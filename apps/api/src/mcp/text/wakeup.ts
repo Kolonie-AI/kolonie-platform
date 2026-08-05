@@ -83,6 +83,15 @@ interface Block {
   readonly counted: string
   /** The call that shows the rest, named when there is one. */
   readonly rest?: string
+  /**
+   * Entries the block left out before the budget ever saw it (`#345`).
+   *
+   * A section may filter its own list — *new tasks* names only what the citizen
+   * could start now — and what it dropped has to reach the same counts line as
+   * what the budget dropped. One mechanism for *left out*, so a reader does not
+   * have to learn which kind of omission it is looking at.
+   */
+  readonly unlisted?: number
 }
 
 export function wakeupAsText(digest: WakeupResponse): string {
@@ -93,6 +102,7 @@ export function wakeupAsText(digest: WakeupResponse): string {
   const blocks = [
     ...standingBlock(digest),
     ...happenedBlocks(digest),
+    ...newTasksBlock(digest),
     ...forwardBlock(digest),
     ...owedBlocks(digest),
   ].sort(
@@ -160,7 +170,7 @@ function allocate(window: string, blocks: readonly Block[]): string {
 
   for (const block of blocks) {
     const count = shown.get(block) ?? 0
-    const missed = block.entries.length - count
+    const missed = block.entries.length - count + (block.unlisted ?? 0)
 
     if (missed > 0) {
       remaining.push(
@@ -296,7 +306,6 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
           `roles taken back: ${digest.rolesRevoked.join(', ')} — ` +
             'tools these gated will refuse you now, so do not plan around them',
         ]),
-    ...digest.tasksAdded.map((task) => `new task: ${task.title} — ${task.taskId}`),
     ...digest.tasksRetired.map((task) => `retired: ${task.title} — ${task.taskId}`),
     /**
      * A rung the citizen holds whose wording moved while it was away (`#209`).
@@ -333,6 +342,81 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
       counted: 'events',
       entries,
       rest: 'kolonie.me.history has the whole of it',
+    },
+  ]
+}
+
+/** How many new tasks are named before the rest becomes a count. */
+export const WAKEUP_NEW_TASK_CAP = 3
+
+/**
+ * The tasks that appeared, capped at three the citizen could start now (`#345`).
+ *
+ * **New and unreachable is not news, it is noise.** Measured 2026-08-05 against
+ * commit `bb6aca1`, calling `kolonie.wakeup` as a citizen in a first session:
+ * `since` was `1970-01-01`, so *new* excluded nothing and this block was the
+ * Colony's entire catalogue — 31 Academy rungs and 1 quest, 32 lines, each with
+ * a title and a UUID. Among them, as a candidate holding one skill, *"Prove you
+ * traded profitably on Solana"*.
+ *
+ * Two defects and the first session is only the sharpest instance of both: no
+ * ceiling, and no relevance filter. The `open` section below filtered correctly
+ * on what the citizen holds and this one did not filter at all — and per `#326`,
+ * an unreachable option that is listed will be attempted.
+ *
+ * **The first session is the one where a citizen most needs direction, and it is
+ * exactly the session where *new* sorts nothing.** So the cap is not a
+ * concession to the budget; it is the whole point.
+ */
+function newTasksBlock(digest: WakeupResponse): readonly Block[] {
+  const added = digest.tasksAdded
+  if (added.length === 0) return []
+
+  /**
+   * `null` is *the Colony did not compute it* — a caller that did not ask for
+   * `open` supplied no catalogue — and the honest answer there is the same list
+   * under the same cap, with nothing claimed about reachability.
+   */
+  const computed = added.some((task) => task.startable !== null)
+  const startable = computed ? added.filter((task) => task.startable === true) : added
+
+  /**
+   * Nothing startable is stated as a count, never as a list of doors that do not
+   * open. A citizen shown thirty-one unreachable rungs has been given a reading
+   * task in place of an answer.
+   */
+  if (startable.length === 0) {
+    return [
+      {
+        section: 'happened',
+        heading: 'New tasks',
+        counted: 'new tasks',
+        entries: [
+          `${added.length} appeared and none of them is open to you yet. ` +
+            'kolonie.tasks.list has them, and kolonie.tasks.frontier names the one skill that ' +
+            'would open the most.',
+        ],
+      },
+    ]
+  }
+
+  return [
+    {
+      section: 'happened',
+      heading: 'New tasks',
+      counted: 'new tasks',
+      rest: 'kolonie.tasks.list has them',
+      entries: startable.map(
+        (task) =>
+          `${task.title} — ${task.taskId}` +
+          (computed ? '' : '\n    whether you could start it now was not computed for this call'),
+      ),
+      /**
+       * The ones filtered out are counted too, and that is deliberate. A citizen
+       * told *3 shown, 28 more* can go and look; one told *3 shown, 0 more* has
+       * been quietly relieved of the other twenty-eight.
+       */
+      unlisted: added.length - startable.length,
     },
   ]
 }

@@ -107,6 +107,52 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
 }
 
 /**
+ * How many of the tasks that appeared are looked up as startable.
+ *
+ * The digest names at most three (`#345`), and one more is fetched so the count
+ * of the rest can say *more* honestly without a second query.
+ */
+const STARTABLE_LOOKAHEAD = 4
+
+/**
+ * Which of the tasks that appeared this citizen could actually start (`#345`).
+ *
+ * **Asked of the catalogue rather than answered here**, and that is the whole
+ * shape of this function. *Startable* is `listTasks`' stack of `availableOnly`
+ * conditions — not passed, not expired, not set aside, inside the activity
+ * window, not your own quest, and every required skill held currently. A second
+ * copy of that in the digest would drift, and the drift would be silent: the
+ * wake-up would offer work the catalogue refuses.
+ *
+ * `null` when no catalogue was supplied, which is *not computed* and not *you
+ * can start nothing* — the same distinction `NOTHING_OPEN` makes one field over.
+ *
+ * It never throws, for the reason `openingsFor` does not: this rides on the
+ * first call of a wake-up, and a citizen that woke to an error because one read
+ * of six was unhappy has lost the run the digest exists to save.
+ */
+async function startableSince(
+  agentId: AgentId,
+  since: string,
+  source: OpenSource | undefined,
+): Promise<Set<string> | null> {
+  if (source === undefined) return null
+
+  const listed = await source.catalogue
+    .list({
+      agentId,
+      availableOnly: true,
+      limit: STARTABLE_LOOKAHEAD,
+      hints: false,
+      createdSince: since,
+    })
+    .then((result) => (result.outcome === 'listed' ? result.page.items : []))
+    .catch(() => [])
+
+  return new Set(listed.map((task) => task.id))
+}
+
+/**
  * What changed while this citizen was not running (#200).
  *
  * **The five calls it replaces all still work.** This is an additional way in
@@ -165,7 +211,7 @@ export async function wakeup(
   const firstSession = asked === undefined && previous === null
   const since = asked ?? previous ?? new Date(0).toISOString()
 
-  const [changes, pulls, operatorNotesUnread, standing, open] = await Promise.all([
+  const [changes, pulls, operatorNotesUnread, standing, open, startableAdded] = await Promise.all([
     source.changes(agentId, since),
     listContributions(agentId, contributions),
     source.unreadOperatorNotes(agentId),
@@ -173,6 +219,7 @@ export async function wakeup(
     openings === undefined
       ? Promise.resolve(NOTHING_OPEN)
       : openingsFor(agentId, openings.skills, openings.source),
+    startableSince(agentId, since, openings?.source),
   ])
 
   return {
@@ -182,6 +229,10 @@ export async function wakeup(
       standing,
       open,
       ...changes,
+      tasksAdded: changes.tasksAdded.map((task) => ({
+        ...task,
+        startable: startableAdded === null ? null : startableAdded.has(task.taskId),
+      })),
       contributions: {
         pullRequests: pulls.response.pullRequests.map((pull) => ({
           url: pull.url,

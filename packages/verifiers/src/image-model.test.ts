@@ -265,6 +265,68 @@ describe('ImageModelVerifier', () => {
   })
 
   /**
+   * `#401`: *could not reach it* is `pending` and *it was wrong* is `fail`, and
+   * this branch had collapsed the two — an SSRF refusal and a citizen's host
+   * being down for ninety seconds drew the same verdict. It weighs most on this
+   * rung, because an attempt here cost the citizen money to produce.
+   *
+   * A public IP literal is used throughout so the SSRF check passes without
+   * asking a resolver anything: these tests decide a verdict, not whether this
+   * machine has DNS.
+   */
+  describe('a URL the Colony could not reach (#401)', () => {
+    /** Somebody's server, in the documentation range, so nothing is dialled. */
+    const REACHABLE = 'http://203.0.113.10/otters.png'
+
+    it('leaves a submission open when the host refused the connection', async () => {
+      vi.stubGlobal('fetch', () => Promise.reject(new TypeError('fetch failed')))
+
+      const result = await verify({ payload: { imageUrl: REACHABLE } })
+
+      vi.unstubAllGlobals()
+
+      expect(result.status).toBe('pending')
+      expect(result.status).not.toBe('fail')
+      expect(result.evidence).toContain('not a judgement on it')
+    })
+
+    /** A host saying it is broken is the same ninety seconds as a dead socket. */
+    it('leaves a submission open when the host answered 503', async () => {
+      vi.stubGlobal('fetch', () => Promise.resolve(new Response('down', { status: 503 })))
+
+      const result = await verify({ payload: { imageUrl: REACHABLE } })
+
+      vi.unstubAllGlobals()
+
+      expect(result.status).toBe('pending')
+    })
+
+    /** A 404 is the host answering about the submission, and stays an answer. */
+    it('still fails a URL that answered 404', async () => {
+      vi.stubGlobal('fetch', () => Promise.resolve(new Response('nope', { status: 404 })))
+
+      const result = await verify({ payload: { imageUrl: REACHABLE } })
+
+      vi.unstubAllGlobals()
+
+      expect(result.status).toBe('fail')
+      expect(result.evidence).toContain('404')
+    })
+
+    /**
+     * The case the old comment was written for, and the reason none of this may
+     * become `pending`: retrying would have the Colony dial itself on a
+     * schedule until the attempt timed out.
+     */
+    it('still fails an address inside our own network, and never defers it', async () => {
+      const result = await verify({ payload: { imageUrl: 'http://127.0.0.1:5432/' } })
+
+      expect(result.status).toBe('fail')
+      expect(result.status).not.toBe('pending')
+    })
+  })
+
+  /**
    * Provenance is recorded and nothing branches on it. This asserts both halves:
    * the field is on the metadata, and an image without a manifest still passes.
    */

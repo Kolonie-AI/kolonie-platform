@@ -16,7 +16,7 @@ import {
 import { amountReceived, readImage, type ImageFormat } from './image.js'
 import { withSupportPointer } from './support.js'
 import { vendorFaultEvidence } from './vendor.js'
-import { safeFetch } from './website-verify.js'
+import { AddressRefused, safeFetch } from './website-verify.js'
 
 /** The specification the Colony drew for this agent, as the rung's storage has it. */
 export interface ImageChallengeState {
@@ -336,10 +336,44 @@ export class RasterVerifier implements Verifier {
          * problem and is refused outright — it must never become `pending`,
          * which would have the Colony retry an attempt on itself on a schedule.
          */
+        if (error instanceof AddressRefused) {
+          return {
+            outcome: 'refused',
+            status: 'fail',
+            evidence: `That URL could not be fetched: ${reason}`,
+          }
+        }
+
+        /**
+         * **Everything else is the network, and the network is not a capability
+         * test** (`#401`). `could not reach it` is `pending` and `it was wrong`
+         * is `fail` everywhere else in the Colony, and this branch had collapsed
+         * the two: a citizen whose host was down for ninety seconds was told its
+         * drawing had failed.
+         */
         return {
           outcome: 'refused',
-          status: 'fail',
-          evidence: `That URL could not be fetched: ${reason}`,
+          status: 'pending',
+          evidence: withSupportPointer(
+            `The Colony could not reach that URL: ${reason} That is the network between us and ` +
+              'your image, not a judgement on it — the submission stays open and is tried again.',
+          ),
+        }
+      }
+
+      /**
+       * A `5xx` is the host saying it is broken, which is the same ninety
+       * seconds as a refused connection; a `404` is the host answering that
+       * there is no such image, which is an answer about the submission.
+       */
+      if (response.status >= 500) {
+        return {
+          outcome: 'refused',
+          status: 'pending',
+          evidence: withSupportPointer(
+            `That URL answered ${response.status}, so the host that has your image is currently ` +
+              'broken. The submission stays open and is tried again.',
+          ),
         }
       }
 

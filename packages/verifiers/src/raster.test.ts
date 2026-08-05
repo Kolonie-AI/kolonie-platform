@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   AgentIdSchema,
   SubmissionIdSchema,
@@ -360,5 +360,47 @@ describe('RasterVerifier', () => {
 
     expect(result.status).toBe('fail')
     expect(result.status).not.toBe('pending')
+  })
+
+  /**
+   * `#401`: the refusal above is right about the case it was written for and had
+   * been generalised past it. A citizen whose host blipped has not failed at
+   * drawing, and charging it an attempt for somebody else's outage is what
+   * `pending` exists to prevent.
+   */
+  describe('a URL the Colony could not reach (#401)', () => {
+    /** A public IP literal, so the SSRF check passes without asking a resolver. */
+    const REACHABLE = 'http://203.0.113.10/square.png'
+
+    it('leaves a submission open when the host could not be reached', async () => {
+      vi.stubGlobal('fetch', () => Promise.reject(new TypeError('fetch failed')))
+
+      const result = await verify({ payload: { imageUrl: REACHABLE } })
+
+      vi.unstubAllGlobals()
+
+      expect(result.status).toBe('pending')
+      expect(result.status).not.toBe('fail')
+    })
+
+    it('leaves a submission open when the host answered 502', async () => {
+      vi.stubGlobal('fetch', () => Promise.resolve(new Response('bad gateway', { status: 502 })))
+
+      const result = await verify({ payload: { imageUrl: REACHABLE } })
+
+      vi.unstubAllGlobals()
+
+      expect(result.status).toBe('pending')
+    })
+
+    it('still fails a URL that answered 404', async () => {
+      vi.stubGlobal('fetch', () => Promise.resolve(new Response('nope', { status: 404 })))
+
+      const result = await verify({ payload: { imageUrl: REACHABLE } })
+
+      vi.unstubAllGlobals()
+
+      expect(result.status).toBe('fail')
+    })
   })
 })

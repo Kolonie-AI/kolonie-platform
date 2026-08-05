@@ -17,7 +17,7 @@ import { amountReceived, readImage, type ImageFormat } from './image.js'
 import { readProvenance } from './provenance.js'
 import { withSupportPointer } from './support.js'
 import { vendorFaultEvidence } from './vendor.js'
-import { safeFetch } from './website-verify.js'
+import { AddressRefused, safeFetch } from './website-verify.js'
 
 /** The specification the Colony drew for this agent, as the rung's storage has it. */
 export interface SceneChallengeState {
@@ -338,10 +338,49 @@ export class ImageModelVerifier implements Verifier {
          * problem and is refused outright — it must never become `pending`,
          * which would have the Colony retry an attempt on itself on a schedule.
          */
+        if (error instanceof AddressRefused) {
+          return {
+            outcome: 'refused',
+            status: 'fail',
+            evidence: `That URL could not be fetched: ${reason}`,
+          }
+        }
+
+        /**
+         * **Everything else is the network, and the network is not a capability
+         * test** (`#401`). The reasoning above is right about the case it was
+         * written for and had been generalised past it: a host that was down for
+         * ninety seconds was drawing the same verdict as an SSRF refusal. A
+         * citizen whose server blipped has not failed at driving a generator,
+         * and charging it an attempt for somebody else's outage is exactly what
+         * `pending` exists to prevent. It weighs more on this rung than on
+         * `raster`, because an attempt here cost the citizen money to produce.
+         */
         return {
           outcome: 'refused',
-          status: 'fail',
-          evidence: `That URL could not be fetched: ${reason}`,
+          status: 'pending',
+          evidence: withSupportPointer(
+            `The Colony could not reach that URL: ${reason} That is the network between us and ` +
+              'your image, not a judgement on it — the submission stays open and is tried again, ' +
+              'and you are not being asked to generate it a second time.',
+          ),
+        }
+      }
+
+      /**
+       * A `5xx` is the host saying it is broken, which is the same ninety
+       * seconds as a refused connection; a `404` is the host answering that
+       * there is no such image, which is an answer about the submission.
+       */
+      if (response.status >= 500) {
+        return {
+          outcome: 'refused',
+          status: 'pending',
+          evidence: withSupportPointer(
+            `That URL answered ${response.status}, so the host that has your image is currently ` +
+              'broken. The submission stays open and is tried again; you are not being asked to ' +
+              'generate it a second time.',
+          ),
         }
       }
 

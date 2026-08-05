@@ -209,9 +209,41 @@ export function extractTokens(html: string): string[] {
  * range, and re-checks after each redirect — a public hostname that redirects to
  * `169.254.169.254` is the whole attack and is what `redirect: 'manual'` is for.
  */
+/**
+ * A `safeFetch` failure the address itself is answerable for, rather than the
+ * network between here and it (`#401`).
+ *
+ * **The distinction exists so that *we will not go there* and *it did not
+ * answer* stop being the same verdict.** A caller that refuses an address on the
+ * Colony's own rule — or because there is no such name, or because it redirects
+ * in a circle — has learnt something that will be just as true in five minutes,
+ * and a citizen should be told now. Everything else `safeFetch` throws is a
+ * socket: refused, reset, timed out, a resolver that shrugged. Those are the
+ * ninety seconds somebody's server was restarting, and retrying is the whole
+ * point of `pending`.
+ *
+ * **A class rather than a message prefix**, because the one caller that already
+ * needed this distinction was reading `err.message.startsWith('SSRF')`, and a
+ * rule enforced by the first four characters of a sentence is a rule that breaks
+ * when somebody improves the sentence.
+ *
+ * The default for an error this does not describe is *unreachable*, deliberately:
+ * an unrecognised failure at the socket layer is far more likely to be weather
+ * than a verdict, and the refusals worth failing a citizen over are all thrown
+ * here, by name.
+ */
+export class AddressRefused extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'AddressRefused'
+  }
+}
+
 export async function safeFetch(url: string, redirects = 0): Promise<Response> {
   if (redirects > 5) {
-    throw new Error('Too many redirects')
+    // A redirect loop is the address's own configuration and answers the same
+    // way every time, so there is nothing for a retry to discover.
+    throw new AddressRefused('Too many redirects')
   }
 
   const parsed = new URL(url)
@@ -224,14 +256,27 @@ export async function safeFetch(url: string, redirects = 0): Promise<Response> {
     try {
       const results = await lookup(parsed.hostname, { all: true })
       addresses = results.map((r) => r.address)
-    } catch {
-      throw new Error(`Failed to resolve hostname: ${parsed.hostname}`)
+    } catch (error) {
+      /**
+       * **A name that does not exist and a resolver that did not answer are not
+       * the same failure** (`#401`), and `node:dns` already tells them apart:
+       * `ENOTFOUND` and `EAI_NONAME` are an answer — there is no such name —
+       * while `EAI_AGAIN` is the resolver saying *ask me later*. The first is
+       * the submission's own typo and is refused; the second is weather and is
+       * left to a retry.
+       */
+      const code = (error as { code?: unknown }).code
+      if (code === 'ENOTFOUND' || code === 'EAI_NONAME') {
+        throw new AddressRefused(`No such hostname: ${parsed.hostname}`, { cause: error })
+      }
+
+      throw new Error(`Failed to resolve hostname: ${parsed.hostname}`, { cause: error })
     }
   }
 
   for (const ip of addresses) {
     if (isPrivateIP(ip)) {
-      throw new Error(`SSRF protection: Address ${ip} is blocked.`)
+      throw new AddressRefused(`SSRF protection: Address ${ip} is blocked.`)
     }
   }
 

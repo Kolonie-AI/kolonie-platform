@@ -19,6 +19,32 @@ describe('mailerFromEnv', () => {
     expect(mail.missing).toEqual([])
   })
 
+  /**
+   * The console's sender is optional and falls back (`#398`). It is deliberately
+   * not in {@link MAILER_VARS}: mail failing entirely because the console has no
+   * address of its own would be worse than the defect that variable exists to
+   * fix.
+   */
+  it('gives the console its own sender, or the Academy’s when it has none', () => {
+    expect(mailerFromEnv(configured, aMailer).consoleSender).toBe('academy@example.invalid')
+
+    expect(
+      mailerFromEnv({ ...configured, CONSOLE_SENDER_ADDRESS: '' }, aMailer).consoleSender,
+    ).toBe('academy@example.invalid')
+
+    expect(
+      mailerFromEnv({ ...configured, CONSOLE_SENDER_ADDRESS: 'console@example.invalid' }, aMailer)
+        .consoleSender,
+    ).toBe('console@example.invalid')
+  })
+
+  it('has no console sender when it has no mailer', () => {
+    const mail = mailerFromEnv({ ...configured, ACADEMY_SENDER_ADDRESS: undefined }, aMailer)
+
+    expect(mail.mailer).toBeUndefined()
+    expect(mail.consoleSender).toBeUndefined()
+  })
+
   it('hands the mailer exactly what the environment said', () => {
     let seen: unknown
     mailerFromEnv(configured, (config) => {

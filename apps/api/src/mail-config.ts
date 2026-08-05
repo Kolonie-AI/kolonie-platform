@@ -15,12 +15,42 @@ export const MAILER_VARS = [
   'ACADEMY_SENDER_ADDRESS',
 ] as const
 
+/**
+ * Who console mail comes from, and it is one variable rather than a string at
+ * each call site (`#398`).
+ *
+ * **Optional, and it falls back to the Academy's sender.** A deployment that has
+ * not set it keeps sending exactly what it sent before, which is why this is not
+ * in {@link MAILER_VARS}: mail failing entirely because the console has no
+ * sender of its own would be a worse answer than the one this fixes.
+ *
+ * **What it is for.** A sponsor opening an account received mail from
+ * `academy@challenge.<domain>` — the host the Academy serves challenge pages
+ * from. To somebody who has never seen the Colony and is about to be asked for
+ * money, account mail from a host called *challenge* reads as phishing, and a
+ * cautious reader is right to hesitate.
+ *
+ * **Setting it is a deploy-side decision with a prerequisite**: whatever address
+ * is chosen must sit on a domain onboarded for Cloudflare Email Sending, or the
+ * send is refused rather than rewritten. That is a dashboard step and it is the
+ * maintainer's, so this code makes the address configurable and does not choose
+ * one.
+ */
+export const CONSOLE_SENDER_VAR = 'CONSOLE_SENDER_ADDRESS'
+
 /** What outbound mail has, and what it is missing. */
 export interface MailConfiguration {
   /** Absent when anything in {@link MAILER_VARS} is unset — never a broken one. */
   readonly mailer?: Mailer | undefined
   /** The variables that were not set, in the order above. Empty when mail works. */
   readonly missing: readonly string[]
+  /**
+   * The address console mail is sent from.
+   *
+   * Always a value when {@link MailConfiguration.mailer} is present: the
+   * console's own if one is configured, the Academy's otherwise.
+   */
+  readonly consoleSender?: string | undefined
 }
 
 /**
@@ -49,12 +79,15 @@ export function mailerFromEnv(
 
   if (missing.length > 0) return { missing }
 
+  const academySender = env['ACADEMY_SENDER_ADDRESS']!
+
   return {
     mailer: make({
       accountId: env['CLOUDFLARE_ACCOUNT_ID']!,
       token: env['CLOUDFLARE_EMAIL_SEND_TOKEN']!,
-      sender: env['ACADEMY_SENDER_ADDRESS']!,
+      sender: academySender,
     }),
     missing: [],
+    consoleSender: (env[CONSOLE_SENDER_VAR] ?? '') === '' ? academySender : env[CONSOLE_SENDER_VAR],
   }
 }

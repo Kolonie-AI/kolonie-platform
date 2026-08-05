@@ -106,6 +106,16 @@ export interface Mailer {
     readonly to: string
     readonly subject: string
     readonly text: string
+    /**
+     * Who it comes from, when the caller has an opinion (`#398`).
+     *
+     * Absent means the configured sender, which is the Academy's — right for a
+     * challenge code and wrong for the console, whose mail is the first thing a
+     * sponsor sees and used to arrive from a host called *challenge*. A surface
+     * that needs its own sender says so here rather than building a second
+     * mailer.
+     */
+    readonly from?: string | undefined
   }): Promise<{ readonly delivered: boolean; readonly reason?: string }>
 }
 
@@ -863,7 +873,7 @@ export function cloudflareMailer(config: {
   readonly sender: string
 }): Mailer {
   return {
-    async send({ to, subject, text }) {
+    async send({ to, subject, text, from }) {
       const response = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/email/sending/send`,
         {
@@ -872,7 +882,11 @@ export function cloudflareMailer(config: {
             authorization: `Bearer ${config.token}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify({ to, from: config.sender, subject, text }),
+          // The caller's sender when it has one, the configured one otherwise
+          // (`#398`). Both must be on a domain onboarded for Email Sending —
+          // an address that is not is refused by Cloudflare, not silently
+          // rewritten.
+          body: JSON.stringify({ to, from: from ?? config.sender, subject, text }),
         },
       )
 

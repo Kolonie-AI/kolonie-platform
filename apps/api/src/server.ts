@@ -490,6 +490,10 @@ const app = buildApp({
     // Configuration, not a constant: AGENTS.md §3 keeps host names out of this
     // repository, so where a followed link lands arrives in the environment.
     consoleUrl: process.env['CONSOLE_URL'] ?? '',
+    // Who the console's own mail comes from (`#398`), resolved once in
+    // `mail-config.ts`. Falls back to the Academy's sender, so a deployment that
+    // sets nothing sends exactly what it sent before.
+    ...(mail.consoleSender === undefined ? {} : { senderAddress: mail.consoleSender }),
     addressLimiter: signInAddressLimiter(),
     clientLimiter: signInClientLimiter(),
   },

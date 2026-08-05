@@ -188,6 +188,55 @@ describe('the console front door', () => {
     })
   })
 
+  describe('where the mail comes from', () => {
+    /**
+     * Console mail carries the console's own sender (`#398`).
+     *
+     * A sponsor opening an account received it from the Academy's challenge
+     * host. To a person who has never seen the Colony and is about to be asked
+     * for money, account mail from a host called *challenge* reads as phishing,
+     * and hesitating is the correct response to it.
+     */
+    it('uses the console’s address when one is configured', async () => {
+      app = build({ senderAddress: 'console@example.invalid' })
+      await app.ready()
+      consoleDeps.store.hold('sponsor@example.org')
+
+      await app.inject({
+        method: 'POST',
+        url: '/v1/console/sign-in',
+        payload: { email: 'sponsor@example.org' },
+      })
+      await app.inject({
+        method: 'POST',
+        url: '/v1/console/sign-up',
+        payload: { email: 'fresh@example.org' },
+      })
+
+      expect(consoleDeps.mailer.sent().map((mail) => mail.from)).toEqual([
+        'console@example.invalid',
+        'console@example.invalid',
+      ])
+    })
+
+    /**
+     * Unset, the console says nothing and the mailer's own sender stands. A
+     * deployment that has not chosen an address sends exactly what it sent
+     * before this existed — the fallback lives in `mail-config.ts`, not here.
+     */
+    it('leaves the sender to the mailer when none is configured', async () => {
+      consoleDeps.store.hold('sponsor@example.org')
+
+      await app.inject({
+        method: 'POST',
+        url: '/v1/console/sign-in',
+        payload: { email: 'sponsor@example.org' },
+      })
+
+      expect(consoleDeps.mailer.sent()[0]?.from).toBeUndefined()
+    })
+  })
+
   describe('where the mail goes', () => {
     /**
      * The property this endpoint exists to preserve. An endpoint that mails the

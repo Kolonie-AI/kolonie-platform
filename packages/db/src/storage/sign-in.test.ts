@@ -99,6 +99,54 @@ describe('browser sign-in', () => {
     })
 
     /**
+     * **The defect `#396` is named for, at its root.** Following a link proves
+     * a web identity's address, and this function used to require the claim to
+     * be *unproved* — so an account became unresolvable the moment it signed in
+     * once, and its owner could never sign in again. Reproduced against
+     * production on 2026-08-05.
+     */
+    it('still finds a web identity after it has followed a link once', async () => {
+      const created = await registerWebIdentity(db, {
+        name: 'returning-sponsor',
+        address: 'returning@example.org',
+      })
+      if (created.outcome !== 'registered') throw new Error(created.outcome)
+
+      const link = await requestSignInLink(db, created.identity)
+      const redeemed = await redeemSignInLink(db, link.token)
+      expect(redeemed.outcome).toBe('signed-in')
+
+      const resolved = await resolveSignInAddress(db, 'returning@example.org')
+
+      expect(resolved?.agentId).toBe(created.identity.agentId)
+    })
+
+    /**
+     * The same defect seen from the sign-up form, and the one that produced a
+     * `500`: `registerWebIdentity` asks this function whether an address is
+     * taken. An address invisible to it was signed up **again**, and redeeming
+     * the second identity's link then tried to prove an address the first one
+     * already held proved — which `accounts_proved_identifier_unique` refuses.
+     */
+    it('refuses a second sign-up on an address that has already signed in', async () => {
+      const first = await registerWebIdentity(db, {
+        name: 'sponsor-established',
+        address: 'taken@example.org',
+      })
+      if (first.outcome !== 'registered') throw new Error(first.outcome)
+
+      const link = await requestSignInLink(db, first.identity)
+      await redeemSignInLink(db, link.token)
+
+      const second = await registerWebIdentity(db, {
+        name: 'sponsor-duplicate',
+        address: 'taken@example.org',
+      })
+
+      expect(second.outcome).toBe('address-taken')
+    })
+
+    /**
      * The address is compared as a mailbox, not as a string, which is what
      * `mailboxIdentity` is for — otherwise a caller could ask for a link to
      * `Reach@example.org` and be told the address is unknown.
@@ -190,6 +238,30 @@ describe('browser sign-in', () => {
 
     it('refuses a token nobody ever minted', async () => {
       expect((await redeemSignInLink(db, 'not-a-token')).outcome).toBe('refused')
+    })
+
+    /**
+     * Which of the four facts each refusal carries (`#396`). The rule and its
+     * reasoning are on `RefusalReason`: a caller holding a real token is told
+     * what became of it, and a caller holding a guess is told nothing.
+     */
+    it('says which kind of dead link this was, except to a guesser', async () => {
+      const agentId = await citizenReachableAt('reasoned', 'reach@example.org')
+      const minted = new Date('2026-08-02T12:00:00.000Z')
+
+      const spent = await requestSignInLink(db, { agentId, address: 'reach@example.org' })
+      await redeemSignInLink(db, spent.token)
+      const usedAgain = await redeemSignInLink(db, spent.token)
+
+      const stale = await requestSignInLink(db, { agentId, address: 'reach@example.org' }, minted)
+      const wellAfter = new Date(minted.getTime() + EMAIL_LINK_TTL_MS + 1000)
+      const tooLate = await redeemSignInLink(db, stale.token, wellAfter)
+
+      const guessed = await redeemSignInLink(db, 'not-a-token')
+
+      expect(usedAgain).toEqual({ outcome: 'refused', reason: 'spent' })
+      expect(tooLate).toEqual({ outcome: 'refused', reason: 'expired' })
+      expect(guessed).toEqual({ outcome: 'refused', reason: 'unknown' })
     })
 
     it('proves a web identity’s sign-up address on the first link it follows', async () => {

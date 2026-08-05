@@ -88,7 +88,9 @@ export function page(input: { readonly title: string; readonly body: string }): 
  * No public listing of quests, no sponsor directory, no statistics — the public
  * story is `kolonie.ai` and it stays there.
  */
-export function signInPage(input: { readonly sent?: boolean } = {}): string {
+export function signInPage(
+  input: { readonly sent?: boolean; readonly notice?: string } = {},
+): string {
   const body = input.sent
     ? [
         '<h1>Check your mail</h1>',
@@ -97,6 +99,15 @@ export function signInPage(input: { readonly sent?: boolean } = {}): string {
       ]
     : [
         '<h1>Kolonie console</h1>',
+        /**
+         * What went wrong with the link that brought them here (`#396`).
+         *
+         * Above the form rather than below it: a reader who has just been
+         * refused is looking at the top of the page, and the form is what they
+         * do about it. Absent on an ordinary arrival — a page that explains a
+         * failure nobody had is a page that invents one.
+         */
+        ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
         '<p>Sign in with the address your account was opened with.</p>',
         '<form method="post" action="/sign-in">',
         '<label for="email">Email</label>',
@@ -138,6 +149,61 @@ export function signInPage(input: { readonly sent?: boolean } = {}): string {
       ]
 
   return page({ title: 'Sign in', body: body.join('\n') })
+}
+
+/**
+ * What a reader sees after opening an account, and it is **not** the sign-in
+ * page's confirmation (`#398`).
+ *
+ * **The asymmetry is the point, and it is deliberate rather than an
+ * inconsistency to be tidied away.** `signInPage({ sent: true })` says *if that
+ * address belongs to an account* — conditional on purpose, so the sign-in form
+ * cannot be used to discover who is registered here. On the sign-up route that
+ * ambiguity is exactly backwards: the person reading it just asked to create an
+ * account, so there is nothing to conceal from them, and the conditional answered
+ * a question they had not asked while leaving theirs open.
+ *
+ * **Sign-in must never gain this page**, and that is the constraint on any later
+ * tidying: a confirmation that says *your account exists* on the sign-in route
+ * would be the oracle the whole flow is shaped to avoid.
+ */
+export function accountOpenedPage(): string {
+  return page({
+    title: 'Your account is open',
+    body: [
+      '<h1>Your account is open</h1>',
+      '<p>Check your mail. A link to get into the console is on its way to that address, ' +
+        'and following it once is what lets you fund anything.</p>',
+      '<p class="note">The link can be used once and expires in 15 minutes.</p>',
+      '<p class="note">The account starts empty: no skills, no reputation, and no place in ' +
+        'any quest’s audience. What it holds is a balance and the quests you write against it.</p>',
+    ].join('\n'),
+  })
+}
+
+/**
+ * The console's own 404, and it exists because the console did not have one
+ * (`#396`).
+ *
+ * **An unmatched `GET` used to render the sign-in form under a 404 status.** A
+ * browser shows the body and never the status, so a wrong URL looked exactly
+ * like a working page — which is how a mailed link pointing at a route that did
+ * not exist survived unnoticed: every reader who followed one was handed a form
+ * and concluded their link had expired.
+ *
+ * A page that says *there is nothing at this address* cannot be misread that
+ * way, and the way on is a link rather than a form, because a reader who is
+ * already signed in wants the console and not a second sign-in.
+ */
+export function notFoundPage(): string {
+  return page({
+    title: 'No such page',
+    body: [
+      '<h1>No such page</h1>',
+      '<p>There is nothing at this address.</p>',
+      '<p><a href="/">Go to the console</a></p>',
+    ].join('\n'),
+  })
 }
 
 /** What a signed-in sponsor sees: its own quests, and nothing about anyone else's. */

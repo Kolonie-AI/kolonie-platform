@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
 import {
   AgentIdSchema,
@@ -53,8 +53,31 @@ export interface SignInIdentity {
  * **The proved reach address wins.** D-047 made `email_challenges.primary_at`
  * the Colony's one place to write to, and a citizen that has proved a mailbox is
  * reachable there whatever else claims the same string. Only when no proved
- * address matches does an unproved sign-up claim answer — which is the only
- * state a web identity is in before it has followed its first link.
+ * address matches does a web identity's own claim answer.
+ *
+ * **The claim is read whether or not it has been proved, and it was read only
+ * unproved until `#396`.** `redeemSignInLink` marks a web identity's address
+ * proved on the first link it follows — so the old condition made an account
+ * invisible to this function from the moment it successfully signed in, once,
+ * and that is the whole of the defect:
+ *
+ * - a returning sponsor asking for a link resolved to nothing, was told *check
+ *   your mail*, and no mail was ever sent. **One sign-in per account, ever.**
+ * - `registerWebIdentity` asks this same question to decide whether an address
+ *   is taken, so a second sign-up on that address created a **second identity**
+ *   rather than refusing;
+ * - and redeeming that second identity's link then tried to prove an address the
+ *   first identity already holds proved, which
+ *   `accounts_proved_identifier_unique` refuses — a `500` on the one page a
+ *   human sponsor has. Reproduced against production on 2026-08-05, on an
+ *   address that had signed in once before.
+ *
+ * `registrationPath = 'web'` still guards it, so an MCP-registered citizen's
+ * declared mailbox never becomes a sign-in address: that citizen holds a key and
+ * has no use for a link. Proved rows sort first, because
+ * `accounts_proved_identifier_unique` allows exactly one of them and any number
+ * of unproved claims — the established account is the answer, not whichever row
+ * the planner happened to return.
  *
  * Returns `undefined` for an unknown address, and the caller must answer
  * identically in both cases. See {@link requestSignInLink}.
@@ -87,11 +110,11 @@ export async function resolveSignInAddress(
     .where(
       and(
         eq(accounts.kind, 'mailbox'),
-        eq(accounts.proved, false),
         eq(agents.registrationPath, 'web'),
         eq(mailboxIdentity(accounts.identifier), mailboxIdentity(sql`${address}`)),
       ),
     )
+    .orderBy(desc(accounts.proved))
     .limit(1)
 
   if (claimed === undefined) return undefined
@@ -196,8 +219,30 @@ export type RedemptionOutcome =
       readonly session: string
       readonly expiresAt: string
     }
-  /** No live link carries this token — unknown, already used, revoked or expired. */
-  | { readonly outcome: 'refused' }
+  /** No live link carries this token. {@link RefusalReason} says how much of that is said out loud. */
+  | { readonly outcome: 'refused'; readonly reason: RefusalReason }
+
+/**
+ * Why a token bought nothing — and this is a security decision, not a detail.
+ *
+ * **Until `#396` all four cases were one silent `refused`**, on the reasoning
+ * that distinguishing them is *"an oracle for which links were real"*. That
+ * reasoning holds for exactly one of them and is here kept for it:
+ *
+ * - `unknown` — no row carries this hash. **This is the oracle**, because it is
+ *   the one answer a caller can reach by guessing, and it stays generic.
+ * - `spent` and `expired` — a row exists, so the caller is holding a token the
+ *   Colony really minted and mailed to an address it holds. Telling *that*
+ *   reader which of the two happened discloses nothing they could not have
+ *   worked out, and withholding it produced the failure `#396` is named for: a
+ *   sponsor met a sign-in form, read it as *your link expired*, asked for
+ *   another, and met the same form again.
+ *
+ * A token revoked by some other path is reported as `spent`. The two are one
+ * column — `revoked_at` — and, more to the point, one instruction to the
+ * reader: *that link is finished, ask for another*.
+ */
+export type RefusalReason = 'unknown' | 'spent' | 'expired'
 
 /**
  * Exchange a sign-in token for a session.
@@ -207,9 +252,9 @@ export type RedemptionOutcome =
  * racing on one link produce one session rather than two: the second finds
  * nothing live to consume.
  *
- * **Every failure returns the same `refused`.** Unknown, spent, revoked and
- * expired are four different facts and the caller is told none of them — a
- * sign-in form that distinguishes them is an oracle for which links were real.
+ * **Every failure returns `refused`, and it now carries why** — see
+ * {@link RefusalReason} for which of the four facts is said out loud and which
+ * is not. A guessed token still learns nothing.
  *
  * The first successful redemption also proves the address for a web identity:
  * the sign-up claim stops being *somebody typed this* and becomes *mail sent
@@ -238,11 +283,11 @@ export async function redeemSignInLink(
       .where(and(eq(credentials.kind, 'email-link'), eq(credentials.secretHash, presented)))
       .limit(1)
 
-    if (row === undefined) return { outcome: 'refused' }
+    if (row === undefined) return { outcome: 'refused', reason: 'unknown' }
     if (row.secretHash === null || !hashEquals(row.secretHash, presented)) {
-      return { outcome: 'refused' }
+      return { outcome: 'refused', reason: 'unknown' }
     }
-    if (row.revokedAt !== null) return { outcome: 'refused' }
+    if (row.revokedAt !== null) return { outcome: 'refused', reason: 'spent' }
     // The expiry is read here rather than left to a sweep. A row nobody has
     // swept yet must not authenticate, and a sweep that has not run is not a
     // security property.
@@ -253,7 +298,7 @@ export async function redeemSignInLink(
     // and wrong in the direction that accepts an expired token roughly half the
     // time, which is the failure that would not have looked like a bug.
     if (row.expiresAt === null || Date.parse(row.expiresAt) <= now.getTime()) {
-      return { outcome: 'refused' }
+      return { outcome: 'refused', reason: 'expired' }
     }
 
     await tx

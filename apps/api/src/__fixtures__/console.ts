@@ -4,13 +4,24 @@ import type { ConsoleDependencies, ConsoleStore } from '../console.js'
 import type { Mailer } from '../email.js'
 import { signInAddressLimiter, signInClientLimiter } from '../rate-limit.js'
 
-/** A mailer that keeps what it was asked to send, so a test can read it. */
+/**
+ * A mailer that keeps what it was asked to send, so a test can read it.
+ *
+ * `from` is recorded as it arrived, including absent (`#398`): a fixture that
+ * filled in a default would hide the difference between a surface that names its
+ * sender and one that leaves it to the mailer, which is the thing under test.
+ */
 export interface FakeMailer extends Mailer {
-  readonly sent: () => readonly { to: string; subject: string; text: string }[]
+  readonly sent: () => readonly {
+    to: string
+    subject: string
+    text: string
+    from?: string | undefined
+  }[]
 }
 
 export function fakeMailer(): FakeMailer {
-  const sent: { to: string; subject: string; text: string }[] = []
+  const sent: { to: string; subject: string; text: string; from?: string | undefined }[] = []
   return {
     send: async (message) => {
       sent.push({ ...message })
@@ -31,11 +42,22 @@ export interface FakeConsoleStore extends ConsoleStore {
   readonly hold: (address: string, agentId?: AgentId) => AgentId
   /** Every token this store has minted, newest last. */
   readonly tokens: () => readonly string[]
+  /**
+   * Age a live token past its expiry, without waiting fifteen minutes.
+   *
+   * The database decides expiry by comparing a stored timestamp; this fixture
+   * models the *outcome* of that comparison, which is what the routes above it
+   * can observe. Anything finer belongs in `packages/db`, against a real clock
+   * and a real column.
+   */
+  readonly expire: (token: string) => void
 }
 
 export function fakeConsoleStore(): FakeConsoleStore {
   const byAddress = new Map<string, { agentId: AgentId; address: string }>()
   const live = new Map<string, { agentId: AgentId; expired: boolean }>()
+  /** Tokens that were minted and are no longer live, and why (`#396`). */
+  const finished = new Map<string, 'spent' | 'expired'>()
   const tokens: string[] = []
   const names = new Set<string>()
 
@@ -50,13 +72,24 @@ export function fakeConsoleStore(): FakeConsoleStore {
 
     tokens: () => tokens,
 
+    expire: (token) => {
+      const held = live.get(token)
+      if (held === undefined) return
+      live.delete(token)
+      finished.set(token, 'expired')
+    },
+
     resolveAddress: async (address) => byAddress.get(key(address)),
 
     requestLink: async (identity) => {
       // One live link per identity, as the database has it: minting a second
-      // drops the first.
+      // drops the first. The dropped one is revoked rather than forgotten, so a
+      // reader following the older mail is told it is finished (`#396`).
       for (const [token, held] of live) {
-        if (held.agentId === identity.agentId) live.delete(token)
+        if (held.agentId === identity.agentId) {
+          live.delete(token)
+          finished.set(token, 'spent')
+        }
       }
 
       const token = randomUUID()
@@ -75,9 +108,12 @@ export function fakeConsoleStore(): FakeConsoleStore {
 
     redeem: async (token) => {
       const held = live.get(token)
-      if (held === undefined || held.expired) return { outcome: 'refused' }
+      if (held === undefined || held.expired) {
+        return { outcome: 'refused', reason: finished.get(token) ?? 'unknown' }
+      }
 
       live.delete(token)
+      finished.set(token, 'spent')
 
       return {
         outcome: 'signed-in',

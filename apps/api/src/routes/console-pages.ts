@@ -12,12 +12,19 @@ import { authenticate } from '../authentication.js'
 import {
   CHECK_YOUR_MAIL,
   RequestLinkSchema,
+  SIGN_IN_REDEEM_PATH,
   SignUpSchema,
   redeemSignIn,
   requestSignIn,
   signUp,
 } from '../console.js'
-import { CONSOLE_HEADERS, errorPage, signInPage } from '../console/html.js'
+import {
+  CONSOLE_HEADERS,
+  accountOpenedPage,
+  errorPage,
+  notFoundPage,
+  signInPage,
+} from '../console/html.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
 import {
@@ -239,20 +246,35 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
+    /**
+     * **The browser's answer is the sign-up route's own, and the JSON answer is
+     * still `CHECK_YOUR_MAIL`** (`#398`).
+     *
+     * The two differ because their readers do. A browser posting this form is a
+     * person who just asked to open an account and is owed a straight answer;
+     * the JSON shape is a contract an agent may already have built against, and
+     * its ambiguity costs an agent nothing — it knows what it asked for.
+     */
     return wantsHtml(request)
-      ? html(reply.status(200), signInPage({ sent: true }))
+      ? html(reply.status(200), accountOpenedPage())
       : reply.status(202).send(CHECK_YOUR_MAIL)
   })
 
   /**
-   * Where the mail lands.
+   * Where the mail lands, at the one path {@link SIGN_IN_REDEEM_PATH} names.
    *
    * A `GET`, because a link in an email is a `GET` and nothing else. The token
    * is single-use and expires (`#172`), which is what makes that acceptable —
    * and the session leaves in `Set-Cookie` rather than in the body, so no bearer
    * secret reaches a proxy log or the rendered page.
+   *
+   * **A refused link renders the reason above the form** (`#396`). The form is
+   * still there, because asking for another link is exactly what the reader
+   * should do next; what changed is that the page now says why they are looking
+   * at it. A bare form was indistinguishable from the 404 this route never
+   * received.
    */
-  app.get('/sign-in/redeem', async (request, reply) => {
+  app.get(SIGN_IN_REDEEM_PATH, async (request, reply) => {
     if (!(await guard(request, reply))) return reply
 
     const { token } = request.query as { token?: string }
@@ -264,7 +286,10 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     if (result.outcome === 'rejected') {
       return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS[result.error.code]), signInPage())
+        ? html(
+            reply.status(ERROR_STATUS[result.error.code]),
+            signInPage({ notice: result.error.message }),
+          )
         : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
@@ -748,11 +773,20 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
   })
 }
 
+/**
+ * The console's 404, and it stopped being the sign-in page in `#396`.
+ *
+ * **Rendering the front door for a wrong URL is what hid that defect for the
+ * whole of its life.** The mailed link pointed at a route nobody had registered;
+ * every reader who followed one got a 200-shaped page with a form on it, read it
+ * as *the link expired*, asked for another and arrived back here. A status code
+ * no browser displays was the only thing saying otherwise.
+ */
 export function consoleNotFound(reply: FastifyReply, request: FastifyRequest): FastifyReply {
   for (const [header, value] of Object.entries(CONSOLE_HEADERS)) reply.header(header, value)
 
   return wantsHtml(request)
-    ? reply.status(404).type('text/html; charset=utf-8').send(signInPage())
+    ? reply.status(404).type('text/html; charset=utf-8').send(notFoundPage())
     : reply.status(404).send({ code: 'not_found', message: 'No such route.' })
 }
 

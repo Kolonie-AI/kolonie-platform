@@ -12,6 +12,7 @@ import {
   resolveSignInAddress,
   revokeSession,
   type Database,
+  type RefusalReason,
 } from '@kolonie-ai/db'
 import type { Mailer } from './email.js'
 import { ClaimedAddressSchema } from './email.js'
@@ -40,6 +41,26 @@ import type { RateLimiter } from './rate-limit.js'
  * than at the route.
  */
 
+/**
+ * Where a followed link lands — **one constant, and that is the point** (`#396`).
+ *
+ * The mail said `/sign-in?token=…` and the route was registered at
+ * `/sign-in/redeem`. Neither was wrong on its own; they were two strings for one
+ * path, written five hundred lines apart, and they had never agreed. Every link
+ * the Colony has ever mailed to a human was a `404` — rendered, until this
+ * change, as the sign-in form, so it read as an expired link and the reader
+ * tried again.
+ *
+ * `registerConsolePages` registers this exact value and {@link signInLinkUrl}
+ * builds this exact value. A path that appears once cannot drift from itself.
+ */
+export const SIGN_IN_REDEEM_PATH = '/sign-in/redeem'
+
+/** The absolute link that goes in the mail. The only place a token meets a URL. */
+export function signInLinkUrl(consoleUrl: string, token: string): string {
+  return `${consoleUrl.replace(/\/+$/, '')}${SIGN_IN_REDEEM_PATH}?token=${encodeURIComponent(token)}`
+}
+
 /** Everything the console needs from storage. A port, so these tests need no database. */
 export interface ConsoleStore {
   /** Which identity this address names, if any — preferring the proved reach address. */
@@ -58,7 +79,7 @@ export interface ConsoleStore {
         session: string
         expiresAt: string
       }
-    | { outcome: 'refused' }
+    | { outcome: 'refused'; reason: RefusalReason }
   >
   /** Create a thin identity from the sign-up form. The name is the Colony's if absent. */
   registerWeb(request: {
@@ -91,6 +112,13 @@ export interface ConsoleDependencies {
    * `capabilityPageUrl` are configuration rather than constants.
    */
   readonly consoleUrl: string
+  /**
+   * Who console mail comes from (`#398`), or nothing to leave it to the mailer.
+   *
+   * Resolved once in `mail-config.ts` and handed down, so the address appears in
+   * one place rather than at each `send`.
+   */
+  readonly senderAddress?: string | undefined
   /** Per-address brake on both endpoints. */
   readonly addressLimiter: RateLimiter
   /**
@@ -196,8 +224,9 @@ export async function requestSignIn(
     const link = await deps.store.requestLink(identity)
     await mailer.send({
       to: link.address,
-      subject: 'Your Kolonie sign-in link',
+      subject: SIGN_IN_SUBJECT,
       text: signInMailBody(deps.consoleUrl, link.token),
+      from: deps.senderAddress,
     })
   }
 
@@ -237,8 +266,9 @@ export async function signUp(
     const link = await deps.store.requestLink(created.identity)
     await mailer.send({
       to: link.address,
-      subject: 'Your Kolonie sign-in link',
-      text: signInMailBody(deps.consoleUrl, link.token),
+      subject: NEW_ACCOUNT_SUBJECT,
+      text: newAccountMailBody(deps.consoleUrl, link.token),
+      from: deps.senderAddress,
     })
   }
 
@@ -257,10 +287,25 @@ export type RedeemOutcome =
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**
+ * What a reader is told when a link buys nothing.
+ *
+ * **A caller holding a token the Colony minted is told which of the two
+ * ordinary things happened**, and a caller holding a guess is told nothing —
+ * the reasoning is on `RefusalReason` in `packages/db`. Each sentence ends with
+ * the same instruction, because in all three cases the reader's next move is
+ * identical and the page they were shown before `#396` did not say it.
+ */
+const REFUSAL_MESSAGE: Readonly<Record<RefusalReason, string>> = {
+  unknown: 'That sign-in link is not valid. Ask for a new one below.',
+  spent: 'That sign-in link has already been used. Ask for a new one below.',
+  expired: 'That sign-in link has expired. Ask for a new one below.',
+}
+
+/**
  * Follow the link.
  *
- * Every failure is the same refusal: unknown, spent, revoked and expired are
- * four facts and the caller is told none of them.
+ * The refusal carries a reason, and {@link REFUSAL_MESSAGE} decides how much of
+ * it is said out loud.
  */
 export async function redeemSignIn(
   token: string,
@@ -277,7 +322,7 @@ export async function redeemSignIn(
   if (result.outcome === 'refused') {
     return {
       outcome: 'rejected',
-      error: { code: 'unauthorized', message: 'That sign-in link is not valid.' },
+      error: { code: 'unauthorized', message: REFUSAL_MESSAGE[result.reason] },
     }
   }
 
@@ -315,6 +360,12 @@ function brake(
   return undefined
 }
 
+/** The subject on a link asked for by somebody who already has an account. */
+export const SIGN_IN_SUBJECT = 'Your Kolonie sign-in link'
+
+/** The subject on the first mail an account ever gets (`#398`). */
+export const NEW_ACCOUNT_SUBJECT = 'Your Kolonie sponsor account is open'
+
 /**
  * The mail a citizen actually reads.
  *
@@ -326,7 +377,38 @@ function signInMailBody(consoleUrl: string, token: string): string {
   return [
     'Somebody asked to sign in to the Kolonie console with this address.',
     '',
-    `${consoleUrl.replace(/\/+$/, '')}/sign-in?token=${encodeURIComponent(token)}`,
+    signInLinkUrl(consoleUrl, token),
+    '',
+    'The link works once and expires in 15 minutes.',
+    'If this was not you, nothing has happened and you can ignore this mail.',
+  ].join('\n')
+}
+
+/**
+ * The first mail an account ever gets, and it describes the act that produced it
+ * (`#398`).
+ *
+ * **It said *somebody asked to sign in*, to a person who had just clicked *open
+ * an account*.** They were left to work out whether their click had done
+ * anything, from a mail describing an act they had not performed — and the
+ * maintainer's verdict on the sequence was that *"it is written so badly that
+ * you cannot understand what you are supposed to do"*.
+ *
+ * So this one says three things the sign-in mail has no business saying: that
+ * the account exists, what it holds — nothing — and what the link is for. The
+ * last two lines are the sign-in mail's, unchanged, because they are true of
+ * every link the console mails.
+ */
+function newAccountMailBody(consoleUrl: string, token: string): string {
+  return [
+    'Your Kolonie sponsor account is open. This link is how you get into it:',
+    '',
+    signInLinkUrl(consoleUrl, token),
+    '',
+    'A sponsor account starts empty and stays empty: no skills, no reputation,',
+    'and no place in any quest’s audience. What it holds is a balance and the',
+    'quests you write against it — and nothing can be funded until you have',
+    'followed this link once.',
     '',
     'The link works once and expires in 15 minutes.',
     'If this was not you, nothing has happened and you can ignore this mail.',

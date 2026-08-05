@@ -215,14 +215,29 @@ describe('the console surface', () => {
 
   it('shows a signed-out browser the sign-in page and nothing else', async () => {
     const home = await asBrowser('/')
-    const somewhereElse = await asBrowser('/quests/anything')
 
     expect(home.body).toContain('Sign in')
     expect(home.body).not.toContain('Signed in as')
-    // Every other path answers as the front door: a 404 listing what exists
-    // would be an oracle for pages a signed-out caller cannot reach anyway.
+  })
+
+  /**
+   * **A 404 that renders the front door is a 404 no reader can see** (`#396`).
+   *
+   * This test asserted the opposite until the mailed sign-in link turned out to
+   * point at an unregistered route: every reader who followed one was handed a
+   * form, under a status code no browser displays, and read it as *your link
+   * expired*. The page still names nothing that exists — that part was right, and
+   * a listing would be an oracle for pages a signed-out caller cannot reach.
+   */
+  it('answers an unknown path with a 404 that says so, not with the sign-in form', async () => {
+    const somewhereElse = await asBrowser('/quests/anything')
+
     expect(somewhereElse.statusCode).toBe(404)
-    expect(somewhereElse.body).toContain('Sign in')
+    expect(somewhereElse.body).toContain('No such page')
+    expect(somewhereElse.body).not.toContain('<form')
+    expect(somewhereElse.body).not.toContain('Sign in with the address')
+    // Nothing about what does exist here.
+    expect(somewhereElse.body).not.toContain('quests')
   })
 
   it('carries the security headers on every console response', async () => {
@@ -301,6 +316,112 @@ describe('signing in through the console', () => {
 })
 
 /**
+ * The whole path, walked the way a person walks it (`#396`).
+ *
+ * **Every step here reads the output of the one before it**, and the link is
+ * taken out of the mail body rather than typed into the test. That is the
+ * difference that matters: a test that injects `/sign-in/redeem` directly passed
+ * on every commit of this defect's life, because the route it exercised was
+ * never the route the Colony was mailing anybody.
+ */
+describe('following the link that was actually mailed', () => {
+  /** Ask for a link as a browser would, and read the URL back out of the mail. */
+  const mailedLink = async (address: string): Promise<URL> => {
+    await app.inject({
+      method: 'POST',
+      url: '/sign-in',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: `email=${encodeURIComponent(address)}`,
+    })
+
+    const body = console_.mailer.sent().at(-1)?.text ?? ''
+    const found = /https?:\/\/\S+/.exec(body)?.[0]
+    if (found === undefined) throw new Error(`no link in the mail: ${body}`)
+
+    return new URL(found)
+  }
+
+  /** Follow it exactly as a mail client would: a GET, on the console's host. */
+  const follow = (link: URL) =>
+    app.inject({
+      method: 'GET',
+      url: `${link.pathname}${link.search}`,
+      headers: { host: CONSOLE_HOST, accept: 'text/html,application/xhtml+xml' },
+    })
+
+  it('signs a sponsor in', async () => {
+    console_.store.hold('sponsor@example.org')
+
+    const link = await mailedLink('sponsor@example.org')
+    const followed = await follow(link)
+
+    expect(link.host).toBe(CONSOLE_HOST)
+    expect(followed.statusCode).toBe(303)
+    expect(followed.headers['location']).toBe('/')
+    expect(String(followed.headers['set-cookie'])).toContain('__Host-kolonie_session=')
+    // The token left the address bar with the redirect and never reached the body.
+    expect(followed.body).not.toContain(link.searchParams.get('token'))
+  })
+
+  it('tells a reader the link was already used, and does not sign them in', async () => {
+    console_.store.hold('twice@example.org')
+
+    const link = await mailedLink('twice@example.org')
+    await follow(link)
+    const again = await follow(link)
+
+    expect(again.statusCode).toBe(ERROR_STATUS.unauthorized)
+    expect(again.body).toContain('already been used')
+    expect(again.headers['set-cookie']).toBeUndefined()
+  })
+
+  it('tells a reader the link expired, and does not sign them in', async () => {
+    console_.store.hold('slow@example.org')
+
+    const link = await mailedLink('slow@example.org')
+    console_.store.expire(link.searchParams.get('token') ?? '')
+    const followed = await follow(link)
+
+    expect(followed.statusCode).toBe(ERROR_STATUS.unauthorized)
+    expect(followed.body).toContain('expired')
+    expect(followed.body).not.toContain('already been used')
+    expect(followed.headers['set-cookie']).toBeUndefined()
+  })
+
+  /**
+   * The one refusal that stays vague, and it is the only one reachable by
+   * guessing. `RefusalReason` in `packages/db` carries the reasoning.
+   */
+  it('tells a guesser nothing beyond that the link is not valid', async () => {
+    const guessed = await app.inject({
+      method: 'GET',
+      url: '/sign-in/redeem?token=never-minted',
+      headers: { host: CONSOLE_HOST, accept: 'text/html' },
+    })
+
+    expect(guessed.statusCode).toBe(ERROR_STATUS.unauthorized)
+    expect(guessed.body).toContain('not valid')
+    expect(guessed.body).not.toContain('already been used')
+    expect(guessed.body).not.toContain('expired')
+  })
+
+  /** Whatever the refusal, the way out is on the page: ask for another link. */
+  it('leaves a refused reader something to do', async () => {
+    console_.store.hold('stuck@example.org')
+
+    const link = await mailedLink('stuck@example.org')
+    await follow(link)
+    const again = await follow(link)
+
+    expect(again.body).toContain('action="/sign-in"')
+  })
+})
+
+/**
  * The door `#180` left unbuilt, and the criterion it carried into `#266`: an
  * address alone opens an account, and the page says an agent may hold one.
  */
@@ -321,9 +442,63 @@ describe('opening a sponsor account', () => {
     const response = await signUp('email=stranger%40example.org')
 
     expect(response.statusCode).toBe(200)
-    expect(response.body).toContain('Check your mail')
+    expect(response.body).toContain('Your account is open')
     expect(console_.store.tokens()).toHaveLength(1)
     expect(console_.mailer.sent()[0]?.to).toBe('stranger@example.org')
+  })
+
+  /**
+   * The confirmation describes the act the reader performed (`#398`).
+   *
+   * It borrowed the sign-in page's *"if that address belongs to an account"* —
+   * conditional wording whose whole purpose is to conceal who is registered here,
+   * shown to somebody who had just asked to register and knew perfectly well what
+   * they had asked for. It answered a question they had not asked and left theirs
+   * open.
+   */
+  it('confirms that an account was opened, and does not borrow the sign-in wording', async () => {
+    const response = await signUp('email=plainly%40example.org')
+
+    expect(response.body).toContain('Your account is open')
+    expect(response.body).not.toContain('If that address belongs to an account')
+    // And what they now have, which is nothing.
+    expect(response.body).toContain('no skills, no reputation')
+  })
+
+  /**
+   * **The sign-in route keeps its ambiguity, and the asymmetry is deliberate.**
+   * Sign-up has nothing to conceal — the person asking is the person told — and
+   * sign-in has everything to conceal, because anyone may type any address into
+   * it. The two pages must not be tidied into one.
+   */
+  it('leaves the sign-in route unable to say whether an address has an account', async () => {
+    console_.store.hold('registered@example.org')
+
+    const known = await app.inject({
+      method: 'POST',
+      url: '/sign-in',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: 'email=registered%40example.org',
+    })
+
+    const stranger = await app.inject({
+      method: 'POST',
+      url: '/sign-in',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: 'email=nobody%40example.org',
+    })
+
+    expect(known.body).toBe(stranger.body)
+    expect(known.body).toContain('If that address belongs to an account')
+    expect(known.body).not.toContain('Your account is open')
   })
 
   /**
@@ -333,12 +508,43 @@ describe('opening a sponsor account', () => {
    */
   it('answers a taken address exactly as it answers a fresh one', async () => {
     console_.store.hold('known@example.org')
+    const fresh = await signUp('email=unknown%40example.org')
 
     const response = await signUp('email=known%40example.org')
 
     expect(response.statusCode).toBe(200)
-    expect(response.body).toContain('Check your mail')
-    expect(console_.mailer.sent()).toHaveLength(0)
+    expect(response.body).toBe(fresh.body)
+    expect(console_.mailer.sent().map((mail) => mail.to)).toEqual(['unknown@example.org'])
+  })
+
+  /**
+   * The first mail an account gets says which act produced it (`#398`). A person
+   * who clicked *Open an account* and read *somebody asked to sign in* had to
+   * work out whether their click had done anything.
+   */
+  it('mails a new account something other than a sign-in link', async () => {
+    await signUp('email=opened%40example.org')
+    const opening = console_.mailer.sent()[0]
+
+    console_.store.hold('returning@example.org')
+    await app.inject({
+      method: 'POST',
+      url: '/sign-in',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: 'email=returning%40example.org',
+    })
+    const returning = console_.mailer.sent()[1]
+
+    expect(opening?.subject).not.toBe(returning?.subject)
+    expect(opening?.subject).toContain('account is open')
+    expect(opening?.text).toContain('Your Kolonie sponsor account is open')
+    expect(opening?.text).not.toContain('asked to sign in')
+    expect(returning?.subject).toBe('Your Kolonie sign-in link')
+    expect(returning?.text).toContain('asked to sign in')
   })
 
   it('answers an agent with JSON on the same route', async () => {

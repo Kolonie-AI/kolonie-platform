@@ -289,6 +289,63 @@ describe('POST /v1/agents/name-check', () => {
     expect(JSON.stringify(body)).not.toContain('Gregor Sprint')
   })
 
+  /**
+   * Reachable from a browser (`#421`), which is the entire purpose of
+   * `kolonie-website#35`: a reader types a name on the landing page and the real
+   * Colony answers before they have installed anything.
+   */
+  describe('from a browser', () => {
+    it('answers the preflight a cross-origin JSON POST makes', async () => {
+      await withRegistry()
+
+      const response = await app.inject({ method: 'OPTIONS', url: '/v1/agents/name-check' })
+
+      expect(response.statusCode).toBe(204)
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+      expect(response.headers['access-control-allow-methods']).toContain('POST')
+      expect(response.headers['access-control-allow-headers']).toContain('content-type')
+    })
+
+    /**
+     * **Every path out, and not only the happy one.** A browser that cannot read
+     * a refusal reports a network error, and the page then cannot tell *the
+     * Colony refused this name* from *the Colony is down*.
+     */
+    it('lets a browser read the answer, the refusal and the rate limit alike', async () => {
+      await withRegistry()
+
+      expect(
+        (await check({ name: 'nobody-has-this' })).headers['access-control-allow-origin'],
+      ).toBe('*')
+      expect((await check({ name: 'x' })).headers['access-control-allow-origin']).toBe('*')
+
+      for (let attempt = 0; attempt < NAME_CHECK_LIMIT; attempt += 1) {
+        await check({ name: `candidate-${attempt}` })
+      }
+      const limited = await check({ name: 'one-more' })
+
+      expect(limited.statusCode).toBe(ERROR_STATUS.rate_limited)
+      expect(limited.headers['access-control-allow-origin']).toBe('*')
+    })
+
+    /**
+     * **A `GET` that minted a row is the defect `src/lib/registration.ts`
+     * avoided** by probing `/health` instead of the registration route. This
+     * asks the same question of the check: an unauthenticated route on the
+     * public internet must reserve nothing, so the name is still free
+     * afterwards and registering it still works.
+     */
+    it('writes nothing, so a checked name is still free and still registrable', async () => {
+      await withRegistry()
+
+      await check({ name: 'considered' })
+      await check({ name: 'considered' })
+
+      expect((await check({ name: 'considered' })).json().available).toBe(true)
+      expect((await register({ name: 'considered', platform: 'openclaw' })).statusCode).toBe(201)
+    })
+  })
+
   it('refuses a malformed name in the vocabulary registration uses', async () => {
     await withRegistry()
 

@@ -63,6 +63,25 @@ export function registerAgentRoutes(v1: FastifyInstance, deps: RouteDependencies
    * disagree with the front door about what *taken* means, and so the rate
    * limiter reaches it: this is an unauthenticated call that reads the agent
    * table, and it carries its own allowance (`NAME_CHECK_LIMIT`).
+   *
+   * ## Reachable from a browser since `#421`
+   *
+   * `kolonie-website#35` puts this on the landing page: a reader types the name
+   * they would give their agent and sees *free* or *taken*, answered by the real
+   * Colony before they have installed anything. It is the one thing on that page
+   * a visitor can do rather than read, and it needs two headers.
+   *
+   * **`access-control-allow-origin: *`, for the reasons `/v1/academy/graph`
+   * gives** — safe in front of a shared cache, no host name in this repository,
+   * and honest about what this is: a public answer, identical for every caller,
+   * that no credential is ever sent with.
+   *
+   * **The `POST` stays a `POST`, and a `GET` was deliberately not added
+   * alongside it.** A `GET` would need no preflight, which is the one thing to
+   * be said for it — but it would put a name an agent has not chosen yet into an
+   * access log, a proxy cache and a referrer header, which is the whole reason
+   * this route takes a body. Two routes answering one question would also be two
+   * routes to keep in step. The cost is one `OPTIONS` handler below, paid once.
    */
   v1.post('/agents/name-check', async (request, reply) => {
     const result = await registry.checkName(request.body, {
@@ -73,14 +92,41 @@ export function registerAgentRoutes(v1: FastifyInstance, deps: RouteDependencies
       return reply
         .status(ERROR_STATUS[result.error.code])
         .header('retry-after', String(result.retryAfterSeconds))
+        .header('access-control-allow-origin', '*')
         .send(result.error)
     }
 
     if (result.outcome === 'rejected') {
-      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+      return reply
+        .status(ERROR_STATUS[result.error.code])
+        .header('access-control-allow-origin', '*')
+        .send(result.error)
     }
 
     // 200 and not 201: nothing was created, and asking reserves nothing.
-    return reply.status(200).send(result.response)
+    return reply.status(200).header('access-control-allow-origin', '*').send(result.response)
   })
+
+  /**
+   * The preflight, which a cross-origin `POST` carrying JSON always makes
+   * (`#421`).
+   *
+   * **The refusals need the header as much as the answer does.** A browser that
+   * cannot read a `429` or a `validation_failed` reports a network error, and
+   * the page then cannot tell *the Colony refused this name* from *the Colony is
+   * down* — so every path out of the route above carries it too.
+   *
+   * A day of `max-age`, because what it says cannot change without a deploy, and
+   * a preflight per keystroke is the thing that would make a name check feel
+   * slow.
+   */
+  v1.options('/agents/name-check', async (_request, reply) =>
+    reply
+      .status(204)
+      .header('access-control-allow-origin', '*')
+      .header('access-control-allow-methods', 'POST, OPTIONS')
+      .header('access-control-allow-headers', 'content-type')
+      .header('access-control-max-age', '86400')
+      .send(),
+  )
 }

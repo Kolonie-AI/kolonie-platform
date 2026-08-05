@@ -5,6 +5,7 @@ import {
   DEFAULT_REPOSITORY,
   closingNote,
   filing,
+  framedAnswer,
   issueBody,
   readDecision,
   type TriageInput,
@@ -42,6 +43,7 @@ const anInput = (overrides: Partial<TriageInput> = {}): TriageInput => ({
       id: '33333333-3333-4333-8333-333333333333',
       subject: 'how do I find out which tasks I can attempt',
       resolution: 'Call kolonie.tasks.list; it only returns what your skills already unlock.',
+      issueUrl: null,
     },
   ],
   ...overrides,
@@ -97,9 +99,75 @@ describe('reading what the model said', () => {
 
     expect(decision).toEqual({
       kind: 'answered',
-      answer: source.resolution,
+      answer: framedAnswer(source.resolution),
       fromTicketId: source.id,
+      issueUrl: null,
     })
+    expect(decision).toMatchObject({ answer: expect.stringContaining(source.resolution) })
+  })
+
+  /**
+   * `#436`. The precedent's issue was reachable in the corpus and reached the
+   * citizen as prose, so `kolonie.support.read` and `kolonie.wakeup` — both of
+   * which show the issue only when `issueUrl` is set — could not show it.
+   */
+  it('carries the precedent ticket its issue link', () => {
+    const source = {
+      id: '33333333-3333-4333-8333-333333333333',
+      subject: 'which tasks can I attempt',
+      resolution: 'The issue your report became has been closed as done. https://example/200',
+      issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/200',
+    }
+
+    const decision = readDecision(
+      { kind: 'answered', fromTicketId: source.id },
+      anInput({ answered: [source] }),
+    )
+
+    expect(decision).toMatchObject({ kind: 'answered', issueUrl: source.issueUrl })
+  })
+
+  /**
+   * The half of `#436` that is about the sentence rather than the column: the
+   * copied resolution was written for its own reporter, and *your report became
+   * issue 200* is false for the citizen it is replayed to.
+   */
+  it('attributes a replayed answer instead of asserting it about this citizen', () => {
+    const source = {
+      id: '33333333-3333-4333-8333-333333333333',
+      subject: 'which tasks can I attempt',
+      resolution: 'The issue your report became has been closed as done: “x”.',
+      issueUrl: null,
+    }
+
+    const decision = readDecision(
+      { kind: 'answered', fromTicketId: source.id },
+      anInput({ answered: [source] }),
+    )
+
+    expect(decision).toMatchObject({ kind: 'answered' })
+    if (decision.kind !== 'answered') return
+    expect(decision.answer.startsWith('Another citizen asked the Colony this')).toBe(true)
+    expect(decision.answer).toContain(source.resolution)
+  })
+
+  it('keeps a framed answer inside the column it is written to', () => {
+    const source = {
+      id: '33333333-3333-4333-8333-333333333333',
+      subject: 'a long one',
+      resolution: 'x'.repeat(TICKET_RESOLUTION_MAX_LENGTH),
+      issueUrl: null,
+    }
+
+    const decision = readDecision(
+      { kind: 'answered', fromTicketId: source.id },
+      anInput({ answered: [source] }),
+    )
+
+    expect(decision.kind).toBe('answered')
+    if (decision.kind !== 'answered') return
+    expect(decision.answer.length).toBeLessThanOrEqual(TICKET_RESOLUTION_MAX_LENGTH)
+    expect(decision.answer.endsWith('…')).toBe(true)
   })
 
   it('refuses an answer sourced from a ticket it was not given', () => {

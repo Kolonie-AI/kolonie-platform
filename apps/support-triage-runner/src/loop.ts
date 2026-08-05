@@ -145,12 +145,17 @@ export async function triageOne(
         ticketId: ticket.id,
         status: 'resolved',
         resolution: decision.answer,
+        // `undefined` and not `null`: `recordTriage` writes the column only when
+        // it is given one, and a precedent with no issue must leave the field
+        // alone rather than blank it.
+        issueUrl: decision.issueUrl ?? undefined,
       })
       log.info(`ticket ${ticket.id}: answered from ticket ${decision.fromTicketId}`, {
         event: 'ticket.triaged',
         ticketId: ticket.id,
         verdict: 'answered',
         fromTicketId: decision.fromTicketId,
+        issueUrl: decision.issueUrl ?? undefined,
       })
       return { decision }
     }
@@ -410,7 +415,15 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   const issues = [...(await deps.issues.open())]
   const answered: AnsweredTicket[] = (await deps.store.answered(ANSWERED_CORPUS))
     .filter((t) => t.status === 'resolved' && t.resolution !== null)
-    .map((t) => ({ id: t.id, subject: t.subject, resolution: t.resolution ?? '' }))
+    .map((t) => ({
+      id: t.id,
+      subject: t.subject,
+      resolution: t.resolution ?? '',
+      // Carried into the corpus so the `answered` verdict has something to
+      // carry out of it (#436). Dropping it here is what left the second
+      // citizen with the link in prose only.
+      issueUrl: t.issueUrl ?? null,
+    }))
 
   for (const ticket of queue) {
     counts.seen++

@@ -20,7 +20,20 @@ export type TriageDecision =
    * The Colony answered this exact question before, and the answer still stands.
    * Repeat it rather than filing the question a second time.
    */
-  | { readonly kind: 'answered'; readonly answer: string; readonly fromTicketId: string }
+  | {
+      readonly kind: 'answered'
+      readonly answer: string
+      readonly fromTicketId: string
+      /**
+       * The issue the *source* ticket was pointed at, carried so the second
+       * citizen gets it as a link rather than only inside the prose (`#436`).
+       *
+       * `null` where the precedent had none. It is the source's issue and not
+       * this ticket's, which is exactly why the answer is framed rather than
+       * replayed flat — see `framedAnswer`.
+       */
+      readonly issueUrl: string | null
+    }
   /** Nothing covers it. File it. */
   | {
       readonly kind: 'new'
@@ -49,6 +62,8 @@ export interface AnsweredTicket {
   readonly id: string
   readonly subject: string
   readonly resolution: string
+  /** The issue this precedent was pointed at, where it had one. */
+  readonly issueUrl: string | null
 }
 
 /**
@@ -104,8 +119,14 @@ export function readDecision(raw: unknown, input: TriageInput): TriageDecision {
     }
     // **The answer is the earlier one, verbatim, not the model's version of it.**
     // Letting the model rephrase is how a correct answer becomes a subtly wrong
-    // one with the Colony's name on it.
-    return { kind: 'answered', answer: source.resolution, fromTicketId: source.id }
+    // one with the Colony's name on it. The framing around it is written here
+    // and not by the model, for the same reason.
+    return {
+      kind: 'answered',
+      answer: framedAnswer(source.resolution),
+      fromTicketId: source.id,
+      issueUrl: source.issueUrl,
+    }
   }
 
   if (kind === 'new') {
@@ -274,6 +295,34 @@ export function issueBody(
       'ending.',
   ].join('\n')
 }
+
+/**
+ * The frame around an answer that is being replayed to a second citizen (#436).
+ *
+ * **A resolution is written for its reporter, and reads wrong to everybody it is
+ * later replayed to.** The precedent that prompted this said *"The issue your
+ * report became has been closed as done"* — true for the citizen who filed it,
+ * and false for the next one, whose report became nothing. The copy stays
+ * verbatim, because a rephrased answer is how a correct one becomes subtly
+ * wrong; what changes is that it now arrives attributed.
+ *
+ * Bounded by `TICKET_RESOLUTION_MAX_LENGTH`, like {@link closingNote}: the quoted
+ * answer is already allowed to fill the column on its own, so it is the part
+ * that gives way rather than the sentence saying whose answer it is.
+ */
+export function framedAnswer(answer: string): string {
+  const room = TICKET_RESOLUTION_MAX_LENGTH - ANSWERED_FRAME.length
+  const quoted = answer.length > room ? `${answer.slice(0, Math.max(room - 1, 0))}…` : answer
+  return `${ANSWERED_FRAME}${quoted}`
+}
+
+/**
+ * Named so the sentence and the arithmetic that reserves room for it cannot
+ * drift apart — the failure `CLOSING_NOTE_OVERHEAD` guards against, one function
+ * down and with the exact length available rather than an estimate.
+ */
+const ANSWERED_FRAME =
+  'Another citizen asked the Colony this, and the answer they were given was:\n\n'
 
 /**
  * What the citizen is told when the issue its ticket became was closed (#165).

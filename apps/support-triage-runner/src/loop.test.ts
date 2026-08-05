@@ -258,6 +258,7 @@ describe('one ticket', () => {
       id: '33333333-3333-4333-8333-333333333333',
       subject: 'which tasks can I attempt',
       resolution: 'Call kolonie.tasks.list; it returns only what your skills unlock.',
+      issueUrl: null,
     }
 
     await triageOne(
@@ -266,7 +267,33 @@ describe('one ticket', () => {
       deps({ store, model: modelAnswering({ kind: 'answered', fromTicketId: answer.id }) }),
     )
 
-    expect(written[0]).toMatchObject({ status: 'resolved', resolution: answer.resolution })
+    expect(written[0]).toMatchObject({ status: 'resolved' })
+    expect(String(written[0]?.['resolution'])).toContain(answer.resolution)
+    // A precedent with no issue leaves the column alone rather than blanking it.
+    expect(written[0]?.['issueUrl']).toBeUndefined()
+  })
+
+  /**
+   * `#436`: the link was in the corpus and reached the citizen only inside the
+   * copied prose, so nothing that renders `issueUrl` could render it.
+   */
+  it('records the precedent’s issue on the ticket it answers from precedent', async () => {
+    const ticket = aTicket({ kind: 'question' })
+    const { store, written } = fakeStore([ticket])
+    const answer = {
+      id: '33333333-3333-4333-8333-333333333333',
+      subject: 'what happened to my report',
+      resolution: 'The issue your report became has been closed as done: “x”. https://e/200',
+      issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/200',
+    }
+
+    await triageOne(
+      ticket,
+      { issues: [], answered: [answer] },
+      deps({ store, model: modelAnswering({ kind: 'answered', fromTicketId: answer.id }) }),
+    )
+
+    expect(written[0]).toMatchObject({ status: 'resolved', issueUrl: answer.issueUrl })
   })
 })
 

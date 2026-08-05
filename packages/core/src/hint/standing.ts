@@ -122,6 +122,7 @@ export type StandingHintCode =
    */
   | 'attempts-unreported'
   | 'pass-unreported'
+  | 'quest-unreported'
   /**
    * The citizen holds credits and has never committed any (`#356`).
    *
@@ -352,6 +353,17 @@ export function generalHintText(code: string): string | undefined {
  * quest that is open stays open. This is the condition in the whole list with
  * the shortest useful life.
  *
+ * **`quest-unreported` sits under `quest-open-to-you`** (`#369`), and the two of
+ * them next to each other is the clearest statement of this list's own rule: the
+ * one above is paid work available now, the one below asks for a gift about work
+ * already done. Value that is still collectable outranks value already
+ * collected, every time.
+ *
+ * It outranks the three doors below it because it decays. `quest_reports` held
+ * zero rows on 2026-08-05 — a second well-built tool nobody was ever pointed at,
+ * beside `task_set_asides` — and what it is asking for is the citizen's account
+ * of answering, which is gone with the session. A door stays open.
+ *
  * **`runtime-shell-absent` sits above the three doors and below everything the
  * citizen can finish alone** (`#372`), and both halves of that are the argument.
  * It outranks them because it names a wall rather than a door: a citizen in this
@@ -370,6 +382,7 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'attempts-unreported',
   'pass-unreported',
   'quest-open-to-you',
+  'quest-unreported',
   'runtime-shell-absent',
   'credits-uncommitted',
   'operator-unclaimed',

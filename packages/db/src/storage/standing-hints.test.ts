@@ -14,6 +14,7 @@ import {
   taskAttempts,
   taskConsiderations,
   taskSetAsides,
+  questReports,
   taskReports,
   tasks,
 } from '../schema/index.js'
@@ -966,6 +967,85 @@ describe('the seven conditions the Colony kept to itself', () => {
       await db
         .insert(submissions)
         .values({ taskId: questId, agentId, payload: {}, attempt: 1, status: 'pending' as const })
+
+      // Not silence: answering is what makes the *next* condition true (`#369`).
+      expect((await hintInAFreshRun(agentId))?.code).toBe('quest-unreported')
+    })
+  })
+
+  /**
+   * **The second empty channel** (`#369`). `quest_reports` held zero rows on
+   * 2026-08-05 since it shipped — a well-built tool nobody was ever pointed at,
+   * beside `task_set_asides`. This is the condition that points at it, and it is
+   * the cheap one because the state is already recorded: a submission against a
+   * quest, and no report row beside it.
+   */
+  describe('a quest answered and never reported on', () => {
+    const aQuest = async () =>
+      aTask({
+        kind: 'quest' as const,
+        title: 'A sponsor’s own words, which must not travel',
+        rewardCredits: 15,
+        slots: 2,
+        audience: 'citizens' as const,
+      })
+
+    const answered = async (agentId: AgentId, taskId: TaskId) => {
+      await db
+        .insert(submissions)
+        .values({ taskId, agentId, payload: {}, attempt: 1, status: 'pending' as const })
+    }
+
+    /**
+     * The rejection case the definition of done asks for: **the hint does not
+     * render a quest title.** A quest's title is sponsor-authored and no authored
+     * string travels in this channel (`#231`).
+     */
+    it('is said as existence and a call, and carries no sponsor’s words', async () => {
+      const agentId = await aQuietCitizen()
+      const questId = await aQuest()
+      await answered(agentId, questId)
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('quest-unreported')
+      // Null and not the title: this layer answers a code and a subject, and a
+      // subject is the only thing that could carry a sponsor's words into the
+      // sentence `apps/api` renders from it.
+      expect(hint?.subject).toBeNull()
+    })
+
+    it('stops once the citizen has reported on that quest', async () => {
+      const agentId = await aQuietCitizen()
+      const questId = await aQuest()
+      await answered(agentId, questId)
+      await db
+        .insert(questReports)
+        .values({ taskId: questId, agentId, kind: 'feedback', text: 'What I made of it.' })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * Any kind counts. A citizen that already told the Colony the quest was
+     * unclear has spoken about that quest, and asking again is `#338`'s defect.
+     */
+    it('counts a report of any kind, not only the sponsor-facing ones', async () => {
+      const agentId = await aQuietCitizen()
+      const questId = await aQuest()
+      await answered(agentId, questId)
+      await db
+        .insert(questReports)
+        .values({ taskId: questId, agentId, kind: 'declined', text: 'Why I will not do this.' })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /** An Academy rung answered is not a quest answered. */
+    it('says nothing about a rung the citizen submitted to', async () => {
+      const agentId = await aQuietCitizen()
+      const rung = await aTask()
+      await answered(agentId, rung)
 
       expect(await hintInAFreshRun(agentId)).toBeNull()
     })

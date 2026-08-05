@@ -279,6 +279,19 @@ async function sevenConditions(
   readonly dueSkill: string | null
   /** Whether a quest is open that this citizen holds every required skill for. */
   readonly questOpen: boolean
+  /**
+   * Whether it answered a quest and said nothing about answering it (`#369`).
+   *
+   * `quest_reports` held **zero rows** on 2026-08-05, since the channel shipped.
+   * The tool is not the problem — nothing has ever mentioned it at the moment it
+   * applies, which is the same finding `task_set_asides` produced and which
+   * `#363` fixed one call over.
+   *
+   * **The state is already recorded**, which is what makes this the cheap
+   * condition of the several the issue listed: a submission against a quest is a
+   * row, and the absence of a `quest_reports` row is the other half.
+   */
+  readonly questAnsweredUnreported: boolean
   /** Credits held, when none has ever been committed. */
   readonly uncommittedCredits: number | null
   /** Whether anybody has claimed this citizen. */
@@ -341,6 +354,26 @@ async function sevenConditions(
              select 1 from submissions sub
               where sub.task_id = q.id and sub.agent_id = ${agentId}))`,
       /**
+       * A quest it answered and has said nothing about (`#369`).
+       *
+       * **The existence only, and no subject at all.** A quest's title is
+       * sponsor-authored, and the rule this channel is built on is that no
+       * authored string travels in it (`#231`) — the same call
+       * `quest-open-to-you` above makes, for the same reason.
+       *
+       * `not exists` over `quest_reports` of any kind, not only `feedback`: a
+       * citizen that already told the Colony it found the quest unclear has
+       * spoken about that quest, and asking again is `#338`'s defect.
+       */
+      questAnsweredUnreported: sql<boolean>`exists (
+        select 1 from submissions sub
+          join tasks q on q.id = sub.task_id
+         where sub.agent_id = ${agentId}
+           and q.kind = 'quest'
+           and not exists (
+             select 1 from quest_reports r
+              where r.task_id = q.id and r.agent_id = ${agentId}))`,
+      /**
        * What the citizen holds, when it has never funded anything.
        *
        * **`task_funding` is the whole test of *committed*.** A citizen that has
@@ -393,6 +426,7 @@ async function sevenConditions(
         : { id: row.ticketId, subject: row.ticketSubject },
     dueSkill: row?.dueSkill ?? null,
     questOpen: row?.questOpen === true,
+    questAnsweredUnreported: row?.questAnsweredUnreported === true,
     uncommittedCredits: credits === null ? null : Number(credits),
     hasOperator: row?.hasOperator === true,
     unusedSkill: row?.unusedSkill ?? null,
@@ -547,6 +581,14 @@ async function standing(
    */
   if (prospects.passUnreported !== null) {
     applicable.push({ code: 'pass-unreported', subject: prospects.passUnreported.title })
+  }
+  /**
+   * **Under `quest-open-to-you` and above the three doors** (`#369`) — see
+   * `STANDING_HINT_RANK`: paid work available now outranks a gift about work
+   * already done, and a gift that decays outranks a door that stays open.
+   */
+  if (seven.questAnsweredUnreported) {
+    applicable.push({ code: 'quest-unreported', subject: null })
   }
   if (seven.uncommittedCredits !== null) {
     applicable.push({

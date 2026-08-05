@@ -168,6 +168,33 @@ describe('the line attached to a tool result', () => {
   })
 
   /**
+   * **The second empty channel** (`#369`). `quest_reports` held zero rows on
+   * 2026-08-05 since it shipped, beside `task_set_asides` — two well-built tools
+   * neither of which anything ever mentioned at the moment it applies.
+   */
+  it('offers the quest report and renders no quest title', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('quest-unreported')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const { code, text } = (result.structuredContent as { hint: { code: string; text: string } })
+      .hint
+    await close()
+
+    expect(code).toBe('quest-unreported')
+    expect(text).toContain('kolonie.quests.report')
+    // No subject reaches the renderer, so no sponsor-authored string can (`#231`).
+    expect(text).not.toContain('undefined')
+    expect(text).not.toContain('null')
+  })
+
+  /**
    * **The report the Colony cannot get anywhere else** (`#365`).
    *
    * The failure case can offer the citizen something — its next attempt stops

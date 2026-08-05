@@ -235,6 +235,14 @@ describe('the badges a citizen is given', () => {
       'badges.test.ts',
       'standing-hints.ts',
       'operator-pages.ts',
+      /**
+       * `#243`, and it is a test rather than a fourth reader. `attribution.ts`
+       * itself is clean — it records a reading of a page and knows nothing about
+       * badges, which is what keeps this rule true. Its test sweeps and reads
+       * the badges to assert that the reading is what produces one, which is the
+       * property worth pinning and cannot be pinned without touching both.
+       */
+      'attribution.test.ts',
     ])
 
     const offenders: string[] = []

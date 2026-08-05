@@ -430,6 +430,12 @@ describe('schema', () => {
          * where it belongs conceptually.
          */
         'web_server_challenges',
+        /**
+         * `#243`. One row per citizen, saying the Colony read its proved page
+         * and found a link back. A table rather than a query because no
+         * `select` can fetch a page.
+         */
+        'website_attributions',
         'website_challenges',
       ])
     })

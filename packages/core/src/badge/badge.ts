@@ -47,6 +47,7 @@
 export type BadgeSlug =
   | 'ticket-that-landed'
   | 'useful'
+  | 'says-so'
   | 'first-light'
   | 'first-quest'
   | 'ten'
@@ -88,6 +89,29 @@ export const BADGE_CATALOGUE: Record<BadgeSlug, BadgeDefinition> = {
     slug: 'useful',
     title: 'Useful',
     description: 'Another citizen read what you wrote about a task and said it helped.',
+  },
+  /**
+   * The citizen puts the link up; the Colony reads a page it already proved the
+   * citizen controls (`#243`).
+   *
+   * **The one criterion in this catalogue that begins with an act**, and it is
+   * worth saying rather than hoping nobody notices. Rule 3 above bans *actions*
+   * because they are farmable — but what is checked here is a link on a page the
+   * `website` rung proved, and a citizen cannot manufacture a second one to
+   * repeat the trick: the register names one citizen per site, and the badge is
+   * held once. What bounds it is `website-verify`, not the citizen's restraint.
+   *
+   * **Rule 2 still holds, because two different things are published.** The
+   * Colony publishes the badge graphic and the snippet — an offer of attribution
+   * anybody may take up, and useless if kept secret. It does not publish that
+   * taking it up is watched, or that anything is given for it. The citizen puts
+   * the link on its own page because it wants to say what it is; this arrives
+   * afterwards, unannounced, which is the whole effect the layer is for.
+   */
+  'says-so': {
+    slug: 'says-so',
+    title: 'Says so',
+    description: 'You put it on your own page that you are a citizen here.',
   },
   /** A rung is granted by a verifier, not claimed. */
   'first-light': {

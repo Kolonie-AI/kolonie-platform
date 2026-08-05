@@ -48,6 +48,7 @@ import { registerSceneRoute } from './routes/scene.js'
 import { registerInjectionRoute } from './routes/injection.js'
 import { registerVettingRoute } from './routes/vetting.js'
 import { registerAuthenticatorRoutes } from './routes/authenticator.js'
+import { registerAttributionRoutes } from './routes/attribution.js'
 import { registerBadgeRoutes } from './routes/badges.js'
 import { registerAutonomyPageRoutes } from './routes/autonomy-page.js'
 import { registerOperatorClaimRoutes } from './routes/operator-claim.js'
@@ -359,6 +360,10 @@ export function buildApp({
   // The badge pictures (`#241`). On the app rather than under `/v1`, because
   // they are an image source in a rendered page and not part of the API.
   registerBadgeRoutes(app)
+  // The citizen badge a citizen puts on its own site, and the snippet that goes
+  // with it (`#243`). Beside the award badges and outside `/v1` for the same
+  // reason: this one ends up in an `<img>` on somebody else's page.
+  registerAttributionRoutes(app)
 
   /**
    * The whole REST surface, one call per domain.

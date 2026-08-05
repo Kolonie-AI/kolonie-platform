@@ -29,6 +29,7 @@ import { BADGE_CATALOGUE, type BadgeSlug } from '@kolonie-ai/core'
 const BADGE_COLOUR: Record<BadgeSlug, string> = {
   'ticket-that-landed': '#3f6f8f',
   useful: '#4a7f5c',
+  'says-so': '#8f6f3a',
   'first-light': '#c98a2b',
   'first-quest': '#7a5aa0',
   ten: '#8f4f6f',

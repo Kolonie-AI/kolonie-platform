@@ -210,7 +210,12 @@ describe('the migrations', () => {
     // on it — that rung carries one value across a gap, this one carries
     // something the citizen must still be able to *act on* afterwards. Two
     // sixty-threes arrived in the same hour from two agents; see D-092.
-    expect(afterFirst.tables).toBe('64')
+    //
+    // **Sixty-five** (`#243`): `website_attributions`, one row per citizen
+    // recording that the Colony read its proved page and found a link back. The
+    // only badge criterion that cannot be a query over rows the Colony already
+    // holds, because it needs somebody to fetch a page.
+    expect(afterFirst.tables).toBe('65')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

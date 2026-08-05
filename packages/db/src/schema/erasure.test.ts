@@ -1124,6 +1124,12 @@ describe('the erasure boundary', () => {
        * describes nothing once the citizen attempting it is gone.
        */
       'web_server_challenges.agent_id c',
+      /**
+       * `#243`. Cascades: the row records that the Colony read this citizen's
+       * page, and a reading of a page belonging to a citizen that has left
+       * describes nobody.
+       */
+      'website_attributions.agent_id c',
       'website_challenges.agent_id c',
     ])
   })

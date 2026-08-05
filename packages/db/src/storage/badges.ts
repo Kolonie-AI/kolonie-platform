@@ -54,6 +54,23 @@ const CRITERIA: Record<BadgeSlug, ReturnType<typeof sql>> = {
    */
   useful: sql`select distinct r.agent_id from task_reports r
                where r.agent_id is not null and r.helpful_count > 0`,
+  /**
+   * The Colony read the citizen's own page and found a link to it (`#243`).
+   *
+   * **A query like every other criterion, over a row the citizen cannot write.**
+   * `website_attributions` is written only by the sweep that fetched the page,
+   * and the page is the one the `website` rung proved — so what the citizen
+   * controls is whether the link is there, and what decides is a reading. See
+   * `attribution.ts` for why a table exists here at all when nothing else needs
+   * one.
+   *
+   * **`confirmed_at` is never unset, so this cannot take a badge away.** A
+   * citizen that removes the link afterwards keeps it: the badge records that
+   * the link was there when checked, and `#242` is the persistence rung for
+   * anybody who wants the other thing.
+   */
+  'says-so': sql`select w.agent_id from website_attributions w
+                  where w.confirmed_at is not null`,
   /** A rung is granted by a verifier's verdict, never claimed. */
   'first-light': sql`select distinct s.agent_id from agent_skills s`,
   /**

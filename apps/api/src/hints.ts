@@ -5,7 +5,7 @@ import type {
   StandingHintCode,
   StandingHintFinding,
 } from '@kolonie-ai/core'
-import { generalHintText } from '@kolonie-ai/core'
+import { GENERAL_HINTS, generalHintText } from '@kolonie-ai/core'
 import { dueStandingHint, type Database } from '@kolonie-ai/db'
 
 /**
@@ -151,6 +151,32 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     (subject === null ? undefined : generalHintText(subject)) ??
     'The Colony has something general to say and could not find the words for it. ' +
       'kolonie.support.open, if you would like to say so.',
+}
+
+/**
+ * Every sentence this channel can say, paired with the code that says it
+ * (`#357`).
+ *
+ * **Exported for the check and for nothing else.** A corpus whose sentences all
+ * name calls is a corpus that all goes stale the moment a tool is renamed, and
+ * it goes stale silently — so `tool-list.test.ts` holds every one of these
+ * against the registry, through the same parser `#196` already uses for task
+ * text.
+ *
+ * **Derived from the record rather than listed**, so a condition added later is
+ * covered without anybody remembering to extend anything. The conditional
+ * sentences are rendered with a `null` subject: what varies inside them is an
+ * identifier or a URL, never a tool name, so the names are all in the fixed
+ * half. The general corpus is added whole, because its `subject` *is* the
+ * selector rather than an interpolation.
+ */
+export function standingHintCorpus(): readonly (readonly [string, string])[] {
+  return [
+    ...Object.entries(STANDING_HINT_TEXT)
+      .filter(([code]) => code !== 'general')
+      .map(([code, render]) => [code, render(null)] as const),
+    ...GENERAL_HINTS.map((hint) => [hint.code, hint.text] as const),
+  ]
 }
 
 /** Render a finding as the pair a citizen is handed. */

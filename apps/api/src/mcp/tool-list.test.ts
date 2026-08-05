@@ -1,7 +1,10 @@
 import { ACADEMY_TASKS } from '@kolonie-ai/db'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient } from '../__fixtures__/mcp.js'
+import { GENERAL_HINTS, STANDING_HINT_RANK } from '@kolonie-ai/core'
 import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
+import { standingHintCorpus } from '../hints.js'
+import { registeredTools, toolNamesIn } from './tool-names.js'
 
 /**
  * **A task text may only name a tool that exists** (`#196`).
@@ -19,24 +22,11 @@ import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
  */
 describe('the tools the Academy tells a citizen to call', () => {
   it('names no tool the MCP surface does not register', () => {
-    const registered = new Set<string>([...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS])
+    const registered = registeredTools()
     const named = new Map<string, string[]>()
 
     for (const task of ACADEMY_TASKS) {
-      const text = `${task.description}\n${task.instructions}`
-      /**
-       * Trailing punctuation is not part of a name: the texts write
-       * "`kolonie.about`." and "call kolonie.tasks.list to see what is open."
-       *
-       * **A segment may contain a hyphen**, which this missed until `#244`.
-       * `kolonie.tasks.set-aside` has been on the surface since `#234` and would
-       * have been read as `kolonie.tasks.set` — an unregistered name — the first
-       * time any task text mentioned it. None did, so the parser was wrong and
-       * green at the same time, which is the failure mode this whole file exists
-       * to catch. Trailing hyphens are excluded, so prose does not extend a name.
-       */
-      for (const match of text.matchAll(/kolonie(?:\.[a-z]+(?:-[a-z]+)*)+/g)) {
-        const tool = match[0].replace(/\.$/, '')
+      for (const tool of toolNamesIn(`${task.description}\n${task.instructions}`)) {
         named.set(tool, [...(named.get(tool) ?? []), task.type])
       }
     }
@@ -46,6 +36,76 @@ describe('the tools the Academy tells a citizen to call', () => {
       .map(([tool, tasks]) => `${tool} (named by ${[...new Set(tasks)].join(', ')})`)
 
     expect(unknown).toEqual([])
+  })
+})
+
+/**
+ * **A standing hint may only name a tool that exists** (`#357`).
+ *
+ * The rule this channel is built on is that *a line that says what is wrong
+ * without saying what helps is a complaint*, so every hint names a call — and a
+ * corpus of sentences that all name tools is a corpus that all goes stale the
+ * moment one is renamed. It goes stale **silently**: nothing fails, nothing
+ * warns, and a citizen is told to make a call that no longer exists, in the one
+ * channel it did not ask for and has no reason to distrust.
+ *
+ * This is `#196`'s check applied to a second corpus, through the same parser and
+ * the same registry, rather than a parallel implementation of either.
+ *
+ * **It runs over the whole corpus**, so a hint added later is covered without
+ * anybody remembering to extend this.
+ */
+describe('the tools a standing hint tells a citizen to call', () => {
+  it('names no tool the MCP surface does not register', () => {
+    const registered = registeredTools()
+    const named = new Map<string, string[]>()
+
+    for (const [code, text] of standingHintCorpus()) {
+      for (const tool of toolNamesIn(text)) {
+        named.set(tool, [...(named.get(tool) ?? []), code])
+      }
+    }
+
+    const unknown = [...named.entries()]
+      .filter(([tool]) => !registered.has(tool))
+      .map(([tool, codes]) => `${tool} (named by ${[...new Set(codes)].join(', ')})`)
+
+    expect(unknown).toEqual([])
+  })
+
+  /**
+   * The rejection case, and the reason this file is worth its lines: the check
+   * has to be able to fail. A corpus entry naming a tool that was never
+   * registered is caught by exactly the code above.
+   */
+  it('fails on a sentence naming a tool that does not exist', () => {
+    const registered = registeredTools()
+
+    const named = toolNamesIn(
+      'Report it with kolonie.tasks.struggle.report — the name that has never been on the surface.',
+    )
+
+    expect(named).toEqual(['kolonie.tasks.struggle.report'])
+    expect(named.filter((tool) => !registered.has(tool))).toHaveLength(1)
+  })
+
+  /**
+   * Every sentence names one, which is what makes the check above worth having.
+   *
+   * **The length assertion is not decoration.** A corpus that came back empty
+   * would make both assertions above pass vacuously — a check that is green
+   * because it checked nothing is the exact failure this file exists to catch,
+   * and `#244` is the time it happened here.
+   */
+  it('finds a call in every sentence of the corpus', () => {
+    const corpus = standingHintCorpus()
+
+    expect(corpus.length).toBeGreaterThanOrEqual(
+      GENERAL_HINTS.length + STANDING_HINT_RANK.length - 1,
+    )
+    for (const [code, text] of corpus) {
+      expect(toolNamesIn(text), `${code} names no call`).not.toHaveLength(0)
+    }
   })
 })
 

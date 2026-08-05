@@ -1,7 +1,13 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { operatorClaims, supportTickets, taskAttempts, tasks } from '../schema/index.js'
+import {
+  autonomyContracts,
+  operatorClaims,
+  supportTickets,
+  taskAttempts,
+  tasks,
+} from '../schema/index.js'
 
 /**
  * The state facts that make a non-rung action available to a citizen right now
@@ -50,6 +56,37 @@ export interface OpenProspects {
    * not come to it unprompted, an arriving citizen will not.
    */
   readonly passUnreported: { readonly taskId: string; readonly title: string } | null
+  /**
+   * Whether the autonomy contract can usefully be asked again, right now
+   * (`#392`).
+   *
+   * **The renewal already works and nothing ever offered it.**
+   * `kolonie.autonomy.read` says outright that a contract past its review date
+   * reads as *unreviewed* rather than void and that it is worth going back to
+   * the operator — *"a first answer given to an unproven agent was never meant to
+   * be its last"*. A citizen would have had to re-read the full description of a
+   * tool it had already used successfully and conclude on its own that using it
+   * again was allowed. That is the polling failure `kolonie-docs#159` is about,
+   * on the one surface where the cost is a permanently narrow contract.
+   *
+   * **Two conditions and only two**, because anything broader is a nag: the
+   * contract is past its review date, or the citizen has recorded a block its
+   * contract does not cover (`kolonie.autonomy.blocked`). `null` when neither
+   * holds, and then no entry is rendered at all.
+   *
+   * **And nothing since**, which is what makes this once per condition rather
+   * than once per waking: an invitation minted after the condition arose clears
+   * it. A citizen that asked is not asked again for the same staleness or the
+   * same block.
+   *
+   * **What it cannot see is a citizen that read the offer and decided against
+   * it.** Knowing that would take a write, and the wake-up is a read that must
+   * stay safe to call twice — so the offer stands while the condition does and
+   * nothing has been done about it. Stated rather than papered over: this is the
+   * one case where *declined* and *not got to it yet* look the same, and the
+   * cheaper error is to keep offering something that costs nothing to ignore.
+   */
+  readonly renewal: { readonly why: 'stale' | 'blocked' } | null
 }
 
 /** How many failures make an unreported wall worth naming. */
@@ -76,7 +113,7 @@ export async function openProspects(db: Database, agentId: AgentId): Promise<Ope
     where coalesce(a.agent_id, r.agent_id) = ${agentId}
       and coalesce(a.task_id, r.task_id) = task_attempts.task_id)`
 
-  const [operator, tickets, failures, unreported, passUnreported] = await Promise.all([
+  const [operator, tickets, failures, unreported, passUnreported, renewal] = await Promise.all([
     db
       .select({ handle: operatorClaims.handle })
       .from(operatorClaims)
@@ -148,6 +185,30 @@ export async function openProspects(db: Database, agentId: AgentId): Promise<Ope
       )
       .orderBy(desc(taskAttempts.closedAt), tasks.id)
       .limit(1),
+
+    /**
+     * Whether the contract is worth asking about again (`#392`).
+     *
+     * One query rather than three, because the answer is one fact and the three
+     * rows it reads are cheap: the contract, the newest block this citizen
+     * recorded, and the newest form it has been sent. `stale` wins a tie —
+     * a citizen whose contract is both overdue and blocking something is told
+     * the more general thing, since renewing covers both and the block is what
+     * it already knows about.
+     */
+    db
+      .select({
+        reviewDueAt: autonomyContracts.reviewDueAt,
+        blockedAt: sql<
+          string | null
+        >`(select max(filed_at) from permission_reports where agent_id = ${agentId})`,
+        askedAt: sql<
+          string | null
+        >`(select max(created_at) from autonomy_form_invitations where agent_id = ${agentId})`,
+      })
+      .from(autonomyContracts)
+      .where(eq(autonomyContracts.agentId, agentId))
+      .limit(1),
   ])
 
   const wall = unreported[0]
@@ -159,5 +220,32 @@ export async function openProspects(db: Database, agentId: AgentId): Promise<Ope
     failedAttempts: Number(failures[0]?.total ?? 0),
     unreported: wall === undefined ? null : { taskId: wall.taskId, title: wall.title },
     passUnreported: passed === undefined ? null : { taskId: passed.taskId, title: passed.title },
+    renewal: renewalFrom(renewal[0]),
   }
+}
+
+/**
+ * Which of the two conditions holds, if either (`#392`).
+ *
+ * **A citizen with no contract is offered nothing here**, and that is not an
+ * omission. Its first contract is `kolonie.autonomy.ask`'s own business and the
+ * arrival path already carries it; this is about a contract that exists and has
+ * aged or has been found wanting.
+ */
+function renewalFrom(
+  row: { reviewDueAt: string; blockedAt: string | null; askedAt: string | null } | undefined,
+): OpenProspects['renewal'] {
+  if (row === undefined) return null
+
+  const asked = row.askedAt === null ? 0 : Date.parse(row.askedAt)
+  const stale = Date.parse(row.reviewDueAt) <= Date.now()
+  const blocked = row.blockedAt !== null
+
+  // An invitation minted after the condition arose is the citizen having acted
+  // on it. That is what keeps this once per condition rather than once per
+  // waking, and it needs no record of its own.
+  if (stale && asked <= Date.parse(row.reviewDueAt)) return { why: 'stale' }
+  if (blocked && asked <= Date.parse(row.blockedAt!)) return { why: 'blocked' }
+
+  return null
 }

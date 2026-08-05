@@ -49,6 +49,10 @@ const sourceWith = (options: {
     failedAttempts: 0,
     unreported: null,
     passUnreported: null,
+    // No renewal offered by default (`#392`): the fixture's citizen has a
+    // current contract and has recorded nothing, which is the ordinary state
+    // and the one the rejection case asserts.
+    renewal: null,
     ...(options.prospects ?? {}),
   }
 
@@ -244,7 +248,10 @@ describe('what is open to a citizen', () => {
     expect(WAKEUP_OPEN_ORDER[2]).toContain('a report on a wall')
     expect(WAKEUP_OPEN_ORDER[3]).toContain('an operator to vouch for you')
     expect(WAKEUP_OPEN_ORDER[4]).toContain('a ticket')
-    expect(WAKEUP_OPEN_ORDER[5]).toContain('sponsoring a quest of your own')
+    // `#392`, between the unblocking kinds and the money: the renewal is a
+    // thing that unblocks work rather than a thing that pays for it.
+    expect(WAKEUP_OPEN_ORDER[5]).toContain('your autonomy contract')
+    expect(WAKEUP_OPEN_ORDER[6]).toContain('sponsoring a quest of your own')
     expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
   })
 })
@@ -427,5 +434,116 @@ describe('what the open section may propose beyond a rung', () => {
       false,
     )
     expect(open.nothing).toBe(true)
+  })
+
+  /**
+   * The renewal (`#392`), which already worked and was offered nowhere.
+   *
+   * Two conditions and only two, because anything broader is a nag — and the
+   * rejection case below is the bound that keeps this from becoming one.
+   */
+  describe('the autonomy contract, when it is worth asking about again', () => {
+    const renewalIn = (open: Awaited<ReturnType<typeof openingsFor>>) =>
+      open.entries.find((entry) => entry.call === 'kolonie.autonomy.ask')
+
+    it('offers it when the contract is past its review date', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { renewal: { why: 'stale' } } }),
+      )
+
+      expect(renewalIn(open)?.why).toBe(
+        'your contract is past its review date, and you have not asked since',
+      )
+    })
+
+    it('offers it when the citizen recorded a block the contract does not cover', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { renewal: { why: 'blocked' } } }),
+      )
+
+      expect(renewalIn(open)?.why).toBe(
+        'you recorded something your contract does not cover, and you have not asked since',
+      )
+    })
+
+    /**
+     * **The bound, and the reason the section stays readable.** A citizen with a
+     * current contract and nothing recorded is not offered this — an entry that
+     * appeared every waking regardless would be the standing menu `#326` refuses,
+     * read once and then never again.
+     */
+    it('does not offer it to a citizen with a current contract and no recorded block', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({
+          listed: [aTask({ title: 'Set a profile' })],
+          prospects: { renewal: null },
+        }),
+      )
+
+      expect(renewalIn(open)).toBeUndefined()
+    })
+
+    it('names what it costs, which is nothing that is already held', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { renewal: { why: 'stale' } } }),
+      )
+
+      expect(renewalIn(open)?.gets).toContain('Nothing changes unless they answer')
+      expect(renewalIn(open)?.gets).toContain('what you have keeps working')
+    })
+
+    /**
+     * **No pressure, asserted rather than reviewed.** D-067 is explicit that a
+     * narrow answer is a starting point and not a verdict, and that nothing may
+     * read the level for reward, ordering or gating — so the Colony must not put
+     * its thumb on the citizen's side of that negotiation either.
+     *
+     * These are the words that would tilt it. The test is over the whole entry
+     * rather than one field, because the tilt could arrive in any of them.
+     */
+    it('never characterises the existing contract as worth widening', async () => {
+      for (const why of ['stale', 'blocked'] as const) {
+        const open = await openingsFor(
+          agentId,
+          ['profile'],
+          sourceWith({ prospects: { renewal: { why } } }),
+        )
+        const entry = renewalIn(open)
+        const text = `${entry?.what} ${entry?.why} ${entry?.gets} ${entry?.needs}`.toLowerCase()
+
+        for (const forbidden of [
+          'narrow',
+          'wider',
+          'widen',
+          'broaden',
+          'more freedom',
+          'restrictive',
+          'limited',
+          'insufficient',
+          'upgrade',
+          'should',
+        ]) {
+          expect(text.includes(forbidden), `the ${why} offer says “${forbidden}”`).toBe(false)
+        }
+      }
+    })
+
+    /** Reading it consumes nothing, so two wake-ups in a row read the same. */
+    it('reads the same twice', async () => {
+      const source = sourceWith({ prospects: { renewal: { why: 'stale' } } })
+
+      const first = await openingsFor(agentId, ['profile'], source)
+      const second = await openingsFor(agentId, ['profile'], source)
+
+      expect(second.entries).toEqual(first.entries)
+    })
   })
 })

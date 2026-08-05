@@ -131,6 +131,7 @@ export const WAKEUP_OPEN_ORDER = [
   'a report on a wall you hit twice and never described — free, and it opens your next try',
   'an operator to vouch for you, when nobody has — half of it is somebody else’s to finish',
   'a ticket, when you have been stuck and never opened one',
+  'your autonomy contract, when it has gone stale or has just stood in your way — the Colony offers the conversation and never a direction for it',
   'sponsoring a quest of your own — only when your balance can actually pay for it',
   'getting closer: the one skill that would open the most, and where to earn it',
 ] as const

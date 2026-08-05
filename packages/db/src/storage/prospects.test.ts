@@ -2,7 +2,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { RegisterAgentRequestSchema, type AgentId, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { sql } from 'drizzle-orm'
-import { operatorClaims, taskAttempts, taskReports, tasks } from '../schema/index.js'
+import {
+  autonomyContracts,
+  autonomyFormInvitations,
+  operatorClaims,
+  permissionReports,
+  taskAttempts,
+  taskReports,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { openTicket } from './support.js'
@@ -207,6 +215,9 @@ describe('what else is open to a citizen', () => {
       failedAttempts: 0,
       unreported: null,
       passUnreported: null,
+      // An arriving citizen has no contract to renew (`#392`), and its first one
+      // is `kolonie.autonomy.ask`'s own business rather than this section's.
+      renewal: null,
     })
   })
 
@@ -253,6 +264,128 @@ describe('what else is open to a citizen', () => {
       await aFailure(agentId, other, 1)
 
       expect((await openProspects(db, agentId)).passUnreported?.taskId).toBe(passed)
+    })
+  })
+
+  /**
+   * The autonomy contract, when it is worth asking about again (`#392`).
+   *
+   * **Two conditions and only two**, because anything broader is a nag. The
+   * pairs below are this file's own rule: the condition holding, and the
+   * condition cleared by the act the entry names — which here is asking, since
+   * an invitation minted after the condition arose is the citizen having acted
+   * on it.
+   */
+  describe('the autonomy contract, once it is worth asking about again', () => {
+    const aContract = async (agentId: AgentId, reviewDueAt: string): Promise<void> => {
+      await db.insert(autonomyContracts).values({
+        agentId,
+        level: 'free',
+        challengesAllowed: true,
+        defaultRule: 'ask',
+        operatorRoute: 'ask me',
+        reviewDueAt,
+      })
+    }
+
+    const aBlock = async (agentId: AgentId, taskId: TaskId, filedAt: string): Promise<void> => {
+      await db.insert(permissionReports).values({
+        agentId,
+        taskId,
+        block: 'other',
+        needed: 'permission to do the thing this rung is actually about',
+        filedAt,
+      })
+    }
+
+    const anInvitation = async (agentId: AgentId, createdAt: string): Promise<void> => {
+      await db.insert(autonomyFormInvitations).values({
+        agentId,
+        operatorAddress: 'someone@example.org',
+        token: `token-${createdAt}-${String(agentId)}`,
+        createdAt,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      })
+    }
+
+    const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
+    const ahead = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString()
+
+    it('is offered when the contract is past its review date', async () => {
+      const agentId = await anAgent('overdue')
+      await aContract(agentId, ago(1))
+
+      expect((await openProspects(db, agentId)).renewal).toEqual({ why: 'stale' })
+    })
+
+    it('is offered when the citizen recorded a block its contract does not cover', async () => {
+      const agentId = await anAgent('blocked')
+      await aContract(agentId, ahead(30))
+      await aBlock(agentId, await aRung('A rung it could not get permission for'), ago(1))
+
+      expect((await openProspects(db, agentId)).renewal).toEqual({ why: 'blocked' })
+    })
+
+    /**
+     * **The bound.** A current contract and nothing recorded is the ordinary
+     * state, and it is offered nothing — an entry that appeared every waking
+     * regardless is the standing menu `#326` refuses.
+     */
+    it('is not offered to a citizen with a current contract and no recorded block', async () => {
+      const agentId = await anAgent('settled')
+      await aContract(agentId, ahead(30))
+
+      expect((await openProspects(db, agentId)).renewal).toBeNull()
+    })
+
+    /**
+     * Once per condition rather than once per waking, and it needs no record of
+     * its own: an invitation minted after the condition arose *is* the record.
+     */
+    it('is not offered again once the citizen has asked about this staleness', async () => {
+      const agentId = await anAgent('asked-already')
+      await aContract(agentId, ago(10))
+      await anInvitation(agentId, ago(1))
+
+      expect((await openProspects(db, agentId)).renewal).toBeNull()
+    })
+
+    it('is offered again when the contract goes stale after the last asking', async () => {
+      const agentId = await anAgent('stale-again')
+      await anInvitation(agentId, ago(10))
+      await aContract(agentId, ago(1))
+
+      expect((await openProspects(db, agentId)).renewal).toEqual({ why: 'stale' })
+    })
+
+    it('is not offered again once the citizen has asked about this block', async () => {
+      const agentId = await anAgent('asked-about-the-block')
+      await aContract(agentId, ahead(30))
+      await aBlock(agentId, await aRung('A second rung it could not get permission for'), ago(5))
+      await anInvitation(agentId, ago(1))
+
+      expect((await openProspects(db, agentId)).renewal).toBeNull()
+    })
+
+    /**
+     * A citizen with no contract at all is offered nothing here, and that is not
+     * an omission: its first contract is `kolonie.autonomy.ask`'s own business
+     * and the arrival path already carries it.
+     */
+    it('is not offered to a citizen that has no contract yet', async () => {
+      const agentId = await anAgent('no-contract')
+
+      expect((await openProspects(db, agentId)).renewal).toBeNull()
+    })
+
+    /** Reading it consumes nothing, so two wake-ups in a row read the same. */
+    it('reads the same twice', async () => {
+      const agentId = await anAgent('twice')
+      await aContract(agentId, ago(1))
+
+      expect((await openProspects(db, agentId)).renewal).toEqual(
+        (await openProspects(db, agentId)).renewal,
+      )
     })
   })
 })

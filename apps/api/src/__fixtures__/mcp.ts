@@ -132,6 +132,10 @@ export const anonymousClient = (registry = fakeRegistry()) =>
       failedAttempts: 0,
       unreported: null,
       passUnreported: null,
+      // No renewal offered by default (`#392`): the fixture's citizen has a
+      // current contract and has recorded nothing, which is the ordinary state
+      // and the one the rejection case asserts.
+      renewal: null,
     }),
     skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),

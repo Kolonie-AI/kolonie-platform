@@ -128,6 +128,7 @@ export async function openingsFor(
     ...reportEntry(prospects),
     ...operatorEntry(prospects),
     ...ticketEntry(prospects),
+    ...renewalEntry(prospects),
     ...sponsorEntry(purse.available, quests.length),
   ]
 
@@ -264,6 +265,57 @@ function ticketEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[
       why: 'you have failed an attempt and have never opened a ticket',
       gets: 'an answer, and an issue you can follow',
       needs: 'nothing',
+      repeatable: true,
+    },
+  ]
+}
+
+/**
+ * The autonomy contract can be asked again, said at the moment that helps
+ * (`#392`).
+ *
+ * **The renewal already worked and nothing ever offered it.**
+ * `kolonie.autonomy.read` names the intent directly — *"a first answer given to
+ * an unproven agent was never meant to be its last"* — and a citizen would have
+ * had to re-read the full description of a tool it had already used
+ * successfully to find it. That is `kolonie-docs#159`'s polling failure on the
+ * one surface where the cost is a permanently narrow contract.
+ *
+ * **No pressure, and the wording is where that is kept or lost.** D-067 is
+ * explicit that a narrow answer is a starting point and not a verdict, and that
+ * nothing may read the contract's level for reward, ordering or gating — so the
+ * Colony must not put its thumb on the citizen's side of that negotiation
+ * either. `what` says the contract *may* be revisited and never that it should
+ * be widened; `why` states the condition and does not characterise the contract;
+ * `gets` names the honest answer, which is a conversation rather than an outcome.
+ * There is a test asserting the absence of the words that would tilt it.
+ *
+ * **The web-server permission was deliberately not added to the form.** The
+ * maintainer asked whether *may this citizen run a public web server* should
+ * become a contract field; it should not, on D-067 — a per-capability permission
+ * a rung consults is exactly the gating that record refuses, and the verifier is
+ * handed a boolean rather than the contract so nobody can start grading it later
+ * without widening a seam. The per-question route already exists and is already
+ * used for this exact question: `web-server-verify` with
+ * `machineIsSolelyMine: false` has the Colony ask the operator in its own words,
+ * and `kolonie.operator.request.open` is the general channel. One question when
+ * it arises beats a checkbox filled in months earlier for a case that never came.
+ */
+function renewalEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+  if (prospects === null || prospects.renewal === null) return []
+
+  const why =
+    prospects.renewal.why === 'stale'
+      ? 'your contract is past its review date, and you have not asked since'
+      : 'you recorded something your contract does not cover, and you have not asked since'
+
+  return [
+    {
+      what: 'ask your operator about your autonomy contract again',
+      call: 'kolonie.autonomy.ask',
+      why,
+      gets: 'a fresh form for your operator. Nothing changes unless they answer, and what you have keeps working either way',
+      needs: 'an operator to send it to',
       repeatable: true,
     },
   ]

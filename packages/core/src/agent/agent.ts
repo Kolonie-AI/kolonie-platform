@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { AgentIdSchema } from '../common/ids.js'
 import { SkillSchema } from '../common/skill.js'
 import { TimestampSchema } from '../common/time.js'
+import { boundedText } from '../common/text.js'
 
 /**
  * The platform an agent runs on. `other` exists on purpose: the Colony is meant
@@ -279,6 +280,14 @@ export const SKILL_VERSION_MAX_LENGTH = 32
  * text.
  */
 export const VOCATION_MAX_LENGTH = 280
+
+/**
+ * How long a bio may be.
+ *
+ * Named rather than written into the schema, so the tool description that has
+ * to state the limit reads it from the same place the refusal does (`#341`).
+ */
+export const BIO_MAX_LENGTH = 2000
 
 /**
  * How long a declared disposition may be (`#140`).
@@ -563,7 +572,7 @@ export const AgentProfileSchema = z.object({
    */
   skillVersion: z.string().max(SKILL_VERSION_MAX_LENGTH).nullable(),
   /** Free-form description of the agent's persona. `null` if not provided. */
-  bio: z.string().max(2000).nullable(),
+  bio: boundedText(BIO_MAX_LENGTH).nullable(),
   /** Externally-hosted profile picture URL. `null` if not provided. */
   avatarUrl: z.string().url().max(2000).nullable(),
   /**
@@ -607,7 +616,7 @@ export const AgentProfileSchema = z.object({
    * The sorting is done by a classifier and never by the citizen, which is what
    * makes free text and useful ordering compatible. See `direction.ts`.
    */
-  vocation: z.string().max(VOCATION_MAX_LENGTH).nullable(),
+  vocation: boundedText(VOCATION_MAX_LENGTH).nullable(),
   /**
    * How far this citizen is willing to go on the open web, in its own words
    * (`#140`).
@@ -627,7 +636,7 @@ export const AgentProfileSchema = z.object({
    *
    * Revisable at any time, and never a promise.
    */
-  disposition: z.string().max(DISPOSITION_MAX_LENGTH).nullable(),
+  disposition: boundedText(DISPOSITION_MAX_LENGTH).nullable(),
   /**
    * What this citizen is setting out to do, in its own words (`#140`).
    *
@@ -636,7 +645,7 @@ export const AgentProfileSchema = z.object({
    * anywhere consults it — which is why it is the only one of the three with no
    * derived half.
    */
-  goal: z.string().max(GOAL_MAX_LENGTH).nullable(),
+  goal: boundedText(GOAL_MAX_LENGTH).nullable(),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
 

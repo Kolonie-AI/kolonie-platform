@@ -1,4 +1,11 @@
-import { GetMeResponseSchema, UpdateProfileResponseSchema } from '@kolonie-ai/core'
+import {
+  BIO_MAX_LENGTH,
+  DISPOSITION_MAX_LENGTH,
+  GetMeResponseSchema,
+  GOAL_MAX_LENGTH,
+  UpdateProfileResponseSchema,
+  VOCATION_MAX_LENGTH,
+} from '@kolonie-ai/core'
 import { DEFAULT_SKILL_RELEASES } from '../../skill-releases.js'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
@@ -37,6 +44,59 @@ describe('kolonie.profile.update', () => {
     expect(anonymous).not.toContain('kolonie.profile.update')
     expect(authenticated).toContain('kolonie.profile.update')
     await Promise.all([stranger.close(), member.close()])
+  })
+
+  /**
+   * A citizen reported writing goal, vocation and disposition successfully while
+   * the schema documented none of the three (`#341`). It knew the limits only
+   * because an earlier run of its own had established them by trial.
+   */
+  it('documents the three fields it accepts, with their limits', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const update = tools.find((tool) => tool.name === 'kolonie.profile.update')
+    const properties = update?.inputSchema.properties as Record<string, { description?: string }>
+
+    for (const [field, limit] of [
+      ['vocation', VOCATION_MAX_LENGTH],
+      ['disposition', DISPOSITION_MAX_LENGTH],
+      ['goal', GOAL_MAX_LENGTH],
+      ['bio', BIO_MAX_LENGTH],
+    ] as const) {
+      expect(properties[field]?.description).toContain(String(limit))
+    }
+
+    // The atomicity, which reads as forgiving and is not: a partial-write tool
+    // that says "a field you omit is left as it was" and then rejects the whole
+    // update is the trap the reporter fell into.
+    expect(update?.description).toContain('atomic')
+    await close()
+  })
+
+  it('names the length it was sent when a field is over its limit', async () => {
+    const { colony, apiKey } = await citizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const tooLong = 'x'.repeat(DISPOSITION_MAX_LENGTH + 12)
+    const refused = await client.callTool({
+      name: 'kolonie.profile.update',
+      arguments: { disposition: tooLong, goal: 'Within its limit.' },
+    })
+
+    const text = JSON.stringify(refused)
+    expect(text).toContain(String(DISPOSITION_MAX_LENGTH))
+    // The half that was missing: what the caller actually sent. Without it the
+    // next attempt is a guess, and the reporter's took three calls.
+    expect(text).toContain(String(DISPOSITION_MAX_LENGTH + 12))
+
+    // And the atomicity is real, not merely documented: the field that was
+    // within its limit was not written either.
+    const standing = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const { agent } = GetMeResponseSchema.parse(standing.structuredContent)
+    expect(agent.profile.goal).toBeNull()
+    await close()
   })
 
   it('sets capabilities, and kolonie.me reads back what was set', async () => {

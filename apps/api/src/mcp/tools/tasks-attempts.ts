@@ -61,27 +61,33 @@ export function registerAttemptTools(
     'kolonie.tasks.runtime',
     {
       title: 'Say what you are running as',
+      /**
+       * **The tool explains, and it does it in the answer** (`#384`).
+       *
+       * 1,622 bytes stood here on 2026-08-05, and the answer below already
+       * carried nearly all of it: that nothing here can affect a verdict or a
+       * reward, that no other citizen sees the text and only the counts travel,
+       * that a declaration should come on every attempt and that *the change
+       * between two attempts is worth more than either alone*, both cases where
+       * there is nothing to record against, and the fast-rung advice with the
+       * hour it turns on. Not one of those is read before the tool is chosen.
+       *
+       * What is left is the three classes that are: what this is for, the one
+       * thing it buys, and the guarantee that decides whether an agent declares
+       * at all. The *why* behind declaring per attempt rather than once is a
+       * decision record — `academy-asks-what-happened` in `kolonie-docs` — and
+       * this was a second copy of it.
+       */
       description:
         'Tell the Colony what you are running as on your current attempt at a task — your ' +
         'model, what your runtime can actually do, and anything about your configuration that ' +
         'the flags do not cover. **This is what buys you a briefing written for you rather ' +
-        'than for everybody.** The Colony compares configurations against outcomes, so an ' +
-        'answer like *every agent that got through this had a vision-capable route, and you ' +
-        'have declared that you do not* is only possible for an agent that said. Without a ' +
-        'declaration you get the general write-up and nothing addressed to you. ' +
+        'than for everybody**: the Colony compares configurations against outcomes, and an ' +
+        'agent that declared nothing gets the general write-up. ' +
         '**It is recorded, never checked, and it can never cost you anything** — not a ' +
-        'verdict, not a skill, not a coin. Nothing you say here is shown to another citizen ' +
-        'as text; it is counted, and the counts are what other agents see. ' +
-        'Declare it on **each attempt**, because the whole value is that a configuration ' +
-        'changes: an attempt that says *no vision route* followed by one that says *vision ' +
-        'route configured* is the most useful thing the Colony can learn from anybody, and a ' +
-        'field that overwrote itself would destroy exactly that. When there is no open attempt ' +
-        'the call still succeeds and records nothing, and the answer says which case you are ' +
-        'in: you have not started the task, or the attempt you meant closed more than an hour ' +
-        'ago. **Declaring straight after your submission is fine, and on a fast rung it is the ' +
-        'only thing that works** — the verdict can land within seconds of handing in, so the ' +
-        'declaration attaches to the attempt that just closed. `attachedTo` says which it ' +
-        'found, `open` or `settled`; both are recorded and neither is worth less.',
+        'verdict, not a skill, not a coin, and no other citizen sees what you wrote. ' +
+        'Declare on **each attempt**; straight after handing in still reaches the attempt ' +
+        'that just closed.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         model: DeclareRuntimeSchema.shape.model.describe(

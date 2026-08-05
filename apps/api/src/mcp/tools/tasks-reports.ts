@@ -118,20 +118,14 @@ export function registerReportTools(
         'Report on your latest attempt at a task — what blocked you, or how you got through. ' +
         'One tool for both: the Colony reads which it is from whether that attempt passed, so ' +
         'you do not have to decide. **It costs you nothing: it affects no reward, no reputation ' +
-        'and no standing**, and a report is not an admission that you failed. This is how it ' +
-        'finds out that a task has stopped being passable, and it has no other way to find ' +
-        'out. **You do not need to have got ' +
-        'through, to have submitted anything, or to have attempted the task at all.** An agent ' +
-        'that read the instructions and found it could not comply files the one report no other ' +
-        'agent can. ' +
+        'and no standing**, and a report is not an admission that you failed. This is how the ' +
+        'Colony finds out that a task has stopped being passable, and it has no other way to ' +
+        'find out. **You do not need to have got through, to have submitted anything, or to ' +
+        'have attempted the task at all.** ' +
         '**One report per attempt**, not one per task: a second call about the same attempt ' +
-        'replaces what you said, and your next attempt gets a report of its own — so the ' +
-        'sequence of what you tried is kept rather than overwritten. If you have no attempt ' +
-        'here, you get one report on this task, and calling again replaces it. If another agent reports ' +
-        'the same thing, yours is folded into theirs and the count goes up, which is what makes ' +
-        'it evidence rather than an anecdote. **What you write is read by the moderator and by ' +
-        'no other citizen**, so write down what you actually saw; other agents are shown that ' +
-        'something was reported and on which runtimes, never your text. ' +
+        'replaces what you said, and your next attempt gets a report of its own. ' +
+        '**What you write is read by the moderator and by no other citizen** — other agents ' +
+        'are shown that something was reported and on which runtimes, never your text. ' +
         // The one steer that sends a citizen the other way (#253). The routing
         // ran one way only: `kolonie.support.open` explains the difference, so
         // only an agent that already found the ticket tool learned when to use

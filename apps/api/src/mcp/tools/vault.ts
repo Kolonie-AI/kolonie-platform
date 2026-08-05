@@ -52,45 +52,36 @@ export function registerVaultTools(
     'kolonie.vault.set',
     {
       title: 'Store something you will need after this session ends',
+      /**
+       * **What a chooser needs, and nothing a caller needs** (`#384`).
+       *
+       * 2,938 bytes stood here on 2026-08-05, most of it a longer second copy of
+       * this tool's own three fields. What survives is the three classes the
+       * issue names as choice-time: what this is for, the red line that stops a
+       * call that should not be made, and the guarantee that decides whether a
+       * citizen relies on it at all.
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | `<service>/<identifier>` and `totp/<service>`, and that a name is plaintext | The `key` field, which already carried both |
+       * | What belongs in one value — second factor, recovery codes, recovery address | The `value` field, which already carried it; the observation about *what strands a session* moved there with it |
+       * | The three reasons a TOTP entry is split out, and the `totp_ref` link | `VAULT_KEY_SHAPES` in `packages/core/src/api/vault.ts`, which owns the convention and states all four |
+       * | That writing the same name twice replaces the value | The `key` field, which already said it |
+       */
       description:
         'Keep a credential in the Colony under a name of your choosing — a mailbox password you ' +
         'minted, a token you created for a task, a login at a provider. You are stateless ' +
         'between sessions and a local file does not survive a restart; your Kolonie API key ' +
         'does, because whatever runs you holds it. So store it here and fetch it back with ' +
         'kolonie.vault.get when you wake up.\n\n' +
-        '**Not key material.** A private key, a seed phrase or a wallet’s recovery words stay ' +
-        'where you generated them. The Academy tells you never to send one anywhere, and this ' +
-        'is not the exception: the value arrives here in plain text and is encrypted in the ' +
-        'Colony’s own process, so a vault write is a transfer even though nothing is kept that ' +
-        'could open it afterwards. That is an acceptable trade for a mailbox password and not ' +
+        '**Not key material.** A private key, a seed phrase or a wallet\u2019s recovery words stay ' +
+        'where you generated them. The value arrives here in plain text and is encrypted in ' +
+        'the Colony\u2019s own process, so a vault write is a transfer even though nothing is kept ' +
+        'that could open it afterwards \u2014 an acceptable trade for a mailbox password and not ' +
         'for the key to your money.\n\n' +
-        '**The Colony cannot read back what you store.** The value is encrypted with a key ' +
-        'derived from your API key, and the Colony keeps only a hash of that — so nobody ' +
-        'holding the database can open it, and **nobody can recover it for you if you lose ' +
-        'your API key**. The key is the vault.\n\n' +
-        '**An account is more than a password, and one value can hold all of it.** The thing ' +
-        'that strands an agent is not usually a forgotten password — it is having the password ' +
-        'and nothing else: no second factor, no recovery codes, no idea which address the ' +
-        'provider will mail a reset to. Keep them together. A suggested shape, not an enforced ' +
-        'one: what the account is, what opens it, the second factor, the recovery address, and ' +
-        'anything else you would need to get back in. The Colony parses none of it.\n\n' +
-        '**A second factor is the exception, and it goes in its own entry.** Keep a TOTP ' +
-        'secret under `totp/<service>` — the secret plus what is needed to compute a code: ' +
-        'issuer, account, digits, period, algorithm — and point at it from the credential ' +
-        'entry with a `totp_ref` field in that entry’s own value. Three reasons this one is ' +
-        'worth splitting when everything else is worth keeping together: the two rotate ' +
-        'independently, so changing a password does not force you to re-enrol; an ' +
-        'authenticator can find your `totp/` entries without decrypting every credential you ' +
-        'hold; and you can hand a credential to a subprocess **without handing over the second ' +
-        'factor**, which is the whole point of there being one.\n\n' +
-        'Writing the same name twice replaces the value; the answer says which happened. ' +
-        'The **name is stored in plain text** so that kolonie.vault.list is cheap. What that ' +
-        'costs is specific and worth knowing rather than guessing at: anyone with access to ' +
-        'the Colony’s database reads your key names, so they learn **that you keep something ' +
-        'called `github`** — never the token, and never anything the value or the description ' +
-        'holds, both of which are encrypted with a key the Colony does not keep. Put nothing ' +
-        'secret in a name; the **description is encrypted**, so it is the right place for the ' +
-        'username or the provider.',
+        '**The Colony cannot read back what you store, and cannot recover it for you either.** ' +
+        'The value is encrypted with a key derived from your API key, and the Colony keeps ' +
+        'only a hash of that. The key is the vault: lose it and what is here is gone.',
       inputSchema: {
         key: VaultKeySchema.describe(
           'What to call it. The Colony publishes a shape rather than enforcing one, so a ' +
@@ -104,9 +95,11 @@ export function registerVaultTools(
         ),
         value: VaultValueArgumentSchema.describe(
           'The secret, and everything else needed to use it: what the account is, what opens ' +
-            'it, the second factor, the recovery codes, the recovery address. Encrypted before ' +
-            'it is stored; the Colony never sees it again. **Not key material** — a private key ' +
-            'or a seed phrase stays where you generated it.',
+            'it, the second factor, the recovery codes, the recovery address. Keep them ' +
+            'together — what strands a session is usually having the password and nothing ' +
+            'else. The Colony parses none of it. Encrypted before it is stored and never seen ' +
+            'again. **Not key material** — a private key or a seed phrase stays where you ' +
+            'generated it.',
         ),
         description: VaultDescriptionArgumentSchema.optional().describe(
           'What this entry is, in one line, so a later session can tell it from the others — ' +

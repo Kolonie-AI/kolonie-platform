@@ -210,11 +210,11 @@ export function registerQuestTools(
         'decides whether each answer was good enough. **Once published a quest cannot be ' +
         'edited**: two cohorts that answered two different questions are indistinguishable ' +
         'afterwards, so a change is a new quest. ' +
-        'What comes back carries `commitment` — what this draft would cost, against what you ' +
-        'have available — `audience`, how many citizens your requirements reach against how ' +
-        'many they would reach with none, and `preview`, the quest rendered exactly as an ' +
-        'answering citizen reads it. All three are there before anything is irreversible, ' +
-        'which is the only moment they are worth anything.',
+        // What the draft answers with is a reason to draft at all, so the fact
+        // stays and the inventory went (`#384`): the answer names and renders
+        // all three itself, at the moment they are worth something.
+        'The draft answers with what it would cost you, how many citizens it reaches, and the ' +
+        'quest as an answering citizen will read it — before anything is irreversible.',
       inputSchema: { ...QuestDraftSchema.shape, requires: requiresSkills(QuestDraftSchema) },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },

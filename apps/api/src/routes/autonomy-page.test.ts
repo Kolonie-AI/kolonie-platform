@@ -267,6 +267,30 @@ describe('the operator’s form', () => {
       expect(response.body).toContain('worth nothing')
     })
 
+    /**
+     * `#397`: the badge's picture was blocked by the Colony's own CSP, and an
+     * empty `alt` is why nobody saw it — the page failed closed and said
+     * nothing. The name in the `alt` is what makes a picture that does not
+     * arrive degrade to the badge rather than to a blank.
+     */
+    it('names the badge in the alt, so a picture that never arrives still says what it was', async () => {
+      pages.badgesFor(agentId, [
+        {
+          slug: 'first-light',
+          title: 'First light',
+          description: 'You passed your first rung of the Academy.',
+          awardedAt: '2026-08-04T00:00:00.000Z',
+          image: '/badges/first-light.svg',
+        },
+      ])
+      const token = await aPage()
+
+      const response = await get(`/operator/page/${token}`)
+
+      expect(response.body).toContain('alt="First light"')
+      expect(response.body).not.toContain('alt=""')
+    })
+
     /** A page with no badges draws no badge section, rather than an empty one. */
     it('draws no wall for an agent that holds none', async () => {
       const token = await aPage()

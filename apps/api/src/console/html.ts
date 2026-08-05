@@ -32,10 +32,17 @@ export function escape(value: string): string {
  * deploy, and a header that exists in two places agrees with itself. The
  * expensive one to get wrong is the CSP, and it can be this strict precisely
  * because the pages carry no script.
+ *
+ * **`img-src 'self'` is the one relaxation, and it is narrower than it looks**
+ * (`#397`). The operator's page draws badges, and `default-src 'none'` covered
+ * `img-src`, so the Colony's own header blocked the Colony's own pictures. Same
+ * origin only: no data URI, no third party, nothing a stranger's text could
+ * point at. An SVG in an `<img>` cannot run script, so this buys the badges
+ * their picture and grants nothing else.
  */
 export const CONSOLE_HEADERS: Readonly<Record<string, string>> = {
   'content-security-policy':
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
   'referrer-policy': 'no-referrer',

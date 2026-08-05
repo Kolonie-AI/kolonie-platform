@@ -246,6 +246,14 @@ export function operatorDurablePage(input: {
    * starts asking its agent for more of them, and the moment badges are worth
    * asking for they are worth farming — which is the one thing that would spoil
    * a layer whose value is that nobody was aiming at it.
+   *
+   * **The `alt` carries the badge's name, and that is what made `#397` invisible
+   * for as long as it was.** An empty `alt` tells a browser and a screen reader
+   * that the picture is decorative and may be dropped without saying so — but a
+   * badge *is* the content here. With its name in the `alt`, an image that is
+   * blocked, broken or never loaded degrades to the thing it was showing, which
+   * is both what a screen reader needs and what makes the next failure visible
+   * instead of silent.
    */
   const wall =
     input.badges.length === 0
@@ -255,7 +263,7 @@ export function operatorDurablePage(input: {
           '<ul class="badges">',
           ...input.badges.map(
             (badge) =>
-              `<li><img src="${escape(badge.image)}" alt="" width="64" height="64">` +
+              `<li><img src="${escape(badge.image)}" alt="${escape(badge.title)}" width="64" height="64">` +
               `<strong>${escape(badge.title)}</strong>` +
               `<span>${escape(badge.description)}</span></li>`,
           ),

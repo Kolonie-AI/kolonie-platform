@@ -248,6 +248,24 @@ describe('the console surface', () => {
     }
   })
 
+  /**
+   * `#397`: `default-src 'none'` covers `img-src`, so every badge the operator's
+   * page drew was refused by the Colony's own header. The relaxation is exactly
+   * one source and it is this one — a policy that grew `data:` or a third party
+   * would be a different argument, and this test is where it would have to be
+   * made.
+   */
+  it('allows images from itself and from nowhere else', async () => {
+    const policy = CONSOLE_HEADERS['content-security-policy']
+
+    expect(policy).toContain("img-src 'self'")
+    expect(policy).not.toContain('data:')
+    expect(policy).not.toContain('*')
+    // Everything not named is still refused, which is what makes the one
+    // relaxation affordable.
+    expect(policy).toContain("default-src 'none'")
+  })
+
   it('puts no session value, token or secret in the rendered page', async () => {
     const response = await asBrowser('/', { signedIn: true })
 

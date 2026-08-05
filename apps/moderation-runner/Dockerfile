@@ -46,11 +46,20 @@ COPY --from=build /app/packages/core/dist ./packages/core/dist
 # `drizzle/`: migrations are applied once per deploy from the api image
 # (kolonie-infra#9), and a third process that could migrate is a third process
 # that could migrate at the wrong moment.
-#
-# `packages/verifiers` is absent, which is the difference from the other runner:
-# this process judges text and verifies nothing.
 COPY --from=build /app/packages/db/package.json ./packages/db/package.json
 COPY --from=build /app/packages/db/dist ./packages/db/dist
+# **`packages/verifiers` is here, and this comment used to say it was absent** —
+# *"which is the difference from the other runner: this process judges text and
+# verifies nothing"*. True until `#140` imported `openRouterDirectionClassifier`
+# from it to sort what a citizen wants to become.
+#
+# **This one had not failed yet, which is the part worth knowing.** The build
+# serving production still predates that import, so the image was correct and the
+# next deploy of this service would have been the outage — the same one the badge
+# runner was already in. Found by `scripts/check-image-workspaces.test.ts`, which
+# was written for the badge runner and caught this on its first run.
+COPY --from=build /app/packages/verifiers/package.json ./packages/verifiers/package.json
+COPY --from=build /app/packages/verifiers/dist ./packages/verifiers/dist
 COPY --from=build /app/apps/moderation-runner/package.json ./apps/moderation-runner/package.json
 COPY --from=build /app/apps/moderation-runner/dist ./apps/moderation-runner/dist
 

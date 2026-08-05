@@ -42,16 +42,26 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/packages/core/package.json ./packages/core/package.json
 COPY --from=build /app/packages/core/dist ./packages/core/dist
-# The sweep runs entirely inside packages/db, so this image needs it at run time.
+# Most of the sweep runs inside packages/db, so this image needs it at run time.
 # Like the other three runners it does not carry `drizzle/`: migrations are
 # applied once per deploy from the api image (kolonie-infra#9), and a fifth
 # process that could migrate is a fifth process that could migrate at the wrong
 # moment.
-#
-# `packages/verifiers` is absent: this process gives out things that are worth
-# nothing and verifies nothing at all.
 COPY --from=build /app/packages/db/package.json ./packages/db/package.json
 COPY --from=build /app/packages/db/dist ./packages/db/dist
+# **`packages/verifiers` is here because `#243` made it a dependency**, and this
+# comment used to say the opposite — *"absent: this process gives out things that
+# are worth nothing and verifies nothing at all"* — which was true until the
+# attribution sweep started reading the page a citizen proved, with `fetchPage`.
+#
+# The manifest was updated and this stage was not, and the failure had no
+# symptom to read: `node_modules/@kolonie-ai/verifiers` is a workspace symlink,
+# so it is present and dangling, and the process dies on
+# `ERR_MODULE_NOT_FOUND` **before** `createLog` exists. A crash-looping
+# container that has printed nothing at all is what that looks like from the
+# outside, and it looked like an infrastructure fault for a day.
+COPY --from=build /app/packages/verifiers/package.json ./packages/verifiers/package.json
+COPY --from=build /app/packages/verifiers/dist ./packages/verifiers/dist
 COPY --from=build /app/apps/badge-runner/package.json ./apps/badge-runner/package.json
 COPY --from=build /app/apps/badge-runner/dist ./apps/badge-runner/dist
 

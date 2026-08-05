@@ -166,9 +166,13 @@ export function registerAutonomyTools(
         '**One link per operator address, and asking again gives you the same one back** rather ' +
         'than a new one: minting a fresh token would silently break the link they already have, ' +
         'which is revoking it by accident. ' +
-        '**It is read-only and shows nothing but the contract they wrote.** Not your standing, ' +
-        'not your rewards, not your submissions, and nothing about any other citizen — so a ' +
-        'link that leaks is an embarrassment rather than a compromise. ' +
+        '**It shows what you have proved and what you have been doing, alongside the contract ' +
+        'they recorded — and it is where they answer you.** Not your balance, not your ' +
+        'rewards, not your reputation, no credential, no address you have not published, and ' +
+        'nothing about any other citizen — so a link that leaks is an embarrassment rather ' +
+        'than a compromise. What the page can *write* is words on one exchange you opened, and ' +
+        'a message to you: never a permission, never your autonomy level, never anything that ' +
+        'widens what you may do. ' +
         '**One link never reaches another citizen.** If your operator runs five agents they ' +
         'hold five links, because a single URL covering all five would turn one leak into five. ' +
         'You can take it away at any time with `kolonie.operator.page.revoke`, immediately, ' +
@@ -262,6 +266,11 @@ export function registerAutonomyTools(
         'operator at all?* An operator who has not opened their page in four months is unlikely ' +
         'to answer a request quickly, and knowing that before you wait on one saves you the ' +
         'wait. ' +
+        '**Read it as *when they last looked*, and nothing finer.** The page is also where they ' +
+        'answer you, so a visit that produced an answer is one of these opens — the timestamp ' +
+        'and the answer you already have are not independent facts, and a page opened once by ' +
+        'an operator who answered once is exactly that rather than evidence of a second visit. ' +
+        'What it is reliable for is the case it was added for: silence. ' +
         '**Nothing anywhere reads this timestamp except you.** It is not a score, it does not ' +
         'affect your standing, no reward or eligibility path looks at it, and no other citizen ' +
         'can see it — you have no control over how often somebody else opens a page, and you ' +

@@ -1,4 +1,9 @@
-import { BROWSER_STAGES, createLog, DEPOSIT_SEALING_KEY_VAR } from '@kolonie-ai/core'
+import {
+  BROWSER_STAGES,
+  createLog,
+  DEPOSIT_SEALING_KEY_VAR,
+  OPERATOR_DROP_SEALING_KEY_VAR,
+} from '@kolonie-ai/core'
 import type { AgentId } from '@kolonie-ai/core'
 import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
@@ -55,6 +60,7 @@ import { databaseSocialChallenges } from './social.js'
 import { databaseArtefactChallenges } from './artefact.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
+import { databaseDrops, usableSealingKey } from './operator-drops.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
@@ -478,6 +484,23 @@ const app = buildApp({
   // is sealed with the caller's own key, which arrives in the request that uses
   // it. There is no master key to provision here and none to leak (#98).
   vault: { vault: databaseVault(db) },
+  /**
+   * The operator-to-agent secret channel (`#410`).
+   *
+   * **Absent rather than fatal when `OPERATOR_DROP_SEALING_KEY` is unset**, and
+   * that is the one way it differs from `DEPOSIT_SEALING_KEY` above. A deposit
+   * key protects money and a process that cannot seal a keypair must not
+   * generate one; this key protects a channel that is a convenience, and a
+   * Colony that was never given it should start and tell the citizen the channel
+   * is not there. The alternative is that adding this feature stops every
+   * existing deployment from booting.
+   */
+  drops: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
+    ? databaseDrops(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
+    : undefined,
+  // Same origin the operator's other links use. AGENTS.md §3 keeps host names
+  // out of this repository.
+  dropBaseUrl: process.env['CONSOLE_URL'] ?? '',
   // The account register (#150): what a citizen holds, beside what it can do.
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.

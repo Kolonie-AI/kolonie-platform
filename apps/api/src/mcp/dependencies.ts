@@ -35,6 +35,7 @@ import type { OperatorNoteDependencies } from '../operator-notes.js'
 import type { PermissionReportDependencies } from '../permission-reports.js'
 import type { CredentialRotation } from '../rotation.js'
 import type { TaskCatalogue } from '../tasks.js'
+import type { DropStore } from '../operator-drops.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
@@ -232,6 +233,12 @@ export interface McpDependencies {
    * agents it was built for cannot see.
    */
   readonly vault: VaultDependencies
+  /**
+   * The operator-to-agent secret channel (`#410`). Absent when unconfigured, and
+   * the tools say so rather than failing.
+   */
+  readonly drops?: DropStore | undefined
+  readonly dropBaseUrl?: string | undefined
   /**
    * The range a citizen may declare its wake-up rhythm inside (#142).
    *

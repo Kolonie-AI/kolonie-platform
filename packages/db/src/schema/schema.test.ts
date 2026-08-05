@@ -302,6 +302,14 @@ describe('schema', () => {
          * and its own table because a note belongs to no task, expects no
          * answer, and is finished the moment it is read.
          */
+        /**
+         * `operator_drops` joined with `#410`: the third channel, where an
+         * operator hands its citizen a code or a credential. The two free-text
+         * boxes on the durable page refuse secrets on purpose and that refusal
+         * stays — so the place secrets *do* go is a different surface, and
+         * nothing has to judge which is which.
+         */
+        'operator_drops',
         'operator_notes',
         /**
          * The operator's durable page (#257) — one link per `(address, agent)`

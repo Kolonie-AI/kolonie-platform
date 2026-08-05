@@ -1007,6 +1007,14 @@ describe('the erasure boundary', () => {
        * citizen gone it is addressed to nobody — the leftover `erasure.md` §4
        * rules out, about a person who never joined anything.
        */
+      /**
+       * `#410`. Cascades: an outstanding drop dies with the citizen and the link
+       * answers as if it never existed, which is what it already answers for
+       * every other closed state. No operator is told, and that is correct —
+       * telling them would be the Colony announcing an erasure to somebody who
+       * is not a citizen.
+       */
+      'operator_drops.agent_id c',
       'operator_notes.agent_id c',
       'operator_pages.agent_id c',
       /**

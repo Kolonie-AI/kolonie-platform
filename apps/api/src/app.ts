@@ -63,6 +63,10 @@ import { registerInterstitialRoutes } from './routes/interstitial.js'
 import { registerPersistenceRoutes } from './routes/persistence.js'
 import { registerSubmissionRoutes } from './routes/submissions.js'
 import { registerGuidanceRoutes } from './routes/guidance.js'
+import {
+  registerOperatorDropPageRoutes,
+  registerOperatorDropRoutes,
+} from './routes/operator-drops.js'
 import { registerVaultRoutes } from './routes/vault.js'
 import { capabilityUnavailable, gateUnavailable, stageUnavailable } from './academy.js'
 import type { AppDependencies } from './dependencies.js'
@@ -128,6 +132,8 @@ export function buildApp({
   artefact,
   vision,
   vault,
+  drops,
+  dropBaseUrl = '',
   accounts,
   console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
@@ -348,6 +354,8 @@ export function buildApp({
     artefact,
     vision,
     vault,
+    drops,
+    dropBaseUrl,
     accounts,
     console: consoleDeps,
     rhythm,
@@ -373,6 +381,9 @@ export function buildApp({
   // mail, and an API version in the URL would break them for reasons that have
   // nothing to do with the form. Same call the console made (#146).
   registerAutonomyPageRoutes(app, routes)
+  // The one form in the Colony that asks a person for something secret (`#410`).
+  // Beside the autonomy form and outside `/v1` for the same reason.
+  registerOperatorDropPageRoutes(app, routes)
   // The badge pictures (`#241`). On the app rather than under `/v1`, because
   // they are an image source in a rendered page and not part of the API.
   registerBadgeRoutes(app)
@@ -432,6 +443,7 @@ export function buildApp({
       registerSubmissionRoutes(v1, routes)
       registerGuidanceRoutes(v1, routes)
       registerVaultRoutes(v1, routes)
+      registerOperatorDropRoutes(v1, routes)
     },
     { prefix: API_BASE_PATH },
   )

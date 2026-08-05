@@ -37,6 +37,7 @@ import type { CredentialRotation } from '../rotation.js'
 import type { DepositDependencies } from '../deposits.js'
 import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
+import type { DropDependencies } from '../operator-drops.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
@@ -175,6 +176,9 @@ export interface RouteDependencies {
   readonly artefact: ArtefactDependencies
   readonly vision: VisionDependencies
   readonly vault: VaultDependencies
+  /** The operator-to-agent secret channel (`#410`). Absent when unconfigured. */
+  readonly drops: DropDependencies['drops']
+  readonly dropBaseUrl: string
   readonly accounts: AccountDependencies
   /** Browser sign-in and the console's own front door (`#172`). */
   readonly console: ConsoleDependencies

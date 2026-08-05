@@ -251,7 +251,14 @@ describe('the migrations', () => {
     // ceiling has to be ours. What it does *not* hold is the message body: the
     // row answers *how many, to where, at what price*, and a code the Colony
     // sent is worth nothing the moment it is used.
-    expect(afterFirst.tables).toBe('70')
+    //
+    // **Seventy-one** (`#410`): `operator_drops`, the one channel a secret may
+    // travel down from an operator to its citizen. It is a table rather than a
+    // column on `operator_requests` because the four properties that make an
+    // exchange right — about one task, one open at a time, closed by the citizen,
+    // words — are all wrong for this, which is the same argument `#239` made for
+    // notes one surface along.
+    expect(afterFirst.tables).toBe('71')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

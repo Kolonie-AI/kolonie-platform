@@ -257,6 +257,19 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.operator.notes',
   /**
+   * The third channel (`#410`): the one place a secret may travel from an
+   * operator to its citizen.
+   *
+   * Three entries and not one, because the three answer different questions and a
+   * dispatcher would have made *taking* a mode of *looking*. Reading spends the
+   * drop, so it has to be its own call — the same reasoning that keeps
+   * `kolonie.operator.notes` honest about consuming what it returns, one step
+   * further along.
+   */
+  'kolonie.operator.drop.open',
+  'kolonie.operator.drops',
+  'kolonie.operator.drop.read',
+  /**
    * Blocked by permission rather than by ability (#147) — saying so, reading the case
    * it makes, and taking one back.
    *

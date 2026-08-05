@@ -1,0 +1,186 @@
+import { z } from 'zod'
+import { TimestampSchema } from '../common/time.js'
+import { VaultKeySchema, VAULT_VALUE_MAX_LENGTH } from '../api/vault.js'
+
+/**
+ * The third channel: an operator hands its agent something secret (`#410`).
+ *
+ * ## Why it is a third thing and not a relaxation of the two that exist
+ *
+ * `onboarding/operator-guide.md` tells an operator, of both free-text boxes on
+ * the durable page:
+ *
+ * > **Never put a password, key or code in either box.** The Colony refuses text
+ * > that looks like one, on purpose: it would end up in a mail, in a web form and
+ * > in a database, and none of those can be taken back. If your agent needs a
+ * > credential, it will tell you where to put it instead.
+ *
+ * That refusal is right and stays. Relaxing it would quietly make the free boxes
+ * the place credentials go, which is the exact outcome the paragraph exists to
+ * prevent. So the free box keeps meaning **words** and a drop means **a secret**,
+ * and nothing has to judge which is which — the surfaces are different.
+ *
+ * *It will tell you where to put it instead* named a place that did not exist.
+ * This is that place.
+ *
+ * ## One mechanism, two uses, and that is the point
+ *
+ * A **code** answers one open challenge and is read once and gone. A
+ * **credential** — a password, a TOTP secret — lands in the agent's vault under a
+ * key the agent named. `#410` names both deliberately: building this twice is
+ * what it exists to prevent, and the same shape later carries an X account's
+ * password from an operator who opened it.
+ *
+ * ## What an operator can and cannot do here
+ *
+ * It can fill in one field, on one link, once. It cannot create a drop — only the
+ * agent does that, so nothing can be pushed at a citizen that did not ask. It
+ * cannot choose where a credential lands. It cannot overwrite one the agent is
+ * already relying on. And a used, expired or unknown link answers identically, so
+ * a stranger who guessed one learns nothing about whether it ever existed —
+ * the property the durable page already holds for a revoked link.
+ */
+
+/** Which of the two things a drop carries. */
+export const DropKindSchema = z.enum(['code', 'credential'])
+export type DropKind = z.infer<typeof DropKindSchema>
+
+/**
+ * How long a drop stays open, in days. **Three.**
+ *
+ * Five minutes is the reflex for anything holding a code and it is wrong here for
+ * the reason `#411` gives: the whole point of an operator-assisted route is that a
+ * human is in the loop, and a human is not in the loop within five minutes. The
+ * citizen asks, its operator answers when it next reads its mail, and the citizen
+ * reads the answer on a later waking. A window shorter than a person's day would
+ * make the channel work only for the case it was not built for.
+ */
+export const DROP_EXPIRY_DAYS = 3
+
+/**
+ * How many submissions one drop will accept before it stops listening. **Five.**
+ *
+ * **Without this a code drop is an oracle.** The link is public to whoever holds
+ * it, the field takes a short string, and a six-digit code is a guessable space at
+ * browser speed. Counted per drop rather than per address because there is no
+ * account here and an IP is not one.
+ *
+ * Five and not one, because an operator mistyping a code it read off a handset is
+ * the ordinary case this channel exists for, and a channel that dies on a typo
+ * sends the person back to the free-text box the guide told them not to use.
+ */
+export const MAX_DROP_ATTEMPTS = 5
+
+/**
+ * The longest secret a drop will carry.
+ *
+ * The vault's own limit, deliberately not a second number: a credential drop
+ * writes into the vault, so a drop that accepted more than the vault does would
+ * refuse at the far end, after the operator had already handed over a secret. It
+ * bounds a code drop too, where it is far above any code.
+ */
+export const DROP_VALUE_MAX_LENGTH = VAULT_VALUE_MAX_LENGTH
+
+/** How long the words shown to the operator above the field may be. */
+export const DROP_PROMPT_MAX_LENGTH = 500
+
+/** What the agent asks for. The Colony mints the link. */
+export const CreateDropRequestSchema = z
+  .object({
+    kind: DropKindSchema,
+    /**
+     * What the operator is being asked for, in the agent's own words. Shown above
+     * the field, escaped, and never mailed.
+     */
+    prompt: z.string().min(1).max(DROP_PROMPT_MAX_LENGTH),
+    /**
+     * Where a credential lands. Required for `credential`, refused for `code` —
+     * a code lands nowhere, and naming a key for one would suggest otherwise.
+     */
+    vaultKey: VaultKeySchema.optional(),
+  })
+  .strict()
+export type CreateDropRequest = z.infer<typeof CreateDropRequestSchema>
+
+/**
+ * What the agent is told when a drop is made.
+ *
+ * **The token is in the link and the link is the whole credential**, exactly as
+ * it is for the autonomy form and the durable page. The agent hands it to its
+ * operator however it already talks to them; the Colony's own mail says only that
+ * something is waiting.
+ */
+export const CreateDropResponseSchema = z.object({
+  url: z.string().url(),
+  kind: DropKindSchema,
+  vaultKey: VaultKeySchema.nullable(),
+  expiresAt: TimestampSchema,
+})
+export type CreateDropResponse = z.infer<typeof CreateDropResponseSchema>
+
+/**
+ * One drop as the agent sees it in a listing — **never with the value**.
+ *
+ * A listing answers *is anything waiting for me* and nothing more. Reading is a
+ * separate call because reading is destructive: it is the act that spends the
+ * drop, and an act with a consequence should not be a side effect of looking.
+ */
+export const DropSummarySchema = z.object({
+  id: z.string().uuid(),
+  kind: DropKindSchema,
+  prompt: z.string(),
+  vaultKey: VaultKeySchema.nullable(),
+  createdAt: TimestampSchema,
+  expiresAt: TimestampSchema,
+  /** Null while the operator has not answered. This is the whole listing. */
+  submittedAt: TimestampSchema.nullable(),
+})
+export type DropSummary = z.infer<typeof DropSummarySchema>
+
+/**
+ * What the agent gets when it takes a drop.
+ *
+ * A `code` answers with the value, because the agent is about to type it into a
+ * challenge. A `credential` answers with **the key it landed under and not the
+ * value** — the vault is where it lives now, `kolonie.vault.get` is how it is
+ * read, and answering with it here would put a secret in a second transcript for
+ * no gain.
+ */
+export const ReadDropResponseSchema = z.object({
+  kind: DropKindSchema,
+  /** Present for a `code`, always null for a `credential`. */
+  code: z.string().nullable(),
+  /** Present for a `credential`, always null for a `code`. */
+  vaultKey: VaultKeySchema.nullable(),
+  submittedAt: TimestampSchema,
+})
+export type ReadDropResponse = z.infer<typeof ReadDropResponseSchema>
+
+/** What the operator posts. The token is in the URL. */
+export const SubmitDropSchema = z.object({
+  value: z.string().min(1).max(DROP_VALUE_MAX_LENGTH),
+})
+export type SubmitDrop = z.infer<typeof SubmitDropSchema>
+
+/**
+ * The environment variable holding the key a waiting drop is sealed under.
+ *
+ * **Optional, and the channel is unavailable rather than broken when it is
+ * unset** — the same shape the SMS adapter uses in `packages/verifiers/src/sms.ts`
+ * and for the same reason: a Colony that has not been given this should start
+ * normally and offer the channel to nobody, rather than fail at the first agent
+ * that asks its operator for help.
+ *
+ * It is deliberately **not** `DEPOSIT_SEALING_KEY`. One key with two purposes is
+ * one rotation that cannot be done for one of them.
+ */
+export const OPERATOR_DROP_SEALING_KEY_VAR = 'OPERATOR_DROP_SEALING_KEY'
+
+/**
+ * The shortest sealing key the Colony will accept, in characters.
+ *
+ * The same floor `DEPOSIT_SEALING_KEY` is checked against at startup. HKDF will
+ * derive a key from anything, including a short one, which is exactly why the
+ * check has to be explicit rather than left to the cipher to notice.
+ */
+export const DROP_SEALING_KEY_MIN_LENGTH = 32

@@ -18,6 +18,7 @@ import { registerSubmissionTools } from './tools/submissions.js'
 import { registerSkillTools } from './tools/skills.js'
 import { registerWakeupTool } from './tools/wakeup.js'
 import { registerSupportTools } from './tools/support.js'
+import { registerOperatorDropTools } from './tools/operator-drops.js'
 import { registerOperatorNoteTools } from './tools/operator-notes.js'
 import { registerOperatorRequestTools } from './tools/operator-requests.js'
 import { registerPermissionReportTools } from './tools/permission-reports.js'
@@ -203,6 +204,7 @@ export function createMcpServer(
   registerSupportTools(server, deps, credential)
   registerOperatorRequestTools(server, deps, credential)
   registerOperatorNoteTools(server, deps, credential)
+  registerOperatorDropTools(server, deps, credential)
   registerPermissionReportTools(server, deps, credential)
   registerRotationTools(server, deps, credential)
   registerVaultTools(server, deps, credential)

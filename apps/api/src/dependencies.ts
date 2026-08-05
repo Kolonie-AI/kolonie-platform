@@ -39,6 +39,7 @@ import type { CredentialRotation } from './rotation.js'
 import type { DepositDependencies } from './deposits.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
+import type { DropStore } from './operator-drops.js'
 import type { VaultDependencies } from './vault.js'
 import type { VisionDependencies } from './vision.js'
 import type { WebServerDependencies } from './web-server.js'
@@ -243,6 +244,17 @@ export interface AppDependencies {
    * and it arrives in the request that uses it.
    */
   readonly vault: VaultDependencies
+  /**
+   * The operator-to-agent secret channel (`#410`).
+   *
+   * Optional, and absent means the channel is not offered — `OPERATOR_DROP_SEALING_KEY`
+   * has not been set. Every other surface here is either present or the process
+   * refuses to start; this one is a convenience rather than money, so a Colony
+   * that was never given the key starts and says so to the citizen that asks.
+   */
+  readonly drops?: DropStore | undefined
+  /** Where an operator's drop link points. Defaults to empty, as the other links do. */
+  readonly dropBaseUrl?: string | undefined
   /** The account register (#150). */
   readonly accounts: AccountDependencies
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */

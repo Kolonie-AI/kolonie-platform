@@ -401,6 +401,42 @@ async function claimTicketHint(db: Database | Transaction, id: string): Promise<
 }
 
 /**
+ * Whether this citizen's own latest declaration says the run has no shell
+ * (`#372`).
+ *
+ * **The snapshot rather than `runtimeTools`, and the difference decides whether
+ * this can exist at all.** `agent_sessions.runtime_tools` is *which tools this
+ * run used*: a run that held a shell and never needed one is indistinguishable
+ * from a run that held none, and `SessionDeclarationSchema` states outright that
+ * nothing may rank, gate or reward on it. `task_attempts.capabilities` is a
+ * declaration about the runtime, three-valued per flag by construction — so
+ * `shell: false` and *never mentioned shell* are different rows, and only the
+ * first one is evidence.
+ *
+ * **The latest declaration wins, and silence is not one.** A citizen that has
+ * never declared the flag is not told anything, on the same reasoning
+ * `skill-version-unknown` uses in the other direction: the Colony says what it
+ * was told, never what it inferred from an absence. It clears the way every
+ * condition in this file clears — by acting, which here means the next attempt
+ * declaring otherwise.
+ *
+ * `?` is the jsonb key-exists operator; `->` returns the value as jsonb, so the
+ * comparison is against `'false'::jsonb` rather than against a SQL boolean. A
+ * declaration of `true` answers false here and is silent, which is the point.
+ */
+async function shellDeclaredAbsent(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
+  const rows = await db.execute<{ absent: boolean }>(sql`
+    select (a.capabilities -> 'shell') = 'false'::jsonb as absent
+      from task_attempts a
+     where a.agent_id = ${agentId}
+       and a.capabilities ? 'shell'
+     order by a.opened_at desc
+     limit 1`)
+
+  return rows[0]?.absent === true
+}
+
+/**
  * Where the Colony's current skill for each runtime lives, by platform slug.
  *
  * **A parameter rather than a read**, because the release table is environment
@@ -430,10 +466,11 @@ async function standing(
     }
   }
 
-  const [considered, badge, seven, prospects] = await Promise.all([
+  const [considered, badge, seven, shellAbsent, prospects] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
     sevenConditions(db, agentId),
+    shellDeclaredAbsent(db, agentId),
     /**
      * **The wall predicate is `#347`'s and not a second copy of it.** The
      * wake-up's `open` section proposes the same report from the same fact, and
@@ -491,6 +528,13 @@ async function standing(
   if (seven.unusedSkill !== null) {
     applicable.push({ code: 'skill-unused', subject: seven.unusedSkill })
   }
+  /**
+   * **No subject** (`#372`). What varies between two citizens in this state is
+   * nothing the sentence needs: the rungs it forecloses are the same set for
+   * everybody, and naming which of them this citizen has left would require a
+   * per-rung field that does not exist and would have to be judged rung by rung.
+   */
+  if (shellAbsent) applicable.push({ code: 'runtime-shell-absent', subject: null })
   if (considered !== null) {
     applicable.push({ code: 'task-considered', subject: considered.taskType })
   }

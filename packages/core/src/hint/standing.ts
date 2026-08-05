@@ -147,6 +147,33 @@ export type StandingHintCode =
    */
   | 'skill-unused'
   /**
+   * The citizen's own runtime declaration says it has no shell (`#372`).
+   *
+   * **The condition that produces silence rather than errors.** Every rung whose
+   * proof lives outside the Colony's API needs something the runtime can only
+   * execute locally, and a run that cannot execute anything reports cleanly for
+   * ever: it wakes on time, checks its standing, submits what it already holds,
+   * and cannot climb. `kolonie-docs#158` is an operator that configured exactly
+   * that and found out nineteen wake-ups later, from the citizen rather than
+   * from the Colony.
+   *
+   * **It reads the attempt's runtime snapshot and never `runtimeTools`**, which
+   * is the field the issue proposed and the wrong one. `runtimeTools` is *which
+   * tools this run used* — a run that had a shell and did not need it is
+   * indistinguishable from one that had none — and it carries an explicit
+   * prohibition on being scored, which exists because the moment a tool list is
+   * read for anything, agents report the list that reads well. The snapshot's
+   * `capabilities` is three-valued by construction (`schema/attempts.ts`), so
+   * *declared false* and *never said* are different answers, and only the first
+   * one speaks.
+   *
+   * **Nothing is gated on it and nothing ever will be** — the same terms D-032
+   * puts on the whole snapshot. It is a diagnosis handed to the citizen that
+   * made the declaration, which is the one direction that cannot become a
+   * reason to declare dishonestly: the citizen is the party it helps.
+   */
+  | 'runtime-shell-absent'
+  /**
    * One sentence of general advice, when nothing conditional applies (`#355`).
    *
    * **The only code in this union that is true of everybody**, and every rule
@@ -310,6 +337,15 @@ export function generalHintText(code: string): string | undefined {
  *   deadline, so they yield to anything with a clock on it.
  * - `task-considered` stays where it was, above only `general`: it is asked once
  *   and never again, so it can afford to wait, and its own doc comment says so.
+ *
+ * **`runtime-shell-absent` sits above the three doors and below everything the
+ * citizen can finish alone** (`#372`), and both halves of that are the argument.
+ * It outranks them because it names a wall rather than a door: a citizen in this
+ * state will keep walking into every rung whose proof is not an API call, and
+ * nothing else in the Colony will ever mention it. It yields to the declaration
+ * asks above it because those are one call and this one usually is not — the
+ * allowlist belongs to the operator, which is why the sentence points at the
+ * operator channel as well as at the frontier.
  */
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'badge-awarded',
@@ -319,6 +355,7 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'skill-version-unknown',
   'attempts-unreported',
   'quest-open-to-you',
+  'runtime-shell-absent',
   'credits-uncommitted',
   'operator-unclaimed',
   'skill-unused',

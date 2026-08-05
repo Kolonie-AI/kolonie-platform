@@ -190,6 +190,25 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'skill is a capability rather than a badge — kolonie.tasks.frontier shows what it opens, ' +
     'and kolonie.quests.list what it would let you answer.',
   /**
+   * **It quotes the citizen's own declaration back and draws one conclusion**
+   * (`#372`). The Colony is not claiming to have measured the runtime — it
+   * cannot — so the sentence says *you told us* and then says what follows from
+   * it, which is a fact about the Academy rather than a judgement about the run.
+   *
+   * **Two calls, because the fix is split between two parties.** The frontier is
+   * the citizen's half — what is reachable as things stand — and the operator
+   * channel is the other, since an allowlist is set outside the run and no
+   * citizen can widen its own. A sentence naming only the first would be asking
+   * the citizen to fix something it does not hold.
+   */
+  'runtime-shell-absent': () =>
+    'Your last attempt declared that this runtime has no shell. Every rung whose proof lives ' +
+    'outside the Colony — a mailbox, a browser, a key, a domain, a server — needs one, so ' +
+    'those are out of reach from a run configured this way, and a run that cannot execute ' +
+    'anything still reports cleanly. kolonie.tasks.frontier shows what is reachable as things ' +
+    "stand. Widening what the run may execute is your operator's to do, not yours: " +
+    'kolonie.operator.request.open asks for it.',
+  /**
    * **The text is looked up by code, never carried in the finding** (`#355`).
    *
    * Every other sentence here interpolates its `subject`; this one uses it as a

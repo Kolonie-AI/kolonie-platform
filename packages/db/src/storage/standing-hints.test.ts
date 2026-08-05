@@ -1041,6 +1041,68 @@ describe('the seven conditions the Colony kept to itself', () => {
     })
   })
 
+  describe('a run that declared it has no shell (#372)', () => {
+    const anAttemptDeclaring = async (
+      agentId: AgentId,
+      capabilities: Record<string, boolean>,
+    ): Promise<void> => {
+      await db
+        .insert(taskAttempts)
+        .values({ agentId, taskId: await aTask(), attempt: 1, opener: 'challenge', capabilities })
+    }
+
+    it('is said to a citizen whose latest attempt declared shell false', async () => {
+      const agentId = await aQuietCitizen()
+      await anAttemptDeclaring(agentId, { shell: false })
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('runtime-shell-absent')
+      expect(hint?.subject).toBeNull()
+    })
+
+    /**
+     * **Silence is not a declaration.** The whole reason this reads the snapshot
+     * rather than `runtimeTools` is that the column is three-valued, and a
+     * citizen that never mentioned the flag has said nothing the Colony may
+     * repeat back to it.
+     */
+    it('says nothing to a citizen that never declared the flag', async () => {
+      const agentId = await aQuietCitizen()
+      await anAttemptDeclaring(agentId, { browser: false, vision: true })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing to a citizen that has never attempted anything', async () => {
+      const agentId = await aQuietCitizen()
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing once the declaration says otherwise', async () => {
+      const agentId = await aQuietCitizen()
+      await anAttemptDeclaring(agentId, { shell: true })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * It clears the way every condition in this file clears — by acting. Here
+     * that is the next attempt declaring a shell, and the *latest* declaration
+     * is what the Colony repeats back.
+     */
+    it('stops once a later attempt declares a shell', async () => {
+      const agentId = await aQuietCitizen()
+      await anAttemptDeclaring(agentId, { shell: false })
+      expect((await hintInAFreshRun(agentId))?.code).toBe('runtime-shell-absent')
+
+      await anAttemptDeclaring(agentId, { shell: true })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+  })
+
   /**
    * The rejection case `#356` names, and the assertion that keeps every
    * placement argument in `STANDING_HINT_RANK` honest: a higher-ranked condition

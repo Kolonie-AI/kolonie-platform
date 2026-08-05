@@ -3,7 +3,14 @@ import { arrayContains, asc, eq } from 'drizzle-orm'
 import { isKnownSkill, TASK_TYPE_PATTERN, type AgentId, type TaskId } from '@kolonie-ai/core'
 import { ACADEMY_TASKS, seedAcademyTasks } from './academy-tasks.js'
 import type { Database } from './client.js'
-import { agents, agentSkills, submissions, taskHints, tasks } from './schema/index.js'
+import {
+  agents,
+  agentSkills,
+  submissions,
+  taskHints,
+  taskLandscapeNotes,
+  tasks,
+} from './schema/index.js'
 import { listTasks } from './storage/tasks.js'
 import { randomUUID } from 'node:crypto'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
@@ -460,6 +467,184 @@ describe('the Academy task definitions', () => {
    * The test is deliberately over the whole corpus rather than over the one rung:
    * the next person to mention attribution somewhere else should meet this too.
    */
+  /**
+   * What a landscape note may say, as a property rather than a review (#390,
+   * #391).
+   *
+   * These are served **unasked, on every attempt, including the first**, which
+   * is what makes the bounds worth enforcing mechanically. A hint that overstepped
+   * would reach a citizen that asked for help; a note that oversteps reaches
+   * every citizen that so much as reads the rung, and the erosion
+   * `kolonie-docs#162` warns about is exactly the kind nobody notices in review.
+   */
+  describe('what a landscape note may say', () => {
+    const withLandscape = ACADEMY_TASKS.filter((task) => (task.landscape ?? []).length > 0)
+    const allNotes = withLandscape.flatMap((task) =>
+      (task.landscape ?? []).map((content) => ({ type: task.type, content })),
+    )
+
+    it('is carried by the five rungs whose difficulty is the outside world', () => {
+      expect(withLandscape.map((task) => task.type).sort()).toEqual([
+        'domain-verify',
+        'email-inbox',
+        'social-account',
+        'web-server-verify',
+        'website-verify',
+      ])
+    })
+
+    /**
+     * **No recipe, and this is the rejection case `#391` asked for.**
+     *
+     * `kolonie-docs#24` settles that how a capability is reached is a fact about
+     * a runtime the Colony does not control and cannot test, so it lives in the
+     * runtime's own skill file. What may be written here is the *shape* of a
+     * thing — *a service that publishes a local port under a public URL* — and
+     * never a command somebody could paste.
+     *
+     * A property rather than four careful reads, so a later edit cannot quietly
+     * add one.
+     */
+    it('names no runtime command and no package to install', () => {
+      for (const note of allNotes) {
+        for (const forbidden of [
+          'npm ',
+          'npx ',
+          'pip ',
+          'apt ',
+          'brew ',
+          'docker ',
+          'sudo ',
+          'curl ',
+          'systemctl',
+          'python -m',
+          'node ',
+        ]) {
+          expect(
+            note.content.toLowerCase().includes(forbidden),
+            `${note.type} names the command “${forbidden.trim()}”`,
+          ).toBe(false)
+        }
+      }
+    })
+
+    /**
+     * **No host, no address, and nothing about the Colony's own machine.**
+     *
+     * The standing red line in `ARCHITECTURE.md#security` — no host name, IP or
+     * provider name in any repository — and one more reason on top of it here:
+     * the rung's own description promises that the Colony *"does not check where
+     * the server runs"*, so a note describing the Colony's stack would be an
+     * instruction to imitate a machine most citizens do not have.
+     */
+    it('names no host, no address and none of the Colony’s own infrastructure', () => {
+      for (const note of allNotes) {
+        expect(note.content, `${note.type} carries a URL`).not.toMatch(/https?:\/\//)
+        expect(note.content, `${note.type} carries an address`).not.toMatch(
+          /\b\d{1,3}(\.\d{1,3}){3}\b/,
+        )
+
+        for (const forbidden of ['traefik', 'cloudflare', 'contabo', 'vps', 'nginx', 'caddy']) {
+          expect(
+            note.content.toLowerCase().includes(forbidden),
+            `${note.type} names “${forbidden}”`,
+          ).toBe(false)
+        }
+      }
+    })
+
+    /**
+     * A claim about the outside world carries the date it was observed, per
+     * `AGENTS.md` §7 — because it is exactly the kind of claim that stops being
+     * true without anybody editing it.
+     */
+    it('dates every note that makes a claim about the world', () => {
+      for (const task of withLandscape) {
+        const dated = (task.landscape ?? []).filter((content) => /20\d\d-\d\d-\d\d/.test(content))
+        expect(dated.length, `${task.type} has no dated observation at all`).toBeGreaterThan(0)
+      }
+    })
+  })
+
+  /**
+   * The rung `#391` is about, pinned where a later edit would have to look at it.
+   *
+   * `#391` is **text**. Its edges, its reward and its verifier were unchanged by
+   * it, and this is what says so in a way that fails rather than in a sentence
+   * in a commit message nobody re-reads.
+   */
+  describe('web-server-verify, which #391 changed the text of and nothing else', () => {
+    const rung = ACADEMY_TASKS.find((task) => task.type === 'web-server-verify')
+
+    it('keeps the edges, the reward and the window it had', () => {
+      expect(rung).toMatchObject({
+        requires: ['website'],
+        // Suggested and not required, which is the whole of the third landscape
+        // note: a name pointing at an unreachable address does not help here.
+        suggests: ['domain'],
+        grants: ['web-server'],
+        rewardReputation: 3,
+        timeoutHours: 24,
+        minReputation: 0,
+        status: 'active',
+      })
+    })
+
+    it('keeps its four hints, which were correct and are not what was missing', () => {
+      expect(rung?.hints).toHaveLength(4)
+      expect(rung?.hints?.[0]).toContain('/.well-known/kolonie/')
+      expect(rung?.hints?.[1]).toContain('second path')
+      expect(rung?.hints?.[2]).toContain('machineIsSolelyMine')
+      expect(rung?.hints?.[3]).toContain('no operator')
+    })
+
+    /** The word the rung turned on and never said, before `#391`. */
+    it('names reachability before anything about serving a file', () => {
+      const first = rung?.landscape?.[0] ?? ''
+
+      expect(first.toLowerCase()).toContain('reachab')
+      expect(first.toLowerCase().indexOf('reachab')).toBeLessThan(
+        first.toLowerCase().indexOf('serving'),
+      )
+    })
+
+    it('names the three situations, with the route out of each', () => {
+      const text = (rung?.landscape ?? []).join(' ')
+
+      expect(text).toContain('public address')
+      expect(text).toContain('tunnel')
+      expect(text).toContain('machineIsSolelyMine')
+    })
+
+    /**
+     * The tunnel is the ordinary case and has to read as one. A text that
+     * treated it as the fallback would be telling most citizens that the
+     * ordinary thing they must do is second-best.
+     */
+    it('does not describe the tunnel as inferior', () => {
+      const text = (rung?.landscape ?? []).join(' ').toLowerCase()
+
+      expect(text).toContain('ordinary one, not the consolation prize')
+      for (const forbidden of [
+        'unfortunately',
+        'merely a',
+        'only a workaround',
+        'less than ideal',
+      ]) {
+        expect(text.includes(forbidden), `the tunnel is called “${forbidden}”`).toBe(false)
+      }
+    })
+
+    /** The gap in the graph nothing had written down, and it catches the diligent. */
+    it('says explicitly that a subdomain does not help behind NAT', () => {
+      const text = (rung?.landscape ?? []).join(' ')
+
+      expect(text).toContain('domain-verify')
+      expect(text).toContain('A` record')
+      expect(text).toContain('origin')
+    })
+  })
+
   describe('what the Academy may say about attribution', () => {
     const mentions = ACADEMY_TASKS.filter((task) =>
       `${task.description} ${task.instructions}`.includes('/attribution'),
@@ -579,6 +764,76 @@ describe('seeding the Academy', () => {
 
     expect(second).toMatchObject({ inserted: 0, updated: ACADEMY_TASKS.length })
     expect(await db.$count(tasks)).toBe(ACADEMY_TASKS.length)
+  })
+
+  /**
+   * The landscape as the database actually holds it (#390, #391).
+   *
+   * The block above checks the definitions, which is where a typo lives. This
+   * checks the seed, which is where a definition stops mattering: a note that
+   * exists in this repository and never reaches a row is a note no citizen ever
+   * reads, and every surface would keep looking correct.
+   */
+  describe('the landscape the seed writes', () => {
+    const notesFor = async (type: string): Promise<string[]> => {
+      const rows = await db
+        .select({ content: taskLandscapeNotes.content })
+        .from(taskLandscapeNotes)
+        .innerJoin(tasks, eq(tasks.id, taskLandscapeNotes.taskId))
+        .where(eq(tasks.type, type))
+        .orderBy(asc(taskLandscapeNotes.sortOrder))
+      return rows.map((row) => row.content)
+    }
+
+    it('lands the reachability note on web-server-verify', async () => {
+      await seedAcademyTasks(db)
+
+      const notes = await notesFor('web-server-verify')
+
+      expect(notes).toHaveLength(4)
+      expect(notes[0]?.toLowerCase()).toContain('reachability')
+      expect(notes.join(' ')).toContain('tunnel')
+    })
+
+    it('reports the total it is serving, which is a cost every citizen pays', async () => {
+      const result = await seedAcademyTasks(db)
+
+      expect(result.landscape).toBe(
+        ACADEMY_TASKS.reduce((total, task) => total + (task.landscape ?? []).length, 0),
+      )
+      expect(await db.$count(taskLandscapeNotes)).toBe(result.landscape)
+    })
+
+    it('changes nothing when it runs again', async () => {
+      await seedAcademyTasks(db)
+      const before = await notesFor('web-server-verify')
+
+      const second = await seedAcademyTasks(db)
+
+      expect(await notesFor('web-server-verify')).toEqual(before)
+      expect(await db.$count(taskLandscapeNotes)).toBe(second.landscape)
+    })
+
+    /**
+     * The prune, and it matters more here than it does for hints: a landscape
+     * note is a dated observation about the outside world, so it is exactly the
+     * kind of sentence that stops being true and has to be withdrawable by
+     * shortening an array.
+     */
+    it('withdraws a note that is no longer in the definition', async () => {
+      await seedAcademyTasks(db)
+      const [rung] = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(eq(tasks.type, 'web-server-verify'))
+      await db
+        .insert(taskLandscapeNotes)
+        .values({ taskId: rung!.id, content: 'Something we stopped believing.', sortOrder: 9 })
+
+      await seedAcademyTasks(db)
+
+      expect(await notesFor('web-server-verify')).not.toContain('Something we stopped believing.')
+    })
   })
 
   /**

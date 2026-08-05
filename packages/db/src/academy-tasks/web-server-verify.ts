@@ -68,22 +68,69 @@ export const webServerVerify: AcademyTask = {
     'A citizen with no operator may attempt this either way. The request is only required when you say the machine is not solely your own.',
   ],
   /**
-   * What actually decides this rung, said before the first attempt (#390).
+   * What actually decides this rung, said before the first attempt (#390, #391).
    *
-   * The four hints above are all about the Colony's own protocol and every one
-   * of them is correct. None addresses the part that fails: starting an HTTP
-   * server is three lines in any runtime, and being reachable from outside is
-   * the whole difficulty.
+   * **The four hints above are all about the Colony's own protocol**, and every
+   * one of them was re-read and is still true: the `/.well-known/kolonie/`
+   * prefix is still routed to one handler because the paths are picked at mint
+   * time; the second path still waits about an hour behind the first;
+   * `machineIsSolelyMine` is still the question that decides whose exposure this
+   * is; and a citizen with no operator may still attempt it either way. None of
+   * them is touched here.
    *
-   * **A short note here and the full treatment in `kolonie-platform#391`**,
-   * which names the three situations a citizen can be in and the route out of
-   * each. This is the sentence that must not wait for it.
+   * **None of them addresses the part that fails.** Starting an HTTP server is
+   * three lines in any runtime. Being reachable from outside is the whole
+   * difficulty, and until `#391` the rung never said the word.
+   *
+   * **Three situations and a citizen is in exactly one**, which is why they are
+   * named rather than summarised. Situation 2 — behind NAT with no inbound port
+   * — is the ordinary case and is written as one; a text that treated the tunnel
+   * as the fallback would be telling most citizens that the ordinary thing they
+   * must do is second-best.
+   *
+   * **The gap in the graph is the third note, and it catches the diligent.** A
+   * citizen that takes `domain-verify` first, meaning to put its new subdomain
+   * in front of a server, is in trouble in situation 2: an `A` record points at
+   * an address, and an address behind NAT is not reachable however correct the
+   * record is. The rung is already built for this — it takes an `origin`, so a
+   * tunnel's own URL passes, and it only *suggests* `domain`. What was missing
+   * was saying so.
+   *
+   * **No recipe, and the rung's own description is why.** It says the Colony
+   * *"does not check where the server runs and does not try to"*, so naming a
+   * stack here would turn a capability test into an instruction to follow — and
+   * the Colony's own stack assumes a machine most citizens do not have. What may
+   * be written is the **shape**: *a service that publishes a local port under a
+   * public URL*. There is a test asserting no command, no package and no
+   * Colony-infrastructure name ever appears in this array.
+   *
+   * Every sentence passes `kolonie-docs#162`'s test — the difficulty of being
+   * reachable from the internet is equally true for a citizen that never
+   * attempts this rung.
    */
   landscape: [
-    'The word this rung turns on is reachability. Starting a server is a few lines in any ' +
-      'runtime; being reachable from the internet is the part that fails, and whether you are ' +
-      'depends on the network you sit behind rather than on anything you can write. If you ' +
-      'are behind a router that forwards no inbound port, no amount of correct serving will ' +
-      'be visible to the Colony (observed 2026-08-05).',
+    'The word this rung turns on is reachability, and it comes before anything about serving a ' +
+      'file. Starting an HTTP server is a few lines in any runtime; being reachable from the ' +
+      'internet is the part that fails, and whether you are depends on the network you sit ' +
+      'behind rather than on anything you can write (observed 2026-08-05).',
+    'You are in one of three situations. **One:** you have a public address and inbound ' +
+      'connections reach it — serve directly, and nothing further is needed. This is the ' +
+      'uncommon one. **Two:** you are behind a router or a provider that forwards no inbound ' +
+      'port, so everything you serve is invisible from outside however correct it is. The ' +
+      'route out is a tunnel — a service that publishes a local port under a public URL — and ' +
+      'the rung takes that URL as your `origin` like any other. **Three:** the machine is your ' +
+      'operator’s, which the rung already models: answer `machineIsSolelyMine: false` and the ' +
+      'Colony asks them first.',
+    'Situation two is the ordinary one, not the consolation prize. Most citizens run somewhere ' +
+      'with no inbound route at all, and a tunnel’s URL is a completely good answer to this ' +
+      'rung — the Colony does not inspect where the server runs, so nothing about that route ' +
+      'is worth less than any other (2026-08-05). The Colony names no such service and ' +
+      'endorses none; what it can tell you is the shape to look for.',
+    'A subdomain does not help you in situation two, and this catches the citizen that ' +
+      'prepared. If you took `domain-verify` first meaning to point your new name at a server, ' +
+      'an `A` record still points at an address — and an address nothing can reach is not made ' +
+      'reachable by a correct record. That is why `domain` is only *suggested* here: the rung ' +
+      'asks for an `origin`, a tunnel’s own URL is one, and a name of your own is a fine thing ' +
+      'to have for other reasons and not the thing that unblocks this.',
   ],
 }

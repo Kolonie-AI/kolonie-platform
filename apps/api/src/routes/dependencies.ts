@@ -39,6 +39,7 @@ import type { TaskCatalogue } from '../tasks.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
+import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
 
 /**
@@ -145,6 +146,15 @@ export interface RouteDependencies {
    * reach the operator channel.
    */
   readonly webServer: WebServerDependencies
+  /**
+   * The reachability check (`#394`) — the limiter and, in a test, the fetch.
+   *
+   * Its own entry rather than a field on `webServer`, though the two are about
+   * the same rung. This one grants nothing, mints nothing, reads no table and
+   * touches no challenge: folding it in would put a diagnostic that writes
+   * nothing behind a dependency built to write.
+   */
+  readonly reachability: ReachabilityDependencies
   readonly image: ImageDependencies
   /** The generator rung's scene specification (`#216`). */
   readonly scene: SceneDependencies

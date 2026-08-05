@@ -259,3 +259,39 @@ export function operatorNoteLimiter(now?: () => number): RateLimiter {
     ...(now === undefined ? {} : { now }),
   })
 }
+
+/**
+ * How many reachability checks one citizen may make per window (`#394`).
+ *
+ * **Sixty, and generously on purpose**, because the intended use is a loop. A
+ * citizen fixing a firewall changes one thing, checks, changes another, checks
+ * again — and a limiter tuned for abuse would refuse exactly the behaviour this
+ * tool was built to make possible. The issue's own framing: a diagnostic that
+ * costs something is a diagnostic nobody runs.
+ *
+ * **Its own allowance rather than sharing anything**, on `#138`'s reasoning one
+ * door along. What each call costs differs: a registration takes a name forever,
+ * a name check reads a table, and this one makes the Colony's own host open an
+ * outbound connection to an address the caller chose. That last cost is real and
+ * is why there is a limit at all — but it is bounded by the SSRF refusal rather
+ * than by the counter, so the counter can afford to be loose.
+ *
+ * **Keyed by the citizen and not by the address**, unlike the front-door
+ * limiters. This call needs a credential, so there is a citizen to key on, and
+ * keying on the caller's address would refuse a whole fleet behind one proxy for
+ * one noisy member.
+ *
+ * The same window as everything else here, so an operator has one period to hold
+ * in mind. Not configurable through the environment, for the reason
+ * `REGISTRATION_LIMIT` gives: changing it is a commit.
+ */
+export const REACHABILITY_LIMIT = 60
+
+/** The limiter the reachability check runs with. Own allowance, shared window. */
+export function reachabilityLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: REACHABILITY_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}

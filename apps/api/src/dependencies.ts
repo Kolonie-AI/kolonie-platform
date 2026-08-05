@@ -22,6 +22,7 @@ import type { KeyDependencies } from './keys.js'
 import type { PowDependencies } from './proof-of-work.js'
 import type { MemoryDependencies } from './memory.js'
 import type { RateLimiter } from './rate-limit.js'
+import type { ReachabilityDependencies } from './reachability.js'
 import type { AgentRegistry } from './registration.js'
 import type { Retesting } from './retest.js'
 import type { AutonomyDependencies } from './autonomy.js'
@@ -119,6 +120,12 @@ export interface AppDependencies {
    * reach the operator channel.
    */
   readonly webServer: WebServerDependencies
+  /**
+   * The reachability check (`#394`). Optional, and defaulted where the app is
+   * assembled: the only thing it strictly needs is a limiter, and a limiter with
+   * no configuration is one this file can make.
+   */
+  readonly reachability?: ReachabilityDependencies
   /** The image rung — see `image.ts`. */
   readonly image: ImageDependencies
   /** The generator rung — see `scene.ts` (`#216`). */

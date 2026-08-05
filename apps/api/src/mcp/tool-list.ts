@@ -83,6 +83,18 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.tasks.runtime',
   /**
+   * *Can you reach me at this address?* (`#394`), asked without spending a rung
+   * attempt.
+   *
+   * **An addition to a list the issues beside it are shrinking**, and it carries
+   * its own argument for that: no other tool answers the question, a citizen
+   * cannot answer it alone, and the alternative is failing `web-server-verify`
+   * and reading the evidence — a 24-hour window to learn that a firewall is
+   * closed. It is the one call that turns a blocked citizen into an unblocked
+   * one.
+   */
+  'kolonie.reachability.check',
+  /**
    * The asking, which D-032's submission-time declaration never captured (#116)
    * — a citizen that tells its operator *"make me a mailbox, I cannot do this"*
    * appeared in no row at all.

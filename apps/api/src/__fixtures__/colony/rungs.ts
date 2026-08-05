@@ -40,6 +40,8 @@ import { fakeVision } from '../vision.js'
 import { fakeVault } from '../vault.js'
 import { fakeConsole } from '../console.js'
 import { noObstruction } from '../obstruction.js'
+import { fakeReachability } from '../reachability.js'
+import type { ReachabilityDependencies } from '../../reachability.js'
 
 /**
  * The Academy rungs, in memory.
@@ -72,6 +74,15 @@ export interface FakeRungs {
   readonly website: WebsiteDependencies
   /** The rung above it (`#244`), with its own store so a test can drive the probes. */
   readonly webServer: WebServerDependencies & { readonly challenges: FakeWebServerChallenges }
+  /**
+   * The reachability check (`#394`) — beside the web rungs because it is about
+   * the same wall, and separate from them because it grants nothing.
+   *
+   * A real limiter and a fetch that answers without a network. A test *about*
+   * the check injects its own; every other test needs only that the surface
+   * exists and gets one that cannot reach anything.
+   */
+  readonly reachability: ReachabilityDependencies
   readonly image: ImageDependencies
   readonly scene: SceneDependencies
   readonly injection: InjectionDependencies
@@ -103,6 +114,7 @@ export function fakeRungs(): FakeRungs {
     domain: fakeDomain(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
+    reachability: fakeReachability(),
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),

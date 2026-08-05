@@ -40,6 +40,7 @@ import { fakePermissionReports } from '../../../__fixtures__/permission-reports.
 import { fakeRotation } from '../../../__fixtures__/rotation.js'
 import { fakeVault } from '../../../__fixtures__/vault.js'
 import { fakeVision } from '../../../__fixtures__/vision.js'
+import { fakeReachability } from '../../../__fixtures__/reachability.js'
 import { fakeWebServer } from '../../../__fixtures__/web-server.js'
 import { fakeWebsite } from '../../../__fixtures__/website.js'
 import { fakeStandingHints } from '../../../__fixtures__/hints.js'
@@ -109,6 +110,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
       domain: fakeDomain(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      reachability: fakeReachability(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -157,6 +159,7 @@ describe('kolonie.academy.email.challenge and .code', () => {
         domain: fakeDomain(),
         website: fakeWebsite(),
         webServer: fakeWebServer(),
+        reachability: fakeReachability(),
         image: fakeImage(),
         scene: fakeScene(),
         injection: fakeInjection(),

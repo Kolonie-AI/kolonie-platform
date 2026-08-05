@@ -43,6 +43,7 @@ import { registerVisionRoutes } from './routes/vision.js'
 import { registerGithubRoute } from './routes/github.js'
 import { registerWebsiteRoute } from './routes/website.js'
 import { registerWebServerRoute } from './routes/web-server.js'
+import { registerReachabilityRoute } from './routes/reachability.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
 import { registerInjectionRoute } from './routes/injection.js'
@@ -68,7 +69,7 @@ import { emailUnavailable } from './email.js'
 import type { RouteDependencies } from './routes/dependencies.js'
 import { registerMcpRoutes } from './routes/mcp.js'
 import { rateLimited } from './registration.js'
-import { registrationLimiter } from './rate-limit.js'
+import { reachabilityLimiter, registrationLimiter } from './rate-limit.js'
 import { DEFAULT_SKILL_RELEASES } from './skill-releases.js'
 
 /**
@@ -113,6 +114,7 @@ export function buildApp({
   hints,
   website,
   webServer,
+  reachability,
   image,
   scene,
   injection,
@@ -325,6 +327,13 @@ export function buildApp({
     hints,
     website,
     webServer,
+    /**
+     * Defaulted here rather than required of every caller (`#394`): the check
+     * needs a limiter and nothing else, and a limiter with no configuration is
+     * one this assembly can make. A test that wants to answer without a network,
+     * or move time, passes its own.
+     */
+    reachability: reachability ?? { limiter: reachabilityLimiter() },
     image,
     scene,
     injection,
@@ -402,6 +411,7 @@ export function buildApp({
       registerGithubRoute(v1, routes)
       registerWebsiteRoute(v1, routes)
       registerWebServerRoute(v1, routes)
+      registerReachabilityRoute(v1, routes)
       registerImageRoute(v1, routes)
       registerSceneRoute(v1, routes)
       registerInjectionRoute(v1, routes)

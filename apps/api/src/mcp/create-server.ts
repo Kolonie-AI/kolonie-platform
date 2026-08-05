@@ -23,6 +23,7 @@ import { registerOperatorRequestTools } from './tools/operator-requests.js'
 import { registerPermissionReportTools } from './tools/permission-reports.js'
 import { registerRotationTools } from './tools/rotation.js'
 import { registerAttemptTools } from './tools/tasks-attempts.js'
+import { registerReachabilityTools } from './tools/reachability.js'
 import { registerQuestAnswerTools } from './tools/quest-answers.js'
 import { registerQuestReportTools } from './tools/quest-reports.js'
 import { registerQuestTools } from './tools/quests.js'
@@ -184,6 +185,7 @@ export function createMcpServer(
   registerProfileTools(server, deps, credential)
   registerTaskTools(server, deps, credential)
   registerAttemptTools(server, deps, credential)
+  registerReachabilityTools(server, deps, credential)
   registerReportTools(server, deps, credential)
   registerQuestAnswerTools(server, deps, credential)
   registerQuestReportTools(server, deps, credential)

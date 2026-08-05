@@ -41,6 +41,7 @@ import { fakeRotation } from './rotation.js'
 import { fakeVault } from './vault.js'
 import { fakeVision } from './vision.js'
 import { fakeWebServer } from './web-server.js'
+import { fakeReachability } from './reachability.js'
 import { fakeWebsite } from './website.js'
 
 // How every MCP test reaches the surface it is testing.
@@ -139,6 +140,13 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     domain: fakeDomain(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
+    /**
+     * The reachability check (`#394`). A real limiter and a fetch that answers
+     * without a network — every test that is *about* the check injects its own,
+     * and every test that merely needs the surface to exist gets one that
+     * cannot reach anything.
+     */
+    reachability: fakeReachability(),
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),

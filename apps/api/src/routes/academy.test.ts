@@ -417,6 +417,22 @@ describe('POST /v1/academy/verify-captcha', () => {
 })
 
 describe('the capability rung — GET/POST /v1/academy/browser', () => {
+  /**
+   * The sequence property, asserted on the structure rather than on the
+   * rendering (`#331`).
+   *
+   * It compared step 0's serialised response against step 1's *width*, and the
+   * widths are drawn per step from the challenge id — so nothing stopped two
+   * steps drawing the same one, and when they did, step 0's own response
+   * contained it legitimately and the test failed. Observed once on 2026-08-05,
+   * on a branch touching nothing in this path.
+   *
+   * The string form was also weaker than the property it defended: two steps
+   * that happened to collide were indistinguishable to it in either direction.
+   * *Which step does this response describe* is a question about the fields, and
+   * the fields answer it exactly — this response is step 0's probe and nothing
+   * else, whatever any two steps happen to draw.
+   */
   it('issues only the outstanding step, never the ones after it', async () => {
     const { response } = await mint()
     const { challengeId } = response.json()
@@ -424,9 +440,8 @@ describe('the capability rung — GET/POST /v1/academy/browser', () => {
     const first = await app.inject({ method: 'GET', url: `/v1/academy/browser/${challengeId}` })
 
     expect(first.statusCode).toBe(200)
+    expect(first.json()).toEqual(probeFor(challengeId, 0))
     expect(first.json()).toMatchObject({ step: 0, total: 3 })
-    // The whole sequence property: nothing in this response describes step 1.
-    expect(JSON.stringify(first.json())).not.toContain(probeFor(challengeId, 1).width)
   })
 
   /**

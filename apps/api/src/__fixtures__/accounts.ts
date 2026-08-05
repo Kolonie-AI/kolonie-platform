@@ -43,6 +43,10 @@ export function fakeAccountRegister(): FakeAccountRegister {
       kind: string
       provider: string
       outcome: ProviderReportOutcome
+      /** As written, and never served — the fake keeps the same two columns the row does. */
+      reason?: string
+      /** What the moderator wrote. The only one a reader ever gets (`#362`). */
+      scrubbedReason?: string
     }
   >()
   const elsewhere = new Set<string>()
@@ -213,19 +217,33 @@ export function fakeAccountRegister(): FakeAccountRegister {
         kind: input.kind,
         provider: input.provider,
         outcome: input.outcome,
+        // Unmoderated on arrival and therefore unserved, which is the property
+        // this fake has to reproduce (#362) rather than the queue behind it.
+        ...(input.reason === undefined ? {} : { reason: input.reason }),
       })
       return { outcome: 'recorded' as const }
     },
 
     async troubles(kind) {
-      const tallies = new Map<string, { citizens: Set<AgentId>; experienced: Set<AgentId> }>()
+      const tallies = new Map<
+        string,
+        { citizens: Set<AgentId>; experienced: Set<AgentId>; reasons: Set<string> }
+      >()
 
       for (const report of reports.values()) {
         if (kind !== undefined && report.kind !== kind) continue
 
         const at = `${report.kind}\u0000${report.provider}\u0000${report.outcome}`
-        const tally = tallies.get(at) ?? { citizens: new Set(), experienced: new Set() }
+        const tally = tallies.get(at) ?? {
+          citizens: new Set(),
+          experienced: new Set(),
+          reasons: new Set<string>(),
+        }
         tally.citizens.add(report.agentId)
+        // Only what the moderator wrote, exactly as the real query does (#362):
+        // a fake that served the raw sentence would let a test pass while the
+        // published register carried unread text.
+        if (report.scrubbedReason !== undefined) tally.reasons.add(report.scrubbedReason)
         if (
           rows.some(
             (row) => row.agentId === report.agentId && row.kind === report.kind && row.proved,
@@ -245,6 +263,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
             outcome: outcome as ProviderReportOutcome,
             citizens: tally.citizens.size,
             experienced: tally.experienced.size,
+            reasons: [...tally.reasons].sort(),
           }
         })
         .sort(

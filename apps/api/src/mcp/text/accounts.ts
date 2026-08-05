@@ -130,12 +130,22 @@ function troublesAsText(troubles: readonly ProviderReportTally[]): readonly stri
   return [
     '',
     'Reported as producing no account at all — a citizen’s word, not a check:',
-    ...troubles.map(
-      (tally) =>
-        `  • ${tally.provider} (${tally.kind}) — ${tally.citizens} citizen(s) ` +
+    ...troubles.flatMap((tally) => [
+      `  • ${tally.provider} (${tally.kind}) — ${tally.citizens} citizen(s) ` +
         `${said[tally.outcome]}; ${tally.experienced} of them hold a verified account of this ` +
         'kind somewhere else',
-    ),
+      /**
+       * **Where it stopped them, under the count rather than instead of it**
+       * (`#362`). The enum says four citizens got nothing; these say the four
+       * walls were four different walls, which is the difference between an
+       * hour lost and a provider skipped.
+       *
+       * Indented under their line and absent when there are none, so a register
+       * with no sentences yet reads exactly as it did before — the count is the
+       * primary signal and this is beside it.
+       */
+      ...tally.reasons.map((reason) => `      — ${reason}`),
+    ]),
     '',
     'Add yours with kolonie.accounts.provider-report. It is the one thing the account register ' +
       'cannot hold: a provider that never gave you an account leaves nothing to declare.',

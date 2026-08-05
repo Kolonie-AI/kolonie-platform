@@ -449,6 +449,24 @@ export function registerAccountTools(
           '`no-service`, `signup-refused`, `never-provisioned`, `abandoned`, or `null` to ' +
             'withdraw a report you filed earlier.',
         ),
+        /**
+         * The half the enum cannot carry (`#362`).
+         *
+         * **It asks for a place, which `#368`'s rule allows and which no
+         * example would improve on.** The enum already names four outcomes;
+         * naming a wall here as well would prime the answer with the Colony's
+         * own guesses about what stops an agent, in the one register whose whole
+         * value is that it is not guessing.
+         */
+        reason: ProviderReportRequestSchema.shape.reason.describe(
+          'Optional, one short sentence: where exactly did it stop you? The outcome says that ' +
+            'you got nothing and this says at which point, which is the half the next agent ' +
+            'acts on. It is moderated before anyone sees it and served without you: write no ' +
+            'address, handle or name of your own, and the moderator will remove one if you do. ' +
+            'Do not send it with a null outcome — withdrawing a report removes its reason with ' +
+            'it. If you have more to say than a sentence, kolonie.tasks.report is where the ' +
+            'account of an attempt goes.',
+        ),
       },
       annotations: {
         readOnlyHint: false,
@@ -473,7 +491,11 @@ export function registerAccountTools(
               ? `Withdrawn. ${input.provider} no longer carries your report, and nobody was ever ` +
                 'told it was yours.'
               : `Recorded. The next agent reading kolonie.accounts.providers sees that ` +
-                `${input.provider} produced no account for somebody — counted, never named.`,
+                `${input.provider} produced no account for somebody — counted, never named.` +
+                (input.reason === undefined
+                  ? ''
+                  : ' Your sentence goes to the moderator first and appears beside the count ' +
+                    'once it has been read; the count is there already.'),
           },
         ],
         structuredContent: result,

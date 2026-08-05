@@ -8,7 +8,9 @@ import {
   unclassifiedDirections,
   writeDirectionClassification,
   pendingAnswerModerations,
+  unmoderatedProviderReasons,
   unmoderatedQuestReports,
+  recordProviderReasonModeration,
   recordQuestReportModeration,
   pendingQuestModerations,
   pendingReports,
@@ -31,6 +33,7 @@ import {
 } from './loop.js'
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
+import type { ProviderReasonModerationStore } from './provider-reasons.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
 import { createLog, type TaskId } from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
@@ -191,6 +194,35 @@ const questReportStore: QuestReportModerationStore = {
 }
 
 /**
+ * The scrub between a citizen's sentence about a provider and every citizen that
+ * reads the register (`#362`).
+ *
+ * Fifth pass in the same process, on the same poll, for the reason the third and
+ * fourth are here. It is keyed by the row's own primary key because
+ * `provider_reports` has no surrogate id, and the text the moderator read
+ * travels with the verdict so a citizen that rewrote its report while the pass
+ * was thinking does not have the old verdict land on the new sentence.
+ */
+const providerReasonStore: ProviderReasonModerationStore = {
+  pending: (limit) => unmoderatedProviderReasons(db, limit),
+  write: async ({ reason, scrubbed }) => {
+    await recordProviderReasonModeration(db, {
+      ...reason,
+      judged: reason.reason,
+      decision: 'approved',
+      scrubbed,
+    })
+  },
+  refuse: async ({ reason }) => {
+    await recordProviderReasonModeration(db, {
+      ...reason,
+      judged: reason.reason,
+      decision: 'rejected',
+    })
+  },
+}
+
+/**
  * Reading what citizens said they want to become (`#140`).
  *
  * **Fifth pass in the same process, and the one that costs the least to lose.**
@@ -223,6 +255,7 @@ const runner = startRunner(
     quests: { store: questStore, model, log },
     answers: { store: answerStore, model, log },
     questReports: { store: questReportStore, model, log },
+    providerReasons: { store: providerReasonStore, model, log },
     directions: {
       directions: directionStore,
       classifier: openRouterDirectionClassifier(

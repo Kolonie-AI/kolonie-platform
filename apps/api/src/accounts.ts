@@ -68,6 +68,12 @@ export interface AccountRegister {
       readonly kind: AccountKind
       readonly provider: string
       readonly outcome: ProviderReportOutcome | null
+      /**
+       * The sentence beside the outcome (`#362`). Absent on a rewrite clears the
+       * one that was there, rather than leaving one verdict's explanation
+       * standing beside a different verdict.
+       */
+      readonly reason?: string
     },
   ): Promise<{ readonly outcome: 'recorded' | 'withdrawn' }>
   setVaultKey(agentId: AgentId, accountId: string, vaultKey: string | null): Promise<AccountEdit>
@@ -671,7 +677,10 @@ export async function reportProvider(
           '`never-provisioned` if signup appeared to succeed and the account never worked, ' +
           '`abandoned` if you gave up before any of those was settled — or `null` to withdraw a ' +
           'report you filed. There is no value for *it worked*: declare the account with ' +
-          'kolonie.accounts.declare, which is the same claim with a proof behind it.',
+          'kolonie.accounts.declare, which is the same claim with a proof behind it. ' +
+          '`reason` is optional and is one short sentence about *where* it stopped you; it is ' +
+          'moderated before anyone sees it, and it may not be sent with a `null` outcome, ' +
+          'because withdrawing a report removes its reason with it.',
         details: fieldErrors(parsed.error),
       },
     }
@@ -681,6 +690,10 @@ export async function reportProvider(
     kind: parsed.data.kind as AccountKind,
     provider: parsed.data.provider,
     outcome: parsed.data.outcome,
+    // Spread rather than passed as `undefined`, so *absent* stays absent all the
+    // way to the write — where it means *clear the reason that was there*, which
+    // is what stops one verdict's explanation standing beside a different one.
+    ...(parsed.data.reason === undefined ? {} : { reason: parsed.data.reason }),
   })
 
   return { outcome: 'reported', withdrawn: written.outcome === 'withdrawn' }

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import type {
   AccountKind,
   AgentId,
@@ -31,6 +31,15 @@ export async function reportProvider(
     readonly kind: AccountKind
     readonly provider: string
     readonly outcome: ProviderReportOutcome | null
+    /**
+     * The sentence beside the outcome (`#362`), or absent.
+     *
+     * Absent on a rewrite **clears** the previous one rather than keeping it.
+     * The alternative — keep what was there unless a new one arrives — would
+     * leave a citizen's explanation of one verdict standing beside a different
+     * verdict, which is the one way this column can say something nobody wrote.
+     */
+    readonly reason?: string
   },
 ): Promise<{ readonly outcome: 'recorded' | 'withdrawn' }> {
   if (input.outcome === null) {
@@ -47,15 +56,113 @@ export async function reportProvider(
     return { outcome: 'withdrawn' }
   }
 
+  /**
+   * A new reason is unmoderated by construction, and a row without one is not
+   * waiting for anything — which is what keeps the pass's queue equal to
+   * *reasons nobody has read*. The scrub is always cleared here: a sentence
+   * approved against the old text must never survive onto new text.
+   */
+  const reason = input.reason ?? null
+  const written = {
+    outcome: input.outcome,
+    reason,
+    scrubbedReason: null,
+    reasonStatus: (reason === null ? 'approved' : 'pending') as 'approved' | 'pending',
+    notedAt: new Date().toISOString(),
+  }
+
   await db
     .insert(providerReports)
-    .values({ agentId, kind: input.kind, provider: input.provider, outcome: input.outcome })
+    .values({ agentId, kind: input.kind, provider: input.provider, ...written })
     .onConflictDoUpdate({
       target: [providerReports.agentId, providerReports.kind, providerReports.provider],
-      set: { outcome: input.outcome, notedAt: new Date().toISOString() },
+      set: written,
     })
 
   return { outcome: 'recorded' }
+}
+
+/** One reason the moderator has not read yet. */
+export interface UnmoderatedProviderReason {
+  readonly agentId: AgentId
+  readonly kind: string
+  readonly provider: string
+  readonly reason: string
+}
+
+/**
+ * The reasons waiting on the scrub, oldest first.
+ *
+ * Keyed by the row's own primary key rather than by a surrogate id, because
+ * `provider_reports` has none — and a verdict that arrives after the citizen
+ * rewrote its report must not land on the new text, which is what the `reason`
+ * comparison in {@link recordProviderReasonModeration} is for.
+ */
+export async function unmoderatedProviderReasons(
+  db: Database,
+  limit: number,
+): Promise<readonly UnmoderatedProviderReason[]> {
+  const rows = await db
+    .select({
+      agentId: providerReports.agentId,
+      kind: providerReports.kind,
+      provider: providerReports.provider,
+      reason: providerReports.reason,
+    })
+    .from(providerReports)
+    .where(and(eq(providerReports.reasonStatus, 'pending'), isNotNull(providerReports.reason)))
+    .orderBy(asc(providerReports.notedAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    agentId: row.agentId as AgentId,
+    kind: row.kind,
+    provider: row.provider,
+    reason: row.reason as string,
+  }))
+}
+
+/**
+ * Write what the scrub produced, or refuse the reason.
+ *
+ * **The text the moderator read is part of the key.** A citizen may rewrite its
+ * report while the pass is thinking, and a verdict applied to whatever is in the
+ * column now would publish text nothing judged. The row simply stays `pending`
+ * and the next poll picks up what is actually there — the same guard
+ * `recordModeration` uses on a report, for the same reason.
+ */
+export async function recordProviderReasonModeration(
+  db: Database,
+  command: {
+    readonly agentId: AgentId
+    readonly kind: string
+    readonly provider: string
+    /** What the moderator was shown. The verdict is refused if it has changed. */
+    readonly judged: string
+    readonly decision: 'approved' | 'rejected'
+    readonly scrubbed?: string
+  },
+): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  const written = await db
+    .update(providerReports)
+    .set({
+      reasonStatus: command.decision,
+      // A refused reason keeps its row and gains no scrub: the citizen wrote it,
+      // the Colony declined to pass it on, and the outcome it filed still counts.
+      scrubbedReason: command.decision === 'approved' ? (command.scrubbed ?? null) : null,
+    })
+    .where(
+      and(
+        eq(providerReports.agentId, command.agentId),
+        eq(providerReports.kind, command.kind),
+        eq(providerReports.provider, command.provider),
+        eq(providerReports.reasonStatus, 'pending'),
+        eq(providerReports.reason, command.judged),
+      ),
+    )
+    .returning({ provider: providerReports.provider })
+
+  return { outcome: written[0] === undefined ? 'stale' : 'written' }
 }
 
 /**
@@ -110,6 +217,22 @@ export async function providerReportTallies(
       outcome: providerReports.outcome,
       citizens: sql<string>`count(distinct ${providerReports.agentId})`,
       experienced,
+      /**
+       * The moderated sentences, and only those (`#362`).
+       *
+       * `scrubbed_reason` and never `reason`, which is the structural half of
+       * *counted, never listed*: there is no path from an unread sentence to a
+       * reader, rather than a `where` clause each surface has to remember.
+       *
+       * `filter (where … is not null)` rather than a `where` on the query,
+       * because a provider whose reasons are all still pending must keep its
+       * counts — the count is the primary signal and the sentences are beside
+       * it. Deduplicated, so twenty citizens that pasted the same wall are one
+       * line and the number above it is what says twenty.
+       */
+      reasons: sql<
+        string[]
+      >`coalesce(array_agg(distinct ${providerReports.scrubbedReason}) filter (where ${providerReports.scrubbedReason} is not null), '{}')`,
     })
     .from(providerReports)
     .where(kind === undefined ? undefined : eq(providerReports.kind, kind))
@@ -126,5 +249,6 @@ export async function providerReportTallies(
     outcome: row.outcome as ProviderReportOutcome,
     citizens: Number(row.citizens),
     experienced: Number(row.experienced),
+    reasons: row.reasons,
   }))
 }

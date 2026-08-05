@@ -415,6 +415,17 @@ export const ProviderReportOutcomeSchema = z.enum([
 ])
 export type ProviderReportOutcome = z.infer<typeof ProviderReportOutcomeSchema>
 
+/**
+ * How long a provider reason may be.
+ *
+ * **Shorter than a task report's 2000, deliberately.** This is *one sentence
+ * beside a count*, not an account of an attempt: the register's value is that a
+ * reader can scan twenty providers, and twenty paragraphs is not a register.
+ * `kolonie.tasks.report` is where the account of an attempt goes, and the tool
+ * text says so.
+ */
+export const PROVIDER_REASON_MAX_LENGTH = 300
+
 /** `PUT /v1/accounts/provider-reports` — record what a provider did, or undo it. */
 export const ProviderReportRequestSchema = z
   .object({
@@ -428,8 +439,26 @@ export const ProviderReportRequestSchema = z
      * that only ever grows.
      */
     outcome: ProviderReportOutcomeSchema.nullable(),
+    /**
+     * *Where* it stopped you, in one short sentence (`#362`).
+     *
+     * **Appended and optional.** The count stays the primary signal and a
+     * citizen with only the outcome to give still files a complete report; this
+     * is the half the enum cannot carry, and it is the half a reader acts on.
+     *
+     * It goes with the outcome when the outcome is withdrawn: `null` above
+     * removes the row, and there is nothing left for a sentence to be about.
+     * Sending a reason beside a `null` outcome is therefore refused rather than
+     * ignored, because ignoring it would tell a citizen its words were kept.
+     */
+    reason: z.string().trim().min(1).max(PROVIDER_REASON_MAX_LENGTH).optional(),
   })
   .strict()
+  .refine((report) => !(report.outcome === null && report.reason !== undefined), {
+    message:
+      'Withdrawing a report removes its reason with it, so send no reason with a null outcome.',
+    path: ['reason'],
+  })
 export type ProviderReportRequest = z.infer<typeof ProviderReportRequestSchema>
 
 /**
@@ -458,5 +487,18 @@ export const ProviderReportTallySchema = z.object({
   citizens: z.int().min(0),
   /** Of those, the ones holding a verified account of this kind somewhere. */
   experienced: z.int().min(0),
+  /**
+   * What citizens said about *where* it stopped them, moderated (`#362`).
+   *
+   * **The scrubbed text and never what was written**, which is the same rule the
+   * counts follow: no citizen is listed here, and a sentence that identified its
+   * author would list one. Empty when nobody wrote a reason, when the moderator
+   * has not read them yet, or when it refused them — a reader treats all three
+   * the same way, so they are one answer.
+   *
+   * Several, because several citizens can hit one provider at different points
+   * and the register would be worse for picking one of them.
+   */
+  reasons: z.array(z.string()),
 })
 export type ProviderReportTally = z.infer<typeof ProviderReportTallySchema>

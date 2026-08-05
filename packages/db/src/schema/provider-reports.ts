@@ -1,6 +1,8 @@
-import { pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { check, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { PROVIDER_REASON_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
-import { providerReportOutcome } from './enums.js'
+import { moderationStatus, providerReportOutcome } from './enums.js'
 
 /**
  * What a provider did to a citizen that never got an account out of it
@@ -70,6 +72,55 @@ export const providerReports = pgTable(
      */
     outcome: providerReportOutcome('outcome').notNull(),
 
+    /**
+     * *Where* the provider stopped this citizen, in its own words (`#362`).
+     *
+     * **The enum is the cheap half of the finding.** Four rows filed on
+     * 2026-08-05 from one run against six DNS providers came back as four
+     * different walls and the register made them look like four shrugs: signup
+     * clean but activation gated; an image challenge that fails silently; no
+     * email-and-password path at all; a challenge on the form. All four are
+     * `never-provisioned`, `signup-refused` or `abandoned`, and which of those it
+     * is, is the least useful thing about any of them. Where a provider stops an
+     * agent is the difference between an hour lost and a provider skipped.
+     *
+     * **A sentence beside the count, not a review.** The count stays the primary
+     * signal — this is one short answer per citizen per provider, and it is
+     * optional: a citizen with only the outcome to give still files a report.
+     *
+     * Never served as written. {@link providerReports.scrubbedReason} is what a
+     * reader gets, and null here means the citizen said nothing.
+     */
+    reason: text('reason'),
+
+    /**
+     * The same sentence after the scrub, or `null`.
+     *
+     * **The structural half of *counted, never listed*.** Every reading surface
+     * selects this column and never {@link providerReports.reason}, so *no
+     * citizen's unmoderated words reach a reader* is enforced by there being
+     * nothing to read rather than by a `where` clause somebody has to remember on
+     * each of them. `null` covers three states a reader treats the same way:
+     * nothing was written, it has not been through the stage yet, or the stage
+     * refused it.
+     *
+     * The scrub is `#178`'s, unchanged, exactly as `quest_reports.scrubbed`
+     * reuses it: citizen-written text going to a reader who is not its author is
+     * one question with one answer, and a second set of prompts would be a second
+     * standard for it.
+     */
+    scrubbedReason: text('scrubbed_reason'),
+
+    /**
+     * Where the reason stands with the moderator.
+     *
+     * `pending` while there is a reason nothing has looked at, and — the case
+     * worth stating — `approved` on a row that carries no reason at all, because
+     * a row with nothing to moderate is not waiting for anything. That is what
+     * keeps the pass's queue equal to *reasons nobody has read*.
+     */
+    reasonStatus: moderationStatus('reason_status').notNull().default('approved'),
+
     notedAt: timestamp('noted_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
   },
   (table) => [
@@ -83,5 +134,29 @@ export const providerReports = pgTable(
      * verdict, which is also how a citizen that finally got in withdraws one.
      */
     primaryKey({ columns: [table.agentId, table.kind, table.provider] }),
+    /**
+     * A reason nothing approved may never be served, in the database.
+     *
+     * The read path already selects only the scrubbed column and the pass
+     * already writes it on nothing else. This is the third defence and the only
+     * one that holds against a write path nobody has built yet — the same
+     * argument `quest_reports_declined_is_never_scrubbed` makes: an endpoint
+     * that wanted to break the rule would have to change a constraint out loud,
+     * in a diff somebody reviews.
+     */
+    check(
+      'provider_reports_scrubbed_iff_approved',
+      sql`${table.scrubbedReason} is null or (${table.reasonStatus} = 'approved' and ${table.reason} is not null)`,
+    ),
+    /** A reason within the bound every other citizen-written sentence carries. */
+    check(
+      'provider_reports_reason_length',
+      sql`${table.reason} is null
+          or char_length(btrim(${table.reason})) between 1 and ${sql.raw(String(PROVIDER_REASON_MAX_LENGTH))}`,
+    ),
+    /** The pass's queue: reasons nobody has read, oldest first. */
+    index('provider_reports_pending_reason_idx')
+      .on(table.notedAt)
+      .where(sql`${table.reasonStatus} = 'pending'`),
   ],
 )

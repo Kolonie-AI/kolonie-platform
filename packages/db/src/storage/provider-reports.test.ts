@@ -10,7 +10,12 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { declareAccount } from './accounts.js'
-import { providerReportTallies, reportProvider } from './provider-reports.js'
+import {
+  providerReportTallies,
+  recordProviderReasonModeration,
+  reportProvider,
+  unmoderatedProviderReasons,
+} from './provider-reports.js'
 
 const target = databaseTestTarget()
 const MAILBOX = AccountKindSchema.parse('mailbox') as AccountKind
@@ -55,8 +60,154 @@ describe('providers that produced no account', () => {
         outcome: 'signup-refused',
         citizens: 1,
         experienced: 0,
+        reasons: [],
       },
     ])
+  })
+
+  /**
+   * **The enum is the cheap half of the finding** (`#362`).
+   *
+   * Four rows from one run against six providers came back as four different
+   * walls, and the register made them look like four shrugs. This is the half a
+   * reader acts on — and it does not reach a reader until the moderator has read
+   * it, which is what the middle assertion is for.
+   */
+  describe('the sentence beside the outcome', () => {
+    const REASON = 'Signup is clean; the activation page is what refuses an agent.'
+
+    it('is not served before the moderator has read it, and the count is served anyway', async () => {
+      await reportProvider(db, await anAgent(), {
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        outcome: 'never-provisioned',
+        reason: REASON,
+      })
+
+      // The count is the primary signal and it does not wait for the sentence.
+      const [tally] = await providerReportTallies(db)
+      expect(tally).toMatchObject({ citizens: 1, reasons: [] })
+
+      const [pending] = await unmoderatedProviderReasons(db, 10)
+      expect(pending?.reason).toBe(REASON)
+    })
+
+    it('is served once the scrub has written it', async () => {
+      const agentId = await anAgent()
+      await reportProvider(db, agentId, {
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        outcome: 'never-provisioned',
+        reason: REASON,
+      })
+
+      await recordProviderReasonModeration(db, {
+        agentId,
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        judged: REASON,
+        decision: 'approved',
+        scrubbed: REASON,
+      })
+
+      const [tally] = await providerReportTallies(db)
+      expect(tally?.reasons).toEqual([REASON])
+    })
+
+    /**
+     * **The rejection case the definition of done asks for**: a reason naming
+     * its author is not served.
+     *
+     * Asserted through a refusal rather than through the scrub, because a
+     * refusal is the harder half to get right — the row survives, the outcome it
+     * filed still counts, and the only thing lost is the sentence.
+     */
+    it('never serves a reason the moderator refused, and keeps its count', async () => {
+      const agentId = await anAgent()
+      await reportProvider(db, agentId, {
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        outcome: 'never-provisioned',
+        reason: 'They answered the support ticket I opened from my own mailbox.',
+      })
+
+      await recordProviderReasonModeration(db, {
+        agentId,
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        judged: 'They answered the support ticket I opened from my own mailbox.',
+        decision: 'rejected',
+      })
+
+      const [tally] = await providerReportTallies(db)
+      expect(tally).toMatchObject({ citizens: 1, reasons: [] })
+      expect(await unmoderatedProviderReasons(db, 10)).toHaveLength(0)
+    })
+
+    /**
+     * A verdict that arrives after the citizen rewrote its report must not land
+     * on the new sentence — the same guard `recordModeration` puts on a report,
+     * and here it is the only one, because there is no surrogate id to key on.
+     */
+    it('refuses a verdict about text the citizen has already replaced', async () => {
+      const agentId = await anAgent()
+      await reportProvider(db, agentId, {
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        outcome: 'never-provisioned',
+        reason: REASON,
+      })
+      await reportProvider(db, agentId, {
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        outcome: 'never-provisioned',
+        reason: 'On second thoughts, it was the form and not the activation page.',
+      })
+
+      const stale = await recordProviderReasonModeration(db, {
+        agentId,
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        judged: REASON,
+        decision: 'approved',
+        scrubbed: REASON,
+      })
+
+      expect(stale.outcome).toBe('stale')
+      expect((await providerReportTallies(db))[0]?.reasons).toEqual([])
+    })
+
+    /**
+     * **Rewriting without a reason clears the old one**, rather than leaving one
+     * verdict's explanation standing beside a different verdict — the one way
+     * this column could say something nobody wrote.
+     */
+    it('clears the reason when a rewrite carries none', async () => {
+      const agentId = await anAgent()
+      await reportProvider(db, agentId, {
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        outcome: 'never-provisioned',
+        reason: REASON,
+      })
+      await recordProviderReasonModeration(db, {
+        agentId,
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        judged: REASON,
+        decision: 'approved',
+        scrubbed: REASON,
+      })
+
+      await reportProvider(db, agentId, {
+        kind: MAILBOX,
+        provider: 'dynv6.com',
+        outcome: 'signup-refused',
+      })
+
+      const [tally] = await providerReportTallies(db)
+      expect(tally).toMatchObject({ outcome: 'signup-refused', reasons: [] })
+    })
   })
 
   /**
@@ -177,6 +328,7 @@ describe('providers that produced no account', () => {
         outcome: 'never-provisioned',
         citizens: 2,
         experienced: 1,
+        reasons: [],
       },
     ])
   })

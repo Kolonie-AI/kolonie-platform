@@ -6,11 +6,14 @@ import {
   type CredentialId,
 } from '@kolonie-ai/core'
 import {
+  redeemKeyMintLink,
   redeemSignInLink,
   registerWebIdentity,
+  requestKeyMintLink,
   requestSignInLink,
   resolveSignInAddress,
   revokeSession,
+  signInAddressOf,
   type Database,
   type RefusalReason,
 } from '@kolonie-ai/db'
@@ -92,6 +95,18 @@ export interface ConsoleStore {
   >
   /** End one session. */
   endSession(agentId: AgentId, credentialId: CredentialId): Promise<void>
+  /**
+   * Mint the confirmation link that lets this identity take an API key (`#400`).
+   *
+   * Takes the identity and never an address: what is mailed is read from
+   * storage, exactly as {@link requestLink} does, so a request body can never
+   * decide where a credential's confirmation goes.
+   */
+  requestKeyMint(agentId: AgentId): Promise<{ token: string; address: string } | undefined>
+  /** Exchange a confirmation token for a key, once, or refuse. */
+  redeemKeyMint(
+    token: string,
+  ): Promise<{ outcome: 'minted'; apiKey: string } | { outcome: 'refused' }>
 }
 
 export interface ConsoleDependencies {
@@ -335,6 +350,120 @@ export async function redeemSignIn(
   }
 }
 
+/** Where the confirmation link lands. One place, so it cannot drift from itself. */
+export const KEY_MINT_CONFIRM_PATH = '/key/confirm'
+
+/** The absolute link that goes in the key-mint mail. */
+export function keyMintLinkUrl(consoleUrl: string, token: string): string {
+  return `${consoleUrl.replace(/\/+$/, '')}${KEY_MINT_CONFIRM_PATH}?token=${encodeURIComponent(token)}`
+}
+
+/** The subject on the one mail this route sends. */
+export const KEY_MINT_SUBJECT = 'Confirm the API key for your Kolonie account'
+
+/**
+ * The mail that has to be followed before a key exists (`#400`).
+ *
+ * **It describes the act that produced it**, which is `#398`'s lesson: a person
+ * who pressed *give me a key* and received a mail saying *somebody asked to sign
+ * in* is left working out whether their click did anything.
+ *
+ * It also states the one thing a person can act on if the request was not
+ * theirs: nothing has happened yet, and ignoring the mail is the whole of the
+ * remedy.
+ */
+function keyMintMailBody(consoleUrl: string, token: string): string {
+  return [
+    'Somebody asked for an API key on your Kolonie account. Following this link',
+    'creates one:',
+    '',
+    keyMintLinkUrl(consoleUrl, token),
+    '',
+    'The key is shown once, on the page the link opens, and cannot be read again',
+    'afterwards. Your account keeps working in the browser exactly as it does now —',
+    'a key is a second way in, not a replacement.',
+    '',
+    'The link works once and expires in 15 minutes.',
+    'If this was not you, no key has been created and you can ignore this mail.',
+  ].join('\n')
+}
+
+/**
+ * Ask for the key confirmation (`#400`).
+ *
+ * **The identity comes from the session and the address from storage.** There is
+ * no parameter here anybody could aim at another account, and nothing the
+ * request said decides where the mail goes — the same shape `requestSignIn` has,
+ * and for the same reason: a route that mails a credential's confirmation
+ * wherever it is told is an account-takeover primitive with a friendly name.
+ *
+ * **An account the Colony has no address for is told so**, rather than being
+ * shown *check your mail* about a mail that was never sent. That case cannot
+ * arise for an account opened through the console, which is exactly why leaving
+ * it silent would make it undiscoverable when it does.
+ */
+export async function requestKeyMint(
+  agentId: AgentId,
+  deps: ConsoleDependencies,
+): Promise<LinkOutcome> {
+  if (deps.mailer === undefined) return { outcome: 'rejected', error: MAILER_MISSING }
+
+  const link = await deps.store.requestKeyMint(agentId)
+  if (link === undefined) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'This account has no address the Colony can write to, so a key cannot be confirmed. ' +
+          'That should not be possible for an account opened here — please report it.',
+      },
+    }
+  }
+
+  await deps.mailer.send({
+    to: link.address,
+    subject: KEY_MINT_SUBJECT,
+    text: keyMintMailBody(deps.consoleUrl, link.token),
+    ...(deps.senderAddress === undefined ? {} : { from: deps.senderAddress }),
+  })
+
+  return { outcome: 'accepted' }
+}
+
+/** The key, once, or a refusal. */
+export type KeyMintOutcome =
+  | { readonly outcome: 'minted'; readonly apiKey: string }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * Follow the confirmation and take the key (`#400`).
+ *
+ * **One refusal for every way a token can fail**, unlike `redeemSignIn`. That
+ * one distinguishes *spent* from *expired* because a sponsor stuck at a sign-in
+ * form has nowhere else to go; here the reader is already signed in and lands
+ * back on a page carrying the button, so *ask for another* is the whole of the
+ * instruction in every case.
+ */
+export async function redeemKeyMint(
+  token: string,
+  deps: ConsoleDependencies,
+): Promise<KeyMintOutcome> {
+  const result = await deps.store.redeemKeyMint(token)
+
+  if (result.outcome === 'refused') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'unauthorized',
+        message: 'That confirmation link is no longer usable. Ask for another one.',
+      },
+    }
+  }
+
+  return { outcome: 'minted', apiKey: result.apiKey }
+}
+
 /**
  * Both limiters, in the order that makes the per-address one decisive.
  *
@@ -433,5 +562,23 @@ export function databaseConsoleStore(db: Database): ConsoleStore {
     redeem: (token) => redeemSignInLink(db, token),
     registerWeb: (request) => registerWebIdentity(db, request),
     endSession: (agentId, credentialId) => revokeSession(db, agentId, credentialId),
+    requestKeyMint: async (agentId) => {
+      /**
+       * The address is read first and the link is minted only if there is one.
+       * An account with no address to write to must not have a live
+       * confirmation nobody could ever follow.
+       */
+      const address = await signInAddressOf(db, agentId)
+      if (address === undefined) return undefined
+
+      const link = await requestKeyMintLink(db, agentId)
+      return { token: link.token, address }
+    },
+    redeemKeyMint: async (token) => {
+      const result = await redeemKeyMintLink(db, token)
+      return result.outcome === 'minted'
+        ? { outcome: 'minted' as const, apiKey: result.apiKey }
+        : { outcome: 'refused' as const }
+    },
   }
 }

@@ -1007,3 +1007,135 @@ describe('the sponsor’s pages', () => {
     expect(after.json().rejectionReason).toContain('impossible')
   })
 })
+
+/**
+ * The route out of the browser (`#400`).
+ *
+ * The Colony already said the two surfaces are one identity — `ARCHITECTURE.md`:
+ * *"there is one identity table and a row in it may be a human"* — but the arrow
+ * pointed one way. An agent with a key could use the browser; a sponsor who
+ * started the way the sign-in page invited it to was in the browser permanently,
+ * and the moment it wanted to automate it had to open a second account and
+ * abandon the first.
+ */
+describe('a browser sponsor taking an API key (#400)', () => {
+  const postKey = (options: { readonly signedIn?: boolean } = {}) =>
+    app.inject({
+      method: 'POST',
+      url: '/key',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        'content-type': 'application/x-www-form-urlencoded',
+        ...(options.signedIn === false ? {} : { cookie: `__Host-kolonie_session=${session}` }),
+      },
+      payload: '',
+    })
+
+  /** Put the session's identity on record, so there is an address to mail to. */
+  const holdAddress = () => console_.store.hold('sponsor@example.org', agentId as never)
+
+  it('offers a key, mails a fresh confirmation, and mints on the link', async () => {
+    holdAddress()
+
+    const offer = await asBrowser('/key', { signedIn: true })
+    expect(offer.statusCode).toBe(200)
+    expect(offer.body).toContain('An API key for this account')
+
+    const asked = await postKey()
+    expect(asked.statusCode).toBe(200)
+    expect(asked.body).toContain('Check your mail')
+
+    const mail = console_.mailer.sent().at(-1)
+    expect(mail?.to).toBe('sponsor@example.org')
+    // It describes the act that produced it (`#398`'s lesson), rather than
+    // saying somebody asked to sign in to a person who asked for a key.
+    expect(mail?.subject).toContain('API key')
+    expect(mail?.text).toContain('asked for an API key')
+
+    const token = console_.store.keyMintTokens().at(-1)
+    const minted = await asBrowser(`/key/confirm?token=${token}`, { signedIn: true })
+
+    expect(minted.statusCode).toBe(200)
+    expect(minted.body).toContain('only time it is shown')
+    expect(minted.body).toContain('kol_')
+  })
+
+  /**
+   * **The load-bearing property.** Minting a key confers no standing. D-039 is
+   * untouched — citizenship is `profile` plus a skill whose verifier read
+   * something outside the Colony — and this is what keeps `governance/quests.md`'s
+   * stake honest.
+   */
+  it('grants no skill, no reputation, no citizenship and no task access', async () => {
+    holdAddress()
+    const before = await store.authenticateSession(session)
+
+    await postKey()
+    const token = console_.store.keyMintTokens().at(-1)
+    await asBrowser(`/key/confirm?token=${token}`, { signedIn: true })
+
+    const after = await store.authenticateSession(session)
+
+    expect(before.outcome).toBe('authenticated')
+    expect(after.outcome).toBe('authenticated')
+    if (before.outcome !== 'authenticated' || after.outcome !== 'authenticated') return
+
+    expect(after.agent.skills).toEqual(before.agent.skills)
+    expect(after.agent.roles).toEqual(before.agent.roles)
+    expect(after.agent.status).toBe(before.agent.status)
+    expect(after.agent.accountType).toBe(before.agent.accountType)
+    // Nothing here is a citizen: the whole of what a key buys is the ability to
+    // call, and D-039's bar is a skill whose verifier read something outside.
+    expect(after.agent.skills).toEqual([])
+  })
+
+  it('refuses the confirmation route without a token, and says to ask again', async () => {
+    const refused = await asBrowser('/key/confirm?token=nothing-real', { signedIn: true })
+
+    expect(refused.statusCode).toBe(401)
+    expect(refused.body).toContain('Ask for another one')
+    expect(refused.body).not.toContain('kol_')
+  })
+
+  /**
+   * One link, one key. A token that has already been spent buys nothing, which
+   * is what stops a mail forwarded to somebody else minting a second credential.
+   */
+  it('spends the confirmation, so following it twice mints once', async () => {
+    holdAddress()
+    await postKey()
+    const token = console_.store.keyMintTokens().at(-1)
+
+    const first = await asBrowser(`/key/confirm?token=${token}`, { signedIn: true })
+    const second = await asBrowser(`/key/confirm?token=${token}`, { signedIn: true })
+
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(401)
+    expect(second.body).not.toContain('kol_')
+  })
+
+  /**
+   * The session is what names the identity, and there is no parameter that could
+   * name another. A signed-out browser is handed to the not-found handler for
+   * the reason this file already states: a `401` here would be an oracle for
+   * which console paths are real.
+   */
+  it('cannot be asked for by somebody who is not signed in', async () => {
+    holdAddress()
+
+    const page = await asBrowser('/key')
+    const asked = await postKey({ signedIn: false })
+
+    expect(page.statusCode).toBe(404)
+    expect(asked.statusCode).toBe(404)
+    expect(console_.mailer.sent()).toHaveLength(0)
+  })
+
+  /** The sponsor deciding how to start is told the choice is not permanent. */
+  it('says on the sign-in page that starting in a browser is not a one-way door', async () => {
+    const signIn = await asBrowser('/')
+
+    expect(signIn.body).toContain('does not shut the other door')
+  })
+})

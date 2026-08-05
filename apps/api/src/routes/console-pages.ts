@@ -11,10 +11,13 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate } from '../authentication.js'
 import {
   CHECK_YOUR_MAIL,
+  KEY_MINT_CONFIRM_PATH,
   RequestLinkSchema,
   SIGN_IN_REDEEM_PATH,
   SignUpSchema,
+  redeemKeyMint,
   redeemSignIn,
+  requestKeyMint,
   requestSignIn,
   signUp,
 } from '../console.js'
@@ -22,6 +25,8 @@ import {
   CONSOLE_HEADERS,
   accountOpenedPage,
   errorPage,
+  keyMintedPage,
+  keyPage,
   notFoundPage,
   signInPage,
 } from '../console/html.js'
@@ -303,6 +308,100 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply.status(303).header('location', '/').send()
       : reply.status(200).send({ agentId: result.agentId })
+  })
+
+  /**
+   * The route out of the browser (`#400`).
+   *
+   * **Three steps, and the middle one is the point.** The page offers, the
+   * `POST` mails a fresh confirmation, and the link mints. Minting a credential
+   * that lasts until it is replaced, from a session that may have been open for
+   * twelve hours, is the one place in the console worth an extra mail.
+   *
+   * **The identity is the session's and there is no parameter that could be
+   * another's.** `sponsor` resolves the caller, `requestKeyMint` takes only that
+   * id, and the address is read from storage — the same shape sign-in has, and
+   * for the same reason.
+   *
+   * **JSON as well as HTML, like every route in this file.** An agent has no use
+   * for this — it holds a key already — but a route with an HTML-only branch is
+   * how `kolonie-docs#108`'s promise gets broken by accident.
+   */
+  app.get('/key', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const agent = await caller(request)
+    if (agent === null) {
+      if (wantsHtml(request)) {
+        reply.callNotFound()
+        return reply
+      }
+      return reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
+    }
+
+    return wantsHtml(request)
+      ? html(reply, keyPage())
+      : reply.send({ mint: '/key', confirmedBy: 'a link mailed to the account address' })
+  })
+
+  app.post('/key', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const agent = await caller(request)
+    if (agent === null) {
+      if (wantsHtml(request)) {
+        reply.callNotFound()
+        return reply
+      }
+      return reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
+    }
+
+    const result = await requestKeyMint(agent.id, deps.console)
+
+    if (result.outcome === 'rejected') {
+      return wantsHtml(request)
+        ? html(
+            reply.status(ERROR_STATUS[result.error.code]),
+            keyPage({ notice: result.error.message }),
+          )
+        : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return wantsHtml(request)
+      ? html(reply.status(200), keyPage({ sent: true }))
+      : reply.status(202).send({ sent: true, message: 'A confirmation link is on its way.' })
+  })
+
+  /**
+   * Follow the confirmation and take the key.
+   *
+   * **The token is the whole credential and it is spent here**, so this is the
+   * one route in the console that answers a `GET` by writing. That is what a
+   * mailed link can do, and it is the same shape `SIGN_IN_REDEEM_PATH` has.
+   *
+   * **Not redirected afterwards, unlike sign-in.** That one redirects so the
+   * token leaves the address bar; here the response body is the one copy of the
+   * key that will ever exist, and a redirect would throw it away. The token in
+   * the history is already spent by the time the page renders.
+   */
+  app.get(KEY_MINT_CONFIRM_PATH, async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const { token } = request.query as { token?: string }
+    const result = await redeemKeyMint(token ?? '', deps.console)
+
+    if (result.outcome === 'rejected') {
+      return wantsHtml(request)
+        ? html(
+            reply.status(ERROR_STATUS[result.error.code]),
+            keyPage({ notice: result.error.message }),
+          )
+        : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return wantsHtml(request)
+      ? html(reply.status(200), keyMintedPage(result.apiKey))
+      : reply.status(200).send({ apiKey: result.apiKey })
   })
 
   registerSponsorPages(app, deps, { guard, caller })

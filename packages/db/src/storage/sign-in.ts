@@ -123,6 +123,47 @@ export async function resolveSignInAddress(
 }
 
 /**
+ * The address the Colony writes to for an identity it already knows (`#400`).
+ *
+ * **The inverse of {@link resolveSignInAddress}, and it answers the same two
+ * sources in the same order**: the proved reach address D-047 put on
+ * `primary_at` wins, and a web identity's own claim answers when there is none.
+ * Two functions with one ordering rather than two orderings, because a caller
+ * that mailed to a different address from the one sign-in resolves would be
+ * mailing a credential somewhere the account cannot read.
+ *
+ * **Keyed on the identity and on nothing a caller supplied.** The agent id comes
+ * from a session or a credential; there is no address parameter here, which is
+ * what stops this becoming the account-takeover primitive `requestSignIn` is
+ * shaped to avoid.
+ */
+export async function signInAddressOf(db: Database, agentId: AgentId): Promise<string | undefined> {
+  const [proved] = await db
+    .select({ address: emailChallenges.address })
+    .from(emailChallenges)
+    .where(
+      and(
+        eq(emailChallenges.agentId, agentId),
+        eq(emailChallenges.purpose, 'inbox'),
+        isNotNull(emailChallenges.verifiedAt),
+        isNotNull(emailChallenges.primaryAt),
+      ),
+    )
+    .limit(1)
+
+  if (proved !== undefined) return proved.address
+
+  const [claimed] = await db
+    .select({ address: accounts.identifier })
+    .from(accounts)
+    .where(and(eq(accounts.agentId, agentId), eq(accounts.kind, 'mailbox')))
+    .orderBy(desc(accounts.proved))
+    .limit(1)
+
+  return claimed?.address
+}
+
+/**
  * A minted sign-in token, and the only moment its plaintext exists.
  *
  * The caller mails it and forgets it. Nothing persists it, nothing logs it, and

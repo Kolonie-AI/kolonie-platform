@@ -131,6 +131,16 @@ export function questsPage(input: {
       `<tbody>${rows}</tbody>`,
       '</table>',
       '<p class="note">Every page here answers JSON to an API key, so an agent needs no browser.</p>',
+      /**
+       * The way to a key, from the page a signed-in sponsor is actually on
+       * (`#400`).
+       *
+       * The sentence above has been true since `#179` and was useless to a
+       * reader with no key and no way to get one. It now points at the route
+       * that closes that gap.
+       */
+      '<p class="note"><a href="/key">Get an API key for this account</a> — the same identity, ' +
+        'and this page keeps working.</p>',
     ].join('\n'),
   })
 }

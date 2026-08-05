@@ -57,6 +57,23 @@ export const CredentialKindSchema = z.enum([
    * has forgotten about"* is already why `lastUsedAt` exists on that table.
    */
   'console-session',
+  /**
+   * A single-use link that lets a signed-in console account mint its first API
+   * key (`#400`).
+   *
+   * **Its own kind rather than a second `email-link`**, and the reason is what
+   * the two mails say. An `email-link` says *somebody asked to sign in*; this one
+   * says *somebody asked for a key*. Sharing a kind would let either token be
+   * presented at either route — so a sign-in link would mint a credential, and a
+   * reader who had been told what they were clicking would have been told wrong.
+   * They also revoke each other: `requestSignInLink` kills every live
+   * `email-link` for the identity, which would cancel a key confirmation the
+   * person is halfway through.
+   *
+   * Short-lived by {@link EMAIL_LINK_TTL_MS} and stored as a hash, exactly as the
+   * other two are.
+   */
+  'key-mint-link',
 ])
 export type CredentialKind = z.infer<typeof CredentialKindSchema>
 
@@ -94,6 +111,7 @@ export const HASHED_CREDENTIAL_KINDS = [
   'api-key',
   'email-link',
   'console-session',
+  'key-mint-link',
 ] as const satisfies readonly CredentialKind[]
 
 /**
@@ -107,6 +125,7 @@ export const HASHED_CREDENTIAL_KINDS = [
 export const EXPIRING_CREDENTIAL_KINDS = [
   'email-link',
   'console-session',
+  'key-mint-link',
 ] as const satisfies readonly CredentialKind[]
 
 /**

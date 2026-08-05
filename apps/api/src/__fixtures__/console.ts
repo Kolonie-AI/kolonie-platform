@@ -42,6 +42,8 @@ export interface FakeConsoleStore extends ConsoleStore {
   readonly hold: (address: string, agentId?: AgentId) => AgentId
   /** Every token this store has minted, newest last. */
   readonly tokens: () => readonly string[]
+  /** Every key-mint confirmation token this store has minted, newest last (`#400`). */
+  readonly keyMintTokens: () => readonly string[]
   /**
    * Age a live token past its expiry, without waiting fifteen minutes.
    *
@@ -60,6 +62,9 @@ export function fakeConsoleStore(): FakeConsoleStore {
   const finished = new Map<string, 'spent' | 'expired'>()
   const tokens: string[] = []
   const names = new Set<string>()
+  /** The key-mint confirmations (`#400`), on their own map — see `requestKeyMint`. */
+  const keyMints = new Map<string, { agentId: AgentId }>()
+  const keyMintTokens: string[] = []
 
   const key = (address: string) => address.trim().toLowerCase()
 
@@ -71,6 +76,8 @@ export function fakeConsoleStore(): FakeConsoleStore {
     },
 
     tokens: () => tokens,
+
+    keyMintTokens: () => keyMintTokens,
 
     expire: (token) => {
       const held = live.get(token)
@@ -146,6 +153,40 @@ export function fakeConsoleStore(): FakeConsoleStore {
     },
 
     endSession: async () => {},
+
+    /**
+     * The key confirmation (`#400`), on its own token map.
+     *
+     * **Separate from the sign-in links deliberately**, because that separation
+     * is the property being modelled: the two kinds do not revoke each other and
+     * neither token is redeemable at the other's route. A fixture that shared
+     * one map would let a test pass against exactly the confusion the second
+     * credential kind exists to prevent.
+     */
+    requestKeyMint: async (agentId) => {
+      const address = [...byAddress.values()].find((held) => held.agentId === agentId)?.address
+      if (address === undefined) return undefined
+
+      for (const [token, held] of keyMints) {
+        if (held.agentId === agentId) keyMints.delete(token)
+      }
+
+      const token = randomUUID()
+      keyMints.set(token, { agentId })
+      keyMintTokens.push(token)
+
+      return { token, address }
+    },
+
+    redeemKeyMint: async (token) => {
+      const held = keyMints.get(token)
+      if (held === undefined) return { outcome: 'refused' }
+
+      // Single use: the token dies before the key it produced exists.
+      keyMints.delete(token)
+
+      return { outcome: 'minted', apiKey: `kol_${randomUUID().replaceAll('-', '')}test` }
+    },
   }
 }
 

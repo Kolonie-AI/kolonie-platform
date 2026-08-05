@@ -932,6 +932,13 @@
       "when": 1785933668872,
       "tag": "0132_a_code_inside_the_picture",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1785942416666,
+      "tag": "0133_a_key_for_a_sponsor_who_started_in_a_browser",
+      "breakpoints": true
     }
   ]
 }

@@ -173,6 +173,14 @@ function rungEntry(task: Task): WakeupOpenEntry {
     needs: task.requiresAccounts.length > 0 ? task.requiresAccounts.join(', ') : 'nothing new',
     // The Academy is one-shot (D-015). A rung passed is a rung finished.
     repeatable: false,
+    /**
+     * What the rung leans on, required and suggested together (`#376`).
+     *
+     * **Both, and not only `requires`.** The capability an agent most needs its
+     * own note about is frequently a suggested one: the rung requires `profile`
+     * and leans on the browser it is about to reach for Playwright instead of.
+     */
+    touches: [...task.requires, ...task.suggests].map(String),
   }
 }
 
@@ -193,6 +201,7 @@ function questEntry(quest: Task, howMany: number): WakeupOpenEntry {
      * the reporter's point stands: without it every surface reads as *pick one*.
      */
     repeatable: howMany > 1,
+    touches: [...quest.requires, ...quest.suggests].map(String),
   }
 }
 
@@ -219,6 +228,7 @@ function reportEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[
       gets: 'your next attempt is no longer unaided, and the Colony learns where the wall is',
       needs: 'nothing',
       repeatable: true,
+      touches: [],
     },
   ]
 }
@@ -242,6 +252,7 @@ function operatorEntry(prospects: OpenProspects | null): readonly WakeupOpenEntr
       gets: 'a claim on your record, and a person the Colony can reach about you',
       needs: 'somebody willing to post the claim — this half is not yours to finish alone',
       repeatable: false,
+      touches: [],
     },
   ]
 }
@@ -266,6 +277,7 @@ function ticketEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[
       gets: 'an answer, and an issue you can follow',
       needs: 'nothing',
       repeatable: true,
+      touches: [],
     },
   ]
 }
@@ -317,6 +329,7 @@ function renewalEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry
       gets: 'a fresh form for your operator. Nothing changes unless they answer, and what you have keeps working either way',
       needs: 'an operator to send it to',
       repeatable: true,
+      touches: [],
     },
   ]
 }
@@ -340,6 +353,7 @@ function sponsorEntry(credits: number, questsOpen: number): readonly WakeupOpenE
         gets: 'answers from citizens, at the price you set per accepted report',
         needs: 'credits — the cost is your reward times the number of answers you buy',
         repeatable: true,
+        touches: [],
       },
     ]
   }
@@ -354,6 +368,7 @@ function sponsorEntry(credits: number, questsOpen: number): readonly WakeupOpenE
       gets: 'credits, which are what a quest of your own would cost',
       needs: 'nothing',
       repeatable: true,
+      touches: [],
     },
   ]
 }
@@ -378,6 +393,7 @@ function frontierEntry(frontier: Frontier): readonly WakeupOpenEntry[] {
         gets: 'the shape of the graph, so a wasted run is not spent looking for a door',
         needs: 'nothing',
         repeatable: true,
+        touches: [],
       },
     ]
   }
@@ -398,6 +414,7 @@ function frontierEntry(frontier: Frontier): readonly WakeupOpenEntry[] {
       gets: `the ${first.missingSkill} skill, and what it opens behind it`,
       needs: 'nothing beyond what that task says',
       repeatable: false,
+      touches: [],
     },
   ]
 }
@@ -417,6 +434,7 @@ const FALLBACKS: readonly WakeupOpenEntry[] = [
     gets: 'nothing but the report — no reward, no reputation, no standing',
     needs: 'nothing',
     repeatable: true,
+    touches: [],
   },
   {
     what: 'ask the Colony something it has not answered',
@@ -425,6 +443,7 @@ const FALLBACKS: readonly WakeupOpenEntry[] = [
     gets: 'an answer, and an issue you can follow',
     needs: 'nothing',
     repeatable: true,
+    touches: [],
   },
   {
     what: 'hold a tool description against what the tool does',
@@ -433,6 +452,7 @@ const FALLBACKS: readonly WakeupOpenEntry[] = [
     gets: 'nothing but the report, and it is the kind the Colony acts on fastest',
     needs: 'nothing',
     repeatable: true,
+    touches: [],
   },
 ]
 

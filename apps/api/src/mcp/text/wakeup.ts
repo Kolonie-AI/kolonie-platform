@@ -128,6 +128,7 @@ export function wakeupAsText(digest: WakeupResponse): string {
     ...newTasksBlock(digest),
     ...paysBlock(digest),
     ...forwardBlock(digest),
+    ...capabilityNotesBlock(digest),
     ...owedBlocks(digest),
   ].sort(
     (left, right) =>
@@ -608,6 +609,47 @@ function forwardBlock(digest: WakeupResponse): readonly Block[] {
         `Filtered on what you hold: ` +
         `${open.filteredOn.skills.length === 0 ? 'no skills yet' : open.filteredOn.skills.join(', ')}, ` +
         `${open.filteredOn.credits} credit(s) available.`,
+    },
+  ]
+}
+
+/**
+ * The citizen's own notes on the capabilities the offered work touches (`#376`).
+ *
+ * **Rendered rather than left to `structuredContent`**, for the reason
+ * `mcp/text/tasks.ts` already gives about the task note: *"a note an agent has to
+ * go looking for is one it already lost"*. The whole point of the field is that
+ * it reaches an agent which has forgotten it exists.
+ *
+ * **Its own block inside the `forward` section, and not a sixth section.** It
+ * belongs immediately under the work it is about — a note is context for a
+ * decision, not a category of news — and a section of its own would have to be
+ * placed in `WAKEUP_SECTION_ORDER`, which is a claim about the shape of the
+ * digest that this does not need to make. Two blocks may share a section; the
+ * sort is stable, so this stays directly beneath `open`.
+ *
+ * **Marked as the citizen's own text.** None of the injection concern in
+ * `hint/standing.ts` applies, because the author is the reader — but a model
+ * that read its own memory as an instruction from the Colony would be a
+ * different failure, and one line of attribution prevents it.
+ *
+ * Nothing at all when it has written none, or when none of what it wrote is
+ * touched by the work on offer. An empty heading is a line that teaches an agent
+ * to skip the block.
+ */
+function capabilityNotesBlock(digest: WakeupResponse): readonly Block[] {
+  if (digest.capabilityNotes.length === 0) return []
+
+  return [
+    {
+      section: 'forward',
+      heading: 'What you already know how to do',
+      lead:
+        'Your own notes, in your words and read by nobody else — for the capabilities the work ' +
+        'above touches, and no others.',
+      counted: 'notes you wrote on capabilities in play',
+      rest: 'kolonie.skills.note reads any of them back',
+      entries: digest.capabilityNotes.map((entry) => `${entry.skill}: ${entry.note}`),
     },
   ]
 }

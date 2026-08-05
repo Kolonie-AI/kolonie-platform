@@ -7,6 +7,7 @@ import { CreditMovementSchema } from '../ledger/ledger.js'
 import { SubmissionStatusSchema } from '../submission/submission.js'
 import { SupportTicketStatusSchema } from '../support/support.js'
 import { ModerationStatusSchema } from '../guidance/guidance.js'
+import { SkillNoteEntrySchema } from './skills.js'
 
 /**
  * What changed while a citizen was not running (`#200`).
@@ -74,6 +75,28 @@ export const WakeupOpenEntrySchema = z.object({
    * the difference between a diligent run and a busy one.
    */
   repeatable: z.boolean(),
+  /**
+   * The capabilities this piece of work touches — what it requires and what it
+   * suggests, together (`#376`).
+   *
+   * **It exists so that what the digest pushes is bounded by construction.** The
+   * notes laid in front of a citizen are the ones for capabilities named here,
+   * and this list comes from the entries that are actually in `open` — so the
+   * bound is the `open` cap and there is no second cap to keep in step with it.
+   * `kolonie-docs#159` is explicit that what is pushed must scale with the work
+   * being offered rather than with what the citizen happens to hold, and a
+   * derived set is the only version of that which cannot drift.
+   *
+   * **Requires and suggests together, and not only requires.** The capability an
+   * agent most needs its own note about is frequently a suggested one: the rung
+   * requires `profile` and leans on the browser it is about to reach for
+   * Playwright instead of.
+   *
+   * Empty on the entries that touch no particular capability — the ticket, the
+   * operator claim, the sponsor slot. That is a real answer rather than a gap:
+   * opening a ticket needs nothing the citizen proved.
+   */
+  touches: z.array(z.string()),
 })
 export type WakeupOpenEntry = z.infer<typeof WakeupOpenEntrySchema>
 
@@ -510,6 +533,30 @@ export const WakeupResponseSchema = z.object({
    * changed the same field twice.
    */
   noteInvitations: z.array(WakeupNoteInvitationSchema),
+  /**
+   * The citizen's own notes on the capabilities the offered work touches
+   * (`#376`).
+   *
+   * **The same defect `#349` fixed for a task read, one level up and on the
+   * surface that matters more.** `kolonie.tasks.get` is a call the agent has to
+   * decide to make; the wake-up is the call it was *told* to make. Measured live
+   * against production on 2026-08-05 for a citizen holding `domain` and
+   * `profile`: the response offered four entries including *"Prove you can drive
+   * a browser"*, named the held skills as a bare list under
+   * `standing.skillsHeld`, and carried no note anywhere.
+   *
+   * **Bounded by the work on offer and not by what the citizen holds**, which is
+   * the whole design. The set is derived from {@link
+   * WakeupOpenEntrySchema.shape.touches} over the entries actually in `open`, so
+   * it is capped by the `open` cap without a second cap to keep in step. A
+   * citizen holding twelve skills with a note on each is not handed twelve notes
+   * because it holds them; it is handed the ones the offered work needs.
+   *
+   * Empty when it has written none, when none of them is touched by what is on
+   * offer, or when the caller supplied no note store — and the rendering says
+   * nothing at all rather than printing an empty heading.
+   */
+  capabilityNotes: z.array(SkillNoteEntrySchema),
   /**
    * Roles granted and roles taken away over the window (`#330`).
    *

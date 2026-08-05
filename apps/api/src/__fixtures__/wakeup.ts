@@ -13,6 +13,8 @@ type Changes = Omit<
   // Computed by `wakeup` from `skillsGranted` and the note store, never by the
   // source (`#377`).
   | 'noteInvitations'
+  // Likewise, from `open` and the note store (`#376`).
+  | 'capabilityNotes'
 >
 
 /** A citizen at the very start: nothing held, nothing earned (`#344`). */

@@ -177,6 +177,7 @@ describe('a rung whose requirements moved', () => {
       rolesRevoked: [],
       reputationDelta: 0,
       noteInvitations: [],
+      capabilityNotes: [],
       open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
@@ -260,6 +261,7 @@ describe('a due mailbox re-check', () => {
           rolesRevoked: [],
           reputationDelta: 0,
           noteInvitations: [],
+          capabilityNotes: [],
           open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
           contributions: { pullRequests: [], unavailable: null },
           operatorNotesUnread: 0,
@@ -305,6 +307,7 @@ describe('a role granted or taken back', () => {
       rolesRevoked: [],
       reputationDelta: 0,
       noteInvitations: [],
+      capabilityNotes: [],
       open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
@@ -540,6 +543,7 @@ describe('the shape of the rendered digest', () => {
           gets: 'the browser skill and 5 reputation',
           needs: 'nothing new',
           repeatable: false,
+          touches: [],
         })),
         nothing: false,
         filteredOn: { skills: ['browser', 'compute'], credits: 12 },
@@ -555,6 +559,16 @@ describe('the shape of the rendered digest', () => {
           call: 'kolonie.skills.note with skill: browser, note: "…"',
           why: 'You were granted browser in this window and have written no note against it.',
           example: 'What is wanted is the operating detail rather than what browser is.',
+        },
+      ],
+      // Populated in the worst case too (`#376`): the notes block is real lines
+      // in a forty-line budget, so a digest that fits with it is the assertion
+      // worth having.
+      capabilityNotes: [
+        {
+          skill: 'browser',
+          note: 'The profile at ~/.config/agent survives a restart; start it headless.',
+          writtenAt: '2026-08-02T09:00:00.000Z',
         },
       ],
       contributions: {
@@ -677,6 +691,7 @@ describe('the shape of the rendered digest', () => {
       rolesRevoked: [],
       reputationDelta: 0,
       noteInvitations: [],
+      capabilityNotes: [],
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
       // A payment that landed while the citizen slept is news (`#346`), so a
@@ -731,6 +746,7 @@ describe('the new tasks a waking citizen is shown', () => {
       rolesRevoked: [],
       reputationDelta: 0,
       noteInvitations: [],
+      capabilityNotes: [],
       open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
@@ -880,6 +896,7 @@ describe('the money and the quests in the digest', () => {
       rolesRevoked: [],
       reputationDelta: 0,
       noteInvitations: [],
+      capabilityNotes: [],
       open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,

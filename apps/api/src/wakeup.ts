@@ -7,6 +7,7 @@ import {
   type Task,
   type WakeupPays,
   type WakeupResponse,
+  type SkillNoteEntry,
   type WakeupNoteInvitation,
   type WakeupStanding,
 } from '@kolonie-ai/core'
@@ -73,6 +74,9 @@ export interface WakeupSource {
       // (`#377`). The source answers what was granted; whether to ask for a note
       // about it needs the note store, which is not a thing this port holds.
       | 'noteInvitations'
+      // Computed in `wakeup` from `open` and the note store (`#376`), for the
+      // reason above it: the source answers what changed, and this is not that.
+      | 'capabilityNotes'
     >
   >
 }
@@ -310,6 +314,39 @@ async function noteInvitationsFor(
     }))
 }
 
+/**
+ * The citizen's own notes on the capabilities the offered work touches (`#376`).
+ *
+ * **The bound is the point, and it is structural.** The set of capabilities
+ * considered is read off the entries actually in `open`, so it is capped by the
+ * `open` cap and there is no second cap to keep in step with it. A citizen
+ * holding twelve skills with a note on each is not handed twelve notes because
+ * it holds them — it is handed the ones the work in front of it needs.
+ * `kolonie-docs#159` states that as the rule: what is pushed scales with the
+ * work being offered, not with what the citizen happens to have.
+ *
+ * **Held is not asked for separately.** A note only ever exists against a skill
+ * the citizen proved — `kolonie.skills.note` refuses one otherwise — so reading
+ * the notes for the touched capabilities returns exactly the intersection
+ * without a second question.
+ *
+ * **It never throws**, for the reason nothing else on this path does: a citizen
+ * that woke to an error because one read of seven was unhappy has lost the run
+ * the digest exists to save.
+ */
+async function capabilityNotesFor(
+  agentId: AgentId,
+  open: WakeupOpen,
+  notes: SkillNotes | undefined,
+): Promise<readonly SkillNoteEntry[]> {
+  if (notes === undefined) return []
+
+  const touched = [...new Set(open.entries.flatMap((entry) => entry.touches))]
+  if (touched.length === 0) return []
+
+  return notes.readMany(agentId, touched).catch(() => [])
+}
+
 export async function wakeup(
   agentId: AgentId,
   query: unknown,
@@ -397,6 +434,7 @@ export async function wakeup(
       open,
       ...changes,
       noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],
+      capabilityNotes: [...(await capabilityNotesFor(agentId, open, notes))],
       tasksAdded: changes.tasksAdded.map((task) => ({
         ...task,
         startable: startableAdded === null ? null : startableAdded.has(task.taskId),

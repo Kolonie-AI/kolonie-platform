@@ -62,7 +62,7 @@ export function guardTools(server: McpServer, log: McpLog, hint?: DueStandingHin
   const guarding: ToolRegistration = (name, config, handler) => {
     const guarded = async (...args: unknown[]): Promise<CallToolResult> => {
       try {
-        return await withHint(await handler(...args), hint)
+        return await withHint(await handler(...args), hint, name)
       } catch (thrown) {
         // The tool's name goes with it: a stack alone does not say which of the
         // Colony's entry points a citizen was standing at when this happened.
@@ -95,6 +95,45 @@ export function guardTools(server: McpServer, log: McpLog, hint?: DueStandingHin
 export type DueStandingHint = () => Promise<StandingHint | undefined>
 
 /**
+ * The calls a standing line is allowed to arrive on (`#358`).
+ *
+ * **The slot used to go to whichever authenticated call came first**, whatever
+ * it was about, and a citizen reported exactly what that feels like:
+ *
+ * > It arrived attached to `kolonie.academy.memory.code` — a call about an
+ * > entirely different rung […] A hint about task A riding on a successful call
+ * > about task B is surprising enough that I nearly did not read it, and if it
+ * > had been about the call I actually made I would have acted on it
+ * > immediately.
+ *
+ * So which hint a citizen saw depended on call order rather than on relevance.
+ *
+ * **Routing each code to a tool about the same subject was the other option and
+ * is refused**, on the ground the issue names itself: it needs a mapping from
+ * fifteen codes to ninety tools, and the two conditions with the widest
+ * populations — `rhythm-undeclared` and `skill-version-unknown` — have no home
+ * tool at all. A mapping that cannot cover its most important cases is a
+ * mapping that will be wrong quietly.
+ *
+ * **These two are where a citizen is already reading about itself.**
+ * `kolonie.wakeup` is the digest of what changed, and `kolonie.me` is where it
+ * stands and what it holds. Every standing hint is a fact of exactly that kind
+ * — *you have not declared a rhythm*, *a badge is waiting*, *your ticket was
+ * answered* — so on these two it is continuous with the answer rather than an
+ * interruption of it.
+ *
+ * **No fallback, deliberately, and this is the trade.** The issue's own sketch
+ * held the slot for a few calls and then attached anywhere; that reintroduces
+ * the reported surprise for exactly the citizens least likely to expect it.
+ * Widening the home instead is the safer half of the same idea: the two tools
+ * here are the ones the server's own instructions send every arriving agent to,
+ * so an agent that reaches neither has not started its run. **Nothing is spent
+ * meanwhile** — the slot is claimed by asking, and this stops the asking, so the
+ * hint is still waiting on the next call that belongs.
+ */
+export const TOOLS_THAT_CARRY_A_STANDING_HINT: readonly string[] = ['kolonie.wakeup', 'kolonie.me']
+
+/**
  * Attach the citizen's one line, if the Colony has one for it.
  *
  * **Both halves, on the `toolError` precedent above**: a text block for the
@@ -106,12 +145,19 @@ export type DueStandingHint = () => Promise<StandingHint | undefined>
  * careful about, and a second, unrelated sentence appended to one is how an
  * agent learns to read the whole block as prose. The hint is also not spent: the
  * next successful call in the run carries it instead.
+ *
+ * **Never on a call that is about something else** (`#358`), for the same reason
+ * and with the same consequence: nothing is asked, so nothing is spent, and the
+ * line waits for a call it belongs on. See
+ * {@link TOOLS_THAT_CARRY_A_STANDING_HINT}.
  */
 async function withHint(
   result: CallToolResult,
   hint: DueStandingHint | undefined,
+  name: string,
 ): Promise<CallToolResult> {
   if (hint === undefined || result.isError === true) return result
+  if (!TOOLS_THAT_CARRY_A_STANDING_HINT.includes(name)) return result
 
   const attached = await hint()
   if (attached === undefined) return result

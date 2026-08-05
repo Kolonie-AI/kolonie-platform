@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { TOOLS_THAT_CARRY_A_STANDING_HINT } from './guard.js'
 import { standingHintText } from '../hints.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { anonymousClient, connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
@@ -30,14 +31,15 @@ describe('the line attached to a tool result', () => {
   const RHYTHM = standingHintText({ code: 'rhythm-undeclared', subject: null })
 
   /**
-   * Attached in `guard.ts`, so no tool opts in and no tool can opt out. `about`
-   * is chosen deliberately: it is the plainest tool on the surface and knows
-   * nothing whatever about hints.
+   * Attached in `guard.ts`, so no tool opts in and no tool can opt out.
+   * `kolonie.me` is the carrier here because `#358` made it one of the two calls
+   * a standing line may arrive on — the tool itself still knows nothing whatever
+   * about hints, which is the property this asserts.
    */
   it('reaches a citizen through a tool that knows nothing about hints', async () => {
     const { client, close } = await hinted()
 
-    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
     const text = (result.content as { type: string; text: string }[]).map((part) => part.text)
 
     expect(text).toContain(RHYTHM.text)
@@ -48,7 +50,7 @@ describe('the line attached to a tool result', () => {
   it('carries it in the structure as well as the text', async () => {
     const { client, close } = await hinted()
 
-    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
 
     expect((result.structuredContent as { hint?: unknown }).hint).toEqual(RHYTHM)
     await close()
@@ -60,14 +62,24 @@ describe('the line attached to a tool result', () => {
    * both halves.
    */
   it('changes nothing about the answer the tool gave', async () => {
-    const { colony, apiKey } = await registeredCitizen()
+    // **One citizen, connected twice.** The carrier is `kolonie.me` since
+    // `#358`, and its answer is about the caller — so two registrations would
+    // differ in the agent id and the comparison would be of two citizens rather
+    // than of one answer with and without a line appended to it.
+    const { colony, agent, apiKey } = await registeredCitizen()
 
-    const plain = await connectedClient(colony, `Bearer ${apiKey}`)
-    const before = await plain.client.callTool({ name: 'kolonie.about', arguments: {} })
+    const plain = await connectedClient(colony, `Bearer ${apiKey}`, agent.id)
+    const before = await plain.client.callTool({ name: 'kolonie.me', arguments: {} })
     await plain.close()
 
-    const { client, close } = await hinted()
-    const after = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const hints = fakeStandingHints()
+    hints.answers('rhythm-undeclared')
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+    const after = await client.callTool({ name: 'kolonie.me', arguments: {} })
     await close()
 
     const content = after.content as { type: string; text: string }[]
@@ -86,8 +98,8 @@ describe('the line attached to a tool result', () => {
   it('asks once per call and no more', async () => {
     const { client, hints, close } = await hinted()
 
-    await client.callTool({ name: 'kolonie.about', arguments: {} })
-    await client.callTool({ name: 'kolonie.about', arguments: {} })
+    await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await client.callTool({ name: 'kolonie.me', arguments: {} })
 
     expect(hints.asked()).toHaveLength(2)
     await close()
@@ -109,7 +121,7 @@ describe('the line attached to a tool result', () => {
     expect(refused.isError).toBe(true)
     expect(JSON.stringify(refused)).not.toContain(RHYTHM.text)
 
-    const next = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const next = await client.callTool({ name: 'kolonie.me', arguments: {} })
     expect(JSON.stringify(next)).toContain(RHYTHM.text)
     await close()
   })
@@ -117,7 +129,7 @@ describe('the line attached to a tool result', () => {
   /**
    * A stranger has no standing to be told about. The unauthenticated tier is
    * `about` and `register`, and neither has a citizen a sentence could be
-   * addressed to.
+   * addressed to — so the call here is one a stranger can actually make.
    */
   it('says nothing to a stranger', async () => {
     const { client, close } = await anonymousClient()
@@ -133,7 +145,7 @@ describe('the line attached to a tool result', () => {
     const { colony, agent, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, agent.id)
 
-    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
 
     expect((result.structuredContent as { hint?: unknown }).hint).toBeUndefined()
     await close()
@@ -155,7 +167,7 @@ describe('the line attached to a tool result', () => {
       `Bearer ${apiKey}`,
       agent.id,
     )
-    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
     const hint = (result.structuredContent as { hint: { code: string; text: string } }).hint
 
     expect(hint.code).toBe('task-considered')
@@ -182,7 +194,7 @@ describe('the line attached to a tool result', () => {
       `Bearer ${apiKey}`,
       agent.id,
     )
-    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
     const { code, text } = (result.structuredContent as { hint: { code: string; text: string } })
       .hint
     await close()
@@ -211,7 +223,7 @@ describe('the line attached to a tool result', () => {
       `Bearer ${apiKey}`,
       agent.id,
     )
-    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
     const { code, text } = (result.structuredContent as { hint: { code: string; text: string } })
       .hint
     await close()
@@ -243,7 +255,7 @@ describe('the line attached to a tool result', () => {
       `Bearer ${apiKey}`,
       agent.id,
     )
-    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
     const { text } = (result.structuredContent as { hint: { text: string } }).hint
     await close()
 
@@ -269,7 +281,7 @@ describe('the line attached to a tool result', () => {
   it('renders from a closed set of Colony-authored sentences', async () => {
     const { client, close } = await hinted()
 
-    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
     const hint = (result.structuredContent as { hint: { code: string; text: string } }).hint
 
     expect(hint.text).toBe(standingHintText({ code: 'rhythm-undeclared', subject: null }).text)
@@ -321,5 +333,73 @@ describe('the sentence for a citizen the Colony cannot place', () => {
     expect(withoutUrl).not.toContain('undefined')
     expect(withoutUrl).not.toContain('null')
     expect(withoutUrl).toContain('kolonie.profile.update')
+  })
+})
+
+/**
+ * Where a standing line may arrive, and where it may not (`#358`).
+ *
+ * The reported defect is that the slot went to whatever authenticated call came
+ * first, so a hint about one rung arrived on a successful call about another —
+ * and which hint a citizen saw depended on call order rather than on relevance.
+ */
+describe('which calls a standing line arrives on', () => {
+  const RHYTHM = standingHintText({ code: 'rhythm-undeclared', subject: null })
+
+  const hinted = async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('rhythm-undeclared')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+    return { client, hints, close }
+  }
+
+  it.each(TOOLS_THAT_CARRY_A_STANDING_HINT)('arrives on %s', async (name) => {
+    const { client, close } = await hinted()
+
+    const result = await client.callTool({ name, arguments: {} })
+
+    expect(JSON.stringify(result)).toContain(RHYTHM.text)
+    await close()
+  })
+
+  /**
+   * **The reported case, asserted as reported.** `kolonie.academy.memory.code`
+   * is the exact call the citizen in `#338` found a rhythm hint riding on.
+   */
+  it('does not arrive on a call about an entirely different rung', async () => {
+    const { client, close } = await hinted()
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.memory.code',
+      arguments: {},
+    })
+
+    expect(JSON.stringify(result)).not.toContain(RHYTHM.text)
+    await close()
+  })
+
+  /**
+   * **Nothing is spent by a call that does not carry one**, which is what makes
+   * this a routing change and not a suppression. Asking is what claims the
+   * session's slot, so a guard that does not ask has taken nothing: the line is
+   * still waiting on the next call it belongs on.
+   */
+  it('spends nothing on the calls it skips, and still arrives afterwards', async () => {
+    const { client, hints, close } = await hinted()
+
+    await client.callTool({ name: 'kolonie.academy.memory.code', arguments: {} })
+    await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+
+    expect(hints.asked()).toHaveLength(0)
+
+    const then = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    expect(JSON.stringify(then)).toContain(RHYTHM.text)
+    await close()
   })
 })

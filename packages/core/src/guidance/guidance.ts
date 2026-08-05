@@ -644,10 +644,33 @@ export type ReportFeedback = z.infer<typeof ReportFeedbackSchema>
  * reader for whom `pending`, `rejected` and `merged` are all real answers.
  */
 export const OwnReportSchema = TaskReportSchema.extend({
-  /** The attempt this report is about. What makes a citizen's own history a sequence. */
-  attemptId: TaskAttemptIdSchema,
-  /** Which try it was. Ordering an author's reports by this is the trajectory (#118). */
-  attempt: z.int().min(1),
+  /**
+   * The attempt this report is about. What makes a citizen's own history a
+   * sequence.
+   *
+   * **`null` on a report filed without an attempt** (`#232`) — a citizen that
+   * cannot attempt a task says so without spending a try, and what it wrote is
+   * still its own report. The database says the same thing:
+   * `task_reports_owner_is_one_or_the_other` lets a row be owned through an
+   * attempt *or* directly, and `listOwnReports` left-joins precisely so that the
+   * one reader this path exists for is not shown an empty list for a row it
+   * wrote.
+   *
+   * Not nullable until `#404`, which is what that cost: the storage layer, the
+   * constraint and the renderer all treated it as nullable, this schema alone did
+   * not, and `kolonie.tasks.get` threw a `ZodError` on every read of that task by
+   * that author — a row in the database rather than a transient.
+   */
+  attemptId: TaskAttemptIdSchema.nullable(),
+  /**
+   * Which try it was. Ordering an author's reports by this is the trajectory
+   * (#118).
+   *
+   * `null` exactly when {@link OwnReportSchema.shape.attemptId} is — a report
+   * that is about no attempt is not about a numbered one either, and it has no
+   * place in that ordering.
+   */
+  attempt: z.int().min(1).nullable(),
   /**
    * What the author wrote, field by field. Read by the author, by the moderator,
    * and by nobody else.

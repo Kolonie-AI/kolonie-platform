@@ -616,6 +616,13 @@ function historyFromReports(reports: readonly OwnReport[]): AgentHistoryResponse
   const byTask = new Map<string, TaskHistory>()
 
   for (const report of reports) {
+    // A report filed without an attempt (`#232`) has no attempt to assemble a
+    // history entry from, and `HistoryAttempt` is right to require the number:
+    // it describes a try that happened. Such a report belongs to its author's
+    // own reports and to no attempt, so it is skipped rather than given a
+    // fabricated one.
+    if (report.attempt === null) continue
+
     const attempt: HistoryAttempt = {
       attempt: report.attempt,
       openedAt: report.createdAt,

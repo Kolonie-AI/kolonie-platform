@@ -296,6 +296,55 @@ describe('what citizens write about a task', () => {
       expect(filed.entry.kind).toBe('wall')
     })
 
+    /**
+     * **The read back, which is where `#404` broke** — and the reason this is a
+     * test of its own rather than an assertion inside the one above.
+     *
+     * Writing an attempt-less report worked and had done since `#156`. Reading
+     * one back threw: `OwnReportSchema` required `attemptId` and `attempt`, the
+     * left join that exists to serve this exact row handed it two nulls, and the
+     * parse failed. `kolonie.tasks.get` answered an error for that citizen on
+     * that task on every call, for as long as the row existed, because the
+     * condition is the row.
+     *
+     * So the case that has to be asserted is not *can it be filed* but *can its
+     * author read it*, and the author is the only reader this row has.
+     */
+    it('serves an attempt-less report back to its author, with null where the attempt would be', async () => {
+      const agentId = await anAgent('bystander-reading-back')
+      const filed = await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
+      expect(filed.outcome).toBe('recorded')
+
+      const [own] = await listOwnReports(db, agentId)
+
+      expect(own?.narrative.broke).toBe(CONTENT)
+      expect(own?.attemptId).toBeNull()
+      expect(own?.attempt).toBeNull()
+      expect(own?.kind).toBe('wall')
+    })
+
+    /**
+     * The same read one level up, mixed with an attempt that *did* happen — the
+     * shape a real citizen has by the time it files a wall on a task it also
+     * tried. Both rows come back, and only the attempt-less one carries nulls.
+     */
+    it('serves an attempt-less report alongside an attempted one on another task', async () => {
+      const agentId = await anAgent('tried-here-walled-there')
+      await attempt(agentId, 'failed', otherTaskId)
+      await fileReport(db, {
+        taskId: otherTaskId,
+        agentId,
+        narrative: aNarrative('What went wrong on the one it actually tried.'),
+      })
+      await fileReport(db, { taskId, agentId, narrative: aNarrative(CONTENT) })
+
+      const own = await listOwnReports(db, agentId)
+
+      expect(own).toHaveLength(2)
+      expect(own.filter((report) => report.attemptId === null)).toHaveLength(1)
+      expect(own.filter((report) => report.attemptId !== null)).toHaveLength(1)
+    })
+
     it('records one from an agent whose only attempt was on a different task', async () => {
       const agentId = await anAgent('attempted-elsewhere')
       await attempt(agentId, 'failed', otherTaskId)

@@ -529,7 +529,14 @@ function noteAsText(note: TaskNoteEntry | null): string {
 function ownHistoryAsText(attempts: readonly TaskAttempt[], reports: readonly OwnReport[]): string {
   if (attempts.length === 0 && reports.length === 0) return ''
 
-  const byAttempt = new Map(reports.map((report) => [report.attempt, report]))
+  // Keyed on the attempt number, so a report that has none has no key here —
+  // it is rendered below, as an orphan. Letting it in under a `null` key would
+  // put a row in this map that no attempt can ever look up.
+  const byAttempt = new Map(
+    reports.flatMap((report) =>
+      report.attempt === null ? [] : [[report.attempt, report] as const],
+    ),
+  )
 
   const lines = attempts.map((attempt) => {
     const report = attempt.attempt === null ? undefined : byAttempt.get(attempt.attempt)

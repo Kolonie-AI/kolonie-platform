@@ -136,6 +136,9 @@ export const anonymousClient = (registry = fakeRegistry()) =>
       // current contract and has recorded nothing, which is the ordinary state
       // and the one the rejection case asserts.
       renewal: null,
+      // Nor the account route (`#414`): the fixture's citizen has attempted no
+      // rung that certifies an account only a person can open.
+      operatorCouldOpenAccount: false,
     }),
     skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),

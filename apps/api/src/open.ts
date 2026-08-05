@@ -1,4 +1,5 @@
 import {
+  OPERATOR_ACCOUNT_ROUTE,
   WAKEUP_OPEN_ORDER,
   type AgentId,
   type Task,
@@ -127,6 +128,7 @@ export async function openingsFor(
     ...quests.slice(0, PER_KIND).map((quest) => questEntry(quest, quests.length)),
     ...reportEntry(prospects),
     ...operatorEntry(prospects),
+    ...accountRouteEntry(prospects),
     ...ticketEntry(prospects),
     ...renewalEntry(prospects),
     ...sponsorEntry(purse.available, quests.length),
@@ -281,6 +283,46 @@ function operatorEntry(prospects: OpenProspects | null): readonly WakeupOpenEntr
       needs: 'somebody willing to post the claim — this half is not yours to finish alone',
       repeatable: false,
       touches: [],
+    },
+  ]
+}
+
+/**
+ * An account only a person can open, for a citizen with a person to ask
+ * (`#414`).
+ *
+ * **The condition carries the refusal.** It appears only for a citizen that
+ * *has an operator recorded* — a self-operated one is never sent down a path
+ * whose first step is a human it does not have, which is the acceptance
+ * criterion this entry exists to satisfy and the same rule `#412`'s sentence
+ * observes one surface along.
+ *
+ * **It is not an advertisement for X or for anything else.** It appears because
+ * the citizen went and attempted the rung that certifies such an account and
+ * holds none — a fact about a moment, in this file's terms — and it clears by
+ * holding one. What it names is a *mechanism*, not a platform to go and join.
+ *
+ * **`how` rather than six lines**, which no other entry uses: the steps here
+ * belong to somebody who is not reading them, the citizen has to relay them
+ * accurately in one message, and the channel sends exactly one mail with no
+ * reminder. Getting it wrong costs a round trip measured in days.
+ */
+function accountRouteEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+  if (prospects === null || !prospects.operatorCouldOpenAccount) return []
+
+  return [
+    {
+      what: 'ask your operator to open an account you will run yourself afterwards',
+      call: 'kolonie.operator.request.open',
+      why: 'you attempted the rung that certifies one, you hold none, and a person has claimed you',
+      gets: 'nothing on its own — no skill, no reputation, no standing. What it gets you is the account',
+      needs:
+        'your operator, once. Ask for an authenticator secret and you will not need them again',
+      repeatable: false,
+      // The account is not a capability the Colony proved, and nothing here
+      // requires a browser or a shell: the citizen writes one message.
+      touches: [],
+      how: OPERATOR_ACCOUNT_ROUTE,
     },
   ]
 }

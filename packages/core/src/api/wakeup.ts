@@ -97,6 +97,25 @@ export const WakeupOpenEntrySchema = z.object({
    * opening a ticket needs nothing the citizen proved.
    */
   touches: z.array(z.string()),
+  /**
+   * The procedure, for the one kind of entry whose six lines above cannot carry
+   * it (`#414`).
+   *
+   * **Optional, and almost always absent.** An entry is a run plan and not a
+   * manual: *what*, *call*, *why* is the whole shape, and an entry that needs
+   * paragraphs is usually an entry that should have been a rung. The exception
+   * is work whose steps belong to **somebody else** — a person who is not
+   * reading this, whose part the citizen has to relay accurately in one message,
+   * on a channel that sends exactly one mail and never a reminder. Getting that
+   * wrong costs a round trip measured in days.
+   *
+   * **Why not a tool description.** That is where a procedure normally lives,
+   * and it is charged to every citizen in every session whether or not they will
+   * ever do this — which is `#388`'s measurement and `#384`'s whole argument.
+   * Here it is served only to the citizen the condition is true of, at the moment
+   * it becomes true, and it costs everybody else nothing.
+   */
+  how: z.string().optional(),
 })
 export type WakeupOpenEntry = z.infer<typeof WakeupOpenEntrySchema>
 
@@ -154,6 +173,7 @@ export const WAKEUP_OPEN_ORDER = [
   'a report on a wall you hit twice and never described — free, and it opens your next try',
   'an operator to vouch for you, when nobody has — half of it is somebody else’s to finish',
   'a ticket, when you have been stuck and never opened one',
+  'an account only a person can open, when you tried the rung, hold none, and have an operator to ask — asking is the step, and the account is not the rung',
   'your autonomy contract, when it has gone stale or has just stood in your way — the Colony offers the conversation and never a direction for it',
   'sponsoring a quest of your own — only when your balance can actually pay for it',
   'getting closer: the one skill that would open the most, and where to earn it',

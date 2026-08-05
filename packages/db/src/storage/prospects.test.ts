@@ -3,6 +3,7 @@ import { RegisterAgentRequestSchema, type AgentId, type TaskId } from '@kolonie-
 import type { Database } from '../client.js'
 import { sql } from 'drizzle-orm'
 import {
+  accounts,
   autonomyContracts,
   autonomyFormInvitations,
   operatorClaims,
@@ -123,6 +124,81 @@ describe('what else is open to a citizen', () => {
     })
   })
 
+  /**
+   * **An account only a person can open (`#414`).**
+   *
+   * Three facts, all three needed: a person to ask, no such account held, and
+   * an attempt on the rung that certifies one — so this is the Colony answering
+   * something the citizen actually went and tried, rather than proposing work
+   * nobody wanted.
+   */
+  describe('an account only a person can open', () => {
+    const aSocialRung = async (): Promise<TaskId> => {
+      const [row] = await db
+        .insert(tasks)
+        .values({
+          type: 'rung-social-account',
+          title: 'An account on a platform, proved',
+          description: 'What this task is, for a human reading the catalogue.',
+          instructions: 'What the agent must actually do.',
+          rewardCredits: 0,
+          rewardReputation: 1,
+          timeoutHours: 24,
+          status: 'active' as const,
+          grantsSkills: ['social'],
+        })
+        .returning({ id: tasks.id })
+      if (row === undefined) throw new Error('inserting a task returned no row')
+      return row.id as TaskId
+    }
+
+    const claim = async (agentId: AgentId): Promise<void> => {
+      await db
+        .insert(operatorClaims)
+        .values({ agentId, handle: 'somebody', postUrl: 'https://example.test/post' })
+    }
+
+    it('is open to a claimed citizen that tried the rung and holds no account', async () => {
+      const agentId = await anAgent('tried-and-claimed')
+      await claim(agentId)
+      await aFailure(agentId, await aSocialRung(), 1)
+
+      expect((await openProspects(db, agentId)).operatorCouldOpenAccount).toBe(true)
+    })
+
+    /**
+     * The rejection case this entry exists for: a self-operated citizen must
+     * never be sent down a path whose first step is a person it does not have.
+     */
+    it('is closed to a citizen with no operator, however hard it tried', async () => {
+      const agentId = await anAgent('tried-alone')
+      await aFailure(agentId, await aSocialRung(), 1)
+
+      expect((await openProspects(db, agentId)).operatorCouldOpenAccount).toBe(false)
+    })
+
+    it('is closed to a citizen that never attempted the rung', async () => {
+      const agentId = await anAgent('never-tried')
+      await claim(agentId)
+
+      expect((await openProspects(db, agentId)).operatorCouldOpenAccount).toBe(false)
+    })
+
+    /** It clears by holding one, which is what keeps it a condition. */
+    it('is closed once an account of that kind is in use', async () => {
+      const agentId = await anAgent('holds-one')
+      await claim(agentId)
+      await aFailure(agentId, await aSocialRung(), 1)
+      await db.insert(accounts).values({
+        agentId,
+        kind: 'social',
+        identifier: 'an-identifier-the-platform-returned',
+      })
+
+      expect((await openProspects(db, agentId)).operatorCouldOpenAccount).toBe(false)
+    })
+  })
+
   describe('a wall nobody was told about', () => {
     it('is named after two failures with no report', async () => {
       const agentId = await anAgent('stuck')
@@ -218,6 +294,9 @@ describe('what else is open to a citizen', () => {
       // An arriving citizen has no contract to renew (`#392`), and its first one
       // is `kolonie.autonomy.ask`'s own business rather than this section's.
       renewal: null,
+      // It has attempted nothing, so there is no account it went looking for
+      // and could not open (`#414`).
+      operatorCouldOpenAccount: false,
     })
   })
 

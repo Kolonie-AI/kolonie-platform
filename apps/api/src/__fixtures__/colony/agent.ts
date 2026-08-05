@@ -234,6 +234,8 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       // current contract and has recorded nothing, which is the ordinary state
       // and the one the rejection case asserts.
       renewal: null,
+      // Nor the account route (`#414`): nothing has been attempted here.
+      operatorCouldOpenAccount: false,
     }),
     skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),

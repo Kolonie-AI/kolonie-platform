@@ -87,6 +87,22 @@ export interface OpenProspects {
    * cheaper error is to keep offering something that costs nothing to ignore.
    */
   readonly renewal: { readonly why: 'stale' | 'blocked' } | null
+  /**
+   * Whether this citizen tried the rung that certifies a social account, holds
+   * none, and has an operator who could open one (`#414`).
+   *
+   * **Three facts and all three are needed.** *Has an operator* is what makes
+   * asking possible at all — a self-operated citizen must never be sent down a
+   * path whose first step is a person it does not have. *Holds no such account*
+   * is what makes it useful. And *has attempted the rung* is what keeps this a
+   * fact about a moment rather than a standing advertisement: the citizen went
+   * and tried, which is the Colony answering something it was actually asked
+   * rather than proposing work nobody wanted.
+   *
+   * It clears by holding an account, which is the file's own test for whether a
+   * condition belongs here.
+   */
+  readonly operatorCouldOpenAccount: boolean
 }
 
 /** How many failures make an unreported wall worth naming. */
@@ -113,103 +129,127 @@ export async function openProspects(db: Database, agentId: AgentId): Promise<Ope
     where coalesce(a.agent_id, r.agent_id) = ${agentId}
       and coalesce(a.task_id, r.task_id) = task_attempts.task_id)`
 
-  const [operator, tickets, failures, unreported, passUnreported, renewal] = await Promise.all([
-    db
-      .select({ handle: operatorClaims.handle })
-      .from(operatorClaims)
-      .where(and(eq(operatorClaims.agentId, agentId), isNull(operatorClaims.replacedAt)))
-      .limit(1),
+  const [operator, tickets, failures, unreported, passUnreported, renewal, accountRoute] =
+    await Promise.all([
+      db
+        .select({ handle: operatorClaims.handle })
+        .from(operatorClaims)
+        .where(and(eq(operatorClaims.agentId, agentId), isNull(operatorClaims.replacedAt)))
+        .limit(1),
 
-    db
-      .select({ total: sql<string>`count(*)::text` })
-      .from(supportTickets)
-      .where(eq(supportTickets.agentId, agentId)),
+      db
+        .select({ total: sql<string>`count(*)::text` })
+        .from(supportTickets)
+        .where(eq(supportTickets.agentId, agentId)),
 
-    db
-      .select({ total: sql<string>`count(*)::text` })
-      .from(taskAttempts)
-      .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.outcome, 'failed'))),
+      db
+        .select({ total: sql<string>`count(*)::text` })
+        .from(taskAttempts)
+        .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.outcome, 'failed'))),
 
-    /**
-     * The task with the most failures behind it and no report on any of them.
-     *
-     * **`not exists` over every attempt on the task, not only the latest.** A
-     * citizen that reported its second failure and then failed a third time has
-     * told the Colony what it needed; asking again would be the Colony
-     * re-requesting work it already has. `hasReportedLatestAttempt` answers a
-     * narrower question for a different caller and is deliberately not reused.
-     */
-    db
-      .select({
-        taskId: tasks.id,
-        title: tasks.title,
-        failures: sql<string>`count(*)::text`,
-      })
-      .from(taskAttempts)
-      .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
-      .where(
-        and(
-          eq(taskAttempts.agentId, agentId),
-          eq(taskAttempts.outcome, 'failed'),
-          nothingSaidOnThisTask,
-        ),
-      )
-      .groupBy(tasks.id, tasks.title)
-      .having(sql`count(*) >= ${WALL_AFTER}`)
-      .orderBy(desc(sql`count(*)`), tasks.id)
-      .limit(1),
+      /**
+       * The task with the most failures behind it and no report on any of them.
+       *
+       * **`not exists` over every attempt on the task, not only the latest.** A
+       * citizen that reported its second failure and then failed a third time has
+       * told the Colony what it needed; asking again would be the Colony
+       * re-requesting work it already has. `hasReportedLatestAttempt` answers a
+       * narrower question for a different caller and is deliberately not reused.
+       */
+      db
+        .select({
+          taskId: tasks.id,
+          title: tasks.title,
+          failures: sql<string>`count(*)::text`,
+        })
+        .from(taskAttempts)
+        .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+        .where(
+          and(
+            eq(taskAttempts.agentId, agentId),
+            eq(taskAttempts.outcome, 'failed'),
+            nothingSaidOnThisTask,
+          ),
+        )
+        .groupBy(tasks.id, tasks.title)
+        .having(sql`count(*) >= ${WALL_AFTER}`)
+        .orderBy(desc(sql`count(*)`), tasks.id)
+        .limit(1),
 
-    /**
-     * The most recent task it passed and said nothing about (`#365`).
-     *
-     * **Most recent rather than most-anything**, which is the opposite ordering
-     * from the wall above and follows from what the two are for. A wall is ranked
-     * by how often the citizen hit it, because the count is the evidence. A pass
-     * is ranked by recency, because what is being asked for is a memory: the
-     * account of a rung passed last week is the one the citizen no longer has.
-     *
-     * **One pass is enough**, where a wall needs two. Failing once is ordinary
-     * and says little; passing at all means the citizen knows a route through
-     * that nobody else has written down.
-     */
-    db
-      .select({ taskId: tasks.id, title: tasks.title, closedAt: taskAttempts.closedAt })
-      .from(taskAttempts)
-      .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
-      .where(
-        and(
-          eq(taskAttempts.agentId, agentId),
-          eq(taskAttempts.outcome, 'passed'),
-          nothingSaidOnThisTask,
-        ),
-      )
-      .orderBy(desc(taskAttempts.closedAt), tasks.id)
-      .limit(1),
+      /**
+       * The most recent task it passed and said nothing about (`#365`).
+       *
+       * **Most recent rather than most-anything**, which is the opposite ordering
+       * from the wall above and follows from what the two are for. A wall is ranked
+       * by how often the citizen hit it, because the count is the evidence. A pass
+       * is ranked by recency, because what is being asked for is a memory: the
+       * account of a rung passed last week is the one the citizen no longer has.
+       *
+       * **One pass is enough**, where a wall needs two. Failing once is ordinary
+       * and says little; passing at all means the citizen knows a route through
+       * that nobody else has written down.
+       */
+      db
+        .select({ taskId: tasks.id, title: tasks.title, closedAt: taskAttempts.closedAt })
+        .from(taskAttempts)
+        .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+        .where(
+          and(
+            eq(taskAttempts.agentId, agentId),
+            eq(taskAttempts.outcome, 'passed'),
+            nothingSaidOnThisTask,
+          ),
+        )
+        .orderBy(desc(taskAttempts.closedAt), tasks.id)
+        .limit(1),
 
-    /**
-     * Whether the contract is worth asking about again (`#392`).
-     *
-     * One query rather than three, because the answer is one fact and the three
-     * rows it reads are cheap: the contract, the newest block this citizen
-     * recorded, and the newest form it has been sent. `stale` wins a tie —
-     * a citizen whose contract is both overdue and blocking something is told
-     * the more general thing, since renewing covers both and the block is what
-     * it already knows about.
-     */
-    db
-      .select({
-        reviewDueAt: autonomyContracts.reviewDueAt,
-        blockedAt: sql<
-          string | null
-        >`(select max(filed_at) from permission_reports where agent_id = ${agentId})`,
-        askedAt: sql<
-          string | null
-        >`(select max(created_at) from autonomy_form_invitations where agent_id = ${agentId})`,
-      })
-      .from(autonomyContracts)
-      .where(eq(autonomyContracts.agentId, agentId))
-      .limit(1),
-  ])
+      /**
+       * Whether the contract is worth asking about again (`#392`).
+       *
+       * One query rather than three, because the answer is one fact and the three
+       * rows it reads are cheap: the contract, the newest block this citizen
+       * recorded, and the newest form it has been sent. `stale` wins a tie —
+       * a citizen whose contract is both overdue and blocking something is told
+       * the more general thing, since renewing covers both and the block is what
+       * it already knows about.
+       */
+      db
+        .select({
+          reviewDueAt: autonomyContracts.reviewDueAt,
+          blockedAt: sql<
+            string | null
+          >`(select max(filed_at) from permission_reports where agent_id = ${agentId})`,
+          askedAt: sql<
+            string | null
+          >`(select max(created_at) from autonomy_form_invitations where agent_id = ${agentId})`,
+        })
+        .from(autonomyContracts)
+        .where(eq(autonomyContracts.agentId, agentId))
+        .limit(1),
+
+      /**
+       * Tried the rung that certifies a social account, and holds none (`#414`).
+       *
+       * **Keyed on what the rung grants rather than on its type slug**, following
+       * the correction `#42` made for GitHub: a rung renamed or replaced keeps
+       * granting `social`, and a predicate written against the slug would go
+       * quietly false on the day somebody split the rung in two.
+       *
+       * Any attempt counts, passed or failed. A citizen that passed it holds an
+       * account, so the second half of the predicate has already answered.
+       */
+      db.execute<{ wants: boolean }>(sql`
+      select exists (
+        select 1 from task_attempts a
+          join tasks t on t.id = a.task_id
+         where a.agent_id = ${agentId}
+           and 'social' = any(t.grants_skills))
+        and not exists (
+        select 1 from accounts c
+         where c.agent_id = ${agentId}
+           and c.kind = 'social'
+           and c.status = 'in-use') as wants`),
+    ])
 
   const wall = unreported[0]
   const passed = passUnreported[0]
@@ -221,6 +261,7 @@ export async function openProspects(db: Database, agentId: AgentId): Promise<Ope
     unreported: wall === undefined ? null : { taskId: wall.taskId, title: wall.title },
     passUnreported: passed === undefined ? null : { taskId: passed.taskId, title: passed.title },
     renewal: renewalFrom(renewal[0]),
+    operatorCouldOpenAccount: operator.length > 0 && accountRoute[0]?.wants === true,
   }
 }
 

@@ -59,6 +59,8 @@ const sourceWith = (options: {
     // current contract and has recorded nothing, which is the ordinary state
     // and the one the rejection case asserts.
     renewal: null,
+    // Nor the account route (`#414`), for the same reason.
+    operatorCouldOpenAccount: false,
     ...(options.prospects ?? {}),
   }
 
@@ -254,10 +256,13 @@ describe('what is open to a citizen', () => {
     expect(WAKEUP_OPEN_ORDER[2]).toContain('a report on a wall')
     expect(WAKEUP_OPEN_ORDER[3]).toContain('an operator to vouch for you')
     expect(WAKEUP_OPEN_ORDER[4]).toContain('a ticket')
+    // `#414`, among the unblocking kinds and above the contract: an account it
+    // cannot open is a thing standing in front of work it already attempted.
+    expect(WAKEUP_OPEN_ORDER[5]).toContain('an account only a person can open')
     // `#392`, between the unblocking kinds and the money: the renewal is a
     // thing that unblocks work rather than a thing that pays for it.
-    expect(WAKEUP_OPEN_ORDER[5]).toContain('your autonomy contract')
-    expect(WAKEUP_OPEN_ORDER[6]).toContain('sponsoring a quest of your own')
+    expect(WAKEUP_OPEN_ORDER[6]).toContain('your autonomy contract')
+    expect(WAKEUP_OPEN_ORDER[7]).toContain('sponsoring a quest of your own')
     expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
   })
 })
@@ -448,6 +453,100 @@ describe('what the open section may propose beyond a rung', () => {
    * Two conditions and only two, because anything broader is a nag — and the
    * rejection case below is the bound that keeps this from becoming one.
    */
+  /**
+   * **An account only a person can open (`#414`).**
+   *
+   * The entry names a mechanism rather than a platform to go and join, and it
+   * carries the procedure because the steps belong to somebody who is not
+   * reading them — relayed by the citizen, in one message, on a channel that
+   * sends one mail and never a reminder.
+   */
+  describe('the account a person has to open', () => {
+    it('names asking as the act, and never creating an account as one', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { operatorCouldOpenAccount: true } }),
+      )
+
+      const entry = open.entries.find(
+        (candidate) => candidate.call === 'kolonie.operator.request.open',
+      )
+      expect(entry?.what).toContain('ask your operator')
+      expect(entry?.why).toContain('you hold none')
+
+      /**
+       * **The refusal, asserted rather than read for.** An agent holding a
+       * mailbox, a number and a browser skill has every capability the signup
+       * needs, so the text must not contain an instruction to use them —
+       * `state/decisions/social-is-three-things.md`, and `social-account`'s own
+       * position that opening an account is the citizen's call.
+       */
+      const how = entry?.how ?? ''
+      // No line instructs the reader to do it: every mention of creating one is
+      // attributed to the operator, and the one imperative about the signup is
+      // the refusal.
+      expect(how).not.toMatch(/^\s*(create|open|register|sign up)\b/im)
+      expect(how).toContain('asking them to create the account as themselves')
+      expect(how).toContain('Do not drive a browser through a signup yourself')
+    })
+
+    it('carries the four things the operator has to be told', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { operatorCouldOpenAccount: true } }),
+      )
+
+      const how =
+        open.entries.find((candidate) => candidate.call === 'kolonie.operator.request.open')?.how ??
+        ''
+
+      // The mailbox it already proved, and never a credential in the ask.
+      expect(how).toContain('mailbox address you already proved')
+      expect(how).toContain('Never a credential')
+      // X's rule, quoted as X's rather than paraphrased as ours.
+      expect(how).toContain('"Automated or scripted accounts')
+      expect(how).toContain('that do not comply with our Developer Policy"')
+      // The load-bearing instruction, with the reason it is load-bearing.
+      expect(how).toContain('authenticator app as the second factor, not SMS')
+      expect(how).toContain('routes every')
+      // And that the reply arrives later, so waiting is not the plan.
+      expect(how).toContain('arrives on a later waking')
+    })
+
+    /**
+     * The rejection case: a citizen with no operator recorded is not sent down a
+     * path whose first step is a person it does not have.
+     */
+    it('is absent for a citizen with no operator', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { hasOperator: false, operatorCouldOpenAccount: false } }),
+      )
+
+      expect(open.entries.some((entry) => entry.call === 'kolonie.operator.request.open')).toBe(
+        false,
+      )
+    })
+
+    /** Nothing here grants or gates a skill: the rung is unchanged. */
+    it('promises no skill, no reputation and no standing', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { operatorCouldOpenAccount: true } }),
+      )
+
+      const entry = open.entries.find(
+        (candidate) => candidate.call === 'kolonie.operator.request.open',
+      )
+      expect(entry?.gets).toContain('no skill, no reputation, no standing')
+      expect(entry?.touches).toEqual([])
+    })
+  })
+
   describe('the autonomy contract, when it is worth asking about again', () => {
     const renewalIn = (open: Awaited<ReturnType<typeof openingsFor>>) =>
       open.entries.find((entry) => entry.call === 'kolonie.autonomy.ask')

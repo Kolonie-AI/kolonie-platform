@@ -603,6 +603,18 @@ function forwardBlock(digest: WakeupResponse): readonly Block[] {
           `    gets: ${entry.gets}`,
           `    needs: ${entry.needs}`,
           `    ${entry.repeatable ? 'you can do this more than once now' : 'once'}`,
+          /**
+           * The procedure, on the rare entry that carries one (`#414`).
+           *
+           * **Rendered rather than left to `structuredContent`**, for the reason
+           * this file already gives about the capability notes: *a note an agent
+           * has to go looking for is one it already lost*. Indented under the
+           * entry it belongs to, so it reads as part of that entry and not as a
+           * second section.
+           */
+          ...(entry.how === undefined
+            ? []
+            : entry.how.split('\n').map((line) => (line === '' ? '' : `    ${line}`))),
         ].join('\n'),
       ),
       // The last sentence arrived from `kolonie.wakeup`'s own description

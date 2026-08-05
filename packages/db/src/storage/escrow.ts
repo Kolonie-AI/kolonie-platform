@@ -1,7 +1,13 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   LedgerTransactionIdSchema,
+  QUEST_OBSTACLE_BONUS_WINNERS,
   questFundingReference,
+  questCommitment,
+  questObstacleBonus,
+  questObstacleBonusPool,
+  questObstacleBonusPrefix,
+  questObstacleBonusReference,
   questPayoutReference,
   questRefundReference,
   type AgentId,
@@ -71,6 +77,13 @@ export async function reservedBy(db: Database | Transaction, sponsorId: AgentId)
        * describes the published case, and a defect that is only invisible
        * because of a `where` clause somewhere else is one revision away from
        * being a sponsor told the wrong number about its own money.
+       *
+       * **The obstacle pool is part of the reservation** (`#371`), and it is
+       * written here in SQL rather than read through `questObstacleBonusPool`
+       * because this is a sum over rows the process never loads. The arithmetic
+       * is the same one, and `escrow.test.ts` asserts the two agree — a
+       * reservation that disagreed with what publication escrows is a sponsor
+       * told it can afford a quest that is then refused.
        */
       reserved: sql<string>`coalesce(sum(
         tasks.reward_credits * greatest(
@@ -78,6 +91,9 @@ export async function reservedBy(db: Database | Transaction, sponsorId: AgentId)
             select count(*) from submissions s
             where s.task_id = tasks.id and s.status = 'passed'
           ), 0)
+        + case when tasks.publish_obstacles
+            then floor(tasks.reward_credits / 2) * ${QUEST_OBSTACLE_BONUS_WINNERS}
+            else 0 end
       ), 0)::text`,
     })
     .from(tasks)
@@ -183,15 +199,37 @@ export async function fundQuestEscrow(
     readonly sponsorId: AgentId
     readonly credits: number
     readonly capacity: number
+    /**
+     * Whether the obstacle pool is part of this escrow (`#370`, `#371`).
+     *
+     * **Required, and deliberately not defaulted.** A caller that forgot it
+     * would under-fund the escrow by the pool, and the failure would be silent
+     * and late: the bonus would simply never be paid, because the guard that
+     * refuses to overdraw the escrow would refuse it, on a quest whose sponsor
+     * had been told the money was held.
+     */
+    readonly publishObstacles: boolean
   },
 ): Promise<number> {
-  const total = command.credits * command.capacity
+  const total = questCommitment({
+    reward: { credits: command.credits, reputation: 0 },
+    slots: command.capacity,
+    publishObstacles: command.publishObstacles,
+  })
   if (total === 0) return 0
+
+  const pool = questObstacleBonusPool({
+    reward: { credits: command.credits, reputation: 0 },
+    publishObstacles: command.publishObstacles,
+  })
 
   await book(tx, {
     reference: questFundingReference(command.taskId),
     type: 'task_funding',
-    memo: `Quest escrow — ${command.capacity} × ${command.credits}`,
+    memo:
+      pool === 0
+        ? `Quest escrow — ${command.capacity} × ${command.credits}`
+        : `Quest escrow — ${command.capacity} × ${command.credits}, plus ${pool} for obstacle reports`,
     amount: total,
     from: { kind: 'agent', agentId: command.sponsorId },
     to: { kind: 'system', account: 'escrow' },
@@ -258,6 +296,88 @@ export async function payQuestReport(
     from: { kind: 'system', account: 'escrow' },
     to: { kind: 'agent', agentId: command.agentId },
   })
+}
+
+/**
+ * Escrow → citizen, for one published obstacle report (`#371`).
+ *
+ * **On a rung a report deliberately pays nothing, and that decision stands.** A
+ * rung is the Colony's own work and the Colony can afford to ask for the account
+ * of it as a gift. A quest is not: there is real money in escrow, and the
+ * front-runner problem is a payment problem — the first citizen to answer pays
+ * the whole cost of discovery, reads nothing, and hands the benefit to everybody
+ * after it. Nothing compensated that, and the result was measurable:
+ * `quest_reports` held zero rows on 2026-08-05.
+ *
+ * **Four conditions, and each is a refusal rather than a filter**, because every
+ * one of them is a way this could quietly pay for something it should not:
+ *
+ * - the task is a **quest**. An Academy rung reaches here only through a bug,
+ *   and paying on one would break the boundary `governance/quests.md` draws;
+ * - the obstacle is **published**. A report the moderation stage rejected, or one
+ *   whose obstacle was withheld, bought nobody anything;
+ * - the quest **publishes its obstacles** (`#370`). A sponsor that kept them held
+ *   no pool, so there is nothing to pay from and nothing was earned;
+ * - fewer than {@link QUEST_OBSTACLE_BONUS_WINNERS} have been paid already,
+ *   counted from the ledger by reference prefix rather than from a column
+ *   somebody keeps in step.
+ *
+ * Returns what it paid, so the caller can say so. Zero is the ordinary answer
+ * and not a failure.
+ */
+export async function payQuestObstacleBonus(
+  tx: Transaction,
+  command: {
+    readonly taskId: TaskId
+    readonly reportId: string
+    readonly agentId: AgentId
+  },
+): Promise<number> {
+  const [task] = await tx
+    .select({
+      kind: tasks.kind,
+      rewardCredits: tasks.rewardCredits,
+      publishObstacles: tasks.publishObstacles,
+    })
+    .from(tasks)
+    .where(eq(tasks.id, command.taskId))
+    .limit(1)
+
+  if (task === undefined || task.kind !== 'quest' || !task.publishObstacles) return 0
+
+  const bonus = questObstacleBonus({ credits: task.rewardCredits })
+  if (bonus === 0) return 0
+
+  const [counted] = await tx
+    .select({ paid: sql<string>`count(*)::text` })
+    .from(ledgerEntries)
+    .where(
+      and(
+        eq(ledgerEntries.accountKind, 'agent'),
+        sql`${ledgerEntries.reference} like ${questObstacleBonusPrefix(command.taskId) + '%'}`,
+      ),
+    )
+  if (Number(counted?.paid ?? 0) >= QUEST_OBSTACLE_BONUS_WINNERS) return 0
+
+  /**
+   * The same guard `payQuestReport` states in full: capacity and the pool
+   * together are what the escrow was funded for, so this cannot overdraw — and
+   * it is checked anyway, because the failure if the two mechanisms ever
+   * disagree is an escrow paying citizens with another sponsor's money.
+   */
+  const held = await escrowHeldFor(tx, command.taskId)
+  if (held < bonus) return 0
+
+  await book(tx, {
+    reference: questObstacleBonusReference(command.taskId, command.reportId),
+    type: 'task_payout',
+    memo: `Published obstacle report — one of the first ${QUEST_OBSTACLE_BONUS_WINNERS} on this quest`,
+    amount: bonus,
+    from: { kind: 'system', account: 'escrow' },
+    to: { kind: 'agent', agentId: command.agentId },
+  })
+
+  return bonus
 }
 
 /**
@@ -495,6 +615,9 @@ export async function commitmentsBy(
             select count(*) from submissions s
             where s.task_id = tasks.id and s.status = 'passed'
           ), 0)
+        + case when tasks.publish_obstacles
+            then floor(tasks.reward_credits / 2) * ${QUEST_OBSTACLE_BONUS_WINNERS}
+            else 0 end
       else 0 end)::text`,
       escrowed: sql<string>`coalesce((
         select sum(e.amount) from ledger_entries e

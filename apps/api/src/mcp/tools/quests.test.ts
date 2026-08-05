@@ -151,13 +151,16 @@ describe('the sponsor over MCP', () => {
       aDraft({ reward: { credits: 15, reputation: 0 }, slots: 20 }),
     )
 
+    // 20 × 15 for the answers, plus 7 each for the first three published
+    // obstacle reports (`#371`) — the commitment is the whole of what the quest
+    // would hold, which is what a sponsor is deciding about.
     expect(structured(written).commitment).toMatchObject({
-      cost: 300,
+      cost: 321,
       available: 500,
       affordable: true,
     })
     expect(String(structured(written).preview)).toContain('A thousand registrations')
-    expect(JSON.stringify(written.content)).toContain('300 credit(s)')
+    expect(JSON.stringify(written.content)).toContain('321 credit(s)')
   })
 
   /**
@@ -182,6 +185,44 @@ describe('the sponsor over MCP', () => {
     expect(
       (structured(written).quest as unknown as { publishObstacles: boolean }).publishObstacles,
     ).toBe(false)
+  })
+
+  /**
+   * The sponsor sees what the obstacle bonus costs it **at the moment it commits
+   * the quest** (`#371`) — a sponsor discovering afterwards that its escrow paid
+   * for something it did not ask for is the failure `#323` exists to prevent.
+   */
+  it('names the obstacle pool in the commitment, before anything is irreversible', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 500)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+    )
+
+    // 100 for the ten answers, plus 5 each for the first three published
+    // obstacles — on top of the capacity rather than out of it.
+    expect(structured(written).commitment).toMatchObject({ cost: 115 })
+    const said = JSON.stringify(written.content)
+    expect(said).toContain('115 credit(s)')
+    expect(said).toContain('15 of that is for the first 3 citizens')
+    expect(said).toContain('rather than out of them')
+  })
+
+  it('holds no pool, and says nothing, for a sponsor that kept its obstacles', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 500)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10, publishObstacles: false }),
+    )
+
+    expect(structured(written).commitment).toMatchObject({ cost: 100 })
+    expect(JSON.stringify(written.content)).not.toContain('is for the first 3 citizens')
   })
 
   /**
@@ -402,7 +443,8 @@ describe('the sponsor over MCP', () => {
       aDraft({ reward: { credits: 15, reputation: 0 }, slots: 200 }),
     )
 
-    expect(structured(written).commitment).toMatchObject({ cost: 3000, affordable: false })
+    // 200 × 15, plus 21 for the obstacle pool (`#371`).
+    expect(structured(written).commitment).toMatchObject({ cost: 3021, affordable: false })
     expect(JSON.stringify(written.content)).toContain('more than you can currently pay')
   })
 
@@ -418,7 +460,8 @@ describe('the sponsor over MCP', () => {
     const id = (structured(written).quest as unknown as { id: TaskId }).id
     await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
 
-    expect(structured(await call(sponsor.key, 'kolonie.quests.balance')).reserved).toBe(50)
+    // 5 × 10 for the answers and 15 for the obstacle pool (`#371`).
+    expect(structured(await call(sponsor.key, 'kolonie.quests.balance')).reserved).toBe(65)
 
     const withdrawn = await call(sponsor.key, 'kolonie.quests.withdraw', { questId: id })
 

@@ -750,6 +750,7 @@ describe('erasing a citizen', () => {
           sponsorId: sponsor.id,
           credits: 100,
           capacity: 3,
+          publishObstacles: false,
         })
       })
 
@@ -859,7 +860,13 @@ describe('erasing a citizen', () => {
 
       const taskId = TaskIdSchema.parse(quest!.id)
       await db.transaction(async (tx) => {
-        await fundQuestEscrow(tx, { taskId, sponsorId: sponsor.id, credits: 100, capacity: 3 })
+        await fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor.id,
+          credits: 100,
+          capacity: 3,
+          publishObstacles: false,
+        })
       })
 
       const [attempt] = await db

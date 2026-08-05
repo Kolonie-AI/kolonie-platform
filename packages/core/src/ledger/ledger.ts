@@ -205,6 +205,29 @@ export function questPayoutReference(taskId: TaskId, submissionId: SubmissionId)
 }
 
 /**
+ * Escrow → citizen, for one published obstacle report (`#371`).
+ *
+ * **Its own reference and not a payout's**, for the reason the funding and the
+ * refund have different ones: each has to be bookable exactly once, and the
+ * partial unique index tells them apart by what they are called. It also makes
+ * *how many obstacle bonuses has this quest paid* a prefix scan, which is what
+ * the bound of three is counted with — rather than a column somebody keeps in
+ * step.
+ *
+ * Keyed on the report and not the submission, because the two are different
+ * things: an obstacle report may be filed by a citizen that never claimed the
+ * quest, and it is the report that was published.
+ */
+export function questObstacleBonusReference(taskId: TaskId, reportId: string): string {
+  return `${QUEST_REFERENCE_PREFIX}${taskId}:obstacle:${reportId}`
+}
+
+/** The prefix every obstacle bonus on one quest shares, for counting them. */
+export function questObstacleBonusPrefix(taskId: TaskId): string {
+  return `${QUEST_REFERENCE_PREFIX}${taskId}:obstacle:`
+}
+
+/**
  * Whose money it was, recorded at the moment of the credit and never inferred
  * afterwards (`#220`).
  *

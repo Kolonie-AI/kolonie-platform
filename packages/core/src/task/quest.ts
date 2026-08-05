@@ -419,8 +419,88 @@ export function questSubmissionRejection(
  * shown before it commits — and a multiplication written three times is a
  * multiplication that can be written wrong once.
  */
-export function questCommitment(quest: Pick<QuestDraft, 'reward' | 'slots'>): number {
-  return quest.reward.credits * quest.slots
+export function questCommitment(
+  quest: Pick<QuestDraft, 'reward' | 'slots' | 'publishObstacles'>,
+): number {
+  return quest.reward.credits * quest.slots + questObstacleBonusPool(quest)
+}
+
+/**
+ * How many obstacle reports a quest pays for (`#371`).
+ *
+ * **The bound in one place**, which the issue asks for, and three rather than
+ * one or ten. One is a single point of failure — that citizen may have hit
+ * something idiosyncratic, and a briefing built from one wall reads as the wall.
+ * Ten turns the channel into an income stream and fills it with padding. By the
+ * third published obstacle a briefing exists, and the cost this compensates is
+ * gone: the fourth citizen reads what the first three paid for.
+ */
+export const QUEST_OBSTACLE_BONUS_WINNERS = 3
+
+/**
+ * What one published obstacle report pays its author (`#371`).
+ *
+ * **Half of what one answer pays, rounded down.** A share of the per-report
+ * reward rather than of the escrow, because the escrow scales with capacity and
+ * the discovery cost does not — the first citizen through pays the same price
+ * whether the sponsor bought ten answers or a thousand.
+ *
+ * **A quest that pays nothing pays nothing here either**, which falls out of the
+ * arithmetic rather than being special-cased, and is the same boundary the
+ * Academy holds: `floor(0 / 2)` is `0`, and so is `floor(1 / 2)`. A quest paying
+ * one credit an answer has nothing to halve, and inventing a credit for it would
+ * be the Colony paying for a stranger's product research.
+ */
+export function questObstacleBonus(reward: Pick<TaskReward, 'credits'>): number {
+  return Math.floor(reward.credits / 2)
+}
+
+/**
+ * The whole of what a quest sets aside for obstacle reports (`#371`).
+ *
+ * **It is the sponsor's money, and it is added to the commitment rather than
+ * taken out of it.** Taking it out of the escrow the sponsor sized for answers
+ * would buy fewer answers than the sponsor asked for — *"a sponsor discovering
+ * afterwards that its escrow paid for something it did not ask for"* is the
+ * failure `#323` exists to prevent, and quietly spending its capacity is that
+ * failure wearing a different hat. So the commitment goes up, the sponsor is
+ * shown the larger figure before it commits, and capacity is untouched.
+ *
+ * **Zero when the sponsor kept its obstacles unpublished** (`#370`). Nothing is
+ * published, so nothing is owed and nothing is held — the two decisions compose
+ * without either knowing about the other's reasoning.
+ *
+ * Whatever is not paid out is refunded with the rest of the remainder at expiry,
+ * through the path `#174` already built.
+ */
+export function questObstacleBonusPool(
+  quest: Pick<QuestDraft, 'reward' | 'publishObstacles'>,
+): number {
+  if (!quest.publishObstacles) return 0
+  return questObstacleBonus(quest.reward) * QUEST_OBSTACLE_BONUS_WINNERS
+}
+
+/**
+ * What the obstacle bonus costs the sponsor, said where the money is committed
+ * (`#371`).
+ *
+ * `null` when there is nothing to say — an unpaid quest, or one whose sponsor
+ * kept its obstacles to itself. The same rule every other notice here follows: a
+ * sponsor that is not spending anything is not told about a charge.
+ */
+export function obstacleBonusNotice(
+  quest: Pick<QuestDraft, 'reward' | 'publishObstacles'>,
+): string | null {
+  const pool = questObstacleBonusPool(quest)
+  if (pool === 0) return null
+
+  return (
+    `${pool} of that is for the first ${QUEST_OBSTACLE_BONUS_WINNERS} citizens whose account of ` +
+    `what stopped them is published — ${questObstacleBonus(quest.reward)} credit(s) each, on top ` +
+    'of the answers you are buying rather than out of them. They pay the discovery cost ' +
+    'everybody after them is spared, and nothing is paid for a report that is not published. ' +
+    'Whatever is not earned comes back to you with the rest at expiry.'
+  )
 }
 
 /**

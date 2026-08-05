@@ -151,7 +151,11 @@ export function fakeQuests(): FakeQuestDesk {
       .reduce(
         (total, held) =>
           total +
-          questCommitment({ reward: held.own.task.reward, slots: held.own.task.slots ?? 0 }),
+          questCommitment({
+            reward: held.own.task.reward,
+            slots: held.own.task.slots ?? 0,
+            publishObstacles: held.own.task.publishObstacles,
+          }),
         0,
       )
 
@@ -444,6 +448,7 @@ export function fakeQuests(): FakeQuestDesk {
       const wanted = questCommitment({
         reward: held.own.task.reward,
         slots: held.own.task.slots ?? 0,
+        publishObstacles: held.own.task.publishObstacles,
       })
       const free = (balances.get(authorId) ?? 0) - reserved(authorId)
       if (free < wanted) return { outcome: 'insufficient-funds', shortfall: wanted - free }
@@ -480,6 +485,7 @@ export function fakeQuests(): FakeQuestDesk {
               ? questCommitment({
                   reward: held.own.task.reward,
                   slots: held.own.task.slots ?? 0,
+                  publishObstacles: held.own.task.publishObstacles,
                 })
               : 0,
           escrowed:
@@ -487,6 +493,7 @@ export function fakeQuests(): FakeQuestDesk {
               ? questCommitment({
                   reward: held.own.task.reward,
                   slots: held.own.task.slots ?? 0,
+                  publishObstacles: held.own.task.publishObstacles,
                 })
               : 0,
           // The fixture never books a payout, so the whole cost is still in
@@ -558,7 +565,13 @@ export function fakeQuests(): FakeQuestDesk {
             held.own.task.createdBy === authorId && held.own.task.status === 'pending_review',
         )
         .reduce(
-          (total, held) => total + (held.own.task.slots ?? 0) * held.own.task.reward.credits,
+          (total, held) =>
+            total +
+            questCommitment({
+              reward: held.own.task.reward,
+              slots: held.own.task.slots ?? 0,
+              publishObstacles: held.own.task.publishObstacles,
+            }),
           0,
         )
 
@@ -614,6 +627,7 @@ export function fakeQuests(): FakeQuestDesk {
       const escrowed = questCommitment({
         reward: held.own.task.reward,
         slots: held.own.task.slots ?? 0,
+        publishObstacles: held.own.task.publishObstacles,
       })
 
       put(

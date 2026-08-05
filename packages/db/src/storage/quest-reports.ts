@@ -11,6 +11,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, questAnswers, questReports, taskAttempts, tasks } from '../schema/index.js'
 import type { BriefingSource } from './briefing.js'
+import { payQuestObstacleBonus } from './escrow.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -300,7 +301,13 @@ export async function unmoderatedQuestReports(
   }))
 }
 
-/** Write what the scrub produced, or refuse the report. */
+/**
+ * Write what the scrub produced, or refuse the report — and pay for it if it was
+ * published (`#371`).
+ *
+ * Returns what the author was paid, which is `0` for every decision except a
+ * published obstacle among the first few on a paying quest.
+ */
 export async function recordQuestReportModeration(
   db: Database,
   command: {
@@ -318,18 +325,47 @@ export async function recordQuestReportModeration(
      */
     readonly publishedObstacle?: string
   },
-): Promise<void> {
-  await db
-    .update(questReports)
-    .set({
-      status: command.decision,
-      // A refused report keeps its row and gains no scrub: the citizen wrote it,
-      // the Colony declined to pass it on, and deleting the row would delete the
-      // record of that decision.
-      scrubbed: command.decision === 'approved' ? (command.scrubbed ?? null) : null,
-      scrubbedBroke: command.decision === 'approved' ? (command.publishedObstacle ?? null) : null,
+): Promise<number> {
+  return await db.transaction(async (tx) => {
+    const [decided] = await tx
+      .update(questReports)
+      .set({
+        status: command.decision,
+        // A refused report keeps its row and gains no scrub: the citizen wrote it,
+        // the Colony declined to pass it on, and deleting the row would delete the
+        // record of that decision.
+        scrubbed: command.decision === 'approved' ? (command.scrubbed ?? null) : null,
+        scrubbedBroke: command.decision === 'approved' ? (command.publishedObstacle ?? null) : null,
+      })
+      .where(and(eq(questReports.id, command.id), eq(questReports.status, 'pending')))
+      .returning({
+        id: questReports.id,
+        taskId: questReports.taskId,
+        agentId: questReports.agentId,
+        kind: questReports.kind,
+        published: questReports.scrubbedBroke,
+      })
+
+    /**
+     * The payment for a published obstacle is booked **in the decision's own
+     * transaction** (`#371`), exactly as a verdict books an Academy reward in
+     * its own: a report that was published and not paid would be a debt the
+     * Colony cannot find, and a second job that reconciled them would be a
+     * second place the rule lives.
+     *
+     * Nothing here decides *whether* to pay — `payQuestObstacleBonus` owns every
+     * one of those conditions, and this is the one call site.
+     */
+    if (decided === undefined || decided.kind !== 'obstacle' || decided.published === null) {
+      return 0
+    }
+
+    return await payQuestObstacleBonus(tx, {
+      taskId: decided.taskId as TaskId,
+      reportId: decided.id,
+      agentId: decided.agentId as AgentId,
     })
-    .where(and(eq(questReports.id, command.id), eq(questReports.status, 'pending')))
+  })
 }
 
 /**

@@ -4,7 +4,9 @@ import {
   QuestDraftSchema,
   QuestPatchSchema,
   TaskIdSchema,
+  obstacleBonusNotice,
   obstaclePublicationNotice,
+  type TaskReward,
 } from '@kolonie-ai/core'
 import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -51,6 +53,18 @@ function answer<T>(result: QuestResult<T>, sentence: (response: T) => string) {
     structuredContent: result.response as Record<string, unknown>,
   }
 }
+
+/**
+ * What the obstacle pool costs, appended to the answer that names the
+ * commitment (`#371`).
+ *
+ * A space after it and nothing at all when there is nothing to say, so a quest
+ * that pays no bonus reads exactly as it did before this existed.
+ */
+const bonusSentence = (quest: {
+  readonly reward: TaskReward
+  readonly publishObstacles: boolean
+}) => (obstacleBonusNotice(quest) === null ? '' : `${obstacleBonusNotice(quest)} `)
 
 const questId = TaskIdSchema.describe('The id of the quest.')
 
@@ -226,6 +240,9 @@ export function registerQuestTools(
           // Only when it is not the default: a sponsor that changed nothing is
           // warned about nothing (`#370`).
           `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
+          // What the obstacle bonus costs, in the same answer that names the
+          // commitment it is part of (`#371`).
+          `${bonusSentence(q.quest)}` +
           '`preview` is this quest exactly as an answering citizen reads it — read it before ' +
           'you submit, because submitting freezes the text. Nothing is committed yet: call ' +
           `kolonie.quests.submit with ${q.quest.id} when it says what you mean.`,
@@ -270,6 +287,7 @@ export function registerQuestTools(
           `${q.commitment.available} you have available. ` +
           `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
           `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
+          `${bonusSentence(q.quest)}` +
           '`preview` is how it reads to an answering citizen.',
       )
     },

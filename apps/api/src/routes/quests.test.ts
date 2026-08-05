@@ -177,10 +177,13 @@ describe('what comes back with a quest of your own', () => {
 
     const written = await write(aDraft({ reward: { credits: 15, reputation: 0 }, slots: 20 }))
 
-    // The sponsor that reported this computed 300 by hand and was right. The
-    // point is that it could not find out it was right until after submitting.
+    // The sponsor that reported this computed 300 by hand and was right about
+    // the answers; since `#371` the commitment is 321, because the first three
+    // published obstacle reports are held on top of the capacity rather than out
+    // of it. The point is unchanged: it could not find out until after
+    // submitting.
     expect(written.json().commitment).toMatchObject({
-      cost: 300,
+      cost: 321,
       balance: 500,
       reserved: 0,
       available: 500,
@@ -195,7 +198,8 @@ describe('what comes back with a quest of your own', () => {
     // fail at submission — one step after the moment it could be corrected.
     const written = await write(aDraft({ reward: { credits: 15, reputation: 0 }, slots: 200 }))
 
-    expect(written.json().commitment).toMatchObject({ cost: 3000, affordable: false })
+    // 200 × 15, plus 21 held for the obstacle reports (`#371`).
+    expect(written.json().commitment).toMatchObject({ cost: 3021, affordable: false })
   })
 
   it('carries the quest as an answering citizen reads it', async () => {
@@ -225,7 +229,8 @@ describe('what comes back with a quest of your own', () => {
       payload: { title: 'A thousand mailboxes', reward: { credits: 2, reputation: 0 } } as never,
     })
 
-    expect(patched.json().commitment.cost).toBe(20)
+    // 10 × 2 for the answers, plus 1 each for the first three obstacles.
+    expect(patched.json().commitment.cost).toBe(23)
     expect(patched.json().preview).toContain('A thousand mailboxes')
   })
 })
@@ -245,9 +250,10 @@ describe('the balance decomposes per quest', () => {
 
     const balance = (await get('/v1/quests/balance', sponsorKey)).json()
 
-    expect(balance.reserved).toBe(50)
+    // 5 × 10 for the answers and 15 for the obstacle pool (`#371`).
+    expect(balance.reserved).toBe(65)
     expect(balance.quests).toEqual([
-      expect.objectContaining({ taskId: id, reserved: 50, escrowed: 0 }),
+      expect.objectContaining({ taskId: id, reserved: 65, escrowed: 0 }),
     ])
   })
 
@@ -278,7 +284,8 @@ describe('POST /v1/quests/:questId/withdraw', () => {
   it('frees the reservation and the queue slot', async () => {
     const id = await awaitingReview(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }))
 
-    expect((await get('/v1/quests/balance', sponsorKey)).json().reserved).toBe(50)
+    // 5 × 10 for the answers and 15 for the obstacle pool (`#371`).
+    expect((await get('/v1/quests/balance', sponsorKey)).json().reserved).toBe(65)
 
     await post(`/v1/quests/${id}/withdraw`, sponsorKey)
 
@@ -467,7 +474,10 @@ describe('POST /v1/quests/:questId/submit', () => {
     const response = await post(`/v1/quests/${id}/submit`, sponsorKey)
 
     expect(response.statusCode).toBe(409)
-    expect(response.json().message).toContain('500')
+    // 10 × 100 for the answers and 150 for the obstacle pool, against 500 held:
+    // the refusal names the shortfall rather than the balance (`#371` changed
+    // the number, not the shape).
+    expect(response.json().message).toContain('650')
   })
 })
 
@@ -630,7 +640,9 @@ describe('POST /v1/quests/:questId/publish', () => {
     const response = await post(`/v1/quests/${id}/publish`, stewardKey)
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ escrowed: 100 })
+    // 10 × 10 for the answers, plus 15 held for the first three published
+    // obstacle reports — escrowed together, refunded together (`#371`).
+    expect(response.json()).toEqual({ escrowed: 115 })
   })
 
   it('refuses a steward publishing its own quest, and says why', async () => {

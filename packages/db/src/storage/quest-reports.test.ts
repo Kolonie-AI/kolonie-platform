@@ -4,7 +4,14 @@ import type { AgentId, TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, questReports, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
-import { questsAwaitingRefund } from './escrow.js'
+import {
+  escrowHeldFor,
+  fundQuestEscrow,
+  payQuestObstacleBonus,
+  questsAwaitingRefund,
+} from './escrow.js'
+import { balanceOfAgent } from './balance.js'
+import { creditBalance } from './funding.js'
 import {
   declineReasons,
   fileQuestReport,
@@ -360,6 +367,189 @@ describe('a quest report', () => {
       })
 
       expect(await questObstacleCorpus(db, taskId)).toHaveLength(1)
+    })
+
+    /**
+     * **The front-runner problem is a payment problem** (`#371`). The first
+     * citizen to answer pays the whole cost of discovery, reads nothing, and
+     * hands the benefit to everybody after it. These are the tests that the
+     * compensation lands and that it lands nowhere else.
+     */
+    describe('what a published obstacle pays', () => {
+      const aPaidQuest = async (
+        credits: number,
+        options: { readonly publishObstacles?: boolean } = {},
+      ): Promise<{ taskId: TaskId; sponsorId: AgentId }> => {
+        const sponsorId = await anAgent(`sponsor-${credits}-${String(options.publishObstacles)}`)
+        const [row] = await db
+          .insert(tasks)
+          .values({
+            type: 'quest-report',
+            kind: 'quest',
+            title: 'A thousand registrations',
+            description: 'What this quest is.',
+            instructions: 'Register and report.',
+            rewardCredits: credits,
+            rewardReputation: 1,
+            slots: 10,
+            createdBy: sponsorId,
+            ...(options.publishObstacles === undefined
+              ? {}
+              : { publishObstacles: options.publishObstacles }),
+            timeoutHours: 24,
+            status: 'active' as const,
+          })
+          .returning({ id: tasks.id })
+        const taskId = row!.id as TaskId
+
+        // The sponsor's money, on account and then in escrow — the same two
+        // bookings publication makes, so the pool this pays from is the pool a
+        // real quest holds.
+        await db.transaction(async (tx) => {
+          await creditBalance(tx, {
+            agentId: sponsorId,
+            amount: 10_000,
+            source: 'bootstrap',
+            actorId: null,
+            reference: `hand-credit:${taskId}`,
+            memo: 'funding for the escrow these tests pay out of',
+          })
+          await fundQuestEscrow(tx, {
+            taskId,
+            sponsorId,
+            credits,
+            capacity: 10,
+            publishObstacles: options.publishObstacles ?? true,
+          })
+        })
+
+        return { taskId, sponsorId }
+      }
+
+      const publishAnObstacle = async (taskId: TaskId, agentId: AgentId, broke: string) => {
+        await anObstacle(taskId, agentId, { broke })
+        const queued = await unmoderatedQuestReports(db, 10)
+        const mine = queued.find((row) => row.broke === broke)
+        return await recordQuestReportModeration(db, {
+          id: mine!.id,
+          decision: 'approved',
+          scrubbed: broke,
+          publishedObstacle: broke,
+        })
+      }
+
+      it('pays the first three and nobody after them', async () => {
+        const { taskId } = await aPaidQuest(10)
+
+        const paid: number[] = []
+        for (const name of ['first', 'second', 'third', 'fourth']) {
+          const agentId = await anAgent(`${name}-through`)
+          paid.push(await publishAnObstacle(taskId, agentId, `The ${name} wall.`))
+        }
+
+        // Half of what one answer pays, to each of the first three. The fourth
+        // citizen reads what the first three paid for, so the cost this
+        // compensates is gone.
+        expect(paid).toEqual([5, 5, 5, 0])
+      })
+
+      it('pays the author, and the escrow is what it came out of', async () => {
+        const { taskId } = await aPaidQuest(10)
+        const agentId = await anAgent('first-through-alone')
+
+        await publishAnObstacle(taskId, agentId, 'The archive needs an account.')
+
+        expect((await balanceOfAgent(db, agentId)).credits).toBe(5)
+        // 10 × 10 for the answers plus 15 for the pool, less the 5 just paid.
+        expect(await escrowHeldFor(db, taskId)).toBe(110)
+      })
+
+      /** The rejection case: moderation refused it, so it bought nobody anything. */
+      it('pays nothing for a report moderation rejected', async () => {
+        const { taskId } = await aPaidQuest(10)
+        const agentId = await anAgent('refused-report')
+        await anObstacle(taskId, agentId, { broke: 'I stopped because of the answer.' })
+        const [queued] = await unmoderatedQuestReports(db, 10)
+
+        const paid = await recordQuestReportModeration(db, {
+          id: queued!.id,
+          decision: 'rejected',
+        })
+
+        expect(paid).toBe(0)
+        expect((await balanceOfAgent(db, agentId)).credits).toBe(0)
+      })
+
+      /** And nothing for one the stage approved but did not publish. */
+      it('pays nothing when the obstacle itself was withheld', async () => {
+        const { taskId } = await aPaidQuest(10)
+        const agentId = await anAgent('approved-but-unpublished')
+        await anObstacle(taskId, agentId, {
+          did: 'Read both and compared them.',
+          broke: 'Stopped once I had decided the answer.',
+        })
+        const [queued] = await unmoderatedQuestReports(db, 10)
+
+        const paid = await recordQuestReportModeration(db, {
+          id: queued!.id,
+          decision: 'approved',
+          scrubbed: 'Read both and compared them.',
+        })
+
+        expect(paid).toBe(0)
+      })
+
+      /** A sponsor that publishes nothing owes nothing, and held no pool (`#370`). */
+      it('pays nothing on a quest whose sponsor kept its obstacles', async () => {
+        const { taskId } = await aPaidQuest(10, { publishObstacles: false })
+        const agentId = await anAgent('stopped-privately')
+
+        const paid = await publishAnObstacle(taskId, agentId, 'The archive needs an account.')
+
+        expect(paid).toBe(0)
+        // And the escrow held the capacity alone — no pool was ever funded.
+        expect(await escrowHeldFor(db, taskId)).toBe(100)
+      })
+
+      it('pays nothing on a quest whose answers pay too little to halve', async () => {
+        const { taskId } = await aPaidQuest(1)
+        const agentId = await anAgent('one-credit-quest')
+
+        expect(await publishAnObstacle(taskId, agentId, 'The archive needs an account.')).toBe(0)
+      })
+
+      /**
+       * **The boundary `#371` asks to be asserted rather than assumed.** On an
+       * Academy rung a report pays nothing and never will: a rung is the
+       * Colony's own work and it can afford to ask for the account of it as a
+       * gift.
+       */
+      it('pays nothing on an Academy rung, which is a different kind of work', async () => {
+        const taskId = await aQuest('academy')
+        const agentId = await anAgent('rung-reporter')
+
+        // Twice over, and the first is the stronger of the two: an obstacle
+        // report cannot be filed against a rung at all — `fileQuestReport` reads
+        // `tasks` with `kind = 'quest'` and answers `unknown-quest`.
+        expect(
+          (await anObstacle(taskId, agentId, { broke: 'The page would not load.' })).outcome,
+        ).toBe('unknown-quest')
+
+        // And if one ever reached the payment path anyway, it is refused there
+        // too. This is the assertion `#371` asks for by name: a report costs
+        // nothing and earns nothing on an Academy rung.
+        const paid = await db.transaction(
+          async (tx) =>
+            await payQuestObstacleBonus(tx, {
+              taskId,
+              reportId: crypto.randomUUID(),
+              agentId,
+            }),
+        )
+
+        expect(paid).toBe(0)
+        expect((await balanceOfAgent(db, agentId)).credits).toBe(0)
+      })
     })
 
     /**

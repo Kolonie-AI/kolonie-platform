@@ -366,13 +366,15 @@ describe('the quest write path', () => {
         at: now(),
       })
 
-      expect(result).toEqual({ outcome: 'insufficient-funds', shortfall: 400 })
+      // 10 × 50 for the answers and 75 for the obstacle pool, against 100 held (`#371`).
+      expect(result).toEqual({ outcome: 'insufficient-funds', shortfall: 475 })
       expect((await readOwnQuest(db, sponsor, task.id))?.task.status).toBe('draft')
     })
 
     it('counts what is already reserved, so the same credit is not committed twice', async () => {
       const sponsor = await anAgent('sponsor')
-      await credit(sponsor, 100)
+      // 10 × 10 for the answers and 15 for the obstacle pool, twice over (`#371`).
+      await credit(sponsor, 130)
       const first = await createQuestDraft(db, {
         authorId: sponsor,
         draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
@@ -461,7 +463,8 @@ describe('the quest write path', () => {
      */
     it('releases the reservation and the queue slot', async () => {
       const sponsor = await anAgent('sponsor')
-      await credit(sponsor, 100)
+      // Enough for the answers and the obstacle pool both (`#371`).
+      await credit(sponsor, 200)
       const first = await createQuestDraft(db, {
         authorId: sponsor,
         draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
@@ -469,7 +472,7 @@ describe('the quest write path', () => {
       const second = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
 
-      expect((await availableBalance(db, sponsor)).reserved).toBe(100)
+      expect((await availableBalance(db, sponsor)).reserved).toBe(115)
 
       await withdrawQuestFromReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
 
@@ -633,9 +636,11 @@ describe('the quest write path', () => {
         audit: AUDIT_ON,
       })
 
-      expect(result).toEqual({ outcome: 'published', escrowed: 100 })
+      // 10 × 10 for the answers, plus 15 for the first three published obstacle
+      // reports — one booking, refunded together (`#371`).
+      expect(result).toEqual({ outcome: 'published', escrowed: 115 })
       expect((await readOwnQuest(db, sponsor, task.id))?.task.status).toBe('active')
-      expect(await escrowHeldFor(db, task.id)).toBe(100)
+      expect(await escrowHeldFor(db, task.id)).toBe(115)
     })
 
     it('leaves the quest awaiting review when the escrow booking fails', async () => {
@@ -729,7 +734,9 @@ describe('the quest write path', () => {
     it('stores the refusal, frees the reservation, and records who refused', async () => {
       const sponsor = await anAgent('sponsor')
       const steward = await anAgent('steward', ['steward'])
-      await credit(sponsor, 100)
+      // The answers and the obstacle pool both, so the submission is not
+      // refused for money before this test reaches the refusal (`#371`).
+      await credit(sponsor, 200)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
         draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),

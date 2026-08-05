@@ -22,6 +22,7 @@ import {
   QUEST_PROOF_VERIFIERS,
   QUEST_TIER_CAPS,
   activityWindowNotice,
+  obstacleBonusNotice,
   obstaclePublicationNotice,
   questTier,
   type ActivityWindow,
@@ -128,6 +129,17 @@ export function proofNote(verifier: string | null): string {
  * here because it describes the default rather than a cost, and a sponsor that
  * changed nothing is warned about nothing.
  */
+export function obstacleBonusLine(reward: number, publish: boolean): string {
+  return (
+    obstacleBonusNotice({
+      reward: { credits: reward, reputation: 0 },
+      publishObstacles: publish,
+    }) ??
+    'Nothing extra is held for obstacle reports on this quest: they pay a share of what an ' +
+      'answer pays, and this one pays too little to halve.'
+  )
+}
+
 export function obstacleNote(publish: boolean): string {
   return (
     obstaclePublicationNotice(publish) ??

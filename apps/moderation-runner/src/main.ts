@@ -209,8 +209,15 @@ const answerStore: AnswerModerationStore = {
  */
 const questReportStore: QuestReportModerationStore = {
   pending: (limit) => unmoderatedQuestReports(db, limit),
-  write: (input) => recordQuestReportModeration(db, { ...input, decision: 'approved' }),
-  refuse: (input) => recordQuestReportModeration(db, { ...input, decision: 'rejected' }),
+  // The payment a published obstacle earns is booked inside that call and is
+  // deliberately not this loop's business (`#371`) — it returns what it paid,
+  // and the runner does not need to know.
+  write: async (input) => {
+    await recordQuestReportModeration(db, { ...input, decision: 'approved' })
+  },
+  refuse: async (input) => {
+    await recordQuestReportModeration(db, { ...input, decision: 'rejected' })
+  },
   // The same flag a rung's corpus sets on approval (`#367`). A quest's published
   // obstacles are written up by the same synthesis loop, so they enter its queue
   // the same way.

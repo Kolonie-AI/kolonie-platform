@@ -821,7 +821,9 @@ describe('the sponsor’s pages', () => {
     })
 
     it('submits once the balance covers it', async () => {
-      quests.credit(agentId as never, 1000)
+      // 10 × 100 for the answers plus 150 for the obstacle pool (`#371`), so the
+      // balance that covers this quest is larger than it was.
+      quests.credit(agentId as never, 1150)
       const created = await postForm('/quests', aForm({ slots: '10', rewardCredits: '100' }))
       const location = created.headers['location'] as string
 

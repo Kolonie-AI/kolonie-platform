@@ -148,10 +148,11 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       await aQuest({ sponsorId: sponsor, price: 5, capacity: 100 })
 
+      // 100 × 5 for the answers, and 2 × 3 for the obstacle pool (`#371`).
       expect(await availableBalance(db, sponsor)).toEqual({
         balance: 1000,
-        reserved: 500,
-        available: 500,
+        reserved: 506,
+        available: 494,
       })
     })
 
@@ -226,7 +227,8 @@ describe('the sponsor’s balance and the escrow', () => {
       expect(rows.reduce((total, row) => total + row.reserved, 0)).toBe(
         (await availableBalance(db, sponsor)).reserved,
       )
-      expect(rows.map((row) => row.reserved).sort((a, b) => a - b)).toEqual([20, 200])
+      // Each with its obstacle pool: 4 × 5 + 2 × 3, and 20 × 10 + 5 × 3.
+      expect(rows.map((row) => row.reserved).sort((a, b) => a - b)).toEqual([26, 215])
     })
 
     it('moves a quest from reserved to escrowed when it is published', async () => {
@@ -234,12 +236,19 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 20 })
 
+      // 20 × 10 for the answers and 15 for the obstacle pool (`#371`).
       expect(await commitmentsBy(db, sponsor)).toEqual([
-        expect.objectContaining({ taskId, reserved: 200, escrowed: 0 }),
+        expect.objectContaining({ taskId, reserved: 215, escrowed: 0 }),
       ])
 
       await db.transaction(async (tx) => {
-        await fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 20 })
+        await fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 20,
+          publishObstacles: false,
+        })
         await tx.update(tasks).set({ status: 'active' }).where(eq(tasks.id, taskId))
       })
 
@@ -270,7 +279,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 20, status: 'active' })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 20 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 20,
+          publishObstacles: false,
+        }),
       )
 
       const submissionId = await anAcceptedReport(taskId, citizen)
@@ -305,7 +320,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 15, capacity: 20, status: 'active' })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 15, capacity: 20 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 15,
+          capacity: 20,
+          publishObstacles: false,
+        }),
       )
 
       // 15 at the advertised rate, then 8 — `ceil(15 × 50%)`, which is what an
@@ -332,7 +353,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 20, status: 'active' })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 20 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 20,
+          publishObstacles: false,
+        }),
       )
       await db.update(tasks).set({ status: 'retired' }).where(eq(tasks.id, taskId))
 
@@ -362,7 +389,13 @@ describe('the sponsor’s balance and the escrow', () => {
       const taskId = await aQuest({ sponsorId: sponsor, price: 5, capacity: 100 })
 
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 5, capacity: 100 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 5,
+          capacity: 100,
+          publishObstacles: false,
+        }),
       )
 
       expect(await balanceOf(sponsor)).toBe(500)
@@ -375,13 +408,25 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 5, capacity: 10 })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 5, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 5,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
 
       await expectRejection(
         () =>
           db.transaction((tx) =>
-            fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 5, capacity: 10 }),
+            fundQuestEscrow(tx, {
+              taskId,
+              sponsorId: sponsor,
+              credits: 5,
+              capacity: 10,
+              publishObstacles: false,
+            }),
           ),
         /ledger_entries_quest_money/,
       )
@@ -393,7 +438,13 @@ describe('the sponsor’s balance and the escrow', () => {
       const taskId = await aQuest({ sponsorId: sponsor, price: 0, capacity: 100 })
 
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 0, capacity: 100 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 0,
+          capacity: 100,
+          publishObstacles: false,
+        }),
       )
 
       const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(ledgerEntries)
@@ -408,7 +459,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 5, capacity: 10 })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 5, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 5,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
       const submissionId = await anAcceptedReport(taskId, citizen)
 
@@ -432,7 +489,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 5, capacity: 10 })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 5, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 5,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
       const submissionId = await anAcceptedReport(taskId, citizen)
       await db.transaction((tx) =>
@@ -471,7 +534,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 10 })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
 
       let paidOut = 0
@@ -509,7 +578,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 100)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 10 })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
       await db.transaction((tx) => refundQuestRemainder(tx, { taskId }))
 
@@ -527,7 +602,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 100)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 10 })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
       await db.transaction((tx) => refundQuestRemainder(tx, { taskId }))
 
@@ -566,7 +647,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 1000)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 10 })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
       const treasuryBefore = await systemBalance('treasury')
       await db.update(tasks).set({ createdBy: null }).where(eq(tasks.id, taskId))
@@ -651,7 +738,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 500)
       const taskId = await anExpiredQuest(sponsor)
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
 
       const outcome = await sweepQuestRefunds(db)
@@ -669,7 +762,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 500)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 10, status: 'active' })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
       await db.update(tasks).set({ status: 'retired' }).where(eq(tasks.id, taskId))
 
@@ -687,7 +786,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 500)
       const taskId = await anExpiredQuest(sponsor)
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
       await sweepQuestRefunds(db)
 
@@ -703,7 +808,13 @@ describe('the sponsor’s balance and the escrow', () => {
       await credit(sponsor, 500)
       const taskId = await aQuest({ sponsorId: sponsor, price: 10, capacity: 10, status: 'active' })
       await db.transaction((tx) =>
-        fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 10 }),
+        fundQuestEscrow(tx, {
+          taskId,
+          sponsorId: sponsor,
+          credits: 10,
+          capacity: 10,
+          publishObstacles: false,
+        }),
       )
 
       expect((await sweepQuestRefunds(db)).refunded).toEqual([])
@@ -723,7 +834,13 @@ describe('the sponsor’s balance and the escrow', () => {
       const orphan = await anExpiredQuest(null)
       for (const taskId of [mine, orphan]) {
         await db.transaction((tx) =>
-          fundQuestEscrow(tx, { taskId, sponsorId: sponsor, credits: 10, capacity: 5 }),
+          fundQuestEscrow(tx, {
+            taskId,
+            sponsorId: sponsor,
+            credits: 10,
+            capacity: 5,
+            publishObstacles: false,
+          }),
         )
       }
 

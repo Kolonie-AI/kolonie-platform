@@ -183,6 +183,9 @@ export async function publishQuest(
             sponsorId,
             credits: row.rewardCredits,
             capacity,
+            // The obstacle pool is part of what is escrowed, and only when the
+            // sponsor is publishing them (`#370`, `#371`).
+            publishObstacles: row.publishObstacles,
           })
 
     await tx

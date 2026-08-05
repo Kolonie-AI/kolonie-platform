@@ -474,7 +474,11 @@ const respond = (
   purse: { readonly balance: number; readonly reserved: number; readonly available: number },
   audience?: QuestAudience,
 ): OwnQuestResponse => {
-  const cost = questCommitment({ reward: quest.task.reward, slots: quest.task.slots ?? 0 })
+  const cost = questCommitment({
+    reward: quest.task.reward,
+    slots: quest.task.slots ?? 0,
+    publishObstacles: quest.task.publishObstacles,
+  })
 
   return {
     quest: quest.task,

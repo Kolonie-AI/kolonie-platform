@@ -121,12 +121,50 @@ describe('submitting for review', () => {
 })
 
 describe('what a quest commits', () => {
-  it('is the price of a report times the number bought', () => {
-    expect(questCommitment({ reward: { credits: 10, reputation: 1 }, slots: 10 })).toBe(100)
+  it('is the price of a report times the number bought, plus what the obstacles cost', () => {
+    // 10 × 10 for the answers, and 5 each for the first three published
+    // obstacles — held on top of the capacity rather than out of it (`#371`).
+    expect(
+      questCommitment({
+        reward: { credits: 10, reputation: 1 },
+        slots: 10,
+        publishObstacles: true,
+      }),
+    ).toBe(115)
+  })
+
+  it('holds nothing for obstacles a sponsor chose not to publish', () => {
+    expect(
+      questCommitment({
+        reward: { credits: 10, reputation: 1 },
+        slots: 10,
+        publishObstacles: false,
+      }),
+    ).toBe(100)
   })
 
   it('is nothing for a quest that pays reputation only', () => {
-    expect(questCommitment({ reward: { credits: 0, reputation: 5 }, slots: 1000 })).toBe(0)
+    expect(
+      questCommitment({
+        reward: { credits: 0, reputation: 5 },
+        slots: 1000,
+        publishObstacles: true,
+      }),
+    ).toBe(0)
+  })
+
+  /**
+   * A quest paying one credit an answer has nothing to halve, and inventing a
+   * credit for it would be the Colony paying for a stranger's product research.
+   */
+  it('pays no obstacle bonus on a quest whose answers pay one credit', () => {
+    expect(
+      questCommitment({
+        reward: { credits: 1, reputation: 0 },
+        slots: 10,
+        publishObstacles: true,
+      }),
+    ).toBe(10)
   })
 })
 

@@ -257,6 +257,7 @@ export async function submitQuestForReview(
     const wanted = questCommitment({
       reward: { credits: row.rewardCredits, reputation: row.rewardReputation },
       slots: row.slots ?? 0,
+      publishObstacles: row.publishObstacles,
     })
     const free = balance - reserved
     if (free < wanted) return { outcome: 'insufficient-funds', shortfall: wanted - free }

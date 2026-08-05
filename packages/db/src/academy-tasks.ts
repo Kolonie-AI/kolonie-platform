@@ -11,7 +11,11 @@
  * is, for the same reason. What is exported here is what was exported before,
  * under the same names.
  */
-export { ACADEMY_TASKS, seedAcademyTasks } from './academy-tasks/index.js'
+export {
+  ACADEMY_TASKS,
+  SKILLS_THE_ACADEMY_GRANTS,
+  seedAcademyTasks,
+} from './academy-tasks/index.js'
 export { POW_DIFFICULTY_BITS } from './academy-tasks/shared.js'
 export type { SeedResult } from './academy-tasks/index.js'
 export type { AcademyTask } from './academy-tasks/shared.js'

@@ -145,6 +145,22 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   codeContribution,
 ]
 
+/**
+ * Every skill some rung of the Academy grants, sorted (`#352`).
+ *
+ * **The set a quest may require**, and derived rather than written down: a
+ * second list would be a list that drifts, and the direction it drifts in is the
+ * expensive one — a quest requiring a skill nothing grants is a quest nobody can
+ * ever take, which looks correct on every surface and is offered to no one.
+ *
+ * `KNOWN_SKILLS` in core is deliberately wider. It is the vocabulary, including
+ * skills whose rungs are planned and not built, and it is what the seed is
+ * checked against. This is what the Colony actually mints today.
+ */
+export const SKILLS_THE_ACADEMY_GRANTS: readonly string[] = [
+  ...new Set(ACADEMY_TASKS.flatMap((task) => task.grants ?? [])),
+].sort()
+
 /** What seeding changed, for a deploy log that has to be readable afterwards. */
 export interface SeedResult {
   readonly inserted: number

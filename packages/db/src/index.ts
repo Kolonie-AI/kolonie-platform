@@ -10,6 +10,7 @@ export * from './storage/index.js'
 export {
   ACADEMY_TASKS,
   POW_DIFFICULTY_BITS,
+  SKILLS_THE_ACADEMY_GRANTS,
   seedAcademyTasks,
   type SeedResult,
 } from './academy-tasks.js'

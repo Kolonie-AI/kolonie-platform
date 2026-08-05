@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { KNOWN_SKILLS, QUEST_PROOF_VERIFIERS, QUEST_TIER_CAPS } from '@kolonie-ai/core'
+import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import {
   affordability,
   parseQuestForm,
@@ -125,7 +126,14 @@ describe('the quest form', () => {
 
     it('accepts a skill that is on the list', () => {
       expect(parseQuestForm(aForm({ requires: ['mailbox'] })).outcome).toBe('parsed')
-      expect(SKILL_CHOICES).toEqual(KNOWN_SKILLS)
+      /**
+       * What the Academy grants, and not core's wider vocabulary (`#352`): a
+       * skill whose rung is planned and not built is a requirement no citizen
+       * can ever hold, and offering it here would be the form producing exactly
+       * the quest its own refusal message describes.
+       */
+      expect(SKILL_CHOICES).toEqual(SKILLS_THE_ACADEMY_GRANTS)
+      expect(SKILL_CHOICES.length).toBeLessThan(KNOWN_SKILLS.length)
     })
 
     it('refuses a capacity of zero', () => {

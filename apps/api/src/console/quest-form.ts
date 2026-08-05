@@ -19,7 +19,6 @@
 
 import {
   ACTIVITY_WINDOW_DAYS,
-  KNOWN_SKILLS,
   QUEST_PROOF_VERIFIERS,
   QUEST_TIER_CAPS,
   activityWindowNotice,
@@ -27,6 +26,7 @@ import {
   type ActivityWindow,
   type QuestProofVerifier,
 } from '@kolonie-ai/core'
+import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 
 /**
  * Every field the form accepts, and there is no other way in.
@@ -125,8 +125,17 @@ export const PROOF_CHOICES: readonly (QuestProofVerifier | null)[] = [
   ...QUEST_PROOF_VERIFIERS,
 ]
 
-/** The skills a sponsor may require, which is a list and never a text field. */
-export const SKILL_CHOICES: readonly string[] = KNOWN_SKILLS
+/**
+ * The skills a sponsor may require, which is a list and never a text field.
+ *
+ * **What the Academy grants, not what core's vocabulary names** (`#352`).
+ * `KNOWN_SKILLS` includes rungs that are planned and not built, and offering one
+ * of those in the form would let a sponsor choose a requirement no citizen can
+ * ever hold — the failure this select exists to prevent. It is also the set the
+ * agent-facing write path refuses against, and one list is what keeps the two
+ * surfaces from disagreeing about what may be asked for.
+ */
+export const SKILL_CHOICES: readonly string[] = SKILLS_THE_ACADEMY_GRANTS
 
 /**
  * What a submitted form came to.

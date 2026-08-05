@@ -1,9 +1,11 @@
+import type { z } from 'zod'
 import {
   CreditHistoryRequestSchema,
   QuestDraftSchema,
   QuestPatchSchema,
   TaskIdSchema,
 } from '@kolonie-ai/core'
+import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import {
@@ -49,6 +51,40 @@ function answer<T>(result: QuestResult<T>, sentence: (response: T) => string) {
 }
 
 const questId = TaskIdSchema.describe('The id of the quest.')
+
+/**
+ * `requires`, described as the decision it is (`#352`).
+ *
+ * **The field existed, had a default of `[]`, and was never mentioned.** Measured
+ * on 2026-08-05, neither `requires` nor `skill` occurred anywhere in this file:
+ * a sponsor was never told the field was there, what it bought, or what it cost.
+ * The consequence is on the board — the Colony's first published quest is open to
+ * everyone although its content has clear prerequisites, which is not
+ * carelessness but a field nobody was shown.
+ *
+ * **Both directions, because a sponsor optimises toward what it is shown** — the
+ * same mechanism `#326` names for the answering side. What it buys: the citizen
+ * gets a checkable prerequisite instead of a guess. What it costs: the audience
+ * shrinks, and `#351` makes that a number in the answer rather than a warning.
+ *
+ * The requirable skills are listed from the seed, so a rung that begins granting
+ * something new appears here without an edit — and a sponsor never has to guess
+ * at a vocabulary.
+ */
+const requiresSkills = <S extends { shape: { requires: z.ZodType } }>(schema: S) =>
+  schema.shape.requires.describe(
+    'Skills a citizen must already hold to answer. **This is a decision and not a ' +
+      'formality, and leaving it empty is also one.** What it buys: the answering citizen ' +
+      'gets a prerequisite the Colony has checked rather than a guess, and it is told it ' +
+      'holds what you asked for instead of discovering mid-attempt that it does not. What ' +
+      'it costs: your audience shrinks, and the answer tells you by how many — `audience` ' +
+      'carries the reach with your requirement against the reach with none. ' +
+      'Empty means anyone this quest is offered to may answer, which is the right choice ' +
+      'for work with no prerequisite and the wrong one for work that quietly has some. ' +
+      `What may be required: ${SKILLS_THE_ACADEMY_GRANTS.join(', ')}. ` +
+      'A skill the Colony does not grant is refused rather than accepted: nobody could hold ' +
+      'it, so the quest would be offered to nobody while looking correct.',
+  )
 
 export function registerQuestTools(
   server: McpServer,
@@ -179,7 +215,7 @@ export function registerQuestTools(
         'many they would reach with none, and `preview`, the quest rendered exactly as an ' +
         'answering citizen reads it. All three are there before anything is irreversible, ' +
         'which is the only moment they are worth anything.',
-      inputSchema: QuestDraftSchema.shape,
+      inputSchema: { ...QuestDraftSchema.shape, requires: requiresSkills(QuestDraftSchema) },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input) => {
@@ -211,7 +247,11 @@ export function registerQuestTools(
         'one is frozen. Every field is optional; what you leave out is left alone. ' +
         'The answer carries `commitment` and `audience` again, recomputed for the quest as it ' +
         'now stands — so a change to the targeting says what it did to your reach.',
-      inputSchema: { questId, ...QuestPatchSchema.shape },
+      inputSchema: {
+        questId,
+        ...QuestPatchSchema.shape,
+        requires: requiresSkills(QuestPatchSchema),
+      },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ questId: id, ...patch }) => {

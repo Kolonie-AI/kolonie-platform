@@ -103,8 +103,12 @@ export interface QuestAudience {
  *
  * **A quest with no requirements gets one too**, and that is deliberate: a field
  * that only appears once you have used it is a field you have to already know
- * about, which is the whole complaint `#352` makes about `requires_skills`. The
- * empty case says what is reachable and that nothing has been given up.
+ * about, which is the whole complaint `#352` makes about `requires_skills`.
+ *
+ * **The empty case is written as a choice that was taken**, not as an absence —
+ * *you have required no skills, so anyone may answer* rather than silence.
+ * `#352` is explicit that the default has to read as a decision, because a
+ * default nobody is shown keeps its value for ever.
  */
 export function audienceSentence(input: {
   readonly reach: AudienceReport
@@ -112,7 +116,10 @@ export function audienceSentence(input: {
   readonly requires: readonly string[]
 }): string {
   if (input.requires.length === 0) {
-    return `${capitalise(audienceFragment(input.reach))} can answer this quest, and you have required no skills.`
+    return (
+      'You have required no skills, so anyone this quest is offered to may answer — ' +
+      `${audienceFragment(input.reach)} today.`
+    )
   }
 
   return (
@@ -120,8 +127,6 @@ export function audienceSentence(input: {
     `this quest, against ${audienceFragment(input.unrestricted)} with no requirement.`
   )
 }
-
-const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
 /**
  * What may be asked about an audience.

@@ -97,7 +97,9 @@ describe('what a requirement cost', () => {
         unrestricted: reportAudience(40),
         requires: [],
       }),
-    ).toBe('40 citizens can answer this quest, and you have required no skills.')
+    ).toBe(
+      'You have required no skills, so anyone this quest is offered to may answer — 40 citizens today.',
+    )
   })
 
   /**

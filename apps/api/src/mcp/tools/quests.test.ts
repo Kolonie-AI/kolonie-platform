@@ -1,4 +1,5 @@
 import { AUDIENCE_FLOOR, type AgentId, type TaskId } from '@kolonie-ai/core'
+import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
@@ -201,7 +202,7 @@ describe('the sponsor over MCP', () => {
       sentence: string
     }
     expect(audience.requires).toEqual([])
-    expect(audience.sentence).toContain('you have required no skills')
+    expect(audience.sentence).toContain('anyone this quest is offered to may answer')
   })
 
   it('recomputes the reach when an update changes the requirement', async () => {
@@ -236,6 +237,92 @@ describe('the sponsor over MCP', () => {
       citizens: AUDIENCE_FLOOR,
     })
     expect(JSON.stringify(written.content)).toContain(`fewer than ${AUDIENCE_FLOOR} citizens`)
+  })
+
+  /**
+   * The field existed with a default of `[]` and was mentioned nowhere (`#352`).
+   * A sponsor is an agent, and an agent optimises toward what it is shown — a
+   * default nobody is shown keeps its value for ever.
+   */
+  it('tells a sponsor what requires buys, what it costs, and what may be asked for', async () => {
+    const { client, close } = await connectedClient(colony(), `Bearer ${anAgent().key}`)
+    try {
+      const { tools } = await client.listTools()
+      const write = tools.find((tool) => tool.name === 'kolonie.quests.write')
+      const requires = (write?.inputSchema.properties as Record<string, { description?: string }>)[
+        'requires'
+      ]
+      const text = String(requires?.description)
+
+      expect(text).toContain('decision')
+      // Both directions, which is what makes it a decision rather than a warning.
+      expect(text).toContain('prerequisite')
+      expect(text).toContain('audience shrinks')
+      // The vocabulary, so a sponsor never has to guess at a slug.
+      for (const skill of SKILLS_THE_ACADEMY_GRANTS) expect(text).toContain(skill)
+    } finally {
+      await close()
+    }
+  })
+
+  /**
+   * The rejection case. A requirement nobody can hold produces a well-formed
+   * quest that publishes normally and is offered to no one — silent at every
+   * stage and visible only at expiry.
+   */
+  it('refuses a requirement naming a skill the Academy does not grant', async () => {
+    const sponsor = anAgent()
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ requires: ['mailbocks'] }),
+    )
+
+    expect(written.isError).toBe(true)
+    expect(JSON.stringify(written.content)).toContain('mailbocks')
+    expect(JSON.stringify(written.content)).toContain('offered to nobody')
+  })
+
+  it('refuses the same requirement arriving as an update', async () => {
+    const sponsor = anAgent()
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const changed = await call(sponsor.key, 'kolonie.quests.update', {
+      questId: id,
+      requires: ['coordination'],
+    })
+
+    expect(changed.isError).toBe(true)
+    expect(JSON.stringify(changed.content)).toContain('coordination')
+  })
+
+  /**
+   * `#196`'s rule, applied to the text this file ships rather than to the task
+   * seed: a description naming a tool that does not exist misdirects an agent at
+   * the moment it is deciding what to call next.
+   */
+  it('names no tool the surface does not register, in any quest tool text', async () => {
+    const { client, close } = await connectedClient(colony(), `Bearer ${anAgent().key}`)
+    try {
+      const { tools } = await client.listTools()
+      const registered = new Set(tools.map((tool) => tool.name))
+      const named = new Set<string>()
+
+      for (const tool of tools.filter((one) => one.name.startsWith('kolonie.quests.'))) {
+        const text = `${tool.description ?? ''}\n${JSON.stringify(tool.inputSchema)}`
+        for (const match of text.matchAll(/kolonie(?:\.[a-z]+(?:-[a-z]+)*)+/g)) {
+          named.add(match[0].replace(/\.$/, ''))
+        }
+      }
+
+      expect([...named].filter((tool) => !registered.has(tool))).toEqual([])
+      // The scan is worth nothing if it found no names at all.
+      expect(named.size).toBeGreaterThan(0)
+    } finally {
+      await close()
+    }
   })
 
   it('says the draft is unaffordable at the moment it is written', async () => {

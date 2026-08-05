@@ -44,6 +44,7 @@ import {
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
+  SKILLS_THE_ACADEMY_GRANTS,
   availableBalance,
   commitmentsBy,
   countAudience,
@@ -547,8 +548,35 @@ export async function writeQuestDraft(
     }
   }
 
+  const ungranted = skillsTheAcademyDoesNotGrant(parsed.data.requires)
+  if (ungranted !== undefined) return { outcome: 'rejected', error: ungranted }
+
   const quest = await desk.create({ authorId: input.authorId, draft: parsed.data })
   return { outcome: 'ok', response: await responding(quest, input.authorId, desk) }
+}
+
+/**
+ * Why this requirement set cannot be met by anybody, or `undefined` (`#352`).
+ *
+ * **A requirement naming a skill the Academy does not grant is refused rather
+ * than accepted and quietly emptied.** The quest would be well-formed, publish
+ * normally, and be offered to nobody — a failure that is silent at every stage
+ * and only visible at expiry, by which time the sponsor has paid for a cohort
+ * that was never reachable. The console has refused this since `#180`; this is
+ * the same refusal on the surface an agent sponsor actually uses.
+ *
+ * The set is derived from the seeded rungs rather than restated here, so a rung
+ * that starts granting something new widens this without an edit.
+ */
+function skillsTheAcademyDoesNotGrant(requires: readonly string[]): ApiError | undefined {
+  const unknown = requires.filter((skill) => !SKILLS_THE_ACADEMY_GRANTS.includes(skill))
+  if (unknown.length === 0) return undefined
+
+  return invalid(
+    `The Colony does not grant ${unknown.join(', ')}, so no citizen can hold it and this quest ` +
+      'would be offered to nobody while looking correct. What may be required: ' +
+      `${SKILLS_THE_ACADEMY_GRANTS.join(', ')}.`,
+  )
 }
 
 /** Change a draft, or correct a refused quest. */
@@ -567,6 +595,11 @@ export async function editQuestDraft(
   const parsed = QuestPatchSchema.safeParse(input.body)
   if (!parsed.success) {
     return { outcome: 'rejected', error: invalid('That is not a change a quest accepts.') }
+  }
+
+  if (parsed.data.requires !== undefined) {
+    const ungranted = skillsTheAcademyDoesNotGrant(parsed.data.requires)
+    if (ungranted !== undefined) return { outcome: 'rejected', error: ungranted }
   }
 
   const result = await desk.update({

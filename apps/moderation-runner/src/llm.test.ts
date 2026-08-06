@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { openRouterModel, BRIEFING_MAX_TOKENS, MODERATION_MODEL } from './llm.js'
+import {
+  openRouterModel,
+  BRIEFING_MAX_TOKENS,
+  CLASSIFY_MAX_TOKENS,
+  MARK_MAX_TOKENS,
+  MODERATION_MODEL,
+} from './llm.js'
 import { cosine, SIMILARITY_THRESHOLD } from './dedup.js'
 
 /** A `fetch` that answers with one canned body and records what it was sent. */
@@ -168,6 +174,104 @@ describe('classifying', () => {
         choices: ['approve', 'reject'],
       }),
     ).rejects.toThrow('finish_reason length')
+  })
+
+  /**
+   * **The three failures `#437` was filed for, as three tests.**
+   *
+   * One advice entry failed to moderate three times between 01:24 and 01:26 on
+   * 2026-08-06, twice with `finish_reason length` and no content and once with a
+   * verdict carrying neither field. All three are one cause: `max_tokens` was
+   * 400, sized for the sentence a citizen reads, while the reasoning tokens that
+   * are charged against it never appear in the reply.
+   */
+  it('gives a verdict enough room for the reasoning, not just for the sentence', async () => {
+    const { impl, sent } = stubFetch(aVerdict('{"decision":"approve","reason":"concrete"}'))
+
+    await openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve', 'reject'],
+    })
+
+    const body = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
+    expect(body.max_tokens).toBe(CLASSIFY_MAX_TOKENS)
+    // Named rather than merely equal to the export, which would pass whatever
+    // the export said — and 400 is the number that produced the failure.
+    expect(CLASSIFY_MAX_TOKENS).toBe(4000)
+  })
+
+  it('gives a marking pass the same room, for the same reason', async () => {
+    const { impl, sent } = stubFetch(aVerdict('{"spans":[]}'))
+
+    await openRouterModel('a-key', { fetch: impl }).mark({
+      system: 's',
+      user: 'u',
+      kinds: ['struggle'],
+    })
+
+    const body = JSON.parse(String(sent[0]?.init?.body)) as { max_tokens: number }
+    expect(body.max_tokens).toBe(MARK_MAX_TOKENS)
+    expect(MARK_MAX_TOKENS).toBe(4000)
+  })
+
+  /**
+   * **The ceiling is named in the refusal, which is the actionable half.**
+   *
+   * `finish_reason length` alone says the reply was interrupted. It does not say
+   * by what, and the number is the thing somebody reading the line would change.
+   * The briefing call has passed its ceiling through since `#416`; `classify` and
+   * `mark` never did, which is why the logged line carried the symptom without
+   * the fix.
+   */
+  it('names the ceiling it was cut off at, not only that it was cut off', async () => {
+    const { impl } = stubFetch({ choices: [{ message: {}, finish_reason: 'length' }] })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow(`${CLASSIFY_MAX_TOKENS}-token ceiling`)
+  })
+
+  /**
+   * **A truncated verdict said *the model answered badly*, and it had not.**
+   *
+   * The third logged failure. A reply cut off at the ceiling arrives here looking
+   * like a model that returned the wrong shape — short, parseable, missing the
+   * fields. Whether it is short because the model had nothing to say or because
+   * it was interrupted is a fact only `finish_reason` holds, so it is read rather
+   * than guessed at.
+   */
+  it('says a verdict missing its fields was truncated, when it was', async () => {
+    const { impl } = stubFetch({
+      choices: [{ message: { content: '{}' }, finish_reason: 'length' }],
+    })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow('without a decision and a reason — the reply was cut off')
+  })
+
+  /** And does not say so when it was not: a genuinely malformed answer stays malformed. */
+  it('does not blame the ceiling for a verdict the model simply got wrong', async () => {
+    const { impl } = stubFetch({
+      choices: [{ message: { content: '{"decision":"approve"}' }, finish_reason: 'stop' }],
+    })
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow(/without a decision and a reason$/)
   })
 
   /**

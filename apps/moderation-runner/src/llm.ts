@@ -87,6 +87,54 @@ export const EMBEDDING_MODEL = 'openai/text-embedding-3-small'
  */
 export const BRIEFING_MAX_TOKENS = 8000
 
+/**
+ * The token ceiling on one verdict.
+ *
+ * **400 was too low, and it failed exactly the way the briefing ceiling above
+ * failed one day earlier** (`#437`). `entry.moderate.failed` fired three times on
+ * one advice entry between 01:24 and 01:26 on 2026-08-06, twice with
+ * `finish_reason length` and no content at all.
+ *
+ * **The old number was sized for the answer, which is the mistake.** Its comment
+ * reasoned entirely about the reply — *"the reason is read by a citizen whose
+ * entry was refused, so it has to fit in a moderation note"* — and that is a true
+ * sentence about a field that is capped at {@link MODERATION_NOTE_MAX_LENGTH}
+ * characters elsewhere. It is not what `max_tokens` bounds. **Reasoning tokens
+ * are charged against this ceiling and never appear in the reply**, so a budget
+ * sized for a 500-character sentence is spent before the first character of it is
+ * written, and from outside that is indistinguishable from a model that answered
+ * nothing.
+ *
+ * That is the same paragraph {@link BRIEFING_MAX_TOKENS} already carries. The
+ * lesson was learned on the one call whose answer is a document and not applied
+ * to the two whose answers are short — and *short answer* is precisely the
+ * argument that makes a ceiling look safe when it is not.
+ *
+ * **Raising it is close to free, which is why the headroom is generous.**
+ * `max_tokens` caps what may be generated; it is not a spend. A verdict that
+ * needed 300 tokens costs 300 whether this reads 400 or 4000. What the old number
+ * bought was not economy, it was a deterministic failure: at `temperature: 0` the
+ * same entry produces the same empty reply on every poll, the row stays
+ * `pending`, and `loop.ts` tries it again for ever.
+ */
+export const CLASSIFY_MAX_TOKENS = 4000
+
+/**
+ * The token ceiling on one marking pass.
+ *
+ * Raised from 800 with {@link CLASSIFY_MAX_TOKENS} and for its reason rather than
+ * for evidence of its own: this call has not been seen to fail, and it is the same
+ * model reasoning against the same ceiling with a budget sized for the list it
+ * writes. Waiting for it to fail too would be waiting for something already
+ * understood.
+ *
+ * Still bounded, for the reason the old comment gave and which still holds: a
+ * reply that wanted more than this is marking most of the text, which is the
+ * failure mode this stage is most at risk of. That bound is now well clear of the
+ * reasoning rather than sharing a budget with it.
+ */
+export const MARK_MAX_TOKENS = 4000
+
 /** What a classification prompt is allowed to answer. */
 export interface Classification {
   readonly decision: string
@@ -389,8 +437,34 @@ function salvageClaims(content: string): readonly unknown[] {
  * reading the note learns that the model gave none, which is true and is more
  * than it learns from an entry that is never judged at all.
  */
-function parseVerdict(content: string, choices: readonly string[]): Classification {
+function parseVerdict(
+  content: string,
+  choices: readonly string[],
+  stopped?: string,
+  ceiling?: number,
+): Classification {
   const bare = content.trim()
+
+  /**
+   * **Why the reply is unusable, when the reply itself cannot say** (`#437`).
+   *
+   * The third of the three failures logged on 2026-08-06 was *the model returned
+   * a verdict without a decision and a reason*, which reads as a model that
+   * answered badly. A reply cut off at the ceiling reaches this function looking
+   * exactly like one: what arrives is short, and whether it is short because the
+   * model had nothing to say or because it was interrupted is a fact only
+   * `finish_reason` holds.
+   *
+   * Naming it here is the difference between an error that points at the model
+   * and one that points at the number — and `#416` is this file already having
+   * learned that the second is the one somebody can act on.
+   */
+  const cutOff =
+    stopped === 'length'
+      ? ceiling === undefined
+        ? ' — the reply was cut off at the token ceiling'
+        : ` — the reply was cut off at the ${ceiling}-token ceiling`
+      : ''
 
   let parsed: unknown
   try {
@@ -399,7 +473,7 @@ function parseVerdict(content: string, choices: readonly string[]): Classificati
     if (choices.includes(bare)) {
       return { decision: bare, reason: 'the model answered without a reason' }
     }
-    throw new Error(`the model did not answer with JSON: ${bare.slice(0, 120)}`)
+    throw new Error(`the model did not answer with JSON${cutOff}: ${bare.slice(0, 120)}`)
   }
 
   // `"approve"` — valid JSON, and still not the object the schema promised.
@@ -409,7 +483,7 @@ function parseVerdict(content: string, choices: readonly string[]): Classificati
 
   const verdict = parsed as Partial<Classification>
   if (typeof verdict.decision !== 'string' || typeof verdict.reason !== 'string') {
-    throw new Error('the model returned a verdict without a decision and a reason')
+    throw new Error(`the model returned a verdict without a decision and a reason${cutOff}`)
   }
   if (!choices.includes(verdict.decision)) {
     throw new Error(`the model answered '${verdict.decision}', which was not on offer`)
@@ -501,15 +575,27 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
             },
           },
         },
-        // The reason is read by a citizen whose entry was refused, so it has to
-        // fit in a moderation note. See MODERATION_NOTE_MAX_LENGTH in core.
-        max_tokens: 400,
+        // Sized for the reasoning and not for the sentence — see
+        // CLASSIFY_MAX_TOKENS, which is what `#437` was.
+        max_tokens: CLASSIFY_MAX_TOKENS,
         // Judging the same text twice should reach the same verdict. This is a
         // classification, not a composition.
         temperature: 0,
       })
 
-      return parseVerdict(messageContent(body), choices)
+      /**
+       * **The ceiling is passed so the refusal can name it** (`#437`). Without it
+       * `messageContent` says only `finish_reason length`, which is the symptom
+       * with the actionable half left out — the briefing call has passed it since
+       * `#416` and these two never did, so the one log line that would have
+       * pointed straight at the number did not carry it.
+       */
+      return parseVerdict(
+        messageContent(body, CLASSIFY_MAX_TOKENS),
+        choices,
+        finishReason(body),
+        CLASSIFY_MAX_TOKENS,
+      )
     },
 
     async mark({ system, user, kinds }) {
@@ -552,16 +638,13 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
             },
           },
         },
-        // Larger than `classify`'s ceiling because the answer is a list rather
-        // than a sentence, and a report at the 2000-character limit can honestly
-        // carry several spans. Still bounded: a reply that wanted more than this
-        // is marking most of the text, which is the failure mode this stage is
-        // most at risk of.
-        max_tokens: 800,
+        // See MARK_MAX_TOKENS. Sized clear of the reasoning rather than sized to
+        // the list, which is what `#437` corrected here and in `classify`.
+        max_tokens: MARK_MAX_TOKENS,
         temperature: 0,
       })
 
-      const content = messageContent(body)
+      const content = messageContent(body, MARK_MAX_TOKENS)
 
       const parsed = JSON.parse(content) as { spans?: unknown }
       if (!Array.isArray(parsed.spans)) {

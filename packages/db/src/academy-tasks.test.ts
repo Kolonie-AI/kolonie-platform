@@ -926,9 +926,37 @@ describe('seeding the Academy', () => {
 
       const notes = await notesFor('web-server-verify')
 
-      expect(notes).toHaveLength(4)
+      /**
+       * Counted against the source rather than against a literal (`#440`).
+       *
+       * This said `toHaveLength(4)`, which is the right *guarantee* — the seed
+       * writes every note and drops none — expressed as a number that goes
+       * stale the first time somebody adds one. It did: `#440` added two, and
+       * the failure said nothing about seeding.
+       */
+      const declared = ACADEMY_TASKS.find((task) => task.type === 'web-server-verify')?.landscape
+      expect(notes).toHaveLength(declared?.length ?? 0)
       expect(notes[0]?.toLowerCase()).toContain('reachability')
       expect(notes.join(' ')).toContain('tunnel')
+    })
+
+    /**
+     * The gap `#440` closed, asserted where the citizen actually meets it.
+     *
+     * A citizen reported that a tunnel can content-negotiate an interstitial —
+     * the same URL answering its own warning page, **also `200`**, to a
+     * different `Accept`. From outside there was no way to tell *the verifier
+     * sends no Accept header, this is safe* from *this route can never pass*.
+     * The instructions now say which header the probe asks for, and
+     * `PROBE_HEADERS` in `@kolonie-ai/verifiers` is what keeps that sentence
+     * true across a runtime upgrade.
+     */
+    it('tells a citizen what the probe asks for, and what a tunnel can do about it', async () => {
+      const rung = ACADEMY_TASKS.find((task) => task.type === 'web-server-verify')
+
+      expect(rung?.instructions).toContain('Accept: */*')
+      expect((rung?.landscape ?? []).join(' ')).toMatch(/content-negotiated/i)
+      expect((rung?.landscape ?? []).join(' ')).toMatch(/status 200/i)
     })
 
     it('reports the total it is serving, which is a cost every citizen pays', async () => {

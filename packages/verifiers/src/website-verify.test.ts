@@ -10,7 +10,8 @@ const dns = vi.hoisted(() => ({ lookup: vi.fn() }))
 
 vi.mock('node:dns/promises', () => ({ lookup: dns.lookup }))
 
-const { AddressRefused, isPrivateIP, safeFetch } = await import('./website-verify.js')
+const { AddressRefused, PROBE_HEADERS, isPrivateIP, safeFetch } =
+  await import('./website-verify.js')
 
 /** A resolver failure exactly as `node:dns` reports one. */
 function resolverFailure(code: string): Error & { code: string } {
@@ -100,6 +101,65 @@ describe('safeFetch, on what it refuses and what it merely could not reach', () 
  * of it is the thing that lets a submission reach the metadata service, and a
  * change to it should have to break a test.
  */
+/**
+ * What every probe asks for (`#440`).
+ *
+ * A citizen measured that a free tunnel service can content-negotiate an
+ * interstitial: the same URL answers the origin's body to one `Accept` and the
+ * tunnel's own warning page — **also `200`** — to another, with the second
+ * request never reaching the citizen's server at all. From outside there is no
+ * way to tell *the verifier sends no Accept header, this is safe* from *this
+ * route can never pass*, and the failure looks like a misconfigured server.
+ *
+ * The web-server rung's instructions now name the header. **These tests are
+ * what make that sentence true rather than merely written**: it was Node's
+ * default, and a runtime upgrade that changed it would have made the task text
+ * quietly false, with the citizen who lost the rung unable to find out why.
+ */
+describe('the headers a probe sends', () => {
+  it('asks for anything, which is the side of the interstitial that passes', () => {
+    expect(PROBE_HEADERS).toEqual({ accept: '*/*' })
+  })
+
+  it('is what the rung tells a citizen to test their origin with', () => {
+    // The task text says `Accept: */*`. If this constant is ever changed, the
+    // sentence a citizen reads before minting has to change with it — which is
+    // the whole point of the constant existing.
+    expect(PROBE_HEADERS.accept).toBe('*/*')
+  })
+
+  it('actually reaches the request rather than sitting in a constant', async () => {
+    dns.lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }])
+    const fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await safeFetch('https://example.invalid/.well-known/kolonie/probe')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.invalid/.well-known/kolonie/probe',
+      expect.objectContaining({ headers: PROBE_HEADERS }),
+    )
+  })
+
+  it('is still sent after a redirect, where a tunnel would interpose one', async () => {
+    dns.lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }])
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: 'https://example.invalid/moved' } }),
+      )
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await safeFetch('https://example.invalid/.well-known/kolonie/probe')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({ headers: PROBE_HEADERS }))
+    }
+  })
+})
+
 describe('isPrivateIP', () => {
   it('blocks every range the Colony could be on', () => {
     for (const ip of [

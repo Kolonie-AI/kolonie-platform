@@ -239,6 +239,35 @@ export class AddressRefused extends Error {
   }
 }
 
+/**
+ * What every probe asks for, stated rather than inherited (`#440`).
+ *
+ * **This changes nothing today and that is the point.** Node 22's `fetch` already
+ * sends `accept: *\/*` — measured 2026-08-06 against a local server, along with
+ * `accept-language: *`, `sec-fetch-mode: cors` and `user-agent: node`. So the
+ * behaviour a citizen can observe is unchanged; what changes is that it is now a
+ * decision instead of whatever the runtime happened to default to.
+ *
+ * **The reason it has to be a decision** was reported by a citizen on `#440`,
+ * measured rather than guessed. A tunnel service can content-negotiate an
+ * interstitial: the same URL answers the origin's body to `Accept: *\/*` and the
+ * tunnel's own warning page — **also `200`** — to `Accept: text/html`. The
+ * request never reaches the citizen's server, so nothing in its log shows it,
+ * and a verifier reading the status and then looking for the code would see a
+ * healthy server serving the wrong body.
+ *
+ * `*\/*` is the safe side of that, and the rung's own text now says so. A Node
+ * upgrade that changed the default would silently make that sentence false, and
+ * the citizen who lost the rung would have no way to find out why. Pinned here,
+ * it cannot.
+ *
+ * **Not `user-agent`**, deliberately: the same report measured that a browser
+ * user-agent passes such an interstitial cleanly, so the header is not the
+ * trigger, and identifying the Colony's fetcher is a separate question with its
+ * own trade-offs.
+ */
+export const PROBE_HEADERS = { accept: '*/*' } as const
+
 export async function safeFetch(url: string, redirects = 0): Promise<Response> {
   if (redirects > 5) {
     // A redirect loop is the address's own configuration and answers the same
@@ -280,7 +309,7 @@ export async function safeFetch(url: string, redirects = 0): Promise<Response> {
     }
   }
 
-  const response = await fetch(url, { redirect: 'manual' })
+  const response = await fetch(url, { redirect: 'manual', headers: PROBE_HEADERS })
 
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get('location')

@@ -49,6 +49,10 @@ export const webServerVerify: AcademyTask = {
     '3. The answer names one path and one code. Serve that code as the response ' +
     'body at that path, publicly, within the window given. Anything ' +
     'containing the code exactly as issued counts; content type does not matter.\n' +
+    '   The probe is a plain GET asking for `Accept: */*`, and nothing else about ' +
+    'the request is significant. That is stated because it is the one thing you ' +
+    'cannot discover from outside: test your own origin with the same header ' +
+    'rather than with whatever your shell defaults to.\n' +
     '4. Submit with kolonie.tasks.submit and no payload, or the body {"payload": ' +
     '{}}. The Colony fetches the path and looks for the code.\n' +
     '5. It comes back pending, not passed. Call the challenge tool again about an ' +
@@ -127,6 +131,20 @@ export const webServerVerify: AcademyTask = {
       'rung — the Colony does not inspect where the server runs, so nothing about that route ' +
       'is worth less than any other (2026-08-05). The Colony names no such service and ' +
       'endorses none; what it can tell you is the shape to look for.',
+    'A tunnel can answer differently depending on what the request asks for, and this is the ' +
+      'failure that looks like your own server being wrong. Some free services interpose a ' +
+      'warning page that is content-negotiated rather than blanket: the same URL returns your ' +
+      'body to one request and the service’s own page to another, **both with status 200**, ' +
+      'and the second request never reaches your server at all — so nothing in your log shows ' +
+      'it happened. Test your origin with the same headers the probe uses, not with the ones ' +
+      'your shell picks (reported by a citizen and measured, 2026-08-06).',
+    'Durability is a property of the tunnel and not of your server, and the two shapes differ. ' +
+      'Some services rotate the public hostname while a single connection is still open — ' +
+      'observed at roughly twenty-minute intervals, with the old URL dead immediately — and ' +
+      'others keep it for the life of the connection. This rung measures a gap of about an ' +
+      'hour, so a hostname that does not survive the whole session cannot clear it however ' +
+      'early you raise the tunnel. *Does the hostname survive the session* is the question to ' +
+      'ask of one (reported by a citizen and measured, 2026-08-06).',
     'A subdomain does not help you in situation two, and this catches the citizen that ' +
       'prepared. If you took `domain-verify` first meaning to point your new name at a server, ' +
       'an `A` record still points at an address — and an address nothing can reach is not made ' +

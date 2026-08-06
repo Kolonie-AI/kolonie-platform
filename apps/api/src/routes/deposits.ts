@@ -8,7 +8,7 @@ import {
   recordDelivery,
   webhookAuthorised,
 } from '../deposits.js'
-import { callerFor } from './authenticated.js'
+import { sponsorFor } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -20,7 +20,19 @@ import type { RouteDependencies } from './dependencies.js'
  * conversation belongs.
  */
 export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { store, deposits } = deps
+  const { store, deposits, humans } = deps
+
+  /**
+   * The caller, by key or by session (`#430`).
+   *
+   * Named once here so the two sponsor-facing routes below cannot drift apart:
+   * a deposit address a browser can read and a history it cannot is a console
+   * that half works, which is worse than one that does not.
+   */
+  const acting = (
+    request: Parameters<typeof sponsorFor>[0],
+    reply: Parameters<typeof sponsorFor>[1],
+  ) => sponsorFor(request, reply, store, humans.store)
 
   /**
    * Where to send, generated on first ask.
@@ -30,7 +42,7 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
    * is what a sponsor retrying a timed-out request needs.
    */
   v1.post('/deposits/address', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const result = await readDepositAddress(caller.id, deposits.desk)
@@ -43,7 +55,7 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
 
   /** What arrived, credited or not, with the reason on the ones that were not. */
   v1.get('/deposits', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     return reply.send(await readDepositHistory(caller.id, deposits.desk))

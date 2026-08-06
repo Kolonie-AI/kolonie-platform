@@ -1,5 +1,6 @@
 import {
   OAUTH_HANDOVER_MS,
+  type Agent,
   type AgentId,
   type Human,
   type HumanSession,
@@ -11,6 +12,9 @@ import {
   deleteHuman,
   humanExport,
   humanSponsorIdentities,
+  openSponsorIdentity,
+  sponsorAgentOf,
+  type OpenSponsorOutcome,
   endAllHumanSessions,
   endHumanSession,
   endHumanSessionById,
@@ -79,6 +83,23 @@ export interface HumanStore {
   exportOf(humanId: Human['id']): Promise<HumanExport>
   /** The sponsor identities this person holds, which are what refuse a deletion. */
   sponsorIdentities(humanId: Human['id']): Promise<readonly string[]>
+  /**
+   * The one sponsor identity this person acts as, whole (`#430`).
+   *
+   * **Appended rather than placed beside `sponsorIdentities` above**, which
+   * answers a different question and stays as it is: that one is *what would a
+   * deletion strand*, and it lapses by design the moment an identity climbs
+   * anything. This one is *whom does the console act as*, and it must not lapse
+   * — a sponsor that passed a rung would otherwise lose the deposit address it
+   * was using. `storage/sponsor-identity.ts` carries the argument.
+   */
+  sponsorAgent(humanId: Human['id']): Promise<Agent | undefined>
+  /** Open the one they do not have yet. Refuses a second. */
+  openSponsor(request: {
+    humanId: Human['id']
+    name: string
+    address?: string | undefined
+  }): Promise<OpenSponsorOutcome>
 }
 
 export interface HumanDependencies {
@@ -223,6 +244,8 @@ export function databaseHumanStore(db: Database): HumanStore {
     deleteAccount: (humanId) => deleteHuman(db, humanId),
     exportOf: (humanId) => humanExport(db, humanId),
     sponsorIdentities: (humanId) => humanSponsorIdentities(db, humanId),
+    sponsorAgent: (humanId) => sponsorAgentOf(db, humanId),
+    openSponsor: (request) => openSponsorIdentity(db, request),
   }
 }
 

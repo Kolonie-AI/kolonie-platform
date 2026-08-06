@@ -20,7 +20,7 @@ import {
   writeQuestDraft,
   type QuestResult,
 } from '../quests.js'
-import { callerFor } from './authenticated.js'
+import { sponsorFor } from './authenticated.js'
 import { stewardFor } from './privileged.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -39,11 +39,24 @@ import type { RouteDependencies } from './dependencies.js'
  * asserts the router carries no such route.
  */
 export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { store, quests } = deps
+  const { store, quests, humans } = deps
+
+  /**
+   * The caller, by key or by session (`#430`).
+   *
+   * Every author-facing route here takes it, because a quest is written, priced,
+   * previewed, submitted and funded in one sitting: a form a browser can open
+   * and a submit it cannot is not a form. The steward's routes below keep
+   * `stewardFor`, which is a different question and unchanged.
+   */
+  const acting = (
+    request: Parameters<typeof sponsorFor>[0],
+    reply: Parameters<typeof sponsorFor>[1],
+  ) => sponsorFor(request, reply, store, humans.store)
 
   /** Write a draft. Nothing is committed and nothing is visible to anyone else. */
   v1.post('/quests', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const result = await writeQuestDraft({ authorId: caller.id, body: request.body }, quests)
@@ -52,7 +65,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
   /** Everything this account has written, in every status. */
   v1.get('/quests', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     return send(reply, await listQuests(caller.id, quests))
@@ -67,7 +80,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    * number read from the other end.
    */
   v1.get('/quests/balance', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     return send(reply, await readBalance(caller.id, quests))
@@ -82,7 +95,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    * anything has movements, and this route answers for it.
    */
   v1.get('/quests/credits', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const query = CreditHistoryRequestSchema.safeParse(request.query)
@@ -111,7 +124,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    * populations.
    */
   v1.get('/quests/audience', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     return send(reply, await readAudience(request.query, quests))
@@ -134,7 +147,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
   /** One of the caller's own quests. */
   v1.get('/quests/:questId', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const { questId } = request.params as { questId?: string }
@@ -143,7 +156,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
   /** Change a draft, or correct a refused quest. */
   v1.patch('/quests/:questId', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const { questId } = request.params as { questId?: string }
@@ -157,7 +170,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
   /** Submit it for review. From here the text is fixed until somebody decides. */
   v1.post('/quests/:questId/submit', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const { questId } = request.params as { questId?: string }
@@ -173,7 +186,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    * to read a text it already knew was wrong.
    */
   v1.post('/quests/:questId/withdraw', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const { questId } = request.params as { questId?: string }
@@ -197,7 +210,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    * watch the first fifty and decide whether the question was any good.
    */
   v1.get('/quests/:questId/results', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const { questId } = request.params as { questId?: string }
@@ -213,7 +226,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    * lying in a header.
    */
   v1.get('/quests/:questId/results/export', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const { questId } = request.params as { questId?: string }
@@ -235,7 +248,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    * protects.
    */
   v1.get('/quests/:questId/answer', async (request, reply) => {
-    const caller = await callerFor(request, reply, store)
+    const caller = await acting(request, reply)
     if (caller === null) return reply
 
     const { questId } = request.params as { questId?: string }

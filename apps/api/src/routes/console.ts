@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto'
+import { z } from 'zod'
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
@@ -10,6 +12,7 @@ import {
   signUp,
 } from '../console.js'
 import { clientIp } from '../client-ip.js'
+import { sessionCookie } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -41,7 +44,7 @@ export const SESSION_COOKIE = '__Host-kolonie_session'
  * be a sponsor.
  */
 export function registerConsoleRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { console: consoleDeps } = deps
+  const { console: consoleDeps, humans } = deps
 
   /**
    * Ask for a sign-in link.
@@ -128,6 +131,124 @@ export function registerConsoleRoutes(v1: FastifyInstance, deps: RouteDependenci
 
     return reply.status(200).send({ agentId: result.agentId })
   })
+
+  /**
+   * Open the sponsor identity a signed-in person does not have yet (`#430`).
+   *
+   * ## Why this exists at all
+   *
+   * `kolonie.ai/sponsors` step 5 said the deposit address *"is handed over the
+   * API rather than shown in the console, so this is the one step a sponsor with
+   * no agent cannot finish alone"*. A person is now a real authenticated subject
+   * rather than a mail token, so the console can act for them — but only once
+   * there is an identity to act as. This is the one call that makes one, and it
+   * is the whole of what a person has to do before the deposit address, the
+   * quest form and the funding step all work in a browser.
+   *
+   * ## What it does not mint
+   *
+   * **No API key.** That is the better answer to `#400` and not an omission: a
+   * long-lived bearer token handed to a browser session has a worse lifetime
+   * than the session it came from. A person who wants to script against the
+   * Colony asks for a key deliberately, through the route that already exists
+   * and shows it once.
+   *
+   * ## One, and the answer to a second is the first
+   *
+   * *One is the thing being paid for; two is an org feature, and organisations
+   * are not in this design.* A second call answers `200` with the identity
+   * already held rather than a refusal — the person's intent is satisfied
+   * either way, and a `409` here would ask a browser to distinguish two
+   * outcomes that mean the same thing to whoever clicked.
+   *
+   * ## The address is the provider's
+   *
+   * Taken from the `humans` row and never from the request body, which is the
+   * D-018 property in the one place it matters most here: a body-supplied
+   * address would let a signed-in person open an identity whose mail goes
+   * somewhere they do not control. A provider that returned no address — GitHub
+   * may — gets no mailbox row, which is an ordinary state and not a refusal.
+   */
+  v1.post('/console/sponsor', async (request, reply) => {
+    const cookie = sessionCookie(request.headers.cookie)
+    if (cookie === undefined) return refuseAnonymously(reply)
+
+    const person = await humans.store.authenticate(cookie)
+    if (person.outcome !== 'authenticated') return refuseAnonymously(reply)
+
+    const parsed = OpenSponsorSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return reply.status(ERROR_STATUS.validation_failed).send({
+        code: 'validation_failed',
+        message: 'Opening a sponsor account carries at most one field: `name`.',
+      })
+    }
+
+    const result = await humans.store.openSponsor({
+      humanId: person.human.id,
+      // The Colony names it when the person did not, exactly as the sign-up
+      // form does — and for the reason `generatedSponsorName` gives: a name
+      // derived from the address would publish a piece of it through
+      // `POST /v1/agents/name-check`, which answers without a credential.
+      name: parsed.data.name ?? generatedSponsorName(),
+      // The first identity that returned one. A person may have attached
+      // several providers and they need not agree; the first attached is the
+      // one they signed up with, which is the least surprising answer and the
+      // only one that does not change under them when they add a provider.
+      address: person.human.identities.find((one) => one.email !== null)?.email ?? undefined,
+    })
+
+    if (result.outcome === 'name-taken') {
+      // `conflict`, which is the vocabulary this API has for *somebody else got
+      // there first*. A name is the one field a caller chose, so unlike every
+      // other refusal here it is said plainly — names are already public through
+      // `POST /v1/agents/name-check`, so nothing is disclosed by saying so.
+      return reply.status(ERROR_STATUS.conflict).send({
+        code: 'conflict',
+        message: `The name ${result.name} is already held.`,
+      })
+    }
+
+    // `200` for both, because *opened* and *already held* mean the same thing to
+    // whoever clicked. `created` says which happened, for a caller that cares.
+    return reply.status(200).send({
+      created: result.outcome === 'opened',
+      sponsor: { id: String(result.identity.id), name: result.identity.name },
+    })
+  })
+}
+
+/** At most a name, and never an address — that comes off the `humans` row. */
+const OpenSponsorSchema = z.object({ name: z.string().min(2).max(64).optional() })
+
+/**
+ * The refusal for anybody not signed in as a person.
+ *
+ * Identical to the one an absent credential gets anywhere else, and deliberately
+ * so: there is nothing to disclose in the difference between *no cookie* and *a
+ * cookie that resolves to nobody*.
+ */
+function refuseAnonymously(reply: FastifyReply): FastifyReply {
+  return reply
+    .status(ERROR_STATUS.unauthorized)
+    .send({ code: 'unauthorized', message: 'Sign in to open a sponsor account.' })
+}
+
+/**
+ * A name for an identity whose holder gave none.
+ *
+ * The same shape and the same alphabet as `generatedSponsorName` in
+ * `packages/db/src/storage/sign-in.ts` — without `o`, `l` or the digits they are
+ * confused with, because this string is read aloud and typed by hand more often
+ * than it is copied. It is generated here rather than imported because the
+ * storage one is private to the sign-up transaction it retries inside, and a
+ * shared helper would make two callers of one retry loop.
+ */
+function generatedSponsorName(): string {
+  const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789'
+  let suffix = ''
+  for (const byte of randomBytes(8)) suffix += alphabet[byte % alphabet.length]
+  return `sponsor-${suffix}`
 }
 
 /**

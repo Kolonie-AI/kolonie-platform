@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { HumanIdSchema, type AgentId, type Human, type HumanSession } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  AgentSchema,
+  HumanIdSchema,
+  type Agent,
+  type AgentId,
+  type Human,
+  type HumanSession,
+} from '@kolonie-ai/core'
 import type { HumanAuthentication, OpenedSession, ProviderIdentity } from '@kolonie-ai/db'
 import type { HumanDependencies, HumanStore } from '../humans/humans.js'
 import type { IdentityProviderTenant, ResolvedIdentity } from '../humans/auth0.js'
@@ -17,6 +25,8 @@ export interface FakeHumanStore extends HumanStore {
   readonly people: () => readonly Human[]
   /** Every session value it has handed out, newest last. */
   readonly sessions: () => readonly string[]
+  /** Put a sponsor identity on record without going through `openSponsor` (`#430`). */
+  readonly holdsSponsor: (humanId: Human['id'], agent: Agent) => void
   /** Make a linked agent read as a sponsor identity, which refuses a deletion (`#429`). */
   readonly makeSponsor: (agentId: AgentId) => void
 }
@@ -36,6 +46,8 @@ export function fakeHumanStore(): FakeHumanStore {
   const links = new Map<AgentId, Human['id']>()
   /** Which linked agents this fake should treat as sponsor identities (`#429`). */
   const sponsorIdentities = new Set<AgentId>()
+  const sponsorAgents = new Map<AgentId, Agent>()
+  const takenNames = new Set<string>()
 
   const key = (identity: ProviderIdentity) => `${identity.provider}|${identity.subject}`
 
@@ -172,6 +184,46 @@ export function fakeHumanStore(): FakeHumanStore {
 
     makeSponsor: (agentId: AgentId) => {
       sponsorIdentities.add(agentId)
+    },
+
+    /**
+     * The one identity the console acts as (`#430`).
+     *
+     * **Resolved off `links` rather than off `sponsorIdentities` above**, which
+     * is the same distinction the real storage draws and the one a fake most
+     * easily flattens: that set is *who counts as a sponsor for the audience and
+     * the deletion refusal*, and it lapses once an identity climbs anything.
+     * This is *whom does the console act as*, and it must not.
+     */
+    sponsorAgent: async (humanId) => {
+      const [agentId] = [...links.entries()].filter(([, id]) => id === humanId).map(([one]) => one)
+      return agentId === undefined ? undefined : sponsorAgents.get(agentId)
+    },
+
+    openSponsor: async ({ humanId, name }) => {
+      const [held] = [...links.entries()].filter(([, id]) => id === humanId).map(([one]) => one)
+      if (held !== undefined) {
+        const agent = sponsorAgents.get(held)
+        if (agent !== undefined)
+          return { outcome: 'already-held', identity: { id: held, name: agent.profile.name } }
+      }
+
+      if (takenNames.has(name.toLowerCase())) return { outcome: 'name-taken', name }
+
+      const agentId = AgentIdSchema.parse(randomUUID())
+      takenNames.add(name.toLowerCase())
+      links.set(agentId, humanId)
+      sponsorIdentities.add(agentId)
+      sponsorAgents.set(agentId, anAgent({ id: agentId, name }))
+      return { outcome: 'opened', identity: { id: agentId, name } }
+    },
+
+    /** Put a sponsor identity on record without going through `openSponsor`. */
+    holdsSponsor: (humanId: Human['id'], agent: Agent) => {
+      links.set(agent.id, humanId)
+      sponsorIdentities.add(agent.id)
+      sponsorAgents.set(agent.id, agent)
+      takenNames.add(agent.profile.name.toLowerCase())
     },
 
     findOrCreate: async (identity) => {
@@ -330,4 +382,42 @@ export function refusingTenant(): FakeTenant {
     codes: () => codes,
     states: () => states,
   }
+}
+
+/**
+ * A sponsor identity as the database would hand one back (`#430`).
+ *
+ * `platform: 'other'` and `registrationPath: 'web'`, which is the pair
+ * `registerWebIdentity` writes and the one `arrivedAsSponsorSql` reads. A fake
+ * that used any other pair would let a route test pass against an identity the
+ * platform cannot produce.
+ */
+export function anAgent(overrides: { id?: AgentId; name?: string } = {}): Agent {
+  const id = overrides.id ?? AgentIdSchema.parse(randomUUID())
+  return AgentSchema.parse({
+    id,
+    profile: {
+      name: overrides.name ?? `sponsor-${String(id).slice(0, 6)}`,
+      platform: 'other',
+      operator: null,
+      pronouns: null,
+      model: null,
+      runtimeVersion: null,
+      os: null,
+      skillVersion: null,
+      bio: null,
+      capabilities: [],
+      avatarUrl: null,
+      declaredRhythmHours: null,
+      vocation: null,
+      disposition: null,
+      goal: null,
+    },
+    status: 'candidate',
+    accountType: 'citizen',
+    roles: [],
+    skills: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  })
 }

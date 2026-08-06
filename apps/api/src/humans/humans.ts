@@ -18,6 +18,7 @@ import {
   type ProviderIdentity,
 } from '@kolonie-ai/db'
 import type { IdentityProviderTenant } from './auth0.js'
+import { SESSION_COOKIE } from '../routes/console.js'
 
 /**
  * A person's account, from the API's side (`#425`).
@@ -173,4 +174,16 @@ export function databaseHumanStore(db: Database): HumanStore {
     endAllSessions: (humanId) => endAllHumanSessions(db, humanId),
     listSessions: (humanId) => listHumanSessions(db, humanId),
   }
+}
+
+/**
+ * The `Set-Cookie` that ends a session in the browser (`#431`).
+ *
+ * Every attribute matches the one that set it, because a browser matches on
+ * them: a clearing cookie that differs in `Path` or `Secure` writes a *second*
+ * cookie rather than replacing the first, and the session survives a sign-out
+ * that reported success. The value is empty and `Max-Age=0`.
+ */
+export function clearedSessionCookie(): string {
+  return `${SESSION_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`
 }

@@ -261,6 +261,33 @@ ${declarations(LOCAL_TOKENS)}
     border-color: var(--k-accent-strong);
   }
 
+  /* The console's one navigation (#431). Its sign-out is a form because a
+     sign-out reachable by GET is one anybody can trigger from another page. */
+  .console-header {
+    display: flex;
+    gap: var(--k-space-4);
+    align-items: center;
+    flex-wrap: wrap;
+    padding-bottom: var(--k-space-4);
+    margin-bottom: var(--k-space-5);
+    border-bottom: var(--k-border) solid var(--k-hairline);
+    font-size: var(--k-text-sm);
+  }
+  .console-header form { margin: 0 0 0 auto; }
+  .console-header button {
+    margin-top: 0;
+    padding: var(--k-space-1) var(--k-space-3);
+    font-weight: 400;
+    color: var(--k-text-muted);
+    background: none;
+    border-color: var(--k-hairline-strong);
+  }
+  .console-header button:hover {
+    color: var(--k-text-strong);
+    background: var(--k-surface-raised);
+    border-color: var(--k-hairline-strong);
+  }
+
   .note { color: var(--k-text-faint); font-size: var(--k-text-sm); }
   .note strong { color: var(--k-text-muted); }
 

@@ -29,7 +29,9 @@ import {
   keyMintedPage,
   keyPage,
   notFoundPage,
+  sessionsPage,
   signInPage,
+  signedInPage,
 } from '../console/html.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
@@ -62,6 +64,7 @@ import {
   OFFERED_PROVIDERS,
   browserFamily,
   clearedOauthStateCookie,
+  clearedSessionCookie,
   coarseLocation,
   oauthStateCookie,
   stateMatches,
@@ -143,6 +146,22 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    */
   const providers = deps.humans.tenant === undefined ? [] : OFFERED_PROVIDERS
 
+  /**
+   * The person signed in to this browser, or `null` (`#431`).
+   *
+   * **Resolved separately from {@link caller}, and never folded into it.** That
+   * one returns an `Agent` with its skills, and this one returns somebody who
+   * has none — a helper that returned *either* would push the difference into
+   * every call site, where it would eventually be forgotten once.
+   */
+  const person = async (request: FastifyRequest) => {
+    const cookie = sessionCookie(request.headers.cookie)
+    if (cookie === undefined) return null
+
+    const authenticated = await deps.humans.store.authenticate(cookie)
+    return authenticated.outcome === 'authenticated' ? authenticated : null
+  }
+
   /** Whoever this is, or `null` — without sending a refusal, which the pages own. */
   const caller = async (request: FastifyRequest) => {
     const authenticated = await authenticate(
@@ -162,6 +181,22 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    */
   app.get('/', async (request, reply) => {
     if (!(await guard(request, reply))) return reply
+
+    /**
+     * A person before a citizen, because only one of the two can be true and
+     * this is the cheaper question (`#425`).
+     *
+     * Without this branch somebody who had just signed in with a provider would
+     * be shown the sign-in page again — `caller` resolves an agent, a person is
+     * not one, and a successful sign-in would read as a failed one. `#427`
+     * turns this page into the dashboard.
+     */
+    const signedIn = await person(request)
+    if (signedIn !== null) {
+      return wantsHtml(request)
+        ? html(reply, signedInPage())
+        : reply.send({ signedIn: true, agents: [] })
+    }
 
     const agent = await caller(request)
     if (agent === null) {
@@ -436,6 +471,122 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       ? reply.status(303).header('location', '/').send()
       : reply.status(200).send({ signedIn: true })
   })
+
+  /**
+   * Sign out (`#431`).
+   *
+   * **A `POST`, and the session is ended server-side.** Clearing the cookie
+   * alone would leave a value that still authenticates in the hands of whoever
+   * else has it, which is precisely the case a sign-out exists for. The cookie
+   * is cleared as well, because a browser holding a dead session would keep
+   * presenting it.
+   *
+   * Answers the same way whether or not there was a session to end: a person
+   * who is already signed out asked for the state they are in, and telling them
+   * otherwise would be a refusal with nothing behind it.
+   */
+  app.post('/sign-out', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const cookie = sessionCookie(request.headers.cookie)
+    if (cookie !== undefined) await deps.humans.store.endSession(cookie)
+
+    reply.header('set-cookie', clearedSessionCookie())
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', '/').send()
+      : reply.status(200).send({ signedIn: false })
+  })
+
+  /**
+   * The sessions a person holds (`#431`).
+   *
+   * Not a list of credentials — a list a person can act on. The current session
+   * is marked, because a reader who cannot tell which row is the browser in
+   * front of them cannot answer the question the page exists to ask.
+   */
+  app.get('/sessions', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const sessions = (await deps.humans.store.listSessions(signedIn.human.id)).map((session) => ({
+      id: String(session.id),
+      startedAt: session.startedAt,
+      lastUsedAt: session.lastUsedAt,
+      browser: session.browser,
+      location: session.location,
+      current: String(session.id) === signedIn.sessionId,
+    }))
+
+    return wantsHtml(request) ? html(reply, sessionsPage({ sessions })) : reply.send({ sessions })
+  })
+
+  /**
+   * End one of them.
+   *
+   * **The id is checked against the person, in the same statement that ends the
+   * row.** Reading it first and ending it second would be the same check with a
+   * gap in the middle; as one `where` clause, somebody naming a session that is
+   * not theirs ends nothing and is told the same thing they would be told about
+   * a session that never existed.
+   */
+  app.post('/sessions/:id/end', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const { id } = request.params as { id: string }
+    const ended = await deps.humans.store.endSessionById(signedIn.human.id, id)
+
+    // Ending the session doing the asking is allowed and ordinary — it is what
+    // a person does after signing in somewhere they should not have.
+    if (ended && id === signedIn.sessionId) reply.header('set-cookie', clearedSessionCookie())
+
+    return wantsHtml(request)
+      ? reply
+          .status(303)
+          .header('location', ended && id === signedIn.sessionId ? '/' : '/sessions')
+          .send()
+      : reply.status(200).send({ ended })
+  })
+
+  /**
+   * End all of them, including this one.
+   *
+   * Deliberately including it: *sign out everywhere* that left the current
+   * browser signed in would be a promise the next page visibly breaks.
+   */
+  app.post('/sessions/end-all', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const ended = await deps.humans.store.endAllSessions(signedIn.human.id)
+    reply.header('set-cookie', clearedSessionCookie())
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', '/').send()
+      : reply.status(200).send({ ended })
+  })
+
+  /**
+   * What a page behind a session says to somebody who has none.
+   *
+   * The sign-in page rather than a bare 401: the reader's next move is to sign
+   * in, and a status code is not a next move. The status is still a refusal, so
+   * an agent reading JSON is told plainly.
+   */
+  const signInRequired = (request: FastifyRequest, reply: FastifyReply): FastifyReply =>
+    wantsHtml(request)
+      ? html(reply.status(ERROR_STATUS.unauthorized), signInPage({ providers }))
+      : reply.status(ERROR_STATUS.unauthorized).send({
+          code: 'unauthorized',
+          message: 'This page is for a signed-in person.',
+        })
 
   /**
    * The route out of the browser (`#400`).

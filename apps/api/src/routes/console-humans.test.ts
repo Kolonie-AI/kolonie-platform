@@ -284,3 +284,159 @@ describe('a deployment with no tenant configured', () => {
     expect((await asBrowser('/sign-in/callback?code=a&state=b')).statusCode).toBe(404)
   })
 })
+
+describe('a person who is signed in', () => {
+  /** Sign in and keep the cookie, which is what every test below needs. */
+  const signedInCookie = async (): Promise<string> => {
+    const started = await asBrowser('/sign-in/github')
+    const state = new URL(started.headers['location'] as string).searchParams.get('state') as string
+    const back = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+      cookie: `${OAUTH_STATE_COOKIE}=${state}`,
+      'user-agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0',
+    })
+    const cookie = cookieNamed(back.headers['set-cookie'], SESSION_COOKIE) as string
+    return cookie.slice(0, cookie.indexOf(';'))
+  }
+
+  let cookie: string
+
+  beforeEach(async () => {
+    app = build()
+    await app.ready()
+    cookie = await signedInCookie()
+  })
+
+  const signedIn = (url: string) => asBrowser(url, { cookie })
+
+  const post = (url: string) =>
+    app.inject({
+      method: 'POST',
+      url,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+  it('lands on a page of their own rather than on the sign-in form', async () => {
+    const response = await signedIn('/')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('You are signed in')
+    expect(response.body).not.toContain('Send a sign-in link')
+  })
+
+  it('gets the header on a page a session authorised, and nowhere else', async () => {
+    const inside = await signedIn('/')
+    const outside = await asBrowser('/')
+
+    expect(inside.body).toContain('class="console-header"')
+    expect(inside.body).toContain('action="/sign-out"')
+    expect(outside.body).not.toContain('class="console-header"')
+  })
+
+  describe('signing out', () => {
+    it('ends the session server-side, so replaying the cookie fails', async () => {
+      const response = await post('/sign-out')
+
+      expect(response.statusCode).toBe(303)
+      expect((await signedIn('/')).body).toContain('Send a sign-in link')
+    })
+
+    it('clears the cookie with the attributes that set it', async () => {
+      const response = await post('/sign-out')
+      const cleared = cookieNamed(response.headers['set-cookie'], SESSION_COOKIE) ?? ''
+
+      // A clearing cookie that differs in any of these writes a second cookie
+      // rather than replacing the first, and the browser keeps presenting the
+      // old one.
+      expect(cleared).toContain('Max-Age=0')
+      expect(cleared).toContain('Path=/')
+      expect(cleared).toContain('Secure')
+      expect(cleared).toContain('HttpOnly')
+      expect(cleared).toContain('SameSite=Lax')
+    })
+
+    it('answers the same to somebody who was not signed in', async () => {
+      await post('/sign-out')
+
+      expect((await post('/sign-out')).statusCode).toBe(303)
+    })
+
+    /**
+     * A sign-out reachable by `GET` is one anybody can trigger from an image tag
+     * on somebody else's page.
+     */
+    it('is not reachable by following a link', async () => {
+      expect((await signedIn('/sign-out')).statusCode).toBe(404)
+    })
+  })
+
+  describe('the sessions a person holds', () => {
+    it('lists them and marks the one being read', async () => {
+      const response = await signedIn('/sessions')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('this one')
+      expect(response.body).toContain('Firefox on Linux')
+    })
+
+    it('says the two things ending one does not do', async () => {
+      const response = await signedIn('/sessions')
+
+      expect(response.body).toContain('does not sign you out')
+      expect(response.body).toContain('operator')
+    })
+
+    it('is not a page a stranger can read', async () => {
+      const response = await asBrowser('/sessions')
+
+      expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
+      expect(response.body).toContain('Send a sign-in link')
+    })
+
+    it('ends one the person named', async () => {
+      const second = await humans.openSession(humans.people()[0]!.id, {})
+      const [other] = (await humans.listSessions(humans.people()[0]!.id)).filter(
+        (session) => session.browser === null,
+      )
+
+      const response = await post(`/sessions/${String(other?.id)}/end`)
+
+      expect(response.statusCode).toBe(303)
+      expect(await humans.authenticate(second.session)).toEqual({ outcome: 'ended' })
+      // And the browser doing the asking is still signed in.
+      expect((await signedIn('/')).body).toContain('You are signed in')
+    })
+
+    /**
+     * The whole authorisation surface of this page: the id comes from the
+     * request and is checked against the person in the statement that ends it.
+     */
+    it('ends nothing when the session named belongs to somebody else', async () => {
+      const stranger = await humans.findOrCreate({
+        provider: 'github',
+        subject: 'somebody-else',
+        email: null,
+      })
+      const theirs = await humans.openSession(stranger.human.id, {})
+      const [session] = await humans.listSessions(stranger.human.id)
+
+      await post(`/sessions/${String(session?.id)}/end`)
+
+      expect(await humans.authenticate(theirs.session)).toMatchObject({
+        outcome: 'authenticated',
+      })
+    })
+
+    it('ends every session including the one asking, and says so first', async () => {
+      await humans.openSession(humans.people()[0]!.id, {})
+
+      const page = await signedIn('/sessions')
+      expect(page.body).toContain('including the one you are reading this in')
+
+      const response = await post('/sessions/end-all')
+
+      expect(response.statusCode).toBe(303)
+      expect(await humans.listSessions(humans.people()[0]!.id)).toEqual([])
+      expect((await signedIn('/')).body).toContain('Send a sign-in link')
+    })
+  })
+})

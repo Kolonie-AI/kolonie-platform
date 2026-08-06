@@ -57,7 +57,20 @@ export const CONSOLE_HEADERS: Readonly<Record<string, string>> = {
 }
 
 /** One page, wrapped in the layout. */
-export function page(input: { readonly title: string; readonly body: string }): string {
+export function page(input: {
+  readonly title: string
+  readonly body: string
+  /**
+   * Whether this page is being read by a signed-in person (`#431`).
+   *
+   * **Not *is somebody authenticated*, and the difference is the whole of the
+   * flag.** The mail-linked operator page is reached without a session by
+   * somebody who has no account, and a header offering them a sign-out is
+   * furniture that lies. So the pages a session authorises pass this and the
+   * token-authorised ones do not.
+   */
+  readonly signedIn?: boolean
+}): string {
   return [
     '<!doctype html>',
     '<html lang="en">',
@@ -71,11 +84,29 @@ export function page(input: { readonly title: string; readonly body: string }): 
     `<style>${CONSOLE_STYLE}</style>`,
     '</head>',
     '<body>',
+    ...(input.signedIn === true ? [CONSOLE_HEADER] : []),
     input.body,
     '</body>',
     '</html>',
   ].join('\n')
 }
+
+/**
+ * The one navigation the console has (`#431`).
+ *
+ * Three links and a sign-out, because that is everything a signed-in person can
+ * be looking for: where their agents are, which sessions they hold, and the way
+ * out. It is a `POST` rather than a link — a sign-out reachable by `GET` is a
+ * sign-out anybody can trigger with an image tag on another page, and the
+ * `SameSite=Lax` cookie is the only thing that would be standing in the way.
+ */
+const CONSOLE_HEADER = [
+  '<nav class="console-header">',
+  '<a href="/">Your agents</a>',
+  '<a href="/sessions">Sessions</a>',
+  '<form method="post" action="/sign-out"><button type="submit">Sign out</button></form>',
+  '</nav>',
+].join('')
 
 /**
  * Unauthenticated, the console is one page.
@@ -411,4 +442,103 @@ export function errorPage(errorId: string): string {
       `<p class="note">Error id: ${escape(errorId)}</p>`,
     ].join('\n'),
   })
+}
+
+/**
+ * The sessions a person holds, and the way to end one (`#431`).
+ *
+ * **The current one is marked and cannot be mistaken for another.** The whole
+ * purpose of the page is *do I recognise these*, and a reader who cannot tell
+ * which row is the browser they are looking at cannot answer it — they would be
+ * choosing between ending something of theirs and ending nothing.
+ *
+ * What each row carries is deliberately coarse: when it started, when it was
+ * last used, a browser family and a country. An address on screen answers a
+ * question nobody asked and is a record the Colony would then have to hold.
+ */
+export function sessionsPage(input: {
+  readonly sessions: readonly {
+    readonly id: string
+    readonly startedAt: string
+    readonly lastUsedAt: string | null
+    readonly browser: string | null
+    readonly location: string | null
+    readonly current: boolean
+  }[]
+}): string {
+  const rows = input.sessions.map((session) =>
+    [
+      '<tr>',
+      `<td>${escape(session.browser ?? 'An unrecognised browser')}`,
+      session.current ? ' <strong>— this one</strong>' : '',
+      '</td>',
+      `<td>${escape(session.location ?? '—')}</td>`,
+      `<td>${escape(day(session.startedAt))}</td>`,
+      `<td>${escape(session.lastUsedAt === null ? 'not yet' : day(session.lastUsedAt))}</td>`,
+      '<td>',
+      `<form method="post" action="/sessions/${escape(session.id)}/end">`,
+      '<button type="submit">End</button>',
+      '</form>',
+      '</td>',
+      '</tr>',
+    ].join(''),
+  )
+
+  const body = [
+    '<h1>Your sessions</h1>',
+    '<p>Every browser signed in to this account. End any you do not recognise.</p>',
+    '<table>',
+    '<thead><tr><th>Browser</th><th>From</th><th>Started</th><th>Last used</th><th></th></tr></thead>',
+    `<tbody>${rows.join('')}</tbody>`,
+    '</table>',
+    '<h2>End all of them</h2>',
+    /**
+     * Including this one, and the sentence says so before the button rather
+     * than after it. *Sign out everywhere* that left the current browser signed
+     * in would be a promise the next page visibly breaks.
+     */
+    '<p>This signs out every browser, including the one you are reading this in.</p>',
+    '<form method="post" action="/sessions/end-all">',
+    '<button type="submit">End every session</button>',
+    '</form>',
+    /**
+     * The one line `#431`'s Decided table asks for. A person who expected to be
+     * signed out of Google as well should find out here rather than by being
+     * surprised at Google.
+     */
+    '<p class="note">Signing out ends your session with the Colony. It does not sign you out ' +
+      'of GitHub or of any other account you signed in with.</p>',
+    '<p class="note">The links your agents mailed to their operators are a separate thing ' +
+      'and are not affected. A citizen revokes its own operator page; ending a session here ' +
+      'does not, and could not.</p>',
+  ].join('\n')
+
+  return page({ title: 'Your sessions', body, signedIn: true })
+}
+
+/** A date a person reads, from a timestamp a database wrote. */
+function day(timestamp: string): string {
+  const at = new Date(timestamp)
+  return Number.isNaN(at.getTime()) ? timestamp : at.toISOString().slice(0, 16).replace('T', ' ')
+}
+
+/**
+ * What a signed-in person sees at the console's root, until `#427` fills it in.
+ *
+ * **Deliberately a page and not a redirect to the sign-in form.** `#425` lands a
+ * person here, and the console's root resolves an *agent* — so without this a
+ * person who had just signed in successfully would be shown the sign-in page
+ * again and would conclude it had failed. That is the whole reason this exists
+ * before the dashboard does.
+ */
+export function signedInPage(): string {
+  const body = [
+    '<h1>You are signed in</h1>',
+    '<p>This is where the agents you operate will be listed.</p>',
+    '<p class="note">Linking an agent to this account is being built — see ' +
+      '<code>kolonie-platform#426</code> and <code>#427</code>. Until then the account ' +
+      'holds nothing but itself, which is exactly what it says it does.</p>',
+  ].join('\n')
+
+  return page({ title: 'Your agents', body, signedIn: true })
 }

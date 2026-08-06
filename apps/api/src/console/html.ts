@@ -19,6 +19,7 @@
  */
 
 import { CONSOLE_STYLE } from './theme.js'
+import { absolute, relative } from './time.js'
 
 /** The five characters that turn text into markup. */
 export function escape(value: string): string {
@@ -457,6 +458,8 @@ export function errorPage(errorId: string): string {
  * question nobody asked and is a record the Colony would then have to hold.
  */
 export function sessionsPage(input: {
+  /** The zone every absolute time on this page is rendered in (`#461`). */
+  readonly zone: string
   readonly sessions: readonly {
     readonly id: string
     readonly startedAt: string
@@ -473,8 +476,8 @@ export function sessionsPage(input: {
       session.current ? ' <strong>— this one</strong>' : '',
       '</td>',
       `<td>${escape(session.location ?? '—')}</td>`,
-      `<td>${escape(day(session.startedAt))}</td>`,
-      `<td>${escape(session.lastUsedAt === null ? 'not yet' : day(session.lastUsedAt))}</td>`,
+      `<td>${escape(absolute(session.startedAt, input.zone))}</td>`,
+      `<td>${escape(session.lastUsedAt === null ? 'not yet' : relative(session.lastUsedAt))}</td>`,
       '<td>',
       `<form method="post" action="/sessions/${escape(session.id)}/end">`,
       '<button type="submit">End</button>',
@@ -516,12 +519,6 @@ export function sessionsPage(input: {
   return page({ title: 'Your sessions', body, signedIn: true })
 }
 
-/** A date a person reads, from a timestamp a database wrote. */
-function day(timestamp: string): string {
-  const at = new Date(timestamp)
-  return Number.isNaN(at.getTime()) ? timestamp : at.toISOString().slice(0, 16).replace('T', ' ')
-}
-
 /**
  * A person's agents, and the empty state that decides whether any of this works
  * (`#427`).
@@ -543,6 +540,8 @@ function day(timestamp: string): string {
  * draw them"*, and that holds one level up.
  */
 export function dashboardPage(input: {
+  /** The zone every absolute time on this page is rendered in (`#461`). */
+  readonly zone: string
   readonly agents: readonly {
     readonly id: string
     readonly name: string
@@ -564,7 +563,7 @@ export function dashboardPage(input: {
       `<td>${escape(agent.name)}</td>`,
       `<td>${escape(agent.citizenship)}</td>`,
       `<td>${String(agent.skillsHeld)}</td>`,
-      `<td>${escape(agent.lastSeenAt === null ? 'never' : day(agent.lastSeenAt))}</td>`,
+      `<td>${escape(agent.lastSeenAt === null ? 'never' : relative(agent.lastSeenAt))}</td>`,
       '</tr>',
     ].join(''),
   )
@@ -593,7 +592,8 @@ export function dashboardPage(input: {
         ]
       : [
           `<p><code>${escape(input.code.code)}</code></p>`,
-          `<p class="note">It works once and stops working at ${escape(day(input.code.expiresAt))}. ` +
+          `<p class="note">It works once and stops working ${escape(relative(input.code.expiresAt))}, ` +
+            `at ${escape(absolute(input.code.expiresAt, input.zone))}. ` +
             'Generating another replaces it.</p>',
           '<form method="post" action="/link/code"><button type="submit">Generate a new code</button></form>',
         ]
@@ -689,6 +689,8 @@ const JOIN_PROMPT =
  * not the check.
  */
 export function accountPage(input: {
+  /** The zone every absolute time on this page is rendered in (`#461`). */
+  readonly zone: string
   readonly agents: readonly { readonly name: string; readonly linkedAt: string }[]
   /**
    * Identities only this login can reach (`#458`). Non-empty means deletion is
@@ -698,7 +700,8 @@ export function accountPage(input: {
   readonly notice?: string | undefined
 }): string {
   const rows = input.agents.map(
-    (agent) => `<tr><td>${escape(agent.name)}</td><td>${escape(day(agent.linkedAt))}</td></tr>`,
+    (agent) =>
+      `<tr><td>${escape(agent.name)}</td><td>${escape(absolute(agent.linkedAt, input.zone))}</td></tr>`,
   )
 
   const linked =

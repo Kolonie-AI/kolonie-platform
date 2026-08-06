@@ -497,6 +497,71 @@ describe('the dashboard and the link code', () => {
   })
 
   /**
+   * **Every time on this page says which clock it is on** (`#461`).
+   *
+   * The defect was not the offset. `2026-08-06 10:56` was the right instant
+   * rendered as if it were the reader's own time, and the expiry line is the one
+   * where believing that costs something: a person abandons a live code, or
+   * trusts a dead one.
+   */
+  describe('the times a person reads', () => {
+    const inZone = (url: string, zone?: string) =>
+      asBrowser(url, { cookie, ...(zone === undefined ? {} : { 'cf-timezone': zone }) })
+
+    it('renders the code’s expiry in the visitor’s zone, named', async () => {
+      await post('/link/code')
+
+      const body = (await inZone('/', 'Europe/Berlin')).body
+
+      expect(body).toContain('Europe/Berlin')
+    })
+
+    /**
+     * **The rejection case.** No header — a request that never went through
+     * Cloudflare — must still produce a labelled time rather than a bare number
+     * or a thrown page.
+     */
+    it('falls back to a time labelled UTC when no zone header arrives', async () => {
+      await post('/link/code')
+
+      const response = await inZone('/')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('UTC')
+      expect(response.body).not.toContain('Europe/Berlin')
+    })
+
+    /** And a value that is not a zone is treated as no value at all. */
+    it('falls back the same way on a nonsense zone', async () => {
+      await post('/link/code')
+
+      const response = await inZone('/', 'Europe/Berlyn')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('UTC')
+    })
+
+    /**
+     * The expiry is minutes away on every real visit, and *in -1 hours* is what
+     * an interval formatter does when nobody thinks about the sign.
+     *
+     * **Asserted as "never backwards" rather than as one exact phrase.** The
+     * fixture's code expires sixty seconds out, which is precisely the boundary
+     * between *in 1 minute* and *just now* — pinning the wording would make this
+     * test fail on a slow machine for a reason that is not a defect.
+     */
+    it('reads a future expiry forwards', async () => {
+      await post('/link/code')
+
+      const body = (await inZone('/', 'Europe/Berlin')).body
+
+      expect(body).toMatch(/stops working (in |just now)/)
+      expect(body).not.toContain('in -')
+      expect(body).not.toMatch(/stops working[^,]*ago/)
+    })
+  })
+
+  /**
    * The page tells a human to ask for a tool their agent may not be able to see
    * (`#450`).
    *

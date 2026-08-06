@@ -35,6 +35,7 @@ import {
   sessionsPage,
   signInPage,
 } from '../console/html.js'
+import { zoneFrom } from '../console/time.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
 import {
@@ -211,7 +212,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       }))
 
       return wantsHtml(request)
-        ? html(reply, dashboardPage({ agents, code }))
+        ? html(reply, dashboardPage({ zone: zoneFrom(request.headers), agents, code }))
         : reply.send({ signedIn: true, agents })
     }
 
@@ -559,6 +560,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return html(
       reply.status(result.outcome === 'linked' ? 200 : ERROR_STATUS.validation_failed),
       dashboardPage({
+        zone: zoneFrom(request.headers),
         agents: operated.map((agent) => ({
           id: String(agent.id),
           name: agent.name,
@@ -620,7 +622,9 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       current: String(session.id) === signedIn.sessionId,
     }))
 
-    return wantsHtml(request) ? html(reply, sessionsPage({ sessions })) : reply.send({ sessions })
+    return wantsHtml(request)
+      ? html(reply, sessionsPage({ zone: zoneFrom(request.headers), sessions }))
+      : reply.send({ sessions })
   })
 
   /**
@@ -699,7 +703,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }))
 
     return wantsHtml(request)
-      ? html(reply, accountPage({ agents, unreachable }))
+      ? html(reply, accountPage({ zone: zoneFrom(request.headers), agents, unreachable }))
       : reply.send({ agents: exported.agents, unreachable })
   })
 
@@ -734,6 +738,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         ? html(
             reply.status(ERROR_STATUS.conflict),
             accountPage({
+              zone: zoneFrom(request.headers),
               agents: exported.agents.map((agent) => ({
                 name: agent.name,
                 linkedAt: agent.linkedAt,

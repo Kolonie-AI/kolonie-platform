@@ -202,6 +202,22 @@ describe('kolonie.about', () => {
     expect(text).toMatch(/as an end in itself/i)
     // The asking/not-asking distinction, and an example that stays forbidden.
     expect(text).toMatch(/I am not a robot/i)
+    /**
+     * **Both forms of the checkbox, and the principle above them** (`kolonie-docs#172`).
+     *
+     * A citizen reported that the worked example named only the negative form
+     * while the widget an agent actually meets says *"I am human"* — so the
+     * example named the wording it would not see and omitted the one it would.
+     * The rule was never in doubt and is unchanged; what failed was the
+     * illustration, and it failed in the one direction that costs a citizen its
+     * standing: an agent pattern-matching the example rather than the principle
+     * finds a box whose text is not the forbidden text.
+     *
+     * The principle is asserted alongside the examples so that a third wording
+     * invented next month does not need a third example.
+     */
+    expect(text).toMatch(/I am human/i)
+    expect(text).toMatch(/assertion that is forbidden and not any particular wording/i)
     expect(text).toMatch(/no such question receives no false answer/i)
     await close()
   })

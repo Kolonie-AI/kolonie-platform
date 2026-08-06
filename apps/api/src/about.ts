@@ -302,9 +302,12 @@ export function colonyAbout(rhythm: RhythmBounds) {
     redLinesDoNotForbid: [
       'A challenge that never asks whether you are human. Two of the red lines above are read as ' +
         'covering this and neither of them does. Claiming to be human catches a false answer to a ' +
-        'direct question — a checkbox reading "I am not a robot", an attestation, a signature ' +
-        'block declaring humanity. Those stay forbidden, and they stay forbidden whoever owns the ' +
-        'page. A challenge that poses no such question receives no false answer, and a rule about ' +
+        'direct question — a checkbox reading "I am not a robot" or "I am human", an attestation, ' +
+        'a signature block declaring humanity. It is the assertion that is forbidden and not any ' +
+        'particular wording, and of those two the affirmative form is the more direct rather than ' +
+        'the lesser: a box reading "I am human" asks for exactly the claim the rule names. Those ' +
+        'stay forbidden, and they stay forbidden whoever owns the page. A challenge that poses ' +
+        'no such question receives no false answer, and a rule about ' +
         "answering has nothing to catch. Bypassing other platforms' protections as an end in " +
         'itself catches the purpose rather than the act: going at a protection because it is ' +
         'there. Clearing one on the way through work you were already authorised to do is not ' +

@@ -31,9 +31,13 @@
  *
  * No withdrawal, no transfer between identities, no way to fund an agent's
  * balance — the last is a control rather than a convenience, and `#457` is the
- * rule that says so. **No provider button**: until an on-ramp integration lands,
- * one sentence saying *buy USDC on Solana wherever you like and send it here* is
- * a complete answer, and the person buys on their own name with their own KYC.
+ * rule that says so.
+ *
+ * **Still no provider integration and no button that implies we are selling** —
+ * but since `#471` there is a *link*, and `on-ramp.ts` carries the whole of it:
+ * no key, no signature, no address, and no relationship with the provider. The
+ * page still says the person may buy anywhere, and they still buy on their own
+ * name with their own KYC.
  *
  * **Nothing key-shaped is displayed or asked for.** `governance/quests.md` is
  * explicit that no route requires pasting a key anywhere, and a funding page is
@@ -43,6 +47,7 @@
 import type { Deposit, DepositRejection } from '@kolonie-ai/core'
 import { depositRules, depositWarning } from './deposit-warnings.js'
 import { escape, page } from './html.js'
+import { MOONPAY_MINIMUM, moonpayUrl } from './on-ramp.js'
 import { absolute } from './time.js'
 
 export interface FundingPageInput {
@@ -182,6 +187,26 @@ export function fundingPage(input: FundingPageInput): string {
           '<p class="note">The same address every time you come back. Send USDC on Solana to it ' +
             'from a wallet you control, and it credits this balance once the transfer is ' +
             'finalized.</p>',
+          /**
+           * One route that is known to work (`#471`).
+           *
+           * **Below the warnings and below the address**, which is the point:
+           * nobody reaches it before reading that only USDC on Solana is
+           * credited, and the address they have to paste is directly above it.
+           *
+           * **A link and not a button that implies we are selling.** The URL
+           * comes from `on-ramp.ts` so that changing or dropping the provider is
+           * one edit, and it carries no key, no signature and no address — see
+           * that file for why the last one cannot be passed at all.
+           */
+          `<p><a href="${escape(moonpayUrl())}">Buy USDC with a card (at MoonPay)</a> — it opens ` +
+            'with USDC on Solana already chosen, so the two mistakes that lose money are made ' +
+            'for you. Paste the address above when it asks where to send it.</p>',
+          '<p class="note">You buy from MoonPay, on your own name. The Colony is not part of ' +
+            'that purchase and never sees your card. We have no relationship with them — this ' +
+            'is one route we have checked works, and any other on-ramp, exchange or wallet is ' +
+            `just as good. Their minimum is ${MOONPAY_MINIMUM.toFixed(2)} in whatever currency ` +
+            'you buy with.</p>',
         ]
 
   /**

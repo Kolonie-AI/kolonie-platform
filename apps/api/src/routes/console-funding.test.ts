@@ -441,3 +441,86 @@ describe('creating the identity that holds the money', () => {
     expect((await funding(cookie)).body).not.toContain('<script')
   })
 })
+
+/**
+ * One route to USDC that is known to work (`#471`).
+ *
+ * `#464` was closed because a prefilled button needs a KYB. A link with no key
+ * needs nothing, and it closes the two mistakes that actually cost money —
+ * wrong asset, wrong network — without the Colony becoming a party to anything.
+ */
+describe('the on-ramp link', () => {
+  it('offers MoonPay with USDC on Solana already chosen', async () => {
+    const { cookie } = await withIdentity()
+
+    const body = (await funding(cookie)).body
+
+    expect(body).toContain('Buy USDC with a card (at MoonPay)')
+    expect(body).toContain('currencyCode=usdc_sol')
+  })
+
+  /**
+   * **Below the warnings, and below the address.** Nobody reaches it before
+   * reading that only USDC on Solana is credited, and the address they have to
+   * paste is directly above it.
+   */
+  it('sits below the warnings, never above or beside them', async () => {
+    const { cookie } = await withIdentity()
+
+    const body = (await funding(cookie)).body
+
+    expect(body.indexOf('Send only USDC, on Solana')).toBeLessThan(body.indexOf('at MoonPay'))
+    expect(body.indexOf('Money in is one-way')).toBeLessThan(body.indexOf('at MoonPay'))
+    expect(body.indexOf('Your deposit address')).toBeLessThan(body.indexOf('at MoonPay'))
+  })
+
+  /** **The rejection case**: nothing in the URL identifies us or names a wallet. */
+  it('passes no key, no signature and no address', async () => {
+    const { cookie, own } = await withIdentity()
+    const issued = await deposits.address(own.id)
+    if (issued.outcome !== 'issued') throw new Error('no address')
+
+    const body = (await funding(cookie)).body
+    const link = /href="(https:\/\/buy\.moonpay\.com[^"]*)"/.exec(body)?.[1]
+
+    expect(link).toBeDefined()
+    expect(link).not.toContain('apiKey')
+    expect(link).not.toContain('signature')
+    expect(link).not.toContain('walletAddress')
+    // The address is on the page for pasting and is not in the link.
+    expect(link).not.toContain(issued.address)
+    expect(body).toContain(issued.address)
+  })
+
+  it('says who the counterparty is, and that any other route works', async () => {
+    const { cookie } = await withIdentity()
+
+    const body = (await funding(cookie)).body
+
+    expect(body).toContain('You buy from MoonPay, on your own name')
+    expect(body).toContain('never sees your card')
+    expect(body).toContain('any other on-ramp')
+    // Not an endorsement of somebody we contracted with.
+    expect(body).toContain('We have no relationship with them')
+    // The earlier wording is left intact rather than replaced.
+    expect(body).toContain('Buy USDC on Solana wherever you like')
+  })
+
+  /** Discovered here rather than at the payment step, having decided to buy. */
+  it('states the provider’s minimum', async () => {
+    const { cookie } = await withIdentity()
+
+    expect((await funding(cookie)).body).toContain('4.99')
+  })
+
+  /**
+   * Nothing to paste it into yet, so nothing to buy yet. A link that sent
+   * somebody to buy before they had an address would be a way to hold USDC and
+   * have nowhere to send it.
+   */
+  it('is absent for somebody with no address', async () => {
+    const cookie = await signedInCookie()
+
+    expect((await funding(cookie)).body).not.toContain('at MoonPay')
+  })
+})

@@ -262,4 +262,160 @@ describe('the quests a person’s identities have written', () => {
 
     expect(response.statusCode).toBe(404)
   })
+
+  /**
+   * **Who may change which quest** (`#457`).
+   *
+   * Quests written through the person's own identity are theirs to act on;
+   * quests written by an agent they operate are theirs to read and nothing
+   * more. A human editing its agent's quest is a human acting *as* the agent,
+   * which makes the console's own *"window rather than a control panel"*
+   * sentence false and empties the boundary `#428` drew for operator notes.
+   */
+  describe('who may change which quest', () => {
+    const anOperatedQuest = async (cookie: string) => {
+      const agentId = agents.issue().agent.id
+      await link(agentId)
+      const written = await wroteQuest(agentId, 'My agent’s quest')
+      return { agentId, questId: String(written.task.id), cookie }
+    }
+
+    const post = (questId: string, verb: string, cookie: string) =>
+      app.inject({
+        method: 'POST',
+        url: `/quests/${questId}/${verb}`,
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'text/html',
+          cookie,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+      })
+
+    it('lets a person read their agent’s quest', async () => {
+      const cookie = await signedInCookie()
+      const { questId } = await anOperatedQuest(cookie)
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/quests/${questId}`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('My agent’s quest')
+    })
+
+    it('lets a person read its results', async () => {
+      const cookie = await signedInCookie()
+      const { questId } = await anOperatedQuest(cookie)
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/quests/${questId}/results`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+
+      expect(response.statusCode).toBe(200)
+    })
+
+    /** **A rejection case per verb**, which is what the issue asks for by name. */
+    it('refuses to submit it', async () => {
+      const cookie = await signedInCookie()
+      const { questId } = await anOperatedQuest(cookie)
+
+      const response = await post(questId, 'submit', cookie)
+
+      expect(response.statusCode).toBe(403)
+    })
+
+    it('refuses to withdraw it', async () => {
+      const cookie = await signedInCookie()
+      const { questId } = await anOperatedQuest(cookie)
+
+      const response = await post(questId, 'withdraw', cookie)
+
+      expect(response.statusCode).toBe(403)
+    })
+
+    /**
+     * **Funding is what submitting does**, in this console: `#174` reserves the
+     * credits at submission, so refusing the submit is refusing the funding.
+     * There is no separate fund route to refuse — asserted here so the absence
+     * is a recorded fact rather than a gap somebody has to rediscover.
+     */
+    it('has no route that funds one separately', async () => {
+      const cookie = await signedInCookie()
+      const { questId } = await anOperatedQuest(cookie)
+
+      expect((await post(questId, 'fund', cookie)).statusCode).toBe(404)
+    })
+
+    /**
+     * **Editing an agent's draft is refused, and there is no console route for
+     * editing anybody's yet** — so the guard is asserted on the verb that
+     * exists and would carry it.
+     */
+    it('refuses to copy it into a draft of their own', async () => {
+      const cookie = await signedInCookie()
+      const { questId } = await anOperatedQuest(cookie)
+
+      expect((await post(questId, 'copy', cookie)).statusCode).not.toBe(303)
+    })
+
+    /** The refusal is a sentence, naming the agent and what to do instead. */
+    it('says whose it is and what to do instead', async () => {
+      const cookie = await signedInCookie()
+      const { agentId, questId } = await anOperatedQuest(cookie)
+
+      const response = await post(questId, 'submit', cookie)
+
+      expect(response.body).toContain(`agent-${String(agentId).slice(0, 4)}`)
+      expect(response.body).toContain('ask it to change it')
+    })
+
+    /** And the page says so before somebody goes looking for the button. */
+    it('states the rule on the quest itself', async () => {
+      const cookie = await signedInCookie()
+      const { agentId, questId } = await anOperatedQuest(cookie)
+
+      const body = (
+        await app.inject({
+          method: 'GET',
+          url: `/quests/${questId}`,
+          headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+        })
+      ).body
+
+      expect(body).toContain(`This quest belongs to agent-${String(agentId).slice(0, 4)}`)
+      expect(body).toContain('operating an agent does not make its work yours to edit')
+      expect(body).not.toContain('Submit for review')
+      expect(body).not.toContain('Withdraw from review')
+    })
+
+    /** A quest belonging to neither answers exactly as one that does not exist. */
+    it('answers a stranger’s quest as a miss, on a write as well as a read', async () => {
+      const cookie = await signedInCookie()
+      await link(agents.issue().agent.id)
+      const theirs = await wroteQuest(agents.issue().agent.id, 'Not mine')
+
+      const write = await post(String(theirs.task.id), 'submit', cookie)
+      const invented = await post('99999999-9999-4999-8999-999999999999', 'submit', cookie)
+
+      expect(write.statusCode).toBe(invented.statusCode)
+      expect(write.body).toBe(invented.body)
+    })
+
+    /** Nothing changes for an agent acting with its own key. */
+    it('leaves an agent’s own writes alone', async () => {
+      const cookie = await signedInCookie()
+      const own = anAgent({ name: 'sponsor-abcd' })
+      humans.holdsSponsor(theHuman().id, own)
+      const mine = await wroteQuest(own.id, 'A quest I wrote myself')
+
+      const response = await post(String(mine.task.id), 'submit', cookie)
+
+      expect(response.statusCode).not.toBe(403)
+    })
+  })
 })

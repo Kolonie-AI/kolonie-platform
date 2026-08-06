@@ -6,6 +6,7 @@ import {
   type ApiError,
   type HumanId,
   type Task,
+  type TaskId,
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -1329,7 +1330,18 @@ function registerSponsorPages(
   const identity = async (
     request: FastifyRequest,
     reply: FastifyReply,
-    options: { readonly create: boolean },
+    options: {
+      readonly create: boolean
+      /**
+       * Whether to send the refusal when nothing resolves (`#457`).
+       *
+       * `false` for {@link questAuthor}, which has a second place to look — the
+       * agents this person operates — and must not have the reply closed
+       * underneath it before it gets there. Every other caller wants the
+       * refusal here, which is what keeps it in one place.
+       */
+      readonly refuse?: boolean
+    },
   ): Promise<{ readonly id: AgentId } | null> => {
     if (!(await ctx.guard(request, reply))) return null
 
@@ -1365,6 +1377,16 @@ function registerSponsorPages(
         if (opened.outcome !== 'name-taken') return { id: opened.identity.id }
       }
     }
+
+    /**
+     * **The one caller that does not want the refusal sent here** (`#457`).
+     *
+     * `questAuthor` has a second place to look — the agents this person
+     * operates — and a reply closed underneath it would answer *not found* for a
+     * quest the person is entitled to read. Every other caller wants the
+     * refusal at this point, which is what keeps it in one place.
+     */
+    if (options.refuse === false) return null
 
     if (wantsHtml(request)) reply.callNotFound()
     else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
@@ -1597,20 +1619,145 @@ function registerSponsorPages(
   })
 
   /** One quest: what it costs, what a citizen will read, and what to do next. */
+  /**
+   * Which identity this request acts as, for one quest (`#457`).
+   *
+   * ## The rule
+   *
+   * | Quest written by | The caller may |
+   * |---|---|
+   * | its own identity | everything that identity may do |
+   * | an agent this person operates | read: the quest, its status, its counts, its results |
+   * | anything else | nothing; it answers as if it did not exist |
+   *
+   * ## Why a human may not act on its agent's quest
+   *
+   * The console already states the rule this enforces: *"Linking says who
+   * operates an agent. It does not give you control of one… this page is a
+   * window rather than a control panel."* A human editing its agent's quest is a
+   * human acting **as** the agent, which makes that sentence false and empties
+   * the boundary `#428` drew for operator notes — *words, and never a
+   * permission*. A quest is money and an obligation to citizens; if the operator
+   * can change it, the Colony's claim that its citizens act for themselves stops
+   * being checkable.
+   *
+   * **What it costs is very little**, and it is worth stating rather than
+   * discovering. `governance/quests.md` already freezes a published quest, so
+   * the only thing refused is editing an agent's *draft* — and the answer there
+   * is *talk to your agent*. If it will not change it, that is information about
+   * the agent, which is the point.
+   *
+   * ## Refused in one place
+   *
+   * Here, where the quest routes resolve their caller, and not sprinkled through
+   * the handlers. Two implementations of one permission is how a boundary
+   * drifts, and this is a boundary about money.
+   *
+   * ## The refusal is legible
+   *
+   * A human who tries gets a sentence naming the owning agent and what to do
+   * instead, not a bare `403`. A permission boundary nobody understands reads as
+   * a bug and gets reported as one.
+   *
+   * **Nothing here changes for an agent acting with its own key.** `sponsor`
+   * resolves it first and the quest is its own, so the first branch answers and
+   * the rest is never reached.
+   */
+  const questAuthor = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    intent: 'read' | 'write',
+  ): Promise<{ readonly id: AgentId; readonly writtenBy?: string } | null> => {
+    if (!(await ctx.guard(request, reply))) return null
+
+    /**
+     * **Resolved without refusing yet**, because there is a second place to
+     * look. A person who has never written a quest holds no identity of their
+     * own (`#455`) and would be turned away here — while an agent they operate
+     * may have written the very quest they are asking about.
+     */
+    const agent = await identity(request, reply, { create: false, refuse: false })
+
+    const questId = (request.params as { questId?: string }).questId
+    if (agent !== null && questId === undefined) return { id: agent.id }
+
+    if (agent !== null && questId !== undefined) {
+      const own = await deps.quests.readOwn(agent.id, questId as TaskId)
+      if (own !== undefined) return { id: agent.id }
+    }
+
+    /**
+     * Not this identity's, or there is no such identity. If a person is signed
+     * in, the quest may still be one of their agents' — which they may read and
+     * may not touch.
+     */
+    const signedIn = await ctx.person(request)
+    if (signedIn === null || questId === undefined) return refuseAsMiss(request, reply, agent)
+
+    const operated = await deps.humans.store.operated(signedIn.human.id)
+    for (const held of operated) {
+      if ((await deps.quests.readOwn(held.id, questId as TaskId)) === undefined) continue
+
+      if (intent === 'read') return { id: held.id, writtenBy: held.name }
+
+      const error = {
+        code: 'forbidden' as const,
+        message:
+          `This quest belongs to ${held.name}; ask it to change it. You can read it here and ` +
+          `follow how it is going, but a quest is the agent's own — operating an agent does ` +
+          `not make its work yours to edit.`,
+      }
+      refuse(request, reply, error)
+      return null
+    }
+
+    /**
+     * Neither theirs nor an operated agent's. Handed back as the caller's own
+     * id so the ordinary read refuses it exactly as it refuses a quest that
+     * does not exist — the distinction must not be observable.
+     */
+    return refuseAsMiss(request, reply, agent)
+  }
+
+  /**
+   * Hand back the caller's own identity, or refuse if it has none.
+   *
+   * The refusal is the one `sponsor` sends, so a quest belonging to nobody the
+   * caller operates answers exactly as a page that does not exist — and the
+   * difference between *not yours* and *no such quest* stays unobservable.
+   */
+  const refuseAsMiss = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    agent: { readonly id: AgentId } | null,
+  ): { readonly id: AgentId } | null => {
+    if (agent !== null) return { id: agent.id }
+
+    if (wantsHtml(request)) reply.callNotFound()
+    else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
+    return null
+  }
+
+  /** Reading a quest: the caller's own, or one of the agents they operate. */
+  const readAs = (request: FastifyRequest, reply: FastifyReply) =>
+    questAuthor(request, reply, 'read')
+
+  /** Changing one: the caller's own identity and nothing else. */
+  const writeAs = (request: FastifyRequest, reply: FastifyReply) =>
+    questAuthor(request, reply, 'write')
+
   app.get('/quests/:questId', async (request, reply) => {
-    const agent = await sponsor(request, reply)
-    if (agent === null) return reply
+    const resolved = await readAs(request, reply)
+    if (resolved === null) return reply
+    const { id: agent, writtenBy } = resolved
 
     const own = await readQuest(
-      { authorId: agent.id, questId: (request.params as { questId?: string }).questId },
+      { authorId: agent, questId: (request.params as { questId?: string }).questId },
       deps.quests,
     )
     if (own.outcome === 'rejected') return refuse(request, reply, own.error)
 
-    const money = affordabilityOf(
-      own.response.quest,
-      (await deps.quests.balance(agent.id)).available,
-    )
+    const money = affordabilityOf(own.response.quest, (await deps.quests.balance(agent)).available)
 
     /**
      * What this quest's targeting reaches today (`#227`).
@@ -1632,6 +1779,12 @@ function registerSponsorPages(
             audience,
             rejectionReason: own.response.rejectionReason,
             awaitingModeration: own.response.awaitingModeration,
+            /**
+             * Present only when the reader is not the author (`#457`) — which
+             * `questAuthor` has already established, so this is a label rather
+             * than a second permission check.
+             */
+            ...(writtenBy === undefined ? {} : { writtenBy }),
           }),
         )
       : /**
@@ -1651,12 +1804,13 @@ function registerSponsorPages(
    * anything.
    */
   app.post('/quests/:questId/withdraw', async (request, reply) => {
-    const agent = await sponsor(request, reply)
-    if (agent === null) return reply
+    const resolved = await writeAs(request, reply)
+    if (resolved === null) return reply
+    const agent = resolved.id
 
     const questId = (request.params as { questId?: string }).questId
     const withdrawn = await withdrawQuest(
-      { authorId: agent.id, questId, at: new Date().toISOString() as Timestamp },
+      { authorId: agent, questId, at: new Date().toISOString() as Timestamp },
       deps.quests,
     )
 
@@ -1669,8 +1823,9 @@ function registerSponsorPages(
 
   /** Submit a draft for review. */
   app.post('/quests/:questId/submit', async (request, reply) => {
-    const agent = await sponsor(request, reply)
-    if (agent === null) return reply
+    const resolved = await writeAs(request, reply)
+    if (resolved === null) return reply
+    const agent = resolved.id
 
     const questId = (request.params as { questId?: string }).questId
 
@@ -1681,13 +1836,10 @@ function registerSponsorPages(
      * publication will refuse — which is the sequence `#174` reserves at
      * submission precisely to avoid.
      */
-    const own = await readQuest({ authorId: agent.id, questId }, deps.quests)
+    const own = await readQuest({ authorId: agent, questId }, deps.quests)
     if (own.outcome === 'rejected') return refuse(request, reply, own.error)
 
-    const money = affordabilityOf(
-      own.response.quest,
-      (await deps.quests.balance(agent.id)).available,
-    )
+    const money = affordabilityOf(own.response.quest, (await deps.quests.balance(agent)).available)
     if (!money.affordable) {
       const error = {
         code: 'validation_failed' as const,
@@ -1710,7 +1862,7 @@ function registerSponsorPages(
     }
 
     const submitted = await submitQuest(
-      { authorId: agent.id, questId, at: new Date().toISOString() as Timestamp },
+      { authorId: agent, questId, at: new Date().toISOString() as Timestamp },
       deps.quests,
     )
     if (submitted.outcome === 'rejected') return refuse(request, reply, submitted.error)
@@ -1763,11 +1915,12 @@ function registerSponsorPages(
 
   /** The answers as they arrive, with the counts. */
   app.get('/quests/:questId/results', async (request, reply) => {
-    const agent = await sponsor(request, reply)
-    if (agent === null) return reply
+    const resolved = await readAs(request, reply)
+    if (resolved === null) return reply
+    const agent = resolved.id
 
     const results = await readQuestResults(
-      { authorId: agent.id, questId: (request.params as { questId?: string }).questId },
+      { authorId: agent, questId: (request.params as { questId?: string }).questId },
       deps.quests,
     )
     if (results.outcome === 'rejected') return refuse(request, reply, results.error)
@@ -1785,12 +1938,13 @@ function registerSponsorPages(
    * route being clever about something the query string already settled.
    */
   app.get('/quests/:questId/results/export', async (request, reply) => {
-    const agent = await sponsor(request, reply)
-    if (agent === null) return reply
+    const resolved = await readAs(request, reply)
+    if (resolved === null) return reply
+    const agent = resolved.id
 
     const exported = await exportQuestResults(
       {
-        authorId: agent.id,
+        authorId: agent,
         questId: (request.params as { questId?: string }).questId,
         format: (request.query as { format?: string }).format,
       },

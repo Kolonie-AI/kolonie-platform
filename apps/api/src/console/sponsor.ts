@@ -369,8 +369,18 @@ export function questDraftPage(input: {
    * must not be confused with *not computed*.
    */
   readonly audience?: number | undefined
+  /**
+   * The agent that wrote this, when it is not the reader (`#457`).
+   *
+   * Present means the reader operates the agent whose quest this is: they may
+   * read every part of this page and press none of it. Absent is the ordinary
+   * case — the quest is the reader's own.
+   */
+  readonly writtenBy?: string | undefined
 }): string {
   const { quest, money } = input
+  /** Somebody else's agent's quest is read-only, and the page shows no control at all. */
+  const readOnly = input.writtenBy !== undefined
 
   const cost = money.affordable
     ? `<p>Total ${money.total} credit(s) — capacity ${quest.slots ?? 0} × ${quest.reward.credits}. Your available balance is ${money.available}.</p>`
@@ -405,7 +415,7 @@ export function questDraftPage(input: {
         ].join('\n')
 
   const submit =
-    input.rejectionReason !== null || quest.status !== 'draft'
+    readOnly || input.rejectionReason !== null || quest.status !== 'draft'
       ? ''
       : [
           `<form method="post" action="/quests/${escape(quest.id)}/submit">`,
@@ -423,7 +433,7 @@ export function questDraftPage(input: {
    * reservation and the account's one queue slot.
    */
   const withdraw =
-    quest.status !== 'pending_review'
+    readOnly || quest.status !== 'pending_review'
       ? ''
       : [
           `<form method="post" action="/quests/${escape(quest.id)}/withdraw">`,
@@ -442,6 +452,18 @@ export function questDraftPage(input: {
     body: [
       `<h1>${escape(quest.title)}</h1>`,
       `<p class="note">Status: ${escape(input.awaitingModeration ? 'awaiting moderation' : quest.status)}</p>`,
+      /**
+       * **The rule, where a human meets it** (`#457`), above the page rather
+       * than in place of a button they cannot find. A permission boundary
+       * nobody understands reads as a bug and gets reported as one — and this
+       * is the page somebody arrives on expecting to be able to act.
+       */
+      readOnly
+        ? `<p><strong>This quest belongs to ${escape(String(input.writtenBy))}.</strong> ` +
+          'You can read it here and follow how it is going. Changing it is a conversation with ' +
+          'the agent rather than a button on this page: a quest is money and an obligation to ' +
+          'citizens, and operating an agent does not make its work yours to edit.</p>'
+        : '',
       problems,
       cost,
       audience,

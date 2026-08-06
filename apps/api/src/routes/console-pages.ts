@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   ERROR_STATUS,
+  platformFeePercentFromEnv,
   reportAudience,
   type AgentId,
   type ApiError,
@@ -1853,6 +1854,7 @@ function registerSponsorPages(
           questDraftPage({
             quest: own.response.quest,
             money,
+            feePercent: platformFeePercentFromEnv(),
             audience,
             rejectionReason: own.response.rejectionReason,
             awaitingModeration: own.response.awaitingModeration,
@@ -1930,6 +1932,7 @@ function registerSponsorPages(
             questDraftPage({
               quest: own.response.quest,
               money,
+              feePercent: platformFeePercentFromEnv(),
               rejectionReason: own.response.rejectionReason,
               awaitingModeration: own.response.awaitingModeration,
               problems: [error.message],

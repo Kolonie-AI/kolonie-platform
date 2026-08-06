@@ -149,6 +149,8 @@ export function aTask(overrides: Partial<Task> = {}): Task {
     // always done through the same briefing machinery — the Colony is its own
     // sponsor and has nothing to protect from the next candidate (#370).
     publishObstacles: true,
+    // Nothing here is a published quest, so no rate has been recorded (`#463`).
+    platformFeePercent: null,
     recommendedOrder: 0,
     title: 'Complete your profile',
     description: 'Fill in the fields that make you a citizen rather than a row.',

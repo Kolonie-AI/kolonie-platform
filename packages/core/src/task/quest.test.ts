@@ -12,6 +12,8 @@ import {
   QuestRefusalSchema,
   platformFeePercentFromEnv,
   questCommitment,
+  questFeeBreakdown,
+  questPayNotice,
   questPayoutSplit,
   questRewardRejection,
   questSubmissionRejection,
@@ -405,6 +407,98 @@ describe('the platform fee', () => {
 
     it('pays a citizen nothing for a quest that pays nothing', () => {
       expect(questPayoutSplit(0, 25)).toEqual({ toCitizen: 0, toTreasury: 0 })
+    })
+  })
+})
+
+/**
+ * What the two surfaces show, and that they show the payout's own arithmetic
+ * (`#463`).
+ */
+describe('what a sponsor and a citizen are told about the fee', () => {
+  describe('the sponsor’s breakdown', () => {
+    it('multiplies capacity through, because a percentage is not the number that decides', () => {
+      expect(questFeeBreakdown({ credits: 1000, slots: 40, feePercent: 25 })).toMatchObject({
+        funded: 40_000,
+        toCitizens: 30_000,
+        toColony: 10_000,
+        perReport: { toCitizen: 750, toTreasury: 250 },
+      })
+    })
+
+    /**
+     * **The rejection case.** Every figure shown has to equal what the payout
+     * books, per report and in total. A breakdown that computed its own share
+     * would drift the first time either side was edited, and it would drift
+     * invisibly.
+     */
+    it('equals what the payout computation returns, per report and multiplied through', () => {
+      for (const credits of [1, 2, 7, 99, 100, 1000, 12345]) {
+        for (const feePercent of [0, 10, 25, 100]) {
+          for (const slots of [1, 3, 40]) {
+            const shown = questFeeBreakdown({ credits, slots, feePercent })
+            const paid = questPayoutSplit(credits, feePercent)
+
+            expect(shown.perReport).toEqual(paid)
+            expect(shown.toCitizens).toBe(paid.toCitizen * slots)
+            expect(shown.toColony).toBe(paid.toTreasury * slots)
+            expect(shown.toCitizens + shown.toColony).toBe(shown.funded)
+          }
+        }
+      }
+    })
+
+    it('says the fee rounds away rather than printing a zero', () => {
+      expect(questFeeBreakdown({ credits: 1, slots: 1000, feePercent: 25 }).free).toBe(true)
+      expect(questFeeBreakdown({ credits: 1000, slots: 1, feePercent: 25 }).free).toBe(false)
+    })
+  })
+
+  describe('what a citizen reads', () => {
+    /** Net first: the figure a citizen reads is what reaches its balance. */
+    it('leads with what reaches the citizen’s balance', () => {
+      const notice = questPayNotice({ credits: 1000, reputation: 2, feePercent: 25 })
+
+      expect(notice).toMatch(/^Pays you 750 credit\(s\) and 2 reputation/)
+    })
+
+    /** The gross and the share are stated too, so nothing is concealed. */
+    it('states the gross and the Colony’s share behind it', () => {
+      const notice = questPayNotice({ credits: 1000, reputation: 2, feePercent: 25 })
+
+      expect(notice).toContain('funds 1000')
+      expect(notice).toContain('250')
+    })
+
+    /** Named, not shown only as a percentage. */
+    it('names the fee in plain words with the rate beside it', () => {
+      const notice = questPayNotice({ credits: 1000, reputation: 2, feePercent: 25 })
+
+      expect(notice).toContain('platform fee')
+      expect(notice).toContain("Colony's share")
+      expect(notice).toContain('25%')
+    })
+
+    /** A quest published under an earlier rate says that rate, not today's. */
+    it('shows the rate it was published under', () => {
+      const notice = questPayNotice({ credits: 1000, reputation: 2, feePercent: 10 })
+
+      expect(notice).toContain('10%')
+      expect(notice).toContain('Pays you 900')
+      expect(notice).not.toContain('25%')
+    })
+
+    /**
+     * Where the fee rounds away, the citizen is told it receives the full
+     * amount rather than being shown a zero that reads as a charge.
+     */
+    it('says the citizen receives the full amount when the fee rounds away', () => {
+      const notice = questPayNotice({ credits: 1, reputation: 1, feePercent: 25 })
+
+      expect(notice).toContain('Pays you 1 credit(s)')
+      expect(notice).toContain('the Colony takes nothing')
+      expect(notice).not.toContain('0 ')
+      expect(notice).not.toContain('platform fee')
     })
   })
 })

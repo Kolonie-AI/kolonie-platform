@@ -165,6 +165,7 @@ export function toTask(
     minActivityDays: row.minActivityDays,
     distinctOperators: row.distinctOperators,
     publishObstacles: row.publishObstacles,
+    platformFeePercent: row.platformFeePercent,
     ...(full === undefined ? {} : { full }),
     ...(freeSlots === undefined ? {} : { freeSlots }),
     rejectionReason: row.rejectionReason,

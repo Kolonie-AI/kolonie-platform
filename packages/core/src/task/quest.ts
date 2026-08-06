@@ -759,3 +759,75 @@ export function questPayoutSplit(
   const toTreasury = Math.floor((credits * feePercent) / 100)
   return { toCitizen: credits - toTreasury, toTreasury }
 }
+
+/**
+ * What a quest costs and where the money goes, for the two surfaces that show it
+ * (`#463`).
+ *
+ * **Every figure here comes from {@link questPayoutSplit}**, which is the same
+ * function the payout books against. Nothing on a console computes a share of
+ * its own: two implementations of *what does the citizen get* is a disagreement
+ * a stranger can see, and it is the failure `escrow.ts` and `sponsor.ts` both
+ * already guard against.
+ *
+ * Capacity is multiplied through, because *250 per report × 40 reports* is the
+ * number that changes a sponsor's mind and *25 %* is not.
+ */
+export function questFeeBreakdown(input: {
+  readonly credits: number
+  readonly slots: number
+  readonly feePercent: number
+}): {
+  readonly feePercent: number
+  readonly perReport: { readonly toCitizen: number; readonly toTreasury: number }
+  readonly funded: number
+  readonly toCitizens: number
+  readonly toColony: number
+  /** True when the fee rounds away, so a surface can say so instead of printing a zero. */
+  readonly free: boolean
+} {
+  const perReport = questPayoutSplit(input.credits, input.feePercent)
+
+  return {
+    feePercent: input.feePercent,
+    perReport,
+    funded: input.credits * input.slots,
+    toCitizens: perReport.toCitizen * input.slots,
+    toColony: perReport.toTreasury * input.slots,
+    free: perReport.toTreasury === 0,
+  }
+}
+
+/**
+ * What a citizen is told it will be paid, and what the quest costs behind that
+ * (`#463`).
+ *
+ * **Net first.** The figure a citizen reads is what reaches its balance. The
+ * gross and the Colony's share are stated too, so nothing is concealed, but the
+ * prominent number is the one the citizen can spend — a listing whose headline
+ * needs mental arithmetic before it is true lies to whoever reads it quickly,
+ * and every argument this project makes rests on its claims being checkable.
+ *
+ * **The fee is named rather than implied.** A line item labelled only with a
+ * percentage invites the reader to work out what it is, and they usually work
+ * out something worse.
+ *
+ * **Where the fee rounds away the second sentence is not printed at all.** A
+ * *"the Colony takes 0"* line on a one-cent pilot quest is noise that reads as a
+ * charge.
+ */
+export function questPayNotice(input: {
+  readonly credits: number
+  readonly reputation: number
+  readonly feePercent: number
+}): string {
+  const { toCitizen, toTreasury } = questPayoutSplit(input.credits, input.feePercent)
+  const paid = `Pays you ${toCitizen} credit(s) and ${input.reputation} reputation per accepted report.`
+
+  if (toTreasury === 0) return `${paid} You receive the full reward; the Colony takes nothing.`
+
+  return (
+    `${paid} The sponsor funds ${input.credits} of which the Colony's share — the platform ` +
+    `fee, ${input.feePercent}% — is ${toTreasury}.`
+  )
+}

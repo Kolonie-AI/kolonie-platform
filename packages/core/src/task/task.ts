@@ -523,6 +523,22 @@ export const TaskSchema = z.object({
    */
   publishObstacles: z.boolean(),
   /**
+   * The Colony's share of each accepted report, as it stood when this quest was
+   * published (`#462`, `#463`).
+   *
+   * `null` on an Academy task, on a draft that has not been published, and on
+   * every quest published before the fee existed — all of which pay no fee. A
+   * reader must not substitute today's configured rate for a missing one: the
+   * point of carrying it is that what a quest displays is what it will actually
+   * pay.
+   *
+   * **Not in {@link FROZEN_WHEN_ACTIVE}, and not an omission.** That list guards
+   * fields a sponsor could otherwise edit under citizens who are already
+   * answering. This one has no form field and no patch path — it is written by
+   * the publication itself, which is the transition the list is about.
+   */
+  platformFeePercent: z.number().int().min(0).max(100).nullable(),
+  /**
    * Whether every slot is taken right now. Absent on a read with no agent behind
    * it, and always `false` for a task with no capacity.
    *

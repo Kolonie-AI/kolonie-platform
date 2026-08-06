@@ -128,6 +128,8 @@ export function fakeQuests(): FakeQuestDesk {
     minActivityDays: input.draft.minActivityDays,
     distinctOperators: input.draft.distinctOperators,
     publishObstacles: input.draft.publishObstacles,
+    // A draft, so no rate has been recorded yet (`#463`).
+    platformFeePercent: null,
     rejectionReason: null,
     assistanceAllowed: input.draft.assistanceAllowed,
     prerequisiteTaskIds: [],

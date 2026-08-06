@@ -16,6 +16,8 @@
 import {
   audienceFragment,
   distinctOperatorsNotice,
+  questFeeBreakdown,
+  questPayNotice,
   reportAudience,
   type QuestReportCounts,
   type Task,
@@ -59,6 +61,14 @@ export function questAsCitizenReads(quest: {
   readonly requires: readonly string[]
   readonly minReputation: number
   readonly reward: { readonly credits: number; readonly reputation: number }
+  /**
+   * The Colony's share, as this quest will actually pay it (`#463`).
+   *
+   * The rate recorded on a published quest, or the configured one for a draft
+   * being previewed. Passed in rather than read here, so a quest published under
+   * an earlier rate displays the rate it will pay rather than today's.
+   */
+  readonly feePercent: number
 }): string {
   const requirement =
     quest.requires.length === 0 && quest.minReputation === 0
@@ -91,7 +101,15 @@ export function questAsCitizenReads(quest: {
     '<h3>What to report</h3>',
     `<ol>${questions}</ol>`,
     requirement,
-    `<p class="note">Pays ${quest.reward.credits} credit(s) and ${quest.reward.reputation} reputation per accepted report.</p>`,
+    // Net first, gross and the named fee behind it — one computation, shared
+    // with the payout (`#463`).
+    `<p class="note">${escape(
+      questPayNotice({
+        credits: quest.reward.credits,
+        reputation: quest.reward.reputation,
+        feePercent: quest.feePercent,
+      }),
+    )}</p>`,
   ].join('\n')
 }
 
@@ -377,14 +395,41 @@ export function questDraftPage(input: {
    * case — the quest is the reader's own.
    */
   readonly writtenBy?: string | undefined
+  /**
+   * The configured platform fee, for a quest that has not been published yet
+   * (`#463`).
+   *
+   * A published quest carries its own rate and that one wins. This is the rate a
+   * draft *would* be published under, so the preview shows the deal the sponsor
+   * is actually about to strike rather than a blank.
+   */
+  readonly feePercent: number
 }): string {
   const { quest, money } = input
   /** Somebody else's agent's quest is read-only, and the page shows no control at all. */
   const readOnly = input.writtenBy !== undefined
 
+  /**
+   * Where the money goes, before the work rather than after it (`#463`).
+   *
+   * The rate this quest will actually pay: the one recorded when it was
+   * published, or the configured rate for a draft that has not been. Never a
+   * second calculation — `questFeeBreakdown` calls the same split the payout
+   * books against.
+   */
+  const split = questFeeBreakdown({
+    credits: quest.reward.credits,
+    slots: quest.slots ?? 0,
+    feePercent: quest.platformFeePercent ?? input.feePercent,
+  })
+
+  const where = split.free
+    ? `<p>Citizens receive all ${split.toCitizens} of it — at ${quest.reward.credits} credit(s) a report the platform fee rounds to nothing, so the Colony takes nothing.</p>`
+    : `<p>Of that, <strong>${split.toCitizens} goes to citizens</strong> — ${split.perReport.toCitizen} per accepted report — and <strong>${split.toColony} is the Colony's share</strong>, the platform fee of ${split.feePercent}%, ${split.perReport.toTreasury} per accepted report. It is taken as each report is accepted, so capacity nobody fills is never charged for and comes back to you whole.</p>`
+
   const cost = money.affordable
-    ? `<p>Total ${money.total} credit(s) — capacity ${quest.slots ?? 0} × ${quest.reward.credits}. Your available balance is ${money.available}.</p>`
-    : `<p><strong>This quest costs ${money.total} credit(s) and your available balance is ${money.available}. You are ${money.shortfall} short.</strong> Add funds or lower the capacity or the price; a quest that cannot be paid for never reaches a steward.</p>`
+    ? `<p>Total ${money.total} credit(s) — capacity ${quest.slots ?? 0} × ${quest.reward.credits}. Your available balance is ${money.available}.</p>${where}`
+    : `<p><strong>This quest costs ${money.total} credit(s) and your available balance is ${money.available}. You are ${money.shortfall} short.</strong> Add funds or lower the capacity or the price; a quest that cannot be paid for never reaches a steward.</p>${where}`
 
   /**
    * What this quest's targeting reaches, counted rather than estimated.
@@ -481,6 +526,7 @@ export function questDraftPage(input: {
         requires: quest.requires,
         minReputation: quest.minReputation,
         reward: quest.reward,
+        feePercent: split.feePercent,
       }),
       '</div>',
       '<p><a href="/">Back to your quests</a></p>',

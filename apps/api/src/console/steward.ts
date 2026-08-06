@@ -10,7 +10,7 @@
  */
 
 import type { ColonyNumbers, QuestUnderReview } from '@kolonie-ai/db'
-import { capabilityMismatches } from '@kolonie-ai/core'
+import { capabilityMismatches, platformFeePercentFromEnv } from '@kolonie-ai/core'
 import { escape, page } from './html.js'
 import { questAsCitizenReads } from './sponsor.js'
 
@@ -143,7 +143,10 @@ function reviewRow(quest: QuestUnderReview): string {
     audienceAndProof,
     requirementNote,
     '<h3>What a citizen reads</h3>',
-    `<pre>${escape(questAsCitizenReads(task))}</pre>`,
+    // The rate a steward is reviewing against: the one recorded if this quest
+    // is already published, otherwise the one publishing it would write
+    // (`#463`).
+    `<pre>${escape(questAsCitizenReads({ ...task, feePercent: task.platformFeePercent ?? platformFeePercentFromEnv() }))}</pre>`,
     '<h3>The report it asks for</h3>',
     questions,
     actions,

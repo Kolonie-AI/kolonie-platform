@@ -1,7 +1,7 @@
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ERROR_STATUS } from '@kolonie-ai/core'
+import { DEFAULT_PLATFORM_FEE_PERCENT, ERROR_STATUS, questFeeBreakdown } from '@kolonie-ai/core'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
@@ -770,6 +770,46 @@ describe('the sponsor’s pages', () => {
   })
 
   /**
+   * Nobody meets the platform fee after the work is done (`#463`).
+   *
+   * The three figures the sponsor decides on — funded, to citizens, the Colony's
+   * share — with capacity multiplied through, because *250 per report × 40
+   * reports* is the number that changes a mind and *25 %* is not.
+   */
+  it('shows the split before the quest is published, capacity multiplied through', async () => {
+    const created = await postForm('/quests', aForm({ rewardCredits: '1000', slots: '40' }))
+    const draft = await asBrowser(created.headers['location'] as string, { signedIn: true })
+
+    const split = questFeeBreakdown({
+      credits: 1000,
+      slots: 40,
+      feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
+    })
+
+    // The rejection case: a figure on this page that is not what the payout
+    // computes fails here. Nothing in the console does its own arithmetic.
+    expect(draft.body).toContain(String(split.funded))
+    expect(draft.body).toContain(String(split.toCitizens))
+    expect(draft.body).toContain(String(split.toColony))
+    expect(draft.body).toContain(`${DEFAULT_PLATFORM_FEE_PERCENT}%`)
+    // Named, not implied by a bare percentage.
+    expect(draft.body).toContain('platform fee')
+  })
+
+  /**
+   * At the pilot's one cent the fee rounds away, and the page says the citizen
+   * receives the whole amount rather than printing a zero that reads as a
+   * charge.
+   */
+  it('says the Colony takes nothing where the fee rounds to zero', async () => {
+    const created = await postForm('/quests', aForm({ rewardCredits: '1', slots: '10' }))
+    const draft = await asBrowser(created.headers['location'] as string, { signedIn: true })
+
+    expect(draft.body).toContain('the Colony takes nothing')
+    expect(draft.body).not.toContain('platform fee of')
+  })
+
+  /**
    * The preview is the citizen's own renderer, so it cannot drift from it.
    *
    * Asserted as the same **string** rather than as the same intent: a preview
@@ -793,6 +833,8 @@ describe('the sponsor’s pages', () => {
         requires: quest.requires,
         minReputation: quest.minReputation,
         reward: quest.reward,
+        // A draft, so the rate is the one publishing it would write (`#463`).
+        feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
       }),
     )
   })

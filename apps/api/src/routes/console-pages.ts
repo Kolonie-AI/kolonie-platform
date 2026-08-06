@@ -1601,9 +1601,15 @@ function registerSponsorPages(
         return reply
       }
 
-      /** Signed in with nothing to fund yet — a page, not a refusal. */
+      /**
+       * Signed in with nothing to fund yet — a page, not a refusal.
+       *
+       * `without: 'identity'` is what turns it into an offer rather than a dead
+       * end (`#469`): the page renders the action that makes one.
+       */
       const empty = {
         zone: zoneFrom(request.headers),
+        without: 'identity' as const,
         balance: { available: 0, reserved: 0, escrowed: 0 },
         deposits: [],
       }
@@ -1624,8 +1630,12 @@ function registerSponsorPages(
        * address — renders the same page without one rather than an error. The
        * person is told what to do about it by the sign-in flow, and a funding
        * page that failed hard would be a dead end with money on the other side.
+       *
+       * **`without` says which absence it is** (`#469`). The identity exists, so
+       * offering to make one would be nonsense; what this person has to do is
+       * open the mail, and the page now says that instead.
        */
-      ...('error' in issued ? {} : { address: issued.address }),
+      ...('error' in issued ? { without: 'confirmation' as const } : { address: issued.address }),
       balance: {
         available: balance.available,
         reserved: balance.reserved,
@@ -1636,6 +1646,62 @@ function registerSponsorPages(
     }
 
     return wantsHtml(request) ? html(reply, fundingPage(view)) : reply.send(view)
+  })
+
+  /**
+   * The second door into `#455`'s rule: fund before you write (`#469`).
+   *
+   * ## Why there is a second door at all
+   *
+   * `#455` decided the person's own identity is created **at the first quest
+   * draft**, so that signing in to look around does not manufacture empty
+   * citizens and distort the counts the Colony publishes. That reasoning still
+   * holds and is not reversed here — `POST /quests` is unchanged and remains the
+   * other way in.
+   *
+   * What it did not anticipate is somebody who wants to fund *before* they
+   * write. For them `/funding` was a dead end: it explained what a deposit is
+   * for and offered no way to have one, and the only route to an address was to
+   * start a quest draft — a strange thing to demand of a person who has just
+   * decided to pay. **Funding is a commitment of the same kind as drafting**, so
+   * pressing this is exactly the act `#455`'s rule was waiting for.
+   *
+   * ## A `POST`, and never a page load
+   *
+   * A `GET` that creates a row is how signing in to look around starts
+   * manufacturing citizens again, which is precisely what `#455` refused. So
+   * this is a button somebody pressed, and `GET /funding` above still passes
+   * `create: false`.
+   *
+   * ## Idempotent, and it costs nothing to be
+   *
+   * `identity` answers an existing identity before it opens one, and
+   * `POST /v1/deposits/address` returns the first address on every later call.
+   * Pressing twice is one identity and one address, so the ordinary
+   * post-redirect-get applies and a refresh is harmless.
+   *
+   * ## Nothing about `#266` is bypassed
+   *
+   * The identity is made; the *address* is still refused until somebody has
+   * followed the sign-in link, because that refusal lives in `depositAddressFor`
+   * and this route does not go near it. `/funding` then says to open the mail.
+   */
+  app.post('/funding/identity', async (request, reply) => {
+    const held = await identity(request, reply, { create: true })
+    if (held === null) return reply
+
+    /**
+     * **A `303` back to the page**, not a render.
+     *
+     * Nothing here is shown once — unlike `#459`'s adoption code, which is why
+     * that route renders directly — so the ordinary post-redirect-get is right:
+     * a refresh must not re-post, and the address a person came for is assembled
+     * by the route that already assembles it rather than by a second copy of it
+     * here.
+     */
+    return wantsHtml(request)
+      ? reply.status(303).header('location', '/funding').send()
+      : reply.status(200).send({ identity: String(held.id) })
   })
 
   /**

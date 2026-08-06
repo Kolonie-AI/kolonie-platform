@@ -298,3 +298,146 @@ describe('the funding page', () => {
     expect((await funding(cookie)).body).toContain('<a href="/funding">Funding</a>')
   })
 })
+
+/**
+ * Funding before writing anything (`#469`).
+ *
+ * `#455` creates the person's identity at the first quest draft so that signing
+ * in to look around does not manufacture empty citizens. That left somebody who
+ * wants to *pay* first with a dead end, and the fix is a second door rather than
+ * a change to the first: an explicit action on this page, never a page load.
+ */
+describe('creating the identity that holds the money', () => {
+  const create = (cookie: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/funding/identity',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+    })
+
+  it('offers an action that says what it makes', async () => {
+    const cookie = await signedInCookie()
+
+    const body = (await funding(cookie)).body
+
+    expect(body).toContain('<form method="post" action="/funding/identity">')
+    expect(body).toContain('Create my account and show my deposit address')
+    // Not *create an account* on its own: they have one, they signed in with it.
+    expect(body).toContain('You already have an account here')
+    expect(body).toContain('holds the money')
+  })
+
+  it('creates one when the action is taken, and shows the address', async () => {
+    const cookie = await signedInCookie()
+    expect(await humans.sponsorAgent(theHuman().id)).toBeUndefined()
+
+    const posted = await create(cookie)
+
+    expect(posted.statusCode).toBe(303)
+    expect(posted.headers['location']).toBe('/funding')
+
+    const held = await humans.sponsorAgent(theHuman().id)
+    expect(held).toBeDefined()
+
+    const body = (await funding(cookie)).body
+    expect(body).toContain('Your deposit address')
+    // `#460`'s warnings, unchanged and still above it.
+    expect(body).toContain('Send only USDC, on Solana')
+    expect(body.indexOf('Send only USDC')).toBeLessThan(body.indexOf('Your deposit address'))
+  })
+
+  /**
+   * **The rejection case, and it is the whole of `#455`'s rule.** A `GET` that
+   * creates a row is how signing in to look around starts manufacturing
+   * citizens again.
+   */
+  it('creates nothing on a page load, however many times it is loaded', async () => {
+    const cookie = await signedInCookie()
+
+    await funding(cookie)
+    await funding(cookie)
+
+    expect(await humans.sponsorAgent(theHuman().id)).toBeUndefined()
+    // And nothing was generated on the deposit side either.
+    expect(await deposits.watched()).toHaveLength(0)
+  })
+
+  it('is idempotent: pressing twice is one identity and one address', async () => {
+    const cookie = await signedInCookie()
+
+    await create(cookie)
+    const first = await humans.sponsorAgent(theHuman().id)
+    await create(cookie)
+    const second = await humans.sponsorAgent(theHuman().id)
+
+    expect(first).toBeDefined()
+    expect(String(second?.id)).toBe(String(first?.id))
+    await funding(cookie)
+    expect(await deposits.watched()).toHaveLength(1)
+  })
+
+  /** `#455`'s first door is untouched: a quest draft still makes the identity. */
+  it('leaves the quest-draft trigger alone', async () => {
+    const cookie = await signedInCookie()
+
+    const drafted = await app.inject({
+      method: 'POST',
+      url: '/quests',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: 'title=&brief=&questions=&capacity=&pricePerReport=',
+    })
+
+    // Whatever the form makes of an empty draft, the identity behind it exists —
+    // which is the half of `#455` this issue must not have moved.
+    expect(drafted.statusCode).not.toBe(404)
+    expect(await humans.sponsorAgent(theHuman().id)).toBeDefined()
+  })
+
+  /**
+   * **`#266` is not bypassed.** The identity is made and the *address* is still
+   * refused until somebody has followed the sign-in link — and the page says so
+   * rather than repeating the offer it has already honoured.
+   */
+  it('still refuses the address to an unconfirmed sign-up address', async () => {
+    const cookie = await signedInCookie()
+    await create(cookie)
+    const held = await humans.sponsorAgent(theHuman().id)
+    if (held === undefined) throw new Error('no identity was created')
+    deposits.leaveUnconfirmed(held.id)
+
+    const body = (await funding(cookie)).body
+
+    expect(body).not.toContain('Your deposit address')
+    expect(body).toContain('Open the mail first')
+    // Not the offer again, and not the quest detour: neither would help.
+    expect(body).not.toContain('Create my account and show my deposit address')
+  })
+
+  it('is not reachable without a session', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/funding/identity',
+      headers: { host: CONSOLE_HOST, accept: 'text/html' },
+    })
+
+    expect(response.statusCode).toBe(404)
+    expect(humans.people()).toHaveLength(0)
+  })
+
+  /** No JavaScript, which is what makes a plain form the only shape available. */
+  it('adds no script to the page', async () => {
+    const cookie = await signedInCookie()
+
+    expect((await funding(cookie)).body).not.toContain('<script')
+  })
+})

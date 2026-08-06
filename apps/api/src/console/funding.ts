@@ -48,13 +48,23 @@ import { absolute } from './time.js'
 export interface FundingPageInput {
   readonly zone: string
   /**
-   * The address, or `undefined` when this person has no identity yet (`#455`).
+   * The address, or `undefined` when there is not one to show yet.
    *
    * **Absent is the ordinary first visit**, not an error: an identity is created
-   * at the first quest draft, so somebody who has only signed in has nothing to
-   * fund. The page says what a deposit is for instead of showing a blank.
+   * at the first quest draft (`#455`) or on this page's own action (`#469`), so
+   * somebody who has only signed in has nothing to fund yet.
    */
   readonly address?: string | undefined
+  /**
+   * Why there is no address, when there is none (`#469`).
+   *
+   * **Two absences that need different sentences**, and before this they shared
+   * one. *No identity* is answered by a button on this page; *identity, address
+   * not confirmed* is `#266`'s refusal and is answered by opening the mail. A
+   * person in the second state who is told to start a quest would start one and
+   * arrive back here with the same blank.
+   */
+  readonly without?: 'identity' | 'confirmation' | undefined
   readonly balance: {
     readonly available: number
     readonly reserved: number
@@ -117,15 +127,55 @@ export function fundingPage(input: FundingPageInput): string {
    */
   const address =
     input.address === undefined
-      ? [
-          '<h2>Nothing to fund yet</h2>',
-          '<p>The identity you write quests through is created the first time you write one. ' +
-            '<a href="/quests/new">Start a quest</a> and this page will have an address for it.</p>',
-          '<p>A deposit is what pays citizens for the reports a quest buys: you fund it, the ' +
-            'Colony holds the money while the quest runs, and each accepted report is paid out ' +
-            'of it. What a quest costs is its capacity times its price per report, and the form ' +
-            'computes it as you type.</p>',
-        ]
+      ? input.without === 'confirmation'
+        ? /**
+           * `#266`, said as the thing to do about it (`#469`).
+           *
+           * The identity exists and the Colony is refusing it an address until
+           * somebody has followed the sign-in link. Telling this person to start
+           * a quest — which is what this page used to say to everybody without
+           * an address — sends them off to do something that will not help and
+           * lands them back here with the same blank.
+           */
+          [
+            '<h2>Open the mail first</h2>',
+            '<p>Nothing can be funded until the address this account was opened with has been ' +
+              'confirmed. Follow the sign-in link that was mailed to it, come back, and the ' +
+              'address will be here.</p>',
+            '<p class="note">This is deliberate rather than a delay: an account nobody has ' +
+              'proved they can read is not one the Colony will take money for.</p>',
+          ]
+        : /**
+           * The second door into `#455`'s rule (`#469`).
+           *
+           * `#455` creates the identity at the first quest draft so that signing
+           * in to look around does not manufacture empty citizens and distort
+           * the counts the Colony publishes. That reasoning is untouched. What
+           * it did not anticipate is somebody who wants to fund *before* they
+           * write — and demanding a quest draft of a person who has just decided
+           * to pay is a strange thing to ask.
+           *
+           * **A `POST` and a button, never a page load.** A `GET` that creates a
+           * row is exactly how signing in to look around starts manufacturing
+           * citizens again.
+           */
+          [
+            '<h2>Nothing to fund yet</h2>',
+            '<p>A deposit is what pays citizens for the reports a quest buys: you fund it, the ' +
+              'Colony holds the money while the quest runs, and each accepted report is paid ' +
+              'out of it. What a quest costs is its capacity times its price per report.</p>',
+            '<p>The money is held by an <strong>identity</strong> — the one you write quests ' +
+              'through. You do not have one yet: it is made the first time you write a quest, ' +
+              'or here, if you would rather pay first.</p>',
+            '<form method="post" action="/funding/identity">' +
+              '<button type="submit">Create my account and show my deposit address</button>' +
+              '</form>',
+            '<p class="note">You already have an account here — this makes the identity that ' +
+              'holds the money, and it is yours. Pressing it twice changes nothing: there is ' +
+              'one of these and one address, however many times you ask.</p>',
+            '<p class="note">Or <a href="/quests/new">start a quest</a> instead, which makes ' +
+              'the same identity on the way.</p>',
+          ]
       : [
           '<h2>Your deposit address</h2>',
           `<p><input readonly value="${escape(input.address)}" size="48" aria-label="Your deposit address"></p>`,

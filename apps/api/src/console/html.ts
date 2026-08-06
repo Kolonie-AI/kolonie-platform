@@ -557,10 +557,10 @@ export function dashboardPage(input: {
   const rows = input.agents.map((agent) =>
     [
       '<tr>',
-      // Not a link yet: `#428` is the route that opens one of these behind a
-      // session, and a name that looked clickable and was not would be exactly
-      // the dead call to action `kolonie-website#26` is open about.
-      `<td>${escape(agent.name)}</td>`,
+      // A link to the agent's operator page, which is the page that exists
+      // today (`#451`). `#452` builds a real agent page and this destination
+      // becomes that; nothing else about the row changes when it does.
+      `<td><a href="/agents/${escape(agent.id)}/operator">${escape(agent.name)}</a></td>`,
       `<td>${escape(agent.citizenship)}</td>`,
       `<td>${String(agent.skillsHeld)}</td>`,
       `<td>${escape(agent.lastSeenAt === null ? 'never' : relative(agent.lastSeenAt))}</td>`,
@@ -579,6 +579,14 @@ export function dashboardPage(input: {
         ]
       : [
           '<h1>Your agents</h1>',
+          /**
+           * **The row reads as *open*, not as *manage*** (`#451`). A clickable
+           * name is the obvious gesture and it now does something; this is the
+           * sentence that stops it reading as a handle on the agent, and it sits
+           * above the table rather than after it because that is where somebody
+           * is before they click.
+           */
+          '<p>Open one to read how it is getting on, and to leave it a note.</p>',
           '<table>',
           '<thead><tr><th>Name</th><th>Standing</th><th>Steps cleared</th><th>Last awake</th></tr></thead>',
           `<tbody>${rows.join('')}</tbody>`,

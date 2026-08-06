@@ -601,6 +601,49 @@ describe('the dashboard and the link code', () => {
     expect(response.body).not.toContain('No agents yet')
   })
 
+  /**
+   * **The obvious gesture now does something** (`#451`).
+   *
+   * `dashboardPage` used to carry a comment explaining that a name was not a
+   * link because `#428` had not landed and a dead call to action would be worse
+   * than plain text. `#428` landed, and the code had not been told.
+   */
+  describe('a name on the dashboard opens the agent', () => {
+    const agentId = '33333333-3333-4333-8333-333333333333' as never
+
+    beforeEach(async () => {
+      await post('/link/code')
+      await humans.redeemAsAgent('TEST-0001', agentId)
+    })
+
+    it('links the name to the page that exists today', async () => {
+      const body = (await signedIn('/')).body
+
+      expect(body).toContain(`href="/agents/${agentId}/operator"`)
+    })
+
+    /**
+     * **It must not read as a handle on the agent.** The dashboard's own rule —
+     * *a window rather than a control panel* — is what a clickable name is most
+     * likely to make somebody doubt, so it stays on the page and the row says
+     * *open* rather than *manage*.
+     */
+    it('still says what linking does not give you', async () => {
+      const body = (await signedIn('/')).body
+
+      expect(body).toContain('a window rather than a control panel')
+      expect(body).toContain('Open one to read how it is getting on')
+      expect(body).not.toContain('Manage')
+    })
+
+    /** And the link is worth nothing without the session it was rendered behind. */
+    it('is not reachable without a session', async () => {
+      const response = await asBrowser(`/agents/${agentId}/operator`)
+
+      expect(response.statusCode).toBe(404)
+    })
+  })
+
   it('links an agent whose code the person types in', async () => {
     const agentId = '22222222-2222-4222-8222-222222222222' as never
     const issued = await humans.issueCodeForAgent(agentId)

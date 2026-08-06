@@ -1081,7 +1081,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
     const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
-    const [balance, open, own, quests] = await Promise.all([
+    const [balance, open, own, quests, written] = await Promise.all([
       deps.quests.balance(operated.agentId),
       /**
        * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
@@ -1105,6 +1105,13 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * own quest pages read rather than a query written for this page.
        */
       deps.quests.takenPartIn(operated.agentId),
+      /**
+       * Quests this agent wrote (`#466`), from `listOwn` — the same store the
+       * person's own `/quests` page reads, keyed on `createdBy`. One store, two
+       * readers, and the separation from `takenPartIn` above is the store's
+       * rather than this route's.
+       */
+      deps.quests.listOwn(operated.agentId),
     ])
 
     const view = {
@@ -1131,6 +1138,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         title: quest.title,
         at: quest.at,
         outcome: quest.outcome,
+      })),
+      questsWritten: written.map((quest) => ({
+        questId: String(quest.task.id),
+        title: quest.task.title,
+        status: quest.awaitingModeration ? 'awaiting moderation' : quest.task.status,
       })),
     }
 

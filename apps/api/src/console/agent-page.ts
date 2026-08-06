@@ -25,13 +25,27 @@
  * figure is not on the table. This page is CSS and server-rendered HTML, and it
  * uses the shared tokens so `scripts/check-theme-drift.mjs` keeps passing.
  *
- * ## Quests are absent on purpose
+ * ## Both halves of quests are here now (`#454`, `#466`)
  *
- * `#454` adds them. Which quests an agent solved is available; which it
- * *created* depends on a sponsor model that is not settled, and holding this
- * page for that question would trade a page that helps today for one that has
- * been deliberately postponed. There is **no** empty "Quests" heading here — a
- * section that promises what it cannot deliver is worse than its absence.
+ * `#454` added what this agent *answered*. `#466` waited on one sentence, and
+ * the sentence is: **a quest belongs to the identity that wrote it, and a
+ * human's list is what they can reach rather than what they own.**
+ *
+ * That resolves the overlap `#456` created. The same quest appears in two places
+ * and is one quest in both, because the human's `/quests` list already carries
+ * an **author** column naming which identity wrote each row — so an agent's
+ * quest there reads as *this agent's quest, which I can see*, and here it reads
+ * as the same thing from the other side. Nothing is duplicated because nothing
+ * claims ownership twice.
+ *
+ * Two consequences worth stating, because the opposite of each is the tempting
+ * version:
+ *
+ * - **Not "your quests written through this agent".** `#457` settled that a
+ *   human may read an agent's quest and not change it, and a possessive here
+ *   would contradict a page whose own rule is that it is a window.
+ * - **Still no placeholder.** `#454`'s rule holds: the block appears when the
+ *   agent has written something, and not as an empty heading.
  */
 
 import type { OperatorPageView } from '@kolonie-ai/db'
@@ -72,6 +86,20 @@ export interface AgentPageInput {
     readonly at: string
     readonly outcome: string
   }[]
+  /**
+   * Quests this agent **wrote** (`#466`), newest first.
+   *
+   * Keyed on `createdBy` in the store, which is what keeps the two quest blocks
+   * on this page from being one query with a flag — *answered* and *wrote* are
+   * different rows about different agents, and the store already separates them.
+   */
+  readonly questsWritten?:
+    | readonly {
+        readonly questId: string
+        readonly title: string
+        readonly status: string
+      }[]
+    | undefined
   /** This agent is the person reading the page — the `You` row (`#455`). */
   readonly you?: boolean | undefined
   /**
@@ -279,6 +307,42 @@ export function agentPage(input: AgentPageInput): string {
           '</table>',
         ]
 
+  /**
+   * What this agent **wrote** (`#466`), as distinct from what it answered above.
+   *
+   * **The heading is "Quests it wrote" and not "your quests"**, which is the
+   * whole of the decision this block waited on: the quest belongs to the
+   * identity that wrote it, and this page is a window onto that identity rather
+   * than a claim on it.
+   *
+   * **No empty heading**, which is `#454`'s rule and the reason this block did
+   * not ship with the one above.
+   */
+  const written =
+    input.questsWritten === undefined || input.questsWritten.length === 0
+      ? []
+      : [
+          '<h2>Quests it wrote</h2>',
+          '<table>',
+          '<thead><tr><th>Quest</th><th>Status</th></tr></thead>',
+          '<tbody>',
+          ...input.questsWritten.map(
+            (quest) =>
+              '<tr>' +
+              `<td><a href="/quests/${escape(quest.questId)}">${escape(quest.title)}</a></td>` +
+              `<td>${escape(quest.status)}</td>` +
+              '</tr>',
+          ),
+          '</tbody>',
+          '</table>',
+          // The same rows appear in the person's own list with this agent named
+          // in the author column, which is what makes them one quest in two
+          // places rather than two quests.
+          '<p class="note">These also appear in <a href="/quests">your quests</a>, listed under ' +
+            'this agent\u2019s name. They are its quests: you can read them and you cannot ' +
+            'change them.</p>',
+        ]
+
   const accounts =
     input.facts.accounts.length === 0
       ? []
@@ -353,6 +417,7 @@ export function agentPage(input: AgentPageInput): string {
     ...rungs,
     ...activity,
     ...quests,
+    ...written,
     ...accounts,
     ...adoption,
     /**

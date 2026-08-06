@@ -280,7 +280,12 @@ describe('the migrations', () => {
     // verdict, so two tables that are 80 % alike are cheaper to read than one
     // with a channel column and eight *null on the other channel* comments in
     // it. `sms_sends` beside it is the spend ledger and predates this (`#409`).
-    expect(afterFirst.tables).toBe('77')
+    //
+    // **Seventy-eight** (`#459`): `agent_adoption_codes` — the single-use code
+    // that hands the identity a person started a quest on to an agent. Its own
+    // table rather than a second direction on `human_link_codes`, because a
+    // link code names a relationship and this one is worth the account.
+    expect(afterFirst.tables).toBe('78')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

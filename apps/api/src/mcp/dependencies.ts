@@ -37,6 +37,7 @@ import type { OperatorNoteDependencies } from '../operator-notes.js'
 import type { PermissionReportDependencies } from '../permission-reports.js'
 import type { CredentialRotation } from '../rotation.js'
 import type { TaskCatalogue } from '../tasks.js'
+import type { AdoptionDesk } from '../adoption.js'
 import type { DropStore } from '../operator-drops.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
@@ -62,6 +63,15 @@ export interface McpDependencies {
    * door that silently stopped counting. Required, so the compiler asks.
    */
   readonly caller: Caller
+  /**
+   * Handing a person's identity to an agent (`#459`).
+   *
+   * Beside the registry rather than inside it, because the two are opposites
+   * under a similar surface — see `adoption.ts`. Optional so that a deployment
+   * or a test that wires no console can still build the server; the tool is
+   * simply not registered, which is D-013's way of switching a surface off.
+   */
+  readonly adoption?: AdoptionDesk
   readonly store: AgentStore
   readonly catalogue: TaskCatalogue
   readonly submissions: TaskSubmissions

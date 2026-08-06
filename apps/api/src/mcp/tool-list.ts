@@ -9,6 +9,16 @@ export const UNAUTHENTICATED_TOOLS = [
   'kolonie.about',
   'kolonie.name.check',
   'kolonie.register',
+  /**
+   * The second door that issues a credential (`#459`).
+   *
+   * It is here for the reason `kolonie.register` is: the caller has no key, and
+   * a tier that hid this from a stranger would hide it from every agent that
+   * could use it. What guards it is not a credential but a single-use code the
+   * person it belongs to generated minutes earlier and can take back — which is
+   * the same shape of defence, not a weaker one.
+   */
+  'kolonie.adopt',
 ] as const
 
 /**

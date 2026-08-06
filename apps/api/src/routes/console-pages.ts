@@ -1053,12 +1053,20 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * **Nothing here writes to the agent.** The only write that may ever appear on
    * this page is the operator note `#453` folds in.
    */
-  app.get('/agents/:agentId', async (request, reply) => {
-    if (!(await guard(request, reply))) return reply
-
-    const operated = await operatedAgent(request, reply)
-    if (operated === null) return reply
-
+  /**
+   * One agent's page, built once and reachable from two routes (`#459`).
+   *
+   * The hand-over code is shown exactly once, so the `POST` that mints it has to
+   * render this page directly rather than redirect to it. Two assemblies of the
+   * same page would be two answers to *what does an operator see*, and the one
+   * that drifted would be the one nobody loads by hand.
+   */
+  const renderAgentPage = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operated: { readonly agentId: AgentId; readonly humanId: HumanId },
+    issued?: { readonly code: string; readonly expiresAt: string },
+  ) => {
     const held = await deps.autonomy.pages.factsOf(operated.agentId)
     if (held === null) return consoleNotFound(reply, request)
 
@@ -1126,7 +1134,30 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       })),
     }
 
-    if (!wantsHtml(request)) return reply.send(view)
+    /**
+     * The hand-over section, and only on the person's own identity (`#459`).
+     *
+     * `liveAdoptionCode` answers `undefined` once a code has been used, so an
+     * identity an agent has already adopted shows the *Generate* button — which
+     * would be wrong. `issueAdoptionCode` refuses it, but a button whose only
+     * answer is a refusal is the thing D-013 refuses to build, so the section is
+     * absent for an identity that holds a key at all.
+     */
+    const adoption =
+      view.you && !(await deps.humans.store.identityHoldsKey(operated.agentId))
+        ? {
+            ...(issued === undefined ? {} : { issued }),
+            ...(issued !== undefined
+              ? {}
+              : await deps.humans.store
+                  .liveAdoptionCode(operated.agentId)
+                  .then((live) => (live === undefined ? {} : { live }))),
+          }
+        : undefined
+
+    if (!wantsHtml(request)) {
+      return reply.send({ ...view, ...(adoption === undefined ? {} : { adoption }) })
+    }
 
     /**
      * **The operator section is HTML, so it is built only for the HTML
@@ -1138,6 +1169,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       reply,
       agentPage({
         ...view,
+        ...(adoption === undefined ? {} : { adoption }),
         ...(token === undefined || door === null
           ? {}
           : {
@@ -1151,6 +1183,74 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             }),
       }),
     )
+  }
+
+  app.get('/agents/:agentId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentPage(request, reply, operated)
+  })
+
+  /**
+   * Issue a code that hands this identity to an agent (`#459`).
+   *
+   * **It renders the page rather than redirecting to it**, which is the one
+   * place this route differs from `/link/code` beside it. That one redirects
+   * because the dashboard can re-show its code; this one cannot — the code is
+   * shown once, and a `303` would send the person to a page that no longer has
+   * it.
+   *
+   * **Only on their own identity**, and the check is here rather than only in
+   * the page: `operatedAgent` proves the person operates this agent, which is
+   * true of every agent they have linked, and handing over one of *those* is not
+   * this feature. The identity has to be the one the console acts as.
+   */
+  app.post('/agents/:agentId/adopt-code', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const own = await deps.humans.store.sponsorAgent(operated.humanId)
+    if (own === undefined || String(own.id) !== String(operated.agentId)) {
+      return consoleNotFound(reply, request)
+    }
+
+    const issued = await deps.humans.store.issueAdoptionCode(operated.agentId)
+
+    if (issued.outcome === 'refused') return consoleNotFound(reply, request)
+
+    return wantsHtml(request)
+      ? renderAgentPage(request, reply, operated, issued.code)
+      : reply.status(200).send(issued.code)
+  })
+
+  /** Take a live code back before an agent has used it (`#459`). */
+  app.post('/agents/:agentId/adopt-code/revoke', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const own = await deps.humans.store.sponsorAgent(operated.humanId)
+    if (own === undefined || String(own.id) !== String(operated.agentId)) {
+      return consoleNotFound(reply, request)
+    }
+
+    const revoked = await deps.humans.store.revokeAdoptionCode(operated.agentId)
+
+    // A `303` here and not on the issue route: there is nothing to show once,
+    // so the ordinary post-redirect-get applies and a refresh must not revoke
+    // again.
+    return wantsHtml(request)
+      ? reply
+          .status(303)
+          .header('location', `/agents/${String(operated.agentId)}`)
+          .send()
+      : reply.status(200).send({ revoked })
   })
 
   app.get('/agents/:agentId/operator', async (request, reply) => {

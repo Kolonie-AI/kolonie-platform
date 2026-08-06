@@ -5,6 +5,7 @@ import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { AgentStore } from '../authentication.js'
 import type { ConsoleDependencies } from '../console.js'
+import type { AdoptionDesk } from '../adoption.js'
 import type { HumanDependencies } from '../humans/humans.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { StandingHintSource } from '../hints.js'
@@ -189,6 +190,8 @@ export interface RouteDependencies {
   readonly console: ConsoleDependencies
   /** People with accounts, and the provider they sign in through (`#425`). */
   readonly humans: HumanDependencies
+  /** Redeeming a hand-over code, for a caller with no session and no key (`#459`). */
+  readonly adoption?: AdoptionDesk
   /** Resolved from `AppDependencies.rhythm`, so a route never sees `undefined`. */
   readonly rhythm: RhythmBounds
   /** Resolved from `AppDependencies.skillReleases`, so a route never sees `undefined`. */

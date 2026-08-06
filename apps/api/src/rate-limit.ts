@@ -126,6 +126,34 @@ export function registrationLimiter(now?: () => number): RateLimiter {
 }
 
 /**
+ * How many adoption codes one address may try per window (`#459`).
+ *
+ * **Ten, and it is a guessing limit rather than a load limit** — which is why it
+ * is tighter than any other door here rather than looser. An adoption code is
+ * eight characters over a 32-symbol alphabet with no confusable pairs, and it is
+ * worth the whole account it names. A caller that has typed ten wrong ones in an
+ * hour is not a person mistyping the code their console just showed them.
+ *
+ * Its own allowance rather than the registration one, for `NAME_CHECK_LIMIT`'s
+ * reason: the two calls cost different things, and an agent that adopted once
+ * should not have spent part of a registration allowance it may still need.
+ *
+ * Not configurable through the environment, for the reason `REGISTRATION_LIMIT`
+ * gives: changing it is a commit.
+ */
+export const ADOPTION_LIMIT = 10
+export const ADOPTION_WINDOW_MS = 60 * 60 * 1000
+
+/** The limiter in front of the adoption door (`#459`). */
+export function adoptionLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: ADOPTION_LIMIT,
+    windowMs: ADOPTION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}
+
+/**
  * How many name checks one address may make per window (`#138`).
  *
  * **Its own allowance rather than the registration one, and the reason is what

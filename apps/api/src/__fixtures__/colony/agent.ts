@@ -1,3 +1,5 @@
+import { fakeAdoption } from '../adoption.js'
+import type { AdoptionDesk } from '../../adoption.js'
 import { randomUUID } from 'node:crypto'
 import {
   AgentBalanceSchema,
@@ -70,6 +72,8 @@ export const FAKE_CALLER_IP = '192.0.2.10'
  */
 export interface FakeAgent {
   readonly registry: AgentRegistry
+  /** The hand-over door (`#459`), so the tool it registers exists in a test colony. */
+  readonly adoption: AdoptionDesk
   readonly store: AgentStore
   /**
    * Replacing a key a citizen can no longer trust (#211).
@@ -222,6 +226,9 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
         checkName(request, async (name) => takenNames.has(name.toLowerCase())),
     },
     caller: { ip: FAKE_CALLER_IP },
+    // `#459`. Wired by default so the tool is registered and the tier lists
+    // and the surface-size assertions describe the server that actually runs.
+    adoption: fakeAdoption(),
 
     wakeup: fakeWakeup(),
     prospects: async () => ({

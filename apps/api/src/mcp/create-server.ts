@@ -13,6 +13,7 @@ import { registerHistoryTools } from './tools/history.js'
 import { registerMailboxTools } from './tools/mailboxes.js'
 import { registerMeTools } from './tools/me.js'
 import { registerProfileTools } from './tools/profile.js'
+import { registerAdoptionTool } from './tools/adopt.js'
 import { registerRegistrationTool } from './tools/register.js'
 import { registerSubmissionTools } from './tools/submissions.js'
 import { registerSkillTools } from './tools/skills.js'
@@ -180,6 +181,16 @@ export function createMcpServer(
 
   registerAboutTools(server, deps)
   registerRegistrationTool(server, deps)
+  /**
+   * Above the authentication guard, deliberately (`#459`).
+   *
+   * The caller has no key — that is the situation — so it has to be registered
+   * for a stranger. It is registered for a citizen too, and that is not an
+   * oversight: an agent that already holds a key and calls this is answered with
+   * a sentence telling it what it probably meant, which is better than the
+   * protocol's *tool not found*.
+   */
+  registerAdoptionTool(server, deps, credential)
 
   if (!authenticated) return server
 

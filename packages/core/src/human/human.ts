@@ -136,6 +136,24 @@ export const OAUTH_HANDOVER_MS = 10 * 60 * 1000
  */
 export const HUMAN_LINK_CODE_TTL_MS = 3 * 24 * 60 * 60 * 1000
 
+/**
+ * How long an adoption code lives (`#459`).
+ *
+ * **One hour, where a link code gets three days, and the difference is the
+ * point.** The paragraph above is right about the situation it describes: an
+ * operator answers between two of a scheduled agent's runs, so five minutes
+ * would be wrong. This is the other situation — a person at the console who has
+ * just decided that finishing the quest is work for an agent, handing the code
+ * straight to one that is running.
+ *
+ * The two values are also not worth the same. A leaked link code names a
+ * relationship the person can undo from their console; a leaked adoption code
+ * **is** the account — its quests, its balance, its escrow. Where the exposure
+ * window is the defence that costs an honest user nothing, it is the one that
+ * should be short.
+ */
+export const ADOPTION_CODE_TTL_MS = 60 * 60 * 1000
+
 /** One agent as its operator sees it in the list `#427` renders. */
 export const LinkedAgentSchema = z.object({
   id: AgentIdSchema,

@@ -35,6 +35,7 @@ import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from '
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseSmsChallenges } from './sms.js'
 import { countSmsSentInTotal, countSmsSentToAgent, recordSmsSend } from '@kolonie-ai/db'
+import { redeemAdoptionCode } from '@kolonie-ai/db'
 import { guardedSmsSender, twilioAdapter } from '@kolonie-ai/verifiers'
 import type { SmsSendRecord } from '@kolonie-ai/verifiers'
 import { mailerFromEnv } from './mail-config.js'
@@ -371,6 +372,12 @@ const autonomyStore = databaseAutonomyStore(db)
 
 const app = buildApp({
   registry: databaseRegistry(db),
+  /**
+   * The redemption side of the hand-over (`#459`). Its own desk rather than a
+   * method on the registry: registration creates an identity and this takes one
+   * over, and `adoption.ts` argues why those must not share a code path.
+   */
+  adoption: { redeem: (input) => redeemAdoptionCode(db, input) },
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
   /**

@@ -1,3 +1,4 @@
+import { fakeAdoption } from './adoption.js'
 import { fakeArtefactChallenges } from './artefact.js'
 import { DEFAULT_RHYTHM_BOUNDS, type AgentId } from '@kolonie-ai/core'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -166,6 +167,9 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     vetting: fakeVetting(),
     authenticator: fakeAuthenticator(),
     caller: { ip: FAKE_CALLER_IP },
+    // `#459`. Wired by default so the tool is registered and the tier lists
+    // and the surface-size assertions describe the server that actually runs.
+    adoption: fakeAdoption(),
   })
 
 export const aNarrative = (content: string) => ({

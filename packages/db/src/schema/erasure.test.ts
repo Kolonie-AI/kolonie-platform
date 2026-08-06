@@ -868,6 +868,13 @@ describe('the erasure boundary', () => {
        * somebody did, outliving the somebody, is the residue `erasure.md` §4
        * rules out — and nothing aggregates badges, so nothing loses meaning.
        */
+      /**
+       * An outstanding hand-over code (`#459`). Cascades for `human_link_codes`'
+       * reason and one degree more strongly: a live code that outlived the
+       * citizen it names would be a value somebody could still redeem against
+       * an account with nobody in it.
+       */
+      'agent_adoption_codes.agent_id c',
       'agent_badges.agent_id c',
       'agent_contacts.agent_id c',
       // #139. Cascades, and it has to: a declaration history is a timeline of

@@ -21,7 +21,13 @@ import {
   agentsOperatedBy,
   findOrCreateHuman,
   issueCodeForAgent,
+  identityHoldsKey,
+  issueAdoptionCode,
   issueCodeForHuman,
+  liveAdoptionCode,
+  revokeAdoptionCode,
+  type AdoptionIssueOutcome,
+  type LiveAdoptionCode,
   liveCodeForHuman,
   listHumanSessions,
   openHumanSession,
@@ -103,6 +109,20 @@ export interface HumanStore {
     name: string
     address?: string | undefined
   }): Promise<OpenSponsorOutcome>
+  /**
+   * Hand an identity to an agent (`#459`).
+   *
+   * On this store rather than on a desk of its own, because every caller of the
+   * three is a console route that has just resolved a person and the identity
+   * they hold — which is exactly what this store is for. The *redemption* side
+   * is not here: it is called by an agent that has no person and no session, and
+   * it lives on `AdoptionDesk` for that reason.
+   */
+  issueAdoptionCode(agentId: Agent['id']): Promise<AdoptionIssueOutcome>
+  liveAdoptionCode(agentId: Agent['id']): Promise<LiveAdoptionCode | undefined>
+  /** Has this identity been handed over already, or was it never a browser's? */
+  identityHoldsKey(agentId: Agent['id']): Promise<boolean>
+  revokeAdoptionCode(agentId: Agent['id']): Promise<number>
 }
 
 export interface HumanDependencies {
@@ -249,6 +269,10 @@ export function databaseHumanStore(db: Database): HumanStore {
     unreachableIdentities: (humanId) => humanUnreachableIdentities(db, humanId),
     sponsorAgent: (humanId) => sponsorAgentOf(db, humanId),
     openSponsor: (request) => openSponsorIdentity(db, request),
+    issueAdoptionCode: (agentId) => issueAdoptionCode(db, agentId),
+    liveAdoptionCode: (agentId) => liveAdoptionCode(db, agentId),
+    identityHoldsKey: (agentId) => identityHoldsKey(db, agentId),
+    revokeAdoptionCode: (agentId) => revokeAdoptionCode(db, agentId),
   }
 }
 

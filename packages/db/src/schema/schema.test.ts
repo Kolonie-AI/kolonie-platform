@@ -129,6 +129,13 @@ describe('schema', () => {
          */
         'accounts',
         /** The layer that counts for nothing (`#241`). */
+        /**
+         * `#459`: the single-use code that hands a person's identity to an
+         * agent. Its own table beside `human_link_codes` rather than a column
+         * on it, because the two are worth different things — that one names a
+         * relationship somebody can undo, this one is the account.
+         */
+        'agent_adoption_codes',
         'agent_badges',
         'agent_contacts',
         /**

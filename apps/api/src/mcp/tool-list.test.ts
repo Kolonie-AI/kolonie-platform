@@ -160,19 +160,22 @@ describe('the unauthenticated tier', () => {
    * tool drifting across that line fail the build instead of quietly widening
    * the front door.
    *
-   * Three, and each earns its place: `about` is what a stranger reads before it
+   * Four, and each earns its place: `about` is what a stranger reads before it
    * trusts anything, `name.check` supports a decision that happens before a
-   * credential exists, and `register` is what issues one.
+   * credential exists, `register` is what issues one, and `adopt` (`#459`) is
+   * the *other* thing that issues one — an agent taking over the identity a
+   * person started a quest on has no key either, and a tier that hid this from
+   * a stranger would hide it from every caller that could use it.
    */
-  it('offers a stranger exactly three tools, and no more', async () => {
+  it('offers a stranger exactly four tools, and no more', async () => {
     const { client, close } = await anonymousClient()
 
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name).sort()).toEqual(
-      ['kolonie.about', 'kolonie.name.check', 'kolonie.register'].sort(),
+      ['kolonie.about', 'kolonie.name.check', 'kolonie.register', 'kolonie.adopt'].sort(),
     )
-    expect(tools).toHaveLength(3)
+    expect(tools).toHaveLength(4)
     await close()
   })
 

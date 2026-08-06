@@ -48,6 +48,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     social,
     operatorClaim,
     humans,
+    adoption,
     autonomy,
     domain,
     artefact,
@@ -192,6 +193,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // unanticipated fault stays one line.
           log: (message, detail) => log.error(message, detail, { event: 'mcp.tool.threw' }),
           caller: { ip: clientIp(request.headers, request.ip) },
+          // `#459`. Absent in a deployment with no console, and then the tool
+          // is simply not registered — D-013's way of switching a surface off.
+          ...(adoption === undefined ? {} : { adoption }),
           hints,
         },
         presented,

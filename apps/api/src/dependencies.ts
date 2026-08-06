@@ -4,6 +4,7 @@ import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
+import type { AdoptionDesk } from './adoption.js'
 import type { HumanDependencies } from './humans/humans.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { StandingHintSource } from './hints.js'
@@ -272,6 +273,16 @@ export interface AppDependencies {
    * link alone, which is what it offered before this existed.
    */
   readonly humans: HumanDependencies
+  /**
+   * Redeeming a hand-over code, for an agent that has no session and no key
+   * (`#459`).
+   *
+   * Beside `humans` rather than inside it, because every other method there is
+   * reached by a signed-in person and this one by an agent that is not one yet.
+   * Optional: a deployment that wires no console has nobody to hand an identity
+   * over, and the tool is then not registered at all.
+   */
+  readonly adoption?: AdoptionDesk
   /**
    * The range a citizen may declare its wake-up rhythm inside (#142).
    *

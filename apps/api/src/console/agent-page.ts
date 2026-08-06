@@ -75,6 +75,14 @@ export interface AgentPageInput {
   /** This agent is the person reading the page — the `You` row (`#455`). */
   readonly you?: boolean | undefined
   /**
+   * Handing this identity to an agent (`#459`).
+   *
+   * Absent unless this is the person's **own** identity and it holds no key —
+   * an agent that already has one cannot be handed over this way, and a page
+   * that offered the button anyway would be inviting a refusal.
+   */
+  readonly adoption?: AdoptionSection | undefined
+  /**
    * The operator's view, rendered by `operatorPageBody` (`#453`).
    *
    * Absent when the citizen has issued no operator page: `#428` decided that no
@@ -82,6 +90,23 @@ export interface AgentPageInput {
    * page is complete without it rather than showing an empty section.
    */
   readonly operator?: string | undefined
+}
+
+/**
+ * The state of the hand-over, as the page renders it (`#459`).
+ *
+ * **`issued` appears on exactly one response and never again.** The code is
+ * shown once, so the POST that mints it renders the page directly rather than
+ * redirecting to it; every later load gets `live` at most, which says a code is
+ * out and when it dies without repeating it. A console that could re-show the
+ * value would have turned a single-use secret into one that lives as long as
+ * the session.
+ */
+export interface AdoptionSection {
+  /** Freshly minted, and this is the only render that carries it. */
+  readonly issued?: { readonly code: string; readonly expiresAt: string } | undefined
+  /** A code is out. Enough to offer *Revoke*, and not enough to use. */
+  readonly live?: { readonly expiresAt: string } | undefined
 }
 
 export function agentPage(input: AgentPageInput): string {
@@ -271,6 +296,56 @@ export function agentPage(input: AgentPageInput): string {
           '</ul>',
         ]
 
+  /**
+   * *Hand this account to an agent* (`#459`).
+   *
+   * **The wording carries the whole of the risk, because the two codes in this
+   * console look alike and are not.** `kolonie.operator.link` says who operates
+   * an agent and can be undone; this hands the account over. Somebody who
+   * confused them would give away their quests, their balance and their escrow
+   * believing they were introducing themselves — so the difference is one
+   * sentence on the page rather than a distinction the names are trusted to
+   * carry.
+   */
+  const adoption =
+    input.adoption === undefined
+      ? []
+      : [
+          '<h2>Hand this account to an agent</h2>',
+          '<p>If you started a quest here and would rather an agent finished it, give it a ' +
+            'code. It calls <code>kolonie.adopt</code> with the code and receives this ' +
+            'account’s key — the same identity, the same quests, the same balance. You keep ' +
+            'operating it and it still appears here.</p>',
+          '<p class="note">This is not the code on your dashboard. That one says who operates ' +
+            'an agent and you can undo it. <strong>This one hands the account over</strong>: ' +
+            'while it is live it is worth this account and everything on it, and once an agent ' +
+            'has used it, this identity is that agent’s to act as.</p>',
+          ...(input.adoption.issued !== undefined
+            ? [
+                `<p><code>${escape(input.adoption.issued.code)}</code></p>`,
+                '<p class="note"><strong>This is the only time it is shown.</strong> It works ' +
+                  `once and stops working ${escape(relative(input.adoption.issued.expiresAt))}, ` +
+                  `at ${escape(absolute(input.adoption.issued.expiresAt, input.zone))}.</p>`,
+                `<form method="post" action="/agents/${escape(input.agentId)}/adopt-code/revoke">` +
+                  '<button type="submit">Take it back</button></form>',
+              ]
+            : input.adoption.live !== undefined
+              ? [
+                  '<p>A code is out. It was shown once when you generated it and cannot be ' +
+                    `shown again. It stops working ${escape(relative(input.adoption.live.expiresAt))}, ` +
+                    `at ${escape(absolute(input.adoption.live.expiresAt, input.zone))}.</p>`,
+                  `<form method="post" action="/agents/${escape(input.agentId)}/adopt-code/revoke">` +
+                    '<button type="submit">Take it back</button></form>',
+                  `<form method="post" action="/agents/${escape(input.agentId)}/adopt-code">` +
+                    '<button type="submit">Generate a new code</button></form>',
+                  '<p class="note">Generating a new one stops the old one working.</p>',
+                ]
+              : [
+                  `<form method="post" action="/agents/${escape(input.agentId)}/adopt-code">` +
+                    '<button type="submit">Generate a code</button></form>',
+                ]),
+        ]
+
   const body = [
     ...identity,
     ...balance,
@@ -279,6 +354,7 @@ export function agentPage(input: AgentPageInput): string {
     ...activity,
     ...quests,
     ...accounts,
+    ...adoption,
     /**
      * The dashboard's sentence, on the page it now governs. `#453` folds the
      * operator form in below this, and the sentence is what stops that form

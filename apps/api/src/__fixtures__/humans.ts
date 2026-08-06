@@ -61,6 +61,17 @@ export function fakeHumanStore(): FakeHumanStore {
   const sponsorAgents = new Map<AgentId, Agent>()
   const takenNames = new Set<string>()
 
+  /**
+   * Adoption codes, in memory (`#459`).
+   *
+   * The fake models the *answers* rather than the columns, like every other set
+   * here — but it reproduces the two rules the routes rely on: one live code per
+   * identity, and an identity that holds a key cannot be handed over. A fake
+   * that skipped the second would let a route test pass while the console
+   * offered a button whose only answer is a refusal.
+   */
+  const adoptionCodes = new Map<AgentId, { code: string; expiresAt: string }>()
+
   const key = (identity: ProviderIdentity) => `${identity.provider}|${identity.subject}`
 
   /**
@@ -237,6 +248,30 @@ export function fakeHumanStore(): FakeHumanStore {
      * the console act as*, and it must not.
      */
     sponsorAgent: async (humanId) => ownIdentityOf(humanId),
+
+    identityHoldsKey: async (agentId) => !unreachableIdentities.has(agentId),
+
+    issueAdoptionCode: async (agentId) => {
+      if (!unreachableIdentities.has(agentId)) {
+        return { outcome: 'refused', reason: 'already-adopted' }
+      }
+      // Generating another replaces the first, which is the whole of the
+      // one-live-code rule as a caller can observe it.
+      const code = {
+        code: `ADPT-${String(adoptionCodes.size + 1).padStart(4, '0')}`,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      }
+      adoptionCodes.set(agentId, code)
+      return { outcome: 'issued', code }
+    },
+
+    liveAdoptionCode: async (agentId) => {
+      const held = adoptionCodes.get(agentId)
+      if (held === undefined) return undefined
+      return Date.parse(held.expiresAt) <= Date.now() ? undefined : { expiresAt: held.expiresAt }
+    },
+
+    revokeAdoptionCode: async (agentId) => (adoptionCodes.delete(agentId) ? 1 : 0),
 
     openSponsor: async ({ humanId, name }) => {
       const agent = ownIdentityOf(humanId)

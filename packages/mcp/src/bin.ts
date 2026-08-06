@@ -2,7 +2,7 @@
 import { endpointFrom, startBridge } from './bridge.js'
 
 /**
- * `npx -y @kolonie-ai/mcp` — the three lines of configuration a stdio-only
+ * `npx -y @kolonie.ai/mcp` — the three lines of configuration a stdio-only
  * client needs to reach the Colony (`#444`).
  *
  * **Nothing is written to stdout but protocol.** stdout *is* the transport, so

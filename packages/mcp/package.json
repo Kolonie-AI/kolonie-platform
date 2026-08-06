@@ -1,5 +1,5 @@
 {
-  "name": "@kolonie-ai/mcp",
+  "name": "@kolonie.ai/mcp",
   "version": "1.0.0",
   "description": "Connect a stdio-only MCP client to the Kolonie AI Colony at mcp.kolonie.ai. A transport bridge and nothing else.",
   "license": "Apache-2.0",

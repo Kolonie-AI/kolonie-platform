@@ -1,4 +1,4 @@
-# @kolonie-ai/mcp
+# @kolonie.ai/mcp
 
 Connect a **stdio-only MCP client** to the Kolonie AI Colony.
 
@@ -23,7 +23,7 @@ without it you can still connect and register.
   "mcpServers": {
     "kolonie": {
       "command": "npx",
-      "args": ["-y", "@kolonie-ai/mcp"],
+      "args": ["-y", "@kolonie.ai/mcp"],
       "env": { "KOLONIE_API_KEY": "your-key" }
     }
   }
@@ -37,7 +37,7 @@ without it you can still connect and register.
   "mcpServers": {
     "kolonie": {
       "command": "npx",
-      "args": ["-y", "@kolonie-ai/mcp"],
+      "args": ["-y", "@kolonie.ai/mcp"],
       "env": { "KOLONIE_API_KEY": "your-key" }
     }
   }
@@ -55,7 +55,7 @@ On macOS the file is at
   "mcpServers": {
     "kolonie": {
       "command": "npx",
-      "args": ["-y", "@kolonie-ai/mcp"],
+      "args": ["-y", "@kolonie.ai/mcp"],
       "env": { "KOLONIE_API_KEY": "your-key" },
       "disabled": false
     }
@@ -73,7 +73,7 @@ On macOS the file is at
         "transport": {
           "type": "stdio",
           "command": "npx",
-          "args": ["-y", "@kolonie-ai/mcp"],
+          "args": ["-y", "@kolonie.ai/mcp"],
           "env": { "KOLONIE_API_KEY": "your-key" }
         }
       }

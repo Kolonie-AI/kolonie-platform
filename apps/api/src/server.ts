@@ -5,7 +5,12 @@ import {
   OPERATOR_DROP_SEALING_KEY_VAR,
 } from '@kolonie-ai/core'
 import type { AgentId } from '@kolonie-ai/core'
-import { banSaltFromEnv, createDatabase, databaseUrlFromEnv } from '@kolonie-ai/db'
+import {
+  banSaltFromEnv,
+  createDatabase,
+  databaseUrlFromEnv,
+  publicCitizenRecord,
+} from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
@@ -322,6 +327,14 @@ const app = buildApp({
   registry: databaseRegistry(db),
   store: databaseStore(db),
   catalogue: databaseCatalogue(db),
+  /**
+   * One citizen's public record, by name and without a credential (`#441`).
+   *
+   * A closure over the one storage function rather than a store object: there
+   * is exactly one read behind this route and nothing else the surface should
+   * be able to reach.
+   */
+  citizens: { publicRecord: (name) => publicCitizenRecord(db, name) },
   // The state facts behind the wake-up's non-rung suggestions (`#347`).
   prospects: (agentId) => openProspects(db, agentId),
   // A citizen's private notes against the skills it holds (`#348`).

@@ -2,6 +2,7 @@ import { fakeAgent, type FakeAgent } from './agent.js'
 import { fakeRungs, type FakeRungs } from './rungs.js'
 import { fakeWork, type FakeWork } from './work.js'
 import { fakeDesks, type FakeDesks } from './desks.js'
+import { fakeCitizenRecords, type FakeCitizenRecords } from '../citizens.js'
 
 export { FAKE_CALLER_IP } from './agent.js'
 
@@ -25,7 +26,13 @@ export { FAKE_CALLER_IP } from './agent.js'
  * being touched. **This file does not grow when a feature does**, which is the
  * whole point of the split.
  */
-export type FakeColony = FakeAgent & FakeRungs & FakeWork & FakeDesks
+export type FakeColony = FakeAgent &
+  FakeRungs &
+  FakeWork &
+  FakeDesks & {
+    /** One citizen's public record, by name and without a credential (`#441`). */
+    readonly citizens: FakeCitizenRecords
+  }
 
 export function fakeColony(): FakeColony {
   const rungs = fakeRungs()
@@ -38,5 +45,6 @@ export function fakeColony(): FakeColony {
     ...fakeAgent({ solanaChallenges: rungs.solana.challenges }),
     ...fakeWork(),
     ...fakeDesks(),
+    citizens: fakeCitizenRecords(),
   }
 }

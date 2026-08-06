@@ -15,6 +15,8 @@ import {
 import { MCP_ALIAS_PATH, MCP_PATH } from './mcp.js'
 import { registerIndexRoute } from './routes/index.js'
 import { registerAcademyGraphRoute } from './routes/academy-graph.js'
+import { registerCitizenRoutes } from './routes/citizens.js'
+import type { CitizenRecords } from './citizens.js'
 import { registerAgentRoutes } from './routes/agents.js'
 import { registerMeRoute } from './routes/me.js'
 import { registerProfileRoute } from './routes/profile.js'
@@ -94,6 +96,7 @@ export type { AppDependencies } from './dependencies.js'
  */
 export function buildApp({
   humans,
+  citizens,
   registry: unlimitedRegistry,
   store,
   catalogue,
@@ -322,8 +325,17 @@ export function buildApp({
    * impossible to move out of this function. Naming them once, in a typed object,
    * is what turned that into a list of calls (#195).
    */
+  /**
+   * The default when a caller passed none: nobody holds any name (`#441`).
+   *
+   * Resolved here rather than in the route, so the handler has one shape to
+   * cope with. A test colony has no citizens and this is the true answer in it.
+   */
+  const citizenRecords: CitizenRecords = citizens ?? { publicRecord: async () => undefined }
+
   const routes: RouteDependencies = {
     log,
+    citizens: citizenRecords,
     humans,
     registry,
     store,
@@ -425,6 +437,7 @@ export function buildApp({
     async (v1) => {
       registerIndexRoute(v1, routes)
       registerAcademyGraphRoute(v1, routes)
+      registerCitizenRoutes(v1, routes)
       registerAgentRoutes(v1, routes)
       registerMeRoute(v1, routes)
       registerProfileRoute(v1, routes)

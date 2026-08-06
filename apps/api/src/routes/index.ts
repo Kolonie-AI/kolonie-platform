@@ -34,6 +34,7 @@ export function registerIndexRoute(v1: FastifyInstance, _deps: RouteDependencies
       '/v1/tasks/:taskId/operator',
       '/v1/tasks/:taskId/submissions',
       '/v1/academy/graph',
+      '/v1/citizens/:name',
       '/v1/academy/challenges',
       '/v1/accounts',
       '/v1/mailboxes',

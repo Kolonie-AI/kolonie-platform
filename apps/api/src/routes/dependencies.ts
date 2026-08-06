@@ -38,6 +38,7 @@ import type { CredentialRotation } from '../rotation.js'
 import type { DepositDependencies } from '../deposits.js'
 import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
+import type { CitizenRecords } from '../citizens.js'
 import type { DropDependencies } from '../operator-drops.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
@@ -241,4 +242,18 @@ export interface RouteDependencies {
    * whose line nothing could group or count.
    */
   readonly log: Log
+  /**
+   * One citizen's public record, by the name a reader already has (`#441`).
+   *
+   * Required here although it is optional on `AppDependencies`: `buildApp`
+   * resolves the default, so a route never has to cope with an absence that
+   * cannot reach it — which is the rule the note at the top of this interface
+   * already states for `catalogue` and its neighbours.
+   *
+   * **Appended rather than placed among its neighbours**, which is the house
+   * rule: an insertion mid-interface is a conflict in whichever branch is
+   * rebased second, and this field has no ordering relationship to anything
+   * above it.
+   */
+  readonly citizens: CitizenRecords
 }

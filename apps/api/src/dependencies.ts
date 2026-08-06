@@ -45,6 +45,7 @@ import type { VaultDependencies } from './vault.js'
 import type { VisionDependencies } from './vision.js'
 import type { WebServerDependencies } from './web-server.js'
 import type { WebsiteDependencies } from './website.js'
+import type { CitizenRecords } from './citizens.js'
 
 /**
  * What a deployment hands `buildApp`.
@@ -302,4 +303,19 @@ export interface AppDependencies {
    * request id correlates it with the logs"* and nothing wrote the log.
    */
   readonly log?: Log
+  /**
+   * One citizen's public record, by the name a reader already has (`#441`).
+   *
+   * **Optional, and the default answers *no such citizen* rather than throwing.**
+   * The same trade `limiter` and `log` above make, and here the default is the
+   * safe direction twice over: a colony with nobody in it is exactly what a test
+   * that is not about this route has, and *nobody holds that name* is the true
+   * answer in it. `server.ts` passes the database read, which is the only
+   * deployment path there is.
+   *
+   * **Appended rather than placed among its neighbours**, which is the house
+   * rule: an insertion mid-interface is a conflict in whichever branch is
+   * rebased second.
+   */
+  readonly citizens?: CitizenRecords
 }

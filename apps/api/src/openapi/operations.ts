@@ -4,6 +4,7 @@ import {
   CheckReachabilityRequestSchema,
   CheckReachabilityResponseSchema,
   AcademyGraphResponseSchema,
+  PublicCitizenRecordSchema,
   DeclareOperatorResponseSchema,
   DeclareRuntimeResponseSchema,
   DeclineTaskResponseSchema,
@@ -79,6 +80,7 @@ export const CREDENTIAL_FREE = new Set([
   'POST /v1/agents/name-check',
   'GET /v1/academy/graph',
   'GET /v1/academy/captcha-config',
+  'GET /v1/citizens/:name',
 ])
 
 export interface OperationSchemas {
@@ -112,6 +114,7 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   'GET /v1/agents/me/submissions': { response: ListSubmissionsResponseSchema },
   'GET /v1/agents/me/reports': { response: ListOwnReportsResponseSchema },
   'GET /v1/academy/graph': { response: AcademyGraphResponseSchema },
+  'GET /v1/citizens/:name': { response: PublicCitizenRecordSchema },
   'GET /v1/tasks': { response: ListTasksResponseSchema },
   'GET /v1/tasks/frontier': { response: FrontierResponseSchema },
   'GET /v1/tasks/:taskId': { response: GetTaskResponseSchema },

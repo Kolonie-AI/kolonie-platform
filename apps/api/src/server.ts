@@ -4,7 +4,7 @@ import {
   DEPOSIT_SEALING_KEY_VAR,
   OPERATOR_DROP_SEALING_KEY_VAR,
 } from '@kolonie-ai/core'
-import type { AgentId } from '@kolonie-ai/core'
+import type { AgentId, Timestamp } from '@kolonie-ai/core'
 import {
   banSaltFromEnv,
   createDatabase,
@@ -33,6 +33,10 @@ import { databaseHumanStore } from './humans/humans.js'
 import { auth0Tenant } from './humans/auth0.js'
 import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
+import { databaseSmsChallenges } from './sms.js'
+import { countSmsSentInTotal, countSmsSentToAgent, recordSmsSend } from '@kolonie-ai/db'
+import { guardedSmsSender, twilioAdapter } from '@kolonie-ai/verifiers'
+import type { SmsSendRecord } from '@kolonie-ai/verifiers'
 import { mailerFromEnv } from './mail-config.js'
 import { databaseKeyChallenges } from './keys.js'
 import { databaseSolanaChallenges } from './solana.js'
@@ -88,6 +92,48 @@ const log = createLog({ service: 'api' })
 
 // Resolved once and shared by the three surfaces that send (`#261`).
 const mail = mailerFromEnv()
+
+/**
+ * The Colony's SMS sender, or nothing (`#411`).
+ *
+ * **Built once and `undefined` when Twilio is not configured**, which is the
+ * shape `mailerFromEnv` above uses and the shape `twilioAdapter` was written to
+ * take: a deployment with no account starts normally and offers the phone rungs
+ * to nobody, rather than failing a citizen's submission at the first send.
+ *
+ * The caps and the destination allowlist are `DEFAULT_SMS_LIMITS` and are not
+ * restated here — `packages/verifiers/src/sms.ts` holds every number and the
+ * argument for it. What this wires is the ledger those caps are counted off,
+ * which is the Colony's own record rather than the vendor's console.
+ */
+const smsSender = ((): ReturnType<typeof guardedSmsSender> | undefined => {
+  const adapter = twilioAdapter({
+    accountSid: process.env['TWILIO_ACCOUNT_SID'] ?? '',
+    apiKeySid: process.env['TWILIO_API_KEY_SID'] ?? '',
+    apiKeySecret: process.env['TWILIO_API_KEY_SECRET'] ?? '',
+    fromNumber: process.env['TWILIO_FROM_NUMBER'] ?? '',
+  })
+
+  if (adapter === undefined) return undefined
+
+  return guardedSmsSender({
+    adapter,
+    ledger: {
+      sentToCitizen: (agentId: string, since: Date) =>
+        countSmsSentToAgent(db, agentId as AgentId, since.toISOString() as Timestamp),
+      sentInTotal: (since: Date) => countSmsSentInTotal(db, since.toISOString() as Timestamp),
+      record: (entry: SmsSendRecord) =>
+        recordSmsSend(db, {
+          agentId: entry.agentId as AgentId,
+          to: entry.to,
+          vendorId: entry.vendorId,
+          priceAmount: entry.price?.amount ?? null,
+          priceCurrency: entry.price?.currency ?? null,
+          sentAt: entry.sentAt.toISOString() as Timestamp,
+        }),
+    },
+  })
+})()
 
 const PORT = Number(process.env['PORT'] ?? 3000)
 
@@ -626,6 +672,22 @@ const app = buildApp({
     // Absent means the inbound route is not mounted. See app.ts for why this one
     // fails closed where every other Academy surface degrades to a 503.
     inboundSecret: process.env['EMAIL_INBOUND_SECRET'] || undefined,
+  },
+  /**
+   * The two phone rungs (`#411`).
+   *
+   * Present only when both halves are configured, exactly as the mail block
+   * above is: without a sender or without a number of its own, the rung answers
+   * rather than minting a challenge nobody could complete.
+   */
+  sms: {
+    challenges: databaseSmsChallenges(db),
+    obstruction,
+    ...(smsSender === undefined ? {} : { sender: smsSender }),
+    // Configuration rather than a constant, on `AGENTS.md` §3's reasoning about
+    // identifiers of this deployment: it is public by design and it still
+    // changes without a release.
+    colonyNumber: process.env['SMS_COLONY_NUMBER'] ?? '',
   },
   academy: {
     challenges: databaseChallenges(db),

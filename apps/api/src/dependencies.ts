@@ -12,6 +12,7 @@ import type { WakeupSource } from './wakeup.js'
 import type { ArtefactDependencies } from './artefact.js'
 import type { DomainDependencies } from './domain.js'
 import type { EmailDependencies } from './email.js'
+import type { SmsDependencies } from './sms.js'
 import type { Erasure } from './erasure.js'
 import type { GithubDependencies } from './github.js'
 import type { TaskGuidance } from './guidance.js'
@@ -61,6 +62,8 @@ export interface AppDependencies {
   readonly academy: AcademyDependencies
   /** The mailbox rung — see `email.ts`. */
   readonly email: EmailDependencies
+  /** The two phone rungs (`#411`). Its own block for the reason `email` is: a different channel. */
+  readonly sms: SmsDependencies
   /**
    * The keypair rung — see `keys.ts`.
    *

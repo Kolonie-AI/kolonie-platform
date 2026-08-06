@@ -273,7 +273,14 @@ describe('the migrations', () => {
     // keyed on the agent because one citizen has one operator; the code is one
     // table for both directions because the object is the same object, with a
     // check constraint keeping exactly one side filled.
-    expect(afterFirst.tables).toBe('76')
+    //
+    // **Seventy-seven** (`#411`): `sms_challenges` — one citizen's attempt at a
+    // phone rung. A sibling of `email_challenges` rather than a generalisation
+    // of it: the flows rhyme and they differ in the one place that decides a
+    // verdict, so two tables that are 80 % alike are cheaper to read than one
+    // with a channel column and eight *null on the other channel* comments in
+    // it. `sms_sends` beside it is the spend ledger and predates this (`#409`).
+    expect(afterFirst.tables).toBe('77')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -342,7 +349,13 @@ describe('the migrations', () => {
     // on: the column has to accept whatever the tenant is later configured to
     // offer, and a provider enabled in Auth0 but absent from the enum is
     // somebody who signs in successfully and cannot be written down.
-    expect(afterFirst.enums).toBe('39')
+    // And `sms_challenge_purpose` makes forty (`#411`) — which phone node a row
+    // is, for the reason `email_challenge_purpose` exists sixteen entries up: it
+    // is what keeps the granting rung and the badge from satisfying each other.
+    // Two members and not three — mail has a `recheck` and this deliberately
+    // does not, because a bounce is evidence that an address is gone and an
+    // unanswered text is evidence of nothing at all.
+    expect(afterFirst.enums).toBe('40')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

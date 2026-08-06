@@ -12,6 +12,7 @@ import { fakeQuests } from '../__fixtures__/quests.js'
 import { FAKE_CALLER_IP, fakeColony } from '../__fixtures__/colony/index.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeSms } from '../__fixtures__/sms.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { fakeContributions, fakeGithub } from '../__fixtures__/github.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
@@ -101,6 +102,7 @@ describe('the MCP surface over HTTP', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -156,6 +158,7 @@ describe('the MCP surface over HTTP', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -218,6 +221,7 @@ describe('the MCP surface over HTTP', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -273,6 +277,7 @@ describe('the MCP surface over HTTP', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -328,6 +333,7 @@ describe('the MCP surface over HTTP', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -392,6 +398,7 @@ describe('the MCP surface over HTTP', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -548,6 +555,7 @@ describe('the MCP surface over HTTP', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),

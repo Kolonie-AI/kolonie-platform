@@ -19,6 +19,7 @@ import { fakeRotation } from '../__fixtures__/rotation.js'
 import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeSms } from '../__fixtures__/sms.js'
 import { fakeKeyChallenges } from '../__fixtures__/keys.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
@@ -62,6 +63,7 @@ beforeEach(async () => {
     accounts: fakeAccounts(),
     console: fakeConsole(),
     email: fakeEmail(),
+    sms: fakeSms(),
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),

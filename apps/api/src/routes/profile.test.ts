@@ -46,6 +46,7 @@ import { fakeRotation } from '../__fixtures__/rotation.js'
 import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeSms } from '../__fixtures__/sms.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
@@ -80,6 +81,7 @@ const withStore = async (): Promise<FakeStore> => {
     accounts: fakeAccounts(),
     console: fakeConsole(),
     email: fakeEmail(),
+    sms: fakeSms(),
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),

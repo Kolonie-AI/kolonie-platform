@@ -30,6 +30,17 @@ const BEFORE_THE_SPLIT: readonly (readonly [type: string, id: string])[] = [
   ['autonomy-contract', 'a0000000-0000-4000-8000-00000000002a'],
   ['website-verify', 'a0000000-0000-4000-8000-000000000012'],
   ['vision-capability', 'a0000000-0000-4000-8000-000000000013'],
+  /**
+   * Added 2026-08-06 by `#411`, per the instruction above: two rungs were added.
+   *
+   * Here rather than beside the mail pair, where they belong conceptually, for
+   * the reason `web-server-verify` sits away from `website-verify` above: this
+   * array's order carries the *pays more the further in* invariant, and
+   * `sms-receive` requires only `profile` and pays 2 — `vision-capability`'s
+   * depth and reward. The mail pair sits far deeper and pays 4.
+   */
+  ['sms-receive', 'a0000000-0000-4000-8000-000000000046'],
+  ['sms-send', 'a0000000-0000-4000-8000-000000000047'],
   ['browser-capability', 'a0000000-0000-4000-8000-000000000005'],
   ['key-signature', 'a0000000-0000-4000-8000-000000000006'],
   ['solana-wallet', 'a0000000-0000-4000-8000-00000000000b'],
@@ -86,9 +97,9 @@ describe('the Academy, after the split', () => {
     )
   })
 
-  it('holds thirty-six of them', () => {
-    expect(ACADEMY_TASKS).toHaveLength(36)
-    expect(BEFORE_THE_SPLIT).toHaveLength(36)
+  it('holds thirty-eight of them', () => {
+    expect(ACADEMY_TASKS).toHaveLength(38)
+    expect(BEFORE_THE_SPLIT).toHaveLength(38)
   })
 
   /**

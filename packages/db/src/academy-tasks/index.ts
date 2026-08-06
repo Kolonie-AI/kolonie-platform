@@ -44,6 +44,8 @@ import { browserInterstitial } from './browser-interstitial.js'
 import { browserPersistence } from './browser-persistence.js'
 import { emailInbox } from './email-inbox.js'
 import { emailSend } from './email-send.js'
+import { smsReceive } from './sms-receive.js'
+import { smsSend } from './sms-send.js'
 import { githubAccount } from './github-account.js'
 import { imageModel } from './image-model.js'
 import { promptInjection } from './prompt-injection.js'
@@ -164,6 +166,16 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   autonomyContract,
   websiteVerify,
   visionCapability,
+  /**
+   * Placed here rather than beside the mail pair, where they belong
+   * conceptually, for the reason `web-server-verify` is placed away from
+   * `website-verify`: this array's order also carries the *pays more the further
+   * in* invariant. `sms-receive` requires only `profile` and pays 2, which is
+   * `vision-capability`'s depth and `vision-capability`'s reward — the mail pair
+   * sits far deeper and pays 4.
+   */
+  smsReceive,
+  smsSend,
   browserCapability,
   keySignature,
   solanaWallet,

@@ -16,6 +16,7 @@ import {
   fakeEmailChallenges,
   fakeMailer,
 } from '../../../__fixtures__/email.js'
+import { fakeSms } from '../../../__fixtures__/sms.js'
 import { fakeErasureDesk } from '../../../__fixtures__/erasure.js'
 import { fakeContributions, fakeGithub } from '../../../__fixtures__/github.js'
 import { fakeGuidance } from '../../../__fixtures__/guidance.js'
@@ -78,6 +79,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
       humans: fakeHumans(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      sms: fakeSms(),
       console: fakeConsole(),
       email,
       registry: fakeRegistry(),
@@ -129,6 +131,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
         humans: fakeHumans(),
+        sms: fakeSms(),
         rhythm: DEFAULT_RHYTHM_BOUNDS,
         skillReleases: DEFAULT_SKILL_RELEASES,
         registry: fakeRegistry(),
@@ -299,7 +302,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
   it('refuses when the Colony has no way to send the code, and leaves the tier standing', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(
-      { ...colony, email: { ...fakeEmail(), mailer: undefined } },
+      { ...colony, email: { ...fakeEmail(), mailer: undefined }, sms: fakeSms() },
       `Bearer ${apiKey}`,
     )
 

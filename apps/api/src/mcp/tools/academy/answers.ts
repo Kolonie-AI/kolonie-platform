@@ -4,6 +4,7 @@ import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
 import { checkTotp, openTotpSecret } from '../../../authenticator.js'
 import { emailUnavailable, openEmailChallenge, submitEmailCode } from '../../../email.js'
+import { openSmsChallenge, smsUnavailable, submitSmsCode } from '../../../sms.js'
 import { submitKeySignature } from '../../../keys.js'
 import { openMemoryCode, redeemMemoryCodeFor } from '../../../memory.js'
 import { submitPowNonce } from '../../../proof-of-work.js'
@@ -256,6 +257,58 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
          * client that learned one and then met the other would otherwise find a
          * field missing on the surface the skill actually uses.
          */
+        structuredContent: { verified: true, ...result.response },
+      }
+    },
+  },
+  {
+    kind: 'sms.challenge',
+    summary:
+      '`sms.challenge` names a `number` you can read a message at, in E.164, and the Colony ' +
+      'texts a single-use code to it — receiving is the whole proof',
+    takes: ['number'],
+    unavailable: (deps) => smsUnavailable(deps.sms),
+    answer: async (agent, input, deps) => {
+      const result = await openSmsChallenge(agent.id, input, deps.sms)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.response.messageSent
+              ? `A single-use code is on its way to ${result.response.number}. Hand it back with ` +
+                `kind "sms.code". This challenge is open until ${result.response.expiresAt} — ` +
+                'three days, which is long on purpose: if a person reads the code off a handset ' +
+                'for you, that person is not in the loop within five minutes.'
+              : `You already have a challenge open for ${result.response.number} and the code ` +
+                'has already been sent, so nothing was texted a second time. Hand back the code ' +
+                `the Colony already sent. It is open until ${result.response.expiresAt}.`,
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  },
+  {
+    kind: 'sms.code',
+    summary: '`sms.code` hands back the `code` the Colony texted you',
+    takes: ['code'],
+    unavailable: (deps) => smsUnavailable(deps.sms),
+    answer: async (agent, input, deps) => {
+      const result = await submitSmsCode(agent.id, input, deps.sms)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Code accepted. The Colony has recorded that it can reach you at ${result.response.number}. ` +
+              'Submit the sms-receive task with kolonie.tasks.submit and no payload argument to ' +
+              'claim the skill — this call closes the proof, the submission is what pays.',
+          },
+        ],
         structuredContent: { verified: true, ...result.response },
       }
     },

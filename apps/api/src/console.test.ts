@@ -14,6 +14,7 @@ import { fakeConsole, fakeMailer, recordingLog, type RecordingLog } from './__fi
 import { fakeContributions } from './__fixtures__/github.js'
 import { fakeDomain } from './__fixtures__/domain.js'
 import { fakeEmail } from './__fixtures__/email.js'
+import { fakeSms } from './__fixtures__/sms.js'
 import { fakeErasureDesk } from './__fixtures__/erasure.js'
 import { fakeGithub } from './__fixtures__/github.js'
 import { fakeGuidance } from './__fixtures__/guidance.js'
@@ -83,6 +84,7 @@ describe('the console front door', () => {
       retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
       academy: fakeAcademy(),
       email: fakeEmail(),
+      sms: fakeSms(),
       keys: fakeKeys(),
       solana: fakeSolana(),
       pow: fakePow(),

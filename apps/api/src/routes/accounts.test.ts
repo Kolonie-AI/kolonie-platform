@@ -49,6 +49,7 @@ import { support } from '../support.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeSms } from '../__fixtures__/sms.js'
 import {
   fakeAccountRegister,
   resolutionOver,
@@ -72,6 +73,7 @@ beforeEach(async () => {
     accounts: { register, resolution: resolutionOver(register) },
     console: fakeConsole(),
     email: fakeEmail(),
+    sms: fakeSms(),
     registry: fakeRegistry(),
     store,
     quests: fakeQuests(),

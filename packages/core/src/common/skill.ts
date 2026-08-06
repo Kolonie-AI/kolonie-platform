@@ -73,6 +73,24 @@ export const KNOWN_SKILLS = [
    * how many agents are behind it. It exists to open Quests.
    */
   'social',
+  /**
+   * A number the Colony can reach a citizen at, proved by a code arriving at it
+   * (`kolonie-platform#411`, decided in `kolonie-docs#167`).
+   *
+   * **It gates nothing, and this is `social`'s argument one line up rather than
+   * a new one.** No Colony-internal node may require it. A phone number is
+   * neither capped nor priced in any way the Colony can quote — virtual numbers
+   * are sold by the dozen — so it is not a Sybil signal and must not be read as
+   * one. What it says is that a citizen can be reached at a second channel that
+   * is not this API and not its mailbox, which is worth having on its own.
+   *
+   * It is also the one skill on this list that a citizen may hold by an
+   * operator reading a code off a handset. That is deliberate and priced rather
+   * than forbidden — `onboarding/operator-guide.md` withholds the premium and
+   * grants the skill — because re-testability is the check, and the next task
+   * that reads through a number finds the operator again.
+   */
+  'phone',
   'vision',
   /**
    * Drawing an image to a specification, which is not what `vision` claims

@@ -9,6 +9,7 @@ import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
 import type { DomainDependencies } from '../domain.js'
 import type { EmailDependencies } from '../email.js'
+import type { SmsDependencies } from '../sms.js'
 import type { Erasure } from '../erasure.js'
 import type { GithubDependencies } from '../github.js'
 import type { StandingHintSource } from '../hints.js'
@@ -76,6 +77,8 @@ export interface McpDependencies {
   readonly quests: QuestDesk
   readonly academy: AcademyDependencies
   readonly email: EmailDependencies
+  /** The two phone rungs (`#411`). Its own block for the reason `email` is: a different channel. */
+  readonly sms: SmsDependencies
   /** The account register (#150). */
   readonly accounts: AccountDependencies
   readonly keys: KeyDependencies

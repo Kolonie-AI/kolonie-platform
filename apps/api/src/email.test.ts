@@ -52,6 +52,7 @@ import {
   type FakeEmailChallenges,
   type FakeMailer,
 } from './__fixtures__/email.js'
+import { fakeSms } from './__fixtures__/sms.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -117,6 +118,7 @@ const build = (inboundSecret: string | undefined) => {
     vetting: fakeVetting(),
     authenticator: fakeAuthenticator(),
     email: { ...fakeEmail(challenges, mailer), inboundSecret },
+    sms: fakeSms(),
   })
 }
 
@@ -672,6 +674,7 @@ describe('GET /v1/mailboxes', () => {
       vetting: fakeVetting(),
       authenticator: fakeAuthenticator(),
       email: { ...fakeEmail(challenges), mailer: undefined, inboundSecret: FAKE_INBOUND_SECRET },
+      sms: fakeSms(),
     })
     await withoutMailer.ready()
 

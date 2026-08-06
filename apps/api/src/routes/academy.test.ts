@@ -38,6 +38,7 @@ import { fakeVetting } from '../__fixtures__/vetting.js'
 import { fakeAuthenticator } from '../__fixtures__/authenticator.js'
 import { fakeAcademy, fakeChallenges, type FakeChallenges } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeSms } from '../__fixtures__/sms.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
@@ -64,6 +65,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     accounts: fakeAccounts(),
     console: fakeConsole(),
     email: fakeEmail(),
+    sms: fakeSms(),
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),
@@ -277,6 +279,7 @@ describe('POST /v1/academy/challenges', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store,
       catalogue: fakeCatalogue(),
@@ -649,6 +652,7 @@ describe('when the gate is not configured', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),
@@ -741,6 +745,7 @@ describe('when the gate is not configured', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: disabledStore,
       catalogue: fakeCatalogue(),

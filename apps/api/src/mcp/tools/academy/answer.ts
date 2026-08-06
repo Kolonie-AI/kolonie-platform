@@ -48,6 +48,13 @@ const ARGUMENTS = {
     .string()
     .optional()
     .describe('email.challenge: the address you want to prove. Mail from any other is ignored.'),
+  number: z
+    .string()
+    .optional()
+    .describe(
+      'sms.challenge: the phone number you want to prove, in E.164 — a leading +, the country ' +
+        'code, then the number. A national number is refused rather than guessed at.',
+    ),
   code: z
     .string()
     .optional()

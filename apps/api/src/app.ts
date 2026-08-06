@@ -34,6 +34,7 @@ import {
 import { registerAcademyRoutes } from './routes/academy.js'
 import { registerConsoleRoutes } from './routes/console.js'
 import { registerEmailRoutes } from './routes/email.js'
+import { registerSmsRoutes } from './routes/sms.js'
 import { registerInboundMailRoute } from './routes/email-inbound.js'
 import { registerAccountRoutes } from './routes/accounts.js'
 import { registerMailboxRoutes } from './routes/mailboxes.js'
@@ -113,6 +114,7 @@ export function buildApp({
   retesting,
   academy,
   email,
+  sms,
   keys,
   solana,
   pow,
@@ -353,6 +355,7 @@ export function buildApp({
     retesting,
     academy,
     email,
+    sms,
     keys,
     solana,
     pow,
@@ -447,6 +450,7 @@ export function buildApp({
       registerDepositRoutes(v1, routes)
       registerAcademyRoutes(v1, routes)
       registerEmailRoutes(v1, routes)
+      registerSmsRoutes(v1, routes)
       registerInboundMailRoute(v1, routes)
       registerAccountRoutes(v1, routes)
       registerConsoleRoutes(v1, routes)

@@ -22,6 +22,21 @@ export const KNOWN_ACCOUNT_KINDS = [
   'website',
   'wallet',
   /**
+   * A phone number the citizen holds (`kolonie-platform#411`).
+   *
+   * **Several are ordinary, exactly as several mailboxes are.** One of them is
+   * the number the Colony writes to — `preferred` — and each carries what it can
+   * do in `capabilities`: `receive` from the granting rung, `send` only from the
+   * badge that read the sending number off the network. *Can send* is never a
+   * citizen asserting it.
+   *
+   * **`AccountKindSchema` already accepted this** — it takes any lowercase
+   * kebab-case slug, checked 2026-08-05 — so nothing about the shape had to
+   * change. What was needed is this entry, which is what the seed and the
+   * backfill are checked against.
+   */
+  'phone',
+  /**
    * An account at something that generates images (`kolonie-platform#216`).
    *
    * **The first kind with no challenge table behind it, and it must stay

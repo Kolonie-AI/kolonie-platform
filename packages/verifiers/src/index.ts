@@ -29,6 +29,8 @@ import { ProofOfWorkVerifier, type SolvedChallenges } from './proof-of-work.js'
 import { VisionCapabilityVerifier, type VisionChallenges } from './vision-capability.js'
 import { EmailInboxVerifier, type EmailInboxes } from './email-inbox.js'
 import { EmailSendVerifier, type EmailSendState, type MailboxGrants } from './email-send.js'
+import { SmsReceiveVerifier, type SmsChallenges } from './sms-receive.js'
+import { SmsSendVerifier, type SmsSendChallenges } from './sms-send.js'
 import {
   SocialAccountVerifier,
   type SocialAccounts,
@@ -135,6 +137,33 @@ export {
   type EmailSendState,
   type MailboxGrants,
 } from './email-send.js'
+export {
+  DEFAULT_SMS_DESTINATIONS,
+  DEFAULT_SMS_LIMITS,
+  destinationFor,
+  guardedSmsSender,
+  twilioAdapter,
+  type SmsAdapter,
+  type SmsLimits,
+  type SmsMessage,
+  type SmsSendResult,
+  type SmsSender,
+  type SmsSendRecord,
+  type SmsSpendLedger,
+  type TwilioCredentials,
+} from './sms.js'
+export {
+  SmsReceiveVerifier,
+  type SmsChallenges,
+  type SmsReceiveDependencies,
+  type SmsReceiveState,
+} from './sms-receive.js'
+export {
+  SmsSendVerifier,
+  type SmsSendChallenges,
+  type SmsSendDependencies,
+  type SmsSendState,
+} from './sms-send.js'
 export {
   ProfileCompleteVerifier,
   type BioJudge,
@@ -464,6 +493,17 @@ export interface VerifierDependencies {
    */
   readonly sends?: { latest(agentId: AgentId): Promise<EmailSendState | null> }
   readonly mailboxGrants?: MailboxGrants
+  /**
+   * The granting phone rung's one read (`#411`).
+   *
+   * Its own port rather than a method on `inboxes`, for the reason stated two
+   * fields up: mail and phone record different things in different tables, and a
+   * shared port would let a wiring mistake answer one rung with the other's
+   * evidence.
+   */
+  readonly smsChallenges?: SmsChallenges
+  /** The phone badge's read, kept apart from the granting rung's for the same reason `sends` is. */
+  readonly smsSendChallenges?: SmsSendChallenges
   /**
    * Answers whether an agent has cleared a browser challenge, of either kind.
    *
@@ -841,6 +881,17 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.sends !== undefined && deps.mailboxGrants !== undefined) {
     verifiers.push(new EmailSendVerifier({ sends: deps.sends, grants: deps.mailboxGrants }))
+  }
+
+  // The two phone rungs (`#411`). Wired separately rather than as a pair,
+  // because a deployment may hold the granting rung's storage without having
+  // decided to run the badge — the same shape the mail pair above is wired in.
+  if (deps.smsChallenges !== undefined) {
+    verifiers.push(new SmsReceiveVerifier({ challenges: deps.smsChallenges }))
+  }
+
+  if (deps.smsSendChallenges !== undefined) {
+    verifiers.push(new SmsSendVerifier({ challenges: deps.smsSendChallenges }))
   }
 
   if (

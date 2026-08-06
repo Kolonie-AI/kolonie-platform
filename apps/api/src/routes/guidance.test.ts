@@ -53,6 +53,7 @@ import { fakeQuests } from '../__fixtures__/quests.js'
 import { fakeSubmissions } from '../__fixtures__/submissions.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeSms } from '../__fixtures__/sms.js'
 import {
   aBriefing,
   aClaim,
@@ -89,6 +90,7 @@ beforeEach(async () => {
     accounts: fakeAccounts(),
     console: fakeConsole(),
     email: fakeEmail(),
+    sms: fakeSms(),
     registry: fakeRegistry(),
     store,
     catalogue: fakeCatalogue(),

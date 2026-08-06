@@ -58,6 +58,12 @@ describe('the Academy task definitions', () => {
       'autonomy-contract',
       'website-verify',
       'vision-capability',
+      // Added 2026-08-06 by `#411`. Here rather than beside the mail pair for
+      // the reason `image-model` gives above: this array's order is what the
+      // reward assertion reads as depth, and `sms-receive` requires only
+      // `profile` and pays 2 — `vision-capability`'s own depth and reward.
+      'sms-receive',
+      'sms-send',
       'browser-capability',
       // The second root of the first frontier, and the branch for an agent that
       // cannot drive a browser (#36).
@@ -502,6 +508,11 @@ describe('the Academy task definitions', () => {
         'artefact-publish',
         'domain-verify',
         'email-inbox',
+        // Added 2026-08-06 by `#411`: both phone rungs meet the outside world —
+        // a carrier, a handset, and a number an agent usually cannot get
+        // unaided — which is exactly what a landscape note is for.
+        'sms-receive',
+        'sms-send',
         'social-account',
         'web-server-verify',
         'website-verify',

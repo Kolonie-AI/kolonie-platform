@@ -261,6 +261,29 @@ export const EmailChallengePurposeSchema = z.enum(['inbox', 'send', 'recheck'])
 export type EmailChallengePurpose = z.infer<typeof EmailChallengePurposeSchema>
 
 /**
+ * Which of the two phone rungs a challenge row belongs to (`#411`).
+ *
+ * Here for the reason the mail purposes one line up are here: the schema derives
+ * a database enum from it, storage keys the flows on it, and two verifiers ask
+ * which node a row is.
+ *
+ * - `receive` — the granting rung. The Colony sends a code **to** the number and
+ *   the citizen hands it back. Grants `phone`.
+ * - `send` — the badge. The citizen sends a nonce **from** the number to the
+ *   Colony's, and the sending number is read out of the vendor's response rather
+ *   than out of any payload. That is the D-018 property, and it is why this half
+ *   is the stronger of the two.
+ *
+ * **No `recheck`, and its absence is a decision rather than a gap.** Mail has
+ * one because a bounce is positive evidence that an address is gone; a text that
+ * is not answered says nothing at all — carriers do not report a dead number
+ * back to the sender. A re-check built on that would produce verdicts from
+ * silence, which is the failure `#411` refuses in the `send` verifier as well.
+ */
+export const SmsChallengePurposeSchema = z.enum(['receive', 'send'])
+export type SmsChallengePurpose = z.infer<typeof SmsChallengePurposeSchema>
+
+/**
  * What this pass is actually worth, given what the agent declared.
  *
  * **Only an explicit `none` earns the full amount**, and every other value —

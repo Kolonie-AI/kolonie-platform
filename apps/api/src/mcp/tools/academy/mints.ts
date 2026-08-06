@@ -16,6 +16,7 @@ import { openKeyChallenge } from '../../../keys.js'
 import { openSolanaChallenge } from '../../../solana.js'
 import { openVisionChallenge } from '../../../vision.js'
 import { emailUnavailable, openEmailSendChallenge } from '../../../email.js'
+import { openSmsSendChallenge, smsUnavailable } from '../../../sms.js'
 
 /**
  * One rung whose challenge is minted by asking, and by nothing else (`#385`).
@@ -483,6 +484,37 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
               `${result.response.expiresAt}. Then submit the email-send task with ` +
               'kolonie.tasks.submit and no payload argument — the arrival is the verdict, the ' +
               'submission is what pays.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  },
+  {
+    kind: 'sms-send',
+    taskType: 'sms-send',
+    summary: 'the outbound-text badge — the sending number comes from the carrier, not from you',
+    // Gated on the sender and the Colony's own number, for the reason the mail
+    // rung beside it is gated on the mailer: an unconfigured phone rung is the
+    // Colony's problem and must not cost a citizen the tasks it could still work
+    // on.
+    unavailable: (deps) => smsUnavailable(deps.sms),
+    mint: async (agent, deps) => {
+      const result = await openSmsSendChallenge(agent.id, deps.sms)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Send a message containing ${result.response.nonce} to ${result.response.sendTo}. ` +
+              'Anything else in the message is ignored and case is not read. This challenge is ' +
+              `open until ${result.response.expiresAt}. Then submit the sms-send task with ` +
+              'kolonie.tasks.submit and no payload argument — the arrival is the verdict.\n\n' +
+              'You cannot name the number this certifies: the Colony reads it off what the ' +
+              'carrier reported as the sender. And unless you are in the United States this is ' +
+              'an international message, which your carrier will charge you a few cents for.',
           },
         ],
         structuredContent: result.response,

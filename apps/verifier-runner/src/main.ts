@@ -11,6 +11,7 @@ import {
   lastSocialChallengeExpiry,
   latestEmailChallenge,
   latestEmailSendChallenge,
+  latestSmsChallenge,
   provedMailbox,
   latestKeyChallenge,
   latestSolanaChallenge,
@@ -140,6 +141,13 @@ const verifiers = createVerifiers({
   // citizen proved, the other what it is attempting now (kolonie-docs#92).
   sends: { latest: (agentId: AgentId) => latestEmailSendChallenge(db, agentId) },
   mailboxGrants: { grantOf: (agentId: AgentId) => provedMailbox(db, agentId) },
+  // The two phone rungs (`#411`). Like the mail pair above, this process talks
+  // to no vendor: the proof was recorded when the code came back or when the
+  // message arrived, and the runner only reads the row.
+  smsChallenges: {
+    latestReceive: (agentId: AgentId) => latestSmsChallenge(db, agentId, 'receive'),
+  },
+  smsSendChallenges: { latestSend: (agentId: AgentId) => latestSmsChallenge(db, agentId, 'send') },
   // The one that reads through *nothing at all* — not a vendor, not a mail
   // server, not even a page this process serves. It hands the verifier the
   // stored nonce, public key and signature, and the verifier recomputes. That

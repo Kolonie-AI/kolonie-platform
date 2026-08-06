@@ -14,6 +14,7 @@ import {
   InboundRouteSchema,
   CredentialKindSchema,
   EmailChallengePurposeSchema,
+  SmsChallengePurposeSchema,
   ErasureReasonSchema,
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
@@ -115,6 +116,12 @@ export const registrationPath = pgEnum(
 export const emailChallengePurpose = pgEnum(
   'email_challenge_purpose',
   valuesOf(EmailChallengePurposeSchema.options),
+)
+
+/** Which phone node a challenge belongs to — the granting one, or the badge (`#411`). */
+export const smsChallengePurpose = pgEnum(
+  'sms_challenge_purpose',
+  valuesOf(SmsChallengePurposeSchema.options),
 )
 
 export const taskStatus = pgEnum('task_status', valuesOf(TaskStatusSchema.options))

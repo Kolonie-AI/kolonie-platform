@@ -70,6 +70,13 @@ export const CHALLENGE_TASK_TYPES = {
   github: 'github-account',
   social: 'social-account',
   domain: 'domain-verify',
+  /**
+   * The two phone rungs (`#411`). Separate entries rather than one, for the
+   * reason `website` and `web-server` are separate: they grant different things,
+   * and a shared key would open the wrong attempt.
+   */
+  sms: 'sms-receive',
+  smsSend: 'sms-send',
 } as const
 
 export type ChallengeName = keyof typeof CHALLENGE_TASK_TYPES

@@ -3,6 +3,7 @@ import type { SkillReleases } from '@kolonie-ai/core'
 import type { AcademyDependencies } from '../../academy.js'
 import type { ConsoleDependencies } from '../../console.js'
 import type { EmailDependencies } from '../../email.js'
+import type { SmsDependencies } from '../../sms.js'
 import type { KeyDependencies } from '../../keys.js'
 import type { SolanaDependencies } from '../../solana.js'
 import type { MemoryDependencies } from '../../memory.js'
@@ -23,6 +24,7 @@ import type { VaultDependencies } from '../../vault.js'
 import { DEFAULT_SKILL_RELEASES } from '../../skill-releases.js'
 import { fakeAcademy } from '../academy.js'
 import { fakeEmail } from '../email.js'
+import { fakeSms } from '../sms.js'
 import { fakeKeys } from '../keys.js'
 import { fakeSolanaChallenges } from '../solana.js'
 import { fakePow } from '../proof-of-work.js'
@@ -60,6 +62,8 @@ export interface FakeRungs {
   /** The mailbox rung, behind both surfaces. Overridable the same way. */
   readonly console: ConsoleDependencies
   readonly email: EmailDependencies
+  /** The two phone rungs, behind both surfaces (`#411`). */
+  readonly sms: SmsDependencies
   /** The keypair rung, behind both surfaces. Overridable the same way. */
   readonly keys: KeyDependencies
   /** The wallet rung, behind both surfaces. Overridable the same way. */
@@ -108,6 +112,7 @@ export function fakeRungs(): FakeRungs {
   return {
     academy: fakeAcademy(),
     email: fakeEmail(),
+    sms: fakeSms(),
     keys: fakeKeys(),
     solana: { challenges: solanaChallenges, obstruction: noObstruction },
     pow: fakePow(),

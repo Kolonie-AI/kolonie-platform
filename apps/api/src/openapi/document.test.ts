@@ -11,6 +11,7 @@ import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeQuests } from '../__fixtures__/quests.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeEmail } from '../__fixtures__/email.js'
+import { fakeSms } from '../__fixtures__/sms.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { fakeContributions, fakeGithub } from '../__fixtures__/github.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
@@ -77,6 +78,7 @@ describe('the OpenAPI document', () => {
       accounts: fakeAccounts(),
       console: fakeConsole(),
       email: fakeEmail(),
+      sms: fakeSms(),
       registry: fakeRegistry(),
       store: fakeStore(),
       catalogue: fakeCatalogue(),

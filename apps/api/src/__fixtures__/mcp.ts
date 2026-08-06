@@ -13,6 +13,7 @@ import { fakeCatalogue } from './catalogue.js'
 import { FAKE_CALLER_IP, fakeColony } from './colony/index.js'
 import { fakeDomain } from './domain.js'
 import { fakeEmail } from './email.js'
+import { fakeSms } from './sms.js'
 import { fakeErasureDesk } from './erasure.js'
 import { fakeContributions, fakeGithub } from './github.js'
 import { fakeSkillNotes } from './skill-notes.js'
@@ -115,6 +116,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     retesting: { reset: async () => ({ outcome: 'not-a-tester' as const }) },
     academy: fakeAcademy(),
     email: fakeEmail(),
+    sms: fakeSms(),
     keys: fakeKeys(),
     solana: fakeSolana(),
     pow: fakePow(),

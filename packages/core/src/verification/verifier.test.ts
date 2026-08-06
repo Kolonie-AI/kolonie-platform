@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { VerifyResultSchema, isRewardable, submissionStatusFor } from './verifier.js'
+import {
+  VerifyResultSchema,
+  isQueuedInColony,
+  isRewardable,
+  submissionStatusFor,
+} from './verifier.js'
 
 describe('VerifyResultSchema', () => {
   it('requires evidence even on a pass', () => {
@@ -41,5 +46,22 @@ describe('isRewardable', () => {
     expect(isRewardable({ status: 'fail' })).toBe(false)
     expect(isRewardable({ status: 'pending' })).toBe(false)
     expect(isRewardable({ status: 'timeout' })).toBe(false)
+  })
+})
+
+describe('isQueuedInColony', () => {
+  it('reads the marker a verifier puts on a wait of ours (#434)', () => {
+    expect(isQueuedInColony({ queuedInColony: true })).toBe(true)
+    // Alongside whatever else a verdict carries, like every other metadata key.
+    expect(isQueuedInColony({ queuedInColony: true, stage: 'moderation' })).toBe(true)
+  })
+
+  it('says no to everything else, including the other marker', () => {
+    expect(isQueuedInColony(undefined)).toBe(false)
+    expect(isQueuedInColony({})).toBe(false)
+    expect(isQueuedInColony({ colonyFault: true })).toBe(false)
+    // `false` is not a quieter `true`. The signal is presence, and a verdict
+    // that wrote it as false meant to say this is not one.
+    expect(isQueuedInColony({ queuedInColony: false })).toBe(false)
   })
 })

@@ -129,3 +129,50 @@ export function colonyFaultFrom(metadata: unknown): ColonyFault | null {
   const parsed = ColonyFaultSchema.safeParse(metadata)
   return parsed.success ? parsed.data : null
 }
+
+/**
+ * A `pending` that is waiting on another stage **inside** the Colony (`#434`).
+ *
+ * **Two things answer `pending` and only one of them is what the backoff was
+ * built for.** The ordinary one is *the world has not answered yet* — a mail
+ * that has not arrived, a transaction that has not confirmed — and it is checked
+ * again in seconds because that is how long an outward call takes to start
+ * working. The other is *a second Colony process has this and has not finished*,
+ * and it is not a failure at all: it is a queue, working, at the speed of the
+ * stage running it.
+ *
+ * Counting the second as the first is what `#434` reported. A quest report waits
+ * on the moderation scrub, which takes about three minutes per report and runs
+ * one at a time; the deferral clock runs at thirty seconds doubling. So a report
+ * that was merely second in the queue collected four deferrals in **213 seconds**
+ * — measured on submission `2b437745`, 2026-08-05 — and filed a defect ticket
+ * against the Colony for behaviour that was entirely healthy. Nothing was stuck;
+ * it was scrubbed 56 seconds later.
+ *
+ * **The wait should match the thing being waited on**, which is the whole of the
+ * fix. This marks the verdicts where the thing being waited on is ours, so the
+ * runner can stand back for minutes rather than seconds. It does not exempt them
+ * from anything: the count, the ticket and the attempt cap all still apply, and a
+ * moderator that genuinely stops still produces a ticket and then a `timeout`
+ * that says the Colony is at fault. Only the clock changes.
+ *
+ * It travels in `metadata` for the same reason {@link ColonyFaultSchema} does —
+ * it is a fact about one kind of verdict, not a dimension every verifier has to
+ * answer.
+ */
+export const QueuedInColonySchema = z.object({
+  /** Always literally `true`. Present or absent is the whole signal. */
+  queuedInColony: z.literal(true),
+})
+export type QueuedInColony = z.infer<typeof QueuedInColonySchema>
+
+/**
+ * Whether a verdict says it is waiting on a stage inside the Colony.
+ *
+ * Tolerant by construction, like {@link colonyFaultFrom}: metadata is an open
+ * record written by every verifier in the package, so anything that is not this
+ * shape is simply not this.
+ */
+export function isQueuedInColony(metadata: unknown): boolean {
+  return QueuedInColonySchema.safeParse(metadata).success
+}

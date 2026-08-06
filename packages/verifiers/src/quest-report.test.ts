@@ -228,8 +228,37 @@ describe('the quest-report verifier', () => {
        * working correctly.
        */
       expect(result.evidence).not.toContain('kolonie.support.open')
+      /**
+       * **And the half that was missing, which is `#434`.** The intent above was
+       * right and unenforceable: it says the moderator queue must not invite a
+       * ticket, and the thing that files tickets is the runner, which sees a
+       * status and a sentence. It read this as a verifier failing, retried at
+       * thirty seconds against a stage that takes three minutes, and filed the
+       * ticket this test says must not exist — on 2026-08-05, 213 seconds after
+       * a submission that was scrubbed 56 seconds later.
+       *
+       * The marker is what carries that intent out of this module.
+       */
+      expect(result.metadata).toEqual({ queuedInColony: true })
       // Unscrubbed text never reaches the judge.
       expect(asked).toEqual([])
+    })
+
+    it('marks only the moderator wait, not the other two', async () => {
+      /**
+       * The neighbouring `pending`s wait on a model and on a task row, both of
+       * which answer in seconds. Marking them would stand the runner back three
+       * minutes from a verdict that would have resolved on the next poll.
+       */
+      const { judge } = judging(null)
+      const unreachableJudge = await new QuestReportVerifier({
+        reports: reports({}),
+        judge,
+        proofStage: () => undefined,
+      }).verify(aSubmission(), aContext())
+
+      expect(unreachableJudge.status).toBe('pending')
+      expect(unreachableJudge.metadata).toBeUndefined()
     })
 
     it('holds the report when the judge is unreachable', async () => {

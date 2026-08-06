@@ -1,4 +1,5 @@
 import {
+  isQueuedInColony,
   now as currentTime,
   silentLog,
   type Log,
@@ -102,6 +103,25 @@ const DEFER_BASE_MS = 30_000
 const DEFER_CEILING_MS = 900_000
 
 /**
+ * The same doubling, started where the stage it waits on actually is (`#434`).
+ *
+ * **Three minutes, and the number is measured rather than chosen.** A quest
+ * report waits on the moderation scrub, which is two model calls per report run
+ * one at a time; the three scrubbed on 2026-08-05 landed at 22:22:16, 22:25:12
+ * and 22:28:25, so a report that is *n*th in that queue waits about three
+ * minutes times *n*. Against a thirty-second base, a report that was merely
+ * second collected four deferrals in 213 seconds and filed a defect ticket about
+ * the Colony — for a scrub that arrived 56 seconds later.
+ *
+ * From here the waits are 3, 6, 12 and then the existing fifteen-minute ceiling:
+ * the ticket that `DEFERRALS_BEFORE_TICKET` files lands at 21 minutes and the
+ * attempt cap at 36, both comfortably past a healthy queue and both still well
+ * inside a rung's `timeoutHours`. A moderator that has genuinely stopped still
+ * produces the ticket, and then the `timeout` that says the fault was ours.
+ */
+const DEFER_QUEUED_BASE_MS = 180_000
+
+/**
  * How long after its wait expires a submission is still remembered.
  *
  * Only to bound the map in a process that runs for weeks: an entry whose
@@ -112,8 +132,9 @@ const DEFER_CEILING_MS = 900_000
  */
 const DEFER_FORGET_MS = 3_600_000
 
-export function deferralFor(count: number): number {
-  return Math.min(DEFER_BASE_MS * 2 ** Math.max(0, count - 1), DEFER_CEILING_MS)
+export function deferralFor(count: number, queuedInColony = false): number {
+  const base = queuedInColony ? DEFER_QUEUED_BASE_MS : DEFER_BASE_MS
+  return Math.min(base * 2 ** Math.max(0, count - 1), DEFER_CEILING_MS)
 }
 
 /**
@@ -311,7 +332,11 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
      * forgetting the count costs the only evidence that this is not a blip.
      */
     const count = await queue.defer(submission.id)
-    const wait = deferralFor(count)
+    // Whose latency this is. A verdict that says it is waiting on another Colony
+    // stage is stood back from at that stage's speed rather than at an outward
+    // call's (`#434`); everything else about the deferral is unchanged.
+    const queuedInColony = isQueuedInColony(verdict.result.metadata)
+    const wait = deferralFor(count, queuedInColony)
     deferrals?.set(submission.id, { until: Date.now() + wait, count })
 
     /**

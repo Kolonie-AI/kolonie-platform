@@ -24,6 +24,29 @@ import { submissions, supportTickets, tasks, verifications } from '../schema/ind
  * The submission is then given up on by the cap on the very next check — the
  * ticket is filed one check before the Colony stops, carrying the evidence that
  * explains why.
+ *
+ * ## The arithmetic above is one out, and it cost a citizen a false alarm (`#434`)
+ *
+ * *"450 s … is reached by the fourth deferral"* is wrong. The first deferral is
+ * the first check and happens immediately; the waits **follow** it. So the
+ * cumulative elapsed time at deferral *n* is the sum of the first *n − 1* waits
+ * — 0, 30, 90, **210** seconds — and the ticket fires at three and a half
+ * minutes, not seven and a half. 450 s is deferral *five*, which
+ * `MAX_VERIFICATION_ATTEMPTS` makes unreachable, which is the very thing this
+ * docstring corrected #254 for. The same slip, one layer down.
+ *
+ * **Measured rather than re-reasoned**, on submission `2b437745` (2026-08-05):
+ * deferrals at 22:23:56, 22:24:27, 22:25:27 and 22:27:29 — 213 seconds, and the
+ * ticket. The report was scrubbed at 22:28:25 and decided at 22:31:33, so
+ * nothing was stuck at any point.
+ *
+ * **The number is not what was changed.** Four deferrals is still the threshold;
+ * what was wrong is that a verdict waiting on the Colony's *own* moderation
+ * stage was clocked as if it were waiting on an outward call. `QueuedInColony`
+ * in core marks those, and the runner stands back from them at three minutes
+ * rather than thirty seconds — which puts this ticket at 21 minutes for a quest
+ * report and leaves it at 210 seconds for everything else, where the backoff and
+ * the stage do match.
  */
 export const DEFERRALS_BEFORE_TICKET = 4
 

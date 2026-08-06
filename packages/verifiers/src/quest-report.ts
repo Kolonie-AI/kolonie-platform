@@ -146,10 +146,17 @@ export class QuestReportVerifier implements Verifier {
        * The scrub has not run. `pending` and not `fail`, which is the whole of
        * `#170`: the Colony's own latency must never be recorded as the
        * citizen's failure. The runner retries until the task's `timeoutHours`.
+       *
+       * **`queuedInColony`, which is what `#434` was missing.** This is the one
+       * branch in this module that waits on the Colony rather than on the world,
+       * and the runner cannot tell the difference from a sentence. Unmarked, the
+       * report was retried at thirty seconds against a moderation stage that
+       * takes about three minutes, and filed a defect ticket about itself.
        */
       return {
         status: 'pending',
         evidence: 'Your report is with the Colony’s moderator and has not been judged yet.',
+        metadata: { queuedInColony: true },
       }
     }
 

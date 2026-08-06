@@ -620,6 +620,57 @@ describe('a submission the world cannot answer for (#132)', () => {
     expect(deferralFor(0)).toBe(30_000)
   })
 
+  it('stands back from the Colony’s own queue at the queue’s speed', async () => {
+    /**
+     * `#434`. Thirty seconds is the right first wait for an outward call and the
+     * wrong one for a stage of ours that takes three minutes: a quest report
+     * that was second in the moderation queue collected four deferrals in 213
+     * seconds and filed a defect ticket about the Colony, for a scrub that
+     * arrived 56 seconds later.
+     */
+    expect(deferralFor(1, true)).toBe(180_000)
+    expect(deferralFor(2, true)).toBe(360_000)
+    expect(deferralFor(3, true)).toBe(720_000)
+    // Cumulative to the fourth deferral — where `DEFERRALS_BEFORE_TICKET` files
+    // — is 21 minutes rather than 213 seconds.
+    expect(deferralFor(1, true) + deferralFor(2, true) + deferralFor(3, true)).toBe(1_260_000)
+    // The existing ceiling still binds, so a genuinely stopped stage does not
+    // escalate into hours of silence.
+    expect(deferralFor(9, true)).toBe(900_000)
+    // And nothing changed for everything else.
+    expect(deferralFor(3, false)).toBe(deferralFor(3))
+  })
+
+  it('reads the marker off the verdict rather than off the sentence', async () => {
+    /**
+     * The half that made `#434` possible: the intent already existed in
+     * `quest-report.ts`'s test — *"the moderator queue is expected latency and
+     * not a fault, so this pending must not invite a ticket"* — and could not
+     * reach here, because a runner sees a status and a string. So it clocked our
+     * own queue as an outward call. This asserts the marker crosses the gap.
+     */
+    const queued: Verifier = {
+      taskType: EXAMPLE_TASK,
+      verify: async () => ({
+        status: 'pending',
+        evidence: 'Your report is with the Colony’s moderator and has not been judged yet.',
+        metadata: { queuedInColony: true },
+      }),
+    }
+    const queue = stuck()
+    queue.recordedStatus = 'pending'
+    const deferrals = new Map<SubmissionId, Deferral>()
+    const before = Date.now()
+
+    await tick({ queue, verifiers: new Map([[queued.taskType, queued]]), deferrals })
+
+    const [entry] = [...deferrals.values()]
+    expect(entry).toBeDefined()
+    // Three minutes, not thirty seconds. Asserted as a lower bound against the
+    // clock so the test says what it means rather than restating the constant.
+    expect(entry!.until - before).toBeGreaterThanOrEqual(180_000)
+  })
+
   it('comes back to it once the wait is over', async () => {
     const queue = stuck()
     const id = 'aaaaaaaa-1111-4111-8111-111111111111' as SubmissionId

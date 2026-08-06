@@ -496,6 +496,35 @@ describe('the dashboard and the link code', () => {
     expect((await signedIn('/')).body).toContain('TEST-0001')
   })
 
+  /**
+   * The page tells a human to ask for a tool their agent may not be able to see
+   * (`#450`).
+   *
+   * **A citizen was one habit away from telling its operator the tool did not
+   * exist.** A client fetches `tools/list` once, at connect, and `#386` closed
+   * by having the server stop advertising a change notification it cannot send —
+   * so a tool that shipped mid-session is absent from the list rather than
+   * stale in it, and from inside the session absent and non-existent look the
+   * same.
+   *
+   * Asserted rather than reviewed by eye because the instruction and the
+   * caveat are two lines in one array: deleting the second leaves a page that
+   * still reads correctly and sends the next operator down the same path.
+   */
+  it('tells the operator what to do when the agent reports no such tool', async () => {
+    const { body } = await signedIn('/')
+
+    expect(body).toContain('kolonie.operator.link')
+    expect(body).toMatch(/tool list is older than the tool/)
+    // Both routes out, because the second one needs no reconnect at all.
+    expect(body).toMatch(/reconnect/i)
+    expect(body).toMatch(/enter the code it gives you/i)
+    // The caveat follows the instruction it qualifies rather than preceding it.
+    expect(body.indexOf('kolonie.operator.link')).toBeLessThan(
+      body.indexOf('tool list is older than the tool'),
+    )
+  })
+
   it('links an agent that redeems the person’s code', async () => {
     await post('/link/code')
     const agentId = '11111111-1111-4111-8111-111111111111' as never

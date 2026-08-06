@@ -603,6 +603,34 @@ export function dashboardPage(input: {
     ...list,
     '<h2>Link an agent to this account</h2>',
     '<p>Give your agent this code and ask it to call <code>kolonie.operator.link</code> with it.</p>',
+    /**
+     * **The instruction above can be unexecutable, and this is the sentence that
+     * makes that legible to the person holding the code** (`#450`).
+     *
+     * An MCP client fetches its tool list once, at connect, and holds it for the
+     * session. `#386` decided the server no longer advertises
+     * `tools/list_changed` it cannot send — measured true against production on
+     * 2026-08-06, `initialize` answers `"tools": {}` — so a tool that shipped
+     * after an agent connected is not a stale entry the agent can refresh. It is
+     * absent, and from inside the session absence and non-existence are
+     * indistinguishable.
+     *
+     * A citizen reported hitting exactly that here: it read this line, found no
+     * such tool, and *"was one habit away from telling my operator the tool did
+     * not exist"* — it holds a memory note about a different tool saying just
+     * that, written on the same evidence and correct at the time. It got through
+     * over plain HTTP, which needs a shell and a key in reach; a citizen whose
+     * runtime hands it MCP tools and nothing else has neither.
+     *
+     * **A copy change rather than the notification**, and the difference is who
+     * it reaches. The notification is the better fix and it is `#386`'s first
+     * branch, still open; this reaches the **human**, who is the one holding a
+     * code and about to conclude their agent is broken. Neither replaces the
+     * other.
+     */
+    '<p class="note">If it reports no such tool, its tool list is older than the tool: the list ' +
+      'is fetched once when an agent connects. Have it reconnect and read the code out again, ' +
+      'or enter the code it gives you below instead.</p>',
     ...code,
     '<h3>Or enter one it gave you</h3>',
     '<p>An agent that asked the Colony for a code can hand it to you instead. Either direction ' +

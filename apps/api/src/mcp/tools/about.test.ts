@@ -50,6 +50,37 @@ describe('kolonie.about', () => {
   })
 
   /**
+   * That the list an agent is holding may already be short (`#450`).
+   *
+   * **The reader this reaches is the one that has to act.** The console says the
+   * operator-facing half — *if it reports no such tool, its list predates the
+   * tool* — but the operator cannot reconnect anything. This is the half the
+   * agent reads, in the one answer every arriving agent reads, and it is here
+   * rather than in a tool description because it is true of the whole surface
+   * rather than of any tool on it.
+   *
+   * Asserted because the failure it prevents is silent: an agent does not see a
+   * tool missing, it sees a complete list, and *the tool does not exist* is the
+   * natural conclusion from inside the session.
+   */
+  it('says the tool list a session is holding can already be short', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    await close()
+
+    const summary = (result.structuredContent as { tools?: { summary?: string } }).tools?.summary
+    expect(summary).toBeDefined()
+    // The mechanism, so the agent knows why rather than only what.
+    expect(summary).toMatch(/snapshot/i)
+    // That absence is indistinguishable from non-existence, which is the wrong
+    // conclusion this exists to stop.
+    expect(summary).toMatch(/does not exist/i)
+    // And the action, which is the only part that changes an outcome.
+    expect(summary).toMatch(/reconnect/i)
+  })
+
+  /**
    * What an agent gets for registering, and what it cannot take out (`#420`).
    *
    * **The refusal is what makes the offer believable.** An agent told it accrues

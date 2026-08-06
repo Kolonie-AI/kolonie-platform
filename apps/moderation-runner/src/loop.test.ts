@@ -25,6 +25,7 @@ import {
 } from './loop.js'
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
+import { ProviderUnreachable } from './llm.js'
 import {
   FIRST_REPORT,
   MEASURED_CLAIM_SIMILARITY,
@@ -783,7 +784,7 @@ describe('writing briefings', () => {
 
     const outcome = await briefingTick({ store: briefingStore(), model }, 10)
 
-    expect(outcome).toEqual({ written: 0, failed: 1 })
+    expect(outcome).toEqual({ written: 0, failed: 1, unreachable: 0 })
     expect(written).toEqual([])
     // Still stale, so the next pass retries it.
     expect(stale).toEqual([taskId])
@@ -799,7 +800,7 @@ describe('writing briefings', () => {
 
     const outcome = await briefingTick({ store: briefingStore(), model }, 10)
 
-    expect(outcome).toEqual({ written: 1, failed: 1 })
+    expect(outcome).toEqual({ written: 1, failed: 1, unreachable: 0 })
     expect(written.map((entry) => entry.taskId)).toEqual([fine])
   })
 
@@ -892,6 +893,138 @@ describe('writing briefings', () => {
     expect(outcome.written).toBe(1)
     expect(written[0]?.claims).toEqual([])
     expect(model.calls()).toHaveLength(0)
+  })
+
+  /**
+   * A provider that could not be reached, told apart from a synthesis that went
+   * wrong (`#449`).
+   *
+   * **The regression these guard is silent in both directions.** Downgrading the
+   * wrong failure hides a real defect from `apps/support-triage-runner`, which
+   * reads `error` out of Loki; downgrading none of them files a GitHub issue
+   * every time a connection resets. `#449` is the second of those, filed twice
+   * for one hiccup, and #416 before it shows what happens when a genuine
+   * synthesis failure lands in a signature that is already noisy.
+   */
+  const unreachable = (): Error =>
+    Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND openrouter.ai'), {
+        code: 'ENOTFOUND',
+      }),
+    })
+
+  it('defers a task the provider could not be reached for, and does not call it a failure', async () => {
+    const taskId = randomUUID() as TaskId
+    stale = [taskId]
+    model.failsNext(new ProviderUnreachable('/chat/completions', unreachable()))
+    const lines: { level: string; event: unknown; message: string }[] = []
+    const log: Log = {
+      info: () => {},
+      warn: (message, fields) => lines.push({ level: 'warn', message, event: fields?.['event'] }),
+      error: (message, _error, fields) =>
+        lines.push({ level: 'error', message, event: fields?.['event'] }),
+    }
+
+    const outcome = await briefingTick({ store: briefingStore(), model, log }, 10).catch(
+      (error: unknown) => error,
+    )
+
+    // The whole pass reached nothing, so it is raised once for the pass — see
+    // briefingTick. What matters here is the per-task line underneath it.
+    expect(outcome).toBeInstanceOf(ProviderUnreachable)
+    expect(lines.filter((line) => line.level === 'error')).toEqual([])
+    expect(lines.map((line) => line.event)).toContain('briefing.unreachable')
+    // The flag stays set, so the next poll writes it.
+    expect(stale).toEqual([taskId])
+    expect(written).toEqual([])
+  })
+
+  it('still calls a synthesis that went wrong a failure', async () => {
+    stale = [randomUUID() as TaskId]
+    model.failsNext(new Error('the model answered nothing'))
+    const events: unknown[] = []
+    const log: Log = {
+      info: () => {},
+      warn: () => {},
+      error: (_message, _error, fields) => events.push(fields?.['event']),
+    }
+
+    const outcome = await briefingTick({ store: briefingStore(), model, log }, 10)
+
+    expect(outcome).toEqual({ written: 0, failed: 1, unreachable: 0 })
+    expect(events).toEqual(['briefing.failed'])
+  })
+
+  /**
+   * **A pass that got one briefing out is not an outage.** The throw is reserved
+   * for a pass in which nothing succeeded and every failure was the provider —
+   * otherwise a single reset in a batch of ten would cost the nine that worked
+   * their backoff.
+   */
+  it('does not raise the pass when something else in it succeeded', async () => {
+    const broken = randomUUID() as TaskId
+    const fine = randomUUID() as TaskId
+    stale = [broken, fine]
+    model.failsNext(new ProviderUnreachable('/chat/completions', unreachable()))
+    model.composes({ section: 'wall', text: 'A wall.', sources: [corpus[0]!.id] })
+
+    const outcome = await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(outcome).toEqual({ written: 1, failed: 1, unreachable: 1 })
+    expect(stale).toEqual([broken])
+  })
+
+  it('says nothing when there was nothing stale to reach a provider for', async () => {
+    stale = []
+
+    const outcome = await briefingTick({ store: briefingStore(), model }, 10)
+
+    expect(outcome).toEqual({ written: 0, failed: 0, unreachable: 0 })
+  })
+})
+
+/**
+ * What the failure says about itself, which is the whole of `#449` (`llm.ts`).
+ *
+ * The line that reached Loki on 2026-08-06 was `TypeError: fetch failed` with a
+ * stack and nothing else — no host, no reason, no endpoint. The issue filed from
+ * it says outright that *"the lines alone are insufficient to determine the root
+ * cause beyond a fetch failure"*, which is a detector reporting that a log line
+ * did not do its job.
+ */
+describe('a request that never reached the provider', () => {
+  it('names the endpoint and the reason the connection did not open', () => {
+    const error = new ProviderUnreachable(
+      '/chat/completions',
+      Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND openrouter.ai'), {
+          code: 'ENOTFOUND',
+        }),
+      }),
+    )
+
+    expect(error.endpoint).toBe('/chat/completions')
+    // The endpoint, which separates a synthesis from an embedding.
+    expect(error.message).toContain('/chat/completions')
+    // And the cause, which is the half `fetch failed` never carries.
+    expect(error.message).toContain('ENOTFOUND')
+    expect(error.message).toContain('getaddrinfo')
+  })
+
+  it('stops walking a cause chain rather than following it for ever', () => {
+    const looping = new Error('outer') as Error & { cause?: unknown }
+    looping.cause = looping
+
+    const error = new ProviderUnreachable('/embeddings', looping)
+
+    // Three links and no more — a cyclic chain must not be written into a log.
+    expect(error.message.match(/caused by/g)).toHaveLength(2)
+  })
+
+  it('says something useful even when what rejected was not an Error', () => {
+    const error = new ProviderUnreachable('/embeddings', 'the socket closed')
+
+    expect(error.message).toContain('the socket closed')
   })
 })
 

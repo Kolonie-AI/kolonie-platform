@@ -29,7 +29,7 @@ import { questReportTick, type QuestReportLoopDependencies } from './quest-repor
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
-import type { Model } from './llm.js'
+import { ProviderUnreachable, type Model } from './llm.js'
 
 /** Where the loop reads and writes. Injected, so the decision is testable without one. */
 export interface ModerationStore {
@@ -824,7 +824,17 @@ export interface BriefingDependencies {
 export interface BriefingTickOutcome {
   readonly written: number
   readonly failed: number
+  /**
+   * How many of {@link failed} were the provider being unreachable rather than
+   * the synthesis going wrong (`#449`). Counted separately because the two need
+   * opposite reactions, and because a pass that is *entirely* this is an outage
+   * rather than a batch of defects — see {@link briefingTick}.
+   */
+  readonly unreachable: number
 }
+
+/** What one task's pass came to. Three outcomes, because two of them are failures for different reasons. */
+export type SynthesisOutcome = 'written' | 'failed' | 'unreachable'
 
 /**
  * Rewrite every briefing whose corpus has moved.
@@ -849,11 +859,43 @@ export async function briefingTick(
   batchSize: number,
 ): Promise<BriefingTickOutcome> {
   const { store, model, log = silentLog } = deps
-  const outcome = { written: 0, failed: 0 }
+  const outcome = { written: 0, failed: 0, unreachable: 0 }
 
   for (const taskId of await store.stale(batchSize)) {
-    if (await synthesiseNow(store, model, taskId, log)) outcome.written++
-    else outcome.failed++
+    const result = await synthesiseNow(store, model, taskId, log)
+    if (result === 'written') outcome.written++
+    else {
+      outcome.failed++
+      if (result === 'unreachable') outcome.unreachable++
+    }
+  }
+
+  /**
+   * **A pass that reached nothing is an outage, and it is raised once** (`#449`).
+   *
+   * Per task, an unreachable provider is a warning: the flag stays set and the
+   * next poll writes the briefing. But a pass in which *every* attempt failed
+   * that way, and none succeeded, is not a run of unlucky tasks — the provider
+   * is not there, and nothing this loop does next will change that until it is.
+   *
+   * Throwing hands it to the runner's existing arrangement rather than building
+   * a second one: `startBriefingRunner` catches it, logs one
+   * `briefing.poll.failed` at error, counts it toward `consecutiveFailures` and
+   * doubles the wait. That is precisely what its own comment already argues for
+   * — *"a model that is refusing requests refuses all of them, and retrying each
+   * task individually turns one outage into a request storm"* — and it means
+   * one line per poll during an outage instead of one per task, with a backoff
+   * behind it.
+   *
+   * **The empty batch is excluded by construction.** With nothing stale,
+   * `unreachable` is 0 and this does not fire; a quiet loop keeps saying so
+   * through `briefing.poll.done`.
+   */
+  if (outcome.written === 0 && outcome.unreachable > 0 && outcome.unreachable === outcome.failed) {
+    throw new ProviderUnreachable(
+      '/chat/completions',
+      new Error(`${outcome.unreachable} briefing(s) in this pass reached no provider`),
+    )
   }
 
   return outcome
@@ -976,7 +1018,7 @@ export async function synthesiseNow(
   model: Model,
   taskId: TaskId,
   log: Log,
-): Promise<boolean> {
+): Promise<SynthesisOutcome> {
   try {
     const task = await store.taskText(taskId)
     if (task === undefined) {
@@ -988,7 +1030,7 @@ export async function synthesiseNow(
         event: 'briefing.task.unreadable',
         taskId,
       })
-      return false
+      return 'failed'
     }
 
     const corpus = await store.corpus(taskId)
@@ -1038,12 +1080,47 @@ export async function synthesiseNow(
       )
     }
 
-    return true
+    return 'written'
   } catch (error) {
+    /**
+     * **A provider that could not be reached is not this task's failure**
+     * (`#449`). The flag stays set, the next poll writes the briefing, and one
+     * occurrence of it is the system working — the rule
+     * `packages/verifiers/src/support.ts` already states for a citizen is the
+     * same one here: *"A single transient failure that clears on retry is the
+     * system working."*
+     *
+     * So it is a warning with its own event name rather than
+     * `briefing.failed` at error, and that distinction is load-bearing rather
+     * than cosmetic: `apps/support-triage-runner` reads `error` out of Loki and
+     * files one GitHub issue per signature. A connection reset filed as a defect
+     * costs a maintainer the read, and — worse — it lands in the same signature
+     * as a real synthesis failure, so the issue that is genuinely about a broken
+     * briefing arrives already noisy. `#449` is that issue, filed twice for a
+     * network hiccup.
+     *
+     * **The alarm is not lost, it moves up a level.** A provider that is
+     * unreachable is unreachable for every task in the batch, so
+     * {@link briefingTick} raises it once for the pass rather than once per
+     * task, and the runner's existing backoff and `briefing.poll.failed` line
+     * take it from there. That is the arrangement `startBriefingRunner`'s own
+     * comment already argues for: *"a model that is refusing requests refuses
+     * all of them, and retrying each task individually turns one outage into a
+     * request storm."*
+     */
+    if (error instanceof ProviderUnreachable) {
+      log.warn(`briefing for ${taskId} deferred — ${error.message}`, {
+        event: 'briefing.unreachable',
+        taskId,
+        endpoint: error.endpoint,
+      })
+      return 'unreachable'
+    }
+
     log.error(`could not write the briefing for ${taskId}`, error, {
       event: 'briefing.failed',
       taskId,
     })
-    return false
+    return 'failed'
   }
 }

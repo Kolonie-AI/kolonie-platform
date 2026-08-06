@@ -255,6 +255,73 @@ export interface MarkedSpan {
  * actually thrown. Two defences, because a credential in a log survives every
  * rotation of the log.
  */
+/**
+ * The request never reached OpenRouter (`#449`).
+ *
+ * **A class rather than a message, because the two failures need opposite
+ * reactions.** A `429`, a `500` or an empty reply is the provider answering
+ * badly: it is about this call, this prompt, this ceiling, and it belongs in a
+ * log line a person reads. A connection that never opened is about the network
+ * between here and there, it is the same for every task in the batch, and one
+ * occurrence of it is the system working — the flag stays set and the next poll
+ * writes the briefing. `packages/verifiers/src/support.ts` states the rule this
+ * follows: *"A single transient failure that clears on retry is the system
+ * working."*
+ *
+ * ## Why the cause is unwrapped rather than left on the error
+ *
+ * `fetch` rejects with `TypeError: fetch failed` and puts everything that says
+ * *what* failed on `error.cause` — the DNS answer, the reset, the timeout. A
+ * structured log carries the message and the stack, so what reached Loki on
+ * 2026-08-06 was:
+ *
+ *     "err": { "name": "TypeError", "message": "fetch failed", "stack": … }
+ *
+ * — a line naming neither the host nor the reason. The issue filed from it
+ * closes with *"the lines alone are insufficient to determine the root cause
+ * beyond a fetch failure"*, which is the detector saying the log line did not do
+ * its job. This walks the chain and puts it in the message, where it survives
+ * every transport that keeps a message.
+ *
+ * **The path, not the URL.** {@link OPENROUTER_BASE} is a constant in this file
+ * and naming it again in every failure adds no information, while `AGENTS.md`
+ * §9 is about not putting hosts of ours in logs at all. `/chat/completions` is
+ * what distinguishes a synthesis from an embedding, and that is the part a
+ * reader is missing.
+ */
+export class ProviderUnreachable extends Error {
+  /** The OpenRouter path that was being called — `/chat/completions`, `/embeddings`. */
+  readonly endpoint: string
+
+  constructor(endpoint: string, cause: unknown) {
+    super(`OpenRouter could not be reached for ${endpoint}: ${describeCause(cause)}`, { cause })
+    this.name = 'ProviderUnreachable'
+    this.endpoint = endpoint
+  }
+}
+
+/**
+ * Everything the rejection says about itself, flattened into one sentence.
+ *
+ * **Bounded on purpose.** A cause chain is a linked list and nothing promises it
+ * is short; three links is past every case undici produces and stops a cyclic
+ * one from being written into a log for ever. Codes are included because
+ * `ENOTFOUND` and `ECONNRESET` are different problems with different owners, and
+ * they are the half that `message` alone never carries.
+ */
+function describeCause(error: unknown): string {
+  const parts: string[] = []
+  let current: unknown = error
+
+  for (let depth = 0; depth < 3 && current instanceof Error; depth++) {
+    const code = (current as { code?: unknown }).code
+    parts.push(typeof code === 'string' ? `${current.message} (${code})` : current.message)
+    current = current.cause
+  }
+
+  return parts.length === 0 ? String(error) : parts.join(' — caused by ')
+}
+
 async function diagnose(response: Response, apiKey: string): Promise<string> {
   try {
     const body = (await response.json()) as {
@@ -526,14 +593,19 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
   const log = options.log ?? silentLog
 
   const call = async (path: string, body: unknown): Promise<unknown> => {
-    const response = await fetchImpl(`${OPENROUTER_BASE}${path}`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
+    let response: Response
+    try {
+      response = await fetchImpl(`${OPENROUTER_BASE}${path}`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+    } catch (error) {
+      throw new ProviderUnreachable(path, error)
+    }
 
     if (!response.ok) {
       throw new Error(

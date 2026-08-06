@@ -85,12 +85,21 @@ function reviewRow(quest: QuestUnderReview): string {
         ' would be the requirement. <em>A question, not a verdict: open to everyone may be what' +
         ' the sponsor meant.</em></p>'
 
+  /**
+   * **Two labels said *Sponsor* and now say what the party did** (`#468`).
+   *
+   * `kolonie-docs#184` lets the word stay in prose where it describes what
+   * somebody is doing — the sentence above this table still uses it that way and
+   * is untouched. A bare column label is the other case: it reads as a kind of
+   * person a steward is being shown, which is the reading that decision retires.
+   * *Written by* names the same identity by the thing it did on this quest.
+   */
   const facts = [
-    ['Sponsor', quest.sponsor.name ?? '— erased'],
+    ['Written by', quest.sponsor.name ?? '— erased'],
     ['Capacity', String(task.slots ?? '—')],
     ['Price per accepted report', String(task.reward.credits)],
     ['Total', String(quest.total)],
-    ['Sponsor’s available balance', String(quest.sponsorBalance.available)],
+    ['Its available balance', String(quest.sponsorBalance.available)],
     [
       'Moderation',
       quest.moderation === null
@@ -187,7 +196,11 @@ export function numbersPage(numbers: ColonyNumbers): string {
         'No accounts at all, which means something is wrong rather than quiet.',
       ),
       '<h2>Citizens</h2>',
-      `<p>${numbers.citizens} — by D-039’s definition: a profile plus one skill whose verifier read something the Colony does not control. Every other identity is a candidate, a sponsor account, or neither.</p>`,
+      // *a sponsor account* until `#468`: `kolonie-docs#184` retired the phrase,
+      // and the category it named is real — an identity that arrived through the
+      // console and has climbed nothing, which is what `console-identity.ts`
+      // describes rather than a kind of account.
+      `<p>${numbers.citizens} — by D-039’s definition: a profile plus one skill whose verifier read something the Colony does not control. Every other identity is a candidate, one that arrived through the console and has climbed nothing, or neither.</p>`,
       table('Skills granted, per skill', numbers.skillsGranted, 'Nothing has been granted yet.'),
       table('Quests, by status', numbers.questsByStatus, 'No quests have been written.'),
       /**

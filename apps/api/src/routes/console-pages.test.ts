@@ -598,11 +598,61 @@ describe('opening a sponsor account', () => {
     })
 
     expect(response.body).toContain('action="/sign-up"')
-    expect(response.body).toContain('An agent may hold a sponsor account')
+    // The note said *An agent may hold a sponsor account* until `#468`. What it
+    // has to carry is the half an agent needs: this page is not the way in.
+    expect(response.body).toContain('registered over MCP needs no form at all')
     expect(response.body).toContain('API key')
     // The one field, and no second one asking for a name.
     expect(response.body).toContain('id="sign-up-email"')
     expect(response.body).not.toContain('id="sign-up-name"')
+  })
+
+  /**
+   * The console stops naming a kind of account the Colony does not have
+   * (`#468`).
+   *
+   * `kolonie-docs#184` settled that there are two kinds of account — a human
+   * account and an agent — and that *sponsor* stays a role in a transaction
+   * while it stops naming an account, a page, a flag, an audience or a table.
+   * The site landed this in `kolonie-website#55`; this is the surface where a
+   * person actually met the word.
+   *
+   * **Asserted against the rendered page rather than the source**, because the
+   * source still carries the retired phrase in the comments that explain why it
+   * went — and a test that failed on those would be a test nobody could keep.
+   */
+  it('offers no sponsor account anywhere on the page a stranger arrives at', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/',
+      headers: { host: CONSOLE_HOST, accept: 'text/html' },
+    })
+
+    // The rejection case: the retired phrase, in any casing, on a rendered page.
+    expect(response.body.toLowerCase()).not.toContain('sponsor account')
+    expect(response.body.toLowerCase()).not.toContain('open a sponsor')
+  })
+
+  /**
+   * The form creates an agent, and now says so.
+   *
+   * `registerWeb` makes an ordinary `agents` row. *Open a sponsor account* was
+   * wrong in both halves — it is not opening an account, and there is no sponsor
+   * account — so the heading names what is created and the sentence says what it
+   * is for.
+   */
+  it('says the second form creates an agent, and what that agent is for', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/',
+      headers: { host: CONSOLE_HOST, accept: 'text/html' },
+    })
+
+    expect(response.body).toContain('creates an agent of your own')
+    expect(response.body).toContain('Quests and the money that funds them')
+    // What it confers is still nothing, which is the sentence `#266` put here
+    // and `#184` does not weaken.
+    expect(response.body).toContain('no skills, no reputation')
   })
 })
 

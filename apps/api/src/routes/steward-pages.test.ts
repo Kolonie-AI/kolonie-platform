@@ -72,7 +72,7 @@ const asStewardAgent = (url: string) =>
  * by anybody without database access.
  */
 describe('the review queue', () => {
-  it('shows the sponsor, the cost, the balance and the moderation result', async () => {
+  it('shows who wrote it, the cost, the balance and the moderation result', async () => {
     quests.credit(stewardId as never, 1_000_000)
     const authorId = String(store.issue({}).agent.id)
     quests.credit(authorId as never, 1000)
@@ -100,7 +100,11 @@ describe('the review queue', () => {
     expect(page.body).toContain('A thousand registrations')
     // Capacity times price, computed once and shown.
     expect(page.body).toContain('Total')
-    expect(page.body).toContain('Sponsor')
+    // *Sponsor* until `#468`. `kolonie-docs#184` lets the word stay in prose
+    // where it says what somebody is doing — the paragraph above this table
+    // still uses it that way — and retires it as a bare label, which reads as a
+    // kind of person rather than a party to this quest.
+    expect(page.body).toContain('Written by')
     expect(page.body).toContain('available balance')
   })
 

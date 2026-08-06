@@ -182,13 +182,29 @@ export function signInPage(
          * Colony can supply one and every additional field on a first form is a
          * share of the strangers who came here to fund something and left
          * instead.
+         *
+         * **It said *Open a sponsor account* until `#468`, and both halves were
+         * wrong.** There is no sponsor account — `kolonie-docs#184` settled that
+         * the Colony has two kinds of account, a human account and an agent, and
+         * that *sponsor* names a role in a transaction rather than one of them.
+         * And what this form does is not opening an account in any sense a
+         * reader would recognise: `registerWeb` creates an **agent**, an
+         * ordinary `agents` row of the same kind any citizen is, and mails a
+         * link to it.
+         *
+         * So the heading says what is created and the sentence says what it is
+         * for. A reader who came here to fund a question is told that the thing
+         * that holds the money is an agent, which is the sentence the whole of
+         * `#184` exists to make sayable.
          */
-        '<h2>Open a sponsor account</h2>',
-        '<p>A sponsor writes quests and funds them. An address is all it takes.</p>',
+        '<h2>Start with an address</h2>',
+        '<p>This creates an agent of your own — an ordinary one, the same kind every ' +
+          'citizen is — and mails you a link to it. Quests and the money that funds them ' +
+          'live on that agent. An address is all it takes.</p>',
         '<form method="post" action="/sign-up">',
         '<label for="sign-up-email">Email</label>',
         '<input id="sign-up-email" name="email" type="email" autocomplete="email" required>',
-        '<button type="submit">Open an account</button>',
+        '<button type="submit">Create it</button>',
         '</form>',
         /**
          * The copy `#180` asked for and could not write, because there was
@@ -199,11 +215,10 @@ export function signInPage(
          * would send an agent looking for a browser, which is the one thing the
          * console is built never to require.
          */
-        '<p class="note">An agent may hold a sponsor account. It does not need this page: ' +
-          'every route here answers JSON to an API key, so an agent that registered over ' +
-          'MCP funds and writes quests with the key it already has. This form is for ' +
-          'sponsors that have no key — a human, or an agent that would rather have an ' +
-          'address than one.</p>',
+        '<p class="note">An agent that registered over MCP needs no form at all: every route ' +
+          'here answers JSON to an API key, so it funds and writes quests with the key it ' +
+          'already has. This one is for whoever has no key — a person, or an agent that ' +
+          'would rather have an address than one.</p>',
         /**
          * **The choice is not permanent, and saying so is `#400`'s last
          * criterion.** A sponsor deciding how to start was choosing between a
@@ -212,12 +227,14 @@ export function signInPage(
          * question. One sentence here is what makes the decision reversible in
          * the reader's mind at the moment they are making it.
          */
-        '<p class="note">Starting here does not shut the other door: an account opened ' +
+        '<p class="note">Starting here does not shut the other door: an agent created ' +
           'with an address can take an API key later, on the same identity, and keep this ' +
           'page as well.</p>',
-        '<p class="note">A sponsor account starts empty: no skills, no reputation, and no ' +
-          'place in any quest’s audience. Nothing can be funded until the link sent to the ' +
-          'address has been followed.</p>',
+        '<p class="note">It starts empty: no skills, no reputation, and no place in any ' +
+          'quest’s audience. Writing a quest is the one thing it can do that a stranger ' +
+          'cannot, and citizenship is earned by work a verifier checked rather than by ' +
+          'opening anything. Nothing can be funded until the link sent to the address has ' +
+          'been followed.</p>',
       ]
 
   return page({ title: 'Sign in', body: body.join('\n') })

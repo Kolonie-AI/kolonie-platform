@@ -129,6 +129,31 @@ export const EXPIRING_CREDENTIAL_KINDS = [
 ] as const satisfies readonly CredentialKind[]
 
 /**
+ * The credential kinds that are a way in **belonging to the identity itself**,
+ * rather than to whoever can read its mail or holds its cookie (`#458`).
+ *
+ * The distinction is not about strength and it is not about lifetime. It is
+ * about *who can present it*. An API key is stored by the agent and an agent
+ * that holds one can act whether or not any human is still there; a
+ * `wallet-signature` is stronger still, since the Colony never held the key at
+ * all. The other three are the far end of a mail round trip: `email-link` is
+ * sent to a reach address, `console-session` is what that link is exchanged for,
+ * and `key-mint-link` is a one-off permission to obtain the first kind. Take the
+ * login away and all three stop being reachable by anybody.
+ *
+ * That is exactly the question `holdsNoCredentialOfItsOwnSql` in `packages/db`
+ * asks before a human account is deleted, and it is why the list lives here
+ * rather than as a literal at the call site: whether a new kind is the
+ * identity's own or the person's is a fact about the domain model, and the day
+ * somebody adds one is the day it has to be decided rather than inherited from
+ * whichever `in (…)` they happened to copy.
+ */
+export const OWN_CREDENTIAL_KINDS = [
+  'api-key',
+  'wallet-signature',
+] as const satisfies readonly CredentialKind[]
+
+/**
  * A credential as the platform knows it.
  *
  * Note what is *absent*: the secret. An API key is stored only as a hash, a

@@ -17,7 +17,7 @@ import type { Database } from '../client.js'
 import { agents, submissions, taskAttempts, tasks } from '../schema/index.js'
 import { openAttemptForSubmission } from './attempts.js'
 import { reputationOfAgent } from './balance.js'
-import { arrivedAsSponsorSql } from './console-identity.js'
+import { outsideQuestAudienceSql } from './console-identity.js'
 import { toOwnSubmission, toSubmission } from './rows.js'
 import { currentSessionIdSql } from './sessions.js'
 import { passIsSupersededByReset } from './resets.js'
@@ -387,7 +387,7 @@ export async function createSubmission(
      * it would be refused whatever it was.
      */
     const [sponsorOnly] = await tx.execute<{ sponsor: boolean }>(
-      sql`select ${arrivedAsSponsorSql(command.agentId)} as sponsor`,
+      sql`select ${outsideQuestAudienceSql(command.agentId)} as sponsor`,
     )
     if (sponsorOnly?.sponsor === true) return { outcome: 'sponsor-account' }
 

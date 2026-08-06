@@ -24,23 +24,24 @@ import { heldSkillsSql, toSkills } from './skills.js'
  *
  * One identity table and several ways in. `registration_path = 'web'`,
  * `platform = 'other'`, exactly as `registerWebIdentity` writes them and for the
- * reasons that function gives. {@link arrivedAsSponsorSql} is untouched and
+ * reasons that function gives. {@link outsideQuestAudienceSql} is untouched and
  * keeps working unchanged; nothing here adds a flag, a status or a second table.
  *
- * ## Why resolution does **not** use the sponsor predicate
+ * ## Why resolution does **not** use the audience predicate
  *
- * `arrivedAsSponsorSql` is *arrived by web* **and** *holds no skill*, and the
- * second half is deliberate: it lapses the moment the identity climbs anything,
- * so a sponsor cannot become a caste. That is right for the two questions it
- * answers — the audience a sponsor is shown, and the gate a claim passes — and
- * **wrong for this one.** A sponsor that climbed a rung would stop being found
- * by its own console and would lose the deposit address it was using, which is
- * a demotion by achievement.
+ * `outsideQuestAudienceSql` is *arrived by web* **and** *holds no skill*, and
+ * the second half is deliberate: it lapses the moment the identity climbs
+ * anything, so an identity that arrived by web cannot become a caste. That is
+ * right for the two questions it answers — the audience a quest's author is
+ * shown, and the gate a claim passes — and **wrong for this one.** An identity
+ * that climbed a rung would stop being found by its own console and would lose
+ * the deposit address it was using, which is a demotion by achievement.
  *
  * So resolution asks the durable half only: the linked identity that arrived by
  * `web`. The predicate stays exactly as it is and is not widened to serve a
  * third caller with a different question — the mistake `console-identity.ts`
- * warns about in the other direction.
+ * warns about in the other direction, and the one `#458` finally undid by
+ * splitting the deletion guard out into a predicate of its own.
  */
 export interface SponsorIdentity {
   readonly id: AgentId

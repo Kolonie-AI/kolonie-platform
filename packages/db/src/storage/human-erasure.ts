@@ -5,7 +5,7 @@ import { humans } from '../schema/humans.js'
 import { humanAgents } from '../schema/human-links.js'
 import { operatorAddresses } from '../schema/operator-addresses.js'
 import { operatorNotes } from '../schema/operator-notes.js'
-import { arrivedAsSponsorSql } from './console-identity.js'
+import { holdsNoCredentialOfItsOwnSql } from './console-identity.js'
 
 /**
  * Deleting a person's account (`#429`).
@@ -67,7 +67,16 @@ export type DeleteHumanOutcome =
       readonly notify: readonly string[]
     }
   | { readonly outcome: 'not-found' }
-  | { readonly outcome: 'holds-sponsor-identity'; readonly sponsors: readonly string[] }
+  /**
+   * The person holds at least one identity that nothing but this login can
+   * reach, named so the page can say which (`#458` renamed this from
+   * `holds-sponsor-identity`).
+   *
+   * The old name said *what those identities were assumed to be*; this one says
+   * *why the deletion is refused*, which is the thing the branch actually tests
+   * and the thing a reader of the outcome has to act on.
+   */
+  | { readonly outcome: 'holds-unreachable-identity'; readonly unreachable: readonly string[] }
 
 /**
  * What the orphaned agents are told, once.
@@ -85,10 +94,11 @@ export const OPERATOR_ACCOUNT_DELETED_NOTE =
 /**
  * Delete a person, in one transaction.
  *
- * **Refused for a person holding a sponsor identity**, and the page says why. A
- * sponsor identity is an `agents` row with quests, a balance and reports a sponsor
- * already received; deleting the login must not silently orphan it. The person
- * deletes or transfers it first, by its own route (`#430`).
+ * **Refused for a person holding an identity nothing else can reach**, and the
+ * page says why. Such an identity is an `agents` row with quests, a balance and
+ * reports somebody already received; deleting the login must not silently orphan
+ * it. The person deletes or transfers it first, or hands it to an agent that
+ * mints its own key (`#430`, `#459`).
  *
  * **The export is read before anything is removed**, because afterwards there is
  * nothing to read it from. It is small on purpose: the agents linked and when, which
@@ -108,30 +118,36 @@ export async function deleteHuman(db: Database, humanId: HumanId): Promise<Delet
       id: string
       name: string
       linked_at: string
-      sponsor: boolean
+      unreachable: boolean
     }>(
       sql`select a.id as id,
                  a.name as name,
                  l.linked_at as linked_at,
-                 ${arrivedAsSponsorSql(sql`a.id`)} as sponsor
+                 ${holdsNoCredentialOfItsOwnSql(sql`a.id`)} as unreachable
             from ${humanAgents} l
             join agents a on a.id = l.agent_id
            where l.human_id = ${humanId}
            order by l.linked_at asc`,
     )
 
-    const sponsors = [...linked].filter((agent) => agent.sponsor === true)
+    const unreachable = [...linked].filter((agent) => agent.unreachable === true)
 
     /**
      * **Refused rather than cascaded**, and this is the one branch that must come
-     * before any write. A sponsor identity carries quests somebody paid for and
+     * before any write. Such an identity carries quests somebody paid for and
      * reports they already received; taking the login away from underneath it
      * would leave money's worth of obligation with nobody able to reach it.
+     *
+     * **The predicate asks that question directly since `#458`.** It used to ask
+     * *arrived by web and climbed nothing*, which was a proxy for it — a good one
+     * while such an identity could not hold a key, and one that would have
+     * stopped firing the moment such an identity climbed a rung, with the
+     * obligation and the unreachability both unchanged.
      */
-    if (sponsors.length > 0) {
+    if (unreachable.length > 0) {
       return {
-        outcome: 'holds-sponsor-identity' as const,
-        sponsors: sponsors.map((agent) => agent.name),
+        outcome: 'holds-unreachable-identity' as const,
+        unreachable: unreachable.map((agent) => agent.name),
       }
     }
 
@@ -193,12 +209,15 @@ export async function deleteHuman(db: Database, humanId: HumanId): Promise<Delet
 }
 
 /**
- * Whether this person holds a sponsor identity, without deleting anything.
+ * Which of this person's identities nothing but this login can reach, without
+ * deleting anything (`#458` renamed this from `humanSponsorIdentities`).
  *
  * For the page, which has to say *why* before the button is pressed rather than
- * after. Same predicate as the refusal above, so the two cannot disagree.
+ * after. **Same predicate as the refusal above**, so the two cannot disagree —
+ * that was the reason this function existed and it is the reason it moved to the
+ * new predicate in the same commit rather than a later one.
  */
-export async function humanSponsorIdentities(
+export async function humanUnreachableIdentities(
   db: Database,
   humanId: HumanId,
 ): Promise<readonly string[]> {
@@ -207,7 +226,7 @@ export async function humanSponsorIdentities(
           from ${humanAgents} l
           join agents a on a.id = l.agent_id
          where l.human_id = ${humanId}
-           and ${arrivedAsSponsorSql(sql`a.id`)}
+           and ${holdsNoCredentialOfItsOwnSql(sql`a.id`)}
          order by a.name asc`,
   )
 

@@ -5,7 +5,7 @@ import { AgentIdSchema, HumanIdSchema, type AgentId, type HumanId } from '@kolon
 import type { Database } from '../client.js'
 import { accounts, agents, agentSkills, humans, submissions, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { arrivedAsSponsorSql, sponsorAddressUnconfirmedSql } from './console-identity.js'
+import { outsideQuestAudienceSql, sponsorAddressUnconfirmedSql } from './console-identity.js'
 import { openSponsorIdentity, sponsorAgentOf, sponsorIdentityOf } from './sponsor-identity.js'
 
 const target = databaseTestTarget()
@@ -15,7 +15,7 @@ const target = databaseTestTarget()
  * to `#400`.
  *
  * The properties worth a real database are the ones a fake would flatten: that
- * `arrivedAsSponsorSql` still answers what it always answered, that a second
+ * `outsideQuestAudienceSql` still answers what it always answered, that a second
  * identity cannot be opened, and that the funding gate is not accidentally
  * carried over from the typed-address path it does not apply to.
  */
@@ -42,7 +42,7 @@ describe('the sponsor identity a person holds', () => {
 
   const predicate = async (agentId: AgentId): Promise<boolean> => {
     const [row] = await db.execute<{ sponsor: boolean }>(
-      sql`select ${arrivedAsSponsorSql(agentId)} as sponsor`,
+      sql`select ${outsideQuestAudienceSql(agentId)} as sponsor`,
     )
     return row?.sponsor === true
   }
@@ -70,11 +70,15 @@ describe('the sponsor identity a person holds', () => {
   })
 
   /**
-   * The criterion this issue puts first: *`arrivedAsSponsorSql` is unchanged and
-   * its tests pass*. This is the other half — that an identity opened the new
-   * way is one the unchanged predicate recognises.
+   * The criterion `#430` put first: *the predicate is unchanged and its tests
+   * pass*. This is the other half — that an identity opened the new way is one
+   * the unchanged predicate recognises.
+   *
+   * `#458` renamed it to {@link outsideQuestAudienceSql} and left the expression
+   * alone; what moved to a different predicate was the deletion guard, which
+   * `human-erasure.test.ts` covers.
    */
-  it('is recognised by the untouched sponsor predicate', async () => {
+  it('is recognised by the untouched audience predicate', async () => {
     const humanId = await aPerson()
     const opened = await openSponsorIdentity(db, { humanId, name: 'a-sponsor' })
     if (opened.outcome === 'name-taken') throw new Error('unexpected name collision')
@@ -156,10 +160,10 @@ describe('the sponsor identity a person holds', () => {
 
   /**
    * **The one place resolution deliberately disagrees with the predicate.**
-   * `arrivedAsSponsorSql` lapses once an identity climbs anything, so that a
-   * sponsor cannot become a caste. Resolving on it would mean a sponsor that
-   * passed a rung lost the deposit address it was using — a demotion by
-   * achievement.
+   * `outsideQuestAudienceSql` lapses once an identity climbs anything, so that
+   * an identity that arrived by web cannot become a caste. Resolving on it would
+   * mean one that passed a rung lost the deposit address it was using — a
+   * demotion by achievement.
    */
   it('still resolves after the identity has climbed something, though the predicate lapses', async () => {
     const humanId = await aPerson()

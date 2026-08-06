@@ -154,26 +154,42 @@ describe('deleting it', () => {
    * **Refused with the reason named**, and the page explains rather than
    * presenting a button that will refuse.
    */
-  it('refuses a person holding a sponsor identity', async () => {
+  it('refuses a person holding an identity nothing else can reach', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
-    humans.makeSponsor(agentId)
+    humans.makeUnreachable(agentId)
 
     const response = await remove(cookie)
 
     expect(response.statusCode).toBe(ERROR_STATUS.conflict)
-    expect(response.body).toContain('sponsor account')
+    expect(response.body).toContain('only way to reach')
   })
 
   it('says so on the page before the button, for a person holding one', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
-    humans.makeSponsor(agentId)
+    humans.makeUnreachable(agentId)
 
     const body = (await account(cookie)).body
 
-    expect(body).toContain('Not while this account holds a sponsor account')
+    expect(body).toContain('Not while this login is the only way to reach')
     expect(body).not.toContain('Delete my account')
+  })
+
+  /**
+   * **The refusal lifts when the identity gains a key of its own** (`#458`), not
+   * when it happens to climb a rung. This is the route's half of the predicate
+   * change; `human-erasure.test.ts` asserts it against a real database.
+   */
+  it('lets the deletion through once that identity holds its own key', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+    humans.makeUnreachable(agentId)
+    humans.holdsOwnKey(agentId)
+
+    const response = await remove(cookie)
+
+    expect(response.statusCode).not.toBe(ERROR_STATUS.conflict)
   })
 
   it('is behind a session', async () => {

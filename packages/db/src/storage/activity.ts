@@ -2,7 +2,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { LAST_SEEN_TOUCH_MINUTES, type AgentId } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agents } from '../schema/index.js'
-import { arrivedAsSponsorSql } from './console-identity.js'
+import { outsideQuestAudienceSql } from './console-identity.js'
 import { currentSkillsHeldBy } from './currency.js'
 import { currentSessionIdSql } from './sessions.js'
 
@@ -215,9 +215,9 @@ export async function countAudience(
      * population: present in the table, never reachable by a quest.
      *
      * It lifts by itself the moment the account climbs anything. See
-     * {@link arrivedAsSponsorSql}.
+     * {@link outsideQuestAudienceSql}.
      */
-    sql`not ${arrivedAsSponsorSql(sql`a.id`)}`,
+    sql`not ${outsideQuestAudienceSql(sql`a.id`)}`,
   ]
 
   if (criteria.requires.length > 0) {

@@ -688,9 +688,9 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const signedIn = await person(request)
     if (signedIn === null) return signInRequired(request, reply)
 
-    const [exported, sponsors] = await Promise.all([
+    const [exported, unreachable] = await Promise.all([
       deps.humans.store.exportOf(signedIn.human.id),
-      deps.humans.store.sponsorIdentities(signedIn.human.id),
+      deps.humans.store.unreachableIdentities(signedIn.human.id),
     ])
 
     const agents = exported.agents.map((agent) => ({
@@ -699,8 +699,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }))
 
     return wantsHtml(request)
-      ? html(reply, accountPage({ agents, sponsors }))
-      : reply.send({ agents: exported.agents, sponsors })
+      ? html(reply, accountPage({ agents, unreachable }))
+      : reply.send({ agents: exported.agents, unreachable })
   })
 
   /**
@@ -727,7 +727,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     const result = await deps.humans.store.deleteAccount(signedIn.human.id)
 
-    if (result.outcome === 'holds-sponsor-identity') {
+    if (result.outcome === 'holds-unreachable-identity') {
       const exported = await deps.humans.store.exportOf(signedIn.human.id)
 
       return wantsHtml(request)
@@ -738,14 +738,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
                 name: agent.name,
                 linkedAt: agent.linkedAt,
               })),
-              sponsors: result.sponsors,
+              unreachable: result.unreachable,
             }),
           )
         : reply.status(ERROR_STATUS.conflict).send({
             code: 'conflict',
             message:
-              `This account holds a sponsor account (${result.sponsors.join(', ')}), which has ` +
-              `quests, a balance and reports already delivered. Delete or transfer it first.`,
+              `This login is the only way to reach ${result.unreachable.join(', ')}, which has ` +
+              `quests, a balance and reports already delivered. Delete it, transfer it, or hand ` +
+              `it to an agent that holds its own key first.`,
           })
     }
 

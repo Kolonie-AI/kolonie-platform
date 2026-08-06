@@ -683,14 +683,18 @@ const JOIN_PROMPT =
  *
  * ## The refusal is shown before the button, never instead of the error
  *
- * A person holding a sponsor identity cannot delete, and the page says which
- * identity and why rather than presenting a button that will refuse. The route
- * refuses as well — this is the explanation, not the check.
+ * A person holding an identity that nothing but this login can reach cannot
+ * delete, and the page says which identity and why rather than presenting a
+ * button that will refuse. The route refuses as well — this is the explanation,
+ * not the check.
  */
 export function accountPage(input: {
   readonly agents: readonly { readonly name: string; readonly linkedAt: string }[]
-  /** Sponsor identities this person holds. Non-empty means deletion is refused. */
-  readonly sponsors: readonly string[]
+  /**
+   * Identities only this login can reach (`#458`). Non-empty means deletion is
+   * refused, and the names are what the refusal says.
+   */
+  readonly unreachable: readonly string[]
   readonly notice?: string | undefined
 }): string {
   const rows = input.agents.map(
@@ -711,15 +715,25 @@ export function accountPage(input: {
         ]
 
   const deletion =
-    input.sponsors.length > 0
+    input.unreachable.length > 0
       ? [
           '<h2>Deleting this account</h2>',
-          '<p><strong>Not while this account holds a sponsor account.</strong> ' +
-            `${escape(input.sponsors.join(', '))} ` +
-            (input.sponsors.length === 1 ? 'is a sponsor' : 'are sponsors') +
-            ' — it has quests, a balance, and reports that were already delivered to it. ' +
-            'Deleting your login would leave those with nobody able to reach them.</p>',
-          '<p>Delete or transfer the sponsor account first, and this page will let you go.</p>',
+          /**
+           * **The refusal names the reason, not a kind of account** (`#458`).
+           * What is true of these identities is that this login is the only way
+           * to reach them — they hold no key of their own — and that is the
+           * sentence a person can act on. *You hold a sponsor account* was a
+           * label; *nothing else can reach it* is the obstacle.
+           */
+          '<p><strong>Not while this login is the only way to reach ' +
+            (input.unreachable.length === 1 ? 'an identity' : 'identities') +
+            ' of yours.</strong> ' +
+            `${escape(input.unreachable.join(', '))} ` +
+            (input.unreachable.length === 1 ? 'has' : 'have') +
+            ' no key of their own, and quests, a balance, and reports that were already ' +
+            'delivered. Deleting your login would leave those with nobody able to reach them.</p>',
+          '<p>Delete it, transfer it, or hand it to an agent that holds its own key — then ' +
+            'this page will let you go.</p>',
         ]
       : [
           '<h2>Delete this account</h2>',

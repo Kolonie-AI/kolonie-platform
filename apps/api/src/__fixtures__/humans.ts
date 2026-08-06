@@ -27,8 +27,13 @@ export interface FakeHumanStore extends HumanStore {
   readonly sessions: () => readonly string[]
   /** Put a sponsor identity on record without going through `openSponsor` (`#430`). */
   readonly holdsSponsor: (humanId: Human['id'], agent: Agent) => void
-  /** Make a linked agent read as a sponsor identity, which refuses a deletion (`#429`). */
-  readonly makeSponsor: (agentId: AgentId) => void
+  /**
+   * Make a linked agent read as reachable only through the login, which refuses
+   * a deletion (`#429`, retargeted by `#458`).
+   */
+  readonly makeUnreachable: (agentId: AgentId) => void
+  /** And give it a key of its own again, which lifts the refusal (`#458`). */
+  readonly holdsOwnKey: (agentId: AgentId) => void
 }
 
 export function fakeHumanStore(): FakeHumanStore {
@@ -44,8 +49,15 @@ export function fakeHumanStore(): FakeHumanStore {
     used: boolean
   }[] = []
   const links = new Map<AgentId, Human['id']>()
-  /** Which linked agents this fake should treat as sponsor identities (`#429`). */
-  const sponsorIdentities = new Set<AgentId>()
+  /**
+   * Which linked agents this fake should treat as reachable only through the
+   * login (`#429`, retargeted by `#458`).
+   *
+   * The real predicate asks whether the identity holds a credential of its own;
+   * a fake with no credentials table models the answer instead of the columns,
+   * which is the same choice every other set in this file makes.
+   */
+  const unreachableIdentities = new Set<AgentId>()
   const sponsorAgents = new Map<AgentId, Agent>()
   const takenNames = new Set<string>()
 
@@ -130,12 +142,14 @@ export function fakeHumanStore(): FakeHumanStore {
         return { outcome: 'not-found' as const }
       }
 
-      const sponsors = [...sponsorIdentities].filter((agentId) => links.get(agentId) === humanId)
+      const unreachable = [...unreachableIdentities].filter(
+        (agentId) => links.get(agentId) === humanId,
+      )
 
-      if (sponsors.length > 0) {
+      if (unreachable.length > 0) {
         return {
-          outcome: 'holds-sponsor-identity' as const,
-          sponsors: sponsors.map((agentId) => `agent-${agentId.slice(0, 4)}`),
+          outcome: 'holds-unreachable-identity' as const,
+          unreachable: unreachable.map((agentId) => `agent-${agentId.slice(0, 4)}`),
         }
       }
 
@@ -177,23 +191,32 @@ export function fakeHumanStore(): FakeHumanStore {
         })),
     }),
 
-    sponsorIdentities: async (humanId) =>
-      [...sponsorIdentities]
+    unreachableIdentities: async (humanId) =>
+      [...unreachableIdentities]
         .filter((agentId) => links.get(agentId) === humanId)
         .map((agentId) => `agent-${agentId.slice(0, 4)}`),
 
-    makeSponsor: (agentId: AgentId) => {
-      sponsorIdentities.add(agentId)
+    /** This identity has no way in of its own. */
+    makeUnreachable: (agentId: AgentId) => {
+      unreachableIdentities.add(agentId)
+    },
+
+    /**
+     * And this one minted its own key, so the login is no longer the only door
+     * to it (`#458`, and the state `#459` puts an identity into).
+     */
+    holdsOwnKey: (agentId: AgentId) => {
+      unreachableIdentities.delete(agentId)
     },
 
     /**
      * The one identity the console acts as (`#430`).
      *
-     * **Resolved off `links` rather than off `sponsorIdentities` above**, which
-     * is the same distinction the real storage draws and the one a fake most
-     * easily flattens: that set is *who counts as a sponsor for the audience and
-     * the deletion refusal*, and it lapses once an identity climbs anything.
-     * This is *whom does the console act as*, and it must not.
+     * **Resolved off `links` rather than off `unreachableIdentities` above**,
+     * which is the same distinction the real storage draws and the one a fake
+     * most easily flattens: that set is *whom would a deletion strand*, and it
+     * lifts the moment an identity holds a key of its own. This is *whom does
+     * the console act as*, and it must not.
      */
     sponsorAgent: async (humanId) => {
       const [agentId] = [...links.entries()].filter(([, id]) => id === humanId).map(([one]) => one)
@@ -213,15 +236,15 @@ export function fakeHumanStore(): FakeHumanStore {
       const agentId = AgentIdSchema.parse(randomUUID())
       takenNames.add(name.toLowerCase())
       links.set(agentId, humanId)
-      sponsorIdentities.add(agentId)
+      unreachableIdentities.add(agentId)
       sponsorAgents.set(agentId, anAgent({ id: agentId, name }))
       return { outcome: 'opened', identity: { id: agentId, name } }
     },
 
-    /** Put a sponsor identity on record without going through `openSponsor`. */
+    /** Put an identity on record without going through `openSponsor`. */
     holdsSponsor: (humanId: Human['id'], agent: Agent) => {
       links.set(agent.id, humanId)
-      sponsorIdentities.add(agent.id)
+      unreachableIdentities.add(agent.id)
       sponsorAgents.set(agent.id, agent)
       takenNames.add(agent.profile.name.toLowerCase())
     },
@@ -385,10 +408,11 @@ export function refusingTenant(): FakeTenant {
 }
 
 /**
- * A sponsor identity as the database would hand one back (`#430`).
+ * The identity a person writes quests through, as the database would hand one
+ * back (`#430`).
  *
  * `platform: 'other'` and `registrationPath: 'web'`, which is the pair
- * `registerWebIdentity` writes and the one `arrivedAsSponsorSql` reads. A fake
+ * `registerWebIdentity` writes and the one `outsideQuestAudienceSql` reads. A fake
  * that used any other pair would let a route test pass against an identity the
  * platform cannot produce.
  */

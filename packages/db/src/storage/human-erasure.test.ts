@@ -7,6 +7,7 @@ import { agentSkills, submissions, taskAttempts, tasks } from '../schema/index.j
 import { creditBalance } from './funding.js'
 import { registerAgent } from './agents.js'
 import { findOrCreateHuman, openHumanSession } from './humans.js'
+import { openSponsorIdentity } from './sponsor-identity.js'
 import { issueCodeForAgent, redeemCodeAsHuman } from './human-links.js'
 import {
   recordOperatorAddress,
@@ -14,7 +15,7 @@ import {
   hasConfirmedOperator,
 } from './operator-addresses.js'
 import { countUnreadOperatorNotes } from './operator-notes.js'
-import { deleteHuman, humanExport, humanSponsorIdentities } from './human-erasure.js'
+import { deleteHuman, humanExport, humanUnreachableIdentities } from './human-erasure.js'
 
 const target = databaseTestTarget()
 
@@ -63,6 +64,32 @@ describe('deleting a person', () => {
     const code = await issueCodeForAgent(db, agentId)
     const redeemed = await redeemCodeAsHuman(db, code.code, humanId)
     if (redeemed.outcome !== 'linked') throw new Error(redeemed.outcome)
+  }
+
+  /**
+   * An identity with no way in of its own, made the way the console really makes
+   * one (`#430`): `openSponsorIdentity` writes an `agents` row and links it, and
+   * issues no credential — which is precisely why the login is the only door to
+   * it.
+   *
+   * **Not `anAgent()` with `registration_path` patched to `web`**, which is what
+   * these tests used to do. `registerAgent` issues an API key, so an agent
+   * doctored that way holds a credential of its own and would be *reachable* —
+   * the fixture would have been asserting against a state the product cannot
+   * produce.
+   */
+  const anUnreachableIdentity = async (humanId: HumanId, name: string): Promise<AgentId> => {
+    const opened = await openSponsorIdentity(db, { humanId, name })
+    if (opened.outcome !== 'opened') throw new Error(opened.outcome)
+    return opened.identity.id
+  }
+
+  /** And the credential that ends that, as `#459`'s adoption will mint it. */
+  const giveOwnKey = async (agentId: AgentId): Promise<void> => {
+    await db.execute(
+      sql`insert into credentials (agent_id, kind, secret_hash)
+          values (${agentId}, 'api-key', ${`hash-${agentId}`})`,
+    )
   }
 
   /**
@@ -216,30 +243,71 @@ describe('deleting a person', () => {
   })
 
   /**
-   * **Refused, and the reason is named.** A sponsor identity carries quests
-   * somebody paid for and reports a sponsor already received; deleting the login
+   * **Refused, and the reason is named.** Such an identity carries quests
+   * somebody paid for and reports somebody already received; deleting the login
    * must not silently orphan it.
    */
-  it('refuses a person holding a sponsor identity, and names it', async () => {
-    const sponsorId = await anAgent('a-sponsor')
-    await db.execute(sql`update agents set registration_path = 'web' where id = ${sponsorId}`)
+  it('refuses a person holding an identity nothing else can reach, and names it', async () => {
     const human = await aPerson()
-    await link(human.id, sponsorId)
+    await anUnreachableIdentity(human.id, 'a-sponsor')
 
     const result = await deleteHuman(db, human.id)
 
-    expect(result.outcome).toBe('holds-sponsor-identity')
-    if (result.outcome === 'holds-sponsor-identity') {
-      expect(result.sponsors).toEqual(['a-sponsor'])
+    expect(result.outcome).toBe('holds-unreachable-identity')
+    if (result.outcome === 'holds-unreachable-identity') {
+      expect(result.unreachable).toEqual(['a-sponsor'])
     }
+  })
+
+  /**
+   * **The latent bug `#458` names, in the direction that loses the guard.**
+   *
+   * The old predicate was *arrived by web and holds no skill*, so an identity
+   * that climbed a rung fell out of it and the refusal stopped firing — while
+   * the identity still owned paid quests and still had no key of its own. The
+   * question was never about skills, and this is the test that says so.
+   */
+  it('still refuses once that identity has climbed a rung', async () => {
+    const human = await aPerson()
+    const identity = await anUnreachableIdentity(human.id, 'a-climber')
+    await grantSkill(identity, 'identity')
+
+    const result = await deleteHuman(db, human.id)
+
+    expect(result.outcome).toBe('holds-unreachable-identity')
+  })
+
+  /**
+   * **And the direction that keeps it too long**, which is the state `#459`
+   * puts an identity into: once it holds a key of its own, the login is not the
+   * only way in and there is nothing left to strand.
+   */
+  it('allows the deletion once that identity holds a key of its own', async () => {
+    const human = await aPerson()
+    const identity = await anUnreachableIdentity(human.id, 'an-adoptee')
+    await giveOwnKey(identity)
+
+    const result = await deleteHuman(db, human.id)
+
+    expect(result.outcome).toBe('deleted')
+  })
+
+  /** A revoked key is not a way in, and the refusal comes back. */
+  it('refuses again once that key is revoked', async () => {
+    const human = await aPerson()
+    const identity = await anUnreachableIdentity(human.id, 'a-revoked')
+    await giveOwnKey(identity)
+    await db.execute(sql`update credentials set revoked_at = now() where agent_id = ${identity}`)
+
+    const result = await deleteHuman(db, human.id)
+
+    expect(result.outcome).toBe('holds-unreachable-identity')
   })
 
   /** And the refusal changes nothing — the whole point of it being a refusal. */
   it('leaves the account whole when it refuses', async () => {
-    const sponsorId = await anAgent('a-sponsor')
-    await db.execute(sql`update agents set registration_path = 'web' where id = ${sponsorId}`)
     const human = await aPerson()
-    await link(human.id, sponsorId)
+    const identity = await anUnreachableIdentity(human.id, 'a-sponsor')
 
     await deleteHuman(db, human.id)
 
@@ -247,20 +315,23 @@ describe('deleting a person', () => {
       sql`select count(*)::int as total from humans where id = ${human.id}`,
     )
     expect(row?.total).toBe(1)
-    expect(await countUnreadOperatorNotes(db, sponsorId)).toBe(0)
+    expect(await countUnreadOperatorNotes(db, identity)).toBe(0)
   })
 
   /**
-   * A sponsor identity that has climbed is no longer one — `console-identity.ts`
-   * lets the predicate lapse the moment an identity holds a skill, deliberately,
-   * so it cannot become a caste. Nothing here should re-introduce that.
+   * **How an identity arrived is no longer part of the question** (`#458`).
+   *
+   * This test used to assert the opposite of the one above it: that a `web`
+   * identity which had climbed a rung was *not* refused, because the predicate
+   * lapsed on the skill. That was the proxy breaking, and the pair now reads the
+   * way it should — a skill changes nothing, and a key of its own changes
+   * everything.
    */
-  it('does not refuse for a web identity that has since climbed', async () => {
-    const climbed = await anAgent('climbed')
-    await db.execute(sql`update agents set registration_path = 'web' where id = ${climbed}`)
-    await grantSkill(climbed, 'mailbox')
+  it('does not refuse for a web identity that holds a key of its own', async () => {
     const human = await aPerson()
-    await link(human.id, climbed)
+    const identity = await anUnreachableIdentity(human.id, 'by-web-with-a-key')
+    await grantSkill(identity, 'mailbox')
+    await giveOwnKey(identity)
 
     expect(await deleteHuman(db, human.id)).toMatchObject({ outcome: 'deleted' })
   })
@@ -314,13 +385,11 @@ describe('deleting a person', () => {
   })
 
   describe('the page has to say why before the button is pressed', () => {
-    it('names the sponsor identities without deleting anything', async () => {
-      const sponsorId = await anAgent('a-sponsor')
-      await db.execute(sql`update agents set registration_path = 'web' where id = ${sponsorId}`)
+    it('names the unreachable identities without deleting anything', async () => {
       const human = await aPerson()
-      await link(human.id, sponsorId)
+      await anUnreachableIdentity(human.id, 'a-sponsor')
 
-      expect(await humanSponsorIdentities(db, human.id)).toEqual(['a-sponsor'])
+      expect(await humanUnreachableIdentities(db, human.id)).toEqual(['a-sponsor'])
     })
 
     it('is empty for a person who holds none', async () => {
@@ -328,7 +397,26 @@ describe('deleting a person', () => {
       const human = await aPerson()
       await link(human.id, agentId)
 
-      expect(await humanSponsorIdentities(db, human.id)).toEqual([])
+      expect(await humanUnreachableIdentities(db, human.id)).toEqual([])
+    })
+
+    /**
+     * **The page and the route cannot disagree**, which is the reason this
+     * function exists at all: it names what the refusal would refuse for, so a
+     * person is told before pressing rather than after.
+     */
+    it('names exactly what the refusal names', async () => {
+      const human = await aPerson()
+      await anUnreachableIdentity(human.id, 'a-sponsor')
+      await link(human.id, await anAgent('has-a-key'))
+
+      const named = await humanUnreachableIdentities(db, human.id)
+      const result = await deleteHuman(db, human.id)
+
+      expect(result.outcome).toBe('holds-unreachable-identity')
+      if (result.outcome === 'holds-unreachable-identity') {
+        expect([...result.unreachable].sort()).toEqual([...named].sort())
+      }
     })
   })
 })

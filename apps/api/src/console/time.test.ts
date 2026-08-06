@@ -9,8 +9,24 @@ import { absolute, FALLBACK_ZONE, relative, zoneFrom } from './time.js'
  * the wrong page, because nothing on it admitted to being UTC.
  */
 describe('the zone a request is rendered in', () => {
-  it('is the one Cloudflare says the visitor is in', () => {
+  it('is the one the edge says the visitor is in', () => {
+    expect(zoneFrom({ 'x-kolonie-timezone': 'Europe/Berlin' })).toBe('Europe/Berlin')
+  })
+
+  /**
+   * **Both headers, and ours wins** (`kolonie-docs#188`).
+   *
+   * The managed transform that sent `cf-timezone` also sent latitude, longitude,
+   * city, region and postal code, so it is off and a narrow transform rule sets
+   * `x-kolonie-timezone` instead. `cf-timezone` stays readable because the edge
+   * change and a deploy cannot land in the same instant — and because that is
+   * what makes the edge change revertible on its own.
+   */
+  it('prefers the narrow header, and still reads Cloudflare’s', () => {
     expect(zoneFrom({ 'cf-timezone': 'Europe/Berlin' })).toBe('Europe/Berlin')
+    expect(
+      zoneFrom({ 'x-kolonie-timezone': 'Pacific/Auckland', 'cf-timezone': 'Europe/Berlin' }),
+    ).toBe('Pacific/Auckland')
   })
 
   /**

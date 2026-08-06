@@ -17,10 +17,29 @@
  * `default-src 'none'` — it gives up the website's self-hosted typeface rather
  * than weaken that, so reopening it for a clock would be the wrong trade.
  *
- * Cloudflare's *Add visitor location headers* transform is enabled on the zone
- * and `cf-timezone` belongs to it. **Measured on 2026-08-06** by capturing the
- * plain-HTTP hop between Traefik and this container: the header arrives, and it
+ * The zone therefore arrives as a request header. **Measured on 2026-08-06** by
+ * capturing the plain-HTTP hop between Traefik and this container: it arrives and
  * carries an IANA zone name. No script, no CSP change, no settings page.
+ *
+ * ## Two headers, and the reason is `kolonie-docs#188`
+ *
+ * It came from Cloudflare's *Add visitor location headers* managed transform,
+ * which is a single switch: turning it on for the timezone also sent latitude,
+ * longitude, city, region and postal code to the origin on every request. The
+ * Colony reads two of those ten and stores one, so the other eight were arriving
+ * for nothing — one careless log line away from being kept, in a pipeline where
+ * Promtail already ships every container's stdout to Loki.
+ *
+ * So the managed transform is off and a transform rule sets
+ * **`x-kolonie-timezone`** instead, from `ip.src.timezone.name`. A `cf-`-prefixed
+ * name was the obvious choice and Cloudflare refuses it: *"'set' is not a valid
+ * value for operation because it cannot be used on header beginning with 'cf-'"*,
+ * measured 2026-08-06.
+ *
+ * **`cf-timezone` is still read, second.** The edge change and this deploy cannot
+ * land in the same instant, and a fallback that costs one property lookup is
+ * cheaper than a window in which every console page renders in UTC. It is also
+ * what makes the edge change revertible without a deploy behind it.
  *
  * ## The zone is read and never stored
  *
@@ -44,7 +63,8 @@ export const FALLBACK_ZONE = 'UTC'
  * whole check.
  */
 export function zoneFrom(headers: Record<string, unknown>): string {
-  const header = headers['cf-timezone']
+  // Ours first, Cloudflare's second — see the note above on why both are read.
+  const header = headers['x-kolonie-timezone'] ?? headers['cf-timezone']
   if (typeof header !== 'string' || header === '') return FALLBACK_ZONE
 
   try {

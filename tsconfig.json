@@ -7,6 +7,9 @@
     { "path": "packages/core/tsconfig.build.json" },
     { "path": "packages/db/tsconfig.build.json" },
     { "path": "packages/verifiers/tsconfig.build.json" },
+    // The stdio bridge (`#444`). It depends on nothing in this repository — it
+    // is a transport — so its position here is arbitrary and alphabetical.
+    { "path": "packages/mcp/tsconfig.build.json" },
     { "path": "apps/api/tsconfig.build.json" },
     { "path": "apps/verifier-runner/tsconfig.build.json" },
     { "path": "apps/moderation-runner/tsconfig.build.json" },

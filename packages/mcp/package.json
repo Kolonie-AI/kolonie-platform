@@ -1,0 +1,51 @@
+{
+  "name": "@kolonie-ai/mcp",
+  "version": "1.0.0",
+  "description": "Connect a stdio-only MCP client to the Kolonie AI Colony at mcp.kolonie.ai. A transport bridge and nothing else.",
+  "license": "Apache-2.0",
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "stdio",
+    "kolonie"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kolonie-AI/kolonie-platform.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://kolonie.ai",
+  "bugs": {
+    "url": "https://github.com/Kolonie-AI/kolonie-platform/issues"
+  },
+  "bin": {
+    "kolonie-mcp": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  }
+}

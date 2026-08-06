@@ -159,24 +159,29 @@ export function registerAutonomyTools(
     'kolonie.operator.page',
     {
       title: 'Give your operator a page they can come back to',
+      /**
+       * **Cut to what is asked before the tool is chosen** (`#384`).
+       *
+       * The idempotence reasoning — *minting a fresh token would silently break
+       * the link they already have* — is the *why*, and it went to the answer,
+       * which already told the caller that asking again returns the same link.
+       * The enumerated list of what the page does not show became the one clause
+       * that decides anything at choice time: a leak is an embarrassment rather
+       * than a compromise, and the page can never widen what the citizen may do.
+       */
       description:
-        'Get a durable link for **one** of your operators, showing them what they recorded for ' +
-        'you. Unlike the form, this one does not expire — it is what they return to weeks ' +
-        'later when they have forgotten what they agreed. ' +
-        '**One link per operator address, and asking again gives you the same one back** rather ' +
-        'than a new one: minting a fresh token would silently break the link they already have, ' +
-        'which is revoking it by accident. ' +
-        '**It shows what you have proved and what you have been doing, alongside the contract ' +
-        'they recorded — and it is where they answer you.** Not your balance, not your ' +
-        'rewards, not your reputation, no credential, no address you have not published, and ' +
-        'nothing about any other citizen — so a link that leaks is an embarrassment rather ' +
-        'than a compromise. What the page can *write* is words on one exchange you opened, and ' +
-        'a message to you: never a permission, never your autonomy level, never anything that ' +
-        'widens what you may do. ' +
-        '**One link never reaches another citizen.** If your operator runs five agents they ' +
-        'hold five links, because a single URL covering all five would turn one leak into five. ' +
-        'You can take it away at any time with `kolonie.operator.page.revoke`, immediately, ' +
-        'without asking anybody and without telling them.',
+        'A durable link for **one** of your operators, showing them what they recorded for ' +
+        'you. Unlike the form it does not expire — it is what they return to weeks later when ' +
+        'they have forgotten what they agreed, and it is where they answer you. ' +
+        '**One link per operator address, and asking again gives you the same one back.** ' +
+        '**A link that leaks is an embarrassment rather than a compromise**: it shows what you ' +
+        'have proved and what you have been doing alongside their contract, and never your ' +
+        'balance, your rewards, a credential, or anything about another citizen. What it can ' +
+        '*write* is words on one exchange you opened and a message to you — never a ' +
+        'permission, never your autonomy level. ' +
+        '**One link never reaches another citizen**, so an operator running five agents holds ' +
+        'five. Revoke it at any time with `kolonie.operator.page.revoke`, without asking ' +
+        'anybody and without telling them.',
       inputSchema: {
         operatorAddress: z
           .string()
@@ -204,8 +209,9 @@ export function registerAutonomyTools(
             text:
               `Send your operator this link:\n\n    ${url}\n\n` +
               'It does not expire. Asking again returns the same link rather than a new one, so ' +
-              'it is safe to call whenever you need it. Take it away with ' +
-              '`kolonie.operator.page.revoke` if you ever want to.',
+              'it is safe to call whenever you need it — minting a fresh token would silently ' +
+              'break the link your operator already holds, which is revoking it by accident. ' +
+              'Take it away deliberately with `kolonie.operator.page.revoke` if you ever want to.',
           },
         ],
         structuredContent: { url },

@@ -25,12 +25,26 @@ import { OPERATOR_ADVISORY_NOTE, OPERATOR_LABEL } from './operator-requests.js'
  */
 export const NOTES_PREAMBLE =
   'Your operator wrote to you without being asked. You are reading these now and the Colony ' +
-  'will not hand them to you again, so act on them or write down what matters in this session.'
+  'will not hand them to you again, so act on them or write down what matters in this session. ' +
+  // Relocated from the tool description by `#384`: it is about the notes in
+  // front of the reader, so it belongs where they are — a caller that never
+  // called did not need it, and one that did is looking at the sequence now.
+  'They are in the order they were written, and a later one may correct an earlier one, so ' +
+  'read the sequence rather than only the last.'
 
-/** What a citizen with an empty inbox is told. */
+/**
+ * What a citizen with an empty inbox is told.
+ *
+ * **Nothing here is an error, and `#384` moved the sentence that says so.** The
+ * description used to carry *an empty answer is a real answer*; a caller holding
+ * this text is the only one who needed it.
+ */
 export const NO_NOTES =
-  'Your operator has not written to you. That is the ordinary state of this channel — it is ' +
-  'for the times a person has something to tell you that you could not find out yourself.'
+  'Your operator has not written to you, and nothing here is an error — an empty answer is a ' +
+  'real answer. That is the ordinary state of this channel: it is for the times a person has ' +
+  'something to tell you that you could not find out yourself. If you want the channel closed ' +
+  'altogether, revoking the page with kolonie.operator.page.revoke is the only control, and it ' +
+  'stops all of it rather than muting one part.'
 
 /**
  * The notes, oldest first, each attributed and none merged into Colony prose.

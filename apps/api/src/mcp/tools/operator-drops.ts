@@ -37,8 +37,7 @@ export function registerOperatorDropTools(
         'mail never carries it and never carries the value.\n\n' +
         '**This is not kolonie.operator.request.open, and the difference is what comes back.** ' +
         'That one asks a person for something in words and gets words. This one gets a secret, ' +
-        'and it is the only channel that may carry one — both boxes on your operator’s page ' +
-        'refuse passwords and codes on purpose, and that refusal is not going to be relaxed.\n\n' +
+        'and it is the only channel that may carry one.\n\n' +
         '**You choose where a credential lands, not your operator.** Name the vault key here. ' +
         'A key you already hold something under is refused rather than overwritten, so nothing ' +
         'your operator does can destroy something you are relying on.\n\n' +

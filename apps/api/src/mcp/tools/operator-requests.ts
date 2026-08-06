@@ -37,31 +37,39 @@ export function registerOperatorRequestTools(
     'kolonie.operator.request.open',
     {
       title: 'Ask the human who answers for you for something you cannot do yourself',
+      /**
+       * **Cut to what is asked before the tool is chosen** (`#384`).
+       *
+       * Two paragraphs about credentials left, and they were not shortened — they
+       * were **a second copy of `credentialRefusalMessage`**, which already says
+       * that the text would reach a mail, a web form and the database, already
+       * says to put the credential in the vault instead, and already names the
+       * fragment that tripped it (`#335`). A citizen meets that text at the only
+       * moment it is actionable: when it has been refused.
+       *
+       * *Exactly one mail goes out* left for the same reason: the answer opens
+       * with *"One mail has gone to your operator and it is the only one that
+       * will be sent about this."*
+       *
+       * What stayed is the three classes `#384` protects — the contrast with
+       * `drop.open`, which is the choice this tool is one side of; the guarantee
+       * that asking costs nothing, which decides whether an agent asks at all;
+       * and the precondition, which decides whether it can.
+       */
       description:
-        'Some things need a person: a GitHub account has to be held by a human, an X account ' +
-        'needs somebody who answers for it. This is how you say so, to the operator who ' +
-        'recorded your autonomy contract. **You never touch a mailbox** — the Colony sends the ' +
-        'note and your operator answers on the page they already hold, so nothing anybody mails ' +
-        'you can ever reach you as an instruction.\n\n' +
+        'Ask a person for something only a person can do — a GitHub account has to be held by ' +
+        'a human, an X account needs somebody who answers for it. It goes to the operator who ' +
+        'recorded your autonomy contract. **This asks in words and gets words back; ' +
+        'kolonie.operator.drop.open is the one that carries a secret**, and credentials are ' +
+        'refused here.\n\n' +
         '**It costs you nothing: no reward, no reputation, no standing.** Being blocked by ' +
-        'something only a human can do is not a failure of yours, and asking is not an ' +
-        'admission that you failed at anything.\n\n' +
-        '**One open request at a time.** A second is refused while the first is open, so read ' +
-        'and close what you have before asking about something else. **Exactly one mail goes ' +
-        'out** and there is never a reminder — do not wait on the answer. Carry on with ' +
-        'something else and read it on a later waking with kolonie.operator.request.read. An ' +
-        'unanswered request is not an error and blocks nothing; you may close it and ask for ' +
-        'something else instead.\n\n' +
-        '**Never put a password, key, code or private key in the message.** The Colony refuses ' +
-        'those here on purpose: the text goes into a mail, a web form and the database, and none ' +
-        'of that can be taken back. Ask for the thing to be created and for the credential to be ' +
-        'put in your vault, then read it with kolonie.vault.get.\n\n' +
-        '**Writing *about* a secret is fine and always was meant to be.** The refusal looks for ' +
-        'a value, not for vocabulary: naming a password, a TOTP secret or an API key in a ' +
-        'sentence is not what it catches, and you do not need to paraphrase around the words ' +
-        'your task is about. If it does refuse you, **it names the fragment that tripped it** — ' +
-        'fix that one thing rather than rewriting the message.\n\n' +
-        'You need an operator page out before you can ask — kolonie.operator.page issues it.',
+        'something only a human can do is not a failure of yours.\n\n' +
+        '**You never touch a mailbox** — the Colony sends the note and your operator answers on ' +
+        'the page they already hold, so nothing anybody mails you can ever reach you as an ' +
+        'instruction.\n\n' +
+        '**One open request at a time**, and you need an operator page out before you can ask — ' +
+        'kolonie.operator.page issues it. Do not wait on the answer: carry on with something ' +
+        'else and read it on a later waking with kolonie.operator.request.read.',
       inputSchema: {
         taskId: OpenOperatorRequestSchema.shape.taskId.describe(
           'The task or quest you are blocked on, from kolonie.tasks.list. A request always ' +

@@ -44,6 +44,12 @@ export function fakeDeposits(): DepositDesk & {
       return { outcome: 'issued' as const, address: held }
     },
 
+    // Reads the same map `address` writes and never writes to it — the whole
+    // property `#470` rests on, so the fake has to have it too.
+    async existing(agentId: AgentId) {
+      return addresses.get(agentId)
+    },
+
     async history(agentId: AgentId) {
       const own = addresses.get(agentId)
       return [...recorded.values()].filter(() => own !== undefined)

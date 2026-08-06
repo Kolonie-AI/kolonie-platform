@@ -63,3 +63,65 @@ describe('the quests an agent wrote', () => {
     expect(agentPage(aView())).toContain('a window rather than a control panel')
   })
 })
+
+/**
+ * Where to send an operated agent money (`#470`).
+ *
+ * The balance block names depositing as the answer; before this the page showed
+ * nowhere to deposit to, which made the sentence true and useless.
+ */
+describe('the agent’s deposit address', () => {
+  const ADDRESS = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'
+
+  it('shows the address under the balance, with the warnings above it', () => {
+    const html = agentPage(aView({ depositAddress: ADDRESS }))
+
+    expect(html).toContain(ADDRESS)
+    expect(html).toContain('Send only USDC, on Solana')
+    // Above rather than beside: a warning read after the decision is not a
+    // warning. The heading order is the assertion.
+    expect(html.indexOf('Send only USDC, on Solana')).toBeLessThan(html.indexOf(ADDRESS))
+    // Under the balance, because the balance is what raises the question.
+    expect(html.indexOf('<h2>Balance</h2>')).toBeLessThan(html.indexOf('Send only USDC, on Solana'))
+  })
+
+  it('carries the same warnings /funding does, from one renderer', () => {
+    const html = agentPage(aView({ depositAddress: ADDRESS }))
+
+    expect(html).toContain('Anything else sent to this address is lost.')
+    expect(html).toContain('You are credited what arrives, not what you paid.')
+    expect(html).toContain('Money in is one-way.')
+    expect(html).toContain('One credit is one US cent.')
+  })
+
+  /**
+   * The absent case is a sentence and never a button. Asking generates a
+   * keypair, which is a step the agent takes — `#457` says the console does not
+   * take it for them.
+   */
+  it('says the agent has not asked, and offers no way to ask for it', () => {
+    const html = agentPage(aView())
+
+    expect(html).toContain('has not asked for a deposit address')
+    expect(html).toContain('POST /v1/deposits/address')
+    // No form, no button, and no warnings — there is nothing to warn about yet.
+    expect(html).not.toContain('deposits/address" method')
+    expect(html).not.toContain('Send only USDC, on Solana')
+  })
+
+  it('points at the note section when there is one, and not when there is not', () => {
+    expect(agentPage(aView({ operator: '<p>a form</p>' }))).toContain('href="#leave-a-note"')
+    expect(agentPage(aView({ operator: '<p>a form</p>' }))).toContain('id="leave-a-note"')
+    // No door, no link: `#428` decided that no live page means no door, and a
+    // link to a section that is not rendered goes nowhere.
+    expect(agentPage(aView())).not.toContain('href="#leave-a-note"')
+  })
+
+  /** `#457` unchanged: the operator reads the balance and cannot spend it. */
+  it('does not turn the balance into something the operator can move', () => {
+    const html = agentPage(aView({ depositAddress: ADDRESS }))
+
+    expect(html).toContain('you can fund it and you cannot spend it')
+    expect(html).toContain('a window rather than a control panel')
+  })
+})

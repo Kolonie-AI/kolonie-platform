@@ -8,6 +8,7 @@ import {
   depositAddressFor,
   depositHistory,
   depositTotals,
+  existingDepositAddress,
   generateDepositKeypair,
   recordDeposit,
   watchedDepositAddresses,
@@ -111,6 +112,40 @@ describe('a USDC deposit', () => {
       // Sealed with the vault's envelope, which names its own version first.
       expect(rows[0]?.secret_sealed.startsWith('k1.')).toBe(true)
       expect(rows[0]?.secret_sealed).not.toContain(keypair.secret)
+    })
+
+    /**
+     * The read-only half (`#470`), which the agent page goes through.
+     *
+     * **A select and never a write.** The console shows the address an agent
+     * asked for, and a page load that generated a keypair would be the console
+     * taking a step on the agent's behalf — on a `GET`, for anybody who opened
+     * the page.
+     */
+    describe('read without asking for one', () => {
+      it('answers nothing, and generates nothing, for an identity with none', async () => {
+        const sponsor = await anAgent('sponsor')
+
+        expect(await existingDepositAddress(db, sponsor)).toBeUndefined()
+        // The table, not the return value: this is the assertion that says no
+        // keypair was written on the way past.
+        expect(await watchedDepositAddresses(db)).toEqual([])
+      })
+
+      it('answers the address the identity did ask for', async () => {
+        const sponsor = await anAgent('sponsor')
+        const issued = await addressFor(sponsor)
+
+        expect(await existingDepositAddress(db, sponsor)).toBe(issued)
+      })
+
+      it('answers nothing for somebody else’s identity', async () => {
+        const mine = await anAgent('mine')
+        const theirs = await anAgent('theirs')
+        await addressFor(mine)
+
+        expect(await existingDepositAddress(db, theirs)).toBeUndefined()
+      })
     })
 
     it('produces a plausible Solana address', () => {

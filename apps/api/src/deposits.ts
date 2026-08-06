@@ -13,6 +13,7 @@ import {
   depositAddressFor as depositAddressInDatabase,
   depositHistory as depositHistoryInDatabase,
   depositRecorded as depositRecordedInDatabase,
+  existingDepositAddress as existingAddressInDatabase,
   recordDeposit as recordDepositInDatabase,
   watchedDepositAddresses as watchedAddressesInDatabase,
   type Database,
@@ -35,6 +36,15 @@ import {
 export interface DepositDesk {
   address(agentId: AgentId): Promise<DepositAddressOutcome>
   history(agentId: AgentId): Promise<readonly Deposit[]>
+  /**
+   * The address this identity already holds, and never a new one (`#470`).
+   *
+   * A separate method rather than an option on `address`, because the two have
+   * different rights: `address` may be called by an identity acting for itself,
+   * and this one is what a reader gets. The agent page is a window (`#457`), so
+   * it reads through here and cannot create a keypair even by mistake.
+   */
+  existing(agentId: AgentId): Promise<string | undefined>
   record(transfer: ObservedTransfer): Promise<DepositOutcome>
   watched(): Promise<readonly string[]>
   recorded(signature: string): Promise<boolean>
@@ -88,6 +98,7 @@ export function databaseDeposits(db: Database, sealingKey: string): DepositDesk 
   return {
     address: (agentId) => depositAddressInDatabase(db, { agentId, sealingKey }),
     history: (agentId) => depositHistoryInDatabase(db, agentId),
+    existing: (agentId) => existingAddressInDatabase(db, agentId),
     record: (transfer) => recordDepositInDatabase(db, transfer),
     watched: () => watchedAddressesInDatabase(db),
     recorded: (signature) => depositRecordedInDatabase(db, signature),

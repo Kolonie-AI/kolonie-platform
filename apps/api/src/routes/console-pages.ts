@@ -1081,7 +1081,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
     const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
-    const [balance, open, own, quests, written] = await Promise.all([
+    const [balance, open, own, quests, written, depositAddress] = await Promise.all([
       deps.quests.balance(operated.agentId),
       /**
        * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
@@ -1112,6 +1112,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * rather than this route's.
        */
       deps.quests.listOwn(operated.agentId),
+      /**
+       * The agent's deposit address, if it has asked for one (`#470`).
+       *
+       * **`existing` and never `address`.** The second generates a keypair when
+       * there is none, and this is a `GET` read by somebody who operates the
+       * agent rather than by the agent itself — `#457` lets them read it and not
+       * act for it, and creating a key on a page load is acting for it.
+       */
+      deps.deposits.desk.existing(operated.agentId),
     ])
 
     const view = {
@@ -1133,6 +1142,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           ? open.page.items.map((task) => ({ title: task.title, requires: [...task.requires] }))
           : [],
       you: own !== undefined && String(own.id) === String(operated.agentId),
+      /**
+       * Absent rather than `null` when the agent holds none, so the JSON
+       * representation says the same thing the page does: it has not asked.
+       */
+      ...(depositAddress === undefined ? {} : { depositAddress }),
       quests: quests.map((quest) => ({
         questId: String(quest.questId),
         title: quest.title,

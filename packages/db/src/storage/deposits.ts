@@ -255,6 +255,34 @@ export function depositReference(signature: string): string {
   return `deposit:${signature}`
 }
 
+/**
+ * The address this identity already holds, or nothing (`#470`).
+ *
+ * **The whole point is what it does not do.** {@link depositAddressFor} answers
+ * the same question and generates a keypair when the answer is *none*, which is
+ * correct for an identity asking on its own behalf and wrong for a reader. The
+ * agent page is read by the person who operates an agent, and `#457` allows them
+ * to read it and not to act for it — generating an address on a page load would
+ * be the console taking a step the agent never took, and it would do so on a
+ * `GET`.
+ *
+ * So this is a select and can never be anything else. Not a parameter on the
+ * function above: a flag that switches off the write is a flag somebody passes
+ * wrongly once.
+ */
+export async function existingDepositAddress(
+  db: Database,
+  agentId: AgentId,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select({ address: depositAddresses.address })
+    .from(depositAddresses)
+    .where(eq(depositAddresses.agentId, agentId))
+    .limit(1)
+
+  return row?.address
+}
+
 /** Every arrival at this identity's address, newest first, credited or not. */
 export async function depositHistory(db: Database, agentId: AgentId): Promise<readonly Deposit[]> {
   const rows = await db

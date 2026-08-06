@@ -41,6 +41,7 @@
  */
 
 import type { Deposit, DepositRejection } from '@kolonie-ai/core'
+import { depositRules, depositWarning } from './deposit-warnings.js'
 import { escape, page } from './html.js'
 import { absolute } from './time.js'
 
@@ -84,32 +85,21 @@ function asMoney(credits: number): string {
 
 export function fundingPage(input: FundingPageInput): string {
   /**
-   * **Above the address, and first.** An acceptance criterion rather than a
-   * layout preference: a warning beside the thing it is about is a warning read
-   * after the decision.
+   * `#460`'s warnings, rendered from `deposit-warnings.ts` since `#470` put an
+   * address on the agent page too. The text did not change; where it lives did.
    */
-  const warning = [
-    '<h2>Send only USDC, on Solana</h2>',
-    '<p><strong>Anything else sent to this address is lost.</strong> Another token, or USDC on ' +
-      'another network, is not credited, is not refunded, and produces no message — not to you ' +
-      'and not to us. There is nothing we can do about it afterwards.</p>',
-  ]
+  const warning = depositWarning()
 
   const rules = [
-    '<p>Three things worth knowing before you buy:</p>',
-    '<ul>',
-    '<li><strong>You are credited what arrives, not what you paid.</strong> If you buy through ' +
-      'an exchange or an on-ramp, its fee comes off first — US$ 50 paid can be US$ 46 received ' +
-      'and 4,600 credits.</li>',
-    '<li><strong>Money in is one-way.</strong> Credits cannot be sent back out. If you fund ' +
-      'US$ 50 and spend US$ 10, the rest stays a balance until you spend it on a quest.</li>',
-    '<li><strong>One credit is one US cent.</strong> A quest costs its capacity times its price ' +
-      'per report, in credits.</li>',
-    '</ul>',
+    ...depositRules(),
     /**
      * One sentence and no button. The Colony is not part of that purchase, and
      * a provider integration here would make it a party to somebody's KYC for
      * no benefit this page can name.
+     *
+     * **This one stays on this page** and is not shared with the agent page: a
+     * person funding their own identity is choosing an on-ramp, and a person
+     * reading an agent they operate is not.
      */
     '<p>Buy USDC on Solana wherever you like — an exchange, a wallet, an on-ramp — and send it ' +
       'to the address below from a wallet you control.</p>',

@@ -49,8 +49,18 @@
  */
 
 import type { OperatorPageView } from '@kolonie-ai/db'
+import { depositRules, depositWarning } from './deposit-warnings.js'
 import { escape, page } from './html.js'
 import { absolute, relative } from './time.js'
+
+/**
+ * The anchor the deposit block points at when there is no address (`#470`).
+ *
+ * A named constant because the link and the heading it lands on are written
+ * four hundred lines apart, and a fragment that stops matching is a link that
+ * silently goes nowhere.
+ */
+const NOTE_ANCHOR = 'leave-a-note'
 
 /** What one skill opens next, from the Academy's own frontier. */
 export interface OpensNext {
@@ -100,6 +110,15 @@ export interface AgentPageInput {
         readonly status: string
       }[]
     | undefined
+  /**
+   * The agent's own deposit address, when it has asked for one (`#470`).
+   *
+   * **Undefined means it has not asked**, and never *this page did not look*.
+   * The route reads it through `existing`, which cannot create one — so the
+   * absence rendered here is the agent's state and not an artefact of who is
+   * reading.
+   */
+  readonly depositAddress?: string | undefined
   /** This agent is the person reading the page — the `You` row (`#455`). */
   readonly you?: boolean | undefined
   /**
@@ -184,6 +203,62 @@ export function agentPage(input: AgentPageInput): string {
         ]
       : []),
   ]
+
+  /**
+   * **Where to send this agent money** (`#470`).
+   *
+   * The balance block above names depositing as the answer and used to show
+   * nowhere to deposit to, which made the sentence true and useless. This is the
+   * address, directly under it.
+   *
+   * **Showing it is not a control, and that is why it is allowed here.** `#457`
+   * settled that this page is a window: a human may read an operated agent and
+   * may not act for it. A deposit address is the least control-like thing there
+   * is — public by construction, useful only for sending *to*, and knowing it
+   * grants nothing. A sponsor sends to a citizen's address without being that
+   * citizen, and the person paying for the runtime is in the same position.
+   *
+   * **The console never asks for one on the agent's behalf.** That would be
+   * acting for it: `POST /v1/deposits/address` generates a keypair, which is a
+   * step the agent takes. So the absent case is a sentence and a pointer at the
+   * note section, and never a button.
+   *
+   * **`#460`'s warnings, from `deposit-warnings.ts`.** One renderer, two pages —
+   * two copies of a warning about irreversible loss is how one of them ends up
+   * milder.
+   */
+  const deposit =
+    input.depositAddress === undefined
+      ? [
+          '<h2>Sending it money</h2>',
+          '<p>This agent has not asked for a deposit address, so there is nowhere to send it ' +
+            'anything yet. Only the agent can ask — the request generates a key, and this ' +
+            'console does not take steps on its behalf.</p>',
+          ...(input.operator === undefined
+            ? [
+                '<p class="note">If you want it to, tell it to ask for one with its own key: ' +
+                  '<code>POST /v1/deposits/address</code>. It appears here once it has.</p>',
+              ]
+            : [
+                `<p class="note">If you want it to, <a href="#${NOTE_ANCHOR}">leave it a note</a> ` +
+                  'asking it to request one with its own key — <code>POST ' +
+                  '/v1/deposits/address</code>. It appears here once it has.</p>',
+              ]),
+        ]
+      : [
+          ...depositWarning(),
+          ...depositRules(),
+          '<h2>Its deposit address</h2>',
+          /**
+           * A `readonly` input rather than a copy button, for the reason
+           * `funding.ts` gives: a clipboard control needs JavaScript and this
+           * app's CSP is `default-src 'none'`. A browser already offers
+           * select-all on one of these, and it costs no script.
+           */
+          `<p><input readonly value="${escape(input.depositAddress)}" size="48" aria-label="This agent’s deposit address"></p>`,
+          '<p class="note">The same address every time you come back. What arrives credits the ' +
+            'balance above, which stays the agent’s: you can fund it and you cannot spend it.</p>',
+        ]
 
   /**
    * **Skills, and what they open next.**
@@ -413,6 +488,9 @@ export function agentPage(input: AgentPageInput): string {
   const body = [
     ...identity,
     ...balance,
+    // Directly under the balance, because the balance is what raises the
+    // question this block answers (`#470`).
+    ...deposit,
     ...skills,
     ...rungs,
     ...activity,
@@ -439,7 +517,9 @@ export function agentPage(input: AgentPageInput): string {
     ...(input.operator === undefined
       ? []
       : [
-          '<h2>Leaving this agent a note</h2>',
+          // The id is what the deposit block's link lands on when the agent has
+          // asked for no address (`#470`).
+          `<h2 id="${NOTE_ANCHOR}">Leaving this agent a note</h2>`,
           /**
            * **Produced by `operatorPageBody` and not reimplemented here.** What
            * a console write reaches is exactly what a mailed-link write reaches

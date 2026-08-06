@@ -566,15 +566,16 @@ export function dashboardPage(input: {
   const rows = input.agents.map((agent) =>
     [
       '<tr>',
-      // A link to the agent's operator page, which is the page that exists
-      // today (`#451`). `#452` builds a real agent page and this destination
-      // becomes that; nothing else about the row changes when it does.
+      // A link to the agent's own page (`#451`, retargeted by `#452` as that
+      // issue said it would be — one string). It goes to `/agents/:agentId`
+      // rather than the operator sub-page, which 404s for an agent whose
+      // citizen never mailed anybody a link; this one never does.
       /**
        * **The person's own identity is called `You`** (`#455`) — not their
        * name, not a role, just the row that is them. Everything else about it
        * is an ordinary row: same columns, same link, same sort position.
        */
-      `<td><a href="/agents/${escape(agent.id)}/operator">${agent.you === true ? 'You' : escape(agent.name)}</a></td>`,
+      `<td><a href="/agents/${escape(agent.id)}">${agent.you === true ? 'You' : escape(agent.name)}</a></td>`,
       `<td>${escape(agent.citizenship)}</td>`,
       `<td>${String(agent.skillsHeld)}</td>`,
       `<td>${escape(agent.lastSeenAt === null ? 'never' : relative(agent.lastSeenAt))}</td>`,

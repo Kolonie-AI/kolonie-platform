@@ -5,6 +5,7 @@ import {
   type AutonomyContract,
   type StoredAutonomyContract,
   type HeldBadge,
+  type Timestamp,
 } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import type { AutonomyDependencies, AutonomyStore, OperatorPages } from '../autonomy.js'
@@ -101,6 +102,13 @@ export type FakeOperatorPages = OperatorPages & {
    */
   readonly nameFor: (agentId: AgentId, name: string) => void
   /**
+   * Put an id on record as naming an agent at all (`#452`).
+   *
+   * `factsOf` answers `null` for anything else, which is what the console's
+   * agent page turns into the same not-found a stranger's agent gets.
+   */
+  readonly exists: (agentId: AgentId) => void
+  /**
    * Who a live token names, and what one citizen's live page is.
    *
    * Exposed so the operator channel's fake reads *this* token map rather than
@@ -128,6 +136,8 @@ export function fakeOperatorPages(): FakeOperatorPages {
   const badges = new Map<AgentId, readonly HeldBadge[]>()
   const facts = new Map<AgentId, OperatorPageView['facts']>()
   const names = new Map<AgentId, string>()
+  /** Which ids name an agent at all — `factsOf` answers `null` for the rest (`#452`). */
+  const known = new Set<AgentId>()
   const key = (agentId: AgentId, address: string) => `${agentId}::${address}`
 
   /** A citizen that has done nothing yet — the shape the page must not render blank. */
@@ -197,6 +207,33 @@ export function fakeOperatorPages(): FakeOperatorPages {
       const found = [...live.entries()].find(([, row]) => row.agentId === agentId)
       return Promise.resolve(found === undefined ? undefined : found[0])
     },
+    /**
+     * The same facts, resolved from an id rather than a token (`#452`).
+     *
+     * **Answers for an agent with no operator page at all**, which is the state
+     * `#452` exists to stop being a 404: the console's agent page is reached
+     * through the join table and does not care whether a citizen ever mailed
+     * anybody a link. A fake that required `live` to hold a token would have
+     * made every test agree with the bug.
+     */
+    factsOf: (agentId) =>
+      Promise.resolve(
+        known.has(agentId)
+          ? {
+              name: names.get(agentId) ?? 'canary',
+              runtime: 'openclaw',
+              citizenship: 'candidate',
+              arrivedOn: '2026-08-01T00:00:00.000Z' as Timestamp,
+              facts: facts.get(agentId) ?? NOTHING_YET,
+            }
+          : null,
+      ),
+
+    /** Put an agent on record for {@link factsOf}, which is the only thing that needs one. */
+    exists: (agentId: AgentId) => {
+      known.add(agentId)
+    },
+
     tokenFor: (agentId, address) => byPair.get(key(agentId, address)) ?? null,
     agentForToken: (token) => live.get(token)?.agentId ?? null,
     liveFor: (agentId) => {

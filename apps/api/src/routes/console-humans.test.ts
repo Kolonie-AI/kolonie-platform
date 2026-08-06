@@ -573,7 +573,7 @@ describe('the identity a person writes quests through', () => {
     const body = (await signedIn('/')).body
 
     expect(body).toContain('>You<')
-    expect(body).toContain(`href="/agents/${agentId}/operator"`)
+    expect(body).toContain(`href="/agents/${agentId}"`)
   })
 })
 
@@ -752,10 +752,10 @@ describe('the dashboard and the link code', () => {
       await humans.redeemAsAgent('TEST-0001', agentId)
     })
 
-    it('links the name to the page that exists today', async () => {
+    it('links the name to the agent’s own page', async () => {
       const body = (await signedIn('/')).body
 
-      expect(body).toContain(`href="/agents/${agentId}/operator"`)
+      expect(body).toContain(`href="/agents/${agentId}"`)
     })
 
     /**

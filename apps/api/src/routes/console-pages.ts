@@ -37,6 +37,7 @@ import {
   signInPage,
 } from '../console/html.js'
 import { zoneFrom } from '../console/time.js'
+import { agentPage } from '../console/agent-page.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
 import {
@@ -997,6 +998,104 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     return { token, view }
   }
+
+  /**
+   * **The agent this person operates, or nothing** (`#452`).
+   *
+   * The same two checks `operatorDoor` makes, without the third: a live operator
+   * page is what the *mailed* door needs, and an agent whose citizen never
+   * issued one still has a page here. That third check is why `#451`'s link
+   * could land on a 404, and removing it is half of what this issue is for.
+   *
+   * A person who does not operate this agent gets exactly what they get for an
+   * id that names nothing, so the page cannot be used to test for agents.
+   */
+  const operatedAgent = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<{ readonly humanId: HumanId; readonly agentId: AgentId } | null> => {
+    const signedIn = await person(request)
+    if (signedIn === null) {
+      consoleNotFound(reply, request)
+      return null
+    }
+
+    const { agentId } = request.params as { agentId?: string }
+    const subject = agentId === undefined ? undefined : (agentId as AgentId)
+    if (subject === undefined || !(await deps.humans.store.operates(signedIn.human.id, subject))) {
+      consoleNotFound(reply, request)
+      return null
+    }
+
+    return { humanId: signedIn.human.id, agentId: subject }
+  }
+
+  /**
+   * One agent, as the person paying for the runtime reads it (`#452`).
+   *
+   * **Assembly, not new modelling.** Every figure comes from the source that
+   * already owns it: the facts from `operatorPageFacts` — the same function the
+   * mailed page reads, so the two cannot disagree about one agent — the balance
+   * from the ledger through the quest desk, and what the skills open next from
+   * the Academy's own frontier. Nothing is copied into a second table and
+   * nothing is cached.
+   *
+   * **Nothing here writes to the agent.** The only write that may ever appear on
+   * this page is the operator note `#453` folds in.
+   */
+  app.get('/agents/:agentId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const held = await deps.autonomy.pages.factsOf(operated.agentId)
+    if (held === null) return consoleNotFound(reply, request)
+
+    const [balance, open, own] = await Promise.all([
+      deps.quests.balance(operated.agentId),
+      /**
+       * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
+       * already argues this exact point for a different reader: the frontier
+       * answers *what is one skill out of reach*, and somebody wondering whether
+       * to keep paying for a runtime needs *what can it start right now*. Those
+       * are opposite answers for an agent that has stalled.
+       *
+       * Five, bounded here rather than in the page: *how many is too many* is a
+       * question about this surface, and the catalogue's answer is general.
+       */
+      deps.catalogue.list({
+        agentId: operated.agentId,
+        availableOnly: true,
+        limit: 5,
+        hints: false,
+      }),
+      deps.humans.store.sponsorAgent(operated.humanId),
+    ])
+
+    const view = {
+      zone: zoneFrom(request.headers),
+      agentId: String(operated.agentId),
+      name: held.name,
+      runtime: held.runtime,
+      citizenship: held.citizenship,
+      arrivedOn: held.arrivedOn,
+      facts: held.facts,
+      balance: { available: balance.available, reserved: balance.reserved },
+      /**
+       * Bounded here rather than in the page, because *how many is too many* is
+       * a question about this surface and the frontier is a general answer. Five
+       * is what fits above the fold at 375px.
+       */
+      opensNext:
+        open.outcome === 'listed'
+          ? open.page.items.map((task) => ({ title: task.title, requires: [...task.requires] }))
+          : [],
+      you: own !== undefined && String(own.id) === String(operated.agentId),
+    }
+
+    return wantsHtml(request) ? html(reply, agentPage(view)) : reply.send(view)
+  })
 
   app.get('/agents/:agentId/operator', async (request, reply) => {
     if (!(await guard(request, reply))) return reply

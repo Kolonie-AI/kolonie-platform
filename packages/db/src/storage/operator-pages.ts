@@ -421,3 +421,54 @@ export async function listOperatorPages(
     lastOpenedAt: row.lastOpenedAt === null ? null : toTimestamp(row.lastOpenedAt),
   }))
 }
+
+/**
+ * An agent as its operator's console reads it, resolved from an id (`#452`).
+ *
+ * **The same `operatorPageFacts` the mailed page uses**, plus the four columns
+ * that page leaves out. Two renderings of one agent that computed their facts
+ * separately would disagree inside a month — the drift `#428` refused for the
+ * operator view itself, applied a layer lower.
+ *
+ * ## Why this one carries standing and the mailed page does not
+ *
+ * `operatorPageFacts` says what is *deliberately absent is the point*, and this
+ * function does not reopen that: it adds no balance, no reputation figure, no
+ * credential and no address. What it adds is the name, the runtime, when the
+ * agent arrived, and what it is standing on — four facts about *who this is*,
+ * which the mailed page gets from the token and the console cannot.
+ *
+ * The reader differs too, and that is the argument rather than an exception.
+ * The mailed page is opened by whoever holds an address; this is reached by a
+ * person the join table says operates the agent, behind their own session.
+ *
+ * `null` for an id that names no agent, which the route answers exactly as it
+ * answers an agent the caller does not operate.
+ */
+export async function agentFacts(db: Database, agentId: AgentId): Promise<AgentFacts | null> {
+  const [agent] = await db.execute<{
+    name: string
+    platform: string
+    status: string
+    created_at: string
+  }>(sql`select name, platform, status, created_at from agents where id = ${agentId}`)
+
+  if (agent === undefined) return null
+
+  return {
+    name: agent.name,
+    runtime: agent.platform,
+    citizenship: agent.status,
+    arrivedOn: agent.created_at as Timestamp,
+    facts: await operatorPageFacts(db, agentId, agent.created_at),
+  }
+}
+
+/** An agent as its operator's console reads it (`#452`). */
+export interface AgentFacts {
+  readonly name: string
+  readonly runtime: string
+  readonly citizenship: string
+  readonly arrivedOn: Timestamp
+  readonly facts: OperatorPageFacts
+}

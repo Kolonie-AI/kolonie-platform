@@ -4,11 +4,13 @@ import {
   type ApiError,
   type AutonomyContract,
   type StoredAutonomyContract,
+  type Timestamp,
 } from '@kolonie-ai/core'
 import type {
   AutonomyInvitation,
   Database,
   OpenAutonomyForm,
+  OperatorPageFacts,
   OperatorPageRecord,
   OperatorPageView,
 } from '@kolonie-ai/db'
@@ -23,6 +25,7 @@ import {
   liveOperatorPageToken,
   openOperatorPage,
   revokeOperatorPage,
+  agentFacts,
 } from '@kolonie-ai/db'
 import type { Mailer } from './email.js'
 
@@ -55,6 +58,40 @@ export interface OperatorPages {
    * and what it returns never reaches a rendered page.
    */
   liveToken(agentId: AgentId): Promise<string | undefined>
+  /**
+   * What this agent has proved and what it has been doing, **by id** (`#452`).
+   *
+   * `open` answers the same question from a token, because the mailed door's
+   * subject *is* the token — nothing downstream may take an id from the caller
+   * there. The console's agent page is the other way round: the caller supplies
+   * an id and the route has already checked, against the join table, that this
+   * person operates it.
+   *
+   * **The same `operatorPageFacts` behind both**, so the two pages cannot come
+   * to different conclusions about one agent. That is the drift `#428` named
+   * when it refused a second rendering of the operator's view, applied a layer
+   * lower to the facts themselves.
+   *
+   * `null` for an id that names no agent — which the route answers exactly as it
+   * answers an agent this person does not operate.
+   */
+  factsOf(agentId: AgentId): Promise<AgentFacts | null>
+}
+
+/**
+ * An agent as its operator's console reads it (`#452`).
+ *
+ * `OperatorPageFacts` plus the three things that page deliberately leaves out —
+ * the name, when it arrived, and what it is standing on — because the reader
+ * differs. The mailed page is opened by whoever holds an address; this one is
+ * opened by the person who operates the agent, behind their own session.
+ */
+export interface AgentFacts {
+  readonly name: string
+  readonly runtime: string
+  readonly citizenship: string
+  readonly arrivedOn: Timestamp
+  readonly facts: OperatorPageFacts
 }
 
 export interface AutonomyDependencies {
@@ -85,6 +122,7 @@ export function databaseOperatorPages(db: Database): OperatorPages {
     revoke: (agentId, address) => revokeOperatorPage(db, agentId, address),
     list: (agentId) => listOperatorPages(db, agentId),
     liveToken: (agentId) => liveOperatorPageToken(db, agentId),
+    factsOf: (agentId) => agentFacts(db, agentId),
   }
 }
 

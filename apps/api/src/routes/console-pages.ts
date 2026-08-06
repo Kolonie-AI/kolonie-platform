@@ -57,6 +57,11 @@ import {
 import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
+import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
+import type { OperatorPageView } from '@kolonie-ai/db'
+import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
+import { writeOperatorNote } from '../operator-notes.js'
+import { answerOperatorRequest } from '../operator-requests.js'
 import { SESSION_COOKIE } from './console.js'
 import { mintOauthState } from '../humans/auth0.js'
 import {
@@ -776,6 +781,172 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   })
 
   registerSponsorPages(app, deps, { guard, caller })
+
+  /**
+   * The operator page, on a session — the second door (`#428`).
+   *
+   * **A second door to one page, not a second page.** The body is
+   * `operatorPageBody`, the same function the mailed link renders through, so the
+   * two cannot drift: `#428` names two renderings of an operator's view
+   * disagreeing within a month as the thing this design is against, and a test
+   * asserts both produce the same body for the same agent.
+   *
+   * **The token link is not replaced and its model is not weakened.** An agent
+   * whose human never signs in stays reachable exactly as before, which is what
+   * keeps *an agent may have no operator at all* true.
+   *
+   * ## The authorisation check is the whole security surface
+   *
+   * The agent is resolved from the **join table** and from nothing in the
+   * request. The id in the path is a claim; `operates` is what turns it into a
+   * subject, and a human that does not operate this agent gets the console's
+   * ordinary 404 — the same answer as an agent that does not exist, so a signed-in
+   * stranger cannot enumerate which ids are real.
+   *
+   * ## Why the live token, and why it never reaches the page
+   *
+   * Everything the page reads is keyed by the token, and that is the property
+   * `#241` and `#399` rest on: nothing downstream takes an id from the caller.
+   * Rather than build a second set of agent-keyed readers that could answer
+   * differently, this door authorises first and then reaches the *same* readers.
+   *
+   * **Revocation therefore closes both doors, by construction rather than by a
+   * second rule.** No live page means no token, which means this route answers
+   * 404 — and `#428` is explicit that a door surviving revocation would make
+   * revocation a thing the citizen only thinks it did.
+   *
+   * The token stays on the server: the forms post to this route's own path.
+   * Showing the durable link on a page behind a login is *a credential leaking
+   * downward for no gain*, which `#428` refused.
+   *
+   * **`lastOpenedAt` moves on the same field**, because `pages.open` is what
+   * reads the view here as everywhere. `#381` found that timestamp already
+   * ambiguous, and two fields would settle nothing and add a second thing to be
+   * wrong.
+   */
+  const operatorDoor = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<{ token: string; view: OperatorPageView } | null> => {
+    const signedIn = await person(request)
+    if (signedIn === null) {
+      consoleNotFound(reply, request)
+      return null
+    }
+
+    /**
+     * **The id in the path is a claim; `operates` is what turns it into a
+     * subject.** Branded here and nowhere else, so the cast is next to the check
+     * that earns it rather than somewhere a later reader would have to trust.
+     */
+    const { agentId } = request.params as { agentId?: string }
+    const subject = agentId === undefined ? undefined : (agentId as AgentId)
+    if (subject === undefined || !(await deps.humans.store.operates(signedIn.human.id, subject))) {
+      consoleNotFound(reply, request)
+      return null
+    }
+
+    const token = await deps.autonomy.pages.liveToken(subject)
+    const view = token === undefined ? null : await deps.autonomy.pages.open(token)
+
+    if (token === undefined || view === null) {
+      consoleNotFound(reply, request)
+      return null
+    }
+
+    return { token, view }
+  }
+
+  app.get('/agents/:agentId/operator', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const door = await operatorDoor(request, reply)
+    if (door === null) return reply
+
+    const { agentId } = request.params as { agentId: string }
+    return html(
+      reply,
+      await operatorPageBody(deps, door.token, consoleOperatorPath(agentId), door.view),
+    )
+  })
+
+  /**
+   * The session door writes, identically to the token door.
+   *
+   * **Approved by the maintainer, 2026-08-05**, and the argument is in `#428`:
+   * the token door already accepts advisory words and unsolicited notes (`#236`,
+   * `#239`), nothing reachable from either touches an autonomy contract or a
+   * permission, and a session is the stronger credential of the two. Giving it
+   * less would be a rule with no argument behind it.
+   *
+   * The body is handed to the same handlers the token route uses, so what a
+   * console write can reach is exactly what a mailed-link write can reach —
+   * words, and never a permission. D-081 is untouched.
+   */
+  app.post('/agents/:agentId/operator', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const door = await operatorDoor(request, reply)
+    if (door === null) return reply
+
+    const { agentId } = request.params as { agentId: string }
+    const action = consoleOperatorPath(agentId)
+    const submitted = (request.body ?? {}) as Record<string, unknown>
+
+    if (submitted['intent'] === 'note') {
+      const written = await writeOperatorNote(
+        { token: door.token, body: submitted['body'] },
+        deps.operatorNotes,
+      )
+
+      if (written.outcome === 'written') {
+        return html(reply, operatorNoteSentPage(door.view.agentName))
+      }
+
+      if (written.outcome === 'unreachable') return consoleNotFound(reply, request)
+
+      const noteError =
+        written.outcome === 'inbox-full'
+          ? undefined
+          : written.outcome === 'rate-limited'
+            ? `You have sent your agent a lot in the last hour. Try again in ` +
+              `${Math.ceil(written.retryAfterSeconds / 60)} minutes — nothing you already sent ` +
+              `is affected.`
+            : written.error.message
+
+      return html(
+        reply.status(written.outcome === 'inbox-full' ? 409 : 422),
+        await operatorPageBody(
+          deps,
+          door.token,
+          action,
+          door.view,
+          noteError === undefined ? {} : { noteError },
+        ),
+      )
+    }
+
+    const result = await answerOperatorRequest(
+      {
+        token: door.token,
+        body: { requestId: submitted['requestId'], body: submitted['body'] },
+      },
+      deps.operatorRequests,
+    )
+
+    if (result.outcome === 'answered') {
+      return html(reply, operatorAnsweredPage(door.view.agentName))
+    }
+
+    if (result.outcome === 'unreachable') return consoleNotFound(reply, request)
+
+    return html(
+      reply.status(422),
+      await operatorPageBody(deps, door.token, action, door.view, {
+        answerError: result.error.message,
+      }),
+    )
+  })
 }
 
 /**

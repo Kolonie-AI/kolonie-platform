@@ -20,6 +20,7 @@ import {
   recordAutonomyContract,
   issueOperatorPage,
   listOperatorPages,
+  liveOperatorPageToken,
   openOperatorPage,
   revokeOperatorPage,
 } from '@kolonie-ai/db'
@@ -45,6 +46,15 @@ export interface OperatorPages {
   open(token: string): Promise<OperatorPageView | null>
   revoke(agentId: AgentId, operatorAddress: string): Promise<boolean>
   list(agentId: AgentId): Promise<readonly OperatorPageRecord[]>
+  /**
+   * The live token for this agent, for the console's door (`#428`).
+   *
+   * **Not on {@link list}, deliberately.** That one answers
+   * `kolonie.operator.pages` and must never carry a token. This is reached only
+   * by a route that has already authorised the caller against the join table,
+   * and what it returns never reaches a rendered page.
+   */
+  liveToken(agentId: AgentId): Promise<string | undefined>
 }
 
 export interface AutonomyDependencies {
@@ -74,6 +84,7 @@ export function databaseOperatorPages(db: Database): OperatorPages {
     open: (token) => openOperatorPage(db, token),
     revoke: (agentId, address) => revokeOperatorPage(db, agentId, address),
     list: (agentId) => listOperatorPages(db, agentId),
+    liveToken: (agentId) => liveOperatorPageToken(db, agentId),
   }
 }
 

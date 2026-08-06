@@ -1,4 +1,3 @@
-import { MAX_UNREAD_OPERATOR_NOTES } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import type { FastifyInstance } from 'fastify'
 import { answerAutonomyForm } from '../autonomy.js'
@@ -7,10 +6,10 @@ import {
   autonomyDonePage,
   autonomyFormPage,
   operatorAnsweredPage,
-  operatorDurablePage,
   operatorNoteSentPage,
 } from '../autonomy-page.js'
-import { inboxFullMessage, writeOperatorNote } from '../operator-notes.js'
+import { writeOperatorNote } from '../operator-notes.js'
+import { operatorPageBody } from '../operator-page-body.js'
 import { answerOperatorRequest } from '../operator-requests.js'
 import { CONSOLE_HEADERS } from '../console/html.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -108,12 +107,12 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
    * so a stranger who guessed one cannot tell that a citizen took a real page away.
    */
   /**
-   * Everything the durable page needs beyond the view, resolved from the token.
+   * The page, for the token door.
    *
-   * Extracted because the page is now rendered from four places — the `GET`, and
-   * three of the `POST`'s outcomes — and a refusal that dropped the exchange or
-   * the inbox state would hand the operator back a page missing the box it had
-   * just used. One function, so the page cannot differ by which path reached it.
+   * **The body itself moved to `operator-page-body.ts`** when `#428` gave the
+   * page a second door: the console renders the identical body on a session, and
+   * two copies of it would disagree within a month. What stays here is the one
+   * thing that is this door's — the forms post back to the token URL.
    */
   const pageFor = async (
     token: string,
@@ -124,42 +123,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       facts: OperatorPageView['facts']
     },
     errors: { readonly answerError?: string; readonly noteError?: string } = {},
-  ): Promise<string> => {
-    const [exchange, room] = await Promise.all([
-      deps.operatorRequests.store.openExchangeForToken(token),
-      deps.operatorNotes.store.roomForToken(token),
-    ])
-
-    return operatorDurablePage({
-      agentName: view.agentName,
-      // The wall (`#241`), resolved with the page's own subject: the token
-      // names the agent, and nothing here takes an id from the caller.
-      badges: view.badges,
-      contract: view.contract,
-      // What it has proved and what it has been doing (`#399`), resolved by the
-      // same token and by nothing the caller sent.
-      facts: view.facts,
-      token,
-      ...(errors.answerError === undefined ? {} : { answerError: errors.answerError }),
-      ...(errors.noteError === undefined ? {} : { noteError: errors.noteError }),
-      ...(room !== undefined && room.unread >= MAX_UNREAD_OPERATOR_NOTES
-        ? { inboxFull: inboxFullMessage(room.unread) }
-        : {}),
-      ...(exchange === undefined
-        ? {}
-        : {
-            exchange: {
-              requestId: String(exchange.requestId),
-              taskTitle: exchange.taskTitle,
-              messages: exchange.messages,
-              // Whether the page renders a box under it (`#359`). A closed
-              // exchange is here because the citizen answered a question the
-              // operator asked in the notes channel, and it is read-only.
-              closed: exchange.closed,
-            },
-          }),
-    })
-  }
+  ): Promise<string> => operatorPageBody(deps, token, `/operator/page/${token}`, view, errors)
 
   app.get('/operator/page/:token', async (request, reply) => {
     const { token } = request.params as { token?: string }

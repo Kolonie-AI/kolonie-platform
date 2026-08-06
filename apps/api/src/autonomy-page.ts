@@ -367,8 +367,22 @@ export function operatorDurablePage(input: {
    * places.
    */
   readonly inboxFull?: string | undefined
-  /** The token, needed in the form action once there is a form. */
-  readonly token?: string | undefined
+  /**
+   * Where this page's two forms post, once there are forms.
+   *
+   * **An action rather than a token** (`#428`). The page is reached through two
+   * doors now — a bearer link a person clicks out of a mail, and a session in the
+   * console — and it renders the same body for both. The only thing that differs
+   * is where the forms post, so that is what the renderer takes.
+   *
+   * It used to take the token and compose `/operator/page/<token>` itself, which
+   * would have put a durable bearer link inside a page served behind a login.
+   * `#428` refuses that outright: *a credential leaking downward for no gain*.
+   * The console door passes its own path and the token never leaves the server.
+   *
+   * Absent means no forms, which is what a page with nothing to answer renders.
+   */
+  readonly action?: string | undefined
 }): string {
   const name = escape(input.agentName)
 
@@ -620,7 +634,7 @@ export function operatorDurablePage(input: {
    * first step to carrying something else.
    */
   const question =
-    input.exchange === undefined || input.token === undefined
+    input.exchange === undefined || input.action === undefined
       ? []
       : input.exchange.closed === true
         ? [
@@ -659,7 +673,7 @@ export function operatorDurablePage(input: {
                 `<td>${escape(message.body)}</td></tr>`,
             ),
             '</table>',
-            `<form method="post" action="/operator/page/${escape(input.token)}">`,
+            `<form method="post" action="${escape(input.action)}">`,
             /**
              * Which of the page's two boxes this is (`#239`).
              *
@@ -714,7 +728,7 @@ export function operatorDurablePage(input: {
    * told the thing that matters: nothing is wrong, and it clears itself.
    */
   const note =
-    input.token === undefined
+    input.action === undefined
       ? []
       : [
           `<h2>Tell ${name} something</h2>`,
@@ -723,7 +737,7 @@ export function operatorDurablePage(input: {
             : `<p class="note"><strong>${escape(input.noteError)}</strong></p>`,
           ...(input.inboxFull === undefined
             ? [
-                `<form method="post" action="/operator/page/${escape(input.token)}">`,
+                `<form method="post" action="${escape(input.action)}">`,
                 '<input type="hidden" name="intent" value="note">',
                 `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
                 `<button type="submit">Send this to ${name}</button>`,

@@ -188,6 +188,15 @@ export function fakeOperatorPages(): FakeOperatorPages {
             lastOpenedAt: opened.get(token) ?? null,
           })),
       ),
+    /**
+     * The live token for the console door (`#428`), newest-issued first as the
+     * database orders it. `null` in the store becomes `undefined` here because
+     * the port answers *there is no live page*, which is what closes that door.
+     */
+    liveToken: (agentId) => {
+      const found = [...live.entries()].find(([, row]) => row.agentId === agentId)
+      return Promise.resolve(found === undefined ? undefined : found[0])
+    },
     tokenFor: (agentId, address) => byPair.get(key(agentId, address)) ?? null,
     agentForToken: (token) => live.get(token)?.agentId ?? null,
     liveFor: (agentId) => {

@@ -370,6 +370,41 @@ export async function revokeOperatorPage(
  * could aim at somebody, which is the same guarantee `readAutonomyContract` has
  * and for the same reason.
  */
+/**
+ * The live page token for this agent, for the session door (`#428`).
+ *
+ * **Never rendered and never returned to a citizen.** `listOperatorPages`
+ * deliberately answers addresses and timestamps and no token, because that list
+ * is what `kolonie.operator.pages` shows. This one exists so the console can
+ * reach the *same* page body a token reaches, on a session, without the token
+ * appearing in a page behind a login — which `#428` refuses as *a credential
+ * leaking downward for no gain*.
+ *
+ * **A revoked page has no live token, and that is how revocation closes both
+ * doors.** The session door is not a second grant: it is a second way into the
+ * surface the citizen created, so withdrawing the surface withdraws it. A door
+ * that survived revocation would make revocation a thing the citizen only thinks
+ * it did.
+ *
+ * Newest first, so an agent whose operator holds several is reached through the
+ * one most recently issued. Which row it is only decides whose `lastOpenedAt`
+ * moves; every one of them renders the same body, because the body is the
+ * agent's.
+ */
+export async function liveOperatorPageToken(
+  db: Database,
+  agentId: AgentId,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select({ token: operatorPages.token })
+    .from(operatorPages)
+    .where(and(eq(operatorPages.agentId, agentId), isNull(operatorPages.revokedAt)))
+    .orderBy(desc(operatorPages.issuedAt))
+    .limit(1)
+
+  return row?.token
+}
+
 export async function listOperatorPages(
   db: Database,
   agentId: AgentId,

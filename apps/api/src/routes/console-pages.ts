@@ -1063,7 +1063,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
     const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
-    const [balance, open, own] = await Promise.all([
+    const [balance, open, own, quests] = await Promise.all([
       deps.quests.balance(operated.agentId),
       /**
        * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
@@ -1082,6 +1082,11 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         hints: false,
       }),
       deps.humans.store.sponsorAgent(operated.humanId),
+      /**
+       * Quests this agent took part in (`#454`), from the store the console's
+       * own quest pages read rather than a query written for this page.
+       */
+      deps.quests.takenPartIn(operated.agentId),
     ])
 
     const view = {
@@ -1103,6 +1108,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           ? open.page.items.map((task) => ({ title: task.title, requires: [...task.requires] }))
           : [],
       you: own !== undefined && String(own.id) === String(operated.agentId),
+      quests: quests.map((quest) => ({
+        questId: String(quest.questId),
+        title: quest.title,
+        at: quest.at,
+        outcome: quest.outcome,
+      })),
     }
 
     if (!wantsHtml(request)) return reply.send(view)

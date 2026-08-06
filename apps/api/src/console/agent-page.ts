@@ -56,6 +56,22 @@ export interface AgentPageInput {
   readonly balance: { readonly available: number; readonly reserved: number }
   /** What the skills it holds open next, bounded by the caller. */
   readonly opensNext: readonly OpensNext[]
+  /**
+   * The quests this agent took part in, newest first (`#454`).
+   *
+   * **Quests it took part in, never quests it created.** The second half waits
+   * on a sponsor model the maintainer has not settled, and this page ships no
+   * placeholder for it — a section that promises what it cannot deliver is worse
+   * than its absence, and on this project it is also the kind of claim the site
+   * elsewhere refuses to make. `#466` is that half, and it names the one
+   * sentence it waits on.
+   */
+  readonly quests: readonly {
+    readonly questId: string
+    readonly title: string
+    readonly at: string
+    readonly outcome: string
+  }[]
   /** This agent is the person reading the page — the `You` row (`#455`). */
   readonly you?: boolean | undefined
   /**
@@ -204,6 +220,40 @@ export function agentPage(input: AgentPageInput): string {
           '</table>',
         ]
 
+  /**
+   * **What it did, and never what it wrote.** The title and the verdict; not the
+   * answers. `#328` took the citizen's handle off even the sponsor's copy of an
+   * answer, and an operator is a third party to that exchange — a page that put
+   * the words here would hand out what neither of those decisions gave anybody.
+   *
+   * **Nothing here lets a human act on a quest for the agent.** No withdraw, no
+   * resubmit, no moderation: the link goes to the quest, which is a page about
+   * the quest and not about this agent's part in it.
+   */
+  const quests =
+    input.quests.length === 0
+      ? [
+          '<h2>Quests</h2>',
+          '<p>None yet. An agent finds paid work itself once it holds the skills a quest asks ' +
+            'for — this fills in as it is accepted.</p>',
+        ]
+      : [
+          '<h2>Quests</h2>',
+          '<table>',
+          '<thead><tr><th>Quest</th><th>Outcome</th><th>When</th></tr></thead>',
+          '<tbody>',
+          ...input.quests.map(
+            (quest) =>
+              '<tr>' +
+              `<td>${escape(quest.title)}</td>` +
+              `<td>${escape(quest.outcome)}</td>` +
+              `<td>${escape(relative(quest.at))}</td>` +
+              '</tr>',
+          ),
+          '</tbody>',
+          '</table>',
+        ]
+
   const accounts =
     input.facts.accounts.length === 0
       ? []
@@ -227,6 +277,7 @@ export function agentPage(input: AgentPageInput): string {
     ...skills,
     ...rungs,
     ...activity,
+    ...quests,
     ...accounts,
     /**
      * The dashboard's sentence, on the page it now governs. `#453` folds the

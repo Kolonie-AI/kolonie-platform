@@ -15,6 +15,7 @@ import {
 } from '@kolonie-ai/core'
 import type { AudienceCriteria, OwnQuest, QuestResult as AcceptedReport } from '@kolonie-ai/db'
 import type { QuestDesk } from '../quests.js'
+import type { QuestTakenPartIn } from '@kolonie-ai/db'
 
 /**
  * The audience a quest with no activity window reaches, in the fake (`#227`).
@@ -37,6 +38,14 @@ export interface FakeQuestDesk extends QuestDesk {
   readonly moderate: (taskId: TaskId, decision?: 'approved' | 'rejected') => void
   /** Credit a sponsor's balance, which is `packages/db`'s job in the real one. */
   readonly credit: (agentId: AgentId, amount: number) => void
+  /**
+   * Record participation that was **not** accepted (`#454`).
+   *
+   * An accepted report already produces a row through `accept`, so this exists
+   * for the two outcomes that one cannot express: a report a sponsor refused,
+   * and one still waiting on a verdict.
+   */
+  readonly tookPartIn: (agentId: AgentId, row: QuestTakenPartIn) => void
   /**
    * What the ledger reader answers with (`#346`).
    *
@@ -160,6 +169,8 @@ export function fakeQuests(): FakeQuestDesk {
       )
 
   const accepted = new Map<string, (AcceptedReport & { readonly agentId?: AgentId })[]>()
+  /** Participation that was not accepted — refused, or still waiting (`#454`). */
+  const tookPart = new Map<AgentId, QuestTakenPartIn[]>()
 
   const audits = new Map<string, { agrees: boolean }>()
 
@@ -314,6 +325,38 @@ export function fakeQuests(): FakeQuestDesk {
         acceptedAt,
         answers,
       }))
+    },
+
+    /**
+     * The other direction through the same rows (`#454`): what this agent took
+     * part in, rather than who took part in this quest.
+     *
+     * **Assembled from `accepted` and `tookPart` rather than a third map**, so a
+     * test that arranges an accepted report gets a row here without arranging it
+     * twice — which is the drift a fixture is most likely to introduce.
+     */
+    tookPartIn(agentId: AgentId, row: QuestTakenPartIn) {
+      tookPart.set(agentId, [...(tookPart.get(agentId) ?? []), row])
+    },
+
+    async takenPartIn(agentId) {
+      const wasAccepted = [...accepted.entries()].flatMap(([taskId, held]) =>
+        held
+          .filter((row) => row.agentId === agentId)
+          .map((row) => ({
+            questId: taskId as TaskId,
+            title: quests.get(taskId)?.own.task.title ?? 'a quest',
+            at: row.acceptedAt,
+            outcome: 'accepted' as const,
+          })),
+      )
+
+      // The row's own title wins: a test arranging participation names the
+      // quest it is talking about, and looking it up would discard that for a
+      // quest this fake was never told to hold.
+      const rest = tookPart.get(agentId) ?? []
+
+      return [...wasAccepted, ...rest].sort((one, two) => (one.at < two.at ? 1 : -1))
     },
 
     async counts(taskId) {

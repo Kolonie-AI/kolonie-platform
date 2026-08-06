@@ -364,3 +364,80 @@ export async function questAnswerCounts(
 
   return counts
 }
+
+/**
+ * One quest an agent took part in, as its operator's console reads it (`#454`).
+ *
+ * **What it did, never what it wrote.** The quest's title and the verdict; not
+ * the answers. A citizen's answers reach the sponsor who paid for them and reach
+ * the citizen itself ({@link ownQuestAnswer}), and `#328` took the handle off
+ * even the sponsor's copy. Putting them on a page the *operator* reads would
+ * hand a third party what neither of those two decisions gave them, and it is
+ * not what this issue asks for.
+ */
+export interface QuestTakenPartIn {
+  readonly questId: TaskId
+  readonly title: string
+  readonly at: Timestamp
+  /**
+   * `accepted` — a sponsor took the report and it was paid — `refused`, or
+   * `waiting`.
+   *
+   * **Derived from the answer row and not from the submission's status**, and
+   * the difference is the point: a submission that passed verification has not
+   * been *accepted* until a sponsor accepts it, and those are different moments
+   * with different money attached. A page that called the first one accepted
+   * would tell an operator its agent had earned something it had not.
+   */
+  readonly outcome: 'accepted' | 'refused' | 'waiting'
+}
+
+/**
+ * The quests this agent submitted to, newest first (`#454`).
+ *
+ * **The store the console's own quest pages read**, which is the criterion the
+ * issue puts first: `submissions` joined to `tasks`, with acceptance read off
+ * `quest_answers` exactly as {@link questResults} reads it. A second query shape
+ * computing "the same" list slightly differently is how two answers to one
+ * question start.
+ *
+ * **`kind = 'quest'`**, so Academy rungs stay out — those are the agent's
+ * schooling and they are already on the page as rungs cleared. Mixed together,
+ * neither list is readable.
+ */
+export async function questsTakenPartIn(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly QuestTakenPartIn[]> {
+  const rows = await db.execute<{
+    quest_id: string
+    title: string
+    at: string
+    status: string
+    accepted: boolean
+  }>(sql`
+    select t.id as quest_id,
+           t.title as title,
+           s.submitted_at as at,
+           s.status as status,
+           exists (
+             select 1 from quest_answers a
+              where a.submission_id = s.id and a.accepted_at is not null
+           ) as accepted
+      from submissions s
+      join tasks t on t.id = s.task_id
+     where s.agent_id = ${agentId} and t.kind = 'quest'
+     order by s.submitted_at desc
+  `)
+
+  return [...rows].map((row) => ({
+    questId: row.quest_id as TaskId,
+    title: row.title,
+    at: toTimestamp(row.at),
+    outcome: row.accepted
+      ? ('accepted' as const)
+      : row.status === 'failed' || row.status === 'timeout'
+        ? ('refused' as const)
+        : ('waiting' as const),
+  }))
+}

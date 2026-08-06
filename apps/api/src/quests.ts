@@ -36,6 +36,8 @@ import {
   questAuditQueue as questAuditQueueInDatabase,
   questDisagreementRate as questDisagreementRateInDatabase,
   questResults as questResultsInDatabase,
+  questsTakenPartIn as questsTakenPartInInDatabase,
+  type QuestTakenPartIn,
   fileQuestReport as fileQuestReportInDatabase,
   questReportCounts as questReportCountsInDatabase,
   retireQuestEarly as retireQuestEarlyInDatabase,
@@ -192,6 +194,15 @@ export interface QuestDesk {
   }): Promise<QuestRefuseOutcome>
   /** The accepted reports on one quest (`#178`). */
   results(taskId: TaskId): Promise<readonly AcceptedReport[]>
+  /**
+   * The quests this agent took part in, newest first (`#454`).
+   *
+   * Beside {@link results}, which answers the sponsor's question — *who
+   * answered my quest* — while this answers the agent's operator's: *what has my
+   * agent been paid for*. Same store, two directions, and the rows are assembled
+   * by `questsTakenPartIn` rather than by a second query written for the page.
+   */
+  takenPartIn(agentId: AgentId): Promise<readonly QuestTakenPartIn[]>
   /** Counts per option, for the closed questions only. */
   counts(taskId: TaskId): Promise<Readonly<Record<string, Readonly<Record<string, number>>>>>
   /** One citizen's own answers, in the shape the sponsor gets. */
@@ -286,6 +297,7 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
     publish: (input) => publishQuestInDatabase(db, { ...input, audit }),
     refuse: (input) => refuseQuestInDatabase(db, input),
     results: (taskId) => questResultsInDatabase(db, taskId),
+    takenPartIn: (agentId) => questsTakenPartInInDatabase(db, agentId),
     counts: (taskId) => questAnswerCountsInDatabase(db, taskId),
     ownAnswer: (input) => ownQuestAnswerInDatabase(db, input),
     auditQueue: (stewardId) => questAuditQueueInDatabase(db, audit, undefined, stewardId),

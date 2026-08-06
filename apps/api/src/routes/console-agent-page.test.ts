@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import type { AgentId } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeColony } from '../__fixtures__/colony/index.js'
+import { fakeQuests, type FakeQuestDesk } from '../__fixtures__/quests.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeHumanStore, fakeTenant, type FakeHumanStore } from '../__fixtures__/humans.js'
@@ -32,6 +33,7 @@ let app: FastifyInstance
 let humans: FakeHumanStore
 let pages: ReturnType<typeof fakeOperatorPages>
 let contracts: ReturnType<typeof fakeAutonomyStore>
+let quests: FakeQuestDesk
 let agentId: AgentId
 let strangersAgentId: AgentId
 
@@ -39,11 +41,13 @@ beforeEach(async () => {
   humans = fakeHumanStore()
   pages = fakeOperatorPages()
   contracts = fakeAutonomyStore()
+  quests = fakeQuests()
   const agents = fakeStore()
 
   app = buildApp({
     ...fakeColony(),
     store: agents,
+    quests,
     console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
     humans: { store: humans, tenant: fakeTenant() },
     autonomy: {
@@ -191,15 +195,31 @@ describe('the agent page', () => {
     expect(body).not.toContain('<td>—</td>')
   })
 
-  /** Quests are `#454`'s, and a heading that promised them would be the placeholder it refuses. */
-  it('promises no quests it cannot show yet', async () => {
+  /**
+   * **`#454` step 2 is not here and ships no placeholder.** Which quests an
+   * agent *created* waits on a sponsor model that is not settled, and a section
+   * promising it would be the empty heading that issue refuses by name.
+   */
+  it('promises no quests-created section it cannot deliver', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
 
     const body = (await openPage(cookie, agentId)).body
 
-    expect(body).not.toContain('Quests')
+    expect(body).not.toContain('Quests created')
     expect(body).not.toContain('coming soon')
+  })
+
+  /** And what it *did* take part in is there, with the empty state that says so. */
+  it('says what would put a quest there, for an agent with none', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+
+    const body = (await openPage(cookie, agentId)).body
+
+    expect(body).toContain('<h2>Quests</h2>')
+    expect(body).toContain('None yet')
+    expect(body).toContain('finds paid work itself')
   })
 
   /** Nothing on it writes, and the rule that says so is on the page. */
@@ -243,6 +263,80 @@ describe('the agent page', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({ name: 'canary', citizenship: 'candidate' })
+  })
+
+  /**
+   * **What the agent has been paid for** (`#454`, step 1).
+   *
+   * Quests it took part in, from the store the console's own quest pages read.
+   * What it *created* waits on a sponsor model that is not settled and ships no
+   * placeholder here.
+   */
+  describe('quests it took part in', () => {
+    it('lists them newest first, with the outcome', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      quests.tookPartIn(agentId, {
+        questId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' as never,
+        title: 'A thousand registrations',
+        at: new Date(Date.now() - 3 * 86_400_000).toISOString() as never,
+        outcome: 'accepted',
+      })
+      quests.tookPartIn(agentId, {
+        questId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' as never,
+        title: 'A survey nobody wanted',
+        at: new Date(Date.now() - 86_400_000).toISOString() as never,
+        outcome: 'refused',
+      })
+
+      const body = (await openPage(cookie, agentId)).body
+
+      expect(body).toContain('A thousand registrations')
+      expect(body).toContain('accepted')
+      expect(body).toContain('refused')
+      expect(body.indexOf('A survey nobody wanted')).toBeLessThan(
+        body.indexOf('A thousand registrations'),
+      )
+    })
+
+    /**
+     * **What it did, never what it wrote.** `#328` took the citizen's handle off
+     * even the sponsor's copy of an answer; an operator is a third party to that
+     * exchange, so the answers are not on this page at all.
+     */
+    it('shows no answers', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      quests.tookPartIn(agentId, {
+        questId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' as never,
+        title: 'A quest',
+        at: new Date().toISOString() as never,
+        outcome: 'accepted',
+      })
+
+      const body = (await openPage(cookie, agentId)).body
+
+      expect(body).toContain('A quest')
+      expect(body).not.toContain('answers')
+    })
+
+    /** Nothing here lets a human act on a quest on the agent's behalf. */
+    it('offers no control over any of them', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      quests.tookPartIn(agentId, {
+        questId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' as never,
+        title: 'A quest',
+        at: new Date().toISOString() as never,
+        outcome: 'waiting',
+      })
+
+      const body = (await openPage(cookie, agentId)).body
+
+      expect(body).not.toContain('Withdraw')
+      expect(body).not.toContain('Resubmit')
+      expect(body).not.toMatch(/<form[^>]*action="\/quests\//)
+    })
   })
 
   /**

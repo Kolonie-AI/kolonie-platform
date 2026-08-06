@@ -1108,6 +1108,14 @@ describe('the erasure boundary', () => {
        * accounting ledger, and `erasure.md` §2 already puts what a citizen
        * tried among the things that do not survive.
        */
+      /**
+       * `cascade` (`#411`). A challenge is the citizen's own attempt at a rung,
+       * and `erasure.md` §2 lists what it proved among the things that do not
+       * survive erasure — challenges by name. The row also holds a phone number
+       * belonging to a person, which is the same argument the send ledger below
+       * makes one line down.
+       */
+      'sms_challenges.agent_id c',
       'sms_sends.agent_id c',
       'social_challenges.agent_id c',
       'solana_wallet_challenges.agent_id c',

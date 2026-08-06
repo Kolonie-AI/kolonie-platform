@@ -416,6 +416,14 @@ describe('schema', () => {
          * causes money to leave, and the answer to *what has this cost us* must
          * not have to come from a vendor's console.
          */
+        /**
+         * `sms_challenges` joined with the two phone rungs (`#411`). A sibling
+         * of `email_challenges` rather than a generalisation of it: the flows
+         * rhyme and they differ in the one place that decides a verdict, so two
+         * tables that are 80 % alike are cheaper to read than one with a channel
+         * column and eight *null on the other channel* comments in it.
+         */
+        'sms_challenges',
         'sms_sends',
         'social_challenges',
         /**

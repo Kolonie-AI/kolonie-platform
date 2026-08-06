@@ -26,6 +26,7 @@ import type { AgentRegistry, Caller } from '../registration.js'
 import type { Retesting } from '../retest.js'
 import type { AutonomyDependencies } from '../autonomy.js'
 import type { OperatorClaimDependencies } from '../operator-claim.js'
+import type { HumanDependencies } from '../humans/humans.js'
 import type { SocialDependencies } from '../social.js'
 import type { SolanaDependencies } from '../solana.js'
 import type { TaskSubmissions } from '../submissions.js'
@@ -156,6 +157,8 @@ export interface McpDependencies {
    * rung inheriting the X read path.
    */
   readonly operatorClaim: OperatorClaimDependencies
+  /** People with accounts, and the link between one and an agent (`#426`). */
+  readonly humans: HumanDependencies
   /** The autonomy module (#146). */
   readonly autonomy: AutonomyDependencies
   readonly domain: DomainDependencies

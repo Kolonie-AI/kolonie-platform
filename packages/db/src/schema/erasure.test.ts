@@ -957,6 +957,22 @@ describe('the erasure boundary', () => {
       // leaves no record that a particular citizen once considered leaving.
       'erasure_challenges.agent_id c',
       'github_challenges.agent_id c',
+      /**
+       * Who operates this citizen (`#426`). Cascades, and the direction is the
+       * one worth stating: the citizen leaving takes the link with it, and the
+       * *person* is untouched — they joined nothing and their account is not
+       * the citizen's to erase. `#429` is the mirror of this, and there the
+       * asymmetry runs the other way: deleting the person takes the link and
+       * leaves every agent whole.
+       */
+      'human_agents.agent_id c',
+      /**
+       * An outstanding link code the citizen minted (`#426`). Cascades for the
+       * reason every challenge row does: it is a string the Colony issued to
+       * *this* citizen, and it means nothing once there is nobody it was issued
+       * to.
+       */
+      'human_link_codes.agent_id c',
       // The image rung's specification (#60). Cascades like every other
       // challenge: it is a question the Colony put to *this* citizen, and it
       // means nothing once there is nobody it was put to.

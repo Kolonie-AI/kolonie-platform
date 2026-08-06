@@ -1,5 +1,4 @@
 import type { ApiError } from '@kolonie-ai/core'
-import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { fakeQuests } from '../__fixtures__/quests.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -97,7 +96,6 @@ describe('a tool that throws something nobody planned for', () => {
     // process logger `#230` gave every service. Same name, two seams.
     const { log: _mcpLog, ...appDeps } = deps
     const app = buildApp({
-      humans: fakeHumans(),
       ...appDeps,
       quests: fakeQuests(),
       deposits: fakeDepositDependencies(fakeDeposits()),

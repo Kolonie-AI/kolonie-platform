@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { HumanIdSchema, type Human, type HumanSession } from '@kolonie-ai/core'
+import { HumanIdSchema, type AgentId, type Human, type HumanSession } from '@kolonie-ai/core'
 import type { HumanAuthentication, OpenedSession, ProviderIdentity } from '@kolonie-ai/db'
 import type { HumanDependencies, HumanStore } from '../humans/humans.js'
 import type { IdentityProviderTenant, ResolvedIdentity } from '../humans/auth0.js'
@@ -25,12 +25,80 @@ export function fakeHumanStore(): FakeHumanStore {
   const live = new Map<string, { humanId: Human['id']; sessionId: string; ended: boolean }>()
   const handed: string[] = []
   const details = new Map<string, HumanSession>()
+  const codes: {
+    code: string
+    humanId: Human['id'] | null
+    agentId: AgentId | null
+    used: boolean
+  }[] = []
+  const links = new Map<AgentId, Human['id']>()
 
   const key = (identity: ProviderIdentity) => `${identity.provider}|${identity.subject}`
 
   return {
     people: () => order,
     sessions: () => handed,
+
+    issueCodeForHuman: async (humanId) => {
+      const code = `TEST-${String(codes.length + 1).padStart(4, '0')}`
+      codes.push({ code, humanId, agentId: null, used: false })
+      return { code, expiresAt: new Date(Date.now() + 60_000).toISOString() }
+    },
+
+    liveCode: async (humanId) => {
+      const held = [...codes].reverse().find((c) => c.humanId === humanId && !c.used)
+      return held === undefined
+        ? undefined
+        : { code: held.code, expiresAt: new Date(Date.now() + 60_000).toISOString() }
+    },
+
+    issueCodeForAgent: async (agentId) => {
+      const code = `TEST-${String(codes.length + 1).padStart(4, '0')}`
+      codes.push({ code, humanId: null, agentId, used: false })
+      return { code, expiresAt: new Date(Date.now() + 60_000).toISOString() }
+    },
+
+    redeemAsAgent: async (code, agentId) => {
+      const held = codes.find((c) => c.code === code.toUpperCase())
+      if (held === undefined) return { outcome: 'refused', reason: 'unknown' }
+      if (held.used) return { outcome: 'refused', reason: 'spent' }
+      if (held.humanId === null) return { outcome: 'refused', reason: 'wrong-side' }
+      const existing = links.get(agentId)
+      if (existing !== undefined && existing !== held.humanId) {
+        return { outcome: 'refused', reason: 'already-linked' }
+      }
+      held.used = true
+      links.set(agentId, held.humanId)
+      return { outcome: 'linked', agentId, humanId: held.humanId }
+    },
+
+    redeemAsHuman: async (code, humanId) => {
+      const held = codes.find((c) => c.code === code.toUpperCase())
+      if (held === undefined) return { outcome: 'refused', reason: 'unknown' }
+      if (held.used) return { outcome: 'refused', reason: 'spent' }
+      if (held.agentId === null) return { outcome: 'refused', reason: 'wrong-side' }
+      const existing = links.get(held.agentId)
+      if (existing !== undefined && existing !== humanId) {
+        return { outcome: 'refused', reason: 'already-linked' }
+      }
+      held.used = true
+      links.set(held.agentId, humanId)
+      return { outcome: 'linked', agentId: held.agentId, humanId }
+    },
+
+    operated: async (humanId) =>
+      [...links.entries()]
+        .filter(([, held]) => held === humanId)
+        .map(([agentId]) => ({
+          id: agentId,
+          name: `agent-${agentId.slice(0, 4)}`,
+          citizenship: 'candidate',
+          skillsHeld: 0,
+          lastSeenAt: null,
+          linkedAt: new Date().toISOString(),
+        })),
+
+    operates: async (humanId, agentId) => links.get(agentId) === humanId,
 
     findOrCreate: async (identity) => {
       const existing = byIdentity.get(key(identity))

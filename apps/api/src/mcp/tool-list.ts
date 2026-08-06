@@ -167,6 +167,15 @@ export const AUTHENTICATED_TOOLS = [
    * paid, and it appears in the graph nowhere. It is also not `social-account`,
    * which proves the opposite direction; both descriptions say so.
    */
+  /**
+   * Linking to the person who operates you (`#426`).
+   *
+   * Next to the claim tools because an agent looking for one finds the other,
+   * and they are easy to confuse: a claim is a human saying so **in public**,
+   * and a link is a private arrangement with an account. One tool for both
+   * directions — see `operator-link.ts` for why the surface does not carry two.
+   */
+  'kolonie.operator.link',
   'kolonie.operator.claim.request',
   'kolonie.operator.claim.submit',
   /**

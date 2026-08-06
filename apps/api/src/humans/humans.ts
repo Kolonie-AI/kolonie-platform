@@ -1,19 +1,30 @@
 import {
   OAUTH_HANDOVER_MS,
+  type AgentId,
   type Human,
   type HumanSession,
   type IdentityProvider,
+  type LinkedAgent,
 } from '@kolonie-ai/core'
 import {
   authenticateHumanSession,
   endAllHumanSessions,
   endHumanSession,
   endHumanSessionById,
+  agentsOperatedBy,
   findOrCreateHuman,
+  issueCodeForAgent,
+  issueCodeForHuman,
+  liveCodeForHuman,
   listHumanSessions,
   openHumanSession,
+  operatesAgent,
+  redeemCodeAsAgent,
+  redeemCodeAsHuman,
   type Database,
   type HumanAuthentication,
+  type LinkCode,
+  type LinkOutcome,
   type OpenedSession,
   type ProviderIdentity,
 } from '@kolonie-ai/db'
@@ -29,6 +40,18 @@ import { SESSION_COOKIE } from '../routes/console.js'
  * one call it makes to it.
  */
 export interface HumanStore {
+  /** Issue a code for a person to hand to an agent (`#426`). */
+  issueCodeForHuman(humanId: Human['id']): Promise<LinkCode>
+  /** The live code they are already holding, if any. */
+  liveCode(humanId: Human['id']): Promise<LinkCode | undefined>
+  /** And one for an agent to hand to its operator. */
+  issueCodeForAgent(agentId: AgentId): Promise<LinkCode>
+  redeemAsAgent(code: string, agentId: AgentId): Promise<LinkOutcome>
+  redeemAsHuman(code: string, humanId: Human['id']): Promise<LinkOutcome>
+  /** The agents a person operates, for the dashboard `#427` renders. */
+  operated(humanId: Human['id']): Promise<readonly LinkedAgent[]>
+  /** Whether this person operates this agent — the check `#428` authorises on. */
+  operates(humanId: Human['id'], agentId: AgentId): Promise<boolean>
   findOrCreate(identity: ProviderIdentity): Promise<{ human: Human; created: boolean }>
   openSession(
     humanId: Human['id'],
@@ -167,6 +190,13 @@ export const OFFERED_PROVIDERS: readonly IdentityProvider[] = ['github']
 export function databaseHumanStore(db: Database): HumanStore {
   return {
     findOrCreate: (identity) => findOrCreateHuman(db, identity),
+    issueCodeForHuman: (humanId) => issueCodeForHuman(db, humanId),
+    liveCode: (humanId) => liveCodeForHuman(db, humanId),
+    issueCodeForAgent: (agentId) => issueCodeForAgent(db, agentId),
+    redeemAsAgent: (code, agentId) => redeemCodeAsAgent(db, code, agentId),
+    redeemAsHuman: (code, humanId) => redeemCodeAsHuman(db, code, humanId),
+    operated: (humanId) => agentsOperatedBy(db, humanId),
+    operates: (humanId, agentId) => operatesAgent(db, humanId, agentId),
     openSession: (humanId, where) => openHumanSession(db, humanId, where),
     authenticate: (session) => authenticateHumanSession(db, session),
     endSession: (session) => endHumanSession(db, session),

@@ -267,7 +267,13 @@ describe('the migrations', () => {
     // because that table returns an `Agent` and a person is not one. What the
     // account may never hold — skills, balance, reputation, standing, votes — is
     // the half `kolonie-docs#170` decided and the schema comment states.
-    expect(afterFirst.tables).toBe('74')
+    //
+    // **Seventy-six** (`#426`): `human_agents` and `human_link_codes` — who
+    // operates whom, and the single-use string that established it. The link is
+    // keyed on the agent because one citizen has one operator; the code is one
+    // table for both directions because the object is the same object, with a
+    // check constraint keeping exactly one side filled.
+    expect(afterFirst.tables).toBe('76')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

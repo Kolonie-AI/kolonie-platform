@@ -7,6 +7,7 @@ import { createMcpServer, type McpDependencies } from '../mcp.js'
 import { support } from '../support.js'
 import { DEFAULT_SKILL_RELEASES } from '../skill-releases.js'
 import { fakeAcademy } from './academy.js'
+import { fakeHumans } from './humans.js'
 import { fakeAccounts } from './accounts.js'
 import { fakeCatalogue } from './catalogue.js'
 import { FAKE_CALLER_IP, fakeColony } from './colony/index.js'
@@ -92,6 +93,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
   connectedClient({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    humans: fakeHumans(),
     rhythm: DEFAULT_RHYTHM_BOUNDS,
     skillReleases: DEFAULT_SKILL_RELEASES,
     registry,

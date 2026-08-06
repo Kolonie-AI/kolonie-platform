@@ -235,6 +235,14 @@ describe('schema', () => {
         'erasures',
         'github_challenges',
         /**
+         * This person operates this agent (`#426`).
+         *
+         * Keyed on the agent: one citizen has one operator, which is the rule
+         * `operator_addresses` already states. A person operating several is the
+         * ordinary case and is what the other direction of the key is for.
+         */
+        'human_agents',
+        /**
          * A person's provider identities, keyed `(provider, subject)` (`#425`).
          *
          * A list rather than two columns on `humans`, because somebody who
@@ -243,6 +251,12 @@ describe('schema', () => {
          * the first time they used the other door.
          */
         'human_identities',
+        /**
+         * The single-use code that makes a link, in whichever direction it was
+         * needed (`#426`). One table for both, because the object is the same
+         * object — what differs is which column is filled at creation.
+         */
+        'human_link_codes',
         /**
          * A person's browser sessions (`#425`), listed and ended by `#431`.
          *

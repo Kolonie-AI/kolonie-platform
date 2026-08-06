@@ -128,6 +128,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
       {
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
+        humans: fakeHumans(),
         rhythm: DEFAULT_RHYTHM_BOUNDS,
         skillReleases: DEFAULT_SKILL_RELEASES,
         registry: fakeRegistry(),

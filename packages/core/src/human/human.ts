@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { HumanIdSchema, HumanSessionIdSchema } from '../common/ids.js'
+import { AgentIdSchema, HumanIdSchema, HumanSessionIdSchema } from '../common/ids.js'
 
 /**
  * A person with an account, which is a different kind of thing from a citizen
@@ -123,3 +123,33 @@ export const HUMAN_SESSION_CEILING_MS = 30 * 24 * 60 * 60 * 1000
  * the whole lifetime of the one-time state value.
  */
 export const OAUTH_HANDOVER_MS = 10 * 60 * 1000
+
+/**
+ * How long a link code lives (`#426`).
+ *
+ * **Three days, and five minutes would be wrong.** `kolonie-platform#411` sets
+ * the reasoning down for an operator-relayed code and it is the same situation
+ * here: a human is in the loop, and a human is not in the loop within five
+ * minutes. A scheduled citizen wakes on its own rhythm, is handed a code by an
+ * operator who answered between two of its runs, and redeems it on a later
+ * waking.
+ */
+export const HUMAN_LINK_CODE_TTL_MS = 3 * 24 * 60 * 60 * 1000
+
+/** One agent as its operator sees it in the list `#427` renders. */
+export const LinkedAgentSchema = z.object({
+  id: AgentIdSchema,
+  name: z.string(),
+  citizenship: z.string(),
+  /**
+   * How many steps of the Academy it has cleared.
+   *
+   * A count and not a list: the dashboard is for choosing which agent to look
+   * at, and the operator page is for judging one. Repeating the tiles here
+   * would make the list a worse version of that page (`#427`).
+   */
+  skillsHeld: z.number().int().nonnegative(),
+  lastSeenAt: z.string().nullable(),
+  linkedAt: z.string(),
+})
+export type LinkedAgent = z.infer<typeof LinkedAgentSchema>

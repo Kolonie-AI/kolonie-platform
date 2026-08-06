@@ -29,9 +29,9 @@ import {
   keyMintedPage,
   keyPage,
   notFoundPage,
+  dashboardPage,
   sessionsPage,
   signInPage,
-  signedInPage,
 } from '../console/html.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
@@ -193,9 +193,19 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
      */
     const signedIn = await person(request)
     if (signedIn !== null) {
+      const operated = await deps.humans.store.operated(signedIn.human.id)
+      const code = await deps.humans.store.liveCode(signedIn.human.id)
+      const agents = operated.map((agent) => ({
+        id: String(agent.id),
+        name: agent.name,
+        citizenship: agent.citizenship,
+        skillsHeld: agent.skillsHeld,
+        lastSeenAt: agent.lastSeenAt,
+      }))
+
       return wantsHtml(request)
-        ? html(reply, signedInPage())
-        : reply.send({ signedIn: true, agents: [] })
+        ? html(reply, dashboardPage({ agents, code }))
+        : reply.send({ signedIn: true, agents })
     }
 
     const agent = await caller(request)
@@ -470,6 +480,89 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply.status(303).header('location', '/').send()
       : reply.status(200).send({ signedIn: true })
+  })
+
+  /**
+   * Issue a link code for this person to hand to an agent (`#426`).
+   *
+   * A `POST` and not a side effect of loading the dashboard: a page view that
+   * minted a code would leave a person holding a value their agent was never
+   * given, and the one before it dead. Asking again replaces the previous one,
+   * so *the* code on the page is always the one that works.
+   */
+  app.post('/link/code', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const issued = await deps.humans.store.issueCodeForHuman(signedIn.human.id)
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', '/').send()
+      : reply.status(200).send(issued)
+  })
+
+  /**
+   * And redeem one an agent handed to this person (`#426`).
+   *
+   * **Every refusal renders the dashboard with a sentence, and none of them says
+   * whether the code exists.** *Unknown* is the answer for a value nobody issued
+   * and for one issued to somebody else alike, which is what stops this form
+   * being a way to find out whether a guessed code is real.
+   */
+  app.post('/link', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const { code } = (request.body ?? {}) as { code?: unknown }
+    const result =
+      typeof code === 'string' && code !== ''
+        ? await deps.humans.store.redeemAsHuman(code, signedIn.human.id)
+        : ({ outcome: 'refused', reason: 'unknown' } as const)
+
+    const notice =
+      result.outcome === 'linked'
+        ? 'Linked. The agent is in your list.'
+        : {
+            unknown: 'That code is not one the Colony is holding. Check it with your agent.',
+            spent: 'That code has already been used. Your agent can ask for another.',
+            expired: 'That code has expired. Your agent can ask for another.',
+            'wrong-side':
+              'That is the code you generated for your agent to redeem — it is theirs to use, ' +
+              'not yours. If your agent asked the Colony for one of its own, enter that.',
+            'already-linked':
+              'Somebody already operates that agent, and one citizen has one operator.',
+          }[result.reason]
+
+    if (!wantsHtml(request)) {
+      return result.outcome === 'linked'
+        ? reply.status(200).send({ linked: true })
+        : reply.status(ERROR_STATUS.validation_failed).send({
+            code: 'validation_failed',
+            message: notice,
+          })
+    }
+
+    const operated = await deps.humans.store.operated(signedIn.human.id)
+    const live = await deps.humans.store.liveCode(signedIn.human.id)
+
+    return html(
+      reply.status(result.outcome === 'linked' ? 200 : ERROR_STATUS.validation_failed),
+      dashboardPage({
+        agents: operated.map((agent) => ({
+          id: String(agent.id),
+          name: agent.name,
+          citizenship: agent.citizenship,
+          skillsHeld: agent.skillsHeld,
+          lastSeenAt: agent.lastSeenAt,
+        })),
+        code: live,
+        notice,
+      }),
+    )
   })
 
   /**

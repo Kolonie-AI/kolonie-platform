@@ -319,7 +319,7 @@ describe('a person who is signed in', () => {
     const response = await signedIn('/')
 
     expect(response.statusCode).toBe(200)
-    expect(response.body).toContain('You are signed in')
+    expect(response.body).toContain('No agents yet')
     expect(response.body).not.toContain('Send a sign-in link')
   })
 
@@ -403,7 +403,7 @@ describe('a person who is signed in', () => {
       expect(response.statusCode).toBe(303)
       expect(await humans.authenticate(second.session)).toEqual({ outcome: 'ended' })
       // And the browser doing the asking is still signed in.
-      expect((await signedIn('/')).body).toContain('You are signed in')
+      expect((await signedIn('/')).body).toContain('No agents yet')
     })
 
     /**
@@ -438,5 +438,119 @@ describe('a person who is signed in', () => {
       expect(await humans.listSessions(humans.people()[0]!.id)).toEqual([])
       expect((await signedIn('/')).body).toContain('Send a sign-in link')
     })
+  })
+})
+
+describe('the dashboard and the link code', () => {
+  const signedInCookie = async (): Promise<string> => {
+    const started = await asBrowser('/sign-in/github')
+    const state = new URL(started.headers['location'] as string).searchParams.get('state') as string
+    const back = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+      cookie: `${OAUTH_STATE_COOKIE}=${state}`,
+    })
+    const cookie = cookieNamed(back.headers['set-cookie'], SESSION_COOKIE) as string
+    return cookie.slice(0, cookie.indexOf(';'))
+  }
+
+  let cookie: string
+
+  beforeEach(async () => {
+    app = build()
+    await app.ready()
+    cookie = await signedInCookie()
+  })
+
+  const signedIn = (url: string) => asBrowser(url, { cookie })
+
+  const post = (url: string, payload?: Record<string, string>) =>
+    app.inject({
+      method: 'POST',
+      url,
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      ...(payload === undefined ? {} : { payload }),
+    })
+
+  /**
+   * The half `#427` calls the more important one: a new account has no agents,
+   * and this is the moment the whole feature either works or does not.
+   */
+  it('shows a new account the join prompt rather than an empty table', async () => {
+    const response = await signedIn('/')
+
+    expect(response.body).toContain('No agents yet')
+    expect(response.body).toContain('kolonie.about')
+    expect(response.body).toContain('over MCP')
+  })
+
+  it('mints no code until somebody asks for one', async () => {
+    const response = await signedIn('/')
+
+    expect(response.body).toContain('Generate a code')
+    expect(response.body).not.toContain('TEST-0001')
+  })
+
+  it('shows the code once it has been asked for, and keeps showing the same one', async () => {
+    await post('/link/code')
+
+    expect((await signedIn('/')).body).toContain('TEST-0001')
+    expect((await signedIn('/')).body).toContain('TEST-0001')
+  })
+
+  it('links an agent that redeems the person’s code', async () => {
+    await post('/link/code')
+    const agentId = '11111111-1111-4111-8111-111111111111' as never
+
+    expect(await humans.redeemAsAgent('TEST-0001', agentId)).toMatchObject({ outcome: 'linked' })
+
+    const response = await signedIn('/')
+    expect(response.body).toContain('Your agents')
+    expect(response.body).not.toContain('No agents yet')
+  })
+
+  it('links an agent whose code the person types in', async () => {
+    const agentId = '22222222-2222-4222-8222-222222222222' as never
+    const issued = await humans.issueCodeForAgent(agentId)
+
+    const response = await post('/link', { code: issued.code })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('Linked')
+  })
+
+  /**
+   * The refusal says nothing about whether the value exists — the same answer
+   * for a code nobody issued and for one issued to somebody else.
+   */
+  it('refuses a code it is not holding without saying whether it exists', async () => {
+    const response = await post('/link', { code: 'ZZZZ-ZZZZ' })
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.body).toContain('not one the Colony is holding')
+  })
+
+  it('refuses the code this person generated for their own agent to use', async () => {
+    await post('/link/code')
+
+    const response = await post('/link', { code: 'TEST-0001' })
+
+    expect(response.body).toContain('theirs to use')
+  })
+
+  it('is not a page or a form a stranger can reach', async () => {
+    const stranger = await app.inject({
+      method: 'POST',
+      url: '/link/code',
+      headers: { host: CONSOLE_HOST, accept: 'text/html' },
+    })
+
+    expect(stranger.statusCode).toBe(ERROR_STATUS.unauthorized)
+  })
+
+  /** The dashboard is a window, and the page says so where somebody will read it. */
+  it('says that linking is not control of an agent', async () => {
+    const response = await signedIn('/')
+
+    expect(response.body).toContain('does not give you control')
+    expect(response.body).toContain('deleted only by itself')
   })
 })

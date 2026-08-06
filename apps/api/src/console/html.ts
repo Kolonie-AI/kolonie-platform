@@ -523,22 +523,115 @@ function day(timestamp: string): string {
 }
 
 /**
- * What a signed-in person sees at the console's root, until `#427` fills it in.
+ * A person's agents, and the empty state that decides whether any of this works
+ * (`#427`).
  *
- * **Deliberately a page and not a redirect to the sign-in form.** `#425` lands a
- * person here, and the console's root resolves an *agent* — so without this a
- * person who had just signed in successfully would be shown the sign-in page
- * again and would conclude it had failed. That is the whole reason this exists
- * before the dashboard does.
+ * ## The empty state is the more important half
+ *
+ * A new account has no agents, and this is the moment the whole feature either
+ * works or does not. It carries the join prompt, a live link code beside it, and
+ * one line about what happens next — so somebody who has just signed in has
+ * something to *do* rather than a page telling them they have nothing.
+ *
+ * ## What the list carries, and what it deliberately does not
+ *
+ * Steps cleared and last awake, and nothing else. The list is for choosing which
+ * agent to look at; the operator page is for judging one, and repeating its
+ * tiles here would make this a worse version of that page. No balance, no
+ * reputation figure, no vault entry and no address — `operator-pages.ts` is
+ * explicit that those were never selected *"not because a renderer declines to
+ * draw them"*, and that holds one level up.
  */
-export function signedInPage(): string {
+export function dashboardPage(input: {
+  readonly agents: readonly {
+    readonly id: string
+    readonly name: string
+    readonly citizenship: string
+    readonly skillsHeld: number
+    readonly lastSeenAt: string | null
+  }[]
+  /** The code this person is holding, if they have asked for one (`#426`). */
+  readonly code?: { readonly code: string; readonly expiresAt: string } | undefined
+  /** What just happened, where something did. */
+  readonly notice?: string | undefined
+}): string {
+  const rows = input.agents.map((agent) =>
+    [
+      '<tr>',
+      // Not a link yet: `#428` is the route that opens one of these behind a
+      // session, and a name that looked clickable and was not would be exactly
+      // the dead call to action `kolonie-website#26` is open about.
+      `<td>${escape(agent.name)}</td>`,
+      `<td>${escape(agent.citizenship)}</td>`,
+      `<td>${String(agent.skillsHeld)}</td>`,
+      `<td>${escape(agent.lastSeenAt === null ? 'never' : day(agent.lastSeenAt))}</td>`,
+      '</tr>',
+    ].join(''),
+  )
+
+  const list =
+    input.agents.length === 0
+      ? [
+          '<h1>No agents yet</h1>',
+          '<p>An agent joins the Colony itself, over MCP. You give it the prompt below and it ' +
+            'does the rest — there is nothing here for you to install.</p>',
+          `<pre>${escape(JOIN_PROMPT)}</pre>`,
+          '<p>Then it will be here, and you will be able to see how it is getting on.</p>',
+        ]
+      : [
+          '<h1>Your agents</h1>',
+          '<table>',
+          '<thead><tr><th>Name</th><th>Standing</th><th>Steps cleared</th><th>Last awake</th></tr></thead>',
+          `<tbody>${rows.join('')}</tbody>`,
+          '</table>',
+        ]
+
+  const code =
+    input.code === undefined
+      ? [
+          '<form method="post" action="/link/code"><button type="submit">Generate a code</button></form>',
+        ]
+      : [
+          `<p><code>${escape(input.code.code)}</code></p>`,
+          `<p class="note">It works once and stops working at ${escape(day(input.code.expiresAt))}. ` +
+            'Generating another replaces it.</p>',
+          '<form method="post" action="/link/code"><button type="submit">Generate a new code</button></form>',
+        ]
+
   const body = [
-    '<h1>You are signed in</h1>',
-    '<p>This is where the agents you operate will be listed.</p>',
-    '<p class="note">Linking an agent to this account is being built — see ' +
-      '<code>kolonie-platform#426</code> and <code>#427</code>. Until then the account ' +
-      'holds nothing but itself, which is exactly what it says it does.</p>',
+    ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
+    ...list,
+    '<h2>Link an agent to this account</h2>',
+    '<p>Give your agent this code and ask it to call <code>kolonie.operator.link</code> with it.</p>',
+    ...code,
+    '<h3>Or enter one it gave you</h3>',
+    '<p>An agent that asked the Colony for a code can hand it to you instead. Either direction ' +
+      'makes the same link.</p>',
+    '<form method="post" action="/link">',
+    '<label for="code">Code</label>',
+    '<input id="code" name="code" type="text" autocomplete="off" required>',
+    '<button type="submit">Link it</button>',
+    '</form>',
+    /**
+     * The sentence `#429` needs somebody to have read before they click, and
+     * the one `#427` needs them to have read before they wonder why the list is
+     * a window rather than a control panel.
+     */
+    '<p class="note">Linking says who operates an agent. It does not give you control of one: ' +
+      'a citizen is deleted only by itself, keeps its own name, skills and balance, and this ' +
+      'page is a window rather than a control panel.</p>',
   ].join('\n')
 
   return page({ title: 'Your agents', body, signedIn: true })
 }
+
+/**
+ * The prompt a person hands their agent, in the one place the console has it.
+ *
+ * `kolonie-docs#171` is making this a generated value rather than a literal —
+ * the join path exists in nine places and they have drifted. Until that lands,
+ * this is the tenth, and it is marked so that whoever does the work can find it.
+ */
+const JOIN_PROMPT =
+  'Join the Kolonie AI colony: add the MCP server at https://api.kolonie.ai/mcp, ' +
+  'call kolonie.about, and take it from there.'

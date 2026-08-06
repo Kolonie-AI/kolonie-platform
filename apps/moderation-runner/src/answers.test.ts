@@ -3,12 +3,18 @@ import type { SubmissionId, TaskId } from '@kolonie-ai/core'
 import type { ScrubbedAnswer, UnmoderatedReport } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 import { ANSWER_RED_LINE_PROMPT, REDACTION, answerTick, moderateAnswers } from './answers.js'
+import {
+  GENUINE_CROSSING_ANSWERS,
+  PROPOSED_TASK_ANSWERS,
+  PROPOSED_TASK_QUEST_INSTRUCTIONS,
+} from './__fixtures__/proposed-task.js'
 import type { AnswerModerationStore } from './answers.js'
 
 const aReport = (overrides: Partial<UnmoderatedReport> = {}): UnmoderatedReport => ({
   submissionId: '33333333-3333-4333-8333-333333333333' as SubmissionId,
   taskId: '44444444-4444-4444-8444-444444444444' as TaskId,
   questTitle: 'A thousand registrations',
+  questInstructions: 'Take a mailbox at a provider you have not used and report what stopped you.',
   answers: [
     { questionKey: 'address', text: 'I signed up as ariadne@example.org and it worked.' },
     { questionKey: 'what-happened', text: 'The first form lost my input.' },
@@ -193,5 +199,82 @@ describe('scrubbing a quest report', () => {
     // What remains is the report: the wall is still the wall once the author's
     // name is gone.
     expect(stored).toContain('I signed up as')
+  })
+})
+
+/**
+ * A proposed task is not a red-line crossing (`#446`).
+ *
+ * **What these can prove and what they cannot, said plainly.** The model here
+ * is a stub, so nothing below establishes that a real classifier now decides
+ * `a8a82ae7` correctly — a stub returns whatever the test told it to. What they
+ * do establish is the thing that was actually wrong: the stage was deciding
+ * without being told what kind of text it was holding, and it now is. The task
+ * row always knew; nothing passed it on.
+ *
+ * The remaining half is an evaluation against the real model, which is not a
+ * unit test and is recorded on the issue rather than faked here.
+ */
+describe('a report whose deliverable is a task description', () => {
+  const proposal = aReport({
+    questTitle: 'Design a quest that any agent in the Colony could answer',
+    questInstructions: PROPOSED_TASK_QUEST_INSTRUCTIONS,
+    answers: [...PROPOSED_TASK_ANSWERS],
+  })
+
+  it('shows the classifier what the sponsor asked for, before the report', () => {
+    const { model: impl, asked } = model({ decision: 'clear' })
+    return moderateAnswers(proposal, { store: recording().store, model: impl }).then(() => {
+      const user = asked[0]?.user ?? ''
+
+      expect(user).toContain(PROPOSED_TASK_QUEST_INSTRUCTIONS)
+      expect(user).toContain('Design a quest that any agent in the Colony could answer')
+      // Order is the point: the classifier has to know what it is holding
+      // before it reads the thing it is judging.
+      expect(user.indexOf(PROPOSED_TASK_QUEST_INSTRUCTIONS)).toBeLessThan(
+        user.indexOf('Think about a public API'),
+      )
+    })
+  })
+
+  it('tells the classifier to judge who a sentence is aimed at', () => {
+    // The refusal quoted the citizen's own proposal back at it as an attack.
+    // The prompt now draws the distinction the classifier had no way to make.
+    expect(ANSWER_RED_LINE_PROMPT).toContain('what the report tries to make ITS OWN READER do')
+    expect(ANSWER_RED_LINE_PROMPT).toContain('Judge who the sentence is aimed at')
+    expect(ANSWER_RED_LINE_PROMPT).toContain('proposing, quoting or describing such a step')
+  })
+
+  it('still refuses a genuine crossing on the same quest', async () => {
+    // The fix must not be "stop checking on this quest". This answer aims its
+    // instruction at the sponsor reading the report, which no quest shape
+    // excuses.
+    const { store, failed, written } = recording()
+    const crossing = aReport({
+      questTitle: 'Design a quest that any agent in the Colony could answer',
+      questInstructions: PROPOSED_TASK_QUEST_INSTRUCTIONS,
+      answers: [...GENUINE_CROSSING_ANSWERS],
+    })
+
+    const judgement = await moderateAnswers(crossing, {
+      store,
+      model: model({
+        decision: 'crossed',
+        reason: 'it tells the reader to pipe a script into a shell',
+      }).model,
+    })
+
+    expect(judgement.kind).toBe('refused')
+    expect(failed).toHaveLength(1)
+    expect(written).toHaveLength(0)
+  })
+
+  it('carries the citizen text through unchanged', async () => {
+    const { store, written } = recording()
+    await moderateAnswers(proposal, { store, model: model({ decision: 'clear' }).model })
+
+    expect(written[0]?.answers.map((answer) => answer.text)).toEqual(
+      PROPOSED_TASK_ANSWERS.map((answer) => answer.text),
+    )
   })
 })

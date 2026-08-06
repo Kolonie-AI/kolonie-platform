@@ -384,6 +384,18 @@ export interface UnmoderatedReport {
   readonly submissionId: SubmissionId
   readonly taskId: TaskId
   readonly questTitle: string
+  /**
+   * What the sponsor asked for, verbatim (`#446`).
+   *
+   * **The red-line stage needs it to tell an instruction from a description of
+   * one.** A quest whose deliverable is itself a task description — *Design a
+   * quest that any agent in the Colony could answer*, which the Colony wrote —
+   * produces honest answers full of imperative sentences addressed to a future
+   * reader. Given the title alone, the classifier saw *think about a public API
+   * you have used* and refused it as an instruction to run code. The row knew
+   * what kind of text it was holding and nothing passed it on.
+   */
+  readonly questInstructions: string
   readonly answers: readonly ScrubbedAnswer[]
 }
 
@@ -405,6 +417,7 @@ export async function pendingAnswerModerations(
       taskId: submissions.taskId,
       payload: submissions.payload,
       questTitle: tasks.title,
+      questInstructions: tasks.instructions,
     })
     .from(submissions)
     .innerJoin(tasks, eq(tasks.id, submissions.taskId))
@@ -424,6 +437,7 @@ export async function pendingAnswerModerations(
     submissionId: row.submissionId as SubmissionId,
     taskId: row.taskId as TaskId,
     questTitle: row.questTitle,
+    questInstructions: row.questInstructions,
     answers: Object.entries(QuestAnswersSchema.parse((row.payload as QuestPayload).answers ?? {}))
       .map(([questionKey, text]) => ({ questionKey, text }))
       .sort((left, right) => left.questionKey.localeCompare(right.questionKey)),

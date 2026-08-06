@@ -123,6 +123,102 @@ describe('kolonie.academy.challenge', () => {
     await close()
   })
 
+  /**
+   * **The citizen's exact call** (`#433`), and the one the fix is for.
+   *
+   * The report said the MCP schema *requires* `variant`, and that is not what was
+   * happening — the served schema has no `required` array and never has. What the
+   * transcript actually shows is a client sending `""` for the property rather
+   * than leaving it out, and `""` arriving as a *value*: a stage with no kinds
+   * then refused *there is nothing to name in "variant"* against a caller that had
+   * named nothing. Refusing a non-answer as though it were a wrong answer is the
+   * defect, and this is the case that proves it gone.
+   */
+  it('reads an empty variant as omission, so a stage with no kinds still mints', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'persistence', variant: '' },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toHaveProperty('challengeId')
+    await close()
+  })
+
+  /** Whitespace names a kind no more than emptiness does. */
+  it('reads a whitespace-only variant as omission too', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'persistence', variant: '   ' },
+    })
+
+    expect(result.isError).toBeFalsy()
+    await close()
+  })
+
+  /**
+   * The mirror case, and the reason the normalisation is only the empty one: a
+   * stage that *has* kinds must still be refused with the list when the caller
+   * names none, and an empty string is naming none. Without this, reading `""` as
+   * omission could have turned a refusal-with-a-list into a mint of a challenge
+   * whose page has nothing to load.
+   */
+  it('still refuses a stage with kinds when the variant is empty, and lists them', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'interstitial', variant: '' },
+    })
+
+    expect(result.isError).toBe(true)
+    for (const kind of mintableInterstitialKinds()) {
+      expect(JSON.stringify(result.content)).toContain(kind.slug)
+    }
+    await close()
+  })
+
+  /**
+   * **A non-empty value is never trimmed into a match.** Silently correcting
+   * `" ordered-panels "` would be the Colony deciding what the citizen asked for,
+   * which is the argument `MintChallengeRequestSchema` already makes against
+   * ignoring a variant on a stage that has none. The refusal carries the list, so
+   * it is actionable.
+   */
+  it('does not trim a padded kind into a match', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const padded = ` ${mintableInterstitialKinds()[0]?.slug ?? ''} `
+    const result = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'interstitial', variant: padded },
+    })
+
+    expect(result.isError).toBe(true)
+    await close()
+  })
+
+  /** The declared shape stays optional — this is what the report believed was wrong. */
+  it('requires nothing: the served schema has no required array', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const tool = tools.find((candidate) => candidate.name === 'kolonie.academy.challenge')
+
+    expect(tool?.inputSchema.required).toBeUndefined()
+    expect(tool?.inputSchema.properties).toHaveProperty('variant')
+    await close()
+  })
+
   it('refuses a kind named for a stage that has none', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

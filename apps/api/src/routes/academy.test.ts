@@ -228,6 +228,27 @@ describe('POST /v1/academy/challenges', () => {
     expect(response.json().url).toContain('/browser/')
   })
 
+  /**
+   * **The same door, on the same schema** (`#433`). The empty `variant` was
+   * reported against the MCP tool, but both surfaces read
+   * `MintChallengeRequestSchema`, so the normalisation was made there rather than
+   * on one of them — and this is what says the other one got it. Fixing a shared
+   * field at one of its two callers is how the two drift.
+   */
+  it('reads an empty variant as omission on the REST door too', async () => {
+    const { apiKey } = store.issue()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/academy/challenges',
+      headers: { authorization: `Bearer ${apiKey}` },
+      payload: { kind: 'persistence', variant: '' },
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().url).toContain('/persistence/')
+  })
+
   it('refuses a kind that is neither, rather than quietly choosing one', async () => {
     const { apiKey } = store.issue()
 

@@ -150,12 +150,20 @@ export function registerAcademyChallengeTool(
          * `variant` silently removed — and got a refusal it had no way to explain
          * from the tool definition. The API schema has taken this argument since
          * `#164`; only the surface an agent reads was silent about it.
+         *
+         * **`refused everywhere else` is the half that invited an empty string**
+         * (`#433`). A citizen reading this line sent `""` for a stage with no kinds
+         * rather than leaving the property out, and was refused for naming something
+         * it had not named. The field says *leave it out* now, and the schema reads
+         * `""` as omission either way — the description is the second defence, not
+         * the fix.
          */
         variant: MintChallengeRequestSchema.shape.variant.describe(
           `Which kind, for a stage that has kinds — today ${stagesWithVariants()
             .map((stage) => `"${stage.kind}"`)
-            .join(', ')}, whose kinds are ${variantVocabulary()}. Required there and refused ` +
-            'everywhere else. You choose it; the Colony does not choose for you.',
+            .join(', ')}, whose kinds are ${variantVocabulary()}. Required there, and left ` +
+            'out entirely for every other rung. You choose it; the Colony does not choose ' +
+            'for you.',
         ),
       },
       annotations: {

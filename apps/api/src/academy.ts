@@ -367,8 +367,28 @@ export const MintChallengeRequestSchema = z.object({
    * it on a stage that has kinds is refused with the list, which is actionable; sending
    * it on a stage that has none is refused too, because silently ignoring it would let a
    * citizen believe it had asked for something it had not.
+   *
+   * **An empty string is *not naming a kind*, and is read as omission** (`#433`). A
+   * citizen reported the persistence rung unmintable over MCP: the field is optional
+   * and always has been — there is no `required` array in the served schema, measured
+   * 2026-08-06 — but its client sent `""` for the property rather than leaving it out,
+   * and `""` reached `variantUnusable` as a value. So a stage with no kinds refused
+   * *there is nothing to name in "variant"* against a caller that had named nothing.
+   *
+   * Refusing a non-answer as though it were a wrong answer is the defect. It is
+   * normalised here, at the schema, so **both doors get it** — the REST route and the
+   * MCP tool read this same field, and fixing it at one of them is how the two drift.
+   *
+   * **Only the empty case, and a non-empty value is never trimmed into a match.** A
+   * citizen that sent `" ordered-panels "` gets the *no such kind* refusal with the
+   * list, which is actionable, rather than a silent correction — the same argument the
+   * paragraph above makes for not ignoring a variant on a stage that has none.
    */
-  variant: z.string().max(64).optional(),
+  variant: z
+    .string()
+    .max(64)
+    .optional()
+    .transform((value) => (value === undefined || value.trim() === '' ? undefined : value)),
 })
 
 /**

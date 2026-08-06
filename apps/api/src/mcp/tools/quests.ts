@@ -6,6 +6,8 @@ import {
   TaskIdSchema,
   obstacleBonusNotice,
   obstaclePublicationNotice,
+  platformFeePercentFromEnv,
+  questFeeBreakdown,
   type TaskReward,
 } from '@kolonie-ai/core'
 import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
@@ -65,6 +67,38 @@ const bonusSentence = (quest: {
   readonly reward: TaskReward
   readonly publishObstacles: boolean
 }) => (obstacleBonusNotice(quest) === null ? '' : `${obstacleBonusNotice(quest)} `)
+
+/**
+ * Where the committed money goes, beside the commitment itself (`#472`).
+ *
+ * **A draft, so the rate is the one publishing it would write.** Nothing has
+ * recorded a rate yet — `tasks.platform_fee_percent` is written at publication —
+ * and quoting today's configured rate is the honest answer to *what would this
+ * cost me if I submitted it now*.
+ *
+ * Capacity is multiplied through, because *250 a report × 40 reports* is the
+ * figure that changes a mind and *25 %* is not — the same reasoning `#463`
+ * applied to the browser. Nothing here computes a share of its own:
+ * `questFeeBreakdown` calls the split the payout books against.
+ *
+ * A space after it, and nothing at all when the fee rounds away, so a one-cent
+ * pilot quest reads exactly as it did before this existed.
+ */
+const splitSentence = (quest: { readonly reward: TaskReward; readonly slots: number | null }) => {
+  const split = questFeeBreakdown({
+    credits: quest.reward.credits,
+    slots: quest.slots ?? 0,
+    feePercent: platformFeePercentFromEnv(),
+  })
+  if (split.free) return ''
+
+  return (
+    `Of that, ${split.toCitizens} goes to citizens — ${split.perReport.toCitizen} per accepted ` +
+    `report — and ${split.toColony} is the Colony's share, the platform fee of ` +
+    `${split.feePercent}%, taken as each report is accepted so unfilled capacity is never ` +
+    'charged for. '
+  )
+}
 
 const questId = TaskIdSchema.describe('The id of the quest.')
 
@@ -229,6 +263,11 @@ export function registerQuestTools(
           `Drafted. It would commit ${q.commitment.cost} credit(s) of the ` +
           `${q.commitment.available} you have available` +
           `${q.commitment.affordable ? '' : ', which is more than you can currently pay'}. ` +
+          // Where the committed money goes, in the same answer that names the
+          // commitment (`#472`). The browser has shown this since `#463` and
+          // this surface had not, so a sponsor drafting over MCP met the fee
+          // for the first time in the ledger.
+          `${splitSentence(q.quest)}` +
           `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
           // Only when it is not the default: a sponsor that changed nothing is
           // warned about nothing (`#370`).

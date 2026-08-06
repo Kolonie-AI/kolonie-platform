@@ -76,11 +76,20 @@ describe('kolonie.tasks.list', () => {
    * The other side of the same helper: a Quest genuinely pays credits, and the text
    * says so. Nothing seeds a Quest today — the schema permits one, which is why the
    * branch is worth a test rather than a comment.
+   *
+   * **The figure is the net** (`#472`): 250 funded at 25 % reaches the citizen as
+   * 188. `apps/api/src/mcp/text/quest-reward.test.ts` covers the rate rules; this
+   * one is still about the credits-or-reputation branch and asserts the amount
+   * only so that it cannot silently become the gross again.
    */
   it('names the coin amount for a Quest, because that is what a Quest pays', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const catalogue = fakeCatalogue()
-    const task = aTask({ kind: 'quest', reward: { credits: 250, reputation: 0 } })
+    const task = aTask({
+      kind: 'quest',
+      reward: { credits: 250, reputation: 0 },
+      platformFeePercent: 25,
+    })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
     catalogue.answersRead(task)
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
@@ -88,7 +97,7 @@ describe('kolonie.tasks.list', () => {
     const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
 
     const text = JSON.stringify(result.content)
-    expect(text).toContain('pays 250 credits')
+    expect(text).toContain('pays you 188 credits')
     expect(text).not.toContain('reputation')
     await close()
   })

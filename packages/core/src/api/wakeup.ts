@@ -284,7 +284,26 @@ export const WakeupQuestSchema = z.object({
    * has published them.
    */
   title: z.string(),
-  /** What one accepted report pays. */
+  /**
+   * What one accepted report pays **the citizen** — the net figure (`#472`).
+   *
+   * It said *what one accepted report pays* and carried the sponsor's gross,
+   * which stopped being the same number when `#462` gave the Colony a share.
+   * `#463` decided the prominent figure is the one that reaches a balance, and
+   * this line is the only money a quest gets in the whole digest, so it is that
+   * one.
+   *
+   * **No gross beside it, and that is `#344`'s budget rather than concealment.**
+   * A quest is three facts here — what it pays, how many places are free, when
+   * it closes — and a fourth number nobody asked for is what the digest's shape
+   * exists to refuse. `kolonie.tasks.get` on the quest carries the gross and the
+   * named fee in full.
+   *
+   * **Not a wire break in practice**, measured 2026-08-06: every quest published
+   * before today carries no recorded rate and therefore pays no fee, so this
+   * field is unchanged for all of them. It differs from the old value only for
+   * quests published after the fee existed, which had never been read.
+   */
   rewardCredits: z.int(),
   /** Places still open. `null` is a quest that buys an unlimited number. */
   freeSlots: z.int().nullable(),

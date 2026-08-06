@@ -1,4 +1,5 @@
 import {
+  questPayoutSplit,
   SkillSchema,
   WakeupRequestSchema,
   type AgentId,
@@ -238,7 +239,11 @@ async function paysFor(
       .map((quest) => ({
         taskId: quest.id,
         title: quest.title,
-        rewardCredits: quest.reward.credits,
+        // The net, because this is what the citizen is being offered (`#472`).
+        // The recorded rate wins; a published quest older than the fee has none
+        // and pays none.
+        rewardCredits: questPayoutSplit(quest.reward.credits, quest.platformFeePercent ?? 0)
+          .toCitizen,
         freeSlots: quest.freeSlots ?? null,
         expiresAt: quest.expiresAt,
       })),

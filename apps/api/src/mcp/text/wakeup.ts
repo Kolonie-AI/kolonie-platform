@@ -530,7 +530,9 @@ function paysBlock(digest: WakeupResponse): readonly Block[] {
   const quests = pays.quests.map(
     (quest) =>
       `${quest.title} — ${quest.taskId}` +
-      `\n    pays ${quest.rewardCredits} credit(s) for an accepted report` +
+      // The net — what reaches this citizen's balance (`#472`). The gross and
+      // the Colony's share are on kolonie.tasks.get, which has room for them.
+      `\n    pays you ${quest.rewardCredits} credit(s) for an accepted report` +
       `, ${quest.freeSlots === null ? 'unlimited places' : `${quest.freeSlots} place(s) free`}` +
       `, ${quest.expiresAt === null ? 'no closing date' : `closes ${quest.expiresAt}`}` +
       `\n    answer it with kolonie.quests.respond`,

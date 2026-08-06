@@ -821,13 +821,37 @@ export function questPayNotice(input: {
   readonly reputation: number
   readonly feePercent: number
 }): string {
-  const { toCitizen, toTreasury } = questPayoutSplit(input.credits, input.feePercent)
+  const { toCitizen } = questPayoutSplit(input.credits, input.feePercent)
   const paid = `Pays you ${toCitizen} credit(s) and ${input.reputation} reputation per accepted report.`
 
-  if (toTreasury === 0) return `${paid} You receive the full reward; the Colony takes nothing.`
+  return `${paid} ${questFeeSentence(input)}`
+}
+
+/**
+ * Where the rest of one report's reward goes, in one sentence (`#472`).
+ *
+ * **Split out of {@link questPayNotice} so the wording exists once.** The
+ * console has room for a whole notice; the MCP surface renders a quest as a
+ * bullet with a reward clause and needs the gross and the fee as a sentence it
+ * can put on its own line. Two surfaces phrasing the same fee differently is a
+ * disagreement a reader can see, and `apps/api/src/quests.ts` already carries
+ * the rule this is the third crossing of — *"the preview a sponsor is shown has
+ * to be **that** text or it is not a preview"*.
+ *
+ * **Where the fee rounds away this says the Colony takes nothing** rather than
+ * naming a fee of zero. At the pilot's one cent that is the ordinary case, and a
+ * *"the platform fee is 0"* clause reads as a charge to somebody skimming.
+ */
+export function questFeeSentence(input: {
+  readonly credits: number
+  readonly feePercent: number
+}): string {
+  const { toTreasury } = questPayoutSplit(input.credits, input.feePercent)
+
+  if (toTreasury === 0) return 'You receive the full reward; the Colony takes nothing.'
 
   return (
-    `${paid} The sponsor funds ${input.credits} of which the Colony's share — the platform ` +
+    `The sponsor funds ${input.credits} of which the Colony's share — the platform ` +
     `fee, ${input.feePercent}% — is ${toTreasury}.`
   )
 }

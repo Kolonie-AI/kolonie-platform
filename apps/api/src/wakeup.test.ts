@@ -916,7 +916,9 @@ describe('the money and the quests in the digest', () => {
       digestWith({ balance: 0, available: 0, earned: 0, arrivals: [], quests: [aQuest()] }),
     )
 
-    expect(text).toContain('pays 15 credit(s) for an accepted report')
+    // `pays you`, and the figure is the net (`#472`). The fixture's 15 is what
+    // reaches the citizen; the digest carries no gross, on `#344`'s budget.
+    expect(text).toContain('pays you 15 credit(s) for an accepted report')
     expect(text).toContain('2 place(s) free')
     expect(text).toContain('closes 2026-09-01T09:00:00.000Z')
     expect(text).toContain('kolonie.quests.respond')
@@ -1073,7 +1075,7 @@ describe('the money and the quests in the digest', () => {
     )
 
     expect(text).not.toContain('New tasks')
-    expect(text).toContain('pays 15 credit(s)')
+    expect(text).toContain('pays you 15 credit(s)')
   })
 
   /** `null` is *not computed*, and it renders nothing rather than a zero balance. */

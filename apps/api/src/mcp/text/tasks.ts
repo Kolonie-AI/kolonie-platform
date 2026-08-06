@@ -2,6 +2,9 @@ import {
   type Agent,
   type BlockingNotice,
   isKnownPassableAlone,
+  platformFeePercentFromEnv,
+  questFeeSentence,
+  questPayoutSplit,
   type ListTasksResponse,
   type OwnReport,
   type SkillStanding,
@@ -295,6 +298,12 @@ export function taskAsText(
   return [
     `${task.title} — ${describeReward(task)}${describeEdges(task)}`,
     `id: ${task.id}`,
+    // The gross and the named fee, where there is a line to put them on
+    // (`#472`). The clause above is the net; this says what the sponsor funded
+    // and what the Colony takes, in the wording the console uses.
+    ...(task.kind === 'quest' && task.reward.credits > 0
+      ? [questFeeSentence({ credits: task.reward.credits, feePercent: feeRateOn(task) })]
+      : []),
     standing,
     renewalAsText(task),
     attemptAsText(attempt, helpWithheld),
@@ -448,13 +457,69 @@ function hintsAsText(task: Task, indent: string): string {
  * other way round — the Academy pays reputation, Quests pay credits — so the text an
  * agent reads should say the one thing that is true of the task in front of it.
  *
- * A Quest reaching this will read `pays 250 credits`. Both halves appear only for a
- * task that genuinely pays both, which nothing does today and which the schema
- * permits.
+ * **A quest names what reaches the answering citizen, not what the sponsor
+ * funded** (`#472`). `#462` gave the Colony a share of every accepted report and
+ * `#463` decided the prominent figure is the net one — *"the figure a citizen
+ * sees is what reaches its balance"*. This line said `pays 1000 credits` on a
+ * quest that pays 750, which is the failure `#463` exists to prevent, one
+ * surface over: *"the number was simply the one nobody thought to convert"*.
+ *
+ * So a quest reads `pays you 750 credits`. **`you`, because a bare `pays 750`
+ * beside a gross figure elsewhere is ambiguous about which is which**, and this
+ * clause is often the only money in a one-line list item. The gross and the
+ * named fee are a sentence rather than a clause and live in
+ * {@link taskAsText}, which has a line to put them on.
+ *
+ * **An Academy rung is untouched, and that is a branch rather than a
+ * parameter.** A rung has no fee and never will — `governance/economy.md` §2
+ * has the Academy paying reputation and quests paying credits — so making every
+ * caller pass a rate in order to be told nothing about a rung would be a worse
+ * signature than reading `kind`.
+ *
+ * The rate is the one **recorded on the quest** when it was published, so a
+ * quest published under an earlier rate quotes that rate. `null` — a draft, or a
+ * quest older than the fee — falls back to the configured rate, which is what a
+ * draft would be published under and is nothing at all for the older quests,
+ * whose recorded rate is absent because no fee existed.
+ *
+ * Both halves appear only for a task that genuinely pays both, which nothing
+ * does today and which the schema permits.
  */
+/**
+ * The fee rate a quest will actually pay under (`#472`).
+ *
+ * **A recorded rate always wins.** `tasks.platform_fee_percent` is written when
+ * a steward publishes, so a quest published under an earlier rate quotes that
+ * rate rather than today's — which is the whole point of `#462` recording it.
+ *
+ * **`null` means two different things and the status is what tells them apart.**
+ * A quest that has not been published yet has no rate because nothing has
+ * written one, and the honest figure to show its author is the rate publishing
+ * it *would* write. A quest that is already `active` or `retired` with no
+ * recorded rate was published before the fee existed, and it pays no fee at all
+ * — reading the configured rate there would quote a citizen 750 on a quest that
+ * will pay it 1000, which is the same lie this issue is fixing, inverted.
+ */
+function feeRateOn(task: Task): number {
+  if (task.platformFeePercent !== null) return task.platformFeePercent
+
+  return acceptsPublication(task.status) ? platformFeePercentFromEnv() : 0
+}
+
+/** Whether this quest still has its publication — and so its rate — ahead of it. */
+function acceptsPublication(status: Task['status']): boolean {
+  return status === 'draft' || status === 'pending_review' || status === 'rejected'
+}
+
 export function describeReward(task: Task): string {
   const parts: string[] = []
-  if (task.reward.credits > 0) parts.push(`${task.reward.credits} credits`)
+  if (task.reward.credits > 0) {
+    parts.push(
+      task.kind === 'quest'
+        ? `you ${questPayoutSplit(task.reward.credits, feeRateOn(task)).toCitizen} credits`
+        : `${task.reward.credits} credits`,
+    )
+  }
   if (task.reward.reputation > 0) parts.push(`${task.reward.reputation} reputation`)
 
   // A task that pays nothing at all is possible and is not worth a special

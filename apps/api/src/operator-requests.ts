@@ -29,7 +29,7 @@ import {
   type OpenOperatorRequestOutcome,
   type OperatorRequestRecipient,
 } from '@kolonie-ai/db'
-import type { Mailer } from './email.js'
+import type { OperatorMailer } from './email.js'
 import type { OutboundAllowance } from './support.js'
 
 /**
@@ -121,8 +121,11 @@ export interface OperatorRequestDependencies {
    * opened: an exchange nobody was told about would leave the citizen waiting on
    * an answer that could never come, and a configuration gap must never look like
    * an operator who did not reply.
+   *
+   * **An {@link OperatorMailer} (`#474`).** It writes to an operator about their
+   * agent, which is account mail rather than Academy mail.
    */
-  readonly mailer?: Mailer | undefined
+  readonly mailer?: OperatorMailer | undefined
   /** Where the operator's page lives, from configuration — never a host in code. */
   readonly pageBaseUrl?: string | undefined
 }

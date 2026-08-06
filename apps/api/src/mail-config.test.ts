@@ -43,6 +43,64 @@ describe('mailerFromEnv', () => {
 
     expect(mail.mailer).toBeUndefined()
     expect(mail.consoleSender).toBeUndefined()
+    expect(mail.operatorMailer).toBeUndefined()
+  })
+
+  /**
+   * **Where the fallback actually lives now** (`#474`).
+   *
+   * It used to be a `senderAddress` field threaded to each operator-facing
+   * surface, which meant every surface could forget it and one of four did — the
+   * autonomy request, the single mail a stranger receives unprompted, kept
+   * sending from the Academy's challenge host. The address is bound here instead,
+   * so what a surface receives is a mailer that has already chosen.
+   *
+   * These assert the binding by reading what reaches the underlying mailer,
+   * rather than by reading the field that decided it: the field being right and
+   * the send being wrong is the exact failure being removed.
+   */
+  it('binds the console’s sender to the operator mailer', async () => {
+    const seen: { from?: string | undefined }[] = []
+    const recording = (): Mailer => ({
+      send: async (message) => {
+        seen.push({ from: message.from })
+        return { delivered: true }
+      },
+    })
+
+    const mail = mailerFromEnv(
+      { ...configured, CONSOLE_SENDER_ADDRESS: 'console@example.invalid' },
+      recording,
+    )
+    await mail.operatorMailer?.send({ to: 'a@b.invalid', subject: 's', text: 't' })
+
+    expect(seen).toEqual([{ from: 'console@example.invalid' }])
+  })
+
+  /**
+   * The rejection case this replaces the console's own with: with
+   * `CONSOLE_SENDER_ADDRESS` unset, operator mail still sends, and it sends as
+   * the Academy rather than failing. A deployment that configures nothing keeps
+   * sending exactly what it sent before.
+   */
+  it('falls back to the Academy’s address rather than sending without one', async () => {
+    const seen: { from?: string | undefined }[] = []
+    const recording = (): Mailer => ({
+      send: async (message) => {
+        seen.push({ from: message.from })
+        return { delivered: true }
+      },
+    })
+
+    const mail = mailerFromEnv(configured, recording)
+    const delivery = await mail.operatorMailer?.send({
+      to: 'a@b.invalid',
+      subject: 's',
+      text: 't',
+    })
+
+    expect(delivery?.delivered).toBe(true)
+    expect(seen).toEqual([{ from: 'academy@example.invalid' }])
   })
 
   it('hands the mailer exactly what the environment said', () => {

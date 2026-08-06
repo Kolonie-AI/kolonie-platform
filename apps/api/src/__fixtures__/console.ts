@@ -8,17 +8,22 @@ import {
   type LogFields,
 } from '@kolonie-ai/core'
 import type { ConsoleDependencies, ConsoleStore } from '../console.js'
-import type { Mailer } from '../email.js'
+import { operatorMailerFrom, type Mailer, type OperatorMailer } from '../email.js'
 import { signInAddressLimiter, signInClientLimiter } from '../rate-limit.js'
 
 /**
  * A mailer that keeps what it was asked to send, so a test can read it.
  *
- * `from` is recorded as it arrived, including absent (`#398`): a fixture that
- * filled in a default would hide the difference between a surface that names its
- * sender and one that leaves it to the mailer, which is the thing under test.
+ * **It is an {@link OperatorMailer}, built by wrapping a recording `Mailer` in
+ * the real `operatorMailerFrom` (`#474`).** The binding is exercised rather than
+ * imitated, so a test reads the `from` that production would actually apply — and
+ * a fixture that reimplemented the wrapping could agree with itself while
+ * disagreeing with the code under test.
+ *
+ * `from` is therefore always recorded and never absent, which is the guarantee:
+ * an operator-facing surface has no way to send without a chosen sender.
  */
-export interface FakeMailer extends Mailer {
+export interface FakeMailer extends OperatorMailer {
   readonly sent: () => readonly {
     to: string
     subject: string
@@ -27,9 +32,13 @@ export interface FakeMailer extends Mailer {
   }[]
 }
 
-export function fakeMailer(refusal?: string): FakeMailer {
+export function fakeMailer(
+  refusal?: string,
+  /** The address the console is configured to send from, bound as production binds it. */
+  from = 'console@example.invalid',
+): FakeMailer {
   const sent: { to: string; subject: string; text: string; from?: string | undefined }[] = []
-  return {
+  const recording: Mailer = {
     send: async (message) => {
       sent.push({ ...message })
       /**
@@ -41,8 +50,8 @@ export function fakeMailer(refusal?: string): FakeMailer {
        */
       return refusal === undefined ? { delivered: true } : { delivered: false, reason: refusal }
     },
-    sent: () => sent,
   }
+  return { ...operatorMailerFrom(recording, from), sent: () => sent }
 }
 
 /** A log that keeps what it was told, so a test can assert on a line nobody is shown. */

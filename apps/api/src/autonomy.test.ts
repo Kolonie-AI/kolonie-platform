@@ -103,6 +103,28 @@ describe('asking the operator', () => {
 
     expect(result.outcome === 'rejected' && result.error.code).toBe('internal')
   })
+
+  /**
+   * **The mail comes from the console's address, not the Academy's** (`#474`).
+   *
+   * This is the one mail a stranger receives unprompted: it tells a person their
+   * agent has joined something and asks them to open a form and grant it
+   * permissions. Every property that makes a message look like a phishing
+   * attempt is present, and until this it also arrived from a host called
+   * *challenge*.
+   *
+   * The module can no longer express the omission — its mailer is an
+   * `OperatorMailer` and the message it sends has no `from` — so the assertion
+   * is on what the bound mailer actually applied.
+   */
+  it('sends from the console’s address rather than the Academy’s', async () => {
+    const mailer = fakeAutonomyMailer(true, 'console@example.invalid')
+    const d = deps({ mailer })
+
+    await askOperator(AGENT, 'canary', 'operator@example.org', d)
+
+    expect(mailer.sent().map((mail) => mail.from)).toEqual(['console@example.invalid'])
+  })
 })
 
 describe('the operator answering', () => {

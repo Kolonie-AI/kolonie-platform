@@ -119,6 +119,57 @@ export interface Mailer {
   }): Promise<{ readonly delivered: boolean; readonly reason?: string }>
 }
 
+/**
+ * A mailer whose sender has already been chosen, for mail written **to a person
+ * about their account** (`#474`).
+ *
+ * **Why this is a type and not a convention.** `#398` made the sender
+ * configurable and threaded it as a separate `senderAddress` field that each
+ * call site had to remember to pass. Exactly one of four remembered. The
+ * autonomy request — the one mail a stranger receives unprompted, telling them
+ * their agent has joined something and asking them to grant it permissions —
+ * went out from `academy@challenge.<domain>` for as long as that arrangement
+ * stood, which is every property of a phishing mail at once.
+ *
+ * A field a caller may forget is a defect waiting for the next caller. This
+ * closes over the address instead, so an operator-facing module cannot express
+ * the mistake: `from` is not part of the message it sends, because the choice
+ * was made when the mailer was built.
+ *
+ * **The brand is what makes it a check.** Without it a plain {@link Mailer} is
+ * structurally assignable here — its `send` accepts a superset of these
+ * arguments — and the compiler would wave through exactly the wiring error this
+ * exists to catch. `operatorMailerFrom` is the only way to obtain one.
+ *
+ * **Academy mail deliberately does not use it.** The mailbox rung and the
+ * persistence re-check write to a *citizen* about a rung, from the Academy's own
+ * address, and that is correct rather than an oversight — see
+ * `mail-config.ts`.
+ */
+export interface OperatorMailer {
+  /** Present so a plain {@link Mailer} cannot be passed where this is required. */
+  readonly operatorSenderChosen: true
+  send(message: {
+    readonly to: string
+    readonly subject: string
+    readonly text: string
+  }): Promise<{ readonly delivered: boolean; readonly reason?: string }>
+}
+
+/**
+ * Binds a mailer to the address operator-facing mail is sent from.
+ *
+ * `from` is always a value by the time this is called — `mailerFromEnv` resolves
+ * `CONSOLE_SENDER_ADDRESS` to the Academy's sender when it is unset, so the
+ * fallback lives in one place rather than at four `send` calls.
+ */
+export function operatorMailerFrom(mailer: Mailer, from: string): OperatorMailer {
+  return {
+    operatorSenderChosen: true,
+    send: (message) => mailer.send({ ...message, from }),
+  }
+}
+
 export interface EmailDependencies {
   readonly challenges: EmailChallenges
   /** Sends the code. Absent means the rung cannot complete — see `emailUnavailable`. */

@@ -9,7 +9,7 @@ import {
 } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import type { AutonomyDependencies, AutonomyStore, OperatorPages } from '../autonomy.js'
-import type { Mailer } from '../email.js'
+import { operatorMailerFrom, type Mailer, type OperatorMailer } from '../email.js'
 
 export interface FakeAutonomyStore extends AutonomyStore {
   /** The token most recently issued for an agent, or nothing. */
@@ -253,19 +253,35 @@ export function fakeOperatorPages(): FakeOperatorPages {
   }
 }
 
-/** A mailer that keeps what it was asked to send. */
-export function fakeAutonomyMailer(delivered = true): Mailer & {
-  readonly sent: () => readonly { to: string; subject: string; text: string }[]
+/**
+ * A mailer that keeps what it was asked to send.
+ *
+ * An {@link OperatorMailer} built through the real `operatorMailerFrom` (`#474`),
+ * so `sent()` shows the `from` production would apply. The autonomy request is
+ * the mail a stranger receives unprompted, and the address it carries is the
+ * whole point of that issue.
+ */
+export function fakeAutonomyMailer(
+  delivered = true,
+  from = 'console@example.invalid',
+): OperatorMailer & {
+  readonly sent: () => readonly {
+    to: string
+    subject: string
+    text: string
+    from?: string | undefined
+  }[]
 } {
-  const sent: { to: string; subject: string; text: string }[] = []
+  const sent: { to: string; subject: string; text: string; from?: string | undefined }[] = []
 
-  return {
+  const recording: Mailer = {
     send: (message) => {
-      sent.push(message)
+      sent.push({ ...message })
       return Promise.resolve(delivered ? { delivered: true } : { delivered: false, reason: 'no' })
     },
-    sent: () => sent,
   }
+
+  return { ...operatorMailerFrom(recording, from), sent: () => sent }
 }
 
 /**

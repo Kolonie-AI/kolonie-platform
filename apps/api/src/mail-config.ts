@@ -1,4 +1,4 @@
-import { cloudflareMailer, type Mailer } from './email.js'
+import { cloudflareMailer, operatorMailerFrom, type Mailer, type OperatorMailer } from './email.js'
 
 /**
  * The three variables outbound mail needs, and the one the autonomy form needs
@@ -51,6 +51,24 @@ export interface MailConfiguration {
    * console's own if one is configured, the Academy's otherwise.
    */
   readonly consoleSender?: string | undefined
+  /**
+   * The mailer every **operator-facing** surface takes, with
+   * {@link MailConfiguration.consoleSender} already bound (`#474`).
+   *
+   * Present whenever {@link MailConfiguration.mailer} is.
+   *
+   * **Six sends across three modules write to a person about their account**, and
+   * each used to receive the bare mailer beside an address it had to remember to
+   * pass. Three remembered: the console's sign-in, sign-up and key confirmation.
+   * Three did not — the console's own account-deletion notice, the operator
+   * request, and the autonomy contract request, which is the one a stranger
+   * receives unprompted and the reason `#474` exists.
+   *
+   * A seventh caller would have been a coin toss. Handing them a mailer that has
+   * already chosen removes the thing that could be forgotten, and the wiring
+   * error becomes a compile error. See {@link OperatorMailer}.
+   */
+  readonly operatorMailer?: OperatorMailer | undefined
 }
 
 /**
@@ -81,13 +99,18 @@ export function mailerFromEnv(
 
   const academySender = env['ACADEMY_SENDER_ADDRESS']!
 
+  const mailer = make({
+    accountId: env['CLOUDFLARE_ACCOUNT_ID']!,
+    token: env['CLOUDFLARE_EMAIL_SEND_TOKEN']!,
+    sender: academySender,
+  })
+  const consoleSender =
+    (env[CONSOLE_SENDER_VAR] ?? '') === '' ? academySender : env[CONSOLE_SENDER_VAR]!
+
   return {
-    mailer: make({
-      accountId: env['CLOUDFLARE_ACCOUNT_ID']!,
-      token: env['CLOUDFLARE_EMAIL_SEND_TOKEN']!,
-      sender: academySender,
-    }),
+    mailer,
     missing: [],
-    consoleSender: (env[CONSOLE_SENDER_VAR] ?? '') === '' ? academySender : env[CONSOLE_SENDER_VAR],
+    consoleSender,
+    operatorMailer: operatorMailerFrom(mailer, consoleSender),
   }
 }

@@ -475,7 +475,9 @@ const app = buildApp({
   operatorRequests: {
     store: databaseOperatorRequestStore(db),
     allowance: supportSurface,
-    ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
+    // Operator-facing: it writes to a person about their agent, so it takes the
+    // mailer with the console's sender bound rather than the Academy's (`#474`).
+    ...(mail.operatorMailer === undefined ? {} : { mailer: mail.operatorMailer }),
     ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
   },
   /**
@@ -562,7 +564,11 @@ const app = buildApp({
     operatorRequests: {
       store: databaseOperatorRequestStore(db),
       allowance: supportSurface,
-      ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
+      // The web-server rung's own operator channel — a second wiring of the same
+      // module, and the one a grep for `mailer.send` does not find because it
+      // sends nothing itself. It reaches an operator, so it takes the bound
+      // mailer too (`#474`).
+      ...(mail.operatorMailer === undefined ? {} : { mailer: mail.operatorMailer }),
       ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
     },
     obstruction,
@@ -628,16 +634,18 @@ const app = buildApp({
   },
   console: {
     store: databaseConsoleStore(db),
-    // The same mailer the mailbox rung gets, present on the same three variables.
-    // Absent, sign-in answers rather than minting a link nobody could receive.
-    ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
+    // The operator-facing mailer, present on the same three variables the
+    // mailbox rung needs. Absent, sign-in answers rather than minting a link
+    // nobody could receive.
+    //
+    // It arrives with the console's sender already bound (`#474`), which is why
+    // there is no second field here: the address was a thing each send had to
+    // remember, and the one that forgot mailed a deleted account from the
+    // Academy's challenge host.
+    ...(mail.operatorMailer === undefined ? {} : { mailer: mail.operatorMailer }),
     // Configuration, not a constant: AGENTS.md §3 keeps host names out of this
     // repository, so where a followed link lands arrives in the environment.
     consoleUrl: process.env['CONSOLE_URL'] ?? '',
-    // Who the console's own mail comes from (`#398`), resolved once in
-    // `mail-config.ts`. Falls back to the Academy's sender, so a deployment that
-    // sets nothing sends exactly what it sent before.
-    ...(mail.consoleSender === undefined ? {} : { senderAddress: mail.consoleSender }),
     // The process's own logger, so a console send that is refused leaves a trace
     // the caller must not be given (`#406`). Required on the interface for
     // exactly this line: an optional one omitted here would be silence that
@@ -659,7 +667,10 @@ const app = buildApp({
   autonomy: {
     store: autonomyStore,
     pages: databaseOperatorPages(db),
-    ...(mail.mailer === undefined ? {} : { mailer: mail.mailer }),
+    // The mail this module sends is the one a stranger receives unprompted, so
+    // it is the surface that most needed the console's address and the one that
+    // silently kept the Academy's until `#474`.
+    ...(mail.operatorMailer === undefined ? {} : { mailer: mail.operatorMailer }),
     ...(process.env['CONSOLE_URL'] ? { formBaseUrl: process.env['CONSOLE_URL'] } : {}),
   },
   rhythm,

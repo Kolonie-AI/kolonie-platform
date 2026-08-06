@@ -18,7 +18,7 @@ import {
   type Database,
   type RefusalReason,
 } from '@kolonie-ai/db'
-import type { Mailer } from './email.js'
+import type { Mailer, OperatorMailer } from './email.js'
 import { ClaimedAddressSchema } from './email.js'
 import { AgentProfileSchema } from '@kolonie-ai/core'
 import type { RateLimiter } from './rate-limit.js'
@@ -130,8 +130,14 @@ export interface ConsoleDependencies {
    * The same port the mailbox rung uses, deliberately: one implementation to
    * configure, one to break, and a Colony that can mail a challenge can mail a
    * sign-in link.
+   *
+   * **Bound to the console's sender (`#474`).** It used to be a bare `Mailer`
+   * beside a `senderAddress` field that each of the four sends in this module
+   * had to remember to pass. Three did and the deletion notice did not, and the
+   * same shape had already lost the autonomy request entirely. The address is
+   * now chosen once, in `mail-config.ts`, and carried by the type.
    */
-  readonly mailer?: Mailer | undefined
+  readonly mailer?: OperatorMailer | undefined
   /**
    * Where a followed link lands, from configuration.
    *
@@ -140,13 +146,6 @@ export interface ConsoleDependencies {
    * `capabilityPageUrl` are configuration rather than constants.
    */
   readonly consoleUrl: string
-  /**
-   * Who console mail comes from (`#398`), or nothing to leave it to the mailer.
-   *
-   * Resolved once in `mail-config.ts` and handed down, so the address appears in
-   * one place rather than at each `send`.
-   */
-  readonly senderAddress?: string | undefined
   /**
    * Where this module says the things it must not tell the caller (`#406`).
    *
@@ -191,7 +190,9 @@ export const MAILER_MISSING: ApiError = {
 }
 
 /** Set when the console cannot mail, and why. Read once at startup. */
-export function consoleUnavailable(mailer: Mailer | undefined): ApiError | undefined {
+export function consoleUnavailable(
+  mailer: Mailer | OperatorMailer | undefined,
+): ApiError | undefined {
   return mailer === undefined ? MAILER_MISSING : undefined
 }
 
@@ -317,7 +318,6 @@ export async function requestSignIn(
       to: link.address,
       subject: SIGN_IN_SUBJECT,
       text: signInMailBody(deps.consoleUrl, link.token),
-      from: deps.senderAddress,
     })
     // Recorded, never answered. See recordUndelivered for why this one branch
     // cannot reach the caller the way the other four send sites do.
@@ -362,7 +362,6 @@ export async function signUp(
       to: link.address,
       subject: NEW_ACCOUNT_SUBJECT,
       text: newAccountMailBody(deps.consoleUrl, link.token),
-      from: deps.senderAddress,
     })
     recordUndelivered(deps, 'sign-up', sent)
   }
@@ -505,7 +504,6 @@ export async function requestKeyMint(
     to: link.address,
     subject: KEY_MINT_SUBJECT,
     text: keyMintMailBody(deps.consoleUrl, link.token),
-    ...(deps.senderAddress === undefined ? {} : { from: deps.senderAddress }),
   })
   /**
    * **A third console send, which `#406` counts as two.**

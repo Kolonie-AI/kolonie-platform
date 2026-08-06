@@ -27,7 +27,7 @@ import {
   revokeOperatorPage,
   agentFacts,
 } from '@kolonie-ai/db'
-import type { Mailer } from './email.js'
+import type { OperatorMailer } from './email.js'
 
 /** The autonomy module's half of storage, behind a port so these tests need no PostgreSQL. */
 export interface AutonomyStore {
@@ -103,8 +103,13 @@ export interface AutonomyDependencies {
    * Optional, like the email rung's: absent means the module cannot complete, and
    * the citizen is told so rather than being left with a form that was never
    * sent. A configuration gap must never look like an operator who did not reply.
+   *
+   * **An {@link OperatorMailer}, not a bare `Mailer` (`#474`).** This mail goes
+   * to a person who did not ask for it, about their own account, so it must come
+   * from the console's address and not from the Academy's challenge host. The
+   * type carries that choice; nothing here can forget to pass it.
    */
-  readonly mailer?: Mailer | undefined
+  readonly mailer?: OperatorMailer | undefined
   /**
    * Where the form lives, from configuration.
    *

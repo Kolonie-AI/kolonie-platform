@@ -201,8 +201,8 @@ describe('the console front door', () => {
      * for money, account mail from a host called *challenge* reads as phishing,
      * and hesitating is the correct response to it.
      */
-    it('uses the console’s address when one is configured', async () => {
-      app = build({ senderAddress: 'console@example.invalid' })
+    it('uses the console’s address on every mail it sends', async () => {
+      app = build({ mailer: fakeMailer(undefined, 'console@example.invalid') })
       await app.ready()
       consoleDeps.store.hold('sponsor@example.org')
 
@@ -224,11 +224,21 @@ describe('the console front door', () => {
     })
 
     /**
-     * Unset, the console says nothing and the mailer's own sender stands. A
-     * deployment that has not chosen an address sends exactly what it sent
-     * before this existed — the fallback lives in `mail-config.ts`, not here.
+     * **The rejection case: no console mail may leave without a chosen sender**
+     * (`#474`).
+     *
+     * This is the assertion that replaces a field somebody had to remember. The
+     * console cannot express the omission any more — its mailer is an
+     * `OperatorMailer`, which has no `from` on the message at all — so what is
+     * checked here is the consequence: whatever this module sends, and however
+     * many sends it grows, every one of them names an address.
+     *
+     * The fallback for a deployment that configures nothing has not gone away;
+     * it moved to where it belongs and is asserted in `mail-config.test.ts`.
      */
-    it('leaves the sender to the mailer when none is configured', async () => {
+    it('never sends without one, whichever surface sent it', async () => {
+      app = build({ mailer: fakeMailer(undefined, 'chosen@example.invalid') })
+      await app.ready()
       consoleDeps.store.hold('sponsor@example.org')
 
       await app.inject({
@@ -236,8 +246,15 @@ describe('the console front door', () => {
         url: '/v1/console/sign-in',
         payload: { email: 'sponsor@example.org' },
       })
+      await app.inject({
+        method: 'POST',
+        url: '/v1/console/sign-up',
+        payload: { email: 'fresh@example.org' },
+      })
 
-      expect(consoleDeps.mailer.sent()[0]?.from).toBeUndefined()
+      const senders = consoleDeps.mailer.sent().map((mail) => mail.from)
+      expect(senders.length).toBeGreaterThan(0)
+      expect(senders.every((from) => from === 'chosen@example.invalid')).toBe(true)
     })
   })
 

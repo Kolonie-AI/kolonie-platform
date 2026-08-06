@@ -39,7 +39,13 @@ import {
 import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
-import { questDraftPage, questFormPage, questResultsPage, questsPage } from '../console/sponsor.js'
+import {
+  operatedQuestsPage,
+  questDraftPage,
+  questFormPage,
+  questResultsPage,
+  questsPage,
+} from '../console/sponsor.js'
 import {
   AUDIENCE_CHOICES,
   PROOF_CHOICES,
@@ -1405,6 +1411,147 @@ function registerSponsorPages(
           proofNote: proofNote(null),
         })
   })
+
+  /**
+   * Every quest the identities this person operates have written (`#456`).
+   *
+   * ## One list, several authors
+   *
+   * `sponsorFor` answers with **one** identity, so a human with four agents that
+   * have each written quests had no view of those quests at all: the dashboard
+   * listed the agents, the quest routes served one identity at a time, and
+   * nothing joined them.
+   *
+   * ## The store the existing quest pages read
+   *
+   * `listOwn` and `commitments`, per identity, which is what `/` already calls
+   * for a signed-in agent — not a second query shape computing "the same" list
+   * slightly differently. **Per identity and not one join** is a deliberate
+   * trade: a join would need a query written for this page, and the number of
+   * identities a person operates is small and bounded by how many agents they
+   * are paying to run.
+   *
+   * ## Written, never answered
+   *
+   * What an agent *did* for somebody else's quest is `#454`'s and lives on the
+   * agent's page. `listOwn` is keyed on `createdBy`, so that separation is the
+   * store's rather than this route's.
+   */
+  app.get('/quests', async (request, reply) => {
+    if (!(await ctx.guard(request, reply))) return reply
+
+    const signedIn = await ctx.person(request)
+    if (signedIn === null) {
+      const agent = await ctx.caller(request)
+      if (agent === null) {
+        if (wantsHtml(request)) reply.callNotFound()
+        else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
+        return reply
+      }
+
+      /**
+       * An agent asking for this gets its own quests, which is the same answer
+       * `/` already gives it. `routes/console.ts` requires that an agent reach
+       * every console route with its ordinary key, and a page about *the
+       * identities a human operates* has exactly one member for a caller that is
+       * an agent: itself.
+       *
+       * Labelled `You` for the same reason the person's own row is: the column
+       * says *which of the things I operate wrote this*, and for an agent
+       * reading its own list the answer is itself.
+       */
+      return questsFor(request, reply, [{ id: agent.id, name: 'You' }], false)
+    }
+
+    const operated = await deps.humans.store.operated(signedIn.human.id)
+    const own = await deps.humans.store.sponsorAgent(signedIn.human.id)
+
+    /**
+     * **`You` is the label and the identity is an ordinary member of the list**
+     * (`#455`). A person who has never written a quest has no such identity yet,
+     * and then the list is their agents alone — which is what `#456`'s ordering
+     * note allows for and what the empty state then speaks to.
+     */
+    const authors = [
+      ...(own === undefined ? [] : [{ id: own.id, name: 'You' }]),
+      ...operated
+        .filter((agent) => own === undefined || String(agent.id) !== String(own.id))
+        .map((agent) => ({ id: agent.id, name: agent.name })),
+    ]
+
+    return questsFor(request, reply, authors, operated.length > 0)
+  })
+
+  /** Assemble and render, for whichever set of authors the caller resolved to. */
+  const questsFor = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    authors: readonly { readonly id: AgentId; readonly name: string }[],
+    operatesAnything: boolean,
+  ) => {
+    const perAuthor = await Promise.all(
+      authors.map(async (author) => {
+        const [written, committed] = await Promise.all([
+          deps.quests.listOwn(author.id),
+          deps.quests.commitments(author.id),
+        ])
+
+        const cost = new Map(committed.map((row) => [String(row.taskId), row]))
+
+        return Promise.all(
+          written.map(async (quest) => {
+            /**
+             * **Accepted reports, counted from the same rows the quest's own
+             * results page reads.** One read per quest is more than a `count(*)`
+             * would cost, and it is the read this project already has — a
+             * counting query written here would be the second answer to *how
+             * full is this quest*, on a page a sponsor compares against the
+             * other one.
+             */
+            const accepted = (await deps.quests.results(quest.task.id)).length
+            const held = cost.get(String(quest.task.id))
+
+            return {
+              id: String(quest.task.id),
+              title: quest.task.title,
+              author: author.name,
+              status: quest.awaitingModeration ? 'awaiting moderation' : quest.task.status,
+              filled:
+                quest.task.slots === null
+                  ? `${String(accepted)} (no limit)`
+                  : `${String(accepted)} of ${String(quest.task.slots)}`,
+              /**
+               * Reserved *or* escrowed, per `governance/quests.md`'s four steps —
+               * never summed. They are the same credits at two different stages
+               * and adding them would double-count money a sponsor has not spent
+               * twice.
+               */
+              cost:
+                held === undefined
+                  ? '—'
+                  : held.escrowed > 0
+                    ? `${String(held.escrowed)} escrowed, ${String(held.paid)} paid`
+                    : held.reserved > 0
+                      ? `${String(held.reserved)} reserved`
+                      : `${String(held.paid)} paid`,
+              yours: author.name === 'You',
+              writtenAt: quest.task.createdAt,
+            }
+          }),
+        )
+      }),
+    )
+
+    /** Newest first, across authors — the order somebody scans in. */
+    const quests = perAuthor
+      .flat()
+      .sort((one, two) => (one.writtenAt < two.writtenAt ? 1 : -1))
+      .map(({ writtenAt: _writtenAt, ...row }) => row)
+
+    return wantsHtml(request)
+      ? html(reply, operatedQuestsPage({ quests, operatesAnything }))
+      : reply.send({ quests })
+  }
 
   /**
    * Save a draft — **and the one route that brings an identity into existence**

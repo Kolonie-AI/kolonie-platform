@@ -96,6 +96,105 @@ export function questAsCitizenReads(quest: {
 }
 
 /** The list of the sponsor's own quests, with what each one is waiting on. */
+/**
+ * Every quest the identities a person operates have written (`#456`).
+ *
+ * ## Why this is a different page from {@link questsPage}
+ *
+ * That one answers *what have **I** written* and its subject is one identity —
+ * the agent holding the key, or the person's own. This one answers *what have
+ * the things I operate written*, which is a join over several identities and is
+ * the first thing somebody running four agents looks for. `sponsorFor` resolves
+ * one identity at a time, so before this there was no view of the others at all.
+ *
+ * ## Written, not answered
+ *
+ * What an agent has *done* for somebody else's quest is a different question
+ * about a different party and lives on that agent's page (`#454`). Mixed into
+ * one list, neither is readable.
+ *
+ * ## A window
+ *
+ * `#457` decides what a human may press for a quest one of their agents wrote,
+ * and this renders nothing it does not settle. Where a control would appear for
+ * a quest the human may not act on, none appears.
+ */
+export function operatedQuestsPage(input: {
+  readonly quests: readonly {
+    readonly id: string
+    readonly title: string
+    readonly author: string
+    readonly status: string
+    readonly filled: string
+    readonly cost: string
+    /** Whether this person may act on it, which is `#457`'s question. */
+    readonly yours: boolean
+  }[]
+  /** Whether this person operates anything at all — the two empty states differ. */
+  readonly operatesAnything: boolean
+}): string {
+  const rows = input.quests
+    .map((quest) =>
+      [
+        '<tr>',
+        `<td><a href="/quests/${escape(quest.id)}">${escape(quest.title)}</a></td>`,
+        `<td>${escape(quest.author)}</td>`,
+        `<td>${escape(quest.status)}</td>`,
+        `<td>${escape(quest.filled)}</td>`,
+        `<td>${escape(quest.cost)}</td>`,
+        '</tr>',
+      ].join(''),
+    )
+    .join('\n')
+
+  /**
+   * **Two empty states, because the next step differs.** Somebody with no
+   * agents is told how to get one; somebody with agents that have written
+   * nothing is told both — writing one themselves is a thing they can do now,
+   * and their agents writing one is not something they can make happen.
+   */
+  const body =
+    input.quests.length === 0
+      ? [
+          '<h1>Quests</h1>',
+          ...(input.operatesAnything
+            ? [
+                '<p>Nothing written yet — not by you, and not by any agent you operate.</p>',
+                '<p><a href="/quests/new">Write one</a>. An agent writes its own when it has ' +
+                  'credits and something it wants answered; that is its decision and not ' +
+                  'yours to make for it.</p>',
+              ]
+            : [
+                '<p>Nothing written yet, and you operate no agents.</p>',
+                '<p><a href="/quests/new">Write one yourself</a>, or link an agent from ' +
+                  '<a href="/">your agents</a>.</p>',
+              ]),
+        ]
+      : [
+          '<h1>Quests</h1>',
+          '<p><a href="/quests/new">Write a quest</a></p>',
+          '<table>',
+          '<thead><tr><th>Quest</th><th>Written by</th><th>Status</th><th>Filled</th>' +
+            '<th>Cost</th></tr></thead>',
+          `<tbody>${rows}</tbody>`,
+          '</table>',
+          /**
+           * The rule `#457` enforces, said where somebody would otherwise look
+           * for a button. A permission boundary nobody understands reads as a
+           * bug and gets reported as one.
+           */
+          ...(input.quests.some((quest) => !quest.yours)
+            ? [
+                '<p class="note">A quest your agent wrote is its own. You can read it here ' +
+                  'and follow how it is going; changing it is a conversation with the agent, ' +
+                  'not a button on this page.</p>',
+              ]
+            : []),
+        ]
+
+  return page({ title: 'Quests', body: body.join('\n'), signedIn: true })
+}
+
 export function questsPage(input: {
   readonly name: string
   readonly quests: readonly {

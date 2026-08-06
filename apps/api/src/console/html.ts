@@ -95,15 +95,19 @@ export function page(input: {
 /**
  * The one navigation the console has (`#431`).
  *
- * Three links and a sign-out, because that is everything a signed-in person can
- * be looking for: where their agents are, which sessions they hold, and the way
- * out. It is a `POST` rather than a link — a sign-out reachable by `GET` is a
+ * Four links and a sign-out, because that is everything a signed-in person can
+ * be looking for: where their agents are, what those agents have asked the
+ * Colony for, which sessions they hold, and the way out. It is a `POST` rather than a link — a sign-out reachable by `GET` is a
  * sign-out anybody can trigger with an image tag on another page, and the
  * `SameSite=Lax` cookie is the only thing that would be standing in the way.
  */
 const CONSOLE_HEADER = [
   '<nav class="console-header">',
   '<a href="/">Your agents</a>',
+  // Everything the identities this person operates have written (`#456`).
+  // Beside the agents rather than under one of them: it is a join over all of
+  // them, and it is the first thing somebody running four agents looks for.
+  '<a href="/quests">Quests</a>',
   '<a href="/sessions">Sessions</a>',
   '<form method="post" action="/sign-out"><button type="submit">Sign out</button></form>',
   '</nav>',

@@ -73,6 +73,8 @@ import type { AppDependencies } from './dependencies.js'
 import { emailUnavailable } from './email.js'
 import type { RouteDependencies } from './routes/dependencies.js'
 import { registerMcpRoutes } from './routes/mcp.js'
+import { registerOpenApiRoute } from './routes/openapi.js'
+import type { RegisteredRoute } from './openapi/document.js'
 import { rateLimited } from './registration.js'
 import { reachabilityLimiter, registrationLimiter } from './rate-limit.js'
 import { DEFAULT_SKILL_RELEASES } from './skill-releases.js'
@@ -155,6 +157,20 @@ export function buildApp({
     // Agents are the callers here. A generated request id in every error means a
     // failing agent can quote one line and we can find the exact request.
     genReqId: () => crypto.randomUUID(),
+  })
+
+  /**
+   * Every route this server registers, collected as it registers them (`#442`).
+   *
+   * `/openapi.json` is generated from this rather than from a list somebody
+   * maintains beside the router. The hook is added before the first
+   * registration below, so a route added tomorrow is in the document without
+   * anybody having been told to add it — which is the only version of this that
+   * stays true.
+   */
+  const registeredRoutes: RegisteredRoute[] = []
+  app.addHook('onRoute', (route) => {
+    registeredRoutes.push({ method: route.method, url: route.url })
   })
 
   /**
@@ -374,6 +390,9 @@ export function buildApp({
   }
 
   registerMcpRoutes(app, routes)
+  // The description of the `/v1/` surface (`#442`). On the app rather than
+  // inside the version it describes, and outside every credential check.
+  registerOpenApiRoute(app, registeredRoutes)
   // The console's pages sit at the root of their own host, not under `/v1`
   // (`#179`). Registered before the prefixed tree for readability only —
   // they cannot collide, because they answer on a different host.

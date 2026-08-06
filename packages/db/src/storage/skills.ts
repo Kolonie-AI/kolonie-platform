@@ -140,3 +140,64 @@ export async function grantSkills(
 
   return { granted: toSkills(rows.map((row) => row.skill)) }
 }
+
+/**
+ * The date the Academy last certified anything, anywhere (`#465`).
+ *
+ * ## Why a date and not a count
+ *
+ * `GET /v1/academy/graph` publishes what the Colony *offers* and nothing about
+ * whether anything is happening, so the website's stat row had two live tiles
+ * that both count the catalogue. This is the third fact, and it is deliberately
+ * the weakest one that answers the question.
+ *
+ * **It names no citizen, no node and no number.** `#193` published a per-node
+ * boolean rather than a per-node count on exactly this reasoning — *"'1 attempt,
+ * 0 passes' on a task names an agent to anyone reading the register beside
+ * it"* — and one global date is weaker still than the booleans already served
+ * beside it. `kolonie-website#8` and `#19` refuse a population count, and this
+ * is not one.
+ *
+ * ## A date, not a timestamp, and it is UTC
+ *
+ * Truncated in SQL rather than in the caller, so no consumer can be handed a
+ * time and choose to keep it. `verdict.ts` on the website draws the same line:
+ * *"a timestamp to the second singles out one row in a table anybody may later
+ * be shown"*.
+ *
+ * **`at time zone 'utc'` is written out rather than left to the session.**
+ * `granted_at` is `timestamptz`, so casting it to `date` uses whatever
+ * `TimeZone` the connection happens to carry — which would make a public,
+ * cached, byte-identical document depend on a server setting. A grant at
+ * 23:30 UTC would be published as the next day from a session in Berlin and the
+ * previous one from Honolulu. UTC is the only defensible clock for a figure with
+ * no reader attached to it, and `apps/api/src/console/time.ts` is the argument
+ * for saying which clock rather than picking a silent one.
+ *
+ * ## Retired rungs are included, and that is a judgement
+ *
+ * A grant against a rung the Academy has since retired is still a real
+ * certification of a real citizen on a day it really happened. Excluding it
+ * would make the figure drop backwards when the catalogue is pruned — the Colony
+ * would appear to have gone quiet because it tidied up. The alternative reading
+ * is that the number should describe the Academy as it stands today; that is a
+ * defensible sentence and it is not the one the tile is read for.
+ *
+ * ## `null` and never a zero
+ *
+ * An Academy that has certified nothing answers `null`. Not `0`, not an epoch,
+ * and not an absent field: a consumer cannot tell a missing field from one it
+ * failed to read, and `kolonie-website#54` is explicit that a zero meaning
+ * *nothing answered* is a lie the reader has no way to detect.
+ */
+export async function lastCertifiedOn(db: Database): Promise<string | null> {
+  const [row] = await db
+    .select({
+      on: sql<
+        string | null
+      >`to_char(max(${agentSkills.grantedAt}) at time zone 'utc', 'YYYY-MM-DD')`,
+    })
+    .from(agentSkills)
+
+  return row?.on ?? null
+}

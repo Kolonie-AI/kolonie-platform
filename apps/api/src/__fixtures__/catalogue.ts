@@ -52,6 +52,15 @@ export interface FakeCatalogue extends TaskCatalogue {
    * spell out `cleared: false` would bury the two that are.
    */
   readonly answersGraphEntries: (entries: readonly AcademyGraphEntry[]) => void
+  /**
+   * What the next read of the last-certified date answers with (`#465`).
+   *
+   * Defaults to `null` — an Academy that has certified nothing — because that is
+   * the answer a fresh database gives and the one a test forgetting to set it
+   * should see. A fixture defaulting to a plausible date would let a route that
+   * never reads it pass every assertion about it.
+   */
+  readonly answersLastCertifiedOn: (on: string | null) => void
 }
 
 export function fakeCatalogue(): FakeCatalogue {
@@ -63,6 +72,7 @@ export function fakeCatalogue(): FakeCatalogue {
   let readAnswer: Task | undefined = undefined
   let graphAnswer: readonly AcademyGraphEntry[] = []
   let graphReads = 0
+  let lastCertifiedOnAnswer: string | null = null
 
   return {
     graph: async () => {
@@ -75,6 +85,10 @@ export function fakeCatalogue(): FakeCatalogue {
     },
     answersGraphEntries: (entries) => {
       graphAnswer = entries
+    },
+    lastCertifiedOn: async () => lastCertifiedOnAnswer,
+    answersLastCertifiedOn: (on) => {
+      lastCertifiedOnAnswer = on
     },
     list: async (query) => {
       queries.push(query)

@@ -26,6 +26,7 @@ import {
 import type { AccountResolution } from './accounts.js'
 import {
   frontier as frontierInDatabase,
+  lastCertifiedOn as lastCertifiedOnInDatabase,
   listTasks as listTasksInDatabase,
   readAcademyGraph as readAcademyGraphInDatabase,
   readTask as readTaskInDatabase,
@@ -74,6 +75,21 @@ export interface TaskCatalogue {
    * distinguishes it from the other three: there is no subject to get wrong.
    */
   graph(): Promise<readonly AcademyGraphEntry[]>
+  /**
+   * The date the Academy last certified anything, or `null` (`#465`).
+   *
+   * **Beside `graph()` rather than folded into it**, though the two serve one
+   * response. `graph()` reads `tasks`; this reads `agent_skills`, so they are
+   * two statements whichever way they are packaged — and changing `graph()`'s
+   * return type to carry a second thing would edit a signature another branch
+   * may be holding, to buy nothing.
+   *
+   * On this interface for the reason the comment above gives: a second
+   * dependency on `AppDependencies` would have to be threaded through every
+   * caller of `buildApp`. It takes no argument, and there is no subject to get
+   * wrong.
+   */
+  lastCertifiedOn(): Promise<string | null>
 }
 
 /** A validated request, plus the agent whose skills decide what is in it. */
@@ -112,6 +128,7 @@ export function databaseCatalogue(db: Database): TaskCatalogue {
     frontier: (agentId) => frontierInDatabase(db, { agentId }),
     read: (query) => readTaskInDatabase(db, query),
     graph: () => readAcademyGraphInDatabase(db),
+    lastCertifiedOn: () => lastCertifiedOnInDatabase(db),
   }
 }
 
@@ -156,9 +173,25 @@ export const ACADEMY_GRAPH_MAX_AGE_SECONDS = 300
  * `onboarding/academy.md` says it must not become.
  */
 export async function academyGraph(catalogue: TaskCatalogue): Promise<AcademyGraphResponse> {
-  const entries = await catalogue.graph()
+  /**
+   * Two reads, concurrently, because neither needs the other (`#465`).
+   *
+   * They are separate statements over separate tables whichever way they are
+   * issued, and this route is cached for five minutes — so the cost of the
+   * second is paid once per cache period rather than per reader.
+   */
+  const [entries, certifiedOn] = await Promise.all([catalogue.graph(), catalogue.lastCertifiedOn()])
 
   return {
+    /**
+     * The date, and it stays outside the `nodes` map on purpose (`#465`).
+     *
+     * Global, never per-node and never per-caller. Nothing in this function
+     * reads a credential, a header or a request — which is what keeps *a valid
+     * credential receives byte-identical bytes* a property of the shape rather
+     * than a test that happens to pass, and the new field does not weaken it.
+     */
+    lastCertifiedOn: certifiedOn,
     nodes: entries.map(({ task, cleared }) =>
       AcademyGraphNodeSchema.parse({
         id: task.id,

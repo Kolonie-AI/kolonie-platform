@@ -181,7 +181,11 @@ describe('GET /v1/academy/graph', () => {
     const response = await get()
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ nodes: [] })
+    // An empty Academy has certified nothing, so the date is `null` rather than
+    // absent (`#465`). Written out rather than loosened to a partial match: an
+    // exact shape is what makes this test notice a field arriving that nobody
+    // decided to publish.
+    expect(response.json()).toEqual({ nodes: [], lastCertifiedOn: null })
   })
 
   /**
@@ -190,6 +194,11 @@ describe('GET /v1/academy/graph', () => {
    */
   it('answers a valid credential with a byte-identical body', async () => {
     catalogue.answersGraph([aTask(), aTask({ title: 'a second node' })])
+    // Set, rather than left at the fixture's `null`, so the assertion covers
+    // the recency field rather than comparing two bodies that both omit it
+    // (`#465`). A test that would still pass with the field absent is not a
+    // test of the field.
+    catalogue.answersLastCertifiedOn('2026-08-06')
 
     const anonymous = await get()
     const authenticated = await get(apiKey)
@@ -210,6 +219,10 @@ describe('GET /v1/academy/graph', () => {
       { task: aTask({ title: 'walked' }), cleared: true },
       { task: aTask({ title: 'not walked' }), cleared: false },
     ])
+    // Same reason as above (`#465`): the two fields on this response that are
+    // about what citizens have done are asserted identical together, because
+    // they are the two a future branch on the credential would move.
+    catalogue.answersLastCertifiedOn('2026-08-06')
 
     const anonymous = await get()
     const authenticated = await get(apiKey)
@@ -219,6 +232,80 @@ describe('GET /v1/academy/graph', () => {
       true,
       false,
     ])
+    expect(authenticated.json().lastCertifiedOn).toBe('2026-08-06')
+  })
+
+  /**
+   * When the Academy last certified anything (`#465`).
+   *
+   * The one figure on this document about whether anything is *happening*
+   * rather than about what is offered. Everything asserted here is a boundary
+   * `kolonie-website#8` and `#19` drew and this field must not cross.
+   */
+  describe('the date the Academy last certified anything', () => {
+    /**
+     * The rejection case, and the one that would ship a lie rather than an
+     * error.
+     *
+     * An Academy with no grants must answer `null` — not `0`, not an epoch, and
+     * not an absent field. `kolonie-website#54` is explicit that a zero meaning
+     * *nothing answered* is undetectable to the reader, and a consumer cannot
+     * tell a missing field from one it failed to read.
+     */
+    it('serves null on an Academy that has certified nothing', async () => {
+      catalogue.answersGraph([aTask()])
+      catalogue.answersLastCertifiedOn(null)
+
+      const body = (await get()).json()
+
+      expect(body).toHaveProperty('lastCertifiedOn')
+      expect(body.lastCertifiedOn).toBeNull()
+      expect(body.lastCertifiedOn).not.toBe(0)
+      expect(body.lastCertifiedOn).not.toBe('1970-01-01')
+    })
+
+    /** A date, and never a timestamp — no time component, no zone, no seconds. */
+    it('carries a date and no time component', async () => {
+      catalogue.answersGraph([aTask()])
+      catalogue.answersLastCertifiedOn('2026-08-06')
+
+      const { lastCertifiedOn } = (await get()).json()
+
+      expect(lastCertifiedOn).toBe('2026-08-06')
+      expect(lastCertifiedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(lastCertifiedOn).not.toContain('T')
+      expect(lastCertifiedOn).not.toContain(':')
+      expect(lastCertifiedOn).not.toContain('Z')
+    })
+
+    /**
+     * Global, and never per-node.
+     *
+     * `#193` put a boolean on each node and refused a count for the reason a
+     * per-node date would reopen: at this population, *this rung was last
+     * cleared on Tuesday* beside a sparse graph names somebody.
+     */
+    it('is one top-level field and appears on no node', async () => {
+      catalogue.answersGraph([aTask(), aTask({ title: 'a second node' })])
+      catalogue.answersLastCertifiedOn('2026-08-06')
+
+      const body = (await get()).json()
+
+      for (const node of body.nodes) {
+        expect(node).not.toHaveProperty('lastCertifiedOn')
+      }
+    })
+
+    /** Read once per response, from the seam that takes no subject. */
+    it('is read without a credential being passed to anything', async () => {
+      catalogue.answersGraph([aTask()])
+      catalogue.answersLastCertifiedOn('2026-08-06')
+
+      await get(apiKey)
+
+      expect(catalogue.queries()).toEqual([])
+      expect(catalogue.reads()).toEqual([])
+    })
   })
 
   /**

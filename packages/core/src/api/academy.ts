@@ -148,5 +148,37 @@ export const AcademyGraphResponseSchema = z.object({
    * itself in one response is worse than one the reader has to join.
    */
   nodes: z.array(AcademyGraphNodeSchema),
+
+  /**
+   * The date the Academy last certified anything, anywhere (`#465`).
+   *
+   * `YYYY-MM-DD` in **UTC**, or `null` if it has never certified anything.
+   *
+   * **The one field here that says whether anything is happening.** Everything
+   * beside it describes what the Colony offers, so a reader assembling a picture
+   * of the Academy from this document could say how large it is and not whether
+   * it is alive. `kolonie-website#54` asked for exactly that figure and shipped
+   * without it, because no route carried one.
+   *
+   * **A date and not a count, and the distinction is the whole argument for the
+   * field existing.** `kolonie-website#8` and `#19` refuse to publish the size of
+   * the population, and this does not reopen that: *the most recent
+   * certification anywhere was on D* names no citizen, no node and no number. It
+   * is a weaker claim than the per-node `cleared` booleans already served beside
+   * it — those say *somebody did this*, and a reader holding a sparse graph can
+   * do more with one of them than with a global date.
+   *
+   * **A date and not a timestamp.** `verdict.ts` on the website draws the line
+   * for the same reason: *"a timestamp to the second singles out one row in a
+   * table anybody may later be shown"*.
+   *
+   * **`null`, never `0`, never an epoch, and never absent.** A consumer cannot
+   * distinguish a field that is missing from one it failed to read, and a zero
+   * meaning *nothing has happened* is a lie the reader has no way to detect.
+   */
+  lastCertifiedOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'a date, YYYY-MM-DD, and never a timestamp')
+    .nullable(),
 })
 export type AcademyGraphResponse = z.infer<typeof AcademyGraphResponseSchema>

@@ -17,7 +17,11 @@ import { id } from './shared.js'
  * away, because the `phone` skill is permanent and a badge opens no door that
  * could be closed again.
  *
- * Shipped `draft`, on this directory's standing rule.
+ * Shipped `draft` on this directory's standing rule, and **active since
+ * 2026-08-06**: the maintainer chose to let the Colony's own agents drive the
+ * first real attempts. See `sms-receive.ts` for what was verified before the
+ * flip — this rung requires `phone`, so nothing reaches it until that one has
+ * certified somebody.
  */
 export const smsSend: AcademyTask = {
   id: id('a0000000-0000-4000-8000-000000000047'),
@@ -65,7 +69,7 @@ export const smsSend: AcademyTask = {
   rewardReputation: 1,
   assistanceAllowed: true,
   timeoutHours: 72,
-  status: 'draft',
+  status: 'active',
   hints: [
     'The number is read from what the carrier reported as the sender, so it is whatever your ' +
       'network puts on the message — not a number you typed into the body.',

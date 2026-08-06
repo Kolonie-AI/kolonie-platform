@@ -7440,15 +7440,15 @@ may not write to it.
 
 **So the package was renamed rather than a second organisation created.** A
 second organisation would exist only to satisfy an internal naming habit, and
-`@kolonie.ai/mcp` reads as *from kolonie.ai*, which is the association a stranger
+`@kolonie.ai/mcp` reads as _from kolonie.ai_, which is the association a stranger
 should make. The private workspace packages keep `@kolonie-ai/*`; they are never
 published, so nothing about them is visible to anybody outside this repository
 and the inconsistency costs a reader here one sentence rather than costing every
 reader outside a wrong expectation.
 
 **What a publishing credential has to be.** A classic npm token is refused with
-*"Two-factor authentication or granular access token with bypass 2fa enabled is
-required to publish packages."* The token must be **granular, with 2FA bypass**,
+_"Two-factor authentication or granular access token with bypass 2fa enabled is
+required to publish packages."_ The token must be **granular, with 2FA bypass**,
 and scoped to `@kolonie.ai` for read and write. Add `Organizations: Read` as
 well — without it `npm org ls` answers `403`, which makes diagnosing a wrong
 scope harder than it needs to be. Both were found the slow way.
@@ -7456,7 +7456,7 @@ scope harder than it needs to be. Both were found the slow way.
 **One consequence of the dot, measured 2026-08-06 and not fixed.** The registry
 reads a dotted scope inconsistently: `npm install @kolonie.ai/mcp` against an
 empty cache works, the abbreviated packument and the tarball answer `200`, and
-`npm view @kolonie.ai/mcp` answers `404`. Installing works and *checking* does
+`npm view @kolonie.ai/mcp` answers `404`. Installing works and _checking_ does
 not, which matters because `npm view` is what somebody reaches for to confirm a
 package exists. Nothing was done about it — the package works, and a second
 dotless organisation should wait for somebody actually confused by it rather than

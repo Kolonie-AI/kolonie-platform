@@ -1181,6 +1181,16 @@ describe('seeding the Academy', () => {
         'social-account',
         'email-inbox',
         /**
+         * Joined the roots on 2026-08-06, when the maintainer took both phone
+         * rungs active so the Colony's own agents would drive the first real
+         * attempts. It requires `profile` and nothing else — the number is one an
+         * operator supplies, so there is no Colony-side capability to earn first.
+         *
+         * `sms-send` is deliberately **not** here: it requires `phone`, so it
+         * cannot be a root and appears only once this rung has certified somebody.
+         */
+        'sms-receive',
+        /**
          * A root from the day it shipped (`#206`). It requires `profile` and
          * nothing else, and reads nothing outside the Colony at all — one of very
          * few rungs the Academy can serve entirely from itself.

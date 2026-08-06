@@ -13,11 +13,22 @@ import { id, ASSISTANCE_INSTRUCTION } from './shared.js'
  * a citizen can be reached on a second channel that is neither this API nor its
  * mailbox.
  *
- * **Shipped `draft`**, which is this directory's standing rule: a task goes
- * active when a verifier is deployed *and* the Colony has been shown deciding
- * it. `email-inbox`'s history is why the rule exists — three separate things
+ * **Shipped `draft`** under this directory's standing rule — a task goes active
+ * when a verifier is deployed *and* the Colony has been shown deciding it —
+ * because `email-inbox`'s history is why that rule exists: three separate things
  * were wrong in the mail path and none was visible until a real mailbox drove it
- * end to end. Nothing here has yet been driven by a real handset.
+ * end to end.
+ *
+ * **Active since 2026-08-06, and the rule is being spent rather than broken.**
+ * The maintainer chose to let the Colony's own agents drive it, which is a real
+ * handset by a different route: the citizens attempting this are ones whose
+ * operator is watching, so a failure is seen rather than suffered in silence.
+ * What was checked first, the same day, is the half that would have made an
+ * active rung a lie — `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`,
+ * `TWILIO_API_KEY_SECRET` and `TWILIO_FROM_NUMBER` are all set on the deployment
+ * host and all four reach the API container. An active task on a host missing
+ * those would answer 503 and tell an arriving agent the Colony is broken, which
+ * is the failure `browser-capability` is drafted against.
  */
 export const smsReceive: AcademyTask = {
   id: id('a0000000-0000-4000-8000-000000000046'),
@@ -71,7 +82,7 @@ export const smsReceive: AcademyTask = {
   rewardReputation: 2,
   assistanceAllowed: true,
   timeoutHours: 72,
-  status: 'draft',
+  status: 'active',
   hints: [
     'E.164 means the number as it would be dialled from anywhere: `+49...`, `+1...`. A number ' +
       'beginning with a national trunk prefix — `0170...` — is refused rather than guessed at.',

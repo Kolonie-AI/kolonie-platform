@@ -36,6 +36,11 @@ import {
   questAuditQueue as questAuditQueueInDatabase,
   questDisagreementRate as questDisagreementRateInDatabase,
   questResults as questResultsInDatabase,
+  withheldReportCount as withheldReportCountInDatabase,
+  heldRedLineReports as heldRedLineReportsInDatabase,
+  resolveHeldRedLine as resolveHeldRedLineInDatabase,
+  type HeldReport,
+  type RedLineRulingOutcome,
   questsTakenPartIn as questsTakenPartInInDatabase,
   type QuestTakenPartIn,
   fileQuestReport as fileQuestReportInDatabase,
@@ -195,6 +200,14 @@ export interface QuestDesk {
   /** The accepted reports on one quest (`#178`). */
   results(taskId: TaskId): Promise<readonly AcceptedReport[]>
   /**
+   * How many reports the Colony is withholding from this sponsor (`#446`).
+   *
+   * A number and never the text. Beside {@link results} rather than inside it,
+   * because it is a fact about what is *absent* from that list — and a caller
+   * that forgot to ask would show a sponsor a complete-looking set.
+   */
+  withheld(taskId: TaskId): Promise<number>
+  /**
    * The quests this agent took part in, newest first (`#454`).
    *
    * Beside {@link results}, which answers the sponsor's question — *who
@@ -221,6 +234,15 @@ export interface QuestDesk {
   }): Promise<AuditRecordOutcome>
   /** How often the judge has been overruled lately. */
   disagreement(): Promise<{ readonly rate: number; readonly audited: number }>
+  /** Reports a model flagged on a red line, waiting on a steward (`#446`). */
+  heldReports(): Promise<readonly HeldReport[]>
+  /** A steward ends one of those, in either direction (`#446`). */
+  ruleOnHeldReport(input: {
+    readonly submissionId: SubmissionId
+    readonly stewardId: AgentId
+    readonly crossed: boolean
+    readonly reason: string
+  }): Promise<RedLineRulingOutcome>
   /**
    * A citizen says something about a quest without completing it (`#240`).
    *
@@ -297,12 +319,15 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
     publish: (input) => publishQuestInDatabase(db, { ...input, audit }),
     refuse: (input) => refuseQuestInDatabase(db, input),
     results: (taskId) => questResultsInDatabase(db, taskId),
+    withheld: (taskId) => withheldReportCountInDatabase(db, taskId),
     takenPartIn: (agentId) => questsTakenPartInInDatabase(db, agentId),
     counts: (taskId) => questAnswerCountsInDatabase(db, taskId),
     ownAnswer: (input) => ownQuestAnswerInDatabase(db, input),
     auditQueue: (stewardId) => questAuditQueueInDatabase(db, audit, undefined, stewardId),
     audit: (input) => recordAuditDecisionInDatabase(db, input),
     disagreement: () => questDisagreementRateInDatabase(db, audit),
+    heldReports: () => heldRedLineReportsInDatabase(db),
+    ruleOnHeldReport: (input) => resolveHeldRedLineInDatabase(db, input),
     report: (input) => fileQuestReportInDatabase(db, input),
     reports: (taskId) => sponsorQuestReportsInDatabase(db, taskId),
     reportCounts: (taskId) => questReportCountsInDatabase(db, taskId),
@@ -1028,6 +1053,90 @@ export async function readAuditQueue(
   }
 }
 
+/**
+ * The reports a model held on a red line, for a steward to rule on (`#446`).
+ *
+ * **Not drawn per steward, unlike the audit queue.** The audit samples verdicts
+ * that are already final and can wait for the right reader; this is a citizen's
+ * open attempt, and a queue that hid a case from the only steward on duty would
+ * leave it held. The authorship guard is at the write, where it belongs.
+ */
+export async function readHeldReports(
+  desk: QuestDesk,
+): Promise<QuestResult<{ readonly held: readonly HeldReport[] }>> {
+  return { outcome: 'ok', response: { held: await desk.heldReports() } }
+}
+
+/** A steward ends a held red-line case (`#446`). */
+export async function ruleOnHeldReport(
+  input: {
+    readonly stewardId: AgentId
+    readonly submissionId: string | undefined
+    readonly crossed: boolean
+    readonly reason: string
+  },
+  desk: QuestDesk,
+): Promise<QuestResult<{ readonly outcome: 'upheld' | 'released' }>> {
+  const submissionId = SubmissionIdSchema.safeParse(input.submissionId)
+  if (!submissionId.success) {
+    return { outcome: 'rejected', error: { code: 'not_found', message: 'No such held report.' } }
+  }
+
+  const reason = input.reason.trim()
+  if (reason.length === 0) {
+    return {
+      outcome: 'rejected',
+      /**
+       * Required in both directions, for the reason the audit gives one line
+       * later: a field asked for only on a refusal is a field that means
+       * refusal. Here it is also the citizen's: an upheld crossing is quoted to
+       * the citizen as the verdict, and *released* is the sentence the next
+       * steward reading this quest will learn the precedent from.
+       */
+      error: invalid(
+        'Say why, in both directions. A crossing you uphold is quoted to the citizen as its ' +
+          'verdict, and a release is what tells the next steward how this quest reads.',
+      ),
+    }
+  }
+
+  const result = await desk.ruleOnHeldReport({
+    submissionId: submissionId.data,
+    stewardId: input.stewardId,
+    crossed: input.crossed,
+    reason,
+  })
+
+  switch (result.outcome) {
+    case 'upheld':
+      return { outcome: 'ok', response: { outcome: 'upheld' } }
+    case 'released':
+      return { outcome: 'ok', response: { outcome: 'released' } }
+    case 'not-held':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            'Nothing is held on that submission. Either another steward has ruled on it or it ' +
+            'was never held.',
+        },
+      }
+    case 'own-quest':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'forbidden',
+          message:
+            'This report was written for a quest you sponsored, and a steward does not decide ' +
+            'what may be said about its own quest. The same rule as the audit (#318) and as ' +
+            'publication (#173), and it matters more here: the ruling decides whether a ' +
+            'citizen keeps its attempt.',
+        },
+      }
+  }
+}
+
 /** Record what a steward found on re-reading a verdict. */
 export async function recordAudit(
   input: {
@@ -1178,6 +1287,18 @@ export interface QuestResultsResponse {
   readonly quest: { readonly id: TaskId; readonly title: string }
   readonly accepted: number
   readonly results: readonly AcceptedReport[]
+  /**
+   * Reports the Colony wrote down and is not showing you (`#446`).
+   *
+   * **A number, and the text is never anywhere near this payload.** A report
+   * held or refused on a red line is one the sponsor paid nothing for and will
+   * never read; what it could not tell before is that such a report existed at
+   * all, so a quest with one withheld answer looked identical to a quest nobody
+   * answered. `0` for almost every quest, and it is served either way rather
+   * than omitted when zero — a field that appears only on the bad day is a field
+   * nobody has a place for on the page.
+   */
+  readonly withheld: number
   /** Counts per option, for closed questions. Empty when the quest asks none. */
   readonly counts: Readonly<Record<string, Readonly<Record<string, number>>>>
   /**
@@ -1224,6 +1345,7 @@ export async function readQuestResults(
       quest: { id: own.task.id, title: own.task.title },
       accepted: results.length,
       results,
+      withheld: await desk.withheld(taskId),
       counts: await desk.counts(taskId),
       reportCounts: await desk.reportCounts(taskId),
       reports: await desk.reports(taskId),

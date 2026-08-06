@@ -4,7 +4,7 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   detectProviderChange,
-  failReportOnRedLine,
+  holdReportOnRedLine,
   unclassifiedDirections,
   writeDirectionClassification,
   pendingAnswerModerations,
@@ -197,7 +197,7 @@ const tripwire = {
 const answerStore: AnswerModerationStore = {
   pending: (limit) => pendingAnswerModerations(db, limit),
   write: (input) => writeScrubbedAnswers(db, input),
-  fail: (input) => failReportOnRedLine(db, input),
+  hold: (input) => holdReportOnRedLine(db, input),
 }
 
 /**

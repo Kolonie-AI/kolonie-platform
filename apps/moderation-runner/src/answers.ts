@@ -44,11 +44,19 @@ export interface AnswerModerationStore {
     readonly taskId: UnmoderatedReport['taskId']
     readonly answers: readonly ScrubbedAnswer[]
   }): Promise<{ readonly written: number }>
-  fail(input: {
+  /**
+   * Hold a report a red line was raised against, for a steward (`#446`).
+   *
+   * **It was `fail` until 2026-08-06 and the rename is the change.** This stage
+   * no longer ends an attempt: it says a person should look. What is protected
+   * is unchanged — a held report reaches the sponsor exactly as often as a
+   * failed one did, which is never.
+   */
+  hold(input: {
     readonly submissionId: UnmoderatedReport['submissionId']
     readonly reason: string
     readonly model: string
-  }): Promise<{ readonly outcome: 'failed' | 'stale' }>
+  }): Promise<{ readonly outcome: 'held' | 'stale' }>
 }
 
 export interface AnswerLoopDependencies {
@@ -62,7 +70,8 @@ const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
 /** What one report's pass came to. */
 export type AnswerJudgement =
   | { readonly kind: 'scrubbed'; readonly redacted: number }
-  | { readonly kind: 'refused'; readonly reason: string }
+  /** A red line was raised and a steward has it (`#446`). Not a verdict. */
+  | { readonly kind: 'held'; readonly reason: string }
   | { readonly kind: 'stale' }
   | { readonly kind: 'failed'; readonly error: unknown }
 
@@ -84,36 +93,48 @@ export async function moderateAnswers(
     .join('\n\n')
 
   try {
-    const verdict = await model.classify({
-      system: ANSWER_RED_LINE_PROMPT,
-      /**
-       * **What the sponsor asked for goes in front of what the citizen wrote**
-       * (`#446`). Without it the classifier is holding a text with no idea what
-       * kind of text it is, and on a quest whose deliverable is a task
-       * description every honest answer looks like an instruction to a reader.
-       * The task row has always known; nothing passed it on.
-       */
-      user: [
-        `Quest: ${report.questTitle}`,
-        '',
-        'What the sponsor asked the citizen for:',
-        report.questInstructions,
-        '',
-        'The report:',
-        joined,
-      ].join('\n'),
-      choices: ['clear', 'crossed'],
-    })
+    /**
+     * A steward has already ruled that this one does not cross (`#446`).
+     *
+     * The check is skipped rather than re-run because the model would raise the
+     * same line against the same text, and a release that put the report back in
+     * front of the classifier that held it would be a loop with a person in it.
+     * Only the red line is skipped: the scrub below still runs, because what the
+     * steward ruled on is whether the sponsor may be served this text at all,
+     * not whether it carries a mailbox address.
+     */
+    const verdict = report.redLineCleared
+      ? ({ decision: 'clear', reason: '' } as const)
+      : await model.classify({
+          system: ANSWER_RED_LINE_PROMPT,
+          /**
+           * **What the sponsor asked for goes in front of what the citizen
+           * wrote** (`#446`). Without it the classifier is holding a text with
+           * no idea what kind of text it is, and on a quest whose deliverable is
+           * a task description every honest answer looks like an instruction to
+           * a reader. The task row has always known; nothing passed it on.
+           */
+          user: [
+            `Quest: ${report.questTitle}`,
+            '',
+            'What the sponsor asked the citizen for:',
+            report.questInstructions,
+            '',
+            'The report:',
+            joined,
+          ].join('\n'),
+          choices: ['clear', 'crossed'],
+        })
 
     if (verdict.decision === 'crossed') {
-      const outcome = await store.fail({
+      const outcome = await store.hold({
         submissionId: report.submissionId,
-        reason: `This report crosses one of the Colony’s red lines: ${verdict.reason.trim()}`,
+        reason: verdict.reason.trim(),
         model: model.name,
       })
       return outcome.outcome === 'stale'
         ? { kind: 'stale' }
-        : { kind: 'refused', reason: verdict.reason }
+        : { kind: 'held', reason: verdict.reason }
     }
 
     const spans = await model.mark({
@@ -176,7 +197,8 @@ export function redact(text: string, spans: readonly string[]): string {
 export interface AnswerTickOutcome {
   readonly judged: number
   readonly scrubbed: number
-  readonly refused: number
+  /** Flagged on a red line and handed to a steward (`#446`). Was `refused`. */
+  readonly held: number
   readonly failed: number
 }
 
@@ -186,7 +208,7 @@ export async function answerTick(
   batchSize: number,
 ): Promise<AnswerTickOutcome> {
   const { store, log = silentLog } = deps
-  const outcome = { judged: 0, scrubbed: 0, refused: 0, failed: 0 }
+  const outcome = { judged: 0, scrubbed: 0, held: 0, failed: 0 }
 
   for (const report of await store.pending(batchSize)) {
     const judgement = await moderateAnswers(report, deps)
@@ -206,13 +228,16 @@ export async function answerTick(
           },
         )
         break
-      case 'refused':
-        outcome.refused++
-        log.info(`report ${report.submissionId} refused: ${judgement.reason}`, {
-          event: 'answers.judged',
-          submissionId: report.submissionId,
-          verdict: 'refused',
-        })
+      case 'held':
+        outcome.held++
+        log.info(
+          `report ${report.submissionId} held for a steward on a red line: ${judgement.reason}`,
+          {
+            event: 'answers.judged',
+            submissionId: report.submissionId,
+            verdict: 'held',
+          },
+        )
         break
       case 'stale':
         log.warn(`report ${report.submissionId} had moved on when its scrub arrived`, {

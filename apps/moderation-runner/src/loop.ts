@@ -466,12 +466,12 @@ async function scrubAnswers(deps: LoopDependencies, batchSize: number, log: Log)
     if (outcome.judged > 0) {
       log.info(
         `quest reports: ${outcome.judged} read, ${outcome.scrubbed} scrubbed, ` +
-          `${outcome.refused} refused, ${outcome.failed} deferred`,
+          `${outcome.held} held for a steward, ${outcome.failed} deferred`,
         {
           event: 'answers.pass.done',
           judged: outcome.judged,
           scrubbed: outcome.scrubbed,
-          refused: outcome.refused,
+          held: outcome.held,
           failed: outcome.failed,
         },
       )

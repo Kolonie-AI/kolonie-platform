@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  RED_LINE_REVIEW_NOTICE,
   TaskTypeSchema,
   type QuestQuestion,
   type Submission,
@@ -68,9 +69,11 @@ const aQuest = (overrides: Partial<QuestDefinition> = {}): QuestDefinition => ({
 const reports = (options: {
   readonly quest?: QuestDefinition | null
   readonly scrubbed?: readonly ScrubbedAnswer[] | null
+  readonly held?: boolean
 }): QuestReports => ({
   definition: async () => (options.quest === undefined ? aQuest() : options.quest),
   scrubbed: async () => (options.scrubbed === undefined ? ANSWERS : options.scrubbed),
+  heldForReview: async () => options.held === true,
 })
 
 const judging = (judgement: { pass: boolean; reason: string } | null) => {
@@ -241,6 +244,34 @@ describe('the quest-report verifier', () => {
        */
       expect(result.metadata).toEqual({ queuedInColony: true })
       // Unscrubbed text never reaches the judge.
+      expect(asked).toEqual([])
+    })
+
+    /**
+     * The wait a steward is the other end of (`#446`).
+     *
+     * Same `pending`, same `queuedInColony`, different sentence — and before
+     * this the branch did not exist: a red line here ended the attempt, told the
+     * citizen its own work was an attack, and quoted the sentence back to it.
+     */
+    it('says a steward is reading it when the report is held on a red line', async () => {
+      const { judge, asked } = judging({ pass: true, reason: 'fine' })
+      const verifier = new QuestReportVerifier({
+        reports: reports({ scrubbed: null, held: true }),
+        judge,
+        proofStage: () => undefined,
+      })
+
+      const result = await verifier.verify(aSubmission(), aContext())
+
+      expect(result.status).toBe('pending')
+      expect(result.evidence).toBe(RED_LINE_REVIEW_NOTICE)
+      // What the citizen is owed: that it is not refused, that a person decides
+      // it, and that the sponsor has seen nothing in the meantime.
+      expect(result.evidence).toContain('has not been refused')
+      expect(result.evidence).toContain('a steward')
+      expect(result.evidence).toContain('nothing about your report has been shown to the sponsor')
+      expect(result.metadata).toEqual({ queuedInColony: true, redLineReview: 'held' })
       expect(asked).toEqual([])
     })
 

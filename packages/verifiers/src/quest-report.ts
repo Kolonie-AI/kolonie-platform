@@ -1,5 +1,6 @@
 import {
   QUEST_TASK_TYPE,
+  RED_LINE_REVIEW_NOTICE,
   TaskTypeSchema,
   type QuestQuestion,
   type Submission,
@@ -78,6 +79,15 @@ export interface QuestReports {
    * happen, because stage 1 already refused an empty report.
    */
   scrubbed(submissionId: string): Promise<readonly ScrubbedAnswer[] | null>
+  /**
+   * Whether a steward is holding this report on a red line (`#446`).
+   *
+   * Only ever asked when {@link scrubbed} answered `null`, because both mean
+   * *no answers yet* and the citizen is owed the difference: *the queue has not
+   * reached you* and *a person is reading yours* are not the same wait, and the
+   * second one used to be a refusal.
+   */
+  heldForReview(submissionId: string): Promise<boolean>
 }
 
 /** What the judge answers. Pass or fail, and a sentence the citizen reads. */
@@ -153,6 +163,21 @@ export class QuestReportVerifier implements Verifier {
        * report was retried at thirty seconds against a moderation stage that
        * takes about three minutes, and filed a defect ticket about itself.
        */
+      /**
+       * **A steward has it, and the citizen is told so** (`#446`). Same
+       * `pending`, same `queuedInColony` — what is being waited on is still a
+       * stage inside the Colony — and a different sentence, because a person
+       * reading your report is a different wait from a queue that has not got
+       * to it. Before this, a red line here ended the attempt outright.
+       */
+      if (await this.#reports.heldForReview(submission.id)) {
+        return {
+          status: 'pending',
+          evidence: RED_LINE_REVIEW_NOTICE,
+          metadata: { queuedInColony: true, redLineReview: 'held' },
+        }
+      }
+
       return {
         status: 'pending',
         evidence: 'Your report is with the Colony’s moderator and has not been judged yet.',

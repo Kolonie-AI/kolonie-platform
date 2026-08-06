@@ -328,4 +328,14 @@ export const STEWARD_TOOLS = [
   'kolonie.quests.refuse',
   'kolonie.quests.audit',
   'kolonie.quests.audit.record',
+  /**
+   * The red-line hold (`#446`).
+   *
+   * **Beside the audit and doing the opposite job.** The audit re-reads verdicts
+   * that are already final and changes no payout; these two are the only steward
+   * surface where a citizen's open attempt is waiting on the reading. Listed
+   * after it so a steward meets the reversible one first.
+   */
+  'kolonie.quests.held',
+  'kolonie.quests.held.record',
 ] as const

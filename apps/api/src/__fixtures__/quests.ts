@@ -10,10 +10,16 @@ import {
   questCommitment,
   type AgentId,
   type CreditMovement,
+  type SubmissionId,
   type Task,
   type TaskId,
 } from '@kolonie-ai/core'
-import type { AudienceCriteria, OwnQuest, QuestResult as AcceptedReport } from '@kolonie-ai/db'
+import type {
+  AudienceCriteria,
+  HeldReport,
+  OwnQuest,
+  QuestResult as AcceptedReport,
+} from '@kolonie-ai/db'
 import type { QuestDesk } from '../quests.js'
 import type { QuestTakenPartIn } from '@kolonie-ai/db'
 
@@ -75,6 +81,20 @@ export interface FakeQuestDesk extends QuestDesk {
    * through the criteria, only through the number they returned.
    */
   readonly countAudienceAs: (citizens: number) => void
+  /**
+   * Hold a report on a red line, which only the moderation runner can do
+   * (`#446`).
+   *
+   * It is in another workspace, so without this every steward test would be
+   * testing the empty queue — and the withheld count a sponsor reads would have
+   * no way to be anything but zero.
+   */
+  readonly holdOnRedLine: (input: {
+    readonly submissionId: SubmissionId
+    readonly taskId: TaskId
+    readonly authorId?: AgentId
+    readonly flaggedFor?: string
+  }) => void
 }
 
 /**
@@ -175,6 +195,9 @@ export function fakeQuests(): FakeQuestDesk {
   const tookPart = new Map<AgentId, QuestTakenPartIn[]>()
 
   const audits = new Map<string, { agrees: boolean }>()
+
+  /** Reports a red line was raised against, waiting on a steward (`#446`). */
+  const heldRedLine = new Map<string, HeldReport & { readonly authorId?: AgentId }>()
 
   /**
    * What citizens said about the quests themselves (`#240`), keyed the way the
@@ -296,6 +319,32 @@ export function fakeQuests(): FakeQuestDesk {
       return []
     },
 
+    /**
+     * The red-line hold, in memory (`#446`).
+     *
+     * The queue and the SQL that decides *which state is current* are
+     * `packages/db`'s and are asserted there against a real Postgres. What this
+     * reproduces is what the routes rely on: a case is held until somebody rules
+     * on it, one ruling ends it, and a steward does not rule on its own quest.
+     */
+    async heldReports() {
+      return [...heldRedLine.values()]
+    },
+
+    async ruleOnHeldReport({ submissionId, stewardId, crossed }) {
+      const held = heldRedLine.get(submissionId)
+      if (held === undefined) return { outcome: 'not-held' }
+      if (held.authorId !== undefined && held.authorId === stewardId) {
+        return { outcome: 'own-quest' }
+      }
+      heldRedLine.delete(submissionId)
+      return { outcome: crossed ? 'upheld' : 'released' }
+    },
+
+    async withheld(taskId) {
+      return [...heldRedLine.values()].filter((report) => report.taskId === taskId).length
+    },
+
     async audit({ submissionId, agrees, reason }) {
       if (reason.trim().length < 10) return { outcome: 'unknown-submission' }
       if (audits.has(submissionId)) return { outcome: 'already-audited' }
@@ -412,6 +461,20 @@ export function fakeQuests(): FakeQuestDesk {
 
     countAudienceAs(citizens) {
       fixedAudience = citizens
+    },
+
+    holdOnRedLine({ submissionId, taskId, authorId, flaggedFor }) {
+      heldRedLine.set(submissionId, {
+        submissionId,
+        taskId,
+        questTitle: 'A quest',
+        questInstructions: 'What the sponsor asked for.',
+        flaggedFor: flaggedFor ?? 'It tells the reader to run a script.',
+        model: 'test-model',
+        heldAt: new Date().toISOString() as HeldReport['heldAt'],
+        answers: [{ questionKey: 'what-happened', text: 'The report, as written.' }],
+        ...(authorId !== undefined && { authorId }),
+      })
     },
 
     answersMovements(next) {

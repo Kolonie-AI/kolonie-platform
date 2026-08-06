@@ -642,6 +642,30 @@ export async function expireOverdueSubmissions(
         and(
           inArray(submissions.status, [...OPEN_STATUSES]),
           sql`${submissions.submittedAt} + make_interval(hours => ${tasks.timeoutHours}) <= ${deadline}::timestamptz`,
+          /**
+           * A report a steward is holding does not expire (`#446`).
+           *
+           * **`timeoutHours` bounds a wait on the world, and this is a wait on
+           * us.** The comment above says it: the ordinary case is that the task
+           * waits on the real world and the world never answered. A red-line
+           * hold is the Colony reading a citizen's text and not having finished
+           * — and expiring the citizen for that is the Colony recording its own
+           * delay as the citizen's loss, which is the standing rule `#170` exists
+           * to state.
+           *
+           * The cost is a held report that nobody rules on staying open
+           * indefinitely, and it is the right way round: the alternative closes
+           * the case by clock, which is a machine having the last word on
+           * exactly the verdict `#446` took away from one.
+           */
+          sql`(
+            select v.metadata->>'redLineReview'
+              from verifications v
+             where v.submission_id = submissions.id
+               and v.metadata->>'redLineReview' is not null
+             order by v.created_at desc, v.id desc
+             limit 1
+          ) is distinct from 'held'`,
         ),
       )
       .orderBy(asc(submissions.submittedAt))

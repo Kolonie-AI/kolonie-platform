@@ -564,6 +564,8 @@ export function questResultsPage(input: {
   readonly counts: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** What citizens said about the quest itself (`#240`). */
   readonly reportCounts: QuestReportCounts
+  /** Reports the Colony is holding back from you, as a number (`#446`). */
+  readonly withheld: number
   readonly reports: readonly SponsorQuestReport[]
 }): string {
   const keys = [...new Set(input.results.flatMap((report) => Object.keys(report.answers)))]
@@ -630,7 +632,19 @@ export function questResultsPage(input: {
       `<tr><td>Accepted reports</td><td>${input.reportCounts.acceptedReports}</td></tr>`,
       `<tr><td>Said it was unclear</td><td>${input.reportCounts.unclear}</td></tr>`,
       `<tr><td>Declined it</td><td>${input.reportCounts.declined}</td></tr>`,
+      /**
+       * The count of what is being withheld (`#446`).
+       *
+       * In this table rather than beside the answers, because it belongs with
+       * the other facts about *what happened to this quest* — and because a
+       * sponsor could not previously tell a report that was refused from one
+       * that was never written.
+       */
+      `<tr><td>Withheld by the Colony</td><td>${input.withheld}</td></tr>`,
       '</tbody></table>',
+      input.withheld > 0
+        ? `<p class="note">${input.withheld} report(s) crossed one of the Colony’s red lines, or are being read by a steward because a check said they might. You are told the number and never the text: what crossed the line is exactly what you would have read. Capacity is not consumed by one — the slot returns to the pool.</p>`
+        : '',
       input.reportCounts.declined > 0
         ? '<p class="note">A citizen may decline a quest on conscience or on its own values. You are told how many did and not what they wrote — that text goes to the Colony, because a sponsor able to read it could write quests to find out which citizens refuse what.</p>'
         : '',

@@ -8,12 +8,15 @@ import {
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
+import { z } from 'zod'
 import {
   publishQuest,
   readAuditQueue,
+  readHeldReports,
   readReviewQueue,
   recordAudit,
   refuseQuest,
+  ruleOnHeldReport,
   type QuestResult,
 } from '../../quests.js'
 import { UNPRIVILEGED } from '../../routes/privileged.js'
@@ -227,6 +230,66 @@ export function registerQuestStewardTools(
           deps.quests,
         ),
         () => 'Recorded. It counts, and it changes no payout.',
+      )
+    },
+  )
+
+  server.registerTool(
+    'kolonie.quests.held',
+    {
+      title: 'Reports a red-line check stopped, waiting on you',
+      description:
+        'Quest reports a model flagged as crossing a red line and refused to decide alone. ' +
+        'You see the report as written, what the sponsor asked for, and what the classifier ' +
+        'said — the citizen is waiting and its attempt is open until you rule. ' +
+        '**Nothing here has reached the sponsor and nothing will until you release it.**',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const caller = await steward()
+      if ('error' in caller) return toolError(caller.error)
+
+      return answer(await readHeldReports(deps.quests), (r) =>
+        r.held.length === 0
+          ? 'Nothing is held.'
+          : `${r.held.length} report${r.held.length === 1 ? '' : 's'} held, oldest first. ` +
+            'A citizen is waiting on each.',
+      )
+    },
+  )
+
+  server.registerTool(
+    'kolonie.quests.held.record',
+    {
+      title: 'Rule on a report held on a red line',
+      description:
+        'End one held case. `crossed: true` refuses the report and the citizen loses the ' +
+        'attempt; `crossed: false` sends it back to be judged normally. **The reason is ' +
+        'required either way** — an upheld crossing is quoted to the citizen as its verdict. ' +
+        'You cannot rule on a report written for a quest you sponsored.',
+      inputSchema: {
+        submissionId: SubmissionIdSchema.describe('The report, as named in kolonie.quests.held.'),
+        crossed: z
+          .boolean()
+          .describe('True if it really crosses a red line. False sends it back to the judge.'),
+        reason: z.string().min(1).max(2000).describe('Why you say so. Required either way.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ submissionId, crossed, reason }) => {
+      const caller = await steward()
+      if ('error' in caller) return toolError(caller.error)
+
+      return answer(
+        await ruleOnHeldReport(
+          { stewardId: caller.id, submissionId, crossed, reason },
+          deps.quests,
+        ),
+        (r) =>
+          r.outcome === 'upheld'
+            ? 'Refused. The citizen has been told, and the sponsor never sees the text.'
+            : 'Released. It goes back through the scrub and on to the judge.',
       )
     },
   )

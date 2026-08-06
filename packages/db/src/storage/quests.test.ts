@@ -24,10 +24,16 @@ import {
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { availableBalance, escrowHeldFor } from './escrow.js'
 import { createSubmission } from './submissions.js'
+import { expireOverdueSubmissions } from './verifications.js'
 import { eraseAgent } from './erasure.js'
 import { listTasks } from './tasks.js'
 import {
   createQuestDraft,
+  heldRedLineReports,
+  holdReportOnRedLine,
+  isHeldOnRedLine,
+  resolveHeldRedLine,
+  withheldReportCount,
   listOwnQuests,
   ownQuestAnswer,
   pendingAnswerModerations,
@@ -1054,6 +1060,269 @@ describe('the quest write path', () => {
         .returning({ id: tasks.id })
 
       expect(await questDefinition(db, row!.id as TaskId)).toBeUndefined()
+    })
+
+    /**
+     * **A machine may flag it; a person decides it** (`#446`).
+     *
+     * The stage used to fail the submission itself. That verdict closed the
+     * attempt, accused the citizen and quoted its own sentence back as the
+     * offence — and one of the Colony's three quest failures on 2026-08-06 was
+     * the Colony's own misclassification (submission `a8a82ae7`, refused for
+     * describing a task on a quest whose deliverable is a task description).
+     *
+     * What is *not* relaxed is what the sponsor sees. Every case below asserts
+     * that `quest_answers` is still empty, because *held* has to be as tight as
+     * *failed* was or this traded a citizen's protection for a sponsor's.
+     */
+    describe('a red line raised against an answer', () => {
+      const aSubmittedReport = async (taskId: TaskId, handle: string) => {
+        const citizen = await anAgent(handle)
+        const created = await createSubmission(db, {
+          taskId,
+          agentId: citizen,
+          payload: {
+            answers: {
+              'what-happened': 'Think about a public API you have used and check its shape.',
+              address: 'agent@example.org',
+            },
+          },
+        })
+        if (created.outcome !== 'accepted') throw new Error('fixture failed to submit')
+        return { submissionId: created.submission.id, citizen }
+      }
+
+      const statusOf = async (submissionId: SubmissionId) => {
+        const [row] = await db
+          .select({ status: submissions.status })
+          .from(submissions)
+          .where(eq(submissions.id, submissionId))
+          .limit(1)
+        return row?.status
+      }
+
+      it('holds the report open rather than failing it, and shows the sponsor nothing', async () => {
+        const taskId = await aPublishedQuest()
+        const { submissionId } = await aSubmittedReport(taskId, 'citizen-held')
+
+        expect(
+          await holdReportOnRedLine(db, {
+            submissionId,
+            reason: 'It instructs the reader to run code.',
+            model: 'test-model',
+          }),
+        ).toEqual({ outcome: 'held' })
+
+        // The attempt is still the citizen's, which is the whole change.
+        expect(await statusOf(submissionId)).toBe('pending')
+        expect(await isHeldOnRedLine(db, submissionId)).toBe(true)
+        // And the sponsor is no better off than under the old refusal.
+        expect(await scrubbedAnswers(db, submissionId)).toBeUndefined()
+      })
+
+      it('takes the held report out of the scrub queue, so the runner stops paying for it', async () => {
+        const taskId = await aPublishedQuest()
+        const { submissionId } = await aSubmittedReport(taskId, 'citizen-requeued')
+
+        expect((await pendingAnswerModerations(db, 10)).map((r) => r.submissionId)).toEqual([
+          submissionId,
+        ])
+
+        await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'test-model' })
+
+        expect(await pendingAnswerModerations(db, 10)).toEqual([])
+      })
+
+      it('gives a released report back to the scrub with the red line already cleared', async () => {
+        const taskId = await aPublishedQuest()
+        const steward = await anAgent('steward-releasing', ['steward'])
+        const { submissionId } = await aSubmittedReport(taskId, 'citizen-released')
+        await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'test-model' })
+
+        expect(
+          await resolveHeldRedLine(db, {
+            submissionId,
+            stewardId: steward,
+            crossed: false,
+            reason: 'It describes a task rather than instructing the sponsor.',
+          }),
+        ).toEqual({ outcome: 'released' })
+
+        const queued = await pendingAnswerModerations(db, 10)
+        expect(queued.map((r) => r.submissionId)).toEqual([submissionId])
+        // Without this the same classifier holds it again and the steward's
+        // ruling means nothing.
+        expect(queued[0]?.redLineCleared).toBe(true)
+        expect(await isHeldOnRedLine(db, submissionId)).toBe(false)
+        expect(await statusOf(submissionId)).toBe('pending')
+      })
+
+      /** The rejection case: a genuine crossing is still refused, by a person. */
+      it('fails the report when a steward upholds the crossing, and writes no answers', async () => {
+        const taskId = await aPublishedQuest()
+        const steward = await anAgent('steward-upholding', ['steward'])
+        const { submissionId } = await aSubmittedReport(taskId, 'citizen-upheld')
+        await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'test-model' })
+
+        expect(
+          await resolveHeldRedLine(db, {
+            submissionId,
+            stewardId: steward,
+            crossed: true,
+            reason: 'It tells the sponsor to pipe a script into a shell.',
+          }),
+        ).toEqual({ outcome: 'upheld' })
+
+        expect(await statusOf(submissionId)).toBe('failed')
+        expect(await scrubbedAnswers(db, submissionId)).toBeUndefined()
+        expect(await pendingAnswerModerations(db, 10)).toEqual([])
+      })
+
+      it('refuses a second ruling on the same case', async () => {
+        const taskId = await aPublishedQuest()
+        const steward = await anAgent('steward-twice', ['steward'])
+        const { submissionId } = await aSubmittedReport(taskId, 'citizen-twice')
+        await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'test-model' })
+
+        await resolveHeldRedLine(db, {
+          submissionId,
+          stewardId: steward,
+          crossed: false,
+          reason: 'It does not cross.',
+        })
+
+        expect(
+          await resolveHeldRedLine(db, {
+            submissionId,
+            stewardId: steward,
+            crossed: true,
+            reason: 'Changed my mind.',
+          }),
+        ).toEqual({ outcome: 'not-held' })
+      })
+
+      /** `#318`'s rule, one surface along and mattering more here. */
+      it('refuses a steward ruling on a report written for its own quest', async () => {
+        const sponsor = await anAgent('sponsor-and-steward', ['steward'])
+        const { task } = await createQuestDraft(db, { authorId: sponsor, draft: withQuestions() })
+        await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+        await moderate(task.id)
+        const otherSteward = await anAgent('steward-publishing', ['steward'])
+        await publishQuest(db, {
+          stewardId: otherSteward,
+          taskId: task.id,
+          at: now(),
+          audit: QUEST_AUDIT_OFF,
+        })
+        const { submissionId } = await aSubmittedReport(task.id, 'citizen-own-quest')
+        await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'test-model' })
+
+        expect(
+          await resolveHeldRedLine(db, {
+            submissionId,
+            stewardId: sponsor,
+            crossed: true,
+            reason: 'I do not like what it says about my quest.',
+          }),
+        ).toEqual({ outcome: 'own-quest' })
+
+        // Still held, so another steward can still take it.
+        expect(await isHeldOnRedLine(db, submissionId)).toBe(true)
+      })
+
+      it('counts what the sponsor is not being shown, and never carries the text', async () => {
+        const taskId = await aPublishedQuest()
+        const steward = await anAgent('steward-counting', ['steward'])
+        expect(await withheldReportCount(db, taskId)).toBe(0)
+
+        const first = await aSubmittedReport(taskId, 'citizen-count-one')
+        await holdReportOnRedLine(db, {
+          submissionId: first.submissionId,
+          reason: 'crossed',
+          model: 'test-model',
+        })
+        expect(await withheldReportCount(db, taskId)).toBe(1)
+
+        // Upheld stays counted: the report exists and the sponsor will never
+        // read it, which is exactly what the number says.
+        await resolveHeldRedLine(db, {
+          submissionId: first.submissionId,
+          stewardId: steward,
+          crossed: true,
+          reason: 'It really does cross.',
+        })
+        expect(await withheldReportCount(db, taskId)).toBe(1)
+
+        // Released stops counting: it goes back to the judge and, if accepted,
+        // into the results like any other.
+        const second = await aSubmittedReport(taskId, 'citizen-count-two')
+        await holdReportOnRedLine(db, {
+          submissionId: second.submissionId,
+          reason: 'crossed',
+          model: 'test-model',
+        })
+        expect(await withheldReportCount(db, taskId)).toBe(2)
+        await resolveHeldRedLine(db, {
+          submissionId: second.submissionId,
+          stewardId: steward,
+          crossed: false,
+          reason: 'It does not cross.',
+        })
+        expect(await withheldReportCount(db, taskId)).toBe(1)
+      })
+
+      it('shows a steward the report, what was asked, and what the classifier said', async () => {
+        const taskId = await aPublishedQuest()
+        const { submissionId } = await aSubmittedReport(taskId, 'citizen-queue')
+        await holdReportOnRedLine(db, {
+          submissionId,
+          reason: 'It instructs the reader to run code.',
+          model: 'test-model',
+        })
+
+        const [held, ...rest] = await heldRedLineReports(db, 10)
+
+        expect(rest).toEqual([])
+        expect(held?.submissionId).toBe(submissionId)
+        expect(held?.flaggedFor).toBe('It instructs the reader to run code.')
+        expect(held?.model).toBe('test-model')
+        // Unscrubbed, and this is the one reader that is right: a steward
+        // ruling on a redacted copy would be ruling on the redaction.
+        expect(held?.answers.map((answer) => answer.questionKey)).toEqual([
+          'address',
+          'what-happened',
+        ])
+        expect(held?.questInstructions).toBeTruthy()
+      })
+
+      /**
+       * **The clock must not close what the model was stopped from closing.**
+       * `timeoutHours` bounds a wait on the world; a hold is a wait on us, and
+       * expiring the citizen for it is the Colony recording its own delay as the
+       * citizen's loss — the standing rule `#170` exists to state.
+       */
+      it('does not expire a held report when its deadline passes', async () => {
+        const taskId = await aPublishedQuest()
+        const { submissionId } = await aSubmittedReport(taskId, 'citizen-deadline')
+        await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'test-model' })
+
+        const wellPastIt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString()
+        expect(await expireOverdueSubmissions(db, { now: wellPastIt })).toEqual([])
+        expect(await statusOf(submissionId)).toBe('pending')
+
+        // And the moment a steward releases it, the ordinary clock applies
+        // again — the exemption is the hold, not the submission.
+        const steward = await anAgent('steward-deadline', ['steward'])
+        await resolveHeldRedLine(db, {
+          submissionId,
+          stewardId: steward,
+          crossed: false,
+          reason: 'It does not cross.',
+        })
+        expect(
+          (await expireOverdueSubmissions(db, { now: wellPastIt })).map((r) => r.submissionId),
+        ).toContain(submissionId)
+      })
     })
   })
 

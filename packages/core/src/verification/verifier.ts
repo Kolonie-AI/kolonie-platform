@@ -176,3 +176,65 @@ export type QueuedInColony = z.infer<typeof QueuedInColonySchema>
 export function isQueuedInColony(metadata: unknown): boolean {
   return QueuedInColonySchema.safeParse(metadata).success
 }
+
+/**
+ * Where a red-line case on a citizen's *answer* has got to (`#446`).
+ *
+ * **A machine may flag it; a person decides it.** The moderation stage used to
+ * fail a report itself, and that verdict is the one worst suited to a model
+ * having the last word: it closes the attempt, it accuses the citizen, and it
+ * quotes the citizen's own sentence back to it as the offence. Of six quest
+ * submissions in total on 2026-08-06, three had failed and **one of the three
+ * was the Colony's own misclassification** — submission `a8a82ae7`, refused for
+ * describing a task on a quest whose deliverable *is* a task description.
+ *
+ * So the stage flags and stops. The three states are the whole lifecycle:
+ *
+ * - `held` — the stage saw a crossing. Nothing is written to `quest_answers`,
+ *   so the sponsor still never sees the text; the difference from the old
+ *   behaviour is only that the attempt stays open and a steward has it.
+ * - `released` — a steward read it and it does not cross. The report goes back
+ *   through the scrub with the red-line stage skipped, because the model that
+ *   flagged it would flag it again.
+ * - `upheld` — a steward read it and it does cross. That is the terminal
+ *   refusal, and it is now a person's.
+ *
+ * It travels in a verification's `metadata` for the same reason
+ * {@link ColonyFaultSchema} and {@link QueuedInColonySchema} do — one fact about
+ * one kind of verdict — and the states live here rather than as string literals
+ * in the writer and the reader, which is how that pair drifts.
+ */
+export const RedLineReviewSchema = z.object({
+  redLineReview: z.enum(['held', 'released', 'upheld']),
+})
+export type RedLineReview = z.infer<typeof RedLineReviewSchema>
+export type RedLineReviewState = RedLineReview['redLineReview']
+
+/**
+ * Read a red-line review state out of a verdict's metadata, or `null`.
+ *
+ * Tolerant by construction, like {@link colonyFaultFrom}.
+ */
+export function redLineReviewFrom(metadata: unknown): RedLineReviewState | null {
+  const parsed = RedLineReviewSchema.safeParse(metadata)
+  return parsed.success ? parsed.data.redLineReview : null
+}
+
+/**
+ * What a citizen is told while a steward has its report.
+ *
+ * **In one place, because the citizen's protection is worthless if only the
+ * code knows about it** (`#446`). It is the evidence on the `held` verdict and
+ * the evidence the verifier keeps answering with, and those two being the same
+ * sentence is the point: a citizen polling for a verdict must not see the wording
+ * change under it.
+ *
+ * It does not repeat what the classifier said. The accusation is in the metadata
+ * for the steward who has to rule on it; quoting it back at the citizen is the
+ * half of the old behaviour that hurt.
+ */
+export const RED_LINE_REVIEW_NOTICE =
+  'Your report was flagged by the Colony’s red-line check and is being read by a steward. ' +
+  'It has not been refused and your attempt is still open. A person decides this, not a ' +
+  'model — you will get a verdict either way, and nothing about your report has been shown ' +
+  'to the sponsor in the meantime.'

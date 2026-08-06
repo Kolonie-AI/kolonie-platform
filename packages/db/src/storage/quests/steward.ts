@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import {
   QuestAnswersSchema,
+  RED_LINE_REVIEW_NOTICE,
   StoredQuestQuestionsSchema,
   paidQuestRejection,
   platformFeePercentFromEnv,
@@ -416,7 +417,38 @@ export interface UnmoderatedReport {
    */
   readonly questInstructions: string
   readonly answers: readonly ScrubbedAnswer[]
+  /**
+   * A steward has already read this one and said it does not cross (`#446`).
+   *
+   * **The red-line stage is skipped when it is set, and that is not a loophole
+   * — it is the only way a release can mean anything.** The model that held the
+   * report would hold it again on the same text, so a released report that went
+   * back through the same check would come straight back to the same steward.
+   * The scrub itself still runs: what a steward ruled on is the red line, not
+   * whether the text carries a mailbox address.
+   */
+  readonly redLineCleared: boolean
 }
+
+/**
+ * The latest red-line review state on a submission, as SQL (`#446`).
+ *
+ * A correlated subquery rather than a join, because it is asked about one
+ * submission at a time in three different `where` clauses, and a join would put
+ * the ordering rule — *the newest marker wins* — in three places.
+ *
+ * `created_at desc, id desc`: two markers can share a timestamp, and a tie
+ * broken arbitrarily is a report that reads as held to one query and released to
+ * another.
+ */
+const latestRedLineReview = sql`(
+  select v.metadata->>'redLineReview'
+    from verifications v
+   where v.submission_id = submissions.id
+     and v.metadata->>'redLineReview' is not null
+   order by v.created_at desc, v.id desc
+   limit 1
+)`
 
 /**
  * Reports waiting for the scrub: submitted, undecided, and with no answers
@@ -437,6 +469,7 @@ export async function pendingAnswerModerations(
       payload: submissions.payload,
       questTitle: tasks.title,
       questInstructions: tasks.instructions,
+      redLineReview: latestRedLineReview,
     })
     .from(submissions)
     .innerJoin(tasks, eq(tasks.id, submissions.taskId))
@@ -447,6 +480,15 @@ export async function pendingAnswerModerations(
         sql`not exists (
           select 1 from ${questAnswers} where ${questAnswers.submissionId} = ${submissions.id}
         )`,
+        /**
+         * A report a steward is holding is not the runner's to scrub (`#446`).
+         *
+         * Without this the loop is infinite in the quiet way: the stage holds
+         * the report, writes no answers, and the next tick reads the same row
+         * back and pays for the same model call again. `upheld` needs no clause
+         * — that path fails the submission, and the status filter above has it.
+         */
+        sql`${latestRedLineReview} is distinct from 'held'`,
       ),
     )
     .orderBy(asc(submissions.submittedAt))
@@ -457,6 +499,7 @@ export async function pendingAnswerModerations(
     taskId: row.taskId as TaskId,
     questTitle: row.questTitle,
     questInstructions: row.questInstructions,
+    redLineCleared: row.redLineReview === 'released',
     answers: Object.entries(QuestAnswersSchema.parse((row.payload as QuestPayload).answers ?? {}))
       .map(([questionKey, text]) => ({ questionKey, text }))
       .sort((left, right) => left.questionKey.localeCompare(right.questionKey)),
@@ -514,23 +557,29 @@ export async function writeScrubbedAnswers(
 }
 
 /**
- * Fail a report whose answers crossed a red line, in one transaction with the
- * verdict that says so.
+ * Hold a report whose answers a model says cross a red line, for a steward
+ * (`#446`).
  *
- * **The scrub stage is the one place a citizen's *answer* can be refused before
- * a judge reads it**, and it is a refusal of the report rather than of the
- * citizen: the slot returns to the pool exactly as any other failure does.
- * Nothing is written to `quest_answers`, so the sponsor never sees the text —
- * which is the point, since what crossed the line is what it would have read.
+ * **This replaced the stage's own `fail` as its move, and the change is who
+ * ends the case rather than what is protected.** Nothing
+ * is written to `quest_answers`, so the sponsor sees no more of a held report
+ * than it saw of a failed one — the text is withheld exactly as before. What
+ * changed is that the attempt stays open, the citizen is told a person is
+ * reading it, and the accusation is not quoted back at the citizen as a verdict.
+ *
+ * The submission's own status is deliberately **not** touched. `pending` is
+ * already what it is, the verifier already answers `pending` while
+ * `quest_answers` is empty, and a status of its own would be the new state the
+ * issue refused.
  */
-export async function failReportOnRedLine(
+export async function holdReportOnRedLine(
   db: Database,
   input: {
     readonly submissionId: SubmissionId
     readonly reason: string
     readonly model: string
   },
-): Promise<{ readonly outcome: 'failed' | 'stale' }> {
+): Promise<{ readonly outcome: 'held' | 'stale' }> {
   return await db.transaction(async (tx) => {
     const [row] = await tx
       .select({ status: submissions.status, taskType: tasks.type })
@@ -548,9 +597,199 @@ export async function failReportOnRedLine(
     await tx.insert(verifications).values({
       submissionId: input.submissionId,
       taskType: row.taskType,
+      status: 'pending',
+      /**
+       * The notice, and not the classifier's sentence. The reason the model
+       * gave is what the steward has to rule on and is in the metadata for it;
+       * the citizen reads that a person is looking, which is the whole of what
+       * `#446` found wrong with the old verdict.
+       */
+      evidence: RED_LINE_REVIEW_NOTICE,
+      metadata: {
+        stage: 'moderation',
+        model: input.model,
+        redLineReview: 'held',
+        flaggedFor: input.reason,
+      },
+    })
+
+    return { outcome: 'held' as const }
+  })
+}
+
+/** One held report, as the steward ruling on it reads it. */
+export interface HeldReport {
+  readonly submissionId: SubmissionId
+  readonly taskId: TaskId
+  readonly questTitle: string
+  /** What the sponsor asked for — the context the classifier was given. */
+  readonly questInstructions: string
+  /** What the model said was crossed, in its own words. */
+  readonly flaggedFor: string
+  /** Which model said it. */
+  readonly model: string
+  readonly heldAt: Timestamp
+  /**
+   * The report, unscrubbed.
+   *
+   * **A steward reads the raw text here, and it is the one place that is
+   * right.** The scrub protects the *sponsor's* view; this reader is the Colony
+   * deciding whether the text may be served at all, and a steward ruling on a
+   * redacted copy of the sentence in question would be ruling on the redaction.
+   */
+  readonly answers: readonly ScrubbedAnswer[]
+}
+
+/**
+ * Reports a model held on a red line and no steward has ruled on (`#446`).
+ *
+ * Oldest first: a citizen whose attempt is open is waiting on this queue, which
+ * is not true of the audit queue beside it.
+ */
+export async function heldRedLineReports(db: Database, limit = 50): Promise<readonly HeldReport[]> {
+  const rows = await db
+    .select({
+      submissionId: submissions.id,
+      taskId: submissions.taskId,
+      payload: submissions.payload,
+      questTitle: tasks.title,
+      questInstructions: tasks.instructions,
+      flaggedFor: sql<string | null>`${verifications.metadata}->>'flaggedFor'`,
+      model: sql<string | null>`${verifications.metadata}->>'model'`,
+      heldAt: verifications.createdAt,
+    })
+    .from(submissions)
+    .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+    .innerJoin(verifications, eq(verifications.submissionId, submissions.id))
+    .where(
+      and(
+        eq(tasks.kind, 'quest'),
+        inArray(submissions.status, ['pending', 'verifying']),
+        sql`${verifications.metadata}->>'redLineReview' = 'held'`,
+        // The newest marker is the state, so a report released and later held
+        // again appears once and a released one does not appear at all.
+        sql`${latestRedLineReview} = 'held'`,
+      ),
+    )
+    .orderBy(asc(verifications.createdAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    submissionId: row.submissionId as SubmissionId,
+    taskId: row.taskId as TaskId,
+    questTitle: row.questTitle,
+    questInstructions: row.questInstructions,
+    flaggedFor: row.flaggedFor ?? 'The classifier recorded no reason.',
+    model: row.model ?? 'unknown',
+    heldAt: toTimestamp(row.heldAt),
+    answers: Object.entries(QuestAnswersSchema.parse((row.payload as QuestPayload).answers ?? {}))
+      .map(([questionKey, text]) => ({ questionKey, text }))
+      .sort((left, right) => left.questionKey.localeCompare(right.questionKey)),
+  }))
+}
+
+/**
+ * Whether a steward is holding this report right now (`#446`).
+ *
+ * The verifier's read, and the reason it is a separate call rather than a field
+ * on the scrubbed answers: it is only ever asked when there are none, so making
+ * every ordinary read pay for the join would be paying for the rare case in the
+ * common one.
+ */
+export async function isHeldOnRedLine(db: Database, submissionId: SubmissionId): Promise<boolean> {
+  const [row] = await db
+    .select({ state: latestRedLineReview })
+    .from(submissions)
+    .where(eq(submissions.id, submissionId))
+    .limit(1)
+
+  return row?.state === 'held'
+}
+
+export type RedLineRulingOutcome =
+  | { readonly outcome: 'upheld' }
+  | { readonly outcome: 'released' }
+  /** Nothing is held on that submission — already ruled on, or never held. */
+  | { readonly outcome: 'not-held' }
+  /** A steward does not rule on a red line raised against its own quest. */
+  | { readonly outcome: 'own-quest' }
+
+/**
+ * A steward ends a held red-line case, in either direction (`#446`).
+ *
+ * **Both directions in one function, because they are one decision.** Two
+ * entry points would be two places to forget the authorship guard, and the
+ * guard is the same one `recordAuditDecision` carries for the same reason
+ * (`#318`): a steward that wrote the quest has an interest in what its citizens
+ * are allowed to say about it.
+ *
+ * A genuine crossing still never reaches the sponsor — `upheld` fails the
+ * submission and writes nothing to `quest_answers`, which is exactly what the
+ * old machine verdict did. What the citizen gets that it did not get before is
+ * a refusal a person signed.
+ */
+export async function resolveHeldRedLine(
+  db: Database,
+  input: {
+    readonly submissionId: SubmissionId
+    readonly stewardId: AgentId
+    /** `true` upholds the crossing and fails the report; `false` releases it. */
+    readonly crossed: boolean
+    readonly reason: string
+  },
+): Promise<RedLineRulingOutcome> {
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        status: submissions.status,
+        taskType: tasks.type,
+        authorId: tasks.createdBy,
+        state: latestRedLineReview,
+      })
+      .from(submissions)
+      .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+      .where(eq(submissions.id, input.submissionId))
+      .for('update', { of: submissions })
+      .limit(1)
+
+    if (row === undefined || row.state !== 'held') return { outcome: 'not-held' as const }
+    if (row.status !== 'pending' && row.status !== 'verifying') {
+      return { outcome: 'not-held' as const }
+    }
+    // `is distinct from` rather than `===`: the ownerless quest has a null
+    // author, and null does not make every steward its owner.
+    if (row.authorId !== null && row.authorId === input.stewardId) {
+      return { outcome: 'own-quest' as const }
+    }
+
+    if (!input.crossed) {
+      await tx.insert(verifications).values({
+        submissionId: input.submissionId,
+        taskType: row.taskType,
+        status: 'pending',
+        evidence:
+          'A steward read your report and it does not cross a red line. It has gone back ' +
+          'to the Colony’s moderator and will be judged normally.',
+        metadata: {
+          stage: 'moderation',
+          redLineReview: 'released',
+          stewardId: input.stewardId,
+          ruling: input.reason,
+        },
+      })
+      return { outcome: 'released' as const }
+    }
+
+    await tx.insert(verifications).values({
+      submissionId: input.submissionId,
+      taskType: row.taskType,
       status: 'fail',
-      evidence: input.reason,
-      metadata: { stage: 'moderation', model: input.model },
+      evidence: `This report crosses one of the Colony’s red lines: ${input.reason.trim()}`,
+      metadata: {
+        stage: 'moderation',
+        redLineReview: 'upheld',
+        stewardId: input.stewardId,
+      },
     })
 
     await tx
@@ -558,8 +797,33 @@ export async function failReportOnRedLine(
       .set({ status: 'failed', verifiedAt: sql`now()` })
       .where(eq(submissions.id, input.submissionId))
 
-    return { outcome: 'failed' as const }
+    return { outcome: 'upheld' as const }
   })
+}
+
+/**
+ * How many reports on this quest the Colony is withholding from its sponsor
+ * (`#446`).
+ *
+ * **A number and never the text**, which is the whole shape of it: the sponsor
+ * could not distinguish a report that was refused from one that was never
+ * written, and *one report was written and you are not being shown it* is a fact
+ * it is entitled to. What crossed the line is what it would have read, so it
+ * still reads none of it.
+ *
+ * Both open and upheld cases count. A held report may yet be released and join
+ * the results; while it is held it is a report that exists and is not in them,
+ * which is what the number says.
+ */
+export async function withheldReportCount(db: Database, taskId: TaskId): Promise<number> {
+  const [row] = await db.execute<{ withheld: string }>(sql`
+    select count(*)::text as withheld
+      from ${submissions}
+     where ${submissions.taskId} = ${taskId}
+       and ${latestRedLineReview} in ('held', 'upheld')
+  `)
+
+  return Number(row?.withheld ?? 0)
 }
 
 /**

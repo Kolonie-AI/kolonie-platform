@@ -41,6 +41,7 @@ import {
   probeFor,
   verifiedSolanaAddress,
   questDefinition,
+  isHeldOnRedLine,
   scrubbedAnswers,
 } from '@kolonie-ai/db'
 import {
@@ -287,6 +288,8 @@ const verifiers = createVerifiers({
     definition: async (taskId) => (await questDefinition(db, TaskIdSchema.parse(taskId))) ?? null,
     scrubbed: async (submissionId) =>
       (await scrubbedAnswers(db, SubmissionIdSchema.parse(submissionId))) ?? null,
+    // Only reached when the line above answered `null` (`#446`).
+    heldForReview: (submissionId) => isHeldOnRedLine(db, SubmissionIdSchema.parse(submissionId)),
   },
   questJudge: openRouterQuestJudge(
     process.env[OPENROUTER_API_KEY_VAR],

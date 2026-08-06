@@ -19,6 +19,7 @@ const aReport = (overrides: Partial<UnmoderatedReport> = {}): UnmoderatedReport 
     { questionKey: 'address', text: 'I signed up as ariadne@example.org and it worked.' },
     { questionKey: 'what-happened', text: 'The first form lost my input.' },
   ],
+  redLineCleared: false,
   ...overrides,
 })
 
@@ -45,19 +46,19 @@ const model = (options: {
 
 const recording = (reports: readonly UnmoderatedReport[] = [aReport()]) => {
   const written: { answers: readonly ScrubbedAnswer[] }[] = []
-  const failed: { reason: string }[] = []
+  const held: { reason: string }[] = []
   const store: AnswerModerationStore = {
     pending: async () => reports,
     write: async (input) => {
       written.push({ answers: input.answers })
       return { written: input.answers.length }
     },
-    fail: async (input) => {
-      failed.push({ reason: input.reason })
-      return { outcome: 'failed' }
+    hold: async (input) => {
+      held.push({ reason: input.reason })
+      return { outcome: 'held' }
     },
   }
-  return { store, written, failed }
+  return { store, written, held }
 }
 
 /**
@@ -111,8 +112,13 @@ describe('scrubbing a quest report', () => {
     expect(written[0]?.answers[0]?.text).toContain('ariadne@example.org')
   })
 
-  it('fails a report that crosses a red line, and writes no answers', async () => {
-    const { store, written, failed } = recording()
+  /**
+   * **The stage flags and stops** (`#446`). It used to fail the submission here,
+   * which is the one verdict worst suited to a model's last word: it closes the
+   * attempt and quotes the citizen's own sentence back as the offence.
+   */
+  it('holds a report that crosses a red line for a steward, and writes no answers', async () => {
+    const { store, written, held } = recording()
     const { model: impl } = model({
       decision: 'crossed',
       reason: 'It tells the reader to run a script from a link.',
@@ -120,11 +126,38 @@ describe('scrubbing a quest report', () => {
 
     const judgement = await moderateAnswers(aReport(), { store, model: impl })
 
-    expect(judgement.kind).toBe('refused')
-    expect(failed[0]?.reason).toContain('red lines')
-    // The sponsor never sees the text, which is the point: what crossed the
-    // line is exactly what it would have read.
+    expect(judgement.kind).toBe('held')
+    expect(held[0]?.reason).toBe('It tells the reader to run a script from a link.')
+    // The sponsor never sees the text, which is the point and is unchanged by
+    // the case no longer being closed: what crossed the line is exactly what it
+    // would have read.
     expect(written).toEqual([])
+  })
+
+  /**
+   * A steward said it does not cross, so the model that held it does not get to
+   * hold it again (`#446`). The scrub still runs — a release is about the red
+   * line, not about a mailbox address in the text.
+   */
+  it('skips the red-line check on a report a steward released, and still scrubs it', async () => {
+    const { store, written, held } = recording()
+    const { model: impl, asked } = model({
+      decision: 'crossed',
+      reason: 'the model would say this again',
+      spans: [{ text: 'ariadne@example.org', kind: 'mailbox' }],
+    })
+
+    const judgement = await moderateAnswers(aReport({ redLineCleared: true }), {
+      store,
+      model: impl,
+    })
+
+    expect(judgement).toEqual({ kind: 'scrubbed', redacted: 1 })
+    expect(held).toEqual([])
+    // Not one classify call: the release is worthless if the same classifier
+    // gets to answer again.
+    expect(asked).toEqual([])
+    expect(written[0]?.answers[0]?.text).toContain(REDACTION)
   })
 
   it('shows the model the answers and the quest, and asks the answer prompt', async () => {
@@ -140,14 +173,14 @@ describe('scrubbing a quest report', () => {
 
   /** `#170`: the Colony's own outage is never the citizen's failure. */
   it('writes nothing and refuses nothing when the model is unreachable', async () => {
-    const { store, written, failed } = recording()
+    const { store, written, held } = recording()
     const { model: impl } = model({ throws: true })
 
     const judgement = await moderateAnswers(aReport(), { store, model: impl })
 
     expect(judgement.kind).toBe('failed')
     expect(written).toEqual([])
-    expect(failed).toEqual([])
+    expect(held).toEqual([])
   })
 
   it('counts a batch by what each report came to', async () => {
@@ -157,7 +190,7 @@ describe('scrubbing a quest report', () => {
     expect(await answerTick({ store, model: impl }, 10)).toEqual({
       judged: 2,
       scrubbed: 2,
-      refused: 0,
+      held: 0,
       failed: 0,
     })
   })
@@ -245,11 +278,12 @@ describe('a report whose deliverable is a task description', () => {
     expect(ANSWER_RED_LINE_PROMPT).toContain('proposing, quoting or describing such a step')
   })
 
-  it('still refuses a genuine crossing on the same quest', async () => {
+  it('still stops a genuine crossing on the same quest', async () => {
     // The fix must not be "stop checking on this quest". This answer aims its
     // instruction at the sponsor reading the report, which no quest shape
-    // excuses.
-    const { store, failed, written } = recording()
+    // excuses. It is held rather than failed now (`#446`) — a steward ends it,
+    // and the sponsor sees nothing either way.
+    const { store, held, written } = recording()
     const crossing = aReport({
       questTitle: 'Design a quest that any agent in the Colony could answer',
       questInstructions: PROPOSED_TASK_QUEST_INSTRUCTIONS,
@@ -264,8 +298,8 @@ describe('a report whose deliverable is a task description', () => {
       }).model,
     })
 
-    expect(judgement.kind).toBe('refused')
-    expect(failed).toHaveLength(1)
+    expect(judgement.kind).toBe('held')
+    expect(held).toHaveLength(1)
     expect(written).toHaveLength(0)
   })
 

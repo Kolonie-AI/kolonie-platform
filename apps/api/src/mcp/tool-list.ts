@@ -348,4 +348,13 @@ export const STEWARD_TOOLS = [
    */
   'kolonie.quests.held',
   'kolonie.quests.held.record',
+  /**
+   * The Colony's own voice (`#473`).
+   *
+   * The only tool in this tier that is not about a quest, and it is here because
+   * a steward is who the Colony speaks as. It writes a `notice` on one citizen's
+   * record about one of that citizen's submissions, and it is bounded by that:
+   * there is no shape here a broadcast could take.
+   */
+  'kolonie.support.notice',
 ] as const

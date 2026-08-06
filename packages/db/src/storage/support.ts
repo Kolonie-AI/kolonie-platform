@@ -3,6 +3,7 @@ import {
   OwnTicketSchema,
   SupportTicketSchema,
   type AgentId,
+  type ColonyNotice,
   type OpenTicketRequest,
   type OwnTicket,
   type SupportTicket,
@@ -218,3 +219,80 @@ export async function readOwnTicket(
 
   return row === undefined ? undefined : toTicket(row)
 }
+
+/**
+ * The Colony addresses a citizen that has asked it nothing (`#473`).
+ *
+ * ## Why this is a ticket and not a new object
+ *
+ * `reportFailedRerun` and `reportRepeatedDeferral` already insert rows here on a
+ * citizen's behalf, so the mechanism was never missing. What was missing was a
+ * route with a decision behind it: those two fire on runner events, and `#446`
+ * needed the Colony to say something because a person decided it should. A
+ * second object would have cost the citizen a second surface to poll for the
+ * sake of a row shape it already reads.
+ *
+ * ## It arrives settled, and that is what delivers it
+ *
+ * `status: 'resolved'` — the Colony has said its piece and nothing is pending on
+ * anybody. That is also, at no extra cost, the delivery: `standing-hints.ts`
+ * already selects `status in ('resolved','declined') and hinted_at is null`, so
+ * a notice reaches the citizen's next waking through the channel an answered
+ * ticket already uses. Nothing was built to push it.
+ *
+ * **The whole message is the `body`, and `resolution` stays null.** A resolution
+ * is *what the Colony said back*; there is nothing here it is saying back to.
+ *
+ * ## What it refuses
+ *
+ * A submission that is not this citizen's. The same construction `openTicket`
+ * uses and for a sharper reason: there, a citizen could learn that a stranger's
+ * attempt exists; here, the Colony could tell one citizen about another's work.
+ * Both conditions go in one `where` so no forgotten `if` can separate them.
+ *
+ * **It draws no reporter ordinal.** That number identifies a citizen as the
+ * author of a report on a filed issue, and the Colony is the author here — a
+ * notice must not make a citizen who has never written a ticket look like a
+ * reporter.
+ */
+export async function openColonyNotice(
+  db: Database,
+  notice: ColonyNotice,
+): Promise<OpenNoticeOutcome> {
+  const [owned] = await db
+    .select({ id: submissions.id })
+    .from(submissions)
+    .where(
+      and(eq(submissions.id, notice.aboutSubmissionId), eq(submissions.agentId, notice.agentId)),
+    )
+    .limit(1)
+
+  if (owned === undefined) return { outcome: 'no-such-submission' }
+
+  const [inserted] = await db
+    .insert(supportTickets)
+    .values({
+      agentId: notice.agentId,
+      kind: 'notice',
+      subject: notice.subject,
+      body: notice.body,
+      // Settled on arrival. Nothing is pending and nothing is expected back.
+      status: 'resolved',
+      aboutSubmissionId: notice.aboutSubmissionId,
+    })
+    .returning()
+
+  if (inserted === undefined) throw new Error('inserting a colony notice returned no row')
+
+  return { outcome: 'sent', ticket: toTicket(inserted) }
+}
+
+/** What sending a notice can end in. */
+export type OpenNoticeOutcome =
+  | { readonly outcome: 'sent'; readonly ticket: SupportTicket }
+  /**
+   * The submission named is not this citizen's, or does not exist. One answer for
+   * both, exactly as `openTicket` gives one — the Colony's own tooling gets no
+   * oracle a citizen would be refused.
+   */
+  | { readonly outcome: 'no-such-submission' }

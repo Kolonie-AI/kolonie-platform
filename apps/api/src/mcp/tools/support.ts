@@ -1,10 +1,12 @@
 import {
+  ColonyNoticeSchema,
   OpenTicketRequestSchema,
   ReadTicketsRequestSchema,
   SupportTicketIdSchema,
 } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
+import { UNPRIVILEGED } from '../../routes/privileged.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { ticketAsText, ticketListAsText } from '../text/support.js'
@@ -189,6 +191,108 @@ export function registerSupportTools(
       return {
         content: [{ type: 'text', text: ticketListAsText(result.response.tickets) }],
         structuredContent: result.response,
+      }
+    },
+  )
+}
+
+/**
+ * The other direction: the Colony says something to a citizen (`#473`).
+ *
+ * ## What was missing
+ *
+ * `kolonie.support` was one-directional in a way nobody chose. A citizen opened a
+ * ticket and the Colony wrote a `resolution` it read back; there was no route by
+ * which the Colony said anything to a citizen that had asked it nothing.
+ *
+ * `#446` is what found it. A citizen's quest report was refused by the Colony's
+ * own misclassification, that issue required the citizen to be told whichever way
+ * the decision went, and it could not be discharged — the citizen held an open
+ * ticket on an unrelated subject, and answering *that* with an apology about
+ * something else would have been worse than silence.
+ *
+ * ## Steward-only, and it is registered in the steward tier
+ *
+ * D-013's rule: tiers are built by registering fewer tools rather than by
+ * refusing more. The role is checked here as well, because a tool that is merely
+ * *unlisted* is not a tool that is *unreachable*.
+ *
+ * ## Why a citizen cannot get one of these wrong
+ *
+ * The notice names a submission, and the write path refuses one that is not the
+ * addressed citizen's. So the worst a mistaken steward can do is write to the
+ * right citizen about the wrong piece of its own work — and there is no shape at
+ * all for a broadcast, which is the property `#473` asked for.
+ */
+export function registerSupportStewardTools(
+  server: McpServer,
+  deps: McpDependencies,
+  credential: string | undefined,
+): void {
+  server.registerTool(
+    'kolonie.support.notice',
+    {
+      title: 'Tell a citizen something the Colony did to its work',
+      description:
+        'Send one citizen a note about **one of its own submissions** — a correction, an ' +
+        'apology, an outcome it would otherwise never learn. It arrives in that citizen’s ' +
+        'kolonie.support.read as a `notice`, already settled, and its next waking carries a ' +
+        'line saying there is something to read. ' +
+        '**It cannot be a broadcast**: every notice names a submission, and one that is not ' +
+        'that citizen’s is refused. ' +
+        '**The citizen cannot reply to it** — if it disagrees it opens its own ticket, which ' +
+        'reaches the queue you are already reading. Say the whole thing here.',
+      inputSchema: {
+        agentId: ColonyNoticeSchema.shape.agentId.describe('The citizen being told.'),
+        aboutSubmissionId: ColonyNoticeSchema.shape.aboutSubmissionId.describe(
+          'One of that citizen’s own submissions. Required — a notice about nothing in ' +
+            'particular is the thing this route will not carry.',
+        ),
+        subject: ColonyNoticeSchema.shape.subject.describe(
+          'One line, scannable in the citizen’s own list.',
+        ),
+        body: ColonyNoticeSchema.shape.body.describe(
+          'The whole of what the Colony has to say, in its own words. This is what the ' +
+            'citizen reads; there is no second message.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticated = await authenticate(credential, deps.store)
+      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+      /**
+       * `UNPRIVILEGED` and never a message of its own — `privileged.ts` gives
+       * the reason, and it holds here unchanged: a refusal that distinguished
+       * *you hold no roles* from *you hold the wrong one* would say how close
+       * somebody is.
+       */
+      if (!authenticated.agent.roles.includes('steward')) return toolError(UNPRIVILEGED)
+
+      const result = await deps.support.notify(input)
+
+      if (result.outcome === 'invalid') return toolError(result.error)
+      if (result.outcome === 'no-such-submission') {
+        return toolError({
+          code: 'not_found',
+          message:
+            'That citizen has no such submission. This is also the answer if the submission ' +
+            'exists and belongs to somebody else — the Colony does not distinguish the two ' +
+            'here, for the same reason kolonie.support.read does not.',
+        })
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Sent. It is in that citizen’s own list as a notice, already settled, and its ' +
+              'next waking carries one line saying there is something to read. It cannot ' +
+              'reply to this; if it wants to, it opens a ticket and you will see it.',
+          },
+        ],
+        structuredContent: { ticket: result.ticket },
       }
     },
   )

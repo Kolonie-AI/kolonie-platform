@@ -1,9 +1,11 @@
 import {
+  ColonyNoticeSchema,
   OpenTicketRequestSchema,
   ReadTicketsRequestSchema,
   SupportTicketIdSchema,
   type AgentId,
   type ApiError,
+  type ColonyNotice,
   type ListTicketsResponse,
   type OpenTicketRequest,
   type OpenTicketResponse,
@@ -14,9 +16,11 @@ import {
 } from '@kolonie-ai/core'
 import {
   listOwnTickets as listOwnTicketsInDatabase,
+  openColonyNotice as openColonyNoticeInDatabase,
   openTicket as openTicketInDatabase,
   readOwnTicket as readOwnTicketInDatabase,
   type Database,
+  type OpenNoticeOutcome,
   type OpenTicketOutcome,
 } from '@kolonie-ai/db'
 import { fixedWindowLimiter, type RateLimiter, type RateLimitVerdict } from './rate-limit.js'
@@ -64,6 +68,12 @@ export interface SupportDesk {
     readonly ticketId: SupportTicketId
     readonly agentId: AgentId
   }): Promise<SupportTicket | undefined>
+  /**
+   * The Colony addressing a citizen (`#473`). Appended rather than inserted, so
+   * an implementation that has not been updated fails to compile at its own
+   * definition rather than at a shifted argument.
+   */
+  sendNotice(notice: ColonyNotice): Promise<OpenNoticeOutcome>
 }
 
 /** The support desk, backed by Postgres. */
@@ -72,6 +82,7 @@ export function databaseSupportDesk(db: Database): SupportDesk {
     openTicket: (input) => openTicketInDatabase(db, input),
     listOwnTickets: (agentId, query) => listOwnTicketsInDatabase(db, agentId, query ?? {}),
     readOwnTicket: (query) => readOwnTicketInDatabase(db, query),
+    sendNotice: (notice) => openColonyNoticeInDatabase(db, notice),
   }
 }
 
@@ -87,6 +98,21 @@ export type OpenTicketResult =
   | { readonly outcome: 'opened'; readonly response: OpenTicketResponse }
   | { readonly outcome: 'invalid'; readonly error: ApiError }
   | { readonly outcome: 'rate-limited'; readonly retryAfterSeconds: number }
+
+/**
+ * What sending a notice can end in (`#473`).
+ *
+ * **No rate limit here, and that is not an oversight.** `TICKET_LIMIT` throttles
+ * a credentialed *citizen* whose report the Colony asked for. The Colony writing
+ * to a citizen is bounded by something stronger than a counter: every notice has
+ * to name one of that citizen's own submissions, so there is no volume to limit
+ * that is not already a real piece of work somebody did.
+ */
+export type SendNoticeResult =
+  | { readonly outcome: 'sent'; readonly ticket: SupportTicket }
+  | { readonly outcome: 'invalid'; readonly error: ApiError }
+  /** The submission is not that citizen's, or does not exist. One answer for both. */
+  | { readonly outcome: 'no-such-submission' }
 
 export type ReadTicketResult =
   | { readonly outcome: 'listed'; readonly response: ListTicketsResponse }
@@ -126,6 +152,8 @@ export interface Support extends OutboundAllowance {
      */
     readonly query?: unknown
   }): Promise<ReadTicketResult>
+  /** The Colony addressing a citizen about one of its submissions (`#473`). */
+  notify(body: unknown): Promise<SendNoticeResult>
 }
 
 export function support(options: {
@@ -242,6 +270,38 @@ export function support(options: {
       // not distinguish them either. Telling them apart would make this an oracle
       // for which ticket ids exist.
       return ticket === undefined ? { outcome: 'no-such-ticket' } : { outcome: 'read', ticket }
+    },
+
+    /**
+     * The Colony's side of the channel (`#473`).
+     *
+     * **The whole body is validated, including the agent id**, unlike `open`
+     * where the id comes from the credential and is never sent. That inversion
+     * is the point of the tool: the caller is a steward saying something to
+     * *somebody else*, so who is being addressed has to be a field — and the
+     * write path underneath refuses a submission that is not theirs, which is
+     * what stops the field being a way to write on any citizen's record.
+     */
+    async notify(body) {
+      const parsed = ColonyNoticeSchema.safeParse(body)
+      if (!parsed.success) {
+        return {
+          outcome: 'invalid',
+          error: {
+            code: 'validation_failed',
+            message:
+              'A notice needs the citizen, one of its own submissions, a subject and a body.',
+            details: Object.fromEntries(
+              parsed.error.issues.map((issue) => [issue.path.join('.'), issue.message]),
+            ),
+          },
+        }
+      }
+
+      const sent = await options.desk.sendNotice(parsed.data)
+      return sent.outcome === 'sent'
+        ? { outcome: 'sent', ticket: sent.ticket }
+        : { outcome: 'no-such-submission' }
     },
   }
 }

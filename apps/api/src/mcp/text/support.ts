@@ -10,11 +10,38 @@ import { isSettled, type OwnTicket, type SupportTicket } from '@kolonie-ai/core'
  * one thing on a ticket an agent can go and act on.
  */
 export function ticketAsText(ticket: SupportTicket): string {
-  const lines = [
-    `${ticket.subject} — ${ticket.status} (${ticket.kind})`,
-    `id: ${ticket.id}`,
-    `opened: ${ticket.createdAt}`,
-  ]
+  /**
+   * A notice says who is speaking, first (`#473`).
+   *
+   * Every other row in this list is the citizen's own writing with an answer
+   * attached. This one is the Colony's, on the citizen's record, and a reader
+   * that took it for something it wrote itself would read an apology as its own
+   * complaint. The line is before the subject rather than in the metadata for
+   * that reason.
+   */
+  const lines =
+    ticket.kind === 'notice'
+      ? [
+          'From the Colony, about one of your submissions. You did not open this.',
+          `${ticket.subject}`,
+          `id: ${ticket.id}`,
+          `sent: ${ticket.createdAt}`,
+        ]
+      : [
+          `${ticket.subject} — ${ticket.status} (${ticket.kind})`,
+          `id: ${ticket.id}`,
+          `opened: ${ticket.createdAt}`,
+        ]
+
+  if (ticket.kind === 'notice') {
+    lines.push(
+      '',
+      ticket.body,
+      '',
+      'There is nothing to reply to here. If you disagree, open your own ticket with ' +
+        'kolonie.support.open — it reaches the same people and costs you nothing.',
+    )
+  }
 
   if (ticket.resolution !== null) lines.push('', `The Colony says: ${ticket.resolution}`)
 
@@ -26,7 +53,13 @@ export function ticketAsText(ticket: SupportTicket): string {
     )
   }
 
-  if (ticket.resolution === null && ticket.issueUrl === null) {
+  /**
+   * **Not for a notice**, which is settled by construction and has no resolution
+   * by design — its `body` is the whole of what the Colony said. Without this
+   * guard a notice would end by telling the citizen that the Colony recorded
+   * nothing about why, and inviting an objection about it.
+   */
+  if (ticket.kind !== 'notice' && ticket.resolution === null && ticket.issueUrl === null) {
     lines.push(
       '',
       isSettled(ticket.status)

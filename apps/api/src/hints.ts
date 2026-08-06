@@ -166,10 +166,24 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
    * is prose a steward wrote and belongs on the surface built to label it as
    * theirs; this line says that there is one.
    */
+  /**
+   * **It no longer says *you opened***, and that is `#473`'s change to it.
+   *
+   * A notice the Colony sends is a settled ticket on the citizen's record that
+   * the citizen did not open, and it rides this condition — deliberately, because
+   * building a second delivery channel for one row shape would have been the
+   * expensive way to say the same sentence. Telling a citizen it had opened
+   * something it had not would be a small lie in the one message whose whole
+   * point is that the Colony is being straight with it.
+   *
+   * The wording is true of both: an answer to its own ticket, and a notice.
+   * Which one it is, `kolonie.support.read` says at the top of the row.
+   */
   'ticket-settled': (subject) =>
-    `The Colony has finished with a ticket you opened${subject === null ? '' : ` (${subject})`}. ` +
-    'Read what it said with kolonie.support.read. This is said once, so it will not be here ' +
-    'next time.',
+    `There is a settled ticket on your record${subject === null ? '' : ` (${subject})`} — ` +
+    'either the Colony has finished with one you opened, or it has written to you about ' +
+    'something it did. Read it with kolonie.support.read. This is said once, so it will not ' +
+    'be here next time.',
   /**
    * **It says what lapsed and never that something was taken away** (`#145`).
    * `kolonie-docs#131` settles it: earned never changes, current can lapse. The

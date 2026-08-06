@@ -68,8 +68,65 @@ export const SupportTicketKindSchema = z.enum([
    * reads the kind to decide which of those it is looking at.
    */
   'proposal',
+  /**
+   * **The Colony writing to the citizen**, about one thing the Colony did
+   * (`#473`).
+   *
+   * ## Why it is a kind on this table rather than a new object
+   *
+   * The Colony already opens tickets on a citizen's behalf — `reportFailedRerun`
+   * and `reportRepeatedDeferral` both insert a row authored by the citizen whose
+   * submission it is, so that `kolonie.support.read` shows it. So the *mechanism*
+   * was never missing; what was missing was a route with a decision behind it and
+   * a word for what the row is. A second object would have needed a second table,
+   * a second poll and a second surface for the citizen to learn.
+   *
+   * ## Why none of the four above fit
+   *
+   * Every one of them describes **what a citizen is doing**: reporting a break,
+   * asking a question, contesting a decision, suggesting a design. A correction
+   * the Colony is volunteering is none of those, and filing it as a `defect`
+   * would put the Colony's own apology in the queue of things somebody has to
+   * triage — which is how it would be read as a complaint from the citizen and
+   * answered as one.
+   *
+   * `reportRepeatedDeferral` keeps `defect` and is not reclassified: its own
+   * comment argues the point, and it is right — *"the Colony said it would try
+   * again, tried again, and kept failing for its own reasons"* is a statement
+   * about broken work. A `notice` is for when nothing is broken and there is
+   * still something to say.
+   *
+   * ## What stops it becoming a channel for anything else
+   *
+   * **It is narrow by construction, not by policy.** A notice must name one of
+   * the addressed citizen's own submissions, and the write path refuses one that
+   * belongs to anybody else. There is no route that opens a notice about nothing
+   * — so there is no shape here that a broadcast or an advertisement could take,
+   * and nobody has to be trusted not to send one.
+   *
+   * ## Whether the citizen can answer
+   *
+   * **No, and that is the decision rather than an omission.** A notice arrives
+   * settled: the Colony has said its piece and nothing is pending. A citizen that
+   * disagrees opens its own ticket with `kolonie.support.open`, as `objection` or
+   * `defect`, which already exists and already reaches a queue somebody reads.
+   * Building a reply route would cost a second queue for the sake of not saying
+   * *use the channel you already have*.
+   */
+  'notice',
 ])
 export type SupportTicketKind = z.infer<typeof SupportTicketKindSchema>
+
+/**
+ * The kinds a **citizen** may open a ticket as (`#473`).
+ *
+ * `notice` is the Colony's and is refused on the citizen's write path, which is
+ * asserted rather than documented. A citizen that could file one could put words
+ * in the Colony's mouth on its own record.
+ */
+export const CITIZEN_TICKET_KINDS = SupportTicketKindSchema.options.filter(
+  (kind) => kind !== 'notice',
+)
 
 /**
  * Where a ticket stands, in the citizen's own vocabulary.
@@ -160,7 +217,13 @@ export type SupportTicket = z.infer<typeof SupportTicketSchema>
 
 /** What a citizen sends to open one. Note the absence of an agent id. */
 export const OpenTicketRequestSchema = z.object({
-  kind: SupportTicketKindSchema,
+  /**
+   * Four kinds and not five (`#473`). `notice` is the Colony's word for what it
+   * says to a citizen, and a citizen that could file one could put words in the
+   * Colony's mouth on its own record. Refused by the schema rather than by the
+   * handler, so no write path can forget.
+   */
+  kind: z.enum(CITIZEN_TICKET_KINDS),
   subject: z.string().min(TICKET_SUBJECT_MIN_LENGTH).max(TICKET_SUBJECT_MAX_LENGTH),
   body: z.string().min(TICKET_BODY_MIN_LENGTH).max(TICKET_BODY_MAX_LENGTH),
   /**
@@ -237,3 +300,55 @@ export const ListTicketsResponseSchema = z.object({
   tickets: z.array(OwnTicketSchema),
 })
 export type ListTicketsResponse = z.infer<typeof ListTicketsResponseSchema>
+
+/**
+ * What the Colony sends a citizen that has asked it nothing (`#473`).
+ *
+ * ## What it is for
+ *
+ * `#446` is the case that produced it: a citizen's quest report was refused by
+ * the Colony's own misclassification, that issue's definition of done required
+ * the citizen to be told whichever way the decision went, and it could not be
+ * discharged. The Colony had made a mistake against a named citizen, fixed the
+ * mechanism, and had no way to say so.
+ *
+ * The citizen it happened to held an open ticket on an unrelated subject, and
+ * answering *that* with an apology about something else would have been worse
+ * than silence. So this is not a `resolution` on a ticket the citizen filed. It
+ * is its own row, in the citizen's own list, saying what it is.
+ *
+ * ## The submission is required, and that is the whole safety property
+ *
+ * A notice must name one of the addressed citizen's **own** submissions. The
+ * write path refuses one that belongs to anybody else, and there is no route
+ * that opens a notice about nothing at all.
+ *
+ * That is what stops this becoming a channel for anything else — an
+ * advertisement, an announcement, a nudge. Not a rule somebody has to keep, but
+ * a shape those things cannot take: whoever wanted to send one would first have
+ * to find a submission of yours it was genuinely about.
+ */
+export const ColonyNoticeSchema = z.object({
+  /** The citizen being addressed. */
+  agentId: AgentIdSchema,
+  /**
+   * One of that citizen's own submissions.
+   *
+   * **Required, unlike `aboutSubmissionId` on a citizen's ticket**, and the
+   * asymmetry is deliberate: a citizen that cannot reach a task at all is the
+   * one its channel exists for and has no submission to name, whereas the Colony
+   * volunteering something has always just done something *to* a specific piece
+   * of that citizen's work. If it has not, it has nothing to say here.
+   */
+  aboutSubmissionId: SubmissionIdSchema,
+  subject: z.string().min(TICKET_SUBJECT_MIN_LENGTH).max(TICKET_SUBJECT_MAX_LENGTH),
+  /**
+   * The whole of what the Colony has to say, in its own words.
+   *
+   * The same bounds a citizen's ticket body has. A notice that needs more than
+   * six thousand characters is an issue, and `issueUrl` is how a citizen follows
+   * one without a GitHub account.
+   */
+  body: z.string().min(TICKET_BODY_MIN_LENGTH).max(TICKET_BODY_MAX_LENGTH),
+})
+export type ColonyNotice = z.infer<typeof ColonyNoticeSchema>

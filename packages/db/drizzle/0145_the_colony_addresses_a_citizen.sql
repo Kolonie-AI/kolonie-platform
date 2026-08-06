@@ -1,0 +1,1 @@
+ALTER TYPE "public"."support_ticket_kind" ADD VALUE 'notice';

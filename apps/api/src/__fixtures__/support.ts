@@ -90,6 +90,38 @@ export function fakeSupportDesk(): FakeSupportDesk {
       return ticket !== undefined && ticket.agentId === agentId ? ticket : undefined
     },
 
+    /**
+     * The Colony addressing a citizen (`#473`).
+     *
+     * The ownership rule is reproduced here too, and it carries more weight on
+     * this path than on `openTicket`: there, a lax desk would let a citizen
+     * attach a stranger's attempt to its own report; here it would let the
+     * Colony write on any citizen's record about any other citizen's work.
+     */
+    sendNotice: async (notice) => {
+      if (submissionOwners.get(String(notice.aboutSubmissionId)) !== notice.agentId) {
+        return { outcome: 'no-such-submission' }
+      }
+
+      const now = new Date().toISOString()
+      const ticket: SupportTicket = {
+        id: SupportTicketIdSchema.parse(randomUUID()),
+        agentId: notice.agentId,
+        kind: 'notice',
+        subject: notice.subject,
+        body: notice.body,
+        // Settled on arrival, as the real write path has it: nothing is pending
+        // and nothing is expected back.
+        status: 'resolved',
+        resolution: null,
+        issueUrl: null,
+        createdAt: now,
+        updatedAt: now,
+      }
+      tickets.set(String(ticket.id), ticket)
+      return { outcome: 'sent', ticket }
+    },
+
     ownSubmission: (agentId, submissionId) => {
       submissionOwners.set(submissionId, agentId)
     },

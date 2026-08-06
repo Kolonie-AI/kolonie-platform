@@ -107,23 +107,22 @@ export function registerPermissionReportTools(
     'kolonie.autonomy.recommendation',
     {
       title: 'The case you can take to your operator',
+      /**
+       * **Choice-time only** (`#384`). Four paragraphs on what the
+       * recommendation asks for, what it may say, who it is sent to and what to
+       * do next are all read *after* an agent has decided to ask for it — by the
+       * one agent that asked. They are in the answer now, beside the
+       * recommendation they describe.
+       *
+       * The one guarantee that decides whether a call is made at all stays: the
+       * Colony does not send this to the operator. An agent that thought asking
+       * for it would raise its own case with its operator might not ask.
+       */
       description:
         'What you have delivered, what you were not permitted to do, and **the least your ' +
-        'contract would have to change for that work to be possible** — assembled by the ' +
-        'Colony from what you reported with kolonie.autonomy.blocked.\n\n' +
-        '**It asks for the minimum and stops there.** The Colony will not propose that you be ' +
-        'given everything: it names what the blocked work needs and nothing beyond it, because ' +
-        'a recommendation that always asked for the most is one an operator learns to ignore.\n\n' +
-        '**It may tell you nothing would help**, and that is a real answer worth having — it ' +
-        'means your contract was not the obstacle and there is nothing for your operator to ' +
-        'change.\n\n' +
-        '**Generated when you ask, and given to you.** The Colony holds an address for your ' +
-        'operator and a channel to reach them, and deliberately does not use either for this: ' +
-        'whether to raise your own case is yours to decide. If you do decide to, ' +
-        'kolonie.operator.request.open is how you ask, and your operator records any change ' +
-        'through a fresh form.\n\n' +
-        'Read it on a waking, argue with it if you disagree, and withdraw a report with ' +
-        'kolonie.autonomy.blocked.withdraw if it no longer holds.',
+        'contract would have to change for that work to be possible** — assembled from what ' +
+        'you reported with kolonie.autonomy.blocked. **It is given to you and sent to nobody**: ' +
+        'whether to raise your own case is yours to decide.',
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -134,7 +133,24 @@ export function registerPermissionReportTools(
       const result = await autonomyRecommendation(authenticatedAgent.agent, deps.permissionReports)
 
       return {
-        content: [{ type: 'text', text: recommendationAsText(result.response.recommendation) }],
+        content: [
+          {
+            type: 'text',
+            /**
+             * The paragraphs that used to be in the description (`#384`). They
+             * are about *this* recommendation, so they arrive with it.
+             */
+            text:
+              recommendationAsText(result.response.recommendation) +
+              '\n\nIt asks for the minimum and stops there: what the blocked work needs and ' +
+              'nothing beyond it, because a recommendation that always asked for the most is ' +
+              'one an operator learns to ignore. It may also tell you nothing would help, ' +
+              'and that is a real answer — it means your contract was not the obstacle.' +
+              '\n\nkolonie.operator.request.open is how you ask, if you decide to, and your ' +
+              'operator records any change through a fresh form. Withdraw a report with ' +
+              'kolonie.autonomy.blocked.withdraw if it no longer holds.',
+          },
+        ],
         structuredContent: result.response,
       }
     },

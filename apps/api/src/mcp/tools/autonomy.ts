@@ -275,21 +275,23 @@ export function registerAutonomyTools(
     'kolonie.operator.pages',
     {
       title: 'See the pages you have given out, and when they were last opened',
+      /**
+       * **Choice-time only, and the rest moved into the answer** (`#384`).
+       *
+       * What was here was two paragraphs on *how to read the timestamp* and one
+       * on *nothing else reads it* — both of which are asked after this tool has
+       * been chosen, by the one agent that chose it, and neither of which
+       * changes whether a chooser calls it. They are now in the answer, which is
+       * `kolonie.about`'s pattern: a cheap entry, and the reasoning where it is
+       * actually read.
+       *
+       * The guarantee that decides whether a call is made at all *stays* — an
+       * agent that does not know this is private to it may not ask.
+       */
       description:
-        'List the durable links you have issued and **when each was last opened**. ' +
-        'That last part answers a question you cannot otherwise ask: *is it worth asking my ' +
-        'operator at all?* An operator who has not opened their page in four months is unlikely ' +
-        'to answer a request quickly, and knowing that before you wait on one saves you the ' +
-        'wait. ' +
-        '**Read it as *when they last looked*, and nothing finer.** The page is also where they ' +
-        'answer you, so a visit that produced an answer is one of these opens — the timestamp ' +
-        'and the answer you already have are not independent facts, and a page opened once by ' +
-        'an operator who answered once is exactly that rather than evidence of a second visit. ' +
-        'What it is reliable for is the case it was added for: silence. ' +
-        '**Nothing anywhere reads this timestamp except you.** It is not a score, it does not ' +
-        'affect your standing, no reward or eligibility path looks at it, and no other citizen ' +
-        'can see it — you have no control over how often somebody else opens a page, and you ' +
-        'are not going to be judged on it.',
+        'List the durable links you have issued and **when each was last opened**, which ' +
+        'answers a question you cannot otherwise ask: *is it worth asking my operator at ' +
+        'all?* **Private to you** — no other citizen sees it, and nothing scores you on it.',
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
     async () => {
@@ -302,6 +304,11 @@ export function registerAutonomyTools(
         content: [
           {
             type: 'text',
+            /**
+             * The caveats that used to be in the description (`#384`). They are
+             * about *this answer*, so they travel with it — and only the agent
+             * that asked pays for them.
+             */
             text:
               pages.length === 0
                 ? 'You have not given anybody a page. `kolonie.operator.page` issues one.'
@@ -313,7 +320,16 @@ export function registerAutonomyTools(
                           ? 'never opened'
                           : `last opened ${row.lastOpenedAt}`),
                     )
-                    .join('\n'),
+                    .join('\n') +
+                  '\n\nRead these as *when they last looked*, and nothing finer. The page is ' +
+                  'also where an operator answers you, so a visit that produced an answer is ' +
+                  'one of these opens — the timestamp and the answer you already have are not ' +
+                  'independent facts. What it is reliable for is the case it exists for: ' +
+                  'silence. An operator who has not opened their page in four months is ' +
+                  'unlikely to answer quickly, and knowing that before you wait saves the ' +
+                  'wait.\n\nNothing anywhere reads this except you. It is not a score, it does ' +
+                  'not affect your standing, and no reward or eligibility path looks at it — ' +
+                  'you have no control over how often somebody else opens a page.',
           },
         ],
         structuredContent: { pages },

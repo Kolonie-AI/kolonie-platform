@@ -39,6 +39,7 @@ import {
 } from '../console/html.js'
 import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
+import { fundingPage } from '../console/funding.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import {
   operatedQuestsPage,
@@ -66,6 +67,7 @@ import {
   withdrawQuest,
   writeQuestDraft,
 } from '../quests.js'
+import { readDepositAddress, readDepositHistory } from '../deposits.js'
 import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
@@ -1432,6 +1434,81 @@ function registerSponsorPages(
           proofVerifiers: PROOF_CHOICES,
           proofNote: proofNote(null),
         })
+  })
+
+  /**
+   * Where a person puts money in (`#460`).
+   *
+   * ## The person's own identity, and nothing else
+   *
+   * **An agent's balance is on the agent's page and is not fundable from here.**
+   * A human topping up an agent's balance is a control, and this console is a
+   * window — `#457` is the rule and this route is one of the places it applies.
+   * The address comes from `readDepositAddress`, which resolves its subject from
+   * the caller and never from the request, so there is nowhere to put somebody
+   * else's id.
+   *
+   * ## `POST` behind a `GET`, and why that is safe here
+   *
+   * The address route is a `POST` because the first call creates a keypair. It
+   * is **idempotent** — `deposits.ts` returns the first address on every call
+   * afterwards — so rendering this page twice cannot produce a second one, which
+   * is the acceptance criterion that made the shape worth checking rather than
+   * assuming.
+   *
+   * ## Nothing here creates an identity
+   *
+   * A person who has never written a quest holds none (`#455`), and this page
+   * says what a deposit is for instead of quietly creating one to have something
+   * to show. Money is not a reason to make a row somebody did not ask for.
+   */
+  app.get('/funding', async (request, reply) => {
+    if (!(await ctx.guard(request, reply))) return reply
+
+    const held = await identity(request, reply, { create: false, refuse: false })
+    if (held === null) {
+      const signedIn = await ctx.person(request)
+      if (signedIn === null) {
+        if (wantsHtml(request)) reply.callNotFound()
+        else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
+        return reply
+      }
+
+      /** Signed in with nothing to fund yet — a page, not a refusal. */
+      const empty = {
+        zone: zoneFrom(request.headers),
+        balance: { available: 0, reserved: 0, escrowed: 0 },
+        deposits: [],
+      }
+      return wantsHtml(request) ? html(reply, fundingPage(empty)) : reply.send(empty)
+    }
+
+    const [issued, history, balance, committed] = await Promise.all([
+      readDepositAddress(held.id, deps.deposits.desk),
+      readDepositHistory(held.id, deps.deposits.desk),
+      deps.quests.balance(held.id),
+      deps.quests.commitments(held.id),
+    ])
+
+    const view = {
+      zone: zoneFrom(request.headers),
+      /**
+       * An address the Colony refused to issue — `#266`'s unconfirmed sign-up
+       * address — renders the same page without one rather than an error. The
+       * person is told what to do about it by the sign-in flow, and a funding
+       * page that failed hard would be a dead end with money on the other side.
+       */
+      ...('error' in issued ? {} : { address: issued.address }),
+      balance: {
+        available: balance.available,
+        reserved: balance.reserved,
+        /** Summed from the per-quest decomposition, which is where escrow lives. */
+        escrowed: committed.reduce((total, row) => total + row.escrowed, 0),
+      },
+      deposits: history.deposits,
+    }
+
+    return wantsHtml(request) ? html(reply, fundingPage(view)) : reply.send(view)
   })
 
   /**

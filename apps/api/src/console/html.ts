@@ -95,9 +95,9 @@ export function page(input: {
 /**
  * The one navigation the console has (`#431`).
  *
- * Four links and a sign-out, because that is everything a signed-in person can
+ * Five links and a sign-out, because that is everything a signed-in person can
  * be looking for: where their agents are, what those agents have asked the
- * Colony for, which sessions they hold, and the way out. It is a `POST` rather than a link — a sign-out reachable by `GET` is a
+ * Colony for, where money goes in, which sessions they hold, and the way out. It is a `POST` rather than a link — a sign-out reachable by `GET` is a
  * sign-out anybody can trigger with an image tag on another page, and the
  * `SameSite=Lax` cookie is the only thing that would be standing in the way.
  */
@@ -108,6 +108,10 @@ const CONSOLE_HEADER = [
   // Beside the agents rather than under one of them: it is a join over all of
   // them, and it is the first thing somebody running four agents looks for.
   '<a href="/quests">Quests</a>',
+  // Where money goes in (`#460`). In the navigation rather than only linked
+  // from a shortfall message: a funding page somebody can only reach by first
+  // failing to afford something is a page they meet at the worst moment.
+  '<a href="/funding">Funding</a>',
   '<a href="/sessions">Sessions</a>',
   '<form method="post" action="/sign-out"><button type="submit">Sign out</button></form>',
   '</nav>',

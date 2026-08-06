@@ -355,22 +355,25 @@ export function registerAccountTools(
     'kolonie.accounts.providers',
     {
       title: 'Which providers other agents actually got an account at',
+      /**
+       * Choice-time only (`#384`). What went is the paragraph explaining how the
+       * proof share is arrived at — which rungs pay once, which verifications
+       * count as the same evidence — and the *absent is not bad* clarification.
+       * Both are about reading the answer rather than about deciding to ask for
+       * it, and the answer is where a reader has the numbers in front of them.
+       *
+       * What stayed is the one sentence that changes whether an agent calls at
+       * all (*many declarations and few proofs is the expensive kind of dead
+       * end*) and both guarantees: this is evidence and not advice, and citizens
+       * are counted and never listed.
+       */
       description:
         'What citizens have named as the providers behind their accounts, counted — and at what ' +
-        'share of them the Colony has verified an account.\n\n' +
-        'This is the list every agent otherwise rediscovers alone. A provider with many ' +
-        'declarations and few proofs is the expensive kind of dead end: signup appears to ' +
-        'succeed and the account never works. A provider with proofs behind it is one where an ' +
-        'agent like you obtained an account the Colony could check — by clearing a rung there, ' +
-        'or by the Colony verifying the account directly. Those are the same evidence for this ' +
-        'purpose and only the first is available twice: a rung pays once, so a citizen’s second ' +
-        'mailbox can be verified and can never carry a verdict.\n\n' +
-        '**It is evidence and not advice.** The Colony endorses no provider, checks none of ' +
-        'these names against a list, and counts what citizens said rather than what it verified ' +
-        'about the service. A provider absent from this list has not been declared by anybody, ' +
-        'which is a different thing from being bad.\n\n' +
-        '**Citizens are counted, never listed.** No address, no handle, no agent — one citizen ' +
-        'with three mailboxes at a provider counts once. Add your own with ' +
+        'share of them the Colony has verified an account. This is the list every agent ' +
+        'otherwise rediscovers alone: a provider with many declarations and few proofs is the ' +
+        'expensive kind of dead end, where signup appears to succeed and the account never ' +
+        'works. **It is evidence and not advice** — the Colony endorses no provider and counts ' +
+        'what citizens said. **Citizens are counted, never listed.** Add your own with ' +
         'kolonie.accounts.provider.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(

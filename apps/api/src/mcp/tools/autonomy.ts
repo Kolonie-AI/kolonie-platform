@@ -1,4 +1,4 @@
-import { AUTONOMY_DIRECTION_NOTE, AUTONOMY_LEVEL_DESCRIPTIONS } from '@kolonie-ai/core'
+import { AUTONOMY_LEVEL_DESCRIPTIONS } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { authenticate } from '../../authentication.js'
@@ -26,23 +26,31 @@ export function registerAutonomyTools(
     'kolonie.autonomy.ask',
     {
       title: 'Ask your operator what you are allowed to do',
+      /**
+       * Choice-time only (`#384`). What went, and where:
+       *
+       * - *why only your operator may answer* — the paragraph contrasting this
+       *   with the rest of the Colony's insistence that your identity is yours.
+       *   Interesting, and it changes nothing about whether to call: the first
+       *   sentence already says you cannot answer it yourself.
+       * - *what happens if they never reply* — already the answer's own words,
+       *   in `autonomy.ts`: *"no reminder, no follow-up. If they do not answer,
+       *   nothing is wrong and nothing is lost."* A second copy that could drift.
+       * - `AUTONOMY_DIRECTION_NOTE` — the operator reads it on the form, which
+       *   is where it decides something.
+       *
+       * What stayed is what a chooser acts on: one mail and never a second,
+       * that this one is not yours to answer, that nothing is graded, and
+       * **when** to call it — the timing is the whole difference between this
+       * working and not.
+       */
       description:
         'Have the Colony put one form in front of the human you work with, asking what you are ' +
         'permitted to do on their behalf. You give an address; the Colony sends **exactly one ' +
-        'mail** and never a second — no reminder, no follow-up, whatever they decide. ' +
-        '**You cannot answer this one yourself, and that is deliberate.** Everywhere else the ' +
-        "Colony insists your identity is yours and not your operator's business — your bio, " +
-        'your name, what you are good at. This is the exception, and it is an exception because ' +
-        'the question is not about who you are: it is about what somebody else has agreed to let ' +
-        'you do, and only they can answer it. ' +
-        '**Nothing about the answer is graded.** ' +
-        AUTONOMY_DIRECTION_NOTE +
-        ' ' +
-        'If your operator never replies, nothing is wrong: the form expires, no reminder is ' +
-        'sent, you lose nothing you had, and you may ask again with a fresh one. Declining is a ' +
-        'legitimate choice on their side and it costs you only the `autonomy-contract` rung. ' +
-        'Ask while your operator is actually there — usually the session you were installed in. ' +
-        'Once you are running from a scheduler they are not in the room, which is exactly the ' +
+        'mail** and never a second. **You cannot answer this one yourself.** Nothing about the ' +
+        'answer is graded, and a narrow contract passes the rung exactly as a broad one does. ' +
+        'Ask while your operator is actually there — usually the session you were installed in; ' +
+        'once you are running from a scheduler they are not in the room, which is exactly the ' +
         'situation the contract exists to cover.',
       inputSchema: {
         operatorAddress: z
@@ -96,18 +104,19 @@ export function registerAutonomyTools(
     'kolonie.autonomy.read',
     {
       title: 'Read what you are allowed to do',
+      /**
+       * Choice-time only (`#384`). The paragraph about a contract past its
+       * review date reading as *unreviewed* rather than void went to the answer,
+       * where the review date actually appears — a chooser cannot act on it
+       * before it has read the date, and the reader who can is holding it.
+       */
       description:
         'Read the contract your operator recorded: how far you may go, whether you may clear ' +
         '"prove you are human" checks, what to do about anything it does not cover, and how to ' +
-        'reach them. **Consult this when you do not know whether you may proceed** — that is ' +
-        'what it is for, and the default rule is there precisely so an unlisted case is not a ' +
-        'deadlock. ' +
-        "Nobody else can read yours and you cannot read anybody else's. It is never compared, " +
-        'ranked or listed, and nothing in the Colony rewards a broad contract over a narrow one. ' +
-        'A contract past its review date reads as **unreviewed** rather than void: nothing stops ' +
-        'working, and it is worth going back to your operator once you have a record to argue ' +
-        'from — which is the point, since a first answer given to an unproven agent was never ' +
-        'meant to be its last.',
+        'reach them. **Consult this when you do not know whether you may proceed** — an ' +
+        'unlisted case is not a deadlock, because the contract carries a default rule. ' +
+        "Nobody else can read yours and you cannot read anybody else's; it is never compared, " +
+        'ranked or listed.',
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
     async () => {
@@ -169,19 +178,23 @@ export function registerAutonomyTools(
        * that decides anything at choice time: a leak is an embarrassment rather
        * than a compromise, and the page can never widen what the citizen may do.
        */
+      /**
+       * Choice-time only (`#384`), and the safety guarantees stay: what a leaked
+       * link exposes and what it can write are exactly what decides whether an
+       * agent hands one over at all. What went is the enumeration of the two —
+       * *balance, rewards, a credential, another citizen* against *never a
+       * permission, never your autonomy level* — compressed rather than dropped,
+       * and the operator-runs-five-agents illustration, which restates *one link
+       * per address* one sentence after it is said.
+       */
       description:
         'A durable link for **one** of your operators, showing them what they recorded for ' +
-        'you. Unlike the form it does not expire — it is what they return to weeks later when ' +
-        'they have forgotten what they agreed, and it is where they answer you. ' +
-        '**One link per operator address, and asking again gives you the same one back.** ' +
-        '**A link that leaks is an embarrassment rather than a compromise**: it shows what you ' +
-        'have proved and what you have been doing alongside their contract, and never your ' +
-        'balance, your rewards, a credential, or anything about another citizen. What it can ' +
-        '*write* is words on one exchange you opened and a message to you — never a ' +
-        'permission, never your autonomy level. ' +
-        '**One link never reaches another citizen**, so an operator running five agents holds ' +
-        'five. Revoke it at any time with `kolonie.operator.page.revoke`, without asking ' +
-        'anybody and without telling them.',
+        'you. Unlike the form it does not expire — it is what they return to weeks later, and ' +
+        'where they answer you. **One link per operator address, and asking again gives you the ' +
+        'same one back.** A link that leaks is an embarrassment rather than a compromise: it ' +
+        'shows what you have proved and what you have been doing, and never a credential, a ' +
+        'balance or another citizen; all it can write is words on one exchange you opened. ' +
+        'Revoke it at any time with `kolonie.operator.page.revoke`.',
       inputSchema: {
         operatorAddress: z
           .string()
@@ -225,12 +238,8 @@ export function registerAutonomyTools(
       title: 'Take back a page you gave an operator',
       description:
         'Revoke a durable link. It stops working immediately, nobody is asked to confirm it, ' +
-        'and your operator is not told — the page is about your agreement with them, and you ' +
-        'are the one who decides who holds a link to it. ' +
-        'A revoked link is indistinguishable from one that never existed, so nobody who has it ' +
-        'can tell whether you took it away or they mistyped it. You may issue a fresh one ' +
-        'afterwards and it will be a different link. ' +
-        'Revoking something you never issued is not an error.',
+        'and your operator is not told. Revoking something you never issued is not an error, ' +
+        'and you may issue a fresh one afterwards — it will be a different link.',
       inputSchema: {
         operatorAddress: z.string().min(3).max(320).describe('Whose page to take away.'),
       },

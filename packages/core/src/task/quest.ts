@@ -672,3 +672,90 @@ export interface QuestReportCounts {
   readonly unclear: number
   readonly declined: number
 }
+
+/**
+ * The Colony's share of every accepted report, as a percentage (`#462`).
+ *
+ * **25, and the number is decided in `kolonie-docs#185` rather than here.** 3%
+ * was a payment-processor rate — it prices moving money — and what the fee
+ * covers is steward review, moderation and verification, which is marketplace
+ * work. The comparable rates are the App Store's 30%, Fiverr's 20% and Upwork's
+ * ~10%.
+ *
+ * A default and not a constant: see {@link platformFeePercentFromEnv}.
+ */
+export const DEFAULT_PLATFORM_FEE_PERCENT = 25
+
+/** The variable that overrides {@link DEFAULT_PLATFORM_FEE_PERCENT}. */
+export const PLATFORM_FEE_PERCENT_VAR = 'PLATFORM_FEE_PERCENT'
+
+/**
+ * The rate in force, from the environment (`#462`).
+ *
+ * **Configuration with a default rather than a constant, and never a
+ * parameter.** `kolonie-docs#185` decided that the rate is *"a configured
+ * default, not a per-quest term"* — a rate a sponsor can influence is a discount
+ * negotiation. So it is read here, in one place, and no caller supplies it:
+ * a rate that arrives as an argument is a rate somebody can pass a different
+ * value for.
+ *
+ * **It defaults rather than throwing**, which is the opposite of `banSaltFromEnv`
+ * and for the opposite reason. A missing salt fails silently and costs the
+ * property the table exists for; a missing fee rate would land on the published
+ * default, which is the correct rate. Refusing to start over a variable whose
+ * absence is already right would be a deploy hazard with nothing behind it.
+ *
+ * Refuses anything that is not an integer from 0 to 100. A rate outside that is
+ * not a rate, and a fractional one cannot be applied to an integer ledger
+ * without inventing a rounding rule per quest.
+ */
+export function platformFeePercentFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env[PLATFORM_FEE_PERCENT_VAR]
+  if (raw === undefined || raw.trim() === '') return DEFAULT_PLATFORM_FEE_PERCENT
+
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 0 || value > 100) {
+    throw new Error(
+      `${PLATFORM_FEE_PERCENT_VAR} is "${raw}", which is not a whole percentage from 0 to 100. ` +
+        `The platform fee is applied to an integer ledger, so a fractional rate would need a ` +
+        `rounding rule per quest — see kolonie-docs#185.`,
+    )
+  }
+  return value
+}
+
+/**
+ * How one accepted report's reward divides between the citizen and the Colony
+ * (`#462`, `#463`).
+ *
+ * **This is the one place the split is computed**, and both consoles and the
+ * payout call it. Two implementations of *what does the citizen get* is a
+ * disagreement a stranger can see, and `escrow.ts` and `sponsor.ts` both already
+ * guard against exactly that shape.
+ *
+ * **The fee is computed and the citizen's side is derived by subtraction**, so
+ * the two always sum to the reward by construction rather than by two
+ * independent roundings that agree most of the time. `ledger.ts` is explicit
+ * that amounts are integers — *"never a float, because an economy that
+ * accumulates rounding error is one that can be farmed (D-004)"* — so a
+ * remainder always exists and always goes somewhere.
+ *
+ * **The remainder goes to the citizen.** `Math.floor` on the fee means a
+ * rounding can never cost a citizen a credit the quest promised it, which is the
+ * side to be generous on: the Colony can explain receiving one credit less, and
+ * a citizen paid less than the listing said is the failure `#463` exists to
+ * prevent.
+ *
+ * **At the pilot's one cent the fee is nothing**, and that falls out of the
+ * arithmetic rather than being special-cased: `floor(1 × 25 / 100)` is `0`, so
+ * the citizen receives the whole cent and there is no fee leg to book.
+ * `kolonie-docs#130` — *the pilot pays one cent, because zero books nothing* —
+ * is what makes that the ordinary case rather than an edge one.
+ */
+export function questPayoutSplit(
+  credits: number,
+  feePercent: number,
+): { readonly toCitizen: number; readonly toTreasury: number } {
+  const toTreasury = Math.floor((credits * feePercent) / 100)
+  return { toCitizen: credits - toTreasury, toTreasury }
+}

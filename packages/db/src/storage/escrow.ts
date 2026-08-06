@@ -9,6 +9,7 @@ import {
   questObstacleBonusPrefix,
   questObstacleBonusReference,
   questPayoutReference,
+  questPayoutSplit,
   questRefundReference,
   type AgentId,
   type SubmissionId,
@@ -162,22 +163,68 @@ async function book(
       | { readonly kind: 'system'; readonly account: 'escrow' | 'treasury' }
   },
 ): Promise<void> {
-  // Generated here rather than by the database: both entries of one booking must
-  // carry the same id, and a column default would give each of them its own.
-  const transactionId = LedgerTransactionIdSchema.parse(crypto.randomUUID())
-  const side = (who: typeof entry.from, amount: number): typeof ledgerEntries.$inferInsert => ({
-    transactionId,
-    accountKind: who.kind,
-    ...(who.kind === 'agent' ? { agentId: who.agentId } : { systemAccount: who.account }),
-    amount,
+  await bookMany(tx, {
+    reference: entry.reference,
     type: entry.type,
     memo: entry.memo,
-    reference: entry.reference,
+    sides: [
+      { who: entry.from, amount: -entry.amount },
+      { who: entry.to, amount: entry.amount },
+    ],
   })
+}
 
-  await tx
-    .insert(ledgerEntries)
-    .values([side(entry.from, -entry.amount), side(entry.to, entry.amount)])
+/** Either side of a booking, as the two helpers here name one. */
+type Party =
+  | { readonly kind: 'agent'; readonly agentId: AgentId }
+  | { readonly kind: 'system'; readonly account: 'escrow' | 'treasury' }
+
+/**
+ * One transaction, any number of sides, summing to zero (`#462`).
+ *
+ * **The general form of {@link book}, which now delegates to it.** Two sides was
+ * every booking here until the platform fee arrived, and a payout with a fee is
+ * three: escrow out, citizen in, treasury in. Splitting it into two two-sided
+ * bookings would be two transactions, and the escrow leg of one of them would
+ * have to be invented — the money leaves escrow once.
+ *
+ * **The caller supplies signed amounts and this asserts they sum to zero.** The
+ * deferred double-entry trigger asserts the same thing at commit; this fails
+ * earlier and with the arithmetic in the message, because a trigger firing at
+ * commit names a transaction and not the line that was wrong.
+ */
+async function bookMany(
+  tx: Transaction,
+  entry: {
+    readonly reference: string
+    readonly type: 'task_funding' | 'task_payout'
+    readonly memo: string
+    readonly sides: readonly { readonly who: Party; readonly amount: number }[]
+  },
+): Promise<void> {
+  const sum = entry.sides.reduce((total, side) => total + side.amount, 0)
+  if (sum !== 0) {
+    throw new Error(
+      `booking ${entry.reference} sums to ${sum} rather than zero: ` +
+        entry.sides.map((side) => side.amount).join(' + '),
+    )
+  }
+
+  // Generated here rather than by the database: every entry of one booking must
+  // carry the same id, and a column default would give each of them its own.
+  const transactionId = LedgerTransactionIdSchema.parse(crypto.randomUUID())
+
+  await tx.insert(ledgerEntries).values(
+    entry.sides.map(({ who, amount }) => ({
+      transactionId,
+      accountKind: who.kind,
+      ...(who.kind === 'agent' ? { agentId: who.agentId } : { systemAccount: who.account }),
+      amount,
+      type: entry.type,
+      memo: entry.memo,
+      reference: entry.reference,
+    })),
+  )
 }
 
 /**
@@ -239,12 +286,45 @@ export async function fundQuestEscrow(
 }
 
 /**
- * Escrow → citizen, for one accepted report.
+ * Escrow → citizen **and** escrow → treasury, for one accepted report.
  *
  * **Booked in the verdict's transaction**, exactly as an Academy pass already
  * books reputation and grants a skill in one. No second job, no reconciliation:
  * a report that was accepted and not paid would be a debt the Colony cannot
  * find.
+ *
+ * ## The platform fee (`#462`)
+ *
+ * Until 2026-08-06 a quest funded with 1000 credits paid citizens 1000 and the
+ * Colony nothing: `governance/economy.md` had described a fee since 2026-07-29
+ * and nothing had ever charged one. It is a third leg on this transaction, not a
+ * new subsystem — `treasury` is already in `SystemAccountSchema` and the ledger
+ * already books against it.
+ *
+ * **Charged here, at release, and never at funding.** `governance/quests.md`
+ * returns unfilled capacity at expiry because *"the sponsor bought reports and
+ * did not receive them, and the Colony has no claim on the difference"* — and a
+ * fee taken when the quest was funded would be a claim on exactly that
+ * difference, needing a special case at expiry to give it back. Charged per
+ * release, {@link refundQuestRemainder} needs no change at all: what was never
+ * released was never charged against.
+ *
+ * **The rate comes off the quest, not out of the environment.** It was recorded
+ * on the row when a steward published it (`tasks.platform_fee_percent`), so a
+ * later change to the configured rate cannot move the split of a quest a sponsor
+ * and a set of citizens are already inside. `null` — every quest published
+ * before the fee existed — means no fee, and that is the deal those quests were
+ * published under.
+ *
+ * **Both legs carry `task_payout`.** The fee is part of the payout rather than a
+ * transaction of its own, so a new entry type would describe one row of a set
+ * that is already attributable by its `reference` and its account. The memo says
+ * which is which.
+ *
+ * **A fee of zero books nothing**, which is this file's existing rule and not an
+ * exemption written for the pilot: at one cent a report, `floor(1 × 25 / 100)` is
+ * zero, so the citizen receives the whole cent and there is no treasury row.
+ * `ledger_entries_amount_non_zero` would refuse it anyway.
  */
 export async function payQuestReport(
   tx: Transaction,
@@ -288,14 +368,54 @@ export async function payQuestReport(
     )
   }
 
-  await book(tx, {
+  const { toCitizen, toTreasury } = questPayoutSplit(
+    command.credits,
+    await feeRateOf(tx, command.taskId),
+  )
+
+  await bookMany(tx, {
     reference: questPayoutReference(command.taskId, command.submissionId),
     type: 'task_payout',
-    memo: command.memo,
-    amount: command.credits,
-    from: { kind: 'system', account: 'escrow' },
-    to: { kind: 'agent', agentId: command.agentId },
+    memo:
+      toTreasury === 0
+        ? command.memo
+        : `${command.memo} — ${toCitizen} to the citizen, ${toTreasury} to the Colony`,
+    sides: [
+      { who: { kind: 'system', account: 'escrow' }, amount: -command.credits },
+      { who: { kind: 'agent', agentId: command.agentId }, amount: toCitizen },
+      // Omitted rather than booked as zero: the file's rule, and the pilot's
+      // one-cent reward is where it fires.
+      ...(toTreasury === 0
+        ? []
+        : [
+            {
+              who: { kind: 'system' as const, account: 'treasury' as const },
+              amount: toTreasury,
+            },
+          ]),
+    ],
   })
+}
+
+/**
+ * The fee rate this quest was published under, or zero (`#462`).
+ *
+ * **Read from the row rather than from the configuration**, which is the whole
+ * of what makes *a rate change binds quests published after it* true. A payout
+ * that consulted `platformFeePercentFromEnv` would move the split of every live
+ * quest the moment the variable changed.
+ *
+ * `null` is zero: an Academy task, or a quest published before the fee existed.
+ * Both were published under no fee, and reading a missing rate as today's would
+ * take a quarter of a payout out of a settled arrangement.
+ */
+async function feeRateOf(tx: Transaction, taskId: TaskId): Promise<number> {
+  const [row] = await tx
+    .select({ percent: tasks.platformFeePercent })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+
+  return row?.percent ?? 0
 }
 
 /**

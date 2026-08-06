@@ -303,6 +303,31 @@ export const tasks = pgTable(
     publishObstacles: boolean('publish_obstacles').notNull().default(true),
 
     /**
+     * The Colony's share of each accepted report, as it stood when this quest
+     * was published (`#462`).
+     *
+     * **Written once, at publication, and read at every payout.** The rate is
+     * configuration (`platformFeePercentFromEnv`), and configuration changes. A
+     * quest already published was funded against a stated split and its citizens
+     * are answering it on that basis, so moving the rate underneath it would
+     * change a deal two parties are already inside — `kolonie-docs#185`: *"a
+     * configured default... applying to quests published after the change"*.
+     * Recording it here is what makes that sentence true rather than aspirational.
+     *
+     * **`null` means no fee, and that is the honest answer for two populations.**
+     * An Academy task, which is not a quest and pays from the mint. And every
+     * quest published before this column existed: nothing charged a fee then, so
+     * those quests were published under a rate of nothing, and defaulting them to
+     * today's rate would take a quarter of a payout a sponsor and a citizen had
+     * already agreed. A backfill would be the Colony rewriting a settled deal.
+     *
+     * Not `default(25)`: a default would silently apply the rate to any row
+     * written without one, which is precisely the write this column exists to
+     * make deliberate.
+     */
+    platformFeePercent: integer('platform_fee_percent'),
+
+    /**
      * The report a quest asks for: an ordered list of questions (`#177`).
      *
      * `jsonb` and not a table, which is the one place this schema prefers a
@@ -453,6 +478,15 @@ export const tasks = pgTable(
      * `null` is the way to say unlimited; there is no second way to say it.
      */
     check('tasks_slots_positive', sql`${table.slots} is null or ${table.slots} > 0`),
+    /**
+     * A rate outside 0..100 is not a percentage (`#462`). `null` is the way to
+     * say *no fee*, and there is no second way to say it — the same shape
+     * `tasks_slots_positive` uses one line up.
+     */
+    check(
+      'tasks_platform_fee_percent_range',
+      sql`${table.platformFeePercent} is null or ${table.platformFeePercent} between 0 and 100`,
+    ),
     /**
      * A window of zero days is a task nobody is ever inside, which is a quest
      * that reads as targeted and is unattemptable. `null` is the way to say *no

@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import type { AgentId, SubmissionId, TaskId } from '@kolonie-ai/core'
+import {
+  PLATFORM_FEE_PERCENT_VAR,
+  type AgentId,
+  type SubmissionId,
+  type TaskId,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, ledgerEntries, submissions, taskAttempts, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
@@ -75,6 +80,8 @@ describe('the sponsor’s balance and the escrow', () => {
     readonly price: number
     readonly capacity: number | null
     readonly status?: 'draft' | 'pending_review' | 'active'
+    /** The rate this quest was published under. `undefined` is `null`: no fee. */
+    readonly feePercent?: number
   }): Promise<TaskId> => {
     const [row] = await db
       .insert(tasks)
@@ -90,6 +97,7 @@ describe('the sponsor’s balance and the escrow', () => {
         createdBy: options.sponsorId,
         timeoutHours: 24,
         status: options.status ?? 'pending_review',
+        ...(options.feePercent !== undefined && { platformFeePercent: options.feePercent }),
       })
       .returning({ id: tasks.id })
     return row!.id as TaskId
@@ -850,5 +858,258 @@ describe('the sponsor’s balance and the escrow', () => {
       expect(await escrowHeldFor(db, mine)).toBe(0)
       expect(await escrowHeldFor(db, orphan)).toBe(0)
     })
+  })
+})
+
+/**
+ * The Colony's share of every accepted report (`#462`).
+ *
+ * Until 2026-08-06 a quest funded with 1000 credits paid citizens 1000 and the
+ * Colony nothing: `governance/economy.md` had described a platform fee since
+ * 2026-07-29 and nothing had ever charged one.
+ */
+describe('the platform fee on an accepted report', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  let seeded = 0
+
+  const anAgent = async (): Promise<AgentId> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: `agent-${++seeded}`, platform: 'openclaw', status: 'citizen' as const })
+      .returning({ id: agents.id })
+    return row!.id as AgentId
+  }
+
+  /**
+   * A published quest with its escrow funded through the real path.
+   *
+   * `publishObstacles: false` so the escrow is exactly `price` — the obstacle
+   * pool is a second sum on top (`#371`) and it is not what these tests are
+   * about.
+   */
+  const aFundedQuest = async (price: number, feePercent: number | null): Promise<TaskId> => {
+    const sponsorId = await anAgent()
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type: `quest-${++seeded}`,
+        kind: 'quest' as const,
+        title: 'A thousand registrations',
+        description: 'A description.',
+        instructions: 'Register and report.',
+        rewardCredits: price,
+        rewardReputation: 1,
+        slots: 1,
+        createdBy: sponsorId,
+        publishObstacles: false,
+        timeoutHours: 24,
+        status: 'active' as const,
+        ...(feePercent !== null && { platformFeePercent: feePercent }),
+      })
+      .returning({ id: tasks.id })
+    const taskId = row!.id as TaskId
+
+    await creditBalance(sponsorId, price)
+    await db.transaction((tx) =>
+      fundQuestEscrow(tx, {
+        taskId,
+        sponsorId,
+        credits: price,
+        capacity: 1,
+        publishObstacles: false,
+      }),
+    )
+    return taskId
+  }
+
+  const anAcceptedReport = async (taskId: TaskId, agentId: AgentId): Promise<SubmissionId> => {
+    const [attempt] = await db
+      .insert(taskAttempts)
+      .values({ agentId, taskId, attempt: 1, opener: 'submission' as const })
+      .returning({ id: taskAttempts.id })
+    const [row] = await db
+      .insert(submissions)
+      .values({
+        taskId,
+        agentId,
+        attemptId: attempt!.id,
+        attempt: 1,
+        payload: {},
+        status: 'passed' as const,
+        verifiedAt: sql`now()`,
+      })
+      .returning({ id: submissions.id })
+    return row!.id as SubmissionId
+  }
+
+  /** A steward crediting a sponsor's balance by hand, which is the only way in today. */
+  const creditBalance = async (agentId: AgentId, amount: number): Promise<void> => {
+    const transactionId = crypto.randomUUID()
+    await db.insert(ledgerEntries).values([
+      {
+        transactionId,
+        accountKind: 'system' as const,
+        systemAccount: 'treasury' as const,
+        amount: -amount,
+        type: 'adjustment' as const,
+        reference: `bootstrap:${agentId}`,
+      },
+      {
+        transactionId,
+        accountKind: 'agent' as const,
+        agentId,
+        amount,
+        type: 'adjustment' as const,
+        reference: `bootstrap:${agentId}`,
+      },
+    ])
+  }
+
+  const totalFor = async (where: ReturnType<typeof eq>): Promise<number> => {
+    const [row] = await db
+      .select({ total: sql<string>`coalesce(sum(${ledgerEntries.amount}), 0)::text` })
+      .from(ledgerEntries)
+      .where(where)
+    return Number(row?.total ?? 0)
+  }
+
+  const pay = async (taskId: TaskId, agentId: AgentId, credits: number) => {
+    const submissionId = await anAcceptedReport(taskId, agentId)
+    await db.transaction((tx) =>
+      payQuestReport(tx, { taskId, submissionId, agentId, credits, memo: 'An answer.' }),
+    )
+  }
+
+  it('books escrow out, the citizen in and the treasury in, as one transaction', async () => {
+    const citizen = await anAgent()
+    const taskId = await aFundedQuest(1000, 25)
+
+    await pay(taskId, citizen, 1000)
+
+    expect(await totalFor(eq(ledgerEntries.agentId, citizen))).toBe(750)
+    expect(await totalFor(eq(ledgerEntries.systemAccount, 'escrow'))).toBe(0)
+
+    const rows = await db
+      .select({
+        transactionId: ledgerEntries.transactionId,
+        amount: ledgerEntries.amount,
+        account: ledgerEntries.systemAccount,
+      })
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.type, 'task_payout'))
+
+    // One transaction, three sides, summing to zero — not two bookings that
+    // would each have to invent an escrow leg.
+    expect(new Set(rows.map((row) => row.transactionId)).size).toBe(1)
+    expect(rows).toHaveLength(3)
+    expect(rows.reduce((sum, row) => sum + row.amount, 0)).toBe(0)
+  })
+
+  it('sends the Colony’s share to the treasury account', async () => {
+    const citizen = await anAgent()
+    const taskId = await aFundedQuest(1000, 25)
+
+    const before = await totalFor(eq(ledgerEntries.systemAccount, 'treasury'))
+    await pay(taskId, citizen, 1000)
+
+    expect((await totalFor(eq(ledgerEntries.systemAccount, 'treasury'))) - before).toBe(250)
+  })
+
+  /**
+   * **The rejection case the issue asks for.** A rate change must not move a
+   * quest a sponsor and a set of citizens are already inside — the payout reads
+   * the rate recorded on the row at publication, so changing the configured one
+   * does nothing to a live quest.
+   */
+  it('pays against the rate recorded at publication, not the configured one', async () => {
+    const citizen = await anAgent()
+    // Published at 10%, whatever the environment says now.
+    const taskId = await aFundedQuest(1000, 10)
+
+    const previous = process.env[PLATFORM_FEE_PERCENT_VAR]
+    process.env[PLATFORM_FEE_PERCENT_VAR] = '90'
+    try {
+      await pay(taskId, citizen, 1000)
+    } finally {
+      if (previous === undefined) delete process.env[PLATFORM_FEE_PERCENT_VAR]
+      else process.env[PLATFORM_FEE_PERCENT_VAR] = previous
+    }
+
+    expect(await totalFor(eq(ledgerEntries.agentId, citizen))).toBe(900)
+  })
+
+  /**
+   * Every quest published before this column existed was published under no fee.
+   * Reading a missing rate as today's would take a quarter of a payout out of an
+   * arrangement that was already settled.
+   */
+  it('charges nothing on a quest published before the fee existed', async () => {
+    const citizen = await anAgent()
+    const taskId = await aFundedQuest(1000, null)
+
+    await pay(taskId, citizen, 1000)
+
+    expect(await totalFor(eq(ledgerEntries.agentId, citizen))).toBe(1000)
+    expect(await totalFor(eq(ledgerEntries.type, 'task_payout'))).toBe(0)
+  })
+
+  /**
+   * **The pilot, and the rule that zero books nothing.** At one cent a report a
+   * 25% fee rounds to zero, so there must be no treasury row at all — not a row
+   * of zero, which `ledger_entries_amount_non_zero` would refuse anyway.
+   */
+  it('books no treasury row at all when the fee rounds to nothing', async () => {
+    const citizen = await anAgent()
+    const taskId = await aFundedQuest(1, 25)
+
+    await pay(taskId, citizen, 1)
+
+    expect(await totalFor(eq(ledgerEntries.agentId, citizen))).toBe(1)
+
+    const payout = await db
+      .select({ account: ledgerEntries.systemAccount, amount: ledgerEntries.amount })
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.type, 'task_payout'))
+
+    expect(payout).toHaveLength(2)
+    expect(payout.some((row) => row.account === 'treasury')).toBe(false)
+  })
+
+  /** The remainder lands on the citizen, and it is asserted on a number that has one. */
+  it('rounds in the citizen’s favour', async () => {
+    const citizen = await anAgent()
+    const taskId = await aFundedQuest(7, 25)
+
+    // A delta: funding the sponsor's balance moves credits out of the treasury,
+    // so its absolute total says nothing about the fee.
+    const before = await totalFor(eq(ledgerEntries.systemAccount, 'treasury'))
+    await pay(taskId, citizen, 7)
+
+    // floor(7 × 25 / 100) = 1, so the citizen keeps 6 rather than 5.
+    expect(await totalFor(eq(ledgerEntries.agentId, citizen))).toBe(6)
+    expect((await totalFor(eq(ledgerEntries.systemAccount, 'treasury'))) - before).toBe(1)
+  })
+
+  /** D-038 is untouched: a quest still moves a credit the sponsor already had. */
+  it('mints nothing', async () => {
+    const citizen = await anAgent()
+    const taskId = await aFundedQuest(1000, 25)
+
+    await pay(taskId, citizen, 1000)
+
+    expect(await totalFor(eq(ledgerEntries.systemAccount, 'mint'))).toBe(0)
   })
 })

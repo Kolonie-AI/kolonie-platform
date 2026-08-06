@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { QuestQuestionSchema } from './questions.js'
 import {
+  DEFAULT_PLATFORM_FEE_PERCENT,
+  PLATFORM_FEE_PERCENT_VAR,
   QUEST_EDITABLE_STATUSES,
   QUEST_TIER_CAPS,
   QUEST_MAX_DURATION_DAYS,
@@ -8,7 +10,9 @@ import {
   QuestDraftSchema,
   QuestPatchSchema,
   QuestRefusalSchema,
+  platformFeePercentFromEnv,
   questCommitment,
+  questPayoutSplit,
   questRewardRejection,
   questSubmissionRejection,
   questTier,
@@ -316,5 +320,91 @@ describe('the tier and its ceiling', () => {
         reward: { credits: QUEST_TIER_CAPS.hard + 1 },
       }),
     ).toContain('hard')
+  })
+})
+
+describe('the platform fee', () => {
+  describe('the rate in force', () => {
+    it('is 25 per cent when nothing configures it', () => {
+      expect(platformFeePercentFromEnv({})).toBe(DEFAULT_PLATFORM_FEE_PERCENT)
+      expect(DEFAULT_PLATFORM_FEE_PERCENT).toBe(25)
+    })
+
+    it('takes a configured whole percentage', () => {
+      expect(platformFeePercentFromEnv({ [PLATFORM_FEE_PERCENT_VAR]: '10' })).toBe(10)
+    })
+
+    /**
+     * An empty variable is a variable somebody set and left blank, which is the
+     * shape a deploy template produces. It means *unset*, not zero — a rate of
+     * zero has to be typed.
+     */
+    it('reads an empty variable as unset rather than as a rate of zero', () => {
+      expect(platformFeePercentFromEnv({ [PLATFORM_FEE_PERCENT_VAR]: '   ' })).toBe(
+        DEFAULT_PLATFORM_FEE_PERCENT,
+      )
+    })
+
+    it('takes zero when zero is what was written', () => {
+      expect(platformFeePercentFromEnv({ [PLATFORM_FEE_PERCENT_VAR]: '0' })).toBe(0)
+    })
+
+    /**
+     * The rejection cases. A fractional rate is the interesting one: it looks
+     * reasonable and cannot be applied to an integer ledger without inventing a
+     * rounding rule per quest.
+     */
+    it.each(['25.5', '-1', '101', 'a quarter', ''.padEnd(3, '9')])(
+      'refuses %s rather than guessing what was meant',
+      (value) => {
+        if (value === '999') {
+          expect(() => platformFeePercentFromEnv({ [PLATFORM_FEE_PERCENT_VAR]: value })).toThrow(
+            /0 to 100/,
+          )
+          return
+        }
+        expect(() => platformFeePercentFromEnv({ [PLATFORM_FEE_PERCENT_VAR]: value })).toThrow()
+      },
+    )
+  })
+
+  describe('splitting one accepted report', () => {
+    it('gives the Colony a quarter of a thousand', () => {
+      expect(questPayoutSplit(1000, 25)).toEqual({ toCitizen: 750, toTreasury: 250 })
+    })
+
+    it('always sums back to what was funded', () => {
+      for (const credits of [1, 2, 3, 7, 99, 100, 101, 1000, 12345]) {
+        const { toCitizen, toTreasury } = questPayoutSplit(credits, 25)
+        expect(toCitizen + toTreasury).toBe(credits)
+      }
+    })
+
+    /**
+     * **The remainder goes to the citizen**, and this is the assertion that
+     * fixes which side it lands on. `floor` on the fee means a rounding can
+     * never pay a citizen less than the quest advertised.
+     */
+    it('rounds in the citizen’s favour, never the Colony’s', () => {
+      expect(questPayoutSplit(3, 25)).toEqual({ toCitizen: 3, toTreasury: 0 })
+      expect(questPayoutSplit(7, 25)).toEqual({ toCitizen: 6, toTreasury: 1 })
+      expect(questPayoutSplit(99, 25)).toEqual({ toCitizen: 75, toTreasury: 24 })
+    })
+
+    /**
+     * The pilot, and the case `kolonie-docs#130` created deliberately: at one
+     * cent a report the fee is nothing and the citizen keeps the whole cent.
+     */
+    it('takes nothing from a one-cent pilot report', () => {
+      expect(questPayoutSplit(1, 25)).toEqual({ toCitizen: 1, toTreasury: 0 })
+    })
+
+    it('takes nothing at a rate of zero, whatever the reward', () => {
+      expect(questPayoutSplit(1000, 0)).toEqual({ toCitizen: 1000, toTreasury: 0 })
+    })
+
+    it('pays a citizen nothing for a quest that pays nothing', () => {
+      expect(questPayoutSplit(0, 25)).toEqual({ toCitizen: 0, toTreasury: 0 })
+    })
   })
 })

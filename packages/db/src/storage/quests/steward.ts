@@ -4,6 +4,7 @@ import {
   QuestAnswersSchema,
   StoredQuestQuestionsSchema,
   paidQuestRejection,
+  platformFeePercentFromEnv,
   type AgentId,
   type ModerationStages,
   type QuestAuditPolicy,
@@ -190,7 +191,25 @@ export async function publishQuest(
 
     await tx
       .update(tasks)
-      .set({ status: 'active', updatedAt: command.at })
+      .set({
+        status: 'active',
+        updatedAt: command.at,
+        /**
+         * The rate in force, written onto the quest as it is published (`#462`).
+         *
+         * **Here and nowhere else.** This is the moment the deal is struck: the
+         * money moves into escrow one statement up, and from now on citizens are
+         * answering against a published split. Reading the configuration at
+         * payout instead would move that split under every live quest the moment
+         * somebody changed a variable.
+         *
+         * Read from the environment rather than passed in by the caller, which
+         * is `kolonie-docs#185`'s *configured default, not a per-quest term*: a
+         * rate that arrives as an argument is a rate somebody can pass a
+         * different value for.
+         */
+        platformFeePercent: platformFeePercentFromEnv(),
+      })
       .where(eq(tasks.id, command.taskId))
 
     await recordAuthorityEvent(tx, {

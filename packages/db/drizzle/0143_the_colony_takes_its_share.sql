@@ -1,0 +1,2 @@
+ALTER TABLE "tasks" ADD COLUMN "platform_fee_percent" integer;--> statement-breakpoint
+ALTER TABLE "tasks" ADD CONSTRAINT "tasks_platform_fee_percent_range" CHECK ("tasks"."platform_fee_percent" is null or "tasks"."platform_fee_percent" between 0 and 100);

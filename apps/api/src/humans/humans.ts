@@ -8,6 +8,9 @@ import {
 } from '@kolonie-ai/core'
 import {
   authenticateHumanSession,
+  deleteHuman,
+  humanExport,
+  humanSponsorIdentities,
   endAllHumanSessions,
   endHumanSession,
   endHumanSessionById,
@@ -22,7 +25,9 @@ import {
   redeemCodeAsAgent,
   redeemCodeAsHuman,
   type Database,
+  type DeleteHumanOutcome,
   type HumanAuthentication,
+  type HumanExport,
   type LinkCode,
   type LinkOutcome,
   type OpenedSession,
@@ -62,6 +67,18 @@ export interface HumanStore {
   endSessionById(humanId: Human['id'], sessionId: string): Promise<boolean>
   endAllSessions(humanId: Human['id']): Promise<number>
   listSessions(humanId: Human['id']): Promise<readonly HumanSession[]>
+  /**
+   * Deleting a person (`#429`).
+   *
+   * **Behind the port like everything else here**, so the console's routes are
+   * tested without a PostgreSQL and what the transaction actually does to the
+   * cascades is tested in `packages/db` against a real one.
+   */
+  deleteAccount(humanId: Human['id']): Promise<DeleteHumanOutcome>
+  /** What a person may take with them: the agents linked, and when. */
+  exportOf(humanId: Human['id']): Promise<HumanExport>
+  /** The sponsor identities this person holds, which are what refuse a deletion. */
+  sponsorIdentities(humanId: Human['id']): Promise<readonly string[]>
 }
 
 export interface HumanDependencies {
@@ -203,6 +220,9 @@ export function databaseHumanStore(db: Database): HumanStore {
     endSessionById: (humanId, sessionId) => endHumanSessionById(db, humanId, sessionId),
     endAllSessions: (humanId) => endAllHumanSessions(db, humanId),
     listSessions: (humanId) => listHumanSessions(db, humanId),
+    deleteAccount: (humanId) => deleteHuman(db, humanId),
+    exportOf: (humanId) => humanExport(db, humanId),
+    sponsorIdentities: (humanId) => humanSponsorIdentities(db, humanId),
   }
 }
 

@@ -29,6 +29,8 @@ import {
   keyMintedPage,
   keyPage,
   notFoundPage,
+  accountDeletedPage,
+  accountPage,
   dashboardPage,
   sessionsPage,
   signInPage,
@@ -669,6 +671,122 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply.status(303).header('location', '/').send()
       : reply.status(200).send({ ended })
+  })
+
+  /**
+   * The account page, and the deletion it exists for (`#429`).
+   *
+   * **Deleting the human deletes the human and touches no agent**, which is the
+   * whole shape of the feature. Nothing here reaches an agent's row: the store
+   * removes the person, the schema cascades their identities, sessions and join
+   * rows, and every agent survives with its name, skills, rungs, balance and
+   * standing.
+   */
+  app.get('/account', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const [exported, sponsors] = await Promise.all([
+      deps.humans.store.exportOf(signedIn.human.id),
+      deps.humans.store.sponsorIdentities(signedIn.human.id),
+    ])
+
+    const agents = exported.agents.map((agent) => ({
+      name: agent.name,
+      linkedAt: agent.linkedAt,
+    }))
+
+    return wantsHtml(request)
+      ? html(reply, accountPage({ agents, sponsors }))
+      : reply.send({ agents: exported.agents, sponsors })
+  })
+
+  /**
+   * Delete it.
+   *
+   * **No grace period, matching the citizen's** — a deletion a confused person
+   * can trigger and then wait out is a deletion nobody trusts. The page says so
+   * before the button.
+   *
+   * **The session cookie is cleared whatever happens next**, because the session
+   * it named has been deleted by the same statement that deleted the person. A
+   * browser holding a dead session would keep presenting it.
+   *
+   * **One mail, at deletion, and never again**, which is the rule
+   * `operator_addresses` already states. It is sent after the transaction
+   * commits and its failure is not the person's problem: the account is already
+   * gone, and answering an error would say otherwise.
+   */
+  app.post('/account/delete', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const result = await deps.humans.store.deleteAccount(signedIn.human.id)
+
+    if (result.outcome === 'holds-sponsor-identity') {
+      const exported = await deps.humans.store.exportOf(signedIn.human.id)
+
+      return wantsHtml(request)
+        ? html(
+            reply.status(ERROR_STATUS.conflict),
+            accountPage({
+              agents: exported.agents.map((agent) => ({
+                name: agent.name,
+                linkedAt: agent.linkedAt,
+              })),
+              sponsors: result.sponsors,
+            }),
+          )
+        : reply.status(ERROR_STATUS.conflict).send({
+            code: 'conflict',
+            message:
+              `This account holds a sponsor account (${result.sponsors.join(', ')}), which has ` +
+              `quests, a balance and reports already delivered. Delete or transfer it first.`,
+          })
+    }
+
+    /**
+     * `not-found` is answered as success, deliberately. The person's session
+     * resolved a moment ago and their row is gone now — by another tab, or by
+     * their own second click — and *your account is deleted* is both true and
+     * the whole of what they need.
+     */
+    reply.header('set-cookie', clearedSessionCookie())
+
+    if (result.outcome === 'deleted') {
+      await Promise.all(
+        result.notify.map(async (address) => {
+          try {
+            await deps.console.mailer?.send({
+              to: address,
+              subject: 'Your Kolonie account is deleted',
+              text:
+                'Your sign-in, your sessions and the record of which agents you operated have ' +
+                'been deleted.\n\n' +
+                'Your agents were not deleted and could not be. They keep their names, their ' +
+                'skills, their rungs, their balances and their standing. Each has been told ' +
+                'once that it no longer has an operator.\n\n' +
+                'This is the only mail you will receive about it.',
+            })
+          } catch {
+            /**
+             * Swallowed on purpose. The transaction has committed; the account
+             * is gone whatever the mail did, and turning a mail failure into an
+             * error page would tell somebody their deletion had failed when it
+             * had not.
+             */
+          }
+        }),
+      )
+    }
+
+    return wantsHtml(request)
+      ? html(reply, accountDeletedPage())
+      : reply.status(200).send({ deleted: true })
   })
 
   /**

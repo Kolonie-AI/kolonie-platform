@@ -17,6 +17,8 @@ export interface FakeHumanStore extends HumanStore {
   readonly people: () => readonly Human[]
   /** Every session value it has handed out, newest last. */
   readonly sessions: () => readonly string[]
+  /** Make a linked agent read as a sponsor identity, which refuses a deletion (`#429`). */
+  readonly makeSponsor: (agentId: AgentId) => void
 }
 
 export function fakeHumanStore(): FakeHumanStore {
@@ -32,6 +34,8 @@ export function fakeHumanStore(): FakeHumanStore {
     used: boolean
   }[] = []
   const links = new Map<AgentId, Human['id']>()
+  /** Which linked agents this fake should treat as sponsor identities (`#429`). */
+  const sponsorIdentities = new Set<AgentId>()
 
   const key = (identity: ProviderIdentity) => `${identity.provider}|${identity.subject}`
 
@@ -99,6 +103,76 @@ export function fakeHumanStore(): FakeHumanStore {
         })),
 
     operates: async (humanId, agentId) => links.get(agentId) === humanId,
+
+    /**
+     * Deleting a person (`#429`).
+     *
+     * **The join rows go and the agents are not touched**, which is the property
+     * the console's routes are tested against here. What the real transaction
+     * does to the cascades, the operator addresses and the notes is tested in
+     * `packages/db` against a PostgreSQL — a fake that re-implemented those would
+     * be asserting its own arithmetic.
+     */
+    deleteAccount: async (humanId) => {
+      if (![...byIdentity.values()].some((human) => human.id === humanId)) {
+        return { outcome: 'not-found' as const }
+      }
+
+      const sponsors = [...sponsorIdentities].filter((agentId) => links.get(agentId) === humanId)
+
+      if (sponsors.length > 0) {
+        return {
+          outcome: 'holds-sponsor-identity' as const,
+          sponsors: sponsors.map((agentId) => `agent-${agentId.slice(0, 4)}`),
+        }
+      }
+
+      const orphaned = [...links.entries()]
+        .filter(([, id]) => id === humanId)
+        .map(([agentId]) => agentId)
+
+      const exported = {
+        agents: orphaned.map((agentId) => ({
+          id: agentId,
+          name: `agent-${agentId.slice(0, 4)}`,
+          linkedAt: new Date().toISOString(),
+        })),
+      }
+
+      for (const agentId of orphaned) links.delete(agentId)
+      for (const [identity, human] of byIdentity.entries()) {
+        if (human.id === humanId) byIdentity.delete(identity)
+      }
+      for (const [value, session] of live.entries()) {
+        if (session.humanId === humanId) live.delete(value)
+      }
+
+      return {
+        outcome: 'deleted' as const,
+        exported,
+        orphaned,
+        notify: ['someone@example.com'],
+      }
+    },
+
+    exportOf: async (humanId) => ({
+      agents: [...links.entries()]
+        .filter(([, id]) => id === humanId)
+        .map(([agentId]) => ({
+          id: agentId,
+          name: `agent-${agentId.slice(0, 4)}`,
+          linkedAt: new Date().toISOString(),
+        })),
+    }),
+
+    sponsorIdentities: async (humanId) =>
+      [...sponsorIdentities]
+        .filter((agentId) => links.get(agentId) === humanId)
+        .map((agentId) => `agent-${agentId.slice(0, 4)}`),
+
+    makeSponsor: (agentId: AgentId) => {
+      sponsorIdentities.add(agentId)
+    },
 
     findOrCreate: async (identity) => {
       const existing = byIdentity.get(key(identity))

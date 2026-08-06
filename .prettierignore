@@ -11,3 +11,10 @@ packages/db/drizzle/meta
 
 # The generated storage barrel (#271). See .gitignore.
 packages/db/src/storage/index.ts
+
+# Vendored third party, and reformatting it defeats the point of vendoring it.
+# `schemas/mcp-registry-server-2025-12-11.schema.json` is the official MCP
+# registry's own schema, byte-for-byte as it is served, so that
+# `scripts/server-json.test.ts` validates against what the registry validates
+# against rather than against our copy of it (kolonie-platform#443).
+schemas/

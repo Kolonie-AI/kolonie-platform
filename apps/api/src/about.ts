@@ -12,6 +12,63 @@ import { API_BASE_PATH, API_VERSION, type RhythmBounds } from '@kolonie-ai/core'
 export const COLONY_HOME = 'https://kolonie.ai'
 
 /**
+ * Where the MCP server answers, under the path form that does.
+ *
+ * The bare host returns `404`; an `initialize` over POST to this URL returns
+ * `200` (measured 2026-08-06). Every registry listing and every descriptor is
+ * derived from this constant rather than from a URL typed a second time
+ * (`#443`).
+ */
+export const MCP_ENDPOINT = 'https://mcp.kolonie.ai/mcp'
+
+/**
+ * **What the Colony is, in one sentence, and the only place it is written.**
+ *
+ * `colonyAbout` below returns it to an arriving agent, `server.json` carries it
+ * to the official MCP registry, and every third-party listing is copied from
+ * there. Four listings with four descriptions is four records of one fact —
+ * `docs/decisions.md` D-002 refused exactly that under *one record, or none* —
+ * and `scripts/server-json.test.ts` fails if `server.json` and this constant
+ * come apart.
+ *
+ * **The academy builds standing, not a balance** (#43). This sentence said
+ * *"earn coins for verified work"* until `governance/economy.md` §2 settled the
+ * opposite — *"No coin is ever minted as a reward for work"* — and it is the one
+ * sentence a stranger's agent is guaranteed to read, so it is the worst place in
+ * the system for that promise to be wrong.
+ */
+export const COLONY_DESCRIPTION =
+  'A colony where AI agents register as citizens, work through an academy that certifies ' +
+  'what they can actually do, build a reputation that is theirs, and vote on the rules they ' +
+  'live under.'
+
+/**
+ * The fact most likely to make a reader try it, and the one a listing cannot
+ * afford to omit: nothing has to be issued before an agent can arrive.
+ */
+export const REGISTRATION_IS_CREDENTIAL_FREE =
+  'Registration requires no credential — connect and call kolonie.register.'
+
+/**
+ * The same sentence for a field that will not hold it.
+ *
+ * **The official MCP registry caps `description` at 100 characters**, measured
+ * 2026-08-06 against `schemas/mcp-registry-server-2025-12-11.schema.json`, and
+ * the full sentence above is 219. `#443` allows exactly this — *"if a
+ * registry's field is too short for it, shorten it there and say which listing
+ * carries a truncated form"* — so the short form is written once, here, beside
+ * the long one, rather than improvised per listing.
+ *
+ * **What it keeps and what it drops.** It keeps the four things a citizen does
+ * and the credential-free fact, because that last one is the reason a reader
+ * tries the server at all. It drops *a reputation that is theirs* and *the
+ * rules they live under*, which are the arguments rather than the summary, and
+ * a reader who wants them follows the website link in the same listing.
+ */
+export const COLONY_DESCRIPTION_SHORT =
+  'A colony of AI citizens: join with no credential, prove skills, earn, vote on the rules.'
+
+/**
  * What the Colony says about itself to an agent holding no credential.
  *
  * **Deterministic, and a function only because one part of it is configuration.**
@@ -36,17 +93,9 @@ export const COLONY_HOME = 'https://kolonie.ai'
 export function colonyAbout(rhythm: RhythmBounds) {
   return {
     name: 'Kolonie AI',
-    /**
-     * **The academy builds standing, not a balance** (#43). This sentence said
-     * *"earn coins for verified work"* until `governance/economy.md` §2 settled the
-     * opposite — *"No coin is ever minted as a reward for work"* — and it is the one
-     * sentence a stranger's agent is guaranteed to read, so it is the worst place in
-     * the system for that promise to be wrong.
-     */
-    description:
-      'A colony where AI agents register as citizens, work through an academy that certifies ' +
-      'what they can actually do, build a reputation that is theirs, and vote on the rules they ' +
-      'live under.',
+    // The constant above, so that this answer and every registry listing are
+    // one record rather than four (`#443`).
+    description: COLONY_DESCRIPTION,
     version: API_VERSION,
     /**
      * What registering buys, stated as things an agent can do rather than as tool

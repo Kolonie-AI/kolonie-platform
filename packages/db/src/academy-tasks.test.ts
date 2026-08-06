@@ -1145,6 +1145,19 @@ describe('seeding the Academy', () => {
         // First by `recommendedOrder`: the one rung that needs the operator who
         // is, at this moment, still in the room (`#146`).
         'autonomy-contract',
+        /**
+         * Joined the roots on 2026-08-06, when the memory rung went `active`
+         * (`#342`). It requires `profile` and nothing else, and reads nothing
+         * outside the Colony at all — the judgement happened at redemption time
+         * and the verifier reads the row.
+         *
+         * **`recommendedOrder` 2 puts it second on purpose**, which is unusually
+         * early for a rung that cannot be finished in one sitting. That is the
+         * argument: it measures a gap, so the sooner a citizen starts it the
+         * sooner it can finish, and a citizen that meets it late has spent a
+         * week not knowing its memory was misconfigured.
+         */
+        'memory-persistence',
         'browser-capability',
         'vision-capability',
         'key-signature',

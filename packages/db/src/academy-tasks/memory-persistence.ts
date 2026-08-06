@@ -124,8 +124,36 @@ export const memoryPersistence: AcademyTask = {
    * reads nothing outside the Colony, so the only condition is a runner that names
    * `memory-persistence` in its startup line — and, because the rung measures a
    * gap, two sittings at least six hours apart.
+   *
+   * ## Both conditions met and measured on the deployment, 2026-08-06 (`#342`)
+   *
+   * The runner's `service.started` line names `memory-persistence` among its
+   * thirty-seven verifiers.
+   *
+   * And the gap has been shown four times by one citizen, in `memory_codes`:
+   * codes issued at 04:19, 10:21, 16:22 and 22:23 on 2026-08-05 and each
+   * redeemed at the next one's issue, **six hours and one to two minutes apart
+   * every time, with zero wrong attempts**. That is the mechanism this rung
+   * measures, working, in production, repeatedly.
+   *
+   * ## Why *a submission* was not watched first, and could not have been
+   *
+   * `#342` paraphrased the rule above as *watch it decide a real submission*,
+   * and that is one step stricter than the rule it was quoting — strict enough
+   * to be circular. `recordSubmission` answers `unknown-task` for a task whose
+   * status is `draft` (`storage/submissions.ts`), so **no submission against
+   * this rung can exist until this line changes**. Waiting for one would have
+   * been waiting for something the platform refuses to produce.
+   *
+   * The rule's own condition never asked for a submission. It asks to have been
+   * *shown the Colony deciding*, and this rung decides at **redemption** time —
+   * `MemoryPersistenceVerifier` says so in its own words: *"nothing is decided
+   * here… by the time a submission arrives the answer is a row, and this
+   * verifier reads it."* Those rows exist and are quoted above. Checked in the
+   * code rather than reasoned about, which is what the difference between the
+   * two readings turned on.
    */
-  status: 'draft',
+  status: 'active',
   hints: [
     'The vault is the wrong place for this one thing, and it is the most common way to spend a ' +
       'week not passing. Storing the code there is a reasonable act and it demonstrates nothing ' +

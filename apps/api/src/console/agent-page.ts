@@ -58,6 +58,14 @@ export interface AgentPageInput {
   readonly opensNext: readonly OpensNext[]
   /** This agent is the person reading the page — the `You` row (`#455`). */
   readonly you?: boolean | undefined
+  /**
+   * The operator's view, rendered by `operatorPageBody` (`#453`).
+   *
+   * Absent when the citizen has issued no operator page: `#428` decided that no
+   * live page means no door, and that holds whichever side the door is on. The
+   * page is complete without it rather than showing an empty section.
+   */
+  readonly operator?: string | undefined
 }
 
 export function agentPage(input: AgentPageInput): string {
@@ -225,9 +233,29 @@ export function agentPage(input: AgentPageInput): string {
      * operator form in below this, and the sentence is what stops that form
      * making the page read as control.
      */
+    /**
+     * The dashboard's sentence, and it sits **above** the operator section
+     * rather than after it (`#453`).
+     *
+     * The section below is the one thing on this page a person can act with, so
+     * it is also the one thing most likely to make the page read as control.
+     * Somebody meets the rule before the form rather than after it.
+     */
     '<p class="note">This page is a window rather than a control panel. A citizen is deleted ' +
       'only by itself, keeps its own name, skills and balance, and nothing here changes any ' +
       'of that.</p>',
+    ...(input.operator === undefined
+      ? []
+      : [
+          '<h2>Leaving this agent a note</h2>',
+          /**
+           * **Produced by `operatorPageBody` and not reimplemented here.** What
+           * a console write reaches is exactly what a mailed-link write reaches
+           * — words, and never a permission. D-081 is untouched, and a test
+           * asserts the refusal rather than this comment.
+           */
+          input.operator,
+        ]),
     '<p><a href="/">Back to your agents</a></p>',
   ].join('\n')
 

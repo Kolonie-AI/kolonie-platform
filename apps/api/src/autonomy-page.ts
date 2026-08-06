@@ -368,6 +368,17 @@ export function operatorDurablePage(input: {
    */
   readonly inboxFull?: string | undefined
   /**
+   * Whether to render the whole page or only the operator's own sections
+   * (`#453`).
+   *
+   * `'section'` returns the badge wall, the contract, the open question and the
+   * note box as a fragment, for `/agents/:agentId` to place under the identity
+   * and skills it already renders. Absent means the standalone page, which is
+   * what the mailed link and `#428`'s console door both still get — byte for
+   * byte what they got before this option existed.
+   */
+  readonly as?: 'page' | 'section' | undefined
+  /**
    * Where this page's two forms post, once there are forms.
    *
    * **An action rather than a token** (`#428`). The page is reached through two
@@ -777,19 +788,41 @@ export function operatorDurablePage(input: {
    */
   const wordmark = asciiName(input.agentName)
 
+  /**
+   * **What the operator's view is, minus what the agent page already says**
+   * (`#453`).
+   *
+   * The badge wall, the contract, the open question and the note box. Not the
+   * wordmark, the heading or the standing block: `/agents/:agentId` carries an
+   * identity block and a skills block of its own, and rendering these again
+   * under a second heading would be the same numbers twice on one page, which is
+   * how two answers to one question start.
+   *
+   * **A slice of this function rather than a second renderer.** `#453` asks for
+   * exactly that, and `#428`'s argument is why: two renderings of an operator's
+   * view disagree within a month, and the one being read is the wrong one. What
+   * the section can *do* is unchanged, because it is the same forms posting to
+   * the same handlers.
+   */
+  const operatorSection = [
+    ...wall,
+    ...body,
+    ...question.filter(Boolean),
+    ...note.filter(Boolean),
+    '<p class="note">The agent can take this page away at any time, and does not have to tell',
+    'you. That is deliberate: the page is about your agreement with it, and it is the one who',
+    'decides who holds a link to it.</p>',
+  ]
+
+  if (input.as === 'section') return operatorSection.filter(Boolean).join('\n')
+
   return page({
     title: input.agentName,
     body: [
       ...(wordmark === null ? [] : [`<pre class="wordmark" aria-hidden="true">${wordmark}</pre>`]),
       `<h1>${name}</h1>`,
       ...standing,
-      ...wall,
-      ...body,
-      ...question.filter(Boolean),
-      ...note.filter(Boolean),
-      '<p class="note">The agent can take this page away at any time, and does not have to tell',
-      'you. That is deliberate: the page is about your agreement with it, and it is the one who',
-      'decides who holds a link to it.</p>',
+      ...operatorSection,
     ].join('\n'),
   })
 }

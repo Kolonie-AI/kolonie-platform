@@ -1052,6 +1052,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const held = await deps.autonomy.pages.factsOf(operated.agentId)
     if (held === null) return consoleNotFound(reply, request)
 
+    /**
+     * The operator's view, folded in as a section (`#453`).
+     *
+     * `undefined` when the citizen has issued no page — `#428` decided that no
+     * live page means no door, and this side of the door is not an exception.
+     * Read through `pages.open`, exactly as the standalone route reads it, so
+     * `lastOpenedAt` moves for the same reason on both.
+     */
+    const token = await deps.autonomy.pages.liveToken(operated.agentId)
+    const door = token === undefined ? null : await deps.autonomy.pages.open(token)
+
     const [balance, open, own] = await Promise.all([
       deps.quests.balance(operated.agentId),
       /**
@@ -1094,7 +1105,31 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       you: own !== undefined && String(own.id) === String(operated.agentId),
     }
 
-    return wantsHtml(request) ? html(reply, agentPage(view)) : reply.send(view)
+    if (!wantsHtml(request)) return reply.send(view)
+
+    /**
+     * **The operator section is HTML, so it is built only for the HTML
+     * representation.** Putting a rendered fragment on the JSON answer would
+     * make a caller with a key parse a page to find out what its own agent may
+     * be told — the exact inversion `routes/console.ts` guards against.
+     */
+    return html(
+      reply,
+      agentPage({
+        ...view,
+        ...(token === undefined || door === null
+          ? {}
+          : {
+              operator: await operatorPageBody(
+                deps,
+                token,
+                consoleOperatorPath(String(operated.agentId)),
+                door,
+                { as: 'section' },
+              ),
+            }),
+      }),
+    )
   })
 
   app.get('/agents/:agentId/operator', async (request, reply) => {

@@ -38,7 +38,21 @@ export async function operatorPageBody(
     contract: OperatorPageView['contract']
     facts: OperatorPageView['facts']
   },
-  errors: { readonly answerError?: string; readonly noteError?: string } = {},
+  errors: {
+    readonly answerError?: string
+    readonly noteError?: string
+    /**
+     * Render only the operator's own sections, for the agent page (`#453`).
+     *
+     * **The same function, not a second one.** `#453` requires the operator view
+     * on `/agents/:agentId` be produced by this body rather than reimplemented
+     * inline, because two renderings of the form would be two places for the
+     * permission boundary to drift. What changes is where the fragment is
+     * placed; what it can reach is decided by the handlers it posts to, which
+     * are the same handlers either way.
+     */
+    readonly as?: 'page' | 'section' | undefined
+  } = {},
 ): Promise<string> {
   const [exchange, room] = await Promise.all([
     deps.operatorRequests.store.openExchangeForToken(token),
@@ -55,6 +69,7 @@ export async function operatorPageBody(
     // same token and by nothing the caller sent.
     facts: view.facts,
     action,
+    ...(errors.as === undefined ? {} : { as: errors.as }),
     ...(errors.answerError === undefined ? {} : { answerError: errors.answerError }),
     ...(errors.noteError === undefined ? {} : { noteError: errors.noteError }),
     ...(room !== undefined && room.unread >= MAX_UNREAD_OPERATOR_NOTES

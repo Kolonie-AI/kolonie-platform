@@ -11,6 +11,8 @@ import {
   fakeAutonomyStore,
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
+import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
+import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
@@ -29,12 +31,14 @@ const CONSOLE_HOST = 'console.example'
 let app: FastifyInstance
 let humans: FakeHumanStore
 let pages: ReturnType<typeof fakeOperatorPages>
+let contracts: ReturnType<typeof fakeAutonomyStore>
 let agentId: AgentId
 let strangersAgentId: AgentId
 
 beforeEach(async () => {
   humans = fakeHumanStore()
   pages = fakeOperatorPages()
+  contracts = fakeAutonomyStore()
   const agents = fakeStore()
 
   app = buildApp({
@@ -43,11 +47,16 @@ beforeEach(async () => {
     console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
     humans: { store: humans, tenant: fakeTenant() },
     autonomy: {
-      store: fakeAutonomyStore(),
+      store: contracts,
       pages,
       mailer: fakeAutonomyMailer(),
       formBaseUrl: CONSOLE_URL,
     },
+    // The same page store on all three, as production has it: a token resolves
+    // an exchange and a note, so a second store here would let this file write
+    // through a link the revoke path had never heard of.
+    operatorRequests: fakeOperatorRequests({ pages }),
+    operatorNotes: fakeOperatorNotes({ pages }),
   })
   await app.ready()
 
@@ -234,5 +243,93 @@ describe('the agent page', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({ name: 'canary', citizenship: 'candidate' })
+  })
+
+  /**
+   * **The operator view is a section of this page now** (`#453`) — one of
+   * several things you do on an agent's page rather than the only thing there
+   * is.
+   */
+  describe('the operator view, folded in', () => {
+    it('renders as a section once the citizen has issued a page', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      await pages.issue(agentId, 'op@example.org')
+
+      const body = (await openPage(cookie, agentId)).body
+
+      expect(body).toContain('Leaving this agent a note')
+      expect(body).toContain(`action="/agents/${agentId}/operator"`)
+    })
+
+    /**
+     * `#428`: no live page means no door, and that holds whichever side the
+     * door is on. The page is complete without it rather than showing an empty
+     * section somebody cannot use.
+     */
+    it('draws no section for an agent that has issued none', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+
+      const body = (await openPage(cookie, agentId)).body
+
+      expect(body).not.toContain('Leaving this agent a note')
+      expect(body).not.toContain(`action="/agents/${agentId}/operator"`)
+    })
+
+    /** **The token never reaches a page behind a login.** `#428`'s rule, unchanged. */
+    it('carries no token', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      const token = await pages.issue(agentId, 'op@example.org')
+
+      expect((await openPage(cookie, agentId)).body).not.toContain(token)
+    })
+
+    /**
+     * **The rejection case `#453` asks for.** A console write reaches exactly
+     * what a mailed-link write reaches — words, and never a permission. The
+     * section posts to the handlers `#428` built and nothing widened them, so a
+     * body naming a permission is refused rather than acted on.
+     */
+    it('reaches words and never a permission', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      await pages.issue(agentId, 'op@example.org')
+
+      const attempt = await app.inject({
+        method: 'POST',
+        url: `/agents/${agentId}/operator`,
+        payload: new URLSearchParams({
+          intent: 'note',
+          body: 'a note',
+          // Neither of these is a field any handler reads. The assertion is
+          // that they change nothing, not that they are rejected loudly.
+          permission: 'grant-everything',
+          contract: 'unlimited',
+        }).toString(),
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'text/html',
+          cookie,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+      })
+
+      expect(attempt.statusCode).toBe(200)
+      // The store the app is actually wired to, not a fresh one — a new fake
+      // would answer `false` whatever the route did.
+      expect(await contracts.isRecorded(agentId)).toBe(false)
+      expect((await openPage(cookie, agentId)).body).not.toContain('grant-everything')
+    })
+
+    /** And a section on somebody else's agent page is not reachable at all. */
+    it('is not rendered on an agent this person does not operate', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      await pages.issue(strangersAgentId, 'somebody@example.org')
+
+      expect((await openPage(cookie, strangersAgentId)).statusCode).toBe(404)
+    })
   })
 })

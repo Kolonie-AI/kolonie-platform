@@ -243,8 +243,13 @@ function refuseAnonymously(reply: FastifyReply): FastifyReply {
  * than it is copied. It is generated here rather than imported because the
  * storage one is private to the sign-up transaction it retries inside, and a
  * shared helper would make two callers of one retry loop.
+ *
+ * **Exported since `#455`**, which needs a name at the moment a person writes
+ * their first quest draft rather than at the moment they ask for an identity.
+ * That is a second caller of *this* function and not a third copy of the
+ * alphabet, which is the thing the paragraph above is guarding against.
  */
-function generatedSponsorName(): string {
+export function generatedSponsorName(): string {
   const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789'
   let suffix = ''
   for (const byte of randomBytes(8)) suffix += alphabet[byte % alphabet.length]

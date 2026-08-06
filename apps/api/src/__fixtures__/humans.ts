@@ -63,6 +63,24 @@ export function fakeHumanStore(): FakeHumanStore {
 
   const key = (identity: ProviderIdentity) => `${identity.provider}|${identity.subject}`
 
+  /**
+   * The one identity this person writes quests through, among everything they
+   * operate.
+   *
+   * **Filtered on `sponsorAgents` membership, not on link order.** Resolving it
+   * as *the first agent this human linked* was wrong the moment a person linked
+   * an ordinary agent before writing a quest: the first link is that agent, it
+   * is in no way theirs to act as, and the lookup returned nothing while an
+   * identity existed. The real storage asks `registration_path = 'web'`, which
+   * is a property of the row and not of the order rows arrived in — this is the
+   * fake's version of that question.
+   */
+  const ownIdentityOf = (humanId: Human['id']): Agent | undefined =>
+    [...links.entries()]
+      .filter(([agentId, held]) => held === humanId && sponsorAgents.has(agentId))
+      .map(([agentId]) => sponsorAgents.get(agentId))
+      .find((agent) => agent !== undefined)
+
   return {
     people: () => order,
     sessions: () => handed,
@@ -218,17 +236,12 @@ export function fakeHumanStore(): FakeHumanStore {
      * lifts the moment an identity holds a key of its own. This is *whom does
      * the console act as*, and it must not.
      */
-    sponsorAgent: async (humanId) => {
-      const [agentId] = [...links.entries()].filter(([, id]) => id === humanId).map(([one]) => one)
-      return agentId === undefined ? undefined : sponsorAgents.get(agentId)
-    },
+    sponsorAgent: async (humanId) => ownIdentityOf(humanId),
 
     openSponsor: async ({ humanId, name }) => {
-      const [held] = [...links.entries()].filter(([, id]) => id === humanId).map(([one]) => one)
-      if (held !== undefined) {
-        const agent = sponsorAgents.get(held)
-        if (agent !== undefined)
-          return { outcome: 'already-held', identity: { id: held, name: agent.profile.name } }
+      const agent = ownIdentityOf(humanId)
+      if (agent !== undefined) {
+        return { outcome: 'already-held', identity: { id: agent.id, name: agent.profile.name } }
       }
 
       if (takenNames.has(name.toLowerCase())) return { outcome: 'name-taken', name }

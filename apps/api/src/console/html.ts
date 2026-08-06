@@ -548,6 +548,15 @@ export function dashboardPage(input: {
     readonly citizenship: string
     readonly skillsHeld: number
     readonly lastSeenAt: string | null
+    /**
+     * This row is the person reading it — the identity they write quests
+     * through (`#455`).
+     *
+     * A flag on the row rather than a separate list, because it is an ordinary
+     * linked agent in every other respect and a second collection would be a
+     * second thing to keep sorted, filtered and counted the same way.
+     */
+    readonly you?: boolean | undefined
   }[]
   /** The code this person is holding, if they have asked for one (`#426`). */
   readonly code?: { readonly code: string; readonly expiresAt: string } | undefined
@@ -560,7 +569,12 @@ export function dashboardPage(input: {
       // A link to the agent's operator page, which is the page that exists
       // today (`#451`). `#452` builds a real agent page and this destination
       // becomes that; nothing else about the row changes when it does.
-      `<td><a href="/agents/${escape(agent.id)}/operator">${escape(agent.name)}</a></td>`,
+      /**
+       * **The person's own identity is called `You`** (`#455`) — not their
+       * name, not a role, just the row that is them. Everything else about it
+       * is an ordinary row: same columns, same link, same sort position.
+       */
+      `<td><a href="/agents/${escape(agent.id)}/operator">${agent.you === true ? 'You' : escape(agent.name)}</a></td>`,
       `<td>${escape(agent.citizenship)}</td>`,
       `<td>${String(agent.skillsHeld)}</td>`,
       `<td>${escape(agent.lastSeenAt === null ? 'never' : relative(agent.lastSeenAt))}</td>`,

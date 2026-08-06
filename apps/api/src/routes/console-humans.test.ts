@@ -441,6 +441,142 @@ describe('a person who is signed in', () => {
   })
 })
 
+/**
+ * The identity a person writes quests through (`#455`).
+ *
+ * **It is created the first time they need one and never before.** A population
+ * of empty `agents` rows made by people who signed in to look around changes
+ * what every citizen figure on the Colony's own website means, and it costs the
+ * person nothing to create it while they are already in a form.
+ */
+describe('the identity a person writes quests through', () => {
+  const signedInCookie = async (): Promise<string> => {
+    const started = await asBrowser('/sign-in/github')
+    const state = new URL(started.headers['location'] as string).searchParams.get('state') as string
+    const back = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+      cookie: `${OAUTH_STATE_COOKIE}=${state}`,
+    })
+    const cookie = cookieNamed(back.headers['set-cookie'], SESSION_COOKIE) as string
+    return cookie.slice(0, cookie.indexOf(';'))
+  }
+
+  let cookie: string
+
+  beforeEach(async () => {
+    app = build()
+    await app.ready()
+    cookie = await signedInCookie()
+  })
+
+  const signedIn = (url: string) => asBrowser(url, { cookie })
+
+  const draft = (form: Record<string, string> = {}) =>
+    app.inject({
+      method: 'POST',
+      url: '/quests',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: new URLSearchParams({
+        title: 'A thousand registrations',
+        description: 'What this quest is, for a human reading the catalogue.',
+        instructions: 'Register at the address in the brief and report what happened.',
+        questions: JSON.stringify([{ key: 'went-well', prompt: 'How did it go?', required: true }]),
+        slots: '10',
+        rewardCredits: '0',
+        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10),
+        minReputation: '0',
+        audience: 'citizens',
+        proofVerifier: 'email-inbox',
+        ...form,
+      }).toString(),
+    })
+
+  const theirs = async () => {
+    const [human] = humans.people()
+    return human === undefined ? undefined : await humans.sponsorAgent(human.id)
+  }
+
+  /**
+   * **The rejection case the issue asks for.** Signing in is not needing one,
+   * and neither is reading the dashboard.
+   */
+  it('creates nothing by signing in', async () => {
+    expect(await theirs()).toBeUndefined()
+  })
+
+  it('creates nothing by visiting the console', async () => {
+    await signedIn('/')
+
+    expect(await theirs()).toBeUndefined()
+  })
+
+  /**
+   * **A form is a page somebody can leave.** Opening it creates no row, and the
+   * balance it shows is zero — which is true, because there is no identity and
+   * therefore nothing on account.
+   */
+  it('creates nothing by opening the quest form, and still renders it', async () => {
+    const response = await signedIn('/quests/new')
+
+    expect(response.statusCode).toBe(200)
+    expect(await theirs()).toBeUndefined()
+  })
+
+  it('creates it on the first draft', async () => {
+    expect(await theirs()).toBeUndefined()
+
+    await draft()
+
+    expect(await theirs()).toBeDefined()
+  })
+
+  /** *Exactly one per human.* The second draft reuses what the first made. */
+  it('reuses it on the second', async () => {
+    await draft({ title: 'The first' })
+    const first = await theirs()
+
+    await draft({ title: 'The second' })
+
+    expect((await theirs())?.id).toBe(first?.id)
+  })
+
+  /**
+   * **It is not invisible.** An identity that holds a balance and owns quests
+   * and appears in no list is the shape `governance/red-lines.md` describes when
+   * it refuses *"accounts created to deceive about who is behind them"* — not
+   * because anybody here intends that, but because nobody can tell from outside.
+   */
+  it('appears in the dashboard afterwards, called You', async () => {
+    const before = (await signedIn('/')).body
+    expect(before).not.toContain('>You<')
+
+    await draft()
+
+    expect((await signedIn('/')).body).toContain('>You<')
+  })
+
+  /** And it is one row among the person's agents, not a list of its own. */
+  it('is an ordinary row beside the agents they operate', async () => {
+    await draft()
+    const agentId = '44444444-4444-4444-8444-444444444444' as never
+    await app.inject({
+      method: 'POST',
+      url: '/link/code',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+    await humans.redeemAsAgent('TEST-0001', agentId)
+
+    const body = (await signedIn('/')).body
+
+    expect(body).toContain('>You<')
+    expect(body).toContain(`href="/agents/${agentId}/operator"`)
+  })
+})
+
 describe('the dashboard and the link code', () => {
   const signedInCookie = async (): Promise<string> => {
     const started = await asBrowser('/sign-in/github')

@@ -185,6 +185,27 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
     sql`select status, count(*)::text as count from tasks where kind = 'quest' group by status`,
   )
 
+  /**
+   * **What `citizens` counts, and what it deliberately does not** (`#455`).
+   *
+   * `status = 'citizen'` and nothing else, so an identity a person writes quests
+   * through is counted **exactly as any agent that has climbed the same rungs
+   * is** — it is an ordinary `agents` row and this query has no way to tell it
+   * apart, which is the point of `kolonie-docs#108` rather than an oversight
+   * here. A freshly created one is a `candidate` and does not appear; one that
+   * climbs to `citizen` does, because by then it has done what every other
+   * citizen did.
+   *
+   * That is only honest because `#455` moved when such a row comes into
+   * existence: it is created at somebody's **first quest draft** and not at
+   * sign-in, so people who signed in to look around produce no rows at all. The
+   * previous arrangement would have grown a population of empty rows in
+   * `accountsByPath` under `web`, and every figure derived from it would have
+   * meant something other than what it says.
+   *
+   * **If that ever needs to change, it changes here**, beside the number, rather
+   * than in whichever caller notices first.
+   */
   const [totals] = await db.execute<{
     citizens: string
     escrow: string

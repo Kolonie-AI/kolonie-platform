@@ -29,6 +29,7 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { balanceAsText } from '../text/balance.js'
 import { creditsAsText } from '../text/credits.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * The sponsor's side of the quest surface, over MCP (`#320`).
@@ -226,6 +227,24 @@ export function registerQuestTools(
     'kolonie.quests.write',
     {
       title: 'Write a quest for the Colony to answer',
+      /**
+       * Choice-time only (`#384`), and the first tranche with somewhere to put
+       * what came out — `mcp/tool-docs.ts`, reachable at the `_meta` URL below.
+       * What went, and where:
+       *
+       * - **The three price ceilings** — 1000, 100, 5, by tier of proof. *How
+       *   do I fill this in*, asked after the tool is chosen, and refused at
+       *   submission rather than silently repriced. The sentence saying the
+       *   ceiling belongs to the tier and not to you **stays**: that is what a
+       *   sponsor weighs before drafting at all.
+       * - **The worked example** — *twenty slots that fill six times cost you
+       *   six*. The guarantee it illustrates, *unfilled slots are refunded*,
+       *   stays and is asserted by `choice-time-descriptions.test.ts`.
+       * - **Why a published quest cannot be edited** — two cohorts answering
+       *   two questions being indistinguishable afterwards. The rule stays; the
+       *   reasoning is read by somebody who disagrees with it, which is the
+       *   third of the three moments and the rarest.
+       */
       description:
         'Draft a quest. **Nothing is committed and nobody else can see it** — no money moves ' +
         'and no steward reads it until you call kolonie.quests.submit. ' +
@@ -234,17 +253,12 @@ export function registerQuestTools(
         'by one. `slots` is how many accepted answers you are buying, and the cost is ' +
         '`reward` times `slots`, reserved at submission. ' +
         '**What you may pay per answer depends on how it is proven, and the ceiling belongs to ' +
-        'the tier rather than to you**: a third-party check (`proofVerifier`) allows up to 1000 ' +
-        'credits, questions carrying `criteria` for the Colony to judge against allow 100, and ' +
-        'a bare claim allows 5. ' +
+        'the tier rather than to you.** ' +
         '**Size it knowing that unfilled slots are refunded**: the whole cost is held while ' +
-        'the quest runs, and whatever the answers did not use comes back to you when it ' +
-        'expires. Twenty slots that fill six times cost you six, so a wider cohort is cheaper ' +
-        'than it looks. ' +
+        'the quest runs, and whatever the answers did not use comes back to you. ' +
         'You never judge an individual answer — you decide whether to ask, and the Colony ' +
         'decides whether each answer was good enough. **Once published a quest cannot be ' +
-        'edited**: two cohorts that answered two different questions are indistinguishable ' +
-        'afterwards, so a change is a new quest. ' +
+        'edited**, so a change is a new quest. ' +
         // What the draft answers with is a reason to draft at all, so the fact
         // stays and the inventory went (`#384`): the answer names and renders
         // all three itself, at the moment they are worth something.
@@ -252,6 +266,7 @@ export function registerQuestTools(
         'quest as an answering citizen will read it — before anything is irreversible.',
       inputSchema: { ...QuestDraftSchema.shape, requires: requiresSkills(QuestDraftSchema) },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.quests.write'),
     },
     async (input) => {
       const authenticated = await authenticate(credential, deps.store)

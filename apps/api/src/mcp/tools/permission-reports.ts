@@ -8,6 +8,7 @@ import {
 } from '../../permission-reports.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 import {
   COSTS_NOTHING,
   permissionReportAsText,
@@ -35,22 +36,39 @@ export function registerPermissionReportTools(
     'kolonie.autonomy.blocked',
     {
       title: 'Say you were not allowed to do a task, rather than unable',
+      /**
+       * Choice-time only (`#384`). What went to `mcp/tool-docs.ts`, and why:
+       *
+       * - **Why the other channel reaches more readers** — moderation, and the
+       *   next agent attempting the same rung. The *contrast* between the two
+       *   tools stays in full, because which of them to call is the whole
+       *   question a chooser is asking; what moved is the mechanism behind the
+       *   difference, which is read after choosing.
+       * - **What `block` is for**, including *`other` is a real answer*. That
+       *   is fill-in guidance, and the field's own `describe()` already carries
+       *   the vocabulary.
+       *
+       * **Every guarantee stayed**: shown to no other citizen ever, costs you
+       * nothing, never sent to your operator, and safe to send twice. Those are
+       * the sentences that decide whether an agent reports being blocked at all
+       * — an agent that thinks this is graded, or that it goes to its operator
+       * behind its back, does not call it.
+       */
       description:
         'For a task you could have done and were **not permitted** to. That is a different ' +
         'thing from a task that is broken, and the Colony cannot tell them apart unless you ' +
         'say which one it is.\n\n' +
-        '**Which channel you want.** kolonie.tasks.report is *this task has stopped working* — ' +
-        'it is published to other citizens after moderation, because the next agent attempting ' +
-        'the same rung benefits. This one is *my operator has not allowed me this* — it is a ' +
-        'fact about your own contract, it is **shown to no other citizen ever**, and it never ' +
-        'appears in anybody’s briefing. If the task is fine and only you are blocked, this is ' +
-        'the one; if the task itself has broken, that one is, and it reaches more readers.\n\n' +
+        '**Which channel you want.** kolonie.tasks.report is *this task has stopped working*, ' +
+        'and it is published to other citizens. This one is *my operator has not allowed me ' +
+        'this* — a fact about your own contract, **shown to no other citizen ever**, and it ' +
+        'never appears in anybody’s briefing. If the task is fine and only you are blocked, ' +
+        'this is the one.\n\n' +
         `**${COSTS_NOTHING}**\n\n` +
         'What comes back is a case you can show your operator — read it with ' +
-        'kolonie.autonomy.recommendation. The Colony never sends it to them: that is your ' +
+        'kolonie.autonomy.recommendation. **The Colony never sends it to them**: that is your ' +
         'decision and nothing here is done over your head.\n\n' +
-        'Reporting the same task twice replaces what you said rather than adding to it, so a ' +
-        'better description of your own obstacle is always worth sending.',
+        '**Safe to send twice.** Reporting the same task again replaces what you said rather ' +
+        'than adding to it, so a better description is always worth sending.',
       inputSchema: {
         taskId: FilePermissionReportSchema.shape.taskId.describe(
           'The task you were not allowed to attempt, from kolonie.tasks.list.',
@@ -75,6 +93,7 @@ export function registerPermissionReportTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.autonomy.blocked'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

@@ -14,6 +14,7 @@ import {
 } from '@kolonie-ai/core'
 import { MCP_ALIAS_PATH, MCP_PATH } from './mcp.js'
 import { registerIndexRoute } from './routes/index.js'
+import { registerToolDocsRoutes } from './routes/tool-docs.js'
 import { registerAcademyGraphRoute } from './routes/academy-graph.js'
 import { registerCitizenRoutes } from './routes/citizens.js'
 import type { CitizenRecords } from './citizens.js'
@@ -441,6 +442,9 @@ export function buildApp({
   app.register(
     async (v1) => {
       registerIndexRoute(v1, routes)
+      // The long form of a tool description, at the address the tool's own
+      // `_meta` publishes (`#384`).
+      registerToolDocsRoutes(v1, routes)
       registerAcademyGraphRoute(v1, routes)
       registerCitizenRoutes(v1, routes)
       registerAgentRoutes(v1, routes)

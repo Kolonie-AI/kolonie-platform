@@ -4,7 +4,7 @@ import {
   AgentIdSchema,
   SubmissionIdSchema,
   SupportTicketIdSchema,
-  SupportTicketKindSchema,
+  CITIZEN_TICKET_KINDS,
   type AgentId,
   type OpenTicketRequest,
   type SubmissionId,
@@ -328,10 +328,19 @@ describe('support tickets', () => {
     expect(one?.body).toBe('The whole of it, at length, exactly as it was written.')
   })
 
-  // Driven from the vocabulary rather than repeating it, so a kind added to the
-  // schema without its migration fails here instead of going quietly untested —
-  // which is how `proposal` (#202) would otherwise have shipped unexercised.
-  it.each(SupportTicketKindSchema.options)('accepts a %s', async (kind) => {
+  /**
+   * Driven from the vocabulary rather than repeating it, so a kind added to the
+   * schema without its migration fails here instead of going quietly untested —
+   * which is how `proposal` (#202) would otherwise have shipped unexercised.
+   *
+   * **`CITIZEN_TICKET_KINDS` and not every option** (`#473`). `notice` is the
+   * Colony's word for what it says *to* a citizen, and `OpenTicketRequestSchema`
+   * refuses it on this path by construction — so iterating the whole enum here
+   * asks this write path to accept a kind it is designed to reject. The
+   * property the comment above describes is unchanged: a kind added for
+   * citizens still has to appear in a migration or fail here.
+   */
+  it.each(CITIZEN_TICKET_KINDS)('accepts a %s', async (kind) => {
     const agentId = await anAgent()
 
     const opened = await openedTicket(db, { agentId, request: aRequest({ kind }) })

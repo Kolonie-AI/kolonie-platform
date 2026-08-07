@@ -45,6 +45,22 @@ export const ErasureLimitKindSchema = z.enum([
   'backups',
   /** A TXT record in a zone the Colony never held a credential for. */
   'dns',
+  /**
+   * SOL the Colony owes for accepted reports and has not sent yet — D-106
+   * (`#505`).
+   *
+   * **The one entry in this list that is a debt rather than a leftover.** The
+   * others are things the erasure could not reach; this is something it
+   * deliberately did not destroy, because destroying it would be the Colony
+   * keeping money it owed to somebody who has just left. The obligation
+   * survives the citizen: the row loses the name and keeps the amount and the
+   * address, and the payout runner sends it in its next pass.
+   *
+   * `references` names the amount and the wallet, so the citizen can check the
+   * chain afterwards — which is the only way it *can* check, having deleted the
+   * account it would otherwise have asked through.
+   */
+  'owed-payout',
 ])
 export type ErasureLimitKind = z.infer<typeof ErasureLimitKindSchema>
 

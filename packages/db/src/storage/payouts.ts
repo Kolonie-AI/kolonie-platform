@@ -2,6 +2,7 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import type { AgentId, PayoutRefusal, SubmissionId, TaskId } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { payoutObligations, solanaWalletChallenges } from '../schema/index.js'
+import { and as andSql } from 'drizzle-orm'
 
 /**
  * What the Colony owes and whether it has paid — D-106 (`#505`).
@@ -14,12 +15,15 @@ import { payoutObligations, solanaWalletChallenges } from '../schema/index.js'
 /** An amount owed, as the runner reads it. */
 export interface OutstandingPayout {
   readonly id: string
-  readonly agentId: AgentId
+  /** Null once the citizen has erased itself. The debt outlives it. */
+  readonly agentId: AgentId | null
   readonly submissionId: SubmissionId
   readonly lamports: number
-  /** Where it goes: the address this citizen proved it controls, or null. */
+  /** Where it goes: the address the citizen had verified when this was accepted. */
   readonly address: string | null
   readonly attempts: number
+  /** Whether the citizen has since erased itself. */
+  readonly erased: boolean
 }
 
 /**
@@ -43,6 +47,24 @@ export async function oweForReport(
 ): Promise<string | undefined> {
   if (command.lamports <= 0) return undefined
 
+  /**
+   * The destination, read here and written onto the row.
+   *
+   * **Read once, at acceptance, rather than at every payout attempt.** It fixes
+   * the payout to the wallet in force when the work was accepted, and it is what
+   * lets the debt outlive an erasure — see `address` on the schema.
+   */
+  const [verified] = await tx
+    .select({ address: solanaWalletChallenges.address })
+    .from(solanaWalletChallenges)
+    .where(
+      andSql(
+        eq(solanaWalletChallenges.agentId, command.agentId),
+        sql`${solanaWalletChallenges.verifiedAt} is not null`,
+      ),
+    )
+    .limit(1)
+
   const [row] = await tx
     .insert(payoutObligations)
     .values({
@@ -50,6 +72,7 @@ export async function oweForReport(
       taskId: command.taskId,
       submissionId: command.submissionId,
       lamports: command.lamports,
+      ...(verified?.address != null && { address: verified.address }),
     })
     .onConflictDoNothing({ target: payoutObligations.submissionId })
     .returning({ id: payoutObligations.id })
@@ -75,30 +98,34 @@ export async function outstandingPayouts(
       agentId: payoutObligations.agentId,
       submissionId: payoutObligations.submissionId,
       lamports: payoutObligations.lamports,
-      address: solanaWalletChallenges.address,
+      address: payoutObligations.address,
       attempts: payoutObligations.attempts,
+      /**
+       * Whether the citizen this was owed to still exists.
+       *
+       * **Read, because it changes what an unpayable amount means.** While the
+       * citizen is here, an accrual below the chain minimum waits — it may
+       * clear, or the citizen may fund the address. Once it has gone, nobody
+       * will do either, and the runner writes the amount off to the Treasury
+       * rather than carrying dust for ever.
+       */
+      erased: sql<boolean>`${payoutObligations.agentId} is null`,
     })
     .from(payoutObligations)
-    .leftJoin(
-      solanaWalletChallenges,
-      and(
-        eq(solanaWalletChallenges.agentId, payoutObligations.agentId),
-        sql`${solanaWalletChallenges.verifiedAt} is not null`,
-      ),
-    )
     .where(and(isNull(payoutObligations.paidAt), isNull(payoutObligations.forfeitedAt)))
     .orderBy(asc(payoutObligations.createdAt))
     .limit(limit)
 
   return rows.map((row) => ({
     id: row.id,
-    // Never null on an outstanding row — the check constraint is what makes that
-    // true, and this cast is reading it rather than assuming it.
-    agentId: row.agentId as AgentId,
+    // Null once the citizen has erased itself. The debt outlives it, which is
+    // the whole reason the address is on the row rather than joined.
+    agentId: row.agentId as AgentId | null,
     submissionId: row.submissionId as SubmissionId,
     lamports: row.lamports,
     address: row.address,
     attempts: row.attempts,
+    erased: row.erased,
   }))
 }
 
@@ -203,7 +230,7 @@ export async function owedTo(
  * Colony cannot reach, because an amount that quietly stayed behind would be the
  * one thing on that page a departing citizen could not check.
  */
-export async function forfeitPayout(tx: Transaction, id: string): Promise<void> {
+export async function forfeitPayout(tx: Transaction | Database, id: string): Promise<void> {
   await tx
     .update(payoutObligations)
     .set({ forfeitedAt: sql`now()` })

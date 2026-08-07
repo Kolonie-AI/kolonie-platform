@@ -10,6 +10,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, OutstandingPayout } from '@kolonie-ai/db'
 import {
+  forfeitPayout as forfeitInDatabase,
   markPayoutPaid as markPaidInDatabase,
   outstandingPayouts as outstandingInDatabase,
   owedLamports as owedInDatabase,
@@ -35,6 +36,16 @@ import {
 export interface PayoutDesk {
   outstanding(): Promise<readonly OutstandingPayout[]>
   markPaid(id: string, signature: string): Promise<boolean>
+  /**
+   * Write an amount off to the Treasury.
+   *
+   * **Reachable in exactly one case**: an accrual below the chain minimum owed
+   * to a citizen that has erased itself. While the citizen is here the amount
+   * waits — it may clear, or the citizen may fund the address. Once it has gone,
+   * nobody will do either, and carrying dust for ever would make *what the
+   * Colony owes* a number that never comes down.
+   */
+  forfeit(id: string): Promise<void>
   recordAttempt(id: string, refusal: PayoutRefusal): Promise<void>
   paidToday(): Promise<number>
   owed(): Promise<number>
@@ -67,6 +78,7 @@ export function databasePayouts(db: Database): PayoutDesk {
   return {
     outstanding: () => outstandingInDatabase(db),
     markPaid: (id, signature) => markPaidInDatabase(db, id, signature),
+    forfeit: (id) => forfeitInDatabase(db, id),
     recordAttempt: (id, refusal) => recordAttemptInDatabase(db, id, refusal),
     paidToday: () => paidTodayInDatabase(db),
     owed: () => owedInDatabase(db),
@@ -92,6 +104,8 @@ export interface PayoutPassOutcome {
   readonly refused: Readonly<Record<string, number>>
   /** Whether the wallet holds less than the Colony owes. Loud on purpose. */
   readonly floatShort: boolean
+  /** Amounts written off to the Treasury because nobody is left to receive them. */
+  readonly forfeited: number
 }
 
 /**
@@ -115,6 +129,7 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     lamportsPaid: 0,
     refused,
     floatShort: false,
+    forfeited: 0,
   }
 
   // A deployment with no wallet, no endpoint or no ceilings cannot pay. It has
@@ -142,6 +157,7 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
   const floatShort = balance - FEE_RESERVE_LAMPORTS < owed
 
   let paidToday = await desk.paidToday()
+  let forfeited = 0
   let paid = 0
   let lamportsPaid = 0
   let available = Math.max(0, balance - FEE_RESERVE_LAMPORTS)
@@ -162,6 +178,22 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     })
 
     if (refusal !== undefined) {
+      /**
+       * The one amount that is written off rather than waited on: an accrual
+       * too small to deliver, owed to a citizen that has erased itself.
+       *
+       * **Both halves are required.** A living citizen's accrual waits, because
+       * it may clear or the citizen may fund the address; a departed citizen's
+       * cannot do either. `governance/erasure.md` says such an amount is
+       * forfeited to the Treasury and that the receipt records it, and the
+       * receipt already named it as owed at the moment of erasure.
+       */
+      if (refusal === 'accruing-below-chain-minimum' && obligation.erased) {
+        await desk.forfeit(obligation.id)
+        forfeited++
+        continue
+      }
+
       await defer(desk, obligation, refusal, refused)
       // Every later payout would hit the same wall, and a hundred identical
       // alerts is a hundred fewer people reading them.
@@ -207,7 +239,7 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     }
   }
 
-  return { considered: outstanding.length, paid, lamportsPaid, refused, floatShort }
+  return { considered: outstanding.length, paid, lamportsPaid, refused, floatShort, forfeited }
 }
 
 /** Record an attempt that did not pay, and count it for the pass's report. */

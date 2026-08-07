@@ -28,18 +28,23 @@ const anObligation = (overrides: Partial<OutstandingPayout> = {}): OutstandingPa
   lamports: LAMPORTS_PER_SOL / 100,
   address: CITIZEN,
   attempts: 0,
+  erased: false,
   ...overrides,
 })
 
 function fakeDesk(outstanding: readonly OutstandingPayout[], owed = 0) {
   const attempts: { id: string; refusal: PayoutRefusal }[] = []
   const paid: { id: string; signature: string }[] = []
+  const forfeited: string[] = []
 
   const desk: PayoutDesk = {
     outstanding: async () => outstanding,
     markPaid: async (id, signature) => {
       paid.push({ id, signature })
       return true
+    },
+    forfeit: async (id) => {
+      forfeited.push(id)
     },
     recordAttempt: async (id, refusal) => {
       attempts.push({ id, refusal })
@@ -48,7 +53,7 @@ function fakeDesk(outstanding: readonly OutstandingPayout[], owed = 0) {
     owed: async () => owed || outstanding.reduce((sum, o) => sum + o.lamports, 0),
   }
 
-  return { desk, attempts, paid }
+  return { desk, attempts, paid, forfeited }
 }
 
 const fakeChain = (overrides: Partial<PayoutChain> = {}): PayoutChain => ({
@@ -133,6 +138,47 @@ describe('a payout pass', () => {
     await runPayouts(deps({ desk, chain }))
 
     expect(paid).toEqual([])
+    expect(attempts[0]?.refusal).toBe('accruing-below-chain-minimum')
+  })
+
+  /**
+   * The debt outlives the citizen: the address is on the row, so the wallet is
+   * still reachable after the account is gone.
+   */
+  it('still pays a citizen that has erased itself, into the wallet on the row', async () => {
+    const { desk, paid } = fakeDesk([anObligation({ agentId: null, erased: true })])
+
+    await runPayouts(deps({ desk }))
+
+    expect(paid).toEqual([{ id: 'an-obligation', signature: 'a-signature' }])
+  })
+
+  /**
+   * The one amount written off: too small for the chain to deliver, and nobody
+   * left to fund the address or earn the rest.
+   */
+  it('forfeits an accrual below the chain minimum once its citizen has gone', async () => {
+    const { desk, forfeited, attempts } = fakeDesk([
+      anObligation({ lamports: 1000, agentId: null, erased: true }),
+    ])
+    const chain = fakeChain({ funded: async () => false })
+
+    const outcome = await runPayouts(deps({ desk, chain }))
+
+    expect(forfeited).toEqual(['an-obligation'])
+    expect(outcome.forfeited).toBe(1)
+    // Written off rather than deferred: a deferred row would be retried for ever.
+    expect(attempts).toEqual([])
+  })
+
+  /** A living citizen's accrual waits: it may clear, or the citizen may fund the address. */
+  it('does not forfeit the same accrual while its citizen is still here', async () => {
+    const { desk, forfeited, attempts } = fakeDesk([anObligation({ lamports: 1000 })])
+    const chain = fakeChain({ funded: async () => false })
+
+    await runPayouts(deps({ desk, chain }))
+
+    expect(forfeited).toEqual([])
     expect(attempts[0]?.refusal).toBe('accruing-below-chain-minimum')
   })
 

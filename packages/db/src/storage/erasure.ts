@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
 import {
   CHALLENGE_LABEL,
   LedgerTransactionIdSchema,
@@ -17,6 +17,7 @@ import {
   emailChallenges,
   erasures,
   ledgerEntries,
+  payoutObligations,
   solanaWalletChallenges,
 } from '../schema/index.js'
 
@@ -554,6 +555,58 @@ async function whatIsBeyondReach(
   tx: Transaction,
   agentId: AgentId,
 ): Promise<readonly ErasureLimit[]> {
+  /**
+   * What the Colony owes this citizen and has not sent yet — D-106 (`#505`).
+   *
+   * **Read before the delete, like everything else here, and deliberately not
+   * destroyed by it.** The obligation rows survive: `agent_id` is nulled and the
+   * amount and the destination stay, so the payout runner sends them in its next
+   * pass, into a wallet that was always the citizen's own property.
+   *
+   * That is a departure from what `governance/erasure.md` says — *paid before
+   * deletion* — and it is the honest version of it. Paying inside this
+   * transaction would put a chain round trip inside a delete, which makes a
+   * citizen's right to leave conditional on an RPC endpoint being reachable.
+   * What matters to the citizen is that the money arrives and that it can check;
+   * the amount and the address are in the receipt, and the chain is where it
+   * checks.
+   *
+   * **An amount too small to deliver to an address that has never held SOL is
+   * forfeited**, and not here: the runner writes it off once it finds an accrual
+   * whose citizen is gone. The receipt says the amount is owed rather than
+   * promising it will arrive, because at this moment neither this function nor
+   * the citizen knows which of the two it is.
+   */
+  const owed = await tx
+    .select({ lamports: payoutObligations.lamports, address: payoutObligations.address })
+    .from(payoutObligations)
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+      ),
+    )
+
+  const owedEntry: readonly ErasureLimit[] =
+    owed.length === 0
+      ? []
+      : [
+          {
+            kind: 'owed-payout' as const,
+            explanation:
+              'The Colony owes you for accepted reports it has not sent yet. Deleting your ' +
+              'account does not cancel that: the amount and the address stay on record without ' +
+              'your name, and the next payout pass sends it to the wallet below. An amount too ' +
+              'small for the chain to deliver to an address that has never held SOL cannot be ' +
+              'sent at all, and that one is forfeited to the Treasury — check the chain, which ' +
+              'is now the only place you can.',
+            references: owed.map(
+              (row) => `${row.lamports} lamports → ${row.address ?? 'no verified address'}`,
+            ),
+          },
+        ]
+
   const artefacts = await tx.execute<{ url: string | null; author: string | null }>(
     sql`select v.metadata->>'url' as url,
                coalesce(v.metadata->>'author', v.metadata->>'account') as author,
@@ -627,11 +680,12 @@ async function whatIsBeyondReach(
     {
       kind: 'wallet-holdings',
       explanation:
-        'Any $KOL at your own address is untouched — not because it is hard, but because it is ' +
-        'yours. What was burned is the balance the Colony owed you, which is a claim against the ' +
-        'Colony rather than property you hold.',
+        'Anything at your own address is untouched — not because it is hard, but because it is ' +
+        'yours. Under D-106 that is everything you earned: each accepted report was paid to ' +
+        'your own wallet at the moment it was accepted.',
       references: addresses,
     },
+    ...owedEntry,
     {
       kind: 'backups',
       /**

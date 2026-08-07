@@ -1065,6 +1065,13 @@
       "when": 1786123758621,
       "tag": "0151_what_the_colony_owes_a_citizen",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1786124963794,
+      "tag": "0152_an_obligation_names_where_it_goes",
+      "breakpoints": true
     }
   ]
 }

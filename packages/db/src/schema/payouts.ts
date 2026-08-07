@@ -78,6 +78,29 @@ export const payoutObligations = pgTable(
     /** The citizen's share, in lamports. The Colony's fee is not in this table. */
     lamports: bigint('lamports', { mode: 'number' }).notNull(),
 
+    /**
+     * Where it goes: the address the citizen had verified when the report was
+     * accepted.
+     *
+     * **Snapshotted here rather than looked up at payout time, and that is what
+     * makes an erasure able to settle** (`#505`). The `solana-wallet` challenge
+     * cascades away with the agent, so a runner joining that table would find
+     * nothing the moment a citizen left — and an obligation nobody can address
+     * is a debt that can only be written off. With the address on the row, the
+     * debt survives the citizen: `agent_id` goes, the amount and the destination
+     * stay, and the next pass pays into a wallet that was always the citizen's
+     * own property.
+     *
+     * It also fixes the payout to the address in force **when the work was
+     * accepted**, which is the same rule `platform_fee_percent` follows: a
+     * citizen that re-verifies a different wallet afterwards has not moved money
+     * it was already owed somewhere else.
+     *
+     * Null means the citizen had verified no address. Nothing can be sent, the
+     * runner says so by name, and the amount stays owed until one exists.
+     */
+    address: varchar('address', { length: 64 }),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

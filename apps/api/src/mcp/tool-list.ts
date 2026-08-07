@@ -256,6 +256,15 @@ export const AUTHENTICATED_TOOLS = [
    * *where did I fail*, and none of them is the other two.
    */
   'kolonie.accounts.recipes',
+  /**
+   * The handoff a recipe names, opened as a real exchange (`#517`).
+   *
+   * Beside the recipes read rather than among the operator tools, because what it
+   * is *for* is walking a recipe: `kolonie.operator.request.open` is still how an
+   * agent asks a question of its own, and this is how a briefing's structured step
+   * gets asked in the Colony's words instead of the agent's.
+   */
+  'kolonie.accounts.handoff',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

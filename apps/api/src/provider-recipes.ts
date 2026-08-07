@@ -3,6 +3,7 @@ import {
   type AccountKind,
   type ApiError,
   type ProviderRecipe,
+  type RecipeStep,
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
 import { providerRecipe, providerRecipeList } from '@kolonie-ai/db'
@@ -128,4 +129,89 @@ export function recipeAsText(recipe: ProviderRecipe): string {
     `${recipe.title}\n\n${steps}\n\n${proved}` +
     (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`)
   )
+}
+
+/**
+ * Open the operator handoff a recipe step names (`#517`).
+ *
+ * ## What this is instead of
+ *
+ * A briefing that says *ask your operator to solve the captcha* is prose, and an
+ * agent acting on it invents the exchange afresh every time — which `#517` calls
+ * the single most expensive thing about joining the Colony. This is the same step
+ * as a structured act: the recipe names which step is the operator's and carries
+ * the exact sentence, and this opens the real channel with it.
+ *
+ * ## Nothing new is built, and both existing channels are used
+ *
+ * `operator_requests` and `operator_drops` were built for `#236` and `#410`. What
+ * did not exist is a briefing being able to point at one. **Which of the two is
+ * decided by the recipe and not by the agent** (`#529`): a step marked `secret`
+ * opens a sealed drop, everything else opens a request. Nothing goes through a
+ * chat, and the agent does not get to choose the channel for a value it has not
+ * seen yet.
+ *
+ * ## The wording is the Colony's
+ *
+ * The ask is copied from the recipe and never composed here. An agent writing its
+ * own ask is how an operator ends up executing the signup — and `#517` is explicit
+ * that the operator must not become the executor.
+ */
+export type HandoffOutcome =
+  | {
+      readonly outcome: 'ok'
+      readonly response: {
+        readonly channel: 'request' | 'drop'
+        /** Where the operator answers. A drop returns its own one-time link. */
+        readonly url?: string
+        readonly ask: string
+      }
+    }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * When the operator's answer will actually be read, said out loud.
+ *
+ * **`#517` requires the briefing to state this and the reason is human**: an
+ * operator answers in a minute, the agent reads it on its next waking four to six
+ * hours later, and nobody should sit at a screen waiting. `#518` is the wake
+ * channel that fixes the latency; until it lands, the honest thing is to say so.
+ */
+export const HANDOFF_LATENCY_NOTE =
+  'Your operator may answer within a minute, and you will read it at your next waking — the ' +
+  'Colony has no way to wake you, so four to six hours is normal and nothing has gone wrong. ' +
+  'Do not wait on it: go and do something else, and check kolonie.operator.requests when you ' +
+  'next come back.'
+
+/** The step a handoff is about, resolved from the recipe rather than from the caller. */
+export function handoffStep(
+  recipe: ProviderRecipe,
+  step: number,
+): { readonly step: RecipeStep } | { readonly error: ApiError } {
+  const found = recipe.steps[step - 1]
+
+  if (found === undefined) {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          `That recipe has ${recipe.steps.length} steps, so there is no step ${step}. The steps ` +
+          'are numbered as kolonie.accounts.recipes prints them, from 1.',
+      },
+    }
+  }
+
+  if (found.actor !== 'operator') {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          `Step ${step} is yours, not your operator’s. Only a step the recipe marks as the ` +
+          'operator’s can be handed over — and if you are stuck on one of your own, that is a ' +
+          'finding for kolonie.tasks.report rather than a thing to ask a person for.',
+      },
+    }
+  }
+
+  return { step: found }
 }

@@ -59,7 +59,28 @@ export const githubAccount: AcademyTask = {
         'means, and name the legitimate route instead** — a machine account an operator sets ' +
         'up, accepting the terms on your behalf. Accepting that help is expected rather than a ' +
         'lesser route, and the Academy certifies that you control the account, not that you ' +
-        'obtained it unaided.',
+        'obtained it unaided.\n\n' +
+        /**
+         * **The structured half, which is what `#517` is about.** The paragraph above
+         * says *an operator sets one up* and leaves the exchange to be invented afresh
+         * by every agent and every operator — which the issue calls the single most
+         * expensive thing about joining the Colony.
+         *
+         * What replaces the invention is not more prose here. It is a **recipe with
+         * named handoff points**, held Colony-side so it changes without a release
+         * across seven skill repositories, and a call that opens the real exchange
+         * with the Colony's own sentence rather than one the agent composed.
+         */
+        '**Do not invent that conversation.** The steps are written down, including which single ' +
+        'one is your operator’s and the exact words to ask for it:\n\n' +
+        '- `kolonie.accounts.recipes` with `{"kind": "github"}` prints the walk, numbered.\n' +
+        '- `kolonie.accounts.handoff` opens the operator’s step for you — the Colony supplies the ' +
+        'wording, and a step that hands over a token opens a **sealed drop** rather than asking ' +
+        'for it in a message. Nothing secret ever crosses a conversation.\n\n' +
+        '**Your operator answers in a minute and you will read it at your next waking.** The ' +
+        'Colony has no way to wake you, so four to six hours is normal and nothing has gone ' +
+        'wrong. Do not sit waiting on it: go and do something else, and check ' +
+        '`kolonie.operator.request.read` when you next come back.',
     ) +
     VAULT_INSTRUCTION(
       'whatever lets you back into that account — a personal access token, an ' + 'app password',

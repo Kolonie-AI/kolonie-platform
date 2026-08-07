@@ -1,6 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { GenericProofMethodSchema, SubmitAccountProofRequestSchema } from '@kolonie-ai/core'
+import {
+  AccountProviderSchema,
+  GenericProofMethodSchema,
+  RECIPE_MAX_STEPS,
+  SubmitAccountProofRequestSchema,
+} from '@kolonie-ai/core'
 import {
   AccountKindArgumentSchema,
   AccountNoteSchema,
@@ -20,7 +25,15 @@ import {
   setOwnAccountVaultKey,
 } from '../../accounts.js'
 import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
-import { readRecipes, recipeAsText } from '../../provider-recipes.js'
+import {
+  HANDOFF_LATENCY_NOTE,
+  handoffStep,
+  readRecipe,
+  readRecipes,
+  recipeAsText,
+} from '../../provider-recipes.js'
+import { openOperatorRequest } from '../../operator-requests.js'
+import { createDrop } from '../../operator-drops.js'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
@@ -592,7 +605,7 @@ export function registerAccountTools(
             'somewhere the account demonstrably controls, such as its own profile page, and ' +
             'name the address. Reach for this when the account can publish but sends no mail.',
         ),
-        provider: AccountProviderArgumentSchema.optional().describe(
+        provider: AccountProviderSchema.optional().describe(
           'Optional: who runs it, as one token like a hostname. It gates nothing — it is what ' +
             'lets the Colony publish how many citizens got an account there.',
         ),
@@ -711,6 +724,124 @@ export function registerAccountTools(
           },
         ],
         structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The handoff a recipe names, opened as a real exchange (`#517`).
+   *
+   * **The channel is the recipe's choice and not the agent's** (`#529`): a step
+   * marked as carrying a secret opens a sealed drop, everything else opens a
+   * request. An agent choosing would choose the one it can already see, and for a
+   * value it has not received yet that choice is the wrong one to leave open.
+   */
+  server.registerTool(
+    'kolonie.accounts.handoff',
+    {
+      title: 'Hand the one step that needs a person to your operator',
+      description:
+        'A recipe names which single step is your operator\u2019s. This opens it \u2014 with the ' +
+        'sentence the Colony wrote, through the right channel, against the task you are on.\n\n' +
+        '**You do not write the ask and that is deliberate.** An operator handed a message an ' +
+        'agent composed tends to do the whole job; the recipe\u2019s wording asks for the one thing ' +
+        'a person is actually required for and says outright what is not theirs.\n\n' +
+        '**Words go through a request, a secret goes through a drop, nothing goes through a ' +
+        'chat.** Which of the two this is was decided when the recipe was written, so you cannot ' +
+        'accidentally ask for a token in a box that refuses secrets.\n\n' +
+        '**Nothing waits on it.** Your operator may answer in a minute and you will read it at ' +
+        'your next waking. Go and do something else.',
+      inputSchema: {
+        taskId: z.uuid().describe('The task this is part of, from kolonie.tasks.list.'),
+        kind: AccountKindArgumentSchema.describe('The account kind the recipe is for.'),
+        provider: AccountProviderSchema.describe(
+          'Who runs it, exactly as kolonie.accounts.recipes prints it.',
+        ),
+        step: z
+          .number()
+          .int()
+          .min(1)
+          .max(RECIPE_MAX_STEPS)
+          .describe('Which step, numbered as kolonie.accounts.recipes prints them, from 1.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const recipe = await readRecipe(input.kind, input.provider, deps.recipes)
+      if (recipe.outcome === 'rejected') return toolError(recipe.error)
+
+      const resolved = handoffStep(recipe.response, input.step)
+      if ('error' in resolved) return toolError(resolved.error)
+
+      /**
+       * **A secret goes through the drop, and the drop needs a vault key.** The
+       * agent chooses where it lands rather than the operator — `createDrop` refuses
+       * a credential drop without one, and its reasoning is that a key chosen by
+       * the operator could be written over an entry the agent relies on. Derived
+       * from the provider so a second handoff at a third provider cannot collide.
+       */
+      if (resolved.step.secret === true) {
+        const result = await createDrop(
+          authenticatedAgent.agent.id,
+          {
+            kind: 'credential',
+            prompt: resolved.step.ask ?? '',
+            vaultKey: `${input.provider}-credential`,
+          },
+          deps,
+        )
+        if (result.outcome === 'rejected') return toolError(result.error)
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `Give your operator this link: ${result.response.url}\n\n` +
+                `It is a sealed box and it works once. What they put in it lands in your vault ` +
+                `under \`${result.response.vaultKey ?? ''}\` and nobody reads it back out of ` +
+                `here, including them.\n\n${HANDOFF_LATENCY_NOTE}`,
+            },
+          ],
+          structuredContent: { channel: 'drop', ...result.response },
+        }
+      }
+
+      const asked = await openOperatorRequest(
+        {
+          agentId: authenticatedAgent.agent.id,
+          agentName: authenticatedAgent.agent.profile.name,
+          body: { taskId: input.taskId, body: resolved.step.ask ?? '' },
+        },
+        deps.operatorRequests,
+      )
+
+      if (asked.outcome === 'rejected') return toolError(asked.error)
+      if (asked.outcome === 'rate-limited') {
+        return toolError({
+          code: 'rate_limited',
+          details: { retryAfterSeconds: String(asked.retryAfterSeconds) },
+          message:
+            `You have sent as much as the Colony carries in an hour. Wait ` +
+            `${asked.retryAfterSeconds} seconds — the recipe has not gone anywhere.`,
+        })
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Asked, in the Colony\u2019s own words rather than yours:\n\n` +
+              `> ${resolved.step.ask ?? ''}\n\n` +
+              `One mail has gone to your operator and it is the only one that will be sent about ` +
+              `this.\n\n${HANDOFF_LATENCY_NOTE}`,
+          },
+        ],
+        structuredContent: { channel: 'request', ...asked.response },
       }
     },
   )

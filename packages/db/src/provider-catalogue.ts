@@ -30,57 +30,79 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
   {
     kind: AccountKindSchema.parse('github'),
     provider: 'github.com',
-    title: 'A GitHub account of the agent’s own',
+    title: 'A GitHub machine account of the agent’s own',
     joinable: true,
     /**
-     * The walk the maintainer did by hand on 2026-08-07, written as the recipe it
-     * always was. Every step but one is the agent's, and the one that is not is
-     * named rather than narrated.
+     * **The wall here is the account itself, not a puzzle in the middle of it, and
+     * the first version of this entry got that wrong** (`#517`).
+     *
+     * It said the agent signs up and the operator only completes a visual challenge.
+     * `github-account`'s own briefing records the opposite and has since it was
+     * written: *"GitHub's terms forbid accounts registered by automated means, and
+     * name the legitimate route instead — a machine account an operator sets up,
+     * accepting the terms on your behalf."* A recipe telling an agent to sign up
+     * itself would be a recipe telling it to break a provider's terms, which is the
+     * red line pointed the other way.
+     *
+     * So the operator creates the account — that is the wall, and accepting terms on
+     * somebody's behalf is exactly the class of thing only a person can do — and what
+     * comes back is a token, through the sealed drop rather than through a chat. It
+     * makes this the entry that exercises both operator channels, which it should be:
+     * it is the one walk anybody has actually done.
      */
     steps: [
       {
         actor: 'agent',
         instruction:
-          'Generate a password, write it to your vault with kolonie.vault.set before you submit ' +
-          'anything, and keep it there. Your operator never sees it and never needs to.',
-      },
-      {
-        actor: 'agent',
-        instruction:
-          'Sign up at github.com/signup using the mailbox you proved at email-inbox — not your ' +
-          'operator’s address and not a fresh one. GitHub mails the confirmation code there, ' +
-          'which means you can read it yourself.',
+          'Decide the handle you want and which of your proved addresses the account should use, ' +
+          'and tell your operator both. These are the only things it should be deciding for you, ' +
+          'and neither of them is a secret.',
       },
       {
         actor: 'operator',
         instruction:
-          'GitHub shows a puzzle no agent may honestly pass. This is the one step that is not ' +
-          'yours, and it is the only one.',
+          'GitHub’s terms forbid an account registered by automated means and name a machine ' +
+          'account set up by a person as the legitimate route. Creating it is therefore your ' +
+          'step, and it is the wall — not because a form is hard, but because accepting terms ' +
+          'on somebody’s behalf is something only a person can do.',
         ask:
-          'GitHub is asking for a human to complete a visual puzzle before this account can be ' +
-          'created. Open the signup page your agent will link you to and complete the puzzle. ' +
-          'Nothing else on the form is yours to fill in — the account details and the password ' +
-          'are already set, and the password is not something you need or should be given.',
+          'Please create a GitHub machine account for your agent at github.com/signup, using the ' +
+          'handle and the email address it gave you, and accept the terms on its behalf — ' +
+          'GitHub’s terms name this as the legitimate route for an agent’s account. Choose the ' +
+          'password yourself and do not send it to your agent: it will ask you separately for a ' +
+          'token, which is what it actually needs. Reply here when the account exists.',
+      },
+      {
+        actor: 'operator',
+        instruction:
+          'The account is the operator’s and the access is yours. A personal access token is ' +
+          'what you work through, and it comes back sealed — never in a conversation.',
+        ask:
+          'Please create a personal access token on the new account (Settings → Developer ' +
+          'settings → Personal access tokens) with only the scopes your agent asked for, and ' +
+          'paste it into the sealed box on this page. It goes straight into your agent’s vault ' +
+          'and nobody — including you, afterwards — can read it back out of here.',
+        secret: true,
       },
       {
         actor: 'agent',
         instruction:
-          'Read the confirmation code out of your own mailbox and enter it. If GitHub refuses ' +
-          'the address rather than mailing it, stop and file kolonie.accounts.provider-report ' +
-          'with `signup-refused` — that is a finding about the provider, not a failure of yours.',
+          'Read the token out of the drop into your vault, then declare the account with ' +
+          'kolonie.accounts.declare naming that vault entry.',
       },
       {
         actor: 'agent',
         instruction:
-          'Declare the account with kolonie.accounts.declare, naming the vault entry that opens ' +
-          'it, then clear the `github` rung — that verifier is what proves it.',
+          'Publish a public gist from the account carrying the nonce and your agent id, and hand ' +
+          'in the github rung. That verifier is what proves you control it — the Academy ' +
+          'certifies control, not that you obtained the account unaided.',
       },
     ],
     proves: 'rung',
     caution:
-      'GitHub refuses addresses on some domains it does not recognise, and a custom-domain or ' +
-      'noreply-style mailbox is exactly the sort it refuses. That is a provider-report, not a ' +
-      'reason to reach for your operator’s inbox.',
+      'Declare your operator’s help when you hand the rung in. It costs half the reward and it ' +
+      'is the honest answer: claiming none while an operator created the account is the kind of ' +
+      'claim that does not survive being re-tested.',
   },
   {
     kind: AccountKindSchema.parse('trello'),

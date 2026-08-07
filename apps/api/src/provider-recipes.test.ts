@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeProviderRecipes, type FakeProviderRecipes } from './__fixtures__/provider-recipes.js'
-import { readRecipe, readRecipes, recipeAsText } from './provider-recipes.js'
+import {
+  HANDOFF_LATENCY_NOTE,
+  handoffStep,
+  readRecipe,
+  readRecipes,
+  recipeAsText,
+} from './provider-recipes.js'
 
 /**
  * The catalogue, as an agent reads it (`#521`).
@@ -137,5 +143,76 @@ describe('what the recipe says to the agent walking it', () => {
     expect(text).toContain('**Do not attempt this.**')
     expect(text).toContain('phone number')
     expect(text).toContain('provider-report')
+  })
+})
+
+describe('the handoff a recipe names', () => {
+  const walk = {
+    kind: 'github' as never,
+    provider: 'github.com' as never,
+    title: 'A GitHub machine account',
+    joinable: true as const,
+    refusal: null,
+    steps: [
+      { actor: 'agent' as const, instruction: 'Name the handle you want.' },
+      {
+        actor: 'operator' as const,
+        instruction: 'Only a person may accept the terms.',
+        ask: 'Please create the account and accept the terms on its behalf.',
+      },
+      {
+        actor: 'operator' as const,
+        instruction: 'The token comes back sealed.',
+        ask: 'Please paste a personal access token into the sealed box.',
+        secret: true,
+      },
+    ],
+    proves: 'rung' as const,
+    caution: null,
+    updatedAt: new Date().toISOString() as never,
+  }
+
+  it('resolves the step and hands back the Colony’s own ask', () => {
+    const resolved = handoffStep(walk, 2)
+
+    expect('error' in resolved).toBe(false)
+    if ('error' in resolved) return
+    // Copied from the recipe, never composed: an operator handed a message an agent
+    // wrote tends to do the whole job.
+    expect(resolved.step.ask).toBe('Please create the account and accept the terms on its behalf.')
+  })
+
+  it('refuses to hand over a step that is the agent’s own', () => {
+    const resolved = handoffStep(walk, 1)
+
+    expect('error' in resolved).toBe(true)
+    if (!('error' in resolved)) return
+    // And it names the right next action rather than only refusing: being stuck on
+    // your own step is a report, not a thing to ask a person for.
+    expect(resolved.error.message).toContain('kolonie.tasks.report')
+  })
+
+  it('refuses a step that does not exist, and says how many there are', () => {
+    const resolved = handoffStep(walk, 9)
+
+    expect('error' in resolved).toBe(true)
+    if (!('error' in resolved)) return
+    expect(resolved.error.message).toContain('3 steps')
+  })
+
+  it('marks which handoff is a secret, so the channel is not the agent’s choice', () => {
+    const words = handoffStep(walk, 2)
+    const secret = handoffStep(walk, 3)
+
+    if ('error' in words || 'error' in secret) throw new Error('expected both steps to resolve')
+    expect(words.step.secret).toBeUndefined()
+    expect(secret.step.secret).toBe(true)
+  })
+
+  it('states when the answer will be read, because nothing can wake an agent', () => {
+    // `#517` requires the briefing to say this. It is a constant rather than a
+    // sentence per caller so that two surfaces cannot promise different latencies.
+    expect(HANDOFF_LATENCY_NOTE).toContain('next waking')
+    expect(HANDOFF_LATENCY_NOTE).toContain('Do not wait')
   })
 })

@@ -203,17 +203,34 @@ describe('the provider catalogue', () => {
       expect(refusal?.refusal).toMatch(/\d{4}-\d{2}-\d{2}/)
     })
 
-    it('has a handoff point that names the ask rather than narrating a wall', async () => {
+    /**
+     * **Every operator step names its ask, and the github entry has two** (`#517`).
+     *
+     * An earlier version of this test asserted exactly one, on the reading that a
+     * recipe is *steps, one wall, steps*. That is the shape of most of them and it is
+     * not a law: `github-account`'s briefing records that GitHub's terms forbid an
+     * account registered by automated means, so on that provider the account
+     * creation is itself the operator's — and the token that comes back is a second,
+     * genuinely separate act through a different channel. Collapsing the two would
+     * have meant asking an operator for a credential in the same breath as asking it
+     * to accept terms, which is how a password ends up in a chat.
+     *
+     * So what is asserted is the property that actually matters: every operator step
+     * carries the Colony's own sentence, and no step asks the operator to do the
+     * agent's work.
+     */
+    it('gives every handoff a named ask rather than a narrated wall', async () => {
       await seedProviderCatalogue(db)
       const github = await providerRecipe(db, kind('github'), 'github.com')
 
       const handoff = github?.steps.filter((step) => step.actor === 'operator') ?? []
-      // One wall, which is the shape `#517` describes: steps alone, one wall, steps
-      // alone. Two would mean the recipe has not found the real single step.
-      expect(handoff).toHaveLength(1)
-      expect(handoff[0]?.ask).toBeTruthy()
-      // And the ask must not be the operator being handed the whole job.
-      expect(handoff[0]?.ask).toContain('Nothing else on the form is yours')
+      expect(handoff.length).toBeGreaterThanOrEqual(1)
+      for (const step of handoff) expect(step.ask).toBeTruthy()
+
+      // Exactly one of them hands over a secret, and it goes through the drop.
+      expect(handoff.filter((step) => step.secret === true)).toHaveLength(1)
+      // And the operator is told not to send the password it chose.
+      expect(handoff[0]?.ask).toContain('do not send it to your agent')
     })
 
     it('states every entry in the shape the write surface would accept', () => {

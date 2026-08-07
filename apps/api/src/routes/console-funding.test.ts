@@ -121,6 +121,24 @@ describe('the funding page', () => {
     expect(body).toContain('cannot be sent back out')
   })
 
+  /**
+   * The dollars, not only the credits (`#500`).
+   *
+   * A sponsor who has read *credits cannot be sent back out* still asks whether
+   * the transfer itself can be reversed. It cannot, and the page says so before
+   * the address rather than in a document about the Treasury.
+   */
+  it('says the dollars are not returned either, before the address', async () => {
+    const { cookie } = await withIdentity()
+
+    const body = (await funding(cookie)).body
+
+    expect(body).toContain('neither can the dollars')
+    expect(body.indexOf('neither can the dollars')).toBeLessThan(
+      body.indexOf('Your deposit address'),
+    )
+  })
+
   it('says what a credit is worth', async () => {
     const { cookie } = await withIdentity()
 

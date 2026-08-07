@@ -52,8 +52,19 @@ export function depositRules(): readonly string[] {
     '<li><strong>You are credited what arrives, not what you paid.</strong> If you buy through ' +
       'an exchange or an on-ramp, its fee comes off first — US$ 50 paid can be US$ 46 received ' +
       'and 4,600 credits.</li>',
-    '<li><strong>Money in is one-way.</strong> Credits cannot be sent back out. If you fund ' +
-      'US$ 50 and spend US$ 10, the rest stays a balance until you spend it on a quest.</li>',
+    /**
+     * Both halves, because only one of them was said (`#500`).
+     *
+     * *Credits cannot be sent back out* is about the balance. What a sponsor
+     * asks after a transfer is about **the dollars**, and the honest answer is
+     * the same: what arrives at this address is not returned either. The two
+     * were read as one sentence with one meaning, and the maintainer made
+     * exactly that inference on 2026-08-07 after a real deposit.
+     */
+    '<li><strong>Money in is one-way.</strong> Credits cannot be sent back out, and neither ' +
+      'can the dollars: what you send funds quests, and there is no way to return it to the ' +
+      'wallet it came from. If you fund US$ 50 and spend US$ 10, the rest stays a balance ' +
+      'until you spend it on a quest.</li>',
     '<li><strong>One credit is one US cent.</strong> A quest costs its capacity times its price ' +
       'per report, in credits.</li>',
     '</ul>',

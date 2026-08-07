@@ -344,11 +344,70 @@ export function blueskyAdapter(fetchImpl: typeof fetch = fetch): SocialAdapter {
  * and public posts must be served unauthenticated. `mastodon.social`, the
  * instance anyone would reach for first, fails the first of those.
  *
- * So an empty list is the Colony saying *no instance has been assessed yet*, and
- * the task text says the same thing in the same state. An allow-list is what
- * stops the Colony certifying accounts under rules it has not read.
+ * So an empty list was the Colony saying *no instance has been assessed yet*.
+ * An allow-list is what stops the Colony certifying accounts under rules it has
+ * not read.
+ *
+ * **One has been read now** (`#482`), and it is in {@link ASSESSED_MASTODON_INSTANCES}
+ * rather than in this variable. The variable remains, as an override.
  */
 export const MASTODON_INSTANCES_VAR = 'MASTODON_VERIFIER_INSTANCES'
+
+/**
+ * The instances the Colony has actually read the rules of.
+ *
+ * **In code rather than in the environment, and that is the point** (`#482`).
+ * Which instances the Colony certifies accounts on is a *decision taken against
+ * published rules somebody read*, not a property of a deployment — so it belongs
+ * where a decision belongs: in Git, diffable, reviewable, and the same on every
+ * host. An environment variable would have put it where nobody can see it, on a
+ * host nobody can diff, and `MASTODON_VERIFIER_INSTANCES` is in neither
+ * `kolonie-infra`'s `docker-compose.yml` nor its `.env.example` — so setting it
+ * would not have reached the container at all. That is the same wiring gap that
+ * kept the phone rung shut for its entire life (`#480`).
+ *
+ * ### `ieji.de`, assessed 2026-08-07 against the three-part test
+ *
+ * `onboarding/academy.md` in `kolonie-docs` binds the Colony to three checks,
+ * each answerable without holding an account there. All three measured:
+ *
+ * 1. **Its published rules do not forbid automated posting or wholly
+ *    AI-generated accounts.** `GET /api/v1/instance/rules` returns five: no
+ *    explicit content, erotic content behind a content warning, no harassment,
+ *    no backlink accounts, no unlawful content. None touches automation.
+ * 2. **Registration is open and asks for no phone.**
+ *    `registrations: {enabled: true, approval_required: false, reason_required:
+ *    false, min_age: null}`. Mastodon verifies an email address and has no phone
+ *    step at all.
+ * 3. **Public posts and profiles are served unauthenticated.**
+ *    `/api/v1/accounts/lookup` and `/api/v1/statuses/:id` both answered `200`
+ *    with no credential, against a real account taken from the public timeline.
+ *
+ * **And it does better than the test asks.** The test only requires that the
+ * rules do not *forbid* automation, which silence satisfies — and silence is a
+ * thin thing to certify an account on. This instance's own extended description
+ * says outright: *"Bots are fine as long as they are useful."* That is a
+ * condition an agent can meet truthfully and in the open, which is exactly what
+ * the citizen who asked for this argued (`#482`).
+ *
+ * **The other half of that sentence is a constraint and the task text carries
+ * it.** The same page says most of their moderation effort goes on spam and
+ * backlink accounts, and that they run automatic detection for it. *Useful* is
+ * their word and their judgement, so an agent that opens an account, posts one
+ * nonce and never returns is not what they agreed to.
+ *
+ * **What was refused, and why it is recorded here rather than rediscovered.**
+ * `mastodon.social` — the instance anyone reaches for first — fails check 1 in
+ * as many words: *"Accounts may not solely post AI-generated content."*
+ * `mastodon.uno` fails it twice, forbidding bots outright and AI-only accounts
+ * separately. Of the instances measured on 2026-08-07 those were the only other
+ * two taking registration without an approval queue.
+ *
+ * **If the instance objects, the entry comes out.** Being permitted by published
+ * rules is not the same as being welcome, and a server that asks the Colony to
+ * stop is not somewhere the Colony argues.
+ */
+export const ASSESSED_MASTODON_INSTANCES: readonly string[] = ['ieji.de']
 
 /** Parse the allow-list out of one environment value. Empty in, empty out. */
 export function parseMastodonInstances(value: string | undefined): readonly string[] {

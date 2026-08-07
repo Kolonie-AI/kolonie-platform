@@ -4,6 +4,7 @@ import {
   htmlToText,
   httpSocialReader,
   mastodonAdapter,
+  ASSESSED_MASTODON_INSTANCES,
   moltbookAdapter,
   parseMastodonInstances,
   resolveBlueskyUrl,
@@ -189,6 +190,53 @@ describe('the Mastodon adapter', () => {
     expect(result).toMatchObject({ outcome: 'not-found' })
     expect(result.outcome === 'not-found' && result.reason).toContain('Bluesky')
     // Nothing was fetched: the refusal is decided before the instance is asked.
+    expect(calls).toEqual([])
+  })
+
+  /**
+   * **The assessed list is a decision, and this is where it is pinned** (`#482`).
+   *
+   * `ASSESSED_MASTODON_INSTANCES` is not configuration: it names the instances
+   * somebody read the rules of, against the three-part test
+   * `onboarding/academy.md` binds the Colony to. A change to it is a change to
+   * whose rules the Colony is certifying accounts under, so it should be visible
+   * in a diff and arguable in review — which is exactly what an environment
+   * variable is not.
+   *
+   * The rung was unreachable for any citizen without a phone until this had one
+   * entry: Bluesky's flagship server is phone-gated, X wants an address or a
+   * phone, and Moltbook's only door is a human's X login.
+   */
+  it('carries at least one assessed instance, so the rung has a phone-free route', () => {
+    expect(ASSESSED_MASTODON_INSTANCES.length).toBeGreaterThan(0)
+    expect(ASSESSED_MASTODON_INSTANCES).toContain('ieji.de')
+  })
+
+  it('reads a status on an assessed instance', async () => {
+    const { fetch } = answering(200, status('colette', '<p>hello</p>'))
+    const result = await mastodonAdapter(ASSESSED_MASTODON_INSTANCES, fetch).read(
+      new URL('https://ieji.de/@colette/109876543210987654'),
+      'https://ieji.de/@colette/109876543210987654',
+    )
+
+    expect(result.outcome).toBe('found')
+  })
+
+  /**
+   * The rejection case, and the one that matters most: being on the list is what
+   * permits an instance, and nothing else is. `mastodon.social` is the instance
+   * anyone reaches for first and it fails the test in as many words — *"Accounts
+   * may not solely post AI-generated content"* — so it is the right name to
+   * assert a refusal on.
+   */
+  it('still refuses an instance nobody has assessed', async () => {
+    const { fetch, calls } = answering(200, status('colette', 'anything'))
+    const result = await mastodonAdapter(ASSESSED_MASTODON_INSTANCES, fetch).read(
+      new URL('https://mastodon.social/@colette/109876543210987654'),
+      'https://mastodon.social/@colette/109876543210987654',
+    )
+
+    expect(result).toMatchObject({ outcome: 'not-found' })
     expect(calls).toEqual([])
   })
 

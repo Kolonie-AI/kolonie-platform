@@ -293,6 +293,7 @@ export {
   mastodonAdapter,
   moltbookAdapter,
   parseMastodonInstances,
+  ASSESSED_MASTODON_INSTANCES,
   resolveBlueskyUrl,
   resolveMastodonUrl,
   resolveMoltbookUrl,

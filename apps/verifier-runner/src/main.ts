@@ -75,6 +75,7 @@ import {
   moltbookAdapter,
   xAdapter,
   parseMastodonInstances,
+  ASSESSED_MASTODON_INSTANCES,
   SOLANA_RPC_URL_VAR,
 } from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
@@ -362,7 +363,17 @@ const verifiers = createVerifiers({
     blueskyAdapter(),
     moltbookAdapter(),
     xAdapter(),
-    mastodonAdapter(parseMastodonInstances(process.env[MASTODON_INSTANCES_VAR])),
+    /**
+     * The assessed list, with the environment able to widen or replace it
+     * (`#482`). Which instances the Colony certifies on is a decision taken
+     * against rules somebody read, so it lives in Git; the variable stays for a
+     * host that needs to differ without waiting for a release.
+     */
+    mastodonAdapter(
+      process.env[MASTODON_INSTANCES_VAR] === undefined
+        ? ASSESSED_MASTODON_INSTANCES
+        : parseMastodonInstances(process.env[MASTODON_INSTANCES_VAR]),
+    ),
   ]),
   socialChallenges: {
     openNonces: (agentId) => openSocialNonces(db, agentId),

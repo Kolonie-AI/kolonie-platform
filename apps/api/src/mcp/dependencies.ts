@@ -15,6 +15,7 @@ import type { Erasure } from '../erasure.js'
 import type { GithubDependencies } from '../github.js'
 import type { StandingHintSource } from '../hints.js'
 import type { TaskGuidance } from '../guidance.js'
+import type { EarningsDesk } from '../payouts.js'
 import type { QuestDesk } from '../quests.js'
 import type { ImageDependencies } from '../image.js'
 import type { SceneDependencies } from '../scene.js'
@@ -86,6 +87,14 @@ export interface McpDependencies {
    * written down differently.
    */
   readonly quests: QuestDesk
+  /**
+   * What this citizen has been paid and what it is still owed (`#535`).
+   *
+   * The citizen's side of `payout_obligations`, which nothing served until
+   * `kolonie.me.earnings`: D-106 pays into a wallet the Colony does not control,
+   * so the one party that could not see its own payment was the party being paid.
+   */
+  readonly earnings: EarningsDesk
   readonly academy: AcademyDependencies
   readonly email: EmailDependencies
   /** The two phone rungs (`#411`). Its own block for the reason `email` is: a different channel. */

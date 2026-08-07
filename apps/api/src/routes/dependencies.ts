@@ -39,6 +39,7 @@ import type { OperatorRequestDependencies } from '../operator-requests.js'
 import type { OperatorNoteDependencies } from '../operator-notes.js'
 import type { PermissionReportDependencies } from '../permission-reports.js'
 import type { CredentialRotation } from '../rotation.js'
+import type { EarningsDesk } from '../payouts.js'
 import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { CitizenRecords } from '../citizens.js'
@@ -79,6 +80,14 @@ export interface RouteDependencies {
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`). */
   readonly quests: QuestDesk
+  /**
+   * What a citizen has been paid and what it is still owed (`#535`).
+   *
+   * Required rather than optional, unlike the payout runner it reads beside: a
+   * deployment with no wallet still owes what its accepted reports owe, and the
+   * citizen is still entitled to read that.
+   */
+  readonly earnings: EarningsDesk
   /** The settings a maintainer may turn without a deploy (`#489`, D-104). */
   readonly settings: SettingsDesk
   /** Providers writing in about the Atlas (`#544`). */

@@ -5,6 +5,7 @@ import {
   platformFeePercentFromEnv,
   questFeeSentence,
   questPayoutSplit,
+  solFromLamports,
   type ListTasksResponse,
   type OwnReport,
   type SkillStanding,
@@ -513,6 +514,32 @@ function acceptsPublication(status: Task['status']): boolean {
 
 export function describeReward(task: Task): string {
   const parts: string[] = []
+  /**
+   * **What an accepted report actually pays, where the citizen decides** (`#535`).
+   *
+   * `reward.lamports` has reached this row since `#504` and nothing rendered it,
+   * so a quest priced in SOL read as a quest that pays nothing — to the one
+   * reader whose decision it is. The sponsor was told the amount, the
+   * destination and every irreversible term before it paid; the citizen was told
+   * neither what answering was worth beforehand nor that it had been paid
+   * afterwards.
+   *
+   * **The citizen's share, never the sponsor's price**, which is the rule the
+   * credits line one clause down already follows: the fee comes off before this
+   * number, so what is quoted is what arrives. `questPayoutSplit` is the same
+   * function the payout books against — its parameter is still named `credits`
+   * and `#553` renames it when credits go, but the arithmetic is integer
+   * lamports in, integer lamports out, and a second implementation of *what does
+   * the citizen get* is the disagreement a stranger can see.
+   */
+  if (task.reward.lamports > 0) {
+    const toCitizen =
+      task.kind === 'quest'
+        ? questPayoutSplit(task.reward.lamports, feeRateOn(task)).toCitizen
+        : task.reward.lamports
+
+    parts.push(`you ${solFromLamports(toCitizen)} SOL`)
+  }
   if (task.reward.credits > 0) {
     parts.push(
       task.kind === 'quest'

@@ -1,15 +1,18 @@
 import {
   ceilingsRefusal,
+  CURRENCY_MOVES_NOTICE,
   payoutRefusal,
   payoutRefusalRaises,
   payoutRefusalReason,
   RENT_EXEMPT_MINIMUM_FALLBACK,
   signSolTransfer,
+  type AgentId,
   type PayoutCeilings,
   type PayoutRefusal,
 } from '@kolonie-ai/core'
-import type { Database, OutstandingPayout } from '@kolonie-ai/db'
+import type { CitizenEarning, Database, OutstandingPayout } from '@kolonie-ai/db'
 import {
+  earningsFor as earningsInDatabase,
   forfeitPayout as forfeitInDatabase,
   markPayoutPaid as markPaidInDatabase,
   outstandingPayouts as outstandingInDatabase,
@@ -49,6 +52,74 @@ export interface PayoutDesk {
   recordAttempt(id: string, refusal: PayoutRefusal): Promise<void>
   paidToday(): Promise<number>
   owed(): Promise<number>
+}
+
+/**
+ * What a citizen has been paid and what it is still owed (`#535`).
+ *
+ * **A port of its own rather than a method on {@link PayoutDesk}, because the
+ * two are present in different deployments.** The desk is optional — a
+ * deployment with no wallet, no endpoint or no ceilings cannot pay, and every
+ * test is in that state. The obligations exist regardless: a report accepted on
+ * such a deployment is still owed, and the citizen is still entitled to read
+ * that it is. Hanging this off the desk would make *can this Colony pay* decide
+ * *may this citizen see what it is owed*, which are not the same question.
+ */
+export interface EarningsDesk {
+  forCitizen(agentId: AgentId, limit?: number): Promise<readonly CitizenEarning[]>
+}
+
+/** The citizen's side of the payout table, backed by Postgres. */
+export function databaseEarnings(db: Database): EarningsDesk {
+  return { forCitizen: (agentId, limit) => earningsInDatabase(db, agentId, limit) }
+}
+
+/**
+ * A Colony that has never owed anybody anything (`#535`).
+ *
+ * **The default in `buildApp`, for the reason `noProviderEnquiries` and
+ * `noSettings` are defaults**: a test that is not about being paid should not
+ * have to say so, and *nothing has been paid to you* is the true answer for a
+ * deployment with no payout table behind it rather than a stand-in for one.
+ *
+ * `server.ts` passes the real desk, and it is the only caller that has a
+ * database to pass one from.
+ */
+export function noEarnings(): EarningsDesk {
+  return { forCitizen: async () => [] }
+}
+
+/** What a citizen is served when it asks what it has been paid (`#535`, `#554`). */
+export interface CitizenEarningView {
+  readonly earnings: readonly CitizenEarning[]
+  /**
+   * That SOL's value moves, in the Colony's own words.
+   *
+   * **In the answer rather than only in the prose**, so a client that renders
+   * the structured half does not silently drop the one sentence a citizen that
+   * has never held money needs. It is the same constant on both sides.
+   */
+  readonly currencyNotice: string
+}
+
+/**
+ * What this citizen has been paid and what it is still owed (`#535`).
+ *
+ * **A read and nothing else — no total, no balance.** D-106's whole argument is
+ * that a citizen holds its own money and the Colony holds none of it; a figure
+ * called *your balance* served from here would be the Colony asserting a claim it
+ * does not hold. The rows are what the Colony knows: an amount, a destination, a
+ * signature, and the reason the last attempt did not go out.
+ */
+export async function readEarnings(
+  agentId: AgentId,
+  desk: EarningsDesk,
+  limit?: number,
+): Promise<CitizenEarningView> {
+  return {
+    earnings: await desk.forCitizen(agentId, limit),
+    currencyNotice: CURRENCY_MOVES_NOTICE,
+  }
 }
 
 /** The chain, as this path needs it. A port, so a test needs no key and no network. */

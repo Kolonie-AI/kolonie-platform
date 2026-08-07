@@ -23,7 +23,7 @@ import { databaseSettings } from './settings.js'
 import { settingsReader } from '@kolonie-ai/db'
 import { databaseProviderEnquiries } from './provider-enquiries.js'
 import { databasePayments } from './payments.js'
-import { databasePayouts, payoutConfigurationRefusal } from './payouts.js'
+import { databaseEarnings, databasePayouts, payoutConfigurationRefusal } from './payouts.js'
 import { httpPayoutChain } from './payout-chain.js'
 import { PAYMENT_RPC_URL_VAR, httpPaymentWatcher } from './payment-watcher.js'
 import { databaseCatalogue } from './tasks.js'
@@ -461,6 +461,9 @@ const app = buildApp({
     readMany: (agentId, skills) => readSkillNotes(db, agentId, skills),
   },
   quests: databaseQuests(db, questAuditPolicy(), payoutWalletAddress),
+  // The citizen's side of the payout table, present whether or not this
+  // deployment can pay (`#535`).
+  earnings: databaseEarnings(db),
   settings: databaseSettings(db),
   providerEnquiries: databaseProviderEnquiries(db),
   /**

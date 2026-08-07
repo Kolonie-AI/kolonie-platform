@@ -1,7 +1,13 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
-import type { AgentId, PayoutRefusal, SubmissionId, TaskId } from '@kolonie-ai/core'
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import {
+  PayoutRefusalSchema,
+  type AgentId,
+  type PayoutRefusal,
+  type SubmissionId,
+  type TaskId,
+} from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { payoutObligations, solanaWalletChallenges } from '../schema/index.js'
+import { payoutObligations, solanaWalletChallenges, tasks } from '../schema/index.js'
 import { and as andSql } from 'drizzle-orm'
 
 /**
@@ -202,6 +208,89 @@ export async function owedLamports(db: Database): Promise<number> {
     .where(and(isNull(payoutObligations.paidAt), isNull(payoutObligations.forfeitedAt)))
 
   return Number(row?.total ?? 0)
+}
+
+/** One payment, as the citizen it was for reads it (`#535`). */
+export interface CitizenEarning {
+  readonly taskId: TaskId
+  /** The quest's title, so the row means something without a second call. */
+  readonly title: string
+  readonly lamports: number
+  /** When the report was accepted and the amount became owed. */
+  readonly owedSince: string
+  /** When it was sent, or `null` while it is owed. */
+  readonly paidAt: string | null
+  /** The transaction, so the citizen can check the chain rather than the Colony. */
+  readonly signature: string | null
+  /** Where it went, or is going. `null` while no address has been verified. */
+  readonly address: string | null
+  /** What stopped the last attempt, or `null` if none has been refused. */
+  readonly lastRefusal: PayoutRefusal | null
+  readonly attempts: number
+  /** Forfeited to the Treasury on erasure. Never true for a citizen still here. */
+  readonly forfeited: boolean
+}
+
+/**
+ * What this citizen has been paid and what it is still owed (`#535`).
+ *
+ * **The citizen's own side of `payout_obligations`, which nothing served until
+ * now.** D-106's argument is that a citizen holds its own money and the Colony
+ * holds none of it; that is true of the mechanism and was false of the
+ * experience, because the citizen was the one party to the transaction that
+ * could only learn about its own payment by reading a chain it was never told
+ * the address on.
+ *
+ * **Every column here is one the row already holds** — the amount, the
+ * destination, the signature and the refusal. Nothing is computed and nothing is
+ * summarised: a total the Colony calculates is a number a citizen has to trust,
+ * where a signature is one it can check.
+ *
+ * Newest first, because the question that brings a citizen here is *did the last
+ * one arrive*.
+ */
+export async function earningsFor(
+  db: Database,
+  agentId: AgentId,
+  limit = 50,
+): Promise<readonly CitizenEarning[]> {
+  const rows = await db
+    .select({
+      taskId: payoutObligations.taskId,
+      title: tasks.title,
+      lamports: payoutObligations.lamports,
+      owedSince: payoutObligations.createdAt,
+      paidAt: payoutObligations.paidAt,
+      signature: payoutObligations.signature,
+      address: payoutObligations.address,
+      lastRefusal: payoutObligations.lastRefusal,
+      attempts: payoutObligations.attempts,
+      forfeitedAt: payoutObligations.forfeitedAt,
+    })
+    .from(payoutObligations)
+    .innerJoin(tasks, eq(tasks.id, payoutObligations.taskId))
+    .where(eq(payoutObligations.agentId, agentId))
+    .orderBy(desc(payoutObligations.createdAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    taskId: row.taskId as TaskId,
+    title: row.title,
+    lamports: row.lamports,
+    owedSince: row.owedSince,
+    paidAt: row.paidAt,
+    signature: row.signature,
+    address: row.address,
+    /**
+     * Parsed rather than cast, because this column is `text` and the vocabulary
+     * it holds is a closed list the payout runner writes. A value that is not in
+     * the list is a Colony defect, and reading it as `null` here would serve the
+     * citizen *nothing stopped it* about a payment that something stopped.
+     */
+    lastRefusal: PayoutRefusalSchema.nullable().parse(row.lastRefusal),
+    attempts: row.attempts,
+    forfeited: row.forfeitedAt !== null,
+  }))
 }
 
 /** What this citizen is owed and has not been paid — what erasure has to settle. */

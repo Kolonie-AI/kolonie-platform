@@ -3,6 +3,7 @@ import {
   DEFAULT_PLATFORM_FEE_PERCENT,
   questPayNotice,
   questPayoutSplit,
+  solFromLamports,
   type Task,
 } from '@kolonie-ai/core'
 import { aTask } from '../../__fixtures__/catalogue.js'
@@ -50,6 +51,44 @@ describe('what a quest says it pays over MCP', () => {
           ).toBe(`pays you ${toCitizen} credits`)
         }
       }
+    })
+
+    /**
+     * **What a quest priced in SOL says it pays** (`#535`).
+     *
+     * `reward.lamports` reached this row with `#504` and nothing rendered it, so
+     * the first quest paid for in SOL read as a quest that pays nothing — to the
+     * one reader whose decision it is. The sponsor was told the amount, the
+     * destination and every irreversible term before it paid; the citizen was
+     * told neither what answering was worth nor, afterwards, that it had been
+     * paid.
+     */
+    it('names the SOL an accepted report pays, net of the fee', () => {
+      const quest = aQuest({ reward: { credits: 0, reputation: 2, lamports: 2_000_000 } })
+
+      expect(describeReward(quest)).toBe('pays you 0.0015 SOL and 2 reputation')
+    })
+
+    it('agrees with the payout computation on lamports too', () => {
+      for (const lamports of [1_000, 1_500_000, 12_345_678]) {
+        for (const feePercent of [0, 10, 25]) {
+          const { toCitizen } = questPayoutSplit(lamports, feePercent)
+
+          expect(
+            describeReward(
+              aQuest({
+                reward: { credits: 0, reputation: 0, lamports },
+                platformFeePercent: feePercent,
+              }),
+            ),
+          ).toBe(`pays you ${solFromLamports(toCitizen)} SOL`)
+        }
+      }
+    })
+
+    /** A quest that pays no SOL says nothing about SOL, rather than 0. */
+    it('says nothing about SOL where a quest is not priced in it', () => {
+      expect(describeReward(aQuest())).not.toMatch(/SOL/)
     })
 
     /**

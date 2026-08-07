@@ -22,6 +22,7 @@ import { fakeSkillNotes } from './skill-notes.js'
 import { fakeStandingHints } from './hints.js'
 import { fakeWakeup } from './wakeup.js'
 import { fakeGuidance } from './guidance.js'
+import { fakeEarnings } from './earnings.js'
 import { fakeQuests } from './quests.js'
 import { fakeImage } from './image.js'
 import { fakeScene } from './scene.js'
@@ -106,6 +107,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     quests: fakeQuests(),
+    earnings: fakeEarnings(),
     support: support({ desk: fakeSupportDesk() }),
     // The operator channel (#236). This tier has no credential, so nothing here
     // is reachable — it is present because `McpDependencies` is total.

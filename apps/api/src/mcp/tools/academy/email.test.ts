@@ -7,6 +7,7 @@ import { fakeProviderRecipes } from '../../../__fixtures__/provider-recipes.js'
 import { fakeAccounts } from '../../../__fixtures__/accounts.js'
 import { fakeConsole } from '../../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../../__fixtures__/catalogue.js'
+import { fakeEarnings } from '../../../__fixtures__/earnings.js'
 import { fakeQuests } from '../../../__fixtures__/quests.js'
 import { FAKE_CALLER_IP } from '../../../__fixtures__/colony/index.js'
 import { fakeDomain } from '../../../__fixtures__/domain.js'
@@ -138,6 +139,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
         store,
         catalogue: fakeCatalogue(),
         quests: fakeQuests(),
+        earnings: fakeEarnings(),
         submissions: fakeSubmissions(),
         guidance: fakeGuidance(),
         support: support({ desk: fakeSupportDesk() }),

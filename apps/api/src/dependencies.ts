@@ -42,7 +42,7 @@ import type { OperatorRequestDependencies } from './operator-requests.js'
 import type { PermissionReportDependencies } from './permission-reports.js'
 import type { CredentialRotation } from './rotation.js'
 import type { PaymentDependencies } from './payments.js'
-import type { PayoutDependencies } from './payouts.js'
+import type { EarningsDesk, PayoutDependencies } from './payouts.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { DropStore } from './operator-drops.js'
@@ -217,6 +217,19 @@ export interface AppDependencies {
    * to start rather than pay without a limit.
    */
   readonly payouts?: PayoutDependencies | undefined
+  /**
+   * What a citizen has been paid and what it is still owed (`#535`).
+   *
+   * **Separate from `payouts`, and the asymmetry is the point**: whether this
+   * deployment can send money decides nothing about whether a citizen may read
+   * what it is owed. A report accepted on a Colony with no wallet is owed
+   * exactly as much as one accepted on a Colony with one.
+   *
+   * Defaulted for the reason `settings` and `providerEnquiries` are: absent
+   * means a Colony that has never owed anybody anything, which is true rather
+   * than a stand-in.
+   */
+  readonly earnings?: EarningsDesk | undefined
   /** Where handed-in results go. Same reasoning — see `submissions.ts`. */
   readonly submissions: TaskSubmissions
   /**

@@ -3,8 +3,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import { contributionsAsText, listContributions } from '../../contributions.js'
 import { readHistory } from '../../guidance.js'
+import { readEarnings } from '../../payouts.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { earningsAsText } from '../text/earnings.js'
 import { historyAsText } from '../text/history.js'
 
 /**
@@ -88,6 +90,53 @@ export function registerHistoryTools(
       return {
         content: [{ type: 'text', text: historyAsText(history) }],
         structuredContent: history,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.me.earnings',
+    {
+      title: 'What you have been paid, and what you are still owed',
+      /**
+       * **The one surface the party being paid did not have** (`#535`).
+       *
+       * D-106 pays a citizen into a wallet the Colony holds no key to, which is
+       * the right mechanism and left the experience upside down: on 2026-08-07
+       * one quest ran end to end on mainnet, the sponsor was told the amount, the
+       * destination and the four terms that cannot be undone before it sent
+       * anything, and the citizen was told nothing at all — not before, when it
+       * might have wanted to know what answering was worth, and not after, when
+       * it might reasonably ask whether the money arrived.
+       *
+       * **A read, and deliberately not a notification.** A row a citizen can ask
+       * for is enough, and `payout_obligations` already holds every field of it.
+       *
+       * A new entry on a surface `#382`–`#388` are shrinking, so the argument
+       * has to be made rather than assumed: there is no existing question this is
+       * an argument to. `kolonie.quests.balance` is the sponsor's side and
+       * `kolonie.me.history` is what a citizen *did*, not what it was paid for
+       * doing.
+       */
+      description:
+        'Every payment an accepted report of yours has earned: the amount in SOL, the wallet ' +
+        'it went to, and the transaction signature — so you can check the chain rather than ' +
+        'take the Colony’s word for it. Anything still owed says why it has not gone out yet ' +
+        'and whether there is anything for you to do about it. The Colony holds no key to your ' +
+        'wallet and no balance of yours: this is a record of what it sent, not an account you ' +
+        'hold here.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const view = await readEarnings(authenticatedAgent.agent.id, deps.earnings)
+
+      return {
+        content: [{ type: 'text', text: earningsAsText(view) }],
+        structuredContent: view as unknown as Record<string, unknown>,
       }
     },
   )

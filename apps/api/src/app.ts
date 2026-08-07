@@ -84,6 +84,7 @@ import { registerMcpRoutes } from './routes/mcp.js'
 import { registerOpenApiRoute } from './routes/openapi.js'
 import type { RegisteredRoute } from './openapi/document.js'
 import { rateLimited } from './registration.js'
+import { noEarnings } from './payouts.js'
 import { noSettings } from './settings.js'
 import { noProviderEnquiries } from './provider-enquiries.js'
 import { reachabilityLimiter, registrationLimiter } from './rate-limit.js'
@@ -114,6 +115,7 @@ export function buildApp({
   providerEnquiries = noProviderEnquiries(),
   payments,
   payouts,
+  earnings = noEarnings(),
   submissions,
   guidance,
   support,
@@ -422,6 +424,7 @@ export function buildApp({
     recipes: providerCatalogue,
     attestations: publicAttestations,
     console: consoleDeps,
+    earnings,
     rhythm,
     skillReleases,
     unavailable,

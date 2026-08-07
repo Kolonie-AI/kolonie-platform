@@ -3,6 +3,7 @@ import type { TaskCatalogue } from '../../tasks.js'
 import type { TaskSubmissions } from '../../submissions.js'
 import type { Retesting } from '../../retest.js'
 import { fakeCatalogue } from '../catalogue.js'
+import { fakeEarnings, type FakeEarnings } from '../earnings.js'
 import { fakeQuests, type FakeQuestDesk } from '../quests.js'
 import { fakeSubmissions } from '../submissions.js'
 import { fakeGuidance, type FakeGuidance } from '../guidance.js'
@@ -23,6 +24,8 @@ export interface FakeWork {
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`), in memory. */
   readonly quests: FakeQuestDesk
+  /** What a citizen has been paid and is owed (`#535`), in memory. */
+  readonly earnings: FakeEarnings
   /** The way in (`#219`), in memory. */
   /** Where submissions go, behind both surfaces. Overridable the same way. */
   readonly submissions: TaskSubmissions
@@ -45,6 +48,7 @@ export function fakeWork(): FakeWork {
   return {
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
+    earnings: fakeEarnings(),
 
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),

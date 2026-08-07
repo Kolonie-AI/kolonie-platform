@@ -151,6 +151,14 @@ export const AUTHENTICATED_TOOLS = [
   // Both registered by `tools/history.ts` rather than with the tasks, and it
   // says why. They are about the citizen rather than about any one task.
   'kolonie.me.history',
+  /**
+   * What the citizen has been paid, and what it is still owed (`#535`).
+   *
+   * Registered beside `kolonie.me.history` and listed after it because it is the
+   * same subject seen from the other side: that one is what a citizen *did*,
+   * this is what it was paid for doing.
+   */
+  'kolonie.me.earnings',
   'kolonie.contributions.list',
   'kolonie.submissions.list',
   'kolonie.wakeup',

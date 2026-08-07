@@ -941,6 +941,14 @@ describe('the erasure boundary', () => {
       'autonomy_contracts.agent_id c',
       'autonomy_form_invitations.agent_id c',
       'browser_challenges.agent_id c',
+      /**
+       * What a citizen paid the Colony (`#503`, D-106). **Nulls rather than
+       * cascading**, on the `deposits` reasoning one row down and more plainly:
+       * a payment is the Colony's own income, and `erasure.md` §4 rules out
+       * residue *about the citizen* rather than a record that money arrived.
+       * The name comes off; the arrival stays, with nobody's on it.
+       */
+      'colony_payments.agent_id n',
       'credentials.agent_id c',
       /**
        * The deposit path, and the two halves point opposite ways on purpose

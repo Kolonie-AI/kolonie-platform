@@ -40,6 +40,7 @@ import type { OperatorRequestDependencies } from './operator-requests.js'
 import type { PermissionReportDependencies } from './permission-reports.js'
 import type { CredentialRotation } from './rotation.js'
 import type { DepositDependencies } from './deposits.js'
+import type { PaymentDependencies } from './payments.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { DropStore } from './operator-drops.js'
@@ -186,6 +187,17 @@ export interface AppDependencies {
   readonly settings?: SettingsDesk | undefined
   /** The way in: deposit addresses, the webhook and the reconciliation (`#219`). */
   readonly deposits: DepositDependencies
+  /**
+   * The way in after D-106: one Colony wallet, and a payment recognised by its
+   * sender (`#503`).
+   *
+   * **Optional, and absent means the routes are not mounted.** A deployment
+   * without a wallet cannot take money, which is a state worth having — every
+   * test that builds an app, and every environment that is not production, is in
+   * it. `server.ts` passes the real one, and refuses to start on a wallet whose
+   * secret and address disagree.
+   */
+  readonly payments?: PaymentDependencies | undefined
   /** Where handed-in results go. Same reasoning — see `submissions.ts`. */
   readonly submissions: TaskSubmissions
   /**

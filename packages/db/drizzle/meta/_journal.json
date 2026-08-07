@@ -1044,6 +1044,13 @@
       "when": 1786099676694,
       "tag": "0148_a_setting_turns_without_a_deploy",
       "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1786119482120,
+      "tag": "0149_the_colony_wallet_recognises_its_sender",
+      "breakpoints": true
     }
   ]
 }

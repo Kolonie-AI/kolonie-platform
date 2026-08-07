@@ -3,6 +3,10 @@ import {
   createLog,
   DEPOSIT_SEALING_KEY_VAR,
   OPERATOR_DROP_SEALING_KEY_VAR,
+  PAYOUT_WALLET_ADDRESS_VAR,
+  PAYOUT_WALLET_SECRET_VAR,
+  payoutWalletMismatch,
+  solanaAddressFromSeed,
 } from '@kolonie-ai/core'
 import type { AgentId, Timestamp } from '@kolonie-ai/core'
 import {
@@ -19,6 +23,8 @@ import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
 import { databaseDeposits } from './deposits.js'
 import { DEPOSIT_RPC_URL_VAR, httpDepositWatcher } from './deposit-watcher.js'
+import { databasePayments } from './payments.js'
+import { PAYMENT_RPC_URL_VAR, httpPaymentWatcher } from './payment-watcher.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
@@ -373,6 +379,15 @@ const supportSurface = support({ desk: databaseSupportDesk(db) })
  */
 const autonomyStore = databaseAutonomyStore(db)
 
+/**
+ * The Colony's own wallet, checked once — D-106 (`#503`).
+ *
+ * Read here rather than inside the dependency object because `colonyWallet`
+ * throws on a half-configured or mismatched pair, and a check that ran twice
+ * would report the same failure twice with no second meaning.
+ */
+const payoutWalletAddress = colonyWallet()
+
 const app = buildApp({
   registry: databaseRegistry(db),
   /**
@@ -427,6 +442,33 @@ const app = buildApp({
       webhookSecret: process.env['DEPOSIT_WEBHOOK_SECRET'],
     }),
   },
+  /**
+   * The way in after D-106 (`#503`).
+   *
+   * **The wallet is checked here, at startup, and that placement is the check
+   * rather than a detail of it.** `PAYOUT_WALLET_SECRET` is a raw 32-byte seed
+   * and every SDK's `fromSecretKey` expects a 64-byte array; handing one to the
+   * other does not throw, it derives a different address. The first symptom of
+   * that would be a transfer signed by an account holding nothing, discovered by
+   * a citizen who was not paid.
+   *
+   * **Absent is a deployment that cannot take money, and is allowed.** No
+   * wallet means no routes, which is the state every test and every non-production
+   * environment is in. What is refused is a wallet whose two halves disagree.
+   */
+  ...(payoutWalletAddress === undefined
+    ? {}
+    : {
+        payments: {
+          desk: databasePayments(db, payoutWalletAddress),
+          ...(process.env[PAYMENT_RPC_URL_VAR]?.trim()
+            ? { watcher: httpPaymentWatcher(process.env[PAYMENT_RPC_URL_VAR].trim()) }
+            : {}),
+          ...(process.env['DEPOSIT_WEBHOOK_SECRET'] !== undefined && {
+            webhookSecret: process.env['DEPOSIT_WEBHOOK_SECRET'],
+          }),
+        },
+      }),
   submissions: databaseSubmissions(db),
   guidance: databaseGuidance(db),
   // The limiter is created inside `support()` rather than passed, so the process
@@ -836,4 +878,43 @@ function depositSealingKey(): string {
     `${DEPOSIT_SEALING_KEY_VAR} is unset or shorter than 32 characters. It seals the secret ` +
       'half of every deposit address, and a process that cannot seal one must not generate one.',
   )
+}
+
+/**
+ * The Colony's own wallet address, if this deployment has one — D-106 (`#503`).
+ *
+ * **Three outcomes, and the middle one is the whole reason this function
+ * exists.** No address and no secret is a deployment that cannot take money and
+ * says so by mounting no routes. An address whose secret derives it is a wallet.
+ * An address whose secret derives *something else* is a process that would sign
+ * every transfer with a keypair the Colony has never funded — so it throws, and
+ * `server.ts` exits where an operator is looking.
+ *
+ * **The secret is never printed, never logged and never returned.** What comes
+ * back is the public address, which is public by definition; the message on the
+ * failure path names the variables and describes the shape, and contains neither
+ * value. A key that has been in a log is a key that has to be rotated.
+ *
+ * A secret without an address, or an address without a secret, is refused rather
+ * than degraded: both are half-configured, and the half that is present is
+ * evidence somebody meant to configure it.
+ */
+function colonyWallet(): string | undefined {
+  const address = process.env[PAYOUT_WALLET_ADDRESS_VAR]?.trim() ?? ''
+  const secret = process.env[PAYOUT_WALLET_SECRET_VAR]?.trim() ?? ''
+
+  if (address === '' && secret === '') return undefined
+
+  if (address === '' || secret === '') {
+    throw new Error(
+      `${PAYOUT_WALLET_ADDRESS_VAR} and ${PAYOUT_WALLET_SECRET_VAR} are set one without the ` +
+        'other. A wallet is both halves, and half of one is a deployment that will fail at the ' +
+        'first payment rather than here.',
+    )
+  }
+
+  const mismatch = payoutWalletMismatch(address, solanaAddressFromSeed(secret))
+  if (mismatch !== undefined) throw new Error(mismatch)
+
+  return address
 }

@@ -1,3 +1,4 @@
+import { createPrivateKey } from 'node:crypto'
 import { z } from 'zod'
 import { verifySignature } from './signature.js'
 
@@ -182,6 +183,65 @@ export function verifySolanaSignature(input: {
     algorithm: 'ed25519',
     signature: Buffer.from(signature).toString('base64'),
   })
+}
+
+/**
+ * The 16-byte PKCS8 header an Ed25519 *private* key carries, as DER.
+ *
+ * `30 2e 02 01 00` a 46-byte sequence at version zero, `30 05 06 03 2b 65 70`
+ * the same algorithm identifier the public header carries, `04 22 04 20` an
+ * octet string wrapping a 32-byte octet string — the seed. Constant for the
+ * algorithm, so a raw seed becomes a parseable private key by concatenation, in
+ * the same way {@link solanaAddressToPem} makes a raw public key parseable.
+ */
+const ED25519_PKCS8_HEADER = Buffer.from('302e020100300506032b657004220420', 'hex')
+
+/**
+ * The address a 32-byte Ed25519 seed belongs to, or `null` if it is not one.
+ *
+ * **This is `Keypair.fromSeed`, not `Keypair.fromSecretKey`, and the difference
+ * is the reason the function exists.** The Colony's own wallet secret is the raw
+ * 32-byte seed in base58 — the shape the deposit module's generator produced —
+ * while `solana-keygen`, Phantom and every SDK's `fromSecretKey` expect the
+ * 64-byte `[seed || public key]` array. Handing one to the other does not throw:
+ * it silently derives a different keypair, and therefore a different address,
+ * and the first symptom is a transfer signed by an account that holds nothing.
+ *
+ * So the platform derives the address from the secret it holds and compares it
+ * to the address it was told, at startup, and refuses to run if they disagree
+ * (`payoutWalletMismatch`).
+ *
+ * **Node's own crypto rather than a chain SDK**, for the reason
+ * `generateDepositKeypair` gave: an address is the raw public key in base58,
+ * `encodeBase58` is already here, and a chain client pulled into this package to
+ * derive one public key would be a dependency to keep patched for no capability.
+ *
+ * Nothing here logs, throws or returns the seed. A caller that gets `null` knows
+ * only that what it holds is not a seed — which is all it needs, and all it
+ * should ever put in a message.
+ */
+export function solanaAddressFromSeed(seed: string): string | null {
+  const bytes = decodeBase58(seed)
+  if (bytes === null || bytes.length !== SOLANA_ADDRESS_BYTES) return null
+
+  try {
+    const der = Buffer.concat([ED25519_PKCS8_HEADER, Buffer.from(bytes)])
+    const jwk = createPrivateKey({ key: der, format: 'der', type: 'pkcs8' }).export({
+      format: 'jwk',
+    })
+
+    // `x` is the public half, base64url, which is what an Ed25519 JWK is
+    // required to carry. Reading it rather than re-exporting an SPKI keeps this
+    // to one conversion and one slice-free decode.
+    const publicKey = typeof jwk.x === 'string' ? Buffer.from(jwk.x, 'base64url') : null
+    if (publicKey === null || publicKey.length !== SOLANA_ADDRESS_BYTES) return null
+
+    return encodeBase58(new Uint8Array(publicKey))
+  } catch {
+    // A 32-byte string that is not a valid seed is not a case the runtime
+    // distinguishes for us, and the caller's remedy is the same either way.
+    return null
+  }
 }
 
 /**

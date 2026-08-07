@@ -39,6 +39,19 @@ const HeliusTokenTransferSchema = z.looseObject({
 })
 
 /**
+ * One entry of `nativeTransfers`, as far as this file cares — D-106 (`#503`).
+ *
+ * SOL rather than a token, which is what a sponsor now pays in. `amount` is
+ * ignored for the same reason `tokenAmount` is: the delivery is a trigger and
+ * the chain is the source, and an amount read off a webhook body is an amount
+ * whoever holds the webhook secret chose.
+ */
+const HeliusNativeTransferSchema = z.looseObject({
+  /** The wallet that gained lamports. The Colony's own, when it is one of ours. */
+  toUserAccount: z.string().min(1).max(64).optional(),
+})
+
+/**
  * One transaction of an enhanced delivery.
  *
  * `looseObject`, because Helius adds fields to this payload and a strict schema
@@ -49,6 +62,7 @@ const HeliusTokenTransferSchema = z.looseObject({
 const HeliusTransactionSchema = z.looseObject({
   signature: z.string().min(1).max(120),
   tokenTransfers: z.array(HeliusTokenTransferSchema).optional(),
+  nativeTransfers: z.array(HeliusNativeTransferSchema).optional(),
 })
 
 /**
@@ -94,6 +108,39 @@ export function claimsInDelivery(delivery: HeliusDelivery): readonly TransferCla
 
   for (const transaction of delivery) {
     for (const transfer of transaction.tokenTransfers ?? []) {
+      const address = transfer.toUserAccount
+      if (address === undefined) continue
+
+      const key = `${transaction.signature}\0${address}`
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      claims.push({ signature: transaction.signature, address })
+    }
+  }
+
+  return claims
+}
+
+/**
+ * The SOL claims in one delivery, deduplicated — D-106 (`#503`).
+ *
+ * The same translation as {@link claimsInDelivery} against `nativeTransfers`
+ * instead of `tokenTransfers`, and deliberately a second function rather than a
+ * parameter on the first: the two feed different tables, and a boolean that
+ * decides which one a delivery credits is a boolean somebody passes wrongly
+ * once.
+ *
+ * It survives `#506` and the token half does not, which is the other reason to
+ * keep them apart — removing the deposit path should delete a function, not edit
+ * one.
+ */
+export function nativeClaimsInDelivery(delivery: HeliusDelivery): readonly TransferClaim[] {
+  const seen = new Set<string>()
+  const claims: TransferClaim[] = []
+
+  for (const transaction of delivery) {
+    for (const transfer of transaction.nativeTransfers ?? []) {
       const address = transfer.toUserAccount
       if (address === undefined) continue
 

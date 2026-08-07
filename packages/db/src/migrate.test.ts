@@ -291,7 +291,10 @@ describe('the migrations', () => {
     // turn without a deploy. A row in it is an *override* — absence means the
     // environment's value — so the table is empty on a fresh database rather
     // than seeded, which is what makes *has anybody changed this* answerable.
-    expect(afterFirst.tables).toBe('80')
+    // **Eighty-one** (`#503`, D-106): `colony_payments`, what arrived at the
+    // Colony's own wallet and whose it was. The number goes *down* again at
+    // `#506`, which removes the two deposit tables this one replaces.
+    expect(afterFirst.tables).toBe('81')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

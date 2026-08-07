@@ -25,6 +25,7 @@ import { registerErasureRoutes } from './routes/erasure.js'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { registerQuestRoutes } from './routes/quests.js'
 import { registerDepositRoutes } from './routes/deposits.js'
+import { registerPaymentRoutes } from './routes/payments.js'
 import {
   consoleError,
   consoleNotFound,
@@ -107,6 +108,7 @@ export function buildApp({
   quests,
   settings = noSettings(),
   deposits,
+  payments,
   submissions,
   guidance,
   support,
@@ -457,6 +459,9 @@ export function buildApp({
       registerTaskRoutes(v1, routes)
       registerQuestRoutes(v1, routes)
       registerDepositRoutes(v1, routes)
+      // Mounted only where a wallet is configured: a deployment that cannot take
+      // money should not advertise a route that would answer as though it could.
+      if (payments !== undefined) registerPaymentRoutes(v1, payments, routes.log)
       registerAcademyRoutes(v1, routes)
       registerEmailRoutes(v1, routes)
       registerSmsRoutes(v1, routes)

@@ -209,6 +209,14 @@ describe('schema', () => {
         'autonomy_form_invitations',
         'ban_marks',
         'browser_challenges',
+        /**
+         * The way in after D-106 (`#503`): every SOL transfer observed arriving
+         * at the Colony's own wallet, attributed to the citizen that sent it or
+         * quarantined with a reason. It replaces the premise of the two deposit
+         * tables below rather than joining them — one address the Colony owns,
+         * instead of one per sponsor whose key it held.
+         */
+        'colony_payments',
         'credentials',
         // The way in (#219): one deposit address per identity, and every
         // arrival at one.

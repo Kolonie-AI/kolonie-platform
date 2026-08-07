@@ -261,6 +261,27 @@ ${declarations(LOCAL_TOKENS)}
     border-color: var(--k-accent-strong);
   }
 
+  /* The mark, on every page (#498). Above the navigation rather than in it,
+     because the pages read by somebody with no session — the operator page and
+     the autonomy form — are the ones this was opened for.
+
+     The SVG is sized in em so it tracks the name beside it, and the strokes
+     are var(--k-*): the geometry is a copy of the website's and the colour is
+     not a copy at all. See console/mark.ts. */
+  .console-mast {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--k-space-2);
+    margin-bottom: var(--k-space-5);
+    color: var(--k-text-strong);
+    font-size: var(--k-text-lg);
+    font-weight: 600;
+    letter-spacing: var(--k-tracking-label);
+    text-decoration: none;
+  }
+  .console-mast:hover { color: var(--k-text-strong); }
+  .console-mast__mark { display: block; width: 1.55em; height: 1.55em; }
+
   /* The console's one navigation (#431). Its sign-out is a form because a
      sign-out reachable by GET is one anybody can trigger from another page. */
   .console-header {

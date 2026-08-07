@@ -18,6 +18,7 @@
  * why it is copied from `kolonie-website` and what stops the copy drifting.
  */
 
+import { CONSOLE_MAST } from './mark.js'
 import { CONSOLE_STYLE } from './theme.js'
 import { absolute, relative } from './time.js'
 
@@ -85,6 +86,11 @@ export function page(input: {
     `<style>${CONSOLE_STYLE}</style>`,
     '</head>',
     '<body>',
+    // The mark, on every page and above the navigation (`#498`). Outside the
+    // `signedIn` branch deliberately: the pages this issue is about — the
+    // operator page reached from a mail link, and the autonomy form — are read
+    // by somebody with no session and no account.
+    CONSOLE_MAST,
     ...(input.signedIn === true ? [CONSOLE_HEADER] : []),
     input.body,
     '</body>',

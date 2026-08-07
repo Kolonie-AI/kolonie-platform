@@ -1,7 +1,7 @@
 name: Theme drift
 
-# The console's palette is a copy of `kolonie-website`'s, and this is what keeps
-# it a copy (`#422`).
+# The console's palette and its mark are copies of `kolonie-website`'s, and this
+# is what keeps them copies (`#422`, `#498`).
 #
 # `apps/api/src/console/theme.ts` carries the `--k-*` values because the two
 # repositories cannot share a stylesheet: the console has no build step and the
@@ -32,12 +32,16 @@ on:
     branches: [main]
     paths:
       - 'apps/api/src/console/theme.ts'
+      - 'apps/api/src/console/mark.ts'
       - 'scripts/check-theme-drift.mjs'
+      - 'scripts/check-mark-drift.mjs'
       - '.github/workflows/theme-drift.yml'
   pull_request:
     paths:
       - 'apps/api/src/console/theme.ts'
+      - 'apps/api/src/console/mark.ts'
       - 'scripts/check-theme-drift.mjs'
+      - 'scripts/check-mark-drift.mjs'
       - '.github/workflows/theme-drift.yml'
   workflow_dispatch:
 
@@ -56,15 +60,30 @@ jobs:
       # `--fail` is load-bearing: without it curl writes GitHub's 404 page to the
       # file, the parser finds no `--k-*` declarations, and the run fails saying
       # the theme is empty rather than saying it could not be fetched.
-      - name: Fetch the website's theme
+      - name: Fetch the website's theme and mark
         run: |
           curl --fail --silent --show-error \
             -o website-theme.css \
             https://raw.githubusercontent.com/Kolonie-AI/kolonie-website/main/src/styles/theme.css
+          # The regular, untiled cut — the console's background is the theme's
+          # own, so the favicon's tile would be a dark square drawn on the
+          # colour it is already the colour of.
+          curl --fail --silent --show-error \
+            -o website-mark.svg \
+            https://raw.githubusercontent.com/Kolonie-AI/kolonie-website/main/public/mark.svg
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Compare
+      # Two steps rather than one, so a red run says which of the two drifted
+      # in its own name rather than in a line somebody has to open the log for.
+      # `if: always()` on the second: the palette and the geometry drift
+      # independently, and stopping at the first hides half the answer from
+      # whoever is about to fix it.
+      - name: Compare the palette
         run: node scripts/check-theme-drift.mjs website-theme.css
+
+      - name: Compare the mark
+        if: always()
+        run: node scripts/check-mark-drift.mjs website-mark.svg

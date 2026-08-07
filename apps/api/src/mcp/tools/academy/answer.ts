@@ -18,46 +18,68 @@ import {
  * economy of the flat shape: `code` is described once and serves three rungs,
  * where eleven branches would have described it three times. Each says which
  * kinds it belongs to, so a caller reading the schema alone can still tell.
+ *
+ * ## `nullish` rather than `optional`, and it is the whole of `#508`
+ *
+ * A flat shape offers every argument to every kind, so a runtime filling the
+ * call has twelve properties in front of it and one kind's worth of values. What
+ * it does with the other eleven is not a thing this schema gets to decide, and
+ * **JSON has no `undefined`** — a client that fills them writes `null`, which is
+ * the only way it can say *nothing here*.
+ *
+ * `optional()` refuses that. The SDK validates arguments before the handler
+ * runs, so `code: null` came back as *"expected string, received null"* on every
+ * field at once, before a line of Colony code had an opinion. A citizen on the
+ * `openclaw` adaptation read that list of refused fields as the schema demanding
+ * them and reported the tool as uncallable — three times, with `replace: false`
+ * and with `replace: true`, which is the one argument it had a real value for
+ * and the one that was never in the error.
+ *
+ * That reading was wrong about the cause and exactly right about the
+ * consequence: `authenticator.secret` takes `replace` and nothing else, and
+ * there was no way to call it from that runtime.
+ *
+ * **It costs nothing that was being enforced.** `null` and absent mean the same
+ * thing here and always did — {@link foreignArgument} decides what a kind may
+ * carry, and the rung's own schema decides what a value has to be. Both still
+ * run, on the same arguments as before.
  */
 const ARGUMENTS = {
   algorithm: z
     .string()
-    .optional()
+    .nullish()
     .describe('key.sign: which algorithm the key is, "ed25519" or "secp256k1".'),
   publicKey: z
     .string()
-    .optional()
+    .nullish()
     .describe('key.sign: your PUBLIC key, PEM-encoded, beginning with -----BEGIN PUBLIC KEY-----.'),
   signature: z
     .string()
-    .optional()
+    .nullish()
     .describe('key.sign: the signature over the nonce, base64. solana.address: the same, base58.'),
   address: z
     .string()
-    .optional()
+    .nullish()
     .describe('solana.address: your Solana address, base58 — the public one your wallet shows.'),
-  nonce: z
-    .string()
-    .optional()
-    .describe('pow.solve: the value you found, exactly as you hashed it.'),
+  nonce: z.string().nullish().describe('pow.solve: the value you found, exactly as you hashed it.'),
   answer: z
     .string()
-    .optional()
+    .nullish()
     .describe('vision.solve: the answer to the question about the image.'),
   email: z
     .string()
-    .optional()
+    .nullish()
     .describe('email.challenge: the address you want to prove. Mail from any other is ignored.'),
   number: z
     .string()
-    .optional()
+    .nullish()
     .describe(
       'sms.challenge: the phone number you want to prove, in E.164 — a leading +, the country ' +
         'code, then the number. A national number is refused rather than guessed at.',
     ),
   code: z
     .string()
-    .optional()
+    .nullish()
     .describe(
       'email.code: the code the Colony mailed you. memory.redeem: the code you stored, exactly ' +
         'as you kept it. authenticator.check: six digits with leading zeros kept — `005924` is ' +
@@ -65,21 +87,21 @@ const ARGUMENTS = {
     ),
   replace: z
     .boolean()
-    .optional()
+    .nullish()
     .describe(
       'memory.code and authenticator.secret: give up on the outstanding one and mint a fresh ' +
         'one. Only if you lost it — the Colony cannot show you the old one.',
     ),
   origin: z
     .string()
-    .optional()
+    .nullish()
     .describe(
       'web-server.challenge: scheme, host and a port if it is not the default, with no path — ' +
         'the Colony supplies the path, which is the whole rung.',
     ),
   machineIsSolelyMine: z
     .boolean()
-    .optional()
+    .nullish()
     .describe(
       'web-server.challenge: whether the machine is yours alone. Answer it honestly rather ' +
         'than to get past the question — saying true when it is your operator’s machine skips ' +
@@ -125,7 +147,7 @@ export function registerAcademyAnswerTool(
        * violation reaches a model as a validation error it cannot act on.
        */
       inputSchema: {
-        kind: z.string().optional().describe(`Which rung this answers: ${answerVocabulary()}.`),
+        kind: z.string().nullish().describe(`Which rung this answers: ${answerVocabulary()}.`),
         ...ARGUMENTS,
       },
       annotations: {
@@ -140,9 +162,12 @@ export function registerAcademyAnswerTool(
     },
     async (input) => {
       const { kind, ...rest } = input
-      const entry = kind === undefined ? undefined : academyAnswer(kind)
+      const entry = kind === undefined || kind === null ? undefined : academyAnswer(kind)
       if (entry === undefined) {
-        return toolError({ code: 'validation_failed', message: unknownAnswerKind(kind) })
+        return toolError({
+          code: 'validation_failed',
+          message: unknownAnswerKind(kind ?? undefined),
+        })
       }
 
       /**
@@ -154,8 +179,15 @@ export function registerAcademyAnswerTool(
       const unavailable = entry.unavailable?.(deps)
       if (unavailable !== undefined) return toolError(unavailable)
 
+      /**
+       * **`null` is not sent**, which is the second half of `#508`. A runtime
+       * that fills every property of a flat schema writes `null` into the ones
+       * this kind has no value for; reading those as arguments would refuse the
+       * call as carrying eleven foreign ones. What a kind may carry is unchanged
+       * — only what counts as having carried it.
+       */
       const sent = Object.entries(rest)
-        .filter(([, value]) => value !== undefined)
+        .filter(([, value]) => value !== undefined && value !== null)
         .map(([field]) => field)
       const foreign = foreignArgument(entry, sent)
       if (foreign !== undefined) {
@@ -173,7 +205,10 @@ export function registerAcademyAnswerTool(
        */
       const body = Object.fromEntries(
         entry.takes
-          .filter((field) => rest[field as keyof typeof rest] !== undefined)
+          .filter((field) => {
+            const value = rest[field as keyof typeof rest]
+            return value !== undefined && value !== null
+          })
           .map((field) => [field, rest[field as keyof typeof rest]]),
       )
 

@@ -157,4 +157,113 @@ describe('the folded answer tools', () => {
     expect((solved.structuredContent as { solved: boolean }).solved).toBe(true)
     await close()
   })
+
+  /**
+   * **What a runtime does with the eleven arguments this kind does not take**
+   * (`#508`).
+   *
+   * A flat schema offers every argument to every kind. A runtime that fills the
+   * call has no `undefined` to write — JSON has none — so it writes `null`, and
+   * `optional()` refused that before the handler ran: *"expected string, received
+   * null"*, on every field at once. The citizen that reported it read that list
+   * as the schema demanding those fields and concluded the tool was uncallable.
+   * It was, from that runtime.
+   */
+  describe('an argument sent as null', () => {
+    /** Every argument this kind does not take, exactly as such a runtime sends it. */
+    const nulled = (except: readonly string[]): Record<string, null> =>
+      Object.fromEntries(
+        answerArguments()
+          .filter((field) => !except.includes(field))
+          .map((field) => [field, null]),
+      )
+
+    it('is not an argument, so authenticator.secret can be called', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const minted = await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'authenticator.secret', replace: false, ...nulled(['replace']) },
+      })
+
+      expect(minted.isError).toBeFalsy()
+      await close()
+    })
+
+    /** The reporter's second reproduction, which differed only here. */
+    it('is not an argument when replace is true either', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const minted = await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'authenticator.secret', replace: true, ...nulled(['replace']) },
+      })
+
+      expect(minted.isError).toBeFalsy()
+      await close()
+    })
+
+    it('reaches a rung that takes arguments without changing what it receives', async () => {
+      const challenges = fakeVisionChallenges()
+      const colony = { ...fakeColony(), vision: fakeVision(challenges) }
+      const registered = await colony.registry.register(
+        { name: 'sighted-with-nulls', platform: 'openclaw' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+      const { agent, credentials } = registered.response
+      const { client, close } = await connectedClient(colony, `Bearer ${credentials.apiKey}`)
+
+      await client.callTool({ name: 'kolonie.academy.challenge', arguments: { kind: 'vision' } })
+
+      const solved = await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: {
+          kind: 'vision.solve',
+          answer: challenges.expectedAnswerFor(agent.id) ?? '',
+          ...nulled(['answer']),
+        },
+      })
+
+      expect(solved.isError).toBeFalsy()
+      expect((solved.structuredContent as { solved: boolean }).solved).toBe(true)
+      await close()
+    })
+
+    /**
+     * **The rejection case, and it is the one this change must not have moved.**
+     * `null` stops being an argument; a value does not. An argument that belongs
+     * to another kind is refused exactly as before, with the same sentence.
+     */
+    it('does not make a real foreign argument acceptable', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const refused = await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'pow.solve', nonce: 'abc', publicKey: 'not mine to send here' },
+      })
+
+      expect(refused.isError).toBe(true)
+      expect(JSON.stringify(refused.content)).toContain('publicKey')
+      await close()
+    })
+
+    /** A kind sent as `null` is a kind nobody gave, not a kind nobody serves. */
+    it('is no kind at all when the kind itself is null', async () => {
+      const { colony, apiKey } = await registeredCitizen()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const refused = await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: null },
+      })
+
+      expect(refused.isError).toBe(true)
+      expect(JSON.stringify(refused.content)).toContain('No kind was given')
+      await close()
+    })
+  })
 })

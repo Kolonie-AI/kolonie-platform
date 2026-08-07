@@ -239,19 +239,42 @@ export async function recordDelivery(
   deps: DepositDependencies,
   claims: readonly TransferClaim[],
 ): Promise<DeliveryOutcome> {
+  return (await readDelivery(deps, claims)).outcome
+}
+
+/**
+ * One pass over a delivery's claims, and the ones the chain could not answer
+ * about yet.
+ *
+ * The pending list is what {@link settleDelivery} needs and what
+ * {@link recordDelivery} throws away. It is a separate function rather than a
+ * wider return type on `recordDelivery` because the counts are what a sender and
+ * a log line read, and a caller that wanted the claims back would otherwise have
+ * to reconstruct them from a number.
+ */
+export async function readDelivery(
+  deps: DepositDependencies,
+  claims: readonly TransferClaim[],
+): Promise<{ readonly outcome: DeliveryOutcome; readonly pending: readonly TransferClaim[] }> {
   const { desk, watcher } = deps
 
   if (watcher === undefined) {
     return {
-      claims: claims.length,
-      ignored: 0,
-      credited: 0,
-      rejected: 0,
-      unverified: claims.length,
+      outcome: {
+        claims: claims.length,
+        ignored: 0,
+        credited: 0,
+        rejected: 0,
+        unverified: claims.length,
+      },
+      // No watcher is a deployment that cannot verify anything, ever. Handing
+      // these back would schedule a settle that re-reads nothing every time.
+      pending: [],
     }
   }
 
   const watched = new Set(await desk.watched())
+  const pending: TransferClaim[] = []
   let ignored = 0
   let credited = 0
   let rejected = 0
@@ -268,6 +291,7 @@ export async function recordDelivery(
       transfers = await watcher.transfersIn(claim.signature, claim.address)
     } catch {
       unverified++
+      pending.push(claim)
       continue
     }
 
@@ -275,6 +299,7 @@ export async function recordDelivery(
     // ordinary case for a webhook that fires the moment a transaction lands.
     if (transfers.length === 0) {
       unverified++
+      pending.push(claim)
       continue
     }
 
@@ -285,7 +310,106 @@ export async function recordDelivery(
     }
   }
 
-  return { claims: claims.length, ignored, credited, rejected, unverified }
+  return {
+    outcome: { claims: claims.length, ignored, credited, rejected, unverified },
+    pending,
+  }
+}
+
+/**
+ * How long the live path keeps asking, and how often (kolonie-infra#73).
+ *
+ * **This is the difference between a webhook that credits and one that only
+ * looks like it does.** Helius delivers within seconds of a transaction landing
+ * and `DEPOSIT_COMMITMENT` is `finalized`, which Solana reaches roughly thirteen
+ * seconds later — so the first read after a delivery finds nothing, every time,
+ * for reasons that are not a fault. Measured on 2026-08-07: the delivery arrived
+ * eight seconds after the transfer, answered `200` with `unverified: 1`, wrote
+ * nothing, and the deposit waited fifty-seven minutes for the hourly pass.
+ *
+ * Four waits over one minute, because finalization is the only thing being
+ * waited for and it either happens in that window or something is wrong that
+ * more waiting will not fix. `reconcileDeposits` remains the backstop for
+ * everything this misses, including a restart mid-settle.
+ */
+export const DELIVERY_SETTLE_WAITS: readonly number[] = [8_000, 10_000, 15_000, 30_000]
+
+/** Waiting, injectable so a test does not spend a minute proving it waits. */
+export type Sleep = (ms: number) => Promise<void>
+
+const realSleep: Sleep = (ms) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+
+/**
+ * Ask again about the claims the chain had not finalized yet.
+ *
+ * **Not awaited by the route, on purpose.** The sender gets its `200` in
+ * milliseconds and the Colony keeps asking after the answer has gone out;
+ * holding a webhook's connection open for a minute is how a sender learns to
+ * time out and retry, which would deliver the same claims again rather than
+ * sooner.
+ *
+ * Stops as soon as nothing is pending. Anything still pending at the end is the
+ * reconciliation's, exactly as before.
+ */
+export async function settleDelivery(
+  deps: DepositDependencies,
+  claims: readonly TransferClaim[],
+  options: {
+    readonly waits?: readonly number[]
+    readonly sleep?: Sleep
+    readonly onSettled?: (outcome: DeliveryOutcome, attempt: number) => void
+  } = {},
+): Promise<DeliveryOutcome> {
+  const waits = options.waits ?? DELIVERY_SETTLE_WAITS
+  const sleep = options.sleep ?? realSleep
+
+  // Nothing to ask, so nothing is waited for: a deployment with no RPC endpoint
+  // leaves every claim to the reconciliation and says so immediately.
+  if (deps.watcher === undefined) {
+    return {
+      claims: claims.length,
+      ignored: 0,
+      credited: 0,
+      rejected: 0,
+      unverified: claims.length,
+    }
+  }
+
+  let pending = claims
+  let credited = 0
+  let rejected = 0
+  let attempt = 0
+  let last: DeliveryOutcome = {
+    claims: claims.length,
+    ignored: 0,
+    credited: 0,
+    rejected: 0,
+    unverified: claims.length,
+  }
+
+  for (const wait of waits) {
+    if (pending.length === 0) break
+    attempt++
+    await sleep(wait)
+
+    const read = await readDelivery(deps, pending)
+    credited += read.outcome.credited
+    rejected += read.outcome.rejected
+    pending = read.pending
+    last = {
+      claims: claims.length,
+      ignored: read.outcome.ignored,
+      credited,
+      rejected,
+      unverified: pending.length,
+    }
+    options.onSettled?.(last, attempt)
+  }
+
+  return last
 }
 
 /**

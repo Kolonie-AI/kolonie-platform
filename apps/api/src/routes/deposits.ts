@@ -1,11 +1,13 @@
 import { ERROR_STATUS, HeliusDeliverySchema, claimsInDelivery } from '@kolonie-ai/core'
+import { clientIp } from '../client-ip.js'
 import type { FastifyInstance } from 'fastify'
 import {
   WEBHOOK_REFUSED,
+  readDelivery,
   readDepositAddress,
   readDepositHistory,
   reconcileDeposits,
-  recordDelivery,
+  settleDelivery,
   webhookAuthorised,
 } from '../deposits.js'
 import { sponsorFor } from './authenticated.js'
@@ -20,7 +22,7 @@ import type { RouteDependencies } from './dependencies.js'
  * conversation belongs.
  */
 export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { store, deposits, humans } = deps
+  const { store, deposits, humans, log } = deps
 
   /**
    * The caller, by key or by session (`#430`).
@@ -82,6 +84,18 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
 
   v1.post('/deposits/webhook', async (request, reply) => {
     if (!webhookAuthorised(request.headers['authorization'], secret)) {
+      /**
+       * The one refusal that has to say so out loud (kolonie-infra#73).
+       *
+       * A 4xx is not logged anywhere else, by design — and this particular one
+       * is a wrong shared secret, which is indistinguishable from a sender that
+       * has stopped sending. It cost an afternoon on 2026-08-07 to rule out by
+       * hand what one line would have answered.
+       */
+      log.warn('a delivery presented the wrong secret', {
+        event: 'deposit.webhook.refused',
+        ip: clientIp(request.headers, request.ip),
+      })
       return reply.status(ERROR_STATUS[WEBHOOK_REFUSED.code]).send(WEBHOOK_REFUSED)
     }
 
@@ -104,7 +118,45 @@ export function registerDepositRoutes(v1: FastifyInstance, deps: RouteDependenci
      * signature already recorded is normal operation rather than an error. The
      * counts are in the body for whoever is reading the logs.
      */
-    return reply.send(await recordDelivery(deposits, claimsInDelivery(parsed.data)))
+    const claims = claimsInDelivery(parsed.data)
+    const { outcome, pending } = await readDelivery(deposits, claims)
+
+    /**
+     * Every delivery leaves a line, and this is the line that was missing.
+     *
+     * `docker logs kolonie-api | grep deposits/webhook` answered nothing on
+     * 2026-08-07 and was read as *the webhook never delivered*. It had
+     * delivered, eight seconds after the transfer, and been answered `200` —
+     * the reverse proxy's access log was the only record of it. A live path
+     * whose success is invisible cannot be told from a dead one.
+     */
+    log.info('a deposit delivery was read', { event: 'deposit.delivery', ...outcome })
+
+    /**
+     * Kept asking after the answer went out (kolonie-infra#73).
+     *
+     * Deliberately not awaited: the sender is answered now and the claims that
+     * were not finalized yet are re-read over the following minute. A rejection
+     * here must not become an unhandled one, so the catch is part of the design
+     * rather than caution.
+     */
+    if (pending.length > 0) {
+      void settleDelivery(deposits, pending, {
+        onSettled: (settled, attempt) => {
+          log.info('a delivery settled', {
+            event: 'deposit.delivery.settled',
+            attempt,
+            ...settled,
+          })
+        },
+      }).catch((error: unknown) => {
+        log.error('a delivery could not be settled', error, {
+          event: 'deposit.delivery.settle.threw',
+        })
+      })
+    }
+
+    return reply.send(outcome)
   })
 
   /**

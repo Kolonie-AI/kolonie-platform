@@ -2,7 +2,7 @@ import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { SPL_TOKEN_PROGRAM, USDC_MINT } from '@kolonie-ai/core'
+import { SPL_TOKEN_PROGRAM, USDC_MINT, type AgentId } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
@@ -46,7 +46,9 @@ import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
 import {
+  DELIVERY_SETTLE_WAITS,
   reconcileDeposits,
+  settleDelivery,
   webhookAuthorised,
   type DepositDesk,
   type DepositWatcher,
@@ -566,5 +568,102 @@ describe('the reconciliation', () => {
 
     expect(outcome.addresses).toBe(2)
     expect(outcome.failed).toBe(1)
+  })
+})
+
+/**
+ * The live path, which credited nothing for a month because it asked once
+ * (kolonie-infra#73).
+ *
+ * A Helius delivery arrives seconds after a transaction lands and
+ * `DEPOSIT_COMMITMENT` is `finalized`, which the cluster reaches about thirteen
+ * seconds later. Asking once means asking too early, every time.
+ */
+describe('settling a delivery the chain had not finalized yet', () => {
+  let desk: ReturnType<typeof fakeDeposits>
+  let address: string
+
+  beforeEach(async () => {
+    desk = fakeDeposits()
+    // A real issued address, so `record` credits rather than refusing it as a
+    // stranger's — these tests are about the second ask, not about ownership.
+    const issued = await desk.address('an-agent-id' as AgentId)
+    address = issued.outcome === 'issued' ? issued.address : ''
+  })
+
+  /** No test spends a minute proving that the code waits a minute. */
+  const instantly = async (): Promise<void> => {}
+
+  it('credits a claim that finalizes between two asks', async () => {
+    const chain = fakeChain()
+    let asks = 0
+    const watcher: DepositWatcher = {
+      transfersAt: chain.transfersAt,
+      transfersIn: async (signature, at) => {
+        asks++
+        // Finalized on the second ask, which is what a real cluster does.
+        if (asks === 1) return []
+        return chain.transfersIn(signature, at)
+      },
+    }
+    chain.put(aTransfer({ address, signature: 'late-to-finalize' }))
+
+    const settled = await settleDelivery(
+      { desk, watcher },
+      [{ signature: 'late-to-finalize', address }],
+      { sleep: instantly },
+    )
+
+    expect(settled).toMatchObject({ credited: 1, unverified: 0 })
+    expect(desk.seen()).toHaveLength(1)
+  })
+
+  it('stops asking as soon as nothing is pending', async () => {
+    const chain = fakeChain()
+    chain.put(aTransfer({ address, signature: 'already-final' }))
+
+    await settleDelivery({ desk, watcher: chain }, [{ signature: 'already-final', address }], {
+      sleep: instantly,
+    })
+
+    expect(chain.asked()).toEqual(['already-final'])
+  })
+
+  /**
+   * The reconciliation is still the backstop, and this is the case that proves
+   * the settle does not quietly become one: it gives up and leaves the claim.
+   */
+  it('gives up after the last wait and leaves the claim to the reconciliation', async () => {
+    const chain = fakeChain()
+
+    const settled = await settleDelivery(
+      { desk, watcher: chain },
+      [{ signature: 'never-final', address }],
+      { sleep: instantly },
+    )
+
+    expect(settled).toMatchObject({ credited: 0, unverified: 1 })
+    expect(chain.asked()).toHaveLength(DELIVERY_SETTLE_WAITS.length)
+    expect(desk.seen()).toEqual([])
+  })
+
+  it('waits the stated intervals rather than hammering the endpoint', async () => {
+    const waited: number[] = []
+
+    await settleDelivery({ desk, watcher: fakeChain() }, [{ signature: 'never-final', address }], {
+      sleep: async (ms) => {
+        waited.push(ms)
+      },
+    })
+
+    expect(waited).toEqual([...DELIVERY_SETTLE_WAITS])
+  })
+
+  it('does not ask at all when there is no watcher to ask', async () => {
+    const settled = await settleDelivery({ desk }, [{ signature: 'a-signature', address }], {
+      sleep: instantly,
+    })
+
+    expect(settled).toMatchObject({ credited: 0, unverified: 1 })
   })
 })

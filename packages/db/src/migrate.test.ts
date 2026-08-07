@@ -308,7 +308,11 @@ describe('the migrations', () => {
     // steps, the single step that needs the operator, and how the account is proved
     // afterwards. A table rather than a TypeScript list because a provider that
     // changes its signup form on Tuesday must cost a row and not a release.
-    expect(afterFirst.tables).toBe('82')
+    // **Eighty-three** (`#544`): `provider_enquiries`, a provider writing in to say
+    // it wants agents using its product. It has no foreign key at all — the person
+    // writing has joined nothing — which is exactly what makes an unauthenticated
+    // write to it safe to accept.
+    expect(afterFirst.tables).toBe('83')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

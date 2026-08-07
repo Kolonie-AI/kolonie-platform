@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_PLATFORM_FEE_PERCENT, ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
+import { noProviderEnquiries, type ProviderEnquiryDesk } from '../provider-enquiries.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
@@ -69,6 +70,7 @@ let session: string
 let agentId: string
 let console_: ReturnType<typeof fakeConsole>
 let humans_: ReturnType<typeof fakeHumans>
+let enquiries_: ProviderEnquiryDesk
 let settings_: ReturnType<typeof fakeSettings>
 
 beforeEach(async () => {
@@ -77,9 +79,13 @@ beforeEach(async () => {
   console_ = { ...fakeConsole(), consoleUrl: CONSOLE_URL }
   humans_ = fakeHumans()
   settings_ = fakeSettings()
+  // Providers writing in about the Atlas (`#544`). An in-memory desk, so the
+  // section can be exercised without a database.
+  enquiries_ = noProviderEnquiries()
   app = buildApp({
     humans: humans_,
     settings: settings_,
+    providerEnquiries: enquiries_,
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: console_,
@@ -1425,6 +1431,87 @@ describe('the maintainer’s page', () => {
     })
 
     expect(response.statusCode).toBe(404)
+  })
+
+  /**
+   * Providers writing in about the Atlas (`#544`).
+   *
+   * **On the page before the form is announced anywhere**, because an enquiry
+   * nobody answers is worse than no form.
+   */
+  describe('providers writing in', () => {
+    const ENQUIRY = {
+      product: 'A mailbox service agents can sign up for.',
+      url: 'openmail.example',
+      contact: 'Jo, jo@openmail.example',
+      wants: 'We want to know whether an agent can complete our signup without a person.',
+    }
+
+    const markHandled = (cookie: string, id: string) =>
+      app.inject({
+        method: 'POST',
+        url: `/backend/enquiries/${id}/handled`,
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'text/html',
+          cookie: `__Host-kolonie_session=${cookie}`,
+        },
+      })
+
+    it('shows what a provider wrote, and how to reach them', async () => {
+      await enquiries_.record(ENQUIRY)
+      const { cookie } = await aPerson({ maintains: true })
+
+      const response = await backendAs(cookie)
+
+      expect(response.body).toContain('Providers writing in')
+      expect(response.body).toContain('A mailbox service agents can sign up for.')
+      expect(response.body).toContain('Jo, jo@openmail.example')
+      expect(response.body).toContain('complete our signup without a person')
+    })
+
+    /**
+     * **No enquiries is a finding rather than a gap**, and the page says so: it
+     * is one of the two answers the form exists to produce.
+     */
+    it('says what an empty section means', async () => {
+      const { cookie } = await aPerson({ maintains: true })
+
+      expect((await backendAs(cookie)).body).toContain('Nobody has written in')
+    })
+
+    it('marks one as handled, and stops offering the button for it', async () => {
+      const stored = await enquiries_.record(ENQUIRY)
+      const { cookie } = await aPerson({ maintains: true })
+
+      const response = await markHandled(cookie, stored.id)
+
+      expect(response.statusCode).toBe(200)
+      expect(await enquiries_.waiting()).toBe(0)
+      expect(response.body).toContain('Marked as handled')
+      expect(response.body).not.toContain(`/backend/enquiries/${stored.id}/handled`)
+    })
+
+    /** Pressing it twice is ordinary, and it is not an error. */
+    it('says so plainly when it was already handled', async () => {
+      const stored = await enquiries_.record(ENQUIRY)
+      const { cookie } = await aPerson({ maintains: true })
+      await markHandled(cookie, stored.id)
+
+      const again = await markHandled(cookie, stored.id)
+
+      expect(again.statusCode).toBe(200)
+      expect(again.body).toContain('already handled')
+    })
+
+    /** The write is behind the same gate the page is, and refuses the same way. */
+    it('refuses the write to somebody without the role', async () => {
+      const stored = await enquiries_.record(ENQUIRY)
+      const { cookie } = await aPerson()
+
+      expect((await markHandled(cookie, stored.id)).statusCode).toBe(404)
+      expect(await enquiries_.waiting()).toBe(1)
+    })
   })
 
   it('answers on the console host and nowhere else', async () => {

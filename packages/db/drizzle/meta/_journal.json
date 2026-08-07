@@ -1114,6 +1114,13 @@
       "when": 1786141416847,
       "tag": "0158_a_provider_is_a_recipe",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1786142066265,
+      "tag": "0159_a_provider_writes_in",
+      "breakpoints": true
     }
   ]
 }

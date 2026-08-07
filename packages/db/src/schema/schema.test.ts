@@ -399,6 +399,7 @@ describe('schema', () => {
          * `provider_reports` and answering the opposite question: that one is what
          * agents found going wrong, this one is what to do.
          */
+        'provider_enquiries',
         'provider_recipes',
         'provider_reports',
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed

@@ -51,6 +51,7 @@ import type { WebServerDependencies } from './web-server.js'
 import type { WebsiteDependencies } from './website.js'
 import type { CitizenRecords } from './citizens.js'
 import type { SettingsDesk } from './settings.js'
+import type { ProviderEnquiryDesk } from './provider-enquiries.js'
 
 /**
  * What a deployment hands `buildApp`.
@@ -186,6 +187,14 @@ export interface AppDependencies {
    * setting. `server.ts` passes the real one.
    */
   readonly settings?: SettingsDesk | undefined
+  /**
+   * Providers writing in about the Atlas (`#544`).
+   *
+   * Optional for the reason `settings` is: the many tests that build an app and
+   * never touch an enquiry should not each have to supply one. `server.ts`
+   * passes the database-backed desk and is the only caller that matters.
+   */
+  readonly providerEnquiries?: ProviderEnquiryDesk | undefined
   /**
    * The way in after D-106: one Colony wallet, and a payment recognised by its
    * sender (`#503`).

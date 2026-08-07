@@ -20,6 +20,7 @@ import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
+import { databaseProviderEnquiries } from './provider-enquiries.js'
 import { databasePayments } from './payments.js'
 import { databasePayouts, payoutConfigurationRefusal } from './payouts.js'
 import { httpPayoutChain } from './payout-chain.js'
@@ -450,6 +451,7 @@ const app = buildApp({
   },
   quests: databaseQuests(db, questAuditPolicy(), payoutWalletAddress),
   settings: databaseSettings(db),
+  providerEnquiries: databaseProviderEnquiries(db),
   /**
    * The way in after D-106 (`#503`).
    *

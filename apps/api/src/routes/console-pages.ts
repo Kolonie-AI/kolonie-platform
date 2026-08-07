@@ -795,12 +795,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     // more figure.
     const sections = await deps.quests.backendSections()
     const settings = await deps.settings.effective()
+    // Providers writing in about the Atlas (`#544`). On the page before the form
+    // is announced anywhere, because an enquiry nobody answers is worse than no
+    // form.
+    const enquiries = await deps.providerEnquiries.list()
 
     return wantsHtml(request)
-      ? html(reply, backendPage({ numbers, sections, settings, notice }))
+      ? html(reply, backendPage({ numbers, sections, settings, enquiries, notice }))
       : reply.send({
           numbers,
           ...sections,
+          enquiries,
           settings: settings.map((setting) => ({
             name: setting.definition.name,
             group: setting.definition.group,
@@ -811,6 +816,32 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           })),
         })
   }
+
+  /**
+   * Mark one provider enquiry as dealt with (`#544`).
+   *
+   * **The only write this section has**, and there will not be a second: an
+   * answer goes wherever the provider said to reach it, by a person. A reply box
+   * here would be a mail queue built on the strength of a form nobody has filled
+   * in yet.
+   *
+   * Behind the maintainer gate like everything else on this page, and a second
+   * press is not an error — it is how somebody uses a button they are unsure
+   * about, and the store leaves the first date alone.
+   */
+  app.post('/backend/enquiries/:id/handled', async (request, reply) => {
+    const held = await maintainer(request, reply)
+    if (held === null) return reply
+
+    const { id } = request.params as { id?: string }
+    const marked = id === undefined ? false : await deps.providerEnquiries.markHandled(id)
+
+    return await renderBackend(
+      request,
+      reply,
+      marked ? 'Marked as handled.' : 'That enquiry was already handled, or is not there.',
+    )
+  })
 
   app.get('/backend', async (request, reply) => {
     const held = await maintainer(request, reply)

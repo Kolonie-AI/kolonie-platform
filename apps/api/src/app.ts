@@ -34,6 +34,7 @@ import {
   registerStewardPages,
 } from './routes/console-pages.js'
 import { registerAcademyRoutes } from './routes/academy.js'
+import { registerProviderEnquiryRoute } from './routes/provider-enquiries.js'
 import { registerConsoleRoutes } from './routes/console.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerSmsRoutes } from './routes/sms.js'
@@ -82,6 +83,7 @@ import { registerOpenApiRoute } from './routes/openapi.js'
 import type { RegisteredRoute } from './openapi/document.js'
 import { rateLimited } from './registration.js'
 import { noSettings } from './settings.js'
+import { noProviderEnquiries } from './provider-enquiries.js'
 import { reachabilityLimiter, registrationLimiter } from './rate-limit.js'
 import { DEFAULT_SKILL_RELEASES } from './skill-releases.js'
 
@@ -107,6 +109,7 @@ export function buildApp({
   catalogue,
   quests,
   settings = noSettings(),
+  providerEnquiries = noProviderEnquiries(),
   payments,
   payouts,
   submissions,
@@ -361,6 +364,7 @@ export function buildApp({
     catalogue,
     quests,
     settings,
+    providerEnquiries,
     submissions,
     guidance,
     support,
@@ -472,6 +476,7 @@ export function buildApp({
       // money should not advertise a route that would answer as though it could.
       if (payments !== undefined) registerPaymentRoutes(v1, payments, routes.log, payouts)
       registerAcademyRoutes(v1, routes)
+      registerProviderEnquiryRoute(v1, routes)
       registerEmailRoutes(v1, routes)
       registerSmsRoutes(v1, routes)
       registerInboundMailRoute(v1, routes)

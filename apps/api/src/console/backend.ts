@@ -1,3 +1,4 @@
+import type { StoredProviderEnquiry } from '@kolonie-ai/core'
 import type { EffectiveSetting } from '@kolonie-ai/db'
 import type { BackendSections, ColonyNumbers } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
@@ -42,6 +43,8 @@ export function backendPage(input: {
   readonly sections: BackendSections
   /** Every setting a maintainer may turn without a deploy (`#489`, D-104). */
   readonly settings: readonly EffectiveSetting[]
+  /** Providers that have written in about the Atlas (`#544`). */
+  readonly enquiries?: readonly StoredProviderEnquiry[] | undefined
   /** What just happened to a setting, where something did. */
   readonly notice?: string | undefined
 }): string {
@@ -141,6 +144,53 @@ export function backendPage(input: {
     })
     .join('\n')
 
+  /**
+   * Providers writing in about the Atlas (`#544`).
+   *
+   * **An enquiry nobody answers is worse than no form**, which is why this is on
+   * the page before the form is announced anywhere. Handled ones stay and sit
+   * below: *nobody wrote in* and *somebody wrote in and we dealt with it* are
+   * different answers to the question the form exists to ask.
+   *
+   * The only write is *mark as handled*. There is no reply box — an answer goes
+   * wherever the provider said to reach it, by a person, and a page that offered
+   * to send one would be a mail queue built on a form nobody has filled in yet.
+   */
+  const enquiries = input.enquiries ?? []
+  const waiting = enquiries.filter((enquiry) => enquiry.handledAt === null).length
+  const enquiriesSection =
+    enquiries.length === 0
+      ? '<p class="note">Nobody has written in. That is a finding rather than a gap — whether ' +
+        'providers want to be in the Atlas is the question the form exists to answer, and no ' +
+        'answer is one of the two possible ones.</p>'
+      : [
+          `<p class="note">${String(waiting)} waiting, ${String(enquiries.length - waiting)} dealt with. Unhandled first, newest first within that. An enquiry nobody answers is worse than no form.</p>`,
+          '<table>',
+          '<thead><tr><th>Product</th><th>Where</th><th>Who</th><th>What they want from agents</th><th>Arrived</th><th></th></tr></thead>',
+          '<tbody>',
+          ...enquiries.map((enquiry) =>
+            [
+              '<tr>',
+              `<td>${escape(enquiry.product)}</td>`,
+              // Shown as text and never as a link: the Colony did not check it,
+              // and a page that made a stranger's URL clickable for the
+              // maintainer would be doing so on nobody's authority.
+              `<td>${escape(enquiry.url)}</td>`,
+              `<td>${escape(enquiry.contact)}</td>`,
+              `<td>${escape(enquiry.wants)}</td>`,
+              `<td>${escape(relative(enquiry.createdAt))}</td>`,
+              `<td>${
+                enquiry.handledAt === null
+                  ? `<form method="post" action="/backend/enquiries/${escape(enquiry.id)}/handled"><button type="submit">Mark handled</button></form>`
+                  : `handled ${escape(relative(enquiry.handledAt))}`
+              }</td>`,
+              '</tr>',
+            ].join(''),
+          ),
+          '</tbody>',
+          '</table>',
+        ].join('\n')
+
   return page({
     title: 'The Colony, from the inside',
     body: [
@@ -163,6 +213,8 @@ export function backendPage(input: {
       '<h2>Waiting to be read</h2>',
       `<p class="note">Open tickets, <strong>oldest first</strong> — the one at the top has waited longest. Read at ${escape(input.sections.tickets.computedAt)}. This section shows the queue; answering a ticket is not something this page does.</p>`,
       tickets,
+      '<h2>Providers writing in</h2>',
+      enquiriesSection,
       '<h2>Settings</h2>',
       '<p class="note">Changing one of these does not need a deploy. What is <strong>not</strong> ' +
         'here cannot be put here: every credential, everything the deploy checks for, and the ' +

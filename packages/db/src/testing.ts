@@ -441,7 +441,12 @@ export async function truncateAll(db: Database): Promise<void> {
     // the seed's idempotency test counted rows an earlier test had written and read
     // as the upsert inserting duplicates — a wrong diagnosis of a real leak, which
     // is what makes this list worth being exhaustive about rather than incidental.
-    sql`truncate table log_defects, humans, settings, provider_recipes, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
+    //
+    // `provider_enquiries` is the fifth (`#544`): the person who wrote in has
+    // joined nothing, so the row has no foreign key at all — deliberately, since
+    // that is what makes an unauthenticated write safe to accept. Nothing in the
+    // cascade can reach a table that hangs off nothing.
+    sql`truncate table log_defects, humans, settings, provider_recipes, provider_enquiries, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
   )
 }
 

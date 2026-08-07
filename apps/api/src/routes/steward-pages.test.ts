@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
@@ -8,6 +10,7 @@ import { fakeConsole } from '../__fixtures__/console.js'
 
 const CONSOLE_URL = 'https://console.example'
 const CONSOLE_HOST = 'console.example'
+const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 
 let app: FastifyInstance
 let store: FakeStore
@@ -277,6 +280,55 @@ describe('the Colony’s numbers', () => {
     })
 
     expect(response.statusCode).toBe(404)
+  })
+
+  it('draws the runtimes and the model families, and says what nobody declared', async () => {
+    const page = await asSteward('/numbers')
+
+    expect(page.body).toContain('Runtimes, by how many agents arrived on each')
+    expect(page.body).toContain('Model families declared')
+    expect(page.body).toContain('declared no model at all')
+  })
+
+  /**
+   * **Measuring is not publishing** (`#511`, `kolonie-docs#216`). A Colony of
+   * twenty-seven that publishes counts is showing a self-portrait, because most
+   * of them are ours — so these two figures are gated exactly as every other
+   * figure on this page is, and the obvious next step is the wrong one.
+   *
+   * The check is a scan rather than a request, because *no route* is a claim
+   * about a set and a request can only test the members somebody thought of.
+   * The three fields may be named in the object that computes them, in the
+   * gated renderer, and in tests. Anywhere else is a surface.
+   */
+  it('reaches no surface outside the gate', () => {
+    const allowed = new Set([
+      'apps/api/src/console/steward.ts',
+      'packages/db/src/storage/colony-numbers.ts',
+    ])
+
+    const found = execFileSync(
+      'git',
+      [
+        'grep',
+        '--untracked',
+        '-l',
+        '-E',
+        'agentsByRuntime|modelFamilies|modelsUndeclared',
+        '--',
+        '*.ts',
+      ],
+      { cwd: repoRoot, encoding: 'utf8' },
+    )
+      .split('\n')
+      .filter(
+        (path) => path !== '' && !path.endsWith('.test.ts') && !path.includes('__fixtures__/'),
+      )
+
+    // The scan is the whole basis of the check, so finding nothing would pass it
+    // by looking in the wrong place.
+    expect(found.length).toBeGreaterThan(0)
+    expect(found.filter((path) => !allowed.has(path))).toEqual([])
   })
 })
 

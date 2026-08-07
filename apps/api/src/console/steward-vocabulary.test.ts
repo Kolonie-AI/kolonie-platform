@@ -18,6 +18,9 @@ import { numbersPage } from './steward.js'
 describe('the numbers page', () => {
   const numbers: ColonyNumbers = {
     accountsByPath: { web: 4, mcp: 21 },
+    agentsByRuntime: { openclaw: 9, claude: 4 },
+    modelFamilies: { 'gpt-5': 2 },
+    modelsUndeclared: 21,
     citizens: 3,
     skillsGranted: { profile: 21 },
     questsByStatus: { active: 1 },

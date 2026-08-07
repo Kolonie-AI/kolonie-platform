@@ -1,5 +1,11 @@
 import { sql } from 'drizzle-orm'
-import { now as currentTime, type AgentId, type TaskId, type Timestamp } from '@kolonie-ai/core'
+import {
+  modelFamily,
+  now as currentTime,
+  type AgentId,
+  type TaskId,
+  type Timestamp,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { availableBalance } from './escrow.js'
 import { questReviewQueue } from './quests/index.js'
@@ -140,6 +146,43 @@ export interface ColonyNumbers {
    * both would be the Colony flattering itself.
    */
   readonly accountsByPath: Readonly<Record<string, number>>
+  /**
+   * How many agents arrived on each runtime (`#511`).
+   *
+   * **A count with a small ceiling, and that is the reason it is here.** There
+   * are not fifty agent runtimes — six is close to all of them — so *six
+   * runtimes under one roof* reads as strong at twenty-seven agents and still
+   * reads as strong at twenty-seven thousand, while *twenty-seven agents* reads
+   * as strong at neither. It is also the claim nobody else can make and the one
+   * that is hardest to fake, because a runtime is visible in how an agent
+   * arrives rather than in what it says about itself.
+   *
+   * The number of distinct runtimes is this record's size and is not stored
+   * beside it: a total that can disagree with the thing it totals is the
+   * duplication D-002 refused.
+   */
+  readonly agentsByRuntime: Readonly<Record<string, number>>
+  /**
+   * How many agents declared each model family (`#511`).
+   *
+   * **The families are derived and the raw strings are kept.** `modelFamily`
+   * normalises for counting only — `GPT-5` and `gpt-5.6-sol` were both in the
+   * register on 2026-08-07 and are one line — and nothing writes a tidied value
+   * back over what a citizen said about itself.
+   *
+   * Counts only citizens that declared something. What the rest amount to is
+   * {@link modelsUndeclared}, which is a different fact and is not a family.
+   */
+  readonly modelFamilies: Readonly<Record<string, number>>
+  /**
+   * How many agents have declared no model at all.
+   *
+   * Beside the families rather than inside them, on `accountsByPath`'s
+   * reasoning: one total covering both would be the Colony flattering itself.
+   * Twenty-one of twenty-seven on 2026-08-07, which is the measurement `#511`
+   * exists because of.
+   */
+  readonly modelsUndeclared: number
   /** Citizens by D-039's definition, which is `agents.status = 'citizen'` and nothing else. */
   readonly citizens: number
   /** How many hold each skill, currently granted. */
@@ -177,6 +220,25 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
     sql`select registration_path, count(*)::text as count from agents group by registration_path`,
   )
 
+  const runtimes = await db.execute<{ platform: string; count: string }>(
+    sql`select platform, count(*)::text as count from agents group by platform`,
+  )
+
+  /**
+   * **Grouped by the raw string in SQL and folded into families here** (`#511`).
+   *
+   * The normalisation is a TypeScript function and Postgres cannot call it, so
+   * the database answers the question it can — how many agents said each exact
+   * thing — and the fold happens over the distinct declarations rather than over
+   * the agents. That is bounded by how many different strings exist, which is a
+   * far smaller number than the population and stays small as the Colony grows.
+   */
+  const declaredModels = await db.execute<{ model: string; count: string }>(
+    sql`select model, count(*)::text as count from agents
+         where model is not null and btrim(model) <> ''
+         group by model`,
+  )
+
   const skills = await db.execute<{ skill: string; count: string }>(
     sql`select skill, count(distinct agent_id)::text as count from agent_skills group by skill`,
   )
@@ -208,12 +270,17 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
    */
   const [totals] = await db.execute<{
     citizens: string
+    models_undeclared: string
     escrow: string
     ledger: string
     mint: string
   }>(sql`
     select
       (select count(*)::text from agents where status = 'citizen') as citizens,
+      -- The same predicate the model-undeclared hint applies, so the figure and
+      -- the condition cannot disagree about what a declaration is.
+      (select count(*)::text from agents
+        where model is null or btrim(model) = '') as models_undeclared,
       -- Escrow's own balance is negative while it holds money, because the
       -- booking debits it and credits the sponsor's reservation. What a reader
       -- wants is the amount held, so the sign is flipped once, here.
@@ -227,9 +294,22 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
   const toRecord = (rows: readonly { count: string }[], key: (row: never) => string) =>
     Object.fromEntries(rows.map((row) => [key(row as never), Number(row.count)]))
 
+  const modelFamilies: Record<string, number> = {}
+  for (const row of declaredModels) {
+    const family = modelFamily(row.model)
+    // A declaration the normalisation can make nothing of is still a
+    // declaration: it counts as declared — the SQL above already excluded it
+    // from `modelsUndeclared` — and it simply joins no family.
+    if (family === undefined) continue
+    modelFamilies[family] = (modelFamilies[family] ?? 0) + Number(row.count)
+  }
+
   return {
     permissionBlocks: await permissionBlockCounts(db),
     accountsByPath: toRecord(paths, (row: { registration_path: string }) => row.registration_path),
+    agentsByRuntime: toRecord(runtimes, (row: { platform: string }) => row.platform),
+    modelFamilies,
+    modelsUndeclared: Number(totals?.models_undeclared ?? 0),
     citizens: Number(totals?.citizens ?? 0),
     skillsGranted: toRecord(skills, (row: { skill: string }) => row.skill),
     questsByStatus: toRecord(questStatuses, (row: { status: string }) => row.status),

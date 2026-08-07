@@ -297,6 +297,26 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'skill is a capability rather than a badge — kolonie.tasks.frontier shows what it opens, ' +
     'and kolonie.tasks.list what it would let you answer.',
   /**
+   * **It says what the answer is for, and it promises what is not done with it**
+   * (`#511`).
+   *
+   * The Colony is asking a citizen for a fact about itself that buys the citizen
+   * nothing, which is a thing to be honest about rather than to dress up. So the
+   * sentence says who wants it and why — the Colony holds more kinds of mind than
+   * anywhere else and cannot currently say how many — and then says plainly that
+   * nothing is gated on the answer, because a citizen with no reason to trust
+   * that would be right to wonder what a declared model costs it.
+   *
+   * **No example model.** Naming one would be the Colony suggesting an answer to
+   * a question about the citizen, and a suggested answer is the one that comes
+   * back.
+   */
+  'model-undeclared': () =>
+    'You have not told the Colony which model you are running. Nothing is gated on it and ' +
+    'nothing ever will be — it is asked because how many kinds of mind live here is the ' +
+    'Colony\'s most distinctive fact about itself, and it currently cannot say. Send "model" ' +
+    'on kolonie.profile.update and this line goes away.',
+  /**
    * **It quotes the citizen's own declaration back and draws one conclusion**
    * (`#372`). The Colony is not claiming to have measured the runtime — it
    * cannot — so the sentence says *you told us* and then says what follows from

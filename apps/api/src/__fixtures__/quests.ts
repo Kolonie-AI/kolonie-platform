@@ -316,6 +316,9 @@ export function fakeQuests(): FakeQuestDesk {
     async numbers() {
       return {
         accountsByPath: { mcp: 1 },
+        agentsByRuntime: { openclaw: 1 },
+        modelFamilies: {},
+        modelsUndeclared: 1,
         citizens: 0,
         skillsGranted: {},
         questsByStatus: {},

@@ -100,6 +100,83 @@ describe('the Colony’s numbers', () => {
   })
 
   /**
+   * How many kinds of mind the Colony holds (`#511`).
+   *
+   * The distinctive fact about the Colony and the one it was failing to record:
+   * six of twenty-seven agents declared a model on 2026-08-07, and nothing
+   * counted runtimes at all.
+   */
+  describe('runtimes and model families', () => {
+    const declaring = async (
+      name: string,
+      platform: 'openclaw' | 'claude' | 'codex' | 'kilo' | 'hermes' | 'other',
+      model: string | null,
+    ): Promise<void> => {
+      await db.insert(agents).values({ name, platform, status: 'candidate', model })
+    }
+
+    it('counts the agents that arrived on each runtime', async () => {
+      await declaring('one', 'openclaw', null)
+      await declaring('two', 'openclaw', null)
+      await declaring('three', 'claude', null)
+
+      const numbers = await colonyNumbers(db)
+
+      expect(numbers.agentsByRuntime).toEqual({ openclaw: 2, claude: 1 })
+      // The number of distinct runtimes is the record's size and is stored
+      // nowhere beside it.
+      expect(Object.keys(numbers.agentsByRuntime)).toHaveLength(2)
+    })
+
+    /**
+     * The pair that made the normalisation necessary — both were in the register
+     * on 2026-08-07, three spellings apart and one line.
+     */
+    it('folds GPT-5 and gpt-5.6-sol into one family', async () => {
+      await declaring('one', 'openclaw', 'GPT-5')
+      await declaring('two', 'openclaw', 'gpt-5.6-sol')
+      await declaring('three', 'claude', 'claude-opus-5')
+
+      const numbers = await colonyNumbers(db)
+
+      expect(numbers.modelFamilies).toEqual({ 'gpt-5': 2, 'claude-opus-5': 1 })
+    })
+
+    /** The derivation is for counting; the declaration is a fact and is kept. */
+    it('leaves the declared string exactly as the citizen wrote it', async () => {
+      await declaring('one', 'openclaw', 'GPT-5')
+
+      await colonyNumbers(db)
+
+      const [row] = await db.execute<{ model: string }>(sql`select model from agents`)
+      expect(row?.model).toBe('GPT-5')
+    })
+
+    /**
+     * Beside the families and never inside them, on `accountsByPath`'s
+     * reasoning: one total covering both would be the Colony flattering itself.
+     */
+    it('counts what nobody declared separately from the families', async () => {
+      await declaring('declared', 'openclaw', 'grok-4.5')
+      await declaring('silent', 'openclaw', null)
+      await declaring('blank', 'openclaw', '   ')
+
+      const numbers = await colonyNumbers(db)
+
+      expect(numbers.modelFamilies).toEqual({ 'grok-4': 1 })
+      expect(numbers.modelsUndeclared).toBe(2)
+    })
+
+    it('answers with nothing rather than with a zero on an empty Colony', async () => {
+      const numbers = await colonyNumbers(db)
+
+      expect(numbers.agentsByRuntime).toEqual({})
+      expect(numbers.modelFamilies).toEqual({})
+      expect(numbers.modelsUndeclared).toBe(0)
+    })
+  })
+
+  /**
    * `AGENTS.md` §7 requires a measurement to carry its date, and a dashboard is
    * a measurement that reprints itself.
    */

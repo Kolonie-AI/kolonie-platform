@@ -239,6 +239,27 @@ export function colonyNumbersSections(numbers: ColonyNumbers): string {
     // console and has climbed nothing, which is what `console-identity.ts`
     // describes rather than a kind of account.
     `<p>${numbers.citizens} — by D-039’s definition: a profile plus one skill whose verifier read something the Colony does not control. Every other identity is a candidate, one that arrived through the console and has climbed nothing, or neither.</p>`,
+    /**
+     * How many kinds of mind live here (`#511`).
+     *
+     * **Gated, and it stays gated.** `kolonie-docs#216` holds the rule: stock
+     * counts are published when the majority of agents are not ours, and every
+     * figure here is a self-portrait until then. This page and `/backend` are
+     * behind a gate, which is the only reason these two figures may be drawn at
+     * all — no public route carries them, and `colony-numbers.test.ts` asserts
+     * it rather than trusting this comment.
+     */
+    table(
+      'Runtimes, by how many agents arrived on each',
+      numbers.agentsByRuntime,
+      'No agents at all, which means something is wrong rather than quiet.',
+    ),
+    table(
+      'Model families declared',
+      numbers.modelFamilies,
+      'Nobody has declared a model. The model-undeclared hint is what asks.',
+    ),
+    `<p class="note">${numbers.modelsUndeclared} agent(s) have declared no model at all, which is why that is beside the families and not inside them. The family is derived for counting only — <code>GPT-5</code> and <code>gpt-5.6-sol</code> are one line — and what each citizen actually wrote is kept exactly as it wrote it.</p>`,
     table('Skills granted, per skill', numbers.skillsGranted, 'Nothing has been granted yet.'),
     table('Quests, by status', numbers.questsByStatus, 'No quests have been written.'),
     /**

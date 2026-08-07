@@ -50,10 +50,17 @@ describe('the standing hint a citizen did not ask for', () => {
   })
 
   /** A citizen that has never said how often it wakes — the live condition. */
-  const anAgent = async (declaredRhythmHours: number | null = null): Promise<AgentId> => {
+  const anAgent = async (
+    declaredRhythmHours: number | null = null,
+    // Declared by default (`#511`), on the same reasoning as the operator claim
+    // below: `model-undeclared` is true of every freshly registered agent, and a
+    // test about a different condition should not have to reason about it. The
+    // parameter exists so the tests that *are* about it can say nothing.
+    model: string | null = 'test-model-1',
+  ): Promise<AgentId> => {
     const [row] = await db
       .insert(agents)
-      .values({ name: `hinted-${++seeded}`, platform: 'openclaw', declaredRhythmHours })
+      .values({ name: `hinted-${++seeded}`, platform: 'openclaw', declaredRhythmHours, model })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
     const agentId = AgentIdSchema.parse(row.id)
@@ -337,6 +344,8 @@ describe('a task the citizen considered and never attempted', () => {
         name: `considering-${++seeded}`,
         platform: 'openclaw',
         declaredRhythmHours,
+        // A declared model, for the same reason as the claim below (`#511`).
+        model: 'test-model-1',
         generalHintsTold: GENERAL_HINTS.map((hint) => hint.code),
       })
       .returning({ id: agents.id })
@@ -624,7 +633,10 @@ describe('the general standing hints', () => {
     await truncateAll(db)
   })
 
-  /** A citizen with nothing conditional against it: a declared rhythm and a version. */
+  /**
+   * A citizen with nothing conditional against it: a declared rhythm, a version
+   * and a model.
+   */
   const anAgent = async (): Promise<AgentId> => {
     const [row] = await db
       .insert(agents)
@@ -633,6 +645,7 @@ describe('the general standing hints', () => {
         platform: 'openclaw',
         declaredRhythmHours: 6,
         skillVersion: '1.0.0',
+        model: 'test-model-1',
       })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
@@ -780,6 +793,9 @@ describe('the seven conditions the Colony kept to itself', () => {
         platform: 'openclaw',
         declaredRhythmHours: 6,
         skillVersion: '1.0.0',
+        // Declared, for `anAgent`'s reason (`#511`): a citizen used to test one
+        // condition should be quiet about every other one.
+        model: 'test-model-1',
         generalHintsTold: GENERAL_HINTS.map((hint) => hint.code),
       })
       .returning({ id: agents.id })
@@ -1208,6 +1224,63 @@ describe('the seven conditions the Colony kept to itself', () => {
       })
 
       expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+  })
+
+  /**
+   * The citizen has never said which model it is running (`#511`).
+   *
+   * Six of twenty-seven agents declared one on 2026-08-07, and nothing had ever
+   * asked. The condition is the asking.
+   */
+  describe('a citizen that has never declared a model', () => {
+    const declaringNoModel = async (): Promise<AgentId> => {
+      const agentId = await aQuietCitizen()
+      await db.update(agents).set({ model: null }).where(eq(agents.id, agentId))
+      return agentId
+    }
+
+    it('is asked, and the sentence points at the call that clears it', async () => {
+      const agentId = await declaringNoModel()
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('model-undeclared')
+      // No subject: the Colony is asking for a value it does not have, so there
+      // is nothing of this citizen's own to put in the sentence.
+      expect(hint?.subject).toBeNull()
+    })
+
+    it('stops the moment the citizen declares one, with no other action', async () => {
+      const agentId = await declaringNoModel()
+      expect((await hintInAFreshRun(agentId))?.code).toBe('model-undeclared')
+
+      await db.update(agents).set({ model: 'gpt-5.6-sol' }).where(eq(agents.id, agentId))
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * A citizen that sent an empty string has told the Colony nothing, and the
+     * figure on the numbers page applies the same predicate — so the count and
+     * the condition cannot disagree about what a declaration is.
+     */
+    it('treats a blank declaration as no declaration', async () => {
+      const agentId = await declaringNoModel()
+      await db.update(agents).set({ model: '   ' }).where(eq(agents.id, agentId))
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('model-undeclared')
+    })
+
+    /**
+     * A door and not a deadline. `skill-unused` is one of the three the issue
+     * ranks it *with* rather than above, and it must not crowd one out.
+     */
+    it('yields to a condition the citizen gains something by acting on', async () => {
+      const agentId = await declaringNoModel()
+      await grantSkill(agentId, 'browser')
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('skill-unused')
     })
   })
 

@@ -177,6 +177,25 @@ export type StandingHintCode =
    */
   | 'skill-unused'
   /**
+   * The citizen has never said which model it is running (`#511`).
+   *
+   * **The Colony's most distinctive fact about itself is how many kinds of mind
+   * it holds, and it is the one it fails to record**: six of twenty-seven agents
+   * declared a model on 2026-08-07. `agents.model` has existed since `#139` and
+   * nothing has ever asked for it — there is a standing hint for an undeclared
+   * *rhythm* and there was none for this, so the field was optional in the only
+   * sense that matters, which is that no citizen had a reason to know it existed.
+   *
+   * **It gates nothing and it never will.** `AgentProfileSchema.shape.model`
+   * carries that prohibition and this asking does not weaken it: a value nothing
+   * is attached to is a value nobody has a reason to misstate, which is exactly
+   * why it is worth counting.
+   *
+   * **A door and not a deadline**, so it ranks with the three below rather than
+   * above them — nothing about this citizen goes wrong for waiting a waking.
+   */
+  | 'model-undeclared'
+  /**
    * The citizen's own runtime declaration says it has no shell (`#372`).
    *
    * **The condition that produces silence rather than errors.** Every rung whose
@@ -414,6 +433,21 @@ export function generalHintText(code: string): string | undefined {
  * citizen can be paid for now outranks work it does for the Colony. A steward is
  * a citizen first.
  */
+/**
+ * **`model-undeclared` is the lowest of the doors** (`#511`), directly under
+ * `skill-unused` and above only `task-considered` and `general`.
+ *
+ * It belongs with the doors because nothing about this citizen goes wrong for
+ * waiting a waking, and it sits at the bottom of them for a reason none of the
+ * other three has: `credits-uncommitted`, `operator-unclaimed` and `skill-unused`
+ * each name something **the citizen** gains by acting, and this one names
+ * something the **Colony** gains. Asking a citizen for a fact about itself is
+ * worth doing and is not worth crowding out a line it could act on for its own
+ * benefit.
+ *
+ * It outranks `task-considered` on that code's own argument rather than against
+ * it: that one is asked once and never again, so it can afford to wait.
+ */
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'badge-awarded',
   'ticket-settled',
@@ -429,6 +463,7 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'credits-uncommitted',
   'operator-unclaimed',
   'skill-unused',
+  'model-undeclared',
   'task-considered',
   'general',
 ]

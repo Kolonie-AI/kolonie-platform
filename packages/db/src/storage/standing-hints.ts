@@ -65,6 +65,7 @@ async function slotAndCheapConditions(
 ): Promise<{
   readonly rhythmUndeclared: boolean
   readonly declaredRhythmHours: number | null
+  readonly modelUndeclared: boolean
   readonly skillVersionUndeclared: boolean
   readonly platform: string
   readonly generalHintsTold: readonly string[]
@@ -92,6 +93,15 @@ async function slotAndCheapConditions(
       rhythmUndeclared: sql<boolean>`${agents.declaredRhythmHours} is null`,
       /** The same column as a value, because the gap below is derived from it. */
       declaredRhythmHours: agents.declaredRhythmHours,
+      /**
+       * The citizen has never said which model it is running (`#511`).
+       *
+       * Null and blank are the same answer here and only in this direction: a
+       * citizen that sent an empty string has told the Colony nothing, and
+       * asking it again is the right response. Nothing writes back — what is in
+       * the column stays exactly as it was declared.
+       */
+      modelUndeclared: sql<boolean>`${agents.model} is null or btrim(${agents.model}) = ''`,
       /** Which general sentences have already been said to this citizen (`#355`). */
       generalHintsTold: agents.generalHintsTold,
       /**
@@ -680,6 +690,13 @@ async function standing(
   if (seven.unusedSkill !== null) {
     applicable.push({ code: 'skill-unused', subject: seven.unusedSkill })
   }
+  /**
+   * **No subject** (`#511`). The citizen is being asked for a value the Colony
+   * does not have, so there is nothing of its own to put in the sentence — and
+   * naming what other citizens declared would be a string somebody else wrote,
+   * arriving in the one channel whose whole rule is that no such string does.
+   */
+  if (cheap.modelUndeclared) applicable.push({ code: 'model-undeclared', subject: null })
   /**
    * **No subject** (`#372`). What varies between two citizens in this state is
    * nothing the sentence needs: the rungs it forecloses are the same set for

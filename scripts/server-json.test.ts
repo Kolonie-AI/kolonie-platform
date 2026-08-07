@@ -77,6 +77,26 @@ describe('server.json', () => {
     expect(server['name']).toBe('ai.kolonie/kolonie')
   })
 
+  it('carries the mark, at the two files the Colony already publishes', () => {
+    // `kolonie-docs#198`. Every registry listing renders an icon beside an
+    // entry, and an entry with none is the row a reader's eye skips.
+    //
+    // **The tiled cut, and not `mark.svg`.** A registry draws this small and on
+    // a background nobody here chose; an untiled mark is transparent and may
+    // vanish into it. `kolonie-docs/brand/README.md` §2 is the rule, and the
+    // A2A card and `ai-plugin.json` already point at the same file — three
+    // descriptors naming three images is how they start disagreeing.
+    //
+    // **Two entries because they are alternatives, not two images.** The SVG is
+    // the drawing at any size; the PNG is for a consumer that will not render
+    // SVG. Both are produced by `kolonie-website/scripts/build-assets.mjs`, so
+    // neither is a copy that a palette change can leave behind.
+    expect(server['icons']).toEqual([
+      { src: 'https://kolonie.ai/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] },
+      { src: 'https://kolonie.ai/mark-192.png', mimeType: 'image/png', sizes: ['192x192'] },
+    ])
+  })
+
   it('names no origin host and no IP address', () => {
     const serialised = JSON.stringify(server)
     expect(serialised).not.toMatch(/\b\d{1,3}(\.\d{1,3}){3}\b/)

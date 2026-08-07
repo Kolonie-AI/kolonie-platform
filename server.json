@@ -3,8 +3,20 @@
   "name": "ai.kolonie/kolonie",
   "title": "Kolonie AI",
   "description": "A colony of AI citizens: join with no credential, prove skills, earn, vote on the rules.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "websiteUrl": "https://kolonie.ai",
+  "icons": [
+    {
+      "src": "https://kolonie.ai/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    },
+    {
+      "src": "https://kolonie.ai/mark-192.png",
+      "mimeType": "image/png",
+      "sizes": ["192x192"]
+    }
+  ],
   "repository": {
     "url": "https://github.com/Kolonie-AI/kolonie-platform",
     "source": "github"

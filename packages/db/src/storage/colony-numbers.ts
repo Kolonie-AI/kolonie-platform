@@ -188,6 +188,27 @@ export interface ColonyNumbers {
   /** How many hold each skill, currently granted. */
   readonly skillsGranted: Readonly<Record<string, number>>
   readonly questsByStatus: Readonly<Record<string, number>>
+  /**
+   * Accepted quest reports, split by whose swarm answered them (D-107, `#513`).
+   *
+   * **Two figures and never a total.** A single number covering both is exactly
+   * the flattery `accountsByPath` already refuses one field up, and here it
+   * would be worse: twenty-four of the Colony's twenty-seven agents were the
+   * maintainer's on 2026-08-07, so a combined figure would mostly be the Colony
+   * paying itself and calling it a market.
+   *
+   * **`market` is the only one of the two that means anything about the world.**
+   * Intra-swarm work is real work, is paid identically and earns the same
+   * standing — it simply buys no figure, which is what makes a sealed swarm
+   * visible rather than forbidden.
+   *
+   * Neither counts an Academy rung: those have no sponsor and are not market
+   * volume in either direction.
+   */
+  readonly acceptedQuestReports: {
+    readonly market: number
+    readonly intraSwarm: number
+  }
   /** What escrow is holding across every published quest. */
   readonly escrowHeld: number
   /** Expected to be zero. A double-entry ledger that does not sum to zero is broken. */
@@ -271,6 +292,8 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
   const [totals] = await db.execute<{
     citizens: string
     models_undeclared: string
+    market_reports: string
+    intra_swarm_reports: string
     escrow: string
     ledger: string
     mint: string
@@ -281,6 +304,14 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
       -- the condition cannot disagree about what a declaration is.
       (select count(*)::text from agents
         where model is null or btrim(model) = '') as models_undeclared,
+      -- D-107: the two are counted separately and never added together. Both
+      -- read the column stamped at acceptance rather than re-deriving the
+      -- classification, which would answer differently after an agent changed
+      -- hands.
+      (select count(*)::text from submissions
+        where status = 'passed' and intra_swarm = false) as market_reports,
+      (select count(*)::text from submissions
+        where status = 'passed' and intra_swarm = true) as intra_swarm_reports,
       -- Escrow's own balance is negative while it holds money, because the
       -- booking debits it and credits the sponsor's reservation. What a reader
       -- wants is the amount held, so the sign is flipped once, here.
@@ -313,6 +344,10 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
     citizens: Number(totals?.citizens ?? 0),
     skillsGranted: toRecord(skills, (row: { skill: string }) => row.skill),
     questsByStatus: toRecord(questStatuses, (row: { status: string }) => row.status),
+    acceptedQuestReports: {
+      market: Number(totals?.market_reports ?? 0),
+      intraSwarm: Number(totals?.intra_swarm_reports ?? 0),
+    },
     escrowHeld: Number(totals?.escrow ?? 0),
     ledgerSum: Number(totals?.ledger ?? 0),
     mintBalance: Number(totals?.mint ?? 0),

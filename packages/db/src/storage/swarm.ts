@@ -1,5 +1,11 @@
 import { eq, sql } from 'drizzle-orm'
-import { AgentIdSchema, HumanIdSchema, type AgentId, type HumanId } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  HumanIdSchema,
+  type AgentId,
+  type HumanId,
+  type SubmissionId,
+} from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { humanAgents } from '../schema/human-links.js'
 
@@ -135,4 +141,44 @@ export async function shareASwarm(
   `)
 
   return row?.shared === true
+}
+
+/**
+ * Whether this submission answers a quest from inside the sponsor's own swarm
+ * (D-107, `#513`).
+ *
+ * `null` when the question does not arise or cannot be answered honestly: the
+ * task is not a quest, or its author has been erased. Both are *not classified*
+ * rather than *not internal* — see `submissions.intra_swarm`, which is where the
+ * answer is stamped and why it is stamped rather than derived on read.
+ *
+ * **One statement, taken inside the verdict's transaction.** The classification
+ * and the acceptance that makes it true are one commit, on the reasoning
+ * `distinct-operators.ts` sets out for the operator rule: a fact assembled from
+ * two reads of a moving database is a fact about neither moment.
+ */
+export async function intraSwarmPass(
+  db: Database | Transaction,
+  submissionId: SubmissionId,
+): Promise<boolean | null> {
+  const [row] = await db.execute<{ intra_swarm: boolean | null }>(sql`
+    select case
+             when quest.kind <> 'quest' or quest.created_by is null then null
+             -- An agent shares a swarm with itself, as shareASwarm answers it.
+             -- D-052 forbids the case, and agreeing with it here costs nothing.
+             when quest.created_by = mine.agent_id then true
+             else exists (
+               select 1
+                 from human_agents sponsor
+                 join human_agents answerer on answerer.human_id = sponsor.human_id
+                where sponsor.agent_id = quest.created_by
+                  and answerer.agent_id = mine.agent_id
+             )
+           end as intra_swarm
+      from submissions mine
+      join tasks quest on quest.id = mine.task_id
+     where mine.id = ${submissionId}
+  `)
+
+  return row?.intra_swarm ?? null
 }

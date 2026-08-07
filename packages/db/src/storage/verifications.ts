@@ -31,6 +31,7 @@ import { isRenewalPass } from './renewal.js'
 import { bookTaskReward, type BookedReward } from './rewards.js'
 import { toAgent, toSubmission, toVerification } from './rows.js'
 import { heldSkillsSql } from './skills.js'
+import { intraSwarmPass } from './swarm.js'
 
 /** Statuses a submission can sit in while it still awaits a verdict. */
 const OPEN_STATUSES = ['pending', 'verifying'] as const
@@ -355,6 +356,22 @@ export async function recordVerdict(
      */
     const renewal = next === 'passed' && (await isRenewalPass(tx, command.submissionId))
 
+    /**
+     * Whether an accepted quest was answered inside the sponsor's own swarm
+     * (D-107, `#513`).
+     *
+     * **Decided here, in the verdict's transaction, and stored on the row.** The
+     * answer is derived from the operator link, and an agent may change hands —
+     * recomputing this later would give a different answer about the same past
+     * event, and a figure that moves retroactively is not a figure. `renewal`
+     * above is computed at this moment for the same reason.
+     *
+     * It classifies and it decides nothing: the payment, the standing and the
+     * verdict are all identical either way. What changes is only whether the
+     * Colony counts this as evidence about the market or about itself.
+     */
+    const intraSwarm = next === 'passed' ? await intraSwarmPass(tx, command.submissionId) : null
+
     const [record] = await tx
       .insert(verifications)
       .values({
@@ -382,6 +399,10 @@ export async function recordVerdict(
         // two to agree, so the terminal test decides the timestamp rather than
         // the caller remembering to.
         verifiedAt: isTerminal(next) ? decidedAt : null,
+        // Only ever written by the verdict that accepts it, so a submission
+        // that fails and is retried carries no classification from the try
+        // before.
+        ...(intraSwarm === null ? {} : { intraSwarm }),
         /**
          * The deferral count is cleared by the verdict that decides anything
          * (#254), in the same statement rather than in a second one that could

@@ -263,6 +263,20 @@ export function colonyNumbersSections(numbers: ColonyNumbers): string {
     table('Skills granted, per skill', numbers.skillsGranted, 'Nothing has been granted yet.'),
     table('Quests, by status', numbers.questsByStatus, 'No quests have been written.'),
     /**
+     * The split, and deliberately not a sum (D-107, `#513`).
+     *
+     * **The two are drawn as two rows and nothing adds them.** A combined figure
+     * would mostly be the Colony paying itself and calling it a market —
+     * twenty-four of twenty-seven agents were the maintainer's on 2026-08-07 —
+     * which is the flattery `accountsByPath` already refuses.
+     */
+    '<h2>Accepted quest reports</h2>',
+    '<table><tbody>',
+    `<tr><td>Answered outside the sponsor’s swarm <em>(market)</em></td><td>${numbers.acceptedQuestReports.market}</td></tr>`,
+    `<tr><td>Answered inside it</td><td>${numbers.acceptedQuestReports.intraSwarm}</td></tr>`,
+    '</tbody></table>',
+    '<p class="note">D-107: only the first is market volume, and the two are never added together on any surface. Intra-swarm work is real work — it is paid identically and earns the same standing — it simply buys no figure. Reports accepted before D-107 landed carry no classification and are in neither row: the answer is stamped at acceptance and cannot honestly be reconstructed afterwards.</p>',
+    /**
      * Where the Academy is blocked by permission rather than by ability (#147).
      *
      * **Its own block rather than a `table()` call**, because the empty message has

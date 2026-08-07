@@ -322,6 +322,7 @@ export function fakeQuests(): FakeQuestDesk {
         citizens: 0,
         skillsGranted: {},
         questsByStatus: {},
+        acceptedQuestReports: { market: 0, intraSwarm: 0 },
         // Empty, which on the steward's page reads as *no group is large enough to
         // show* rather than *nobody is blocked* (#147).
         permissionBlocks: [],

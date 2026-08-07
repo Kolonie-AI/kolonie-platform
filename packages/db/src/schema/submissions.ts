@@ -211,6 +211,31 @@ export const submissions = pgTable(
      */
     deferrals: integer('deferrals').notNull().default(0),
 
+    /**
+     * Whether this accepted quest report was answered inside the sponsor's own
+     * swarm (D-107, `#513`).
+     *
+     * **Stamped at acceptance and never recomputed.** The classification is
+     * derived from the operator link (`#510`), and an agent may change hands —
+     * so recomputing it later would give a different answer about the same past
+     * event, and a figure that moves retroactively is not a figure. `test_rerun`
+     * and `assistance` are on this row for exactly that reason and this is the
+     * third of the same shape.
+     *
+     * **Null is *not classified* and not *unknown*.** It covers an Academy rung,
+     * which has no sponsor and is not market volume in either direction; a
+     * submission that has not reached a passing verdict; and a quest whose
+     * author has since been erased, where the question can no longer be
+     * answered honestly. A reader wanting *of the quests that were accepted, how
+     * many were internal* asks for the two values and never for a total, which
+     * is what D-107 forbids.
+     *
+     * **Nothing about payment or standing reads it.** Intra-swarm work is paid
+     * exactly as any other and earns the same reputation; this column changes
+     * only what the Colony counts as evidence about itself.
+     */
+    intraSwarm: boolean('intra_swarm'),
+
     submittedAt: timestamp('submitted_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

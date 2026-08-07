@@ -342,10 +342,24 @@ export const taskAttempts = pgTable(
      * of production, which is what `operations/incidents.md` asks for under
      * *Two migrations tested against a database that could not fail them*.
      */
+    /**
+     * **`operator_asked_for` came out of this rule on `#479`**, and only that.
+     *
+     * The constraint barred both answer columns unless something was asked,
+     * which was right about `operator_acted` and wrong about the prose beside
+     * it. A citizen reported the sentence it could not store: *"I did NOT ask on
+     * this attempt, and why — the tool the task text names for asking is not in
+     * the live tool list, so there is no in-Colony channel from me to my
+     * operator at all."* That is the Colony's own escalation route failing,
+     * reported from the end of it, and the schema answered by discarding it.
+     *
+     * `operator_acted` stays barred. An operator that was never asked did not
+     * act, and `null` says exactly that; a `false` beside it would be a second
+     * spelling of one fact.
+     */
     check(
       'task_attempts_operator_answers_hang_on_asking',
-      sql`${table.operatorAsked} is true
-          or (${table.operatorActed} is null and ${table.operatorAskedFor} is null)`,
+      sql`${table.operatorAsked} is true or ${table.operatorActed} is null`,
     ),
     /** The same bound the snapshot text has, and for the same reason. */
     check(

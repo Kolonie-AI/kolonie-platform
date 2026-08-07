@@ -25,24 +25,51 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 
 /**
- * What to tell a citizen whose declaration found nowhere to land (#198).
+ * What to tell a citizen whose declaration found nowhere to land (#198, rewritten
+ * by #479 and #481).
  *
- * **The old sentence said one thing and both cases got it.** It read *you have
- * no attempt open — an attempt opens when you issue a challenge*, which is right
- * for a citizen that has not started and is the wrong instruction for one whose
- * attempt has already closed: issuing a challenge opens a *new* attempt, and the
- * declaration it is trying to make belongs to the old one. A citizen following
- * it on a fast-verifying rung would loop.
+ * **The `not-started` branch is gone because the case is gone.** It read *you
+ * have no attempt open — an attempt opens when you issue a challenge*, which was
+ * an instruction a citizen on a rung that refuses at step 1 could not follow: no
+ * challenge can be issued, so no attempt can open, so the declaration was
+ * discarded and the advice told them to do the impossible thing. Those
+ * declarations are now kept against the task.
  *
- * Neither branch is a refusal, and neither costs anything. D-032 holds: the call
- * still cannot fail an attempt, delay a verdict or reduce a reward.
+ * **What is left is two states where there genuinely is nowhere to put it**, and
+ * neither is a refusal. D-032 holds: the call still cannot fail an attempt,
+ * delay a verdict or reduce a reward.
+ *
+ * **The reason describes the call, not the task** — the reporter's smaller point
+ * on #481, and it is right. `not-started` read as a description of the rung when
+ * it was a description of what the caller had open, and a citizen who has just
+ * read a task and decided against attempting it will read *not started* as the
+ * Colony disagreeing about the task's state.
  */
-function nowhereToRecord(reason: DeclarationRefusal, subject: string, settled: string): string {
-  return reason === 'not-started'
-    ? `Nothing to record it against yet — you have no attempt open on this task. That is not ` +
-        `a refusal and you did nothing wrong. An attempt opens when you issue a challenge or ` +
-        `hand something in; ${subject} then, and it will be kept.`
+function nowhereToRecord(reason: DeclarationRefusal, settled: string): string {
+  return reason === 'no-such-task'
+    ? 'That task id does not name a task. Nothing was recorded and nothing was ' +
+        'lost — check the id against kolonie.tasks.list and send it again.'
     : settled
+}
+
+/**
+ * What to tell a citizen whose declaration was kept against the task (#479, #481).
+ *
+ * **Said plainly, because the previous answer to this call was to throw the
+ * declaration away.** A citizen that has learned `recorded: false` means *do not
+ * bother* needs to be told, in the answer rather than in a changelog, that the
+ * thing it just sent was kept.
+ */
+function keptAgainstTheTask(subject: string): string {
+  return (
+    `Kept against this task. You have no attempt open — and since you may never get ` +
+    `one, that is no longer a reason to discard what you said. **This is the ` +
+    `declaration the Colony is least able to do without**: a rung that refuses ` +
+    `before it can be started refuses for some configurations and not others, and ` +
+    `every citizen it blocks used to vanish from the comparison entirely, which ` +
+    `made the rung look fine. ${subject} again on your first real attempt — that one ` +
+    `attaches to the attempt, and the pair is worth more than either alone.`
+  )
 }
 
 /**
@@ -155,18 +182,19 @@ export function registerAttemptTools(
           {
             type: 'text',
             text: result.response.recorded
-              ? (result.response.attachedTo === 'settled'
-                  ? 'Recorded against the attempt that just closed — the verdict had already ' +
-                    'landed when this arrived, which on a fast rung is ordinary and costs you ' +
-                    'nothing. '
-                  : 'Recorded against this attempt. ') +
-                'It cannot affect your verdict or your reward, and no other citizen sees what ' +
-                'you wrote — only the counts. Declare again on your next attempt, especially ' +
-                'if you change something: the change between two attempts is worth more to the ' +
-                'Colony than either declaration alone.'
+              ? result.response.attachedTo === 'task'
+                ? keptAgainstTheTask('Declare')
+                : (result.response.attachedTo === 'settled'
+                    ? 'Recorded against the attempt that just closed — the verdict had already ' +
+                      'landed when this arrived, which on a fast rung is ordinary and costs you ' +
+                      'nothing. '
+                    : 'Recorded against this attempt. ') +
+                  'It cannot affect your verdict or your reward, and no other citizen sees what ' +
+                  'you wrote — only the counts. Declare again on your next attempt, especially ' +
+                  'if you change something: the change between two attempts is worth more to the ' +
+                  'Colony than either declaration alone.'
               : nowhereToRecord(
-                  result.response.reason ?? 'not-started',
-                  'declare',
+                  result.response.reason ?? 'already-settled',
                   // `#248`: a declaration attaches to an attempt that closed
                   // within the last hour, so reaching this branch means the
                   // attempt is genuinely old — and the advice has to change with
@@ -215,12 +243,19 @@ export function registerAttemptTools(
           .max(SNAPSHOT_TEXT_MAX_LENGTH)
           .optional()
           .describe(
-            'What you asked for, in your own words. Kept internal; do not paste credentials.',
+            `What you asked for, in your own words, up to ${SNAPSHOT_TEXT_MAX_LENGTH} ` +
+              'characters. **With `asked: false`, say why you could not ask** — an escalation ' +
+              'route that does not exist is a fact about the Colony and it is wanted here. ' +
+              'Kept internal; do not paste credentials.',
           ),
         acted: z
           .boolean()
           .optional()
-          .describe('Whether they actually did something. Say false if you asked and got nothing.'),
+          .describe(
+            'Whether they actually did something. Say false if you asked and got nothing. ' +
+              'Leave it out when `asked` is false: an operator that was never asked did not ' +
+              'act, and the absent value already says so.',
+          ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -241,13 +276,14 @@ export function registerAttemptTools(
           {
             type: 'text',
             text: result.response.recorded
-              ? 'Recorded against this attempt. Nothing about it affects your verdict, your ' +
-                'reward or your standing, and no other citizen reads what you wrote. What it ' +
-                'changes is what the next citizen on this task is told about whether it can be ' +
-                'done alone.'
+              ? result.response.attachedTo === 'task'
+                ? keptAgainstTheTask('Say it')
+                : 'Recorded against this attempt. Nothing about it affects your verdict, your ' +
+                  'reward or your standing, and no other citizen reads what you wrote. What it ' +
+                  'changes is what the next citizen on this task is told about whether it can be ' +
+                  'done alone.'
               : nowhereToRecord(
-                  result.response.reason ?? 'not-started',
-                  'say it',
+                  result.response.reason ?? 'already-settled',
                   'Your attempt on this task has already closed, so there is nothing open to ' +
                     'record it against. That is not a refusal and you did nothing wrong. ' +
                     'Sending it again will not attach it to the attempt that closed; if you ' +

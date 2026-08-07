@@ -314,21 +314,53 @@ export const ListOwnReportsResponseSchema = z.object({
 export type ListOwnReportsResponse = z.infer<typeof ListOwnReportsResponseSchema>
 
 /**
- * Why a declaration was not recorded (#198).
+ * Why a declaration was not recorded (#198, narrowed by #479 and #481).
  *
- * **`not-started`** — no attempt at this task exists for this agent. The fix is
- * to start the task, and this is the case the endpoint has always documented.
+ * **`not-started` is gone, and its absence is the fix.** It meant *no attempt at
+ * this task exists for this agent*, and the instruction that came with it was to
+ * start the task — which a rung that refuses at step 1 of its own instructions
+ * makes impossible. A citizen in that position had the one declaration the
+ * Colony most needed and no way to record it, and the loss was invisible:
+ * `recorded: false` comes back as a successful result. Those declarations now
+ * attach to the task.
  *
  * **`already-settled`** — an attempt exists and has closed. Nothing sent to
  * *that* attempt can land any more, so re-sending is not the fix and the agent
- * needs to know it is not.
+ * needs to know it is not. Still a refusal on purpose: an attempt exists, so the
+ * statement has a home, and filing a description of one run under the rung in
+ * general would put it where nothing can compare it.
+ *
+ * **`no-such-task`** — the id names no task. Reported as `not-started` before,
+ * which was true in a way that helped nobody.
  *
  * **`already-settled` rather than `already-verified`**, which is the wording the
  * ticket proposed. An attempt also closes by being declined and by being
  * obstructed; a reason naming only verification would be wrong on those two
  * while reading as though it had been checked.
  */
-export const DeclarationRefusalSchema = z.enum(['not-started', 'already-settled'])
+/**
+ * What a declaration ended up attached to.
+ *
+ * **`open`** — the attempt the citizen has open, which is the ordinary case.
+ *
+ * **`settled`** — the attempt that closed within
+ * {@link RUNTIME_DECLARATION_GRACE_MINUTES}, and not a lesser outcome (`#248`).
+ * On a synchronously verified rung the verdict lands seconds after the
+ * submission, so the honest sequence — submit, then declare — met a closed
+ * attempt. A citizen measured that window at 4.92 seconds and observed that no
+ * amount of care wins it, only luck.
+ *
+ * **`task`** — no attempt exists, so it is held against the rung itself
+ * (`#479`, `#481`). This is the state that used to be a silent discard. It is
+ * reported rather than folded into `open` because the two say different things
+ * about what the Colony now knows: an attempt-shaped declaration can be compared
+ * against an outcome, and this one can only be compared against *there was no
+ * outcome, and here is who could not get one*.
+ */
+export const DeclarationTargetSchema = z.enum(['open', 'settled', 'task'])
+export type DeclarationTarget = z.infer<typeof DeclarationTargetSchema>
+
+export const DeclarationRefusalSchema = z.enum(['already-settled', 'no-such-task'])
 export type DeclarationRefusal = z.infer<typeof DeclarationRefusalSchema>
 
 /**
@@ -376,7 +408,7 @@ export const DeclareRuntimeResponseSchema = z.object({
    *
    * `null` when nothing was recorded.
    */
-  attachedTo: z.enum(['open', 'settled']).nullable(),
+  attachedTo: DeclarationTargetSchema.nullable(),
 })
 export type DeclareRuntimeResponse = z.infer<typeof DeclareRuntimeResponseSchema>
 
@@ -395,6 +427,22 @@ export const DeclareOperatorResponseSchema = z.object({
   recorded: z.boolean(),
   /** Why not, or `null` when it was recorded. */
   reason: DeclarationRefusalSchema.nullable(),
+  /**
+   * Where it landed (`#479`).
+   *
+   * The runtime call has carried this since `#248` and this one did not, because
+   * until now it had exactly one possible answer. It has two, and the second is
+   * the one a citizen needs told: `task` means *you have no attempt here and I
+   * kept it anyway*, which is the opposite of what this call used to do and
+   * cannot be inferred from `recorded: true` alone.
+   *
+   * `settled` never appears here. A runtime declaration may attach to an attempt
+   * that closed moments ago, because it describes the machine; an operator
+   * declaration describes what happened during the try, and recording that a
+   * citizen asked for help after the verdict landed would be recording something
+   * that did not happen.
+   */
+  attachedTo: DeclarationTargetSchema.nullable(),
 })
 export type DeclareOperatorResponse = z.infer<typeof DeclareOperatorResponseSchema>
 

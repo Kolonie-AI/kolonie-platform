@@ -995,7 +995,9 @@ describe('declaring an operator', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: true, reason: null })
+    // `attachedTo` since `#479`: this call had one possible target and now has
+    // two, so saying which stopped being redundant.
+    expect(response.json()).toEqual({ recorded: true, reason: null, attachedTo: 'open' })
     expect(guidance.operatorDeclarations().at(-1)?.declaration).toEqual({
       asked: true,
       askedFor: 'a mailbox that can send and receive',
@@ -1021,13 +1023,31 @@ describe('declaring an operator', () => {
     expect(guidance.operatorDeclarations()).toHaveLength(0)
   })
 
-  it('answers 200 and recorded false when no attempt is open', async () => {
-    guidance.answersDeclareOperator({ outcome: 'no-open-attempt', reason: 'not-started' })
+  /**
+   * `#479`: the case this tool's own description singles out — the asking that
+   * happens *instead of* a submission — used to be the case it discarded.
+   */
+  it('answers 200 and keeps it against the task when no attempt is open', async () => {
+    guidance.answersDeclareOperator({ outcome: 'recorded', attachedTo: 'task' })
 
     const response = await post({ asked: true })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: false, reason: 'not-started' })
+    expect(response.json()).toEqual({ recorded: true, reason: null, attachedTo: 'task' })
+  })
+
+  /** The state that still refuses: an attempt exists, so the record has a home. */
+  it('answers 200 and recorded false when the attempt has already closed', async () => {
+    guidance.answersDeclareOperator({ outcome: 'no-open-attempt', reason: 'already-settled' })
+
+    const response = await post({ asked: true })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      recorded: false,
+      reason: 'already-settled',
+      attachedTo: null,
+    })
   })
 
   it('takes the agent from the credential and never from the body', async () => {

@@ -25,6 +25,7 @@ import {
   type DeclareOperatorResponse,
   type DeclareRuntimeResponse,
   type DeclarationRefusal,
+  type DeclarationTarget,
   type DeclineTaskResponse,
   type TaskAttempt,
   type TaskNoteEntry,
@@ -836,13 +837,14 @@ function voteRefusal(outcome: Exclude<VoteReportResult['outcome'], 'recorded'>):
  * states it met, so *start the task* and *that attempt has closed* stop looking
  * like the same answer.
  */
-function declarationResponse(result: DeclarationOutcome): {
+function declarationResponse(result: DeclarationOutcome | RuntimeDeclarationOutcome): {
   recorded: boolean
   reason: DeclarationRefusal | null
+  attachedTo: DeclarationTarget | null
 } {
   return result.outcome === 'recorded'
-    ? { recorded: true, reason: null }
-    : { recorded: false, reason: result.reason }
+    ? { recorded: true, reason: null, attachedTo: result.attachedTo }
+    : { recorded: false, reason: result.reason, attachedTo: null }
 }
 
 /**
@@ -910,17 +912,12 @@ export async function declareRuntime(
 
   const result = await guidance.declareRuntime(agentId, id.data, parsed.data)
 
-  return {
-    outcome: 'recorded',
-    response: {
-      ...declarationResponse(result),
-      // Which attempt took it (`#248`). Reported rather than silent: a
-      // declaration that landed on the attempt that just closed is a different
-      // fact about when the citizen spoke, and on a synchronously verified rung
-      // it is the ordinary one.
-      attachedTo: result.outcome === 'recorded' ? result.attachedTo : null,
-    },
-  }
+  // Where it landed (`#248`, widened by `#481`). Reported rather than silent: a
+  // declaration that landed on the attempt that just closed is a different fact
+  // about when the citizen spoke, and on a synchronously verified rung it is the
+  // ordinary one — while `task` says the Colony kept a declaration from a
+  // citizen that never got an attempt open at all.
+  return { outcome: 'recorded', response: declarationResponse(result) }
 }
 
 /**

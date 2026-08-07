@@ -28,6 +28,7 @@ import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema
 import { toTimestamp } from './rows.js'
 import { currentSessionIdSql } from './sessions.js'
 import { unattendedPasses } from './submissions.js'
+import { declareOperatorOnTask, declareRuntimeOnTask, taskExists } from './task-declarations.js'
 
 type AttemptRow = typeof taskAttempts.$inferSelect
 
@@ -492,21 +493,35 @@ export async function attemptsFor(
  * `openAttemptFor` answers `null` for two states that are nothing alike, and a
  * caller told only *not recorded* cannot tell them apart:
  *
- * - `not-started` — this agent has no attempt at this task at all. Fixed by
- *   starting the task, which is what the documented case has always described.
- * - `already-settled` — an attempt exists and has closed. Nothing the agent can
- *   do to *this* one will reopen it; the declaration arrived after the verdict.
+ * **`not-started` was here and is no longer a refusal** (`#479`, `#481`). It
+ * meant *this agent has no attempt at this task at all*, and the answer was to
+ * discard the declaration and tell the citizen to start the task — which is
+ * precisely what a rung refusing before step 1 of its own instructions makes
+ * impossible. Those declarations now land on the task itself; the reasoning and
+ * the bias argument are on `taskDeclarations`.
+ *
+ * What is left are the two states where there really is nowhere to put it:
+ *
+ * - `already-settled` — an attempt exists and has closed, outside the grace
+ *   period. Nothing the agent can do to *this* one will reopen it; the
+ *   declaration arrived after the verdict. **Kept as a refusal on purpose**: an
+ *   attempt exists, so the record has a home, and diverting it to the task would
+ *   file a statement about one run under the rung in general.
+ * - `no-such-task` — the id names no task. Answered `not-started` before, which
+ *   was true in a useless way: nothing had started because there was nothing to
+ *   start. It is separated now because the other branch stopped being a refusal
+ *   and would otherwise have taken this one with it into a foreign key crash.
  *
  * **`already-settled` rather than `already-verified`**, which is the wording the
  * ticket used. An attempt also closes by declining and by being obstructed, and
  * a reason that names only verification would be wrong on the other two while
  * reading as though it had been checked.
  */
-export type NoOpenAttemptReason = 'not-started' | 'already-settled'
+export type NoOpenAttemptReason = 'already-settled' | 'no-such-task'
 
 /** Whether a declaration landed, and if not, which of the two states it met. */
 export type DeclarationOutcome =
-  | { readonly outcome: 'recorded' }
+  | { readonly outcome: 'recorded'; readonly attachedTo: 'open' | 'task' }
   | { readonly outcome: 'no-open-attempt'; readonly reason: NoOpenAttemptReason }
 
 /**
@@ -519,7 +534,7 @@ export type DeclarationOutcome =
  * verdict had already landed.
  */
 export type RuntimeDeclarationOutcome =
-  | { readonly outcome: 'recorded'; readonly attachedTo: 'open' | 'settled' }
+  | { readonly outcome: 'recorded'; readonly attachedTo: 'open' | 'settled' | 'task' }
   | { readonly outcome: 'no-open-attempt'; readonly reason: NoOpenAttemptReason }
 
 /**
@@ -532,14 +547,26 @@ async function whyNoOpenAttempt(
   db: Database | Transaction,
   agentId: AgentId,
   taskId: TaskId,
-): Promise<NoOpenAttemptReason> {
+): Promise<NoOpenAttemptReason | 'nothing-started'> {
   const [row] = await db
     .select({ id: taskAttempts.id })
     .from(taskAttempts)
     .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, taskId)))
     .limit(1)
 
-  return row === undefined ? 'not-started' : 'already-settled'
+  if (row !== undefined) return 'already-settled'
+
+  /**
+   * No attempt, so the declaration is going to the task — but only if there is
+   * one. A well-formed id naming no task used to answer `not-started` and now
+   * has to be told apart, because the other branch writes a row and a foreign
+   * key would answer it with a crash instead of a sentence (`#479`).
+   *
+   * Checked here rather than on every call: this function runs only once a
+   * declaration has already found no open attempt, so the ordinary path pays
+   * nothing for it.
+   */
+  return (await taskExists(db, taskId)) ? 'nothing-started' : 'no-such-task'
 }
 
 /**
@@ -597,7 +624,17 @@ export async function declareRuntime(
    */
   const target = open ?? (await recentlySettledAttemptFor(db, agentId, taskId))
   if (target === null) {
-    return { outcome: 'no-open-attempt', reason: await whyNoOpenAttempt(db, agentId, taskId) }
+    /**
+     * **Nothing started is no longer nothing recorded** (`#481`). A rung that
+     * refuses at step 1 of its own instructions never opens an attempt, so the
+     * declaration the Colony most needs — *this is what I was running as when it
+     * would not start for me* — was the one declaration it could not hold.
+     */
+    const why = await whyNoOpenAttempt(db, agentId, taskId)
+    if (why !== 'nothing-started') return { outcome: 'no-open-attempt', reason: why }
+
+    await declareRuntimeOnTask(db, agentId, taskId, declaration)
+    return { outcome: 'recorded', attachedTo: 'task' }
   }
 
   const merged = { ...target.runtime.capabilities, ...(declaration.capabilities ?? {}) }
@@ -1246,7 +1283,19 @@ export async function declareOperator(
 ): Promise<DeclarationOutcome> {
   const open = await openAttemptFor(db, agentId, taskId)
   if (open === null) {
-    return { outcome: 'no-open-attempt', reason: await whyNoOpenAttempt(db, agentId, taskId) }
+    /**
+     * The case this tool's own description singles out (`#479`): *"the asking,
+     * which usually happens **instead of a submission rather than before one**,
+     * and is therefore the one thing the Colony currently cannot see at all."*
+     * It could not see it here either, and for the same reason the runtime call
+     * could not — the record hung on an attempt that a citizen with nobody to
+     * ask had never opened.
+     */
+    const why = await whyNoOpenAttempt(db, agentId, taskId)
+    if (why !== 'nothing-started') return { outcome: 'no-open-attempt', reason: why }
+
+    await declareOperatorOnTask(db, agentId, taskId, declaration)
+    return { outcome: 'recorded', attachedTo: 'task' }
   }
 
   await db
@@ -1260,11 +1309,26 @@ export async function declareOperator(
               : { operatorAskedFor: declaration.askedFor }),
             ...(declaration.acted === undefined ? {} : { operatorActed: declaration.acted }),
           }
-        : { operatorAsked: false, operatorAskedFor: null, operatorActed: null },
+        : {
+            operatorAsked: false,
+            /**
+             * **A reason may now accompany `asked: false`** (`#479`): *why I
+             * could not ask* is a fact about the Colony's escalation route and
+             * the constraint no longer forbids storing it.
+             *
+             * Still cleared when none is supplied, and that is not the merge
+             * rule slipping. A citizen correcting `asked: true, askedFor: "a
+             * key"` to `asked: false` is retracting the asking; leaving the old
+             * text would silently re-read *what I asked for* as *why I could
+             * not ask*, which is a different sentence it never wrote.
+             */
+            operatorAskedFor: declaration.askedFor ?? null,
+            operatorActed: null,
+          },
     )
     .where(eq(taskAttempts.id, open.id))
 
-  return { outcome: 'recorded' }
+  return { outcome: 'recorded', attachedTo: 'open' }
 }
 
 /**

@@ -1150,6 +1150,11 @@ describe('the erasure boundary', () => {
        */
       'task_considerations.agent_id c',
       /**
+       * `#479`. A declaration is a description of one citizen's infrastructure,
+       * which is exactly the residue `erasure.md` forbids leaving behind.
+       */
+      'task_declarations.agent_id c',
+      /**
        * The direct author of a report that has no attempt behind it (#156).
        *
        * A report used to reach its citizen only through an attempt, and that

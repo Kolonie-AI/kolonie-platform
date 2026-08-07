@@ -485,6 +485,14 @@ describe('schema', () => {
          * silence and looked identical to *never came*.
          */
         'task_considerations',
+        /**
+         * `task_declarations` (#479, #481): what a citizen declared about a rung
+         * it never got an attempt open on. Both declaration tools hung on
+         * `task_attempts` and discarded everything from a citizen a rung refused
+         * before step 1 — which biased the comparison toward exactly the
+         * runtimes that were not blocked.
+         */
+        'task_declarations',
         // The four that carry what is known about a task beyond its
         // instructions. `task_hints` and `task_briefings` are the Colony's own
         // voice; `task_reports` and `report_feedback` are citizens', and nothing

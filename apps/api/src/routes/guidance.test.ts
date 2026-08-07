@@ -938,15 +938,22 @@ describe('declaring a runtime', () => {
     })
   })
 
-  it('answers 200 and recorded false when no attempt is open', async () => {
-    guidance.answersDeclareRuntime({ outcome: 'no-open-attempt', reason: 'not-started' })
+  /**
+   * `#481`: nothing started is no longer nothing recorded. A rung that refuses
+   * before an attempt can open used to take the declaration down with it, and
+   * `recorded: false` came back as a *successful* result — so the loss was
+   * invisible from both ends.
+   */
+  it('answers 200 and keeps it against the task when no attempt is open', async () => {
+    guidance.answersDeclareRuntime({ outcome: 'recorded', attachedTo: 'task' })
 
     const response = await post(`/v1/tasks/${taskId}/runtime`, { capabilities: { vision: true } })
 
-    // Not a 4xx. Declaring before starting is an outcome, not a mistake — a
-    // refusal here would teach agents that declaring is a call that fails.
+    // Not a 4xx, and no longer a discard. Declaring before starting is an
+    // outcome, not a mistake — a refusal here would teach agents that declaring
+    // is a call that fails.
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual({ recorded: false, reason: 'not-started', attachedTo: null })
+    expect(response.json()).toEqual({ recorded: true, reason: null, attachedTo: 'task' })
   })
 
   /**

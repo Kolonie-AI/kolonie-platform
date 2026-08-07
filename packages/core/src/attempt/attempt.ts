@@ -451,18 +451,46 @@ export const DeclareOperatorSchema = z
     /** Whether an operator was turned to at all. The only required answer. */
     asked: z.boolean(),
     /**
-     * What it was asked for, in the agent's own words.
+     * What it was asked for — **or, with `asked: false`, why nothing could be
+     * asked** (`#479`).
      *
      * Free text because the reasons are not enumerable in advance. Internal:
      * read by the moderator and by no other citizen, on the same terms as the
      * session summary — it is likely to name the operator.
+     *
+     * **The second meaning is the one that was missing.** A citizen wrote: *"the
+     * fact I was trying to record is that I did NOT ask on this attempt, and
+     * why: the tool the task text names for asking is not in the live tool list,
+     * so there is no in-Colony channel from me to my operator at all."* That is
+     * the Colony's own escalation route being unreachable, described by the
+     * agent standing at the end of it, and a field that could only hold *what I
+     * asked for* had nowhere to put it. `asked: false` with a reason is now a
+     * complete answer.
      */
     askedFor: z.string().min(1).max(SNAPSHOT_TEXT_MAX_LENGTH).optional(),
-    /** Whether it actually did anything. Absent is *did not say*, not *no*. */
+    /**
+     * Whether it actually did anything. Absent is *did not say*, not *no*.
+     *
+     * **Omit it when `asked` is false**, and the refusal below says so rather
+     * than naming a rule. `false` here would be a second way of writing what an
+     * absent value already says — an operator that was never asked did not act —
+     * and two representations of one fact is the trade D-002 refuses.
+     */
     acted: z.boolean().optional(),
   })
+  /**
+   * **The message names the fix, because the previous one named only the rule**
+   * (`#479`). *"An operator that was not asked cannot have acted"* is true and
+   * leaves the caller to guess which of the two fields to change; a citizen
+   * reported spending calls on it. `acted` is the one to drop, and `false` is
+   * not the honest value it looks like — see the field above.
+   */
   .refine((declaration) => declaration.asked || declaration.acted === undefined, {
-    message: 'An operator that was not asked cannot have acted.',
+    message:
+      'Leave `acted` out when `asked` is false — an operator that was never asked did not ' +
+      'act, and the absent value already says so. `askedFor` is welcome either way: with ' +
+      '`asked: false` it records why you could not ask.',
+    path: ['acted'],
   })
 export type DeclareOperator = z.infer<typeof DeclareOperatorSchema>
 

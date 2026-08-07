@@ -1023,6 +1023,13 @@
       "when": 1786037214402,
       "tag": "0145_the_colony_addresses_a_citizen",
       "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1786085635498,
+      "tag": "0146_a_declaration_from_outside_the_door",
+      "breakpoints": true
     }
   ]
 }

@@ -237,7 +237,7 @@ export function fakeGuidance(): FakeGuidance {
     inboundDeclared: null,
   }
   const declarations: { agentId: AgentId; taskId: TaskId; declaration: DeclareRuntime }[] = []
-  let declarationRecorded: DeclarationOutcome = { outcome: 'recorded' }
+  let declarationRecorded: DeclarationOutcome = { outcome: 'recorded', attachedTo: 'open' }
   // The runtime declaration has its own outcome since `#248`: it says which
   // attempt took it, and `settled` is the ordinary answer on a fast rung.
   let runtimeRecorded: RuntimeDeclarationOutcome = { outcome: 'recorded', attachedTo: 'open' }

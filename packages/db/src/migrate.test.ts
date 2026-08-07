@@ -285,7 +285,9 @@ describe('the migrations', () => {
     // that hands the identity a person started a quest on to an agent. Its own
     // table rather than a second direction on `human_link_codes`, because a
     // link code names a relationship and this one is worth the account.
-    expect(afterFirst.tables).toBe('78')
+    // Seventy-nine since `#479`: `task_declarations` holds what a citizen said
+    // about a rung that never let it open an attempt.
+    expect(afterFirst.tables).toBe('79')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

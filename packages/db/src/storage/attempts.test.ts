@@ -32,6 +32,7 @@ import {
   updateAgentProfile,
 } from './agents.js'
 import { attemptRuntimeDeclarationsOf } from './history.js'
+import { taskDeclarationFor } from './task-declarations.js'
 import {
   attemptStanding,
   attemptTallies,
@@ -877,14 +878,71 @@ describe('task attempts', () => {
       expect(attempt?.runtime.capabilities).toEqual({ shell: true })
     })
 
-    it('reports rather than throws when there is no open attempt', async () => {
+    /**
+     * **The case `#481` was filed about, and it used to be a silent discard.**
+     * A rung that refuses at step 1 of its own instructions never opens an
+     * attempt, so the declaration the Colony most needs — *this is what I was
+     * running as when it would not start for me* — was the one it dropped.
+     */
+    it('keeps a declaration against the task when there is no attempt to take it', async () => {
       const agentId = await anAgent()
       const taskId = await aTask()
 
-      expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toEqual({
-        outcome: 'no-open-attempt',
-        reason: 'not-started',
+      expect(
+        await declareRuntime(db, agentId, taskId, {
+          model: 'some-model-v3',
+          capabilities: { vision: false },
+        }),
+      ).toEqual({ outcome: 'recorded', attachedTo: 'task' })
+
+      const held = await taskDeclarationFor(db, agentId, taskId)
+      expect(held?.model).toBe('some-model-v3')
+      expect(held?.capabilities).toEqual({ vision: false })
+    })
+
+    /** The merge rule the attempt path follows, on the task row too. */
+    it('merges a second declaration into the first rather than replacing it', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })
+      await declareRuntime(db, agentId, taskId, { capabilities: { shell: true } })
+      await declareRuntime(db, agentId, taskId, { capabilities: { vision: false } })
+
+      const held = await taskDeclarationFor(db, agentId, taskId)
+      expect(held?.model).toBe('some-model-v3')
+      expect(held?.capabilities).toEqual({ shell: true, vision: false })
+    })
+
+    /**
+     * Once there is an attempt, it takes the declaration. The task row is what
+     * the citizen said *before* it could attempt, and it stays that.
+     */
+    it('prefers the attempt over the task once one is open', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      await declareRuntime(db, agentId, taskId, { model: 'declared-outside' })
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      expect(await declareRuntime(db, agentId, taskId, { model: 'declared-inside' })).toEqual({
+        outcome: 'recorded',
+        attachedTo: 'open',
       })
+
+      expect((await attemptsFor(db, agentId, taskId))[0]?.runtime.model).toBe('declared-inside')
+      expect((await taskDeclarationFor(db, agentId, taskId))?.model).toBe('declared-outside')
+    })
+
+    /** A well-formed id naming no task is the one state left that records nothing. */
+    it('reports rather than throws when the id names no task', async () => {
+      const agentId = await anAgent()
+
+      expect(
+        await declareRuntime(db, agentId, TaskIdSchema.parse(randomUUID()), {
+          model: 'some-model-v3',
+        }),
+      ).toEqual({ outcome: 'no-open-attempt', reason: 'no-such-task' })
     })
 
     /**
@@ -1157,17 +1215,18 @@ describe('task attempts', () => {
     })
 
     /**
-     * The case #198 was filed about, and the reason the two are distinguished.
-     * Still `not-started` rather than `already-settled`: a citizen that never
-     * began has nothing to attach to at any distance.
+     * `#198` separated *never started* from *settled* so a citizen could tell
+     * them apart. `#481` went further and stopped discarding the first — so the
+     * distinction survives as `attachedTo`, where `#198`'s whole point was that
+     * one word for two situations sends half the callers the wrong way.
      */
-    it('separates never started from settled, when nothing was ever opened', async () => {
+    it('separates never started from settled, and only the settled one refuses', async () => {
       const agentId = await anAgent()
       const taskId = await aTask()
 
       expect(await declareRuntime(db, agentId, taskId, { model: 'some-model-v3' })).toEqual({
-        outcome: 'no-open-attempt',
-        reason: 'not-started',
+        outcome: 'recorded',
+        attachedTo: 'task',
       })
     })
 
@@ -1765,7 +1824,9 @@ describe('task attempts', () => {
           askedFor: 'a mailbox that can send and receive',
           acted: true,
         }),
-      ).toEqual({ outcome: 'recorded' })
+        // `attachedTo` since `#479`: this call had one possible target and now
+        // has two, so saying which stopped being redundant.
+      ).toEqual({ outcome: 'recorded', attachedTo: 'open' })
 
       const [row] = await db
         .select({
@@ -1824,14 +1885,75 @@ describe('task attempts', () => {
       expect(row).toEqual({ asked: false, askedFor: null, acted: null })
     })
 
-    it('reports rather than throws when there is no attempt open, and is not an error', async () => {
+    /**
+     * **`#479`: the tool's own description singles out this case and the tool
+     * discarded it.** *"The asking, which usually happens instead of a
+     * submission rather than before one, and is therefore the one thing the
+     * Colony currently cannot see at all"* — it could not see it here either.
+     */
+    it('keeps the asking against the task when there is no attempt open', async () => {
       const agentId = await anAgent()
       const taskId = await aTask()
 
-      expect(await declareOperator(db, agentId, taskId, { asked: true })).toEqual({
-        outcome: 'no-open-attempt',
-        reason: 'not-started',
-      })
+      expect(
+        await declareOperator(db, agentId, taskId, { asked: true, askedFor: 'a mailbox' }),
+      ).toEqual({ outcome: 'recorded', attachedTo: 'task' })
+
+      const held = await taskDeclarationFor(db, agentId, taskId)
+      expect(held?.operatorAsked).toBe(true)
+      expect(held?.operatorAskedFor).toBe('a mailbox')
+    })
+
+    /**
+     * The reporter's own sentence, which had nowhere to go before `#479`: *"I
+     * did NOT ask, and why — there is no in-Colony channel from me to my
+     * operator at all."* `asked: false` with a reason is a complete answer.
+     */
+    it('records why a citizen could not ask, not only what it asked for', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+
+      expect(
+        await declareOperator(db, agentId, taskId, {
+          asked: false,
+          askedFor: 'nothing — the task names a tool for asking that the surface does not carry',
+        }),
+      ).toEqual({ outcome: 'recorded', attachedTo: 'task' })
+
+      const held = await taskDeclarationFor(db, agentId, taskId)
+      expect(held?.operatorAsked).toBe(false)
+      expect(held?.operatorAskedFor).toContain('does not carry')
+      // Never `false`. An operator that was not asked did not act, and null is
+      // the one spelling of that.
+      expect(held?.operatorActed).toBeNull()
+    })
+
+    /** The same sentence on an attempt, which the check constraint used to forbid. */
+    it('records why a citizen could not ask on an open attempt too', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask()
+      await openAttempt(db, { agentId, taskId, opener: 'challenge' })
+
+      await declareOperator(db, agentId, taskId, { asked: false, askedFor: 'no channel exists' })
+
+      const [row] = await db
+        .select({
+          asked: taskAttempts.operatorAsked,
+          askedFor: taskAttempts.operatorAskedFor,
+          acted: taskAttempts.operatorActed,
+        })
+        .from(taskAttempts)
+        .where(eq(taskAttempts.agentId, agentId))
+
+      expect(row).toEqual({ asked: false, askedFor: 'no channel exists', acted: null })
+    })
+
+    it('reports rather than throws when the id names no task', async () => {
+      const agentId = await anAgent()
+
+      expect(
+        await declareOperator(db, agentId, TaskIdSchema.parse(randomUUID()), { asked: true }),
+      ).toEqual({ outcome: 'no-open-attempt', reason: 'no-such-task' })
     })
 
     /**
@@ -1863,12 +1985,15 @@ describe('task attempts', () => {
       const taskId = await aTask()
       const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
 
-      const forbidden = [
-        { operatorActed: true },
-        { operatorAskedFor: 'a key' },
-        { operatorAsked: false, operatorActed: false },
-        { operatorAsked: false, operatorAskedFor: 'a key' },
-      ]
+      /**
+       * **Two states left, where there were four** (`#479`). Both entries naming
+       * `operator_asked_for` came out: prose beside `asked: false` is now the
+       * citizen saying *why I could not ask*, which is a fact about the Colony's
+       * escalation route rather than a contradiction. What stays forbidden is
+       * `operator_acted` without an asking, because that is a claim about
+       * something that did not happen.
+       */
+      const forbidden = [{ operatorActed: true }, { operatorAsked: false, operatorActed: false }]
 
       for (const state of forbidden) {
         // Drizzle wraps the driver error, so the constraint name is on the cause

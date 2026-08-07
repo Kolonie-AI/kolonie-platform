@@ -43,6 +43,7 @@ import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole, recordingLog, type RecordingLog } from '../__fixtures__/console.js'
+import { fakeSettings } from '../__fixtures__/settings.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
@@ -69,14 +70,17 @@ let session: string
 let agentId: string
 let console_: ReturnType<typeof fakeConsole>
 let humans_: ReturnType<typeof fakeHumans>
+let settings_: ReturnType<typeof fakeSettings>
 
 beforeEach(async () => {
   store = fakeStore()
   quests = fakeQuests()
   console_ = { ...fakeConsole(), consoleUrl: CONSOLE_URL }
   humans_ = fakeHumans()
+  settings_ = fakeSettings()
   app = buildApp({
     humans: humans_,
+    settings: settings_,
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: console_,
@@ -1618,5 +1622,222 @@ describe('who arrived and what is waiting', () => {
     expect(response.statusCode).toBe(404)
     expect(response.body).not.toContain('newest-arrival')
     expect(response.body).not.toContain('waiting the longest')
+  })
+})
+
+/**
+ * `#489`, against D-104. A maintainer could not change a setting without editing
+ * the deploy host and restarting a container.
+ *
+ * The table, the `on conflict` and the audit row are `packages/db`'s and are
+ * asserted there. What is asserted here is what the surface owes: one form per
+ * value, the source line, validation before the write, clearing as its own act,
+ * and the whole section absent for anybody without the role.
+ */
+describe('the settings a maintainer turns', () => {
+  const aMaintainer = async () => {
+    const { human } = await humans_.store.findOrCreate({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    humans_.store.maintains(human.id)
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+    return cookie
+  }
+
+  const backend = (cookie: string) =>
+    app.inject({
+      method: 'GET',
+      url: '/backend',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${cookie}`,
+      },
+    })
+
+  const set = (cookie: string, name: string, value: string) =>
+    app.inject({
+      method: 'POST',
+      url: `/backend/settings/${name}`,
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${cookie}`,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: `value=${encodeURIComponent(value)}`,
+    })
+
+  const clear = (cookie: string, name: string) =>
+    app.inject({
+      method: 'POST',
+      url: `/backend/settings/${name}/clear`,
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${cookie}`,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: '',
+    })
+
+  it('lists every setting with a sentence, not just its name', async () => {
+    const body = (await backend(await aMaintainer())).body
+
+    expect(body).toContain('Settings')
+    expect(body).toContain('POLL_INTERVAL_MS')
+    // `MODERATION_MODEL` means nothing at two in the morning; the sentence is
+    // what the issue asks for and this is it.
+    expect(body).toContain('How long a runner waits between passes over its queue')
+  })
+
+  /**
+   * **Where the value comes from** — the one `#489` calls easy to leave out.
+   * Under D-104 the database always wins, so this line is what tells a
+   * maintainer their value is *still* the environment's.
+   */
+  it('says whether each value is the database’s or the environment’s', async () => {
+    const cookie = await aMaintainer()
+    settings_.environment('TRIAGE_MODEL', 'someone/a-model')
+    settings_.overrides('POLL_INTERVAL_MS', '30000')
+
+    const body = (await backend(cookie)).body
+
+    expect(body).toContain('From the environment')
+    expect(body).toContain('This is what is in effect')
+  })
+
+  it('sets one value and comes back to the page', async () => {
+    const cookie = await aMaintainer()
+
+    const response = await set(cookie, 'POLL_INTERVAL_MS', '45000')
+
+    expect(response.statusCode).toBe(303)
+    expect(response.headers['location']).toBe('/backend')
+    expect(settings_.written()).toEqual([
+      expect.objectContaining({ name: 'POLL_INTERVAL_MS', value: '45000' }),
+    ])
+  })
+
+  /**
+   * **Validated against the same schema the reader uses, before the write.** A
+   * poll interval of `0` is something a text box will happily accept and a
+   * runner will not survive.
+   */
+  it('refuses a value the runner would not survive, and writes nothing', async () => {
+    const cookie = await aMaintainer()
+
+    const response = await set(cookie, 'POLL_INTERVAL_MS', '0')
+
+    expect(response.statusCode).toBe(400)
+    expect(settings_.written()).toEqual([])
+    // And says what was wrong, on the page they are already looking at.
+    expect(response.body).toContain('POLL_INTERVAL_MS')
+    expect(response.body).toContain('greater than zero')
+  })
+
+  it('refuses a model name that is not a model reference', async () => {
+    const cookie = await aMaintainer()
+
+    const response = await set(cookie, 'TRIAGE_MODEL', 'not a model')
+
+    expect(response.statusCode).toBe(400)
+    expect(settings_.written()).toEqual([])
+  })
+
+  /**
+   * **A name outside the allow-list is refused, not unsupported** (D-104). The
+   * console's 404 rather than an error naming what it is not — a message
+   * confirming that `DATABASE_URL` is *not a setting* is still a message about
+   * `DATABASE_URL`.
+   */
+  it('refuses a name that is not a setting at all', async () => {
+    const cookie = await aMaintainer()
+
+    for (const name of ['DATABASE_URL', 'CLOUDFLARE_EMAIL_SEND_TOKEN', 'PORT']) {
+      const response = await set(cookie, name, 'anything')
+      expect(response.statusCode).toBe(404)
+    }
+    expect(settings_.written()).toEqual([])
+  })
+
+  /**
+   * **Clearing is its own action and its own POST**, because putting a value
+   * back is not the same as writing the old number — the old number may itself
+   * have been an override.
+   */
+  it('clears one back to the environment’s value', async () => {
+    const cookie = await aMaintainer()
+    settings_.overrides('POLL_INTERVAL_MS', '30000')
+
+    const response = await clear(cookie, 'POLL_INTERVAL_MS')
+
+    expect(response.statusCode).toBe(303)
+    expect(settings_.cleared()).toEqual(['POLL_INTERVAL_MS'])
+  })
+
+  /** The clear button is offered only where there is something to clear. */
+  it('offers the clear form only for an overridden setting', async () => {
+    const cookie = await aMaintainer()
+
+    const before = (await backend(cookie)).body
+    expect(before).not.toContain('/backend/settings/POLL_INTERVAL_MS/clear')
+
+    settings_.overrides('POLL_INTERVAL_MS', '30000')
+    const after = (await backend(cookie)).body
+    expect(after).toContain('/backend/settings/POLL_INTERVAL_MS/clear')
+  })
+
+  /**
+   * **One form and one POST per value.** A page-wide save writes every setting
+   * on it, so a stale tab loaded before somebody else's change silently reverts
+   * it — which is the failure this shape exists to make impossible.
+   */
+  it('gives each setting its own form and its own action', async () => {
+    const body = (await backend(await aMaintainer())).body
+
+    expect(body).toContain('action="/backend/settings/POLL_INTERVAL_MS"')
+    expect(body).toContain('action="/backend/settings/TRIAGE_MODEL"')
+  })
+
+  describe('for somebody without the role', () => {
+    const aPerson = async () => {
+      const { human } = await humans_.store.findOrCreate({
+        provider: 'github',
+        subject: `subject-${randomUUID()}`,
+        email: 'someone@example.test',
+      })
+      const { session: cookie } = await humans_.store.openSession(human.id, {})
+      return cookie
+    }
+
+    /** *Absent rather than read-only for them*, which is the issue's wording. */
+    it('reaches none of it', async () => {
+      const cookie = await aPerson()
+
+      expect((await backend(cookie)).statusCode).toBe(404)
+      expect((await set(cookie, 'POLL_INTERVAL_MS', '45000')).statusCode).toBe(404)
+      expect((await clear(cookie, 'POLL_INTERVAL_MS')).statusCode).toBe(404)
+      expect(settings_.written()).toEqual([])
+    })
+
+    it('cannot write one with an agent’s key either', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/backend/settings/POLL_INTERVAL_MS',
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'application/json',
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        },
+        payload: { value: '45000' },
+      })
+
+      expect(response.statusCode).toBe(404)
+      expect(settings_.written()).toEqual([])
+    })
   })
 })

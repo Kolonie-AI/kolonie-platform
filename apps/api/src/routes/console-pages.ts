@@ -767,20 +767,105 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * Reads the same `colonyNumbers()` the steward's page reads — one function,
    * two pages, so the two cannot disagree about the same figure.
    */
-  app.get('/backend', async (request, reply) => {
-    const held = await maintainer(request, reply)
-    if (held === null) return reply
-
+  /** The page, assembled — used by the route and by every redirect back to it. */
+  const renderBackend = async (request: FastifyRequest, reply: FastifyReply, notice?: string) => {
     const numbers = await deps.quests.numbers()
     // Two live queries beside the aggregates, each carrying its own moment
     // (`#487`). Not folded into `ColonyNumbers`: that object is aggregates
     // entirely, and showing individuals is a change of kind rather than one
     // more figure.
     const sections = await deps.quests.backendSections()
+    const settings = await deps.settings.effective()
 
     return wantsHtml(request)
-      ? html(reply, backendPage({ numbers, sections }))
-      : reply.send({ numbers, ...sections })
+      ? html(reply, backendPage({ numbers, sections, settings, notice }))
+      : reply.send({
+          numbers,
+          ...sections,
+          settings: settings.map((setting) => ({
+            name: setting.definition.name,
+            group: setting.definition.group,
+            describes: setting.definition.describes,
+            value: setting.value ?? null,
+            source: setting.source,
+            changedAt: setting.changedAt ?? null,
+          })),
+        })
+  }
+
+  app.get('/backend', async (request, reply) => {
+    const held = await maintainer(request, reply)
+    if (held === null) return reply
+
+    return await renderBackend(request, reply)
+  })
+
+  /**
+   * Set one value (`#489`).
+   *
+   * **One setting per POST**, never a page-wide save: a stale tab loaded before
+   * somebody else's change would silently revert it.
+   *
+   * Validation is `writeSetting`'s, against the definition's own schema rather
+   * than a looser one written for the form — and it happens **before the row is
+   * written** rather than at the next loop, which is where a poll interval of
+   * `0` would otherwise be discovered.
+   */
+  app.post('/backend/settings/:name', async (request, reply) => {
+    const held = await maintainer(request, reply)
+    if (held === null) return reply
+
+    const { name } = request.params as { name?: string }
+    const body = (request.body ?? {}) as { value?: unknown }
+
+    const outcome = await deps.settings.write({
+      name: name ?? '',
+      value: typeof body.value === 'string' ? body.value : '',
+      by: held.id,
+    })
+
+    if (outcome.outcome === 'unknown-setting') {
+      // Refused, not *unsupported* (D-104). A name that is not in the allow-list
+      // gets the console's 404 rather than an error naming what it is not.
+      reply.callNotFound()
+      return reply
+    }
+
+    if (outcome.outcome === 'invalid') {
+      return wantsHtml(request)
+        ? await renderBackend(request, reply.status(400), `${name ?? ''}: ${outcome.reason}`)
+        : reply
+            .status(ERROR_STATUS['validation_failed'])
+            .send({ code: 'validation_failed', message: outcome.reason })
+    }
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', '/backend').send()
+      : reply.status(200).send({ name, written: true })
+  })
+
+  /**
+   * And put one back to the environment's value.
+   *
+   * **A distinct action from writing the old number back**, because the old
+   * number may itself have been an override — and this is the recovery path for
+   * a maintainer who does not remember what it was.
+   */
+  app.post('/backend/settings/:name/clear', async (request, reply) => {
+    const held = await maintainer(request, reply)
+    if (held === null) return reply
+
+    const { name } = request.params as { name?: string }
+    const outcome = await deps.settings.clear({ name: name ?? '', by: held.id })
+
+    if (outcome.outcome === 'unknown-setting') {
+      reply.callNotFound()
+      return reply
+    }
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', '/backend').send()
+      : reply.status(200).send({ name, cleared: outcome.outcome === 'cleared' })
   })
 
   /**

@@ -48,6 +48,7 @@ import type { VisionDependencies } from './vision.js'
 import type { WebServerDependencies } from './web-server.js'
 import type { WebsiteDependencies } from './website.js'
 import type { CitizenRecords } from './citizens.js'
+import type { SettingsDesk } from './settings.js'
 
 /**
  * What a deployment hands `buildApp`.
@@ -175,6 +176,14 @@ export interface AppDependencies {
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`). */
   readonly quests: QuestDesk
+  /**
+   * The settings a maintainer may turn without a deploy (`#489`, D-104).
+   *
+   * Optional here and defaulted in `buildApp` to a desk with no overrides, for
+   * the reason `noSettings` gives: most tests build an app and never touch a
+   * setting. `server.ts` passes the real one.
+   */
+  readonly settings?: SettingsDesk | undefined
   /** The way in: deposit addresses, the webhook and the reconciliation (`#219`). */
   readonly deposits: DepositDependencies
   /** Where handed-in results go. Same reasoning — see `submissions.ts`. */

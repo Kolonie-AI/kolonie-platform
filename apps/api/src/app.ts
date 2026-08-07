@@ -80,6 +80,7 @@ import { registerMcpRoutes } from './routes/mcp.js'
 import { registerOpenApiRoute } from './routes/openapi.js'
 import type { RegisteredRoute } from './openapi/document.js'
 import { rateLimited } from './registration.js'
+import { noSettings } from './settings.js'
 import { reachabilityLimiter, registrationLimiter } from './rate-limit.js'
 import { DEFAULT_SKILL_RELEASES } from './skill-releases.js'
 
@@ -104,6 +105,7 @@ export function buildApp({
   store,
   catalogue,
   quests,
+  settings = noSettings(),
   deposits,
   submissions,
   guidance,
@@ -346,6 +348,7 @@ export function buildApp({
     store,
     catalogue,
     quests,
+    settings,
     deposits,
     submissions,
     guidance,

@@ -115,6 +115,17 @@ export const AuthorityActionSchema = z.enum([
    * override exists so that honesty does not require a new account.
    */
   'funding-source-overridden',
+  /**
+   * A maintainer changed a setting without a deploy (`#489`, D-104).
+   *
+   * Recorded here rather than on the settings row, on the rule
+   * `authority_events` already states: a setting is the same shape as a
+   * permission — the value says what it is now and nothing about who decided
+   * that or when.
+   */
+  'setting-changed',
+  /** And put one back to the environment's value, which is a distinct act. */
+  'setting-cleared',
 ])
 export type AuthorityAction = z.infer<typeof AuthorityActionSchema>
 

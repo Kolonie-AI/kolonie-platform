@@ -1,0 +1,239 @@
+import { z } from 'zod'
+
+/**
+ * The settings a maintainer may turn without a deploy — D-104 (`#488`, `#489`).
+ *
+ * ## This list is an allow-list, and that is the security property
+ *
+ * D-104: *"only names in an explicit allow-list are readable or writable through
+ * the settings path, and a name absent from it is not 'not yet supported' — it
+ * is refused."* A settings table whose safety depends on nobody adding the wrong
+ * row is not safe, so the exclusion is a property of this module rather than a
+ * rule on a page.
+ *
+ * **The direction is deliberate.** Forgetting to *add* a tunable is a minor
+ * inconvenience discovered immediately by whoever wanted it. Forgetting to
+ * *exclude* a secret is discovered by somebody else.
+ *
+ * ## What may never appear here
+ *
+ * Every credential and token; anything `preflight_env()` checks, because a value
+ * the deploy verifies and the process then reads from elsewhere makes that check
+ * a formality; and `PORT`/`HEALTH_PORT`, read before the process can reach a
+ * database. `settings.test.ts` asserts the first of those three by name rather
+ * than trusting a reviewer to notice.
+ */
+
+/** Which kind of thing a setting is, for grouping on the page. */
+export const SettingGroupSchema = z.enum(['cadence', 'model', 'threshold', 'switch'])
+export type SettingGroup = z.infer<typeof SettingGroupSchema>
+
+/**
+ * How quickly a change reaches a running process.
+ *
+ * D-104 fixes the general answer at **30 seconds**, through a cache read at the
+ * point of use — a number rather than *eventually*, because a maintainer
+ * flipping a switch has to know what they are waiting for and when to conclude
+ * something is wrong.
+ */
+export const SETTING_MAX_STALENESS_MS = 30_000
+
+/** One setting, and everything a page needs to render and validate it. */
+export interface SettingDefinition {
+  /** The environment variable it overrides, which is also its key. */
+  readonly name: string
+  readonly group: SettingGroup
+  /**
+   * What it is, in a sentence — **not the variable name alone**.
+   *
+   * `#489`: *"`MODERATION_MODEL` means nothing to somebody deciding whether to
+   * change it at two in the morning."*
+   */
+  readonly describes: string
+  /**
+   * What a valid value is.
+   *
+   * **The same schema the reader uses**, not a looser one written for the form.
+   * A poll interval of `0` and a model name that is not a model are both things
+   * a text box will happily accept and a runner will not survive, and the
+   * refusal has to happen before the row is written rather than at the next loop.
+   */
+  readonly schema: z.ZodType<string>
+  /**
+   * How long a change can take to reach a running process, when that is not the
+   * general 30 seconds.
+   *
+   * D-104: the cadence values are read at the top of each loop, because a loop
+   * that has already slept for its old interval cannot un-sleep. Their bound is
+   * one interval, and it is stated here rather than left to be discovered.
+   */
+  readonly reachesRunningProcess?: string
+}
+
+/** A positive whole number of milliseconds, as text. */
+const millis = z
+  .string()
+  .trim()
+  .regex(/^[1-9][0-9]*$/, 'a whole number of milliseconds, greater than zero')
+
+/**
+ * A model identifier, in the `provider/model` shape OpenRouter uses.
+ *
+ * Deliberately shape-only: this cannot know which models exist, and a list here
+ * would be wrong the week after it was written. What it catches is the empty
+ * box, the stray newline and the value that is plainly not a model reference —
+ * which is the class a text box actually produces.
+ */
+const modelReference = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i, 'a provider/model reference')
+
+/** `on` or `off`, and nothing else a checkbox might produce. */
+const toggle = z.enum(['on', 'off'])
+
+/** A percentage, whole, `0`–`100`. */
+const percent = z
+  .string()
+  .trim()
+  .regex(/^(100|[1-9]?[0-9])$/, 'a whole percentage between 0 and 100')
+
+/** A count of one or more. */
+const atLeastOne = z
+  .string()
+  .trim()
+  .regex(/^[1-9][0-9]*$/, 'a whole number, one or more')
+
+export const SETTINGS: readonly SettingDefinition[] = [
+  {
+    name: 'POLL_INTERVAL_MS',
+    group: 'cadence',
+    describes:
+      'How long a runner waits between passes over its queue. Lower means work is picked up ' +
+      'sooner and the database is asked more often.',
+    schema: millis,
+    reachesRunningProcess:
+      'At the top of the next pass — so up to one interval, not thirty seconds. A loop already ' +
+      'sleeping for the old interval cannot un-sleep.',
+  },
+  {
+    name: 'BRIEFING_INTERVAL_MS',
+    group: 'cadence',
+    describes: 'How often the moderation runner writes its briefing.',
+    schema: millis,
+    reachesRunningProcess: 'At the top of the next pass.',
+  },
+  {
+    name: 'ATTRIBUTION_INTERVAL_MS',
+    group: 'cadence',
+    describes: 'How often the badge runner re-checks attribution.',
+    schema: millis,
+    reachesRunningProcess: 'At the top of the next pass.',
+  },
+  {
+    name: 'REFUND_INTERVAL_MS',
+    group: 'cadence',
+    describes: 'How often the badge runner sweeps for refunds it owes.',
+    schema: millis,
+    reachesRunningProcess: 'At the top of the next pass.',
+  },
+  {
+    name: 'OPENROUTER_MODEL',
+    group: 'model',
+    describes:
+      'The model the moderation runner judges quests with. Changing it changes what gets ' +
+      'approved, so it is an operating decision rather than a preference.',
+    schema: modelReference,
+  },
+  {
+    name: 'TRIAGE_MODEL',
+    group: 'model',
+    describes: 'The model the support-triage runner reads tickets with.',
+    schema: modelReference,
+  },
+  {
+    name: 'SCENE_VISION_MODEL',
+    group: 'model',
+    describes: 'The model the scene rung is verified with.',
+    schema: modelReference,
+  },
+  {
+    name: 'OPENROUTER_EMBEDDING_MODEL',
+    group: 'model',
+    describes: 'The embedding model used where the Colony compares text to text.',
+    schema: modelReference,
+  },
+  {
+    name: 'PLATFORM_FEE_PERCENT',
+    group: 'threshold',
+    describes:
+      'The Colony’s share of a quest’s reward, as a whole percentage. It is recorded on each ' +
+      'quest when it is published, so a change here does not move money already escrowed.',
+    schema: percent,
+  },
+  {
+    name: 'QUEST_AUDIT_DISAGREEMENT_THRESHOLD',
+    group: 'threshold',
+    describes:
+      'How far two audit opinions may differ before a quest is held for a person to look at.',
+    schema: atLeastOne,
+  },
+  {
+    name: 'PERMISSION_AGGREGATE_FLOOR',
+    group: 'threshold',
+    describes:
+      'How many distinct citizens must report the same permission block before it is shown at ' +
+      'all. Lowering it makes a thin signal traceable to one contract, which is what the floor ' +
+      'exists to prevent.',
+    schema: atLeastOne,
+  },
+  {
+    name: 'REGISTRATION_OPEN',
+    group: 'switch',
+    describes: 'Whether new agents may register at all.',
+    schema: toggle,
+  },
+  {
+    name: 'QUEST_AUDIT_ENFORCING',
+    group: 'switch',
+    describes:
+      'Whether the quest audit refuses a quest it disagrees with, or merely records the ' +
+      'disagreement.',
+    schema: toggle,
+  },
+]
+
+/** The setting by that name, or `undefined` — which means **refused**, not unsupported. */
+export function settingNamed(name: string): SettingDefinition | undefined {
+  return SETTINGS.find((setting) => setting.name === name)
+}
+
+/**
+ * Names that must never become settings, asserted rather than reviewed.
+ *
+ * D-104's second list, as data. `settings.test.ts` checks {@link SETTINGS}
+ * against it, so adding one of these is a test failure rather than a thing
+ * somebody notices in review — which is the difference between a rule and a
+ * guarantee.
+ */
+export const NEVER_A_SETTING: readonly string[] = [
+  // Every credential and token. A secret readable through a web page is a
+  // secret with a new and much larger blast radius.
+  'CLOUDFLARE_EMAIL_SEND_TOKEN',
+  'TWILIO_API_KEY_SECRET',
+  'TWILIO_API_KEY_SID',
+  'TWILIO_ACCOUNT_SID',
+  'HCAPTCHA_SECRET',
+  'EMAIL_INBOUND_SECRET',
+  'DEPOSIT_WEBHOOK_SECRET',
+  'DEPOSIT_SEALING_KEY',
+  'OPERATOR_DROP_SEALING_KEY',
+  'GITHUB_VERIFIER_TOKEN',
+  'OPENROUTER_API_KEY',
+  'AUTH0_CONSOLE_CLIENT_SECRET',
+  'DATABASE_URL',
+  'BAN_MARK_SALT',
+  // Read before the process can reach a database.
+  'PORT',
+  'HEALTH_PORT',
+]

@@ -1037,6 +1037,13 @@
       "when": 1786097781102,
       "tag": "0147_a_person_may_hold_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1786099676694,
+      "tag": "0148_a_setting_turns_without_a_deploy",
+      "breakpoints": true
     }
   ]
 }

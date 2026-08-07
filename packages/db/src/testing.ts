@@ -430,7 +430,12 @@ export async function truncateAll(db: Database): Promise<void> {
     // it (`#425`): a person is not an agent, so nothing in the cascade below
     // reaches one. `human_identities` and `human_sessions` follow it through
     // their own foreign keys, so naming the account is enough.
-    sql`truncate table log_defects, humans, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
+    //
+    // `settings` is the third (`#489`): its key is a variable name and it points
+    // at nothing, so no cascade reaches it. Left out, an override written by one
+    // test is still in effect in the next — which reads as a precedence bug in
+    // whichever test happens to run after it rather than as leakage.
+    sql`truncate table log_defects, humans, settings, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
   )
 }
 

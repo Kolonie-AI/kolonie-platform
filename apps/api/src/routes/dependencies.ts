@@ -47,6 +47,7 @@ import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
+import type { SettingsDesk } from '../settings.js'
 
 /**
  * Everything a route module needs, as one argument.
@@ -76,6 +77,8 @@ export interface RouteDependencies {
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`). */
   readonly quests: QuestDesk
+  /** The settings a maintainer may turn without a deploy (`#489`, D-104). */
+  readonly settings: SettingsDesk
   /** The way in (`#219`). */
   readonly deposits: DepositDependencies
   readonly submissions: TaskSubmissions

@@ -1,3 +1,4 @@
+import type { EffectiveSetting } from '@kolonie-ai/db'
 import type { BackendSections, ColonyNumbers } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import { relative } from './time.js'
@@ -39,6 +40,10 @@ export function backendPage(input: {
   readonly numbers: ColonyNumbers
   /** Who arrived and what is waiting (`#487`). */
   readonly sections: BackendSections
+  /** Every setting a maintainer may turn without a deploy (`#489`, D-104). */
+  readonly settings: readonly EffectiveSetting[]
+  /** What just happened to a setting, where something did. */
+  readonly notice?: string | undefined
 }): string {
   /**
    * Who arrived, and when.
@@ -84,10 +89,63 @@ export function backendPage(input: {
           '</table>',
         ].join('')
 
+  /**
+   * The settings, one form per value.
+   *
+   * **One value at a time, each its own form and its own POST.** A page-wide
+   * save writes every setting on it, so a stale tab loaded before somebody
+   * else's change would silently revert it.
+   */
+  const settingsSection = input.settings
+    .map((setting) => {
+      const { definition } = setting
+      const identifier = `setting-${definition.name}`
+      const shown = setting.value ?? ''
+
+      /**
+       * **Where the value comes from**, which `#489` calls the one that is easy
+       * to leave out. Under D-104 the database always wins, so this line is what
+       * tells a maintainer their value is *still* the environment's before they
+       * conclude their change did nothing.
+       */
+      const source =
+        setting.source === 'database'
+          ? `Set here${setting.changedAt === undefined ? '' : `, ${escape(relative(setting.changedAt))}`}. This is what is in effect.`
+          : setting.source === 'environment'
+            ? 'From the environment. Nothing has been set here, so the deploy host’s value is in effect.'
+            : 'Neither the environment nor this page has a value. Whatever the code falls back to is in effect.'
+
+      return [
+        `<h3><code>${escape(definition.name)}</code></h3>`,
+        `<p>${escape(definition.describes)}</p>`,
+        `<p class="note">${source}</p>`,
+        ...(definition.reachesRunningProcess === undefined
+          ? ['<p class="note">A change reaches a running process within 30 seconds (D-104).</p>']
+          : [`<p class="note">${escape(definition.reachesRunningProcess)}</p>`]),
+        `<form method="post" action="/backend/settings/${escape(definition.name)}">`,
+        `<label for="${escape(identifier)}">Value</label>`,
+        `<input id="${escape(identifier)}" name="value" type="text" autocomplete="off" value="${escape(shown)}" required>`,
+        '<button type="submit">Set it</button>',
+        '</form>',
+        // Clearing is its own action and its own POST: putting a value back is
+        // not the same as writing the old number, which may itself have been an
+        // override.
+        ...(setting.source === 'database'
+          ? [
+              `<form method="post" action="/backend/settings/${escape(definition.name)}/clear">`,
+              '<button type="submit">Put it back to the environment’s value</button>',
+              '</form>',
+            ]
+          : []),
+      ].join('\n')
+    })
+    .join('\n')
+
   return page({
     title: 'The Colony, from the inside',
     body: [
       '<h1>The Colony, from the inside</h1>',
+      ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
       /**
        * Says what the page is for and what it is not. A maintainer arriving here
        * for the first time should not have to work out whether this is the same
@@ -105,6 +163,11 @@ export function backendPage(input: {
       '<h2>Waiting to be read</h2>',
       `<p class="note">Open tickets, <strong>oldest first</strong> — the one at the top has waited longest. Read at ${escape(input.sections.tickets.computedAt)}. This section shows the queue; answering a ticket is not something this page does.</p>`,
       tickets,
+      '<h2>Settings</h2>',
+      '<p class="note">Changing one of these does not need a deploy. What is <strong>not</strong> ' +
+        'here cannot be put here: every credential, everything the deploy checks for, and the ' +
+        'ports — D-104 makes that an allow-list in the code rather than a rule on a page.</p>',
+      settingsSection,
     ].join('\n'),
   })
 }

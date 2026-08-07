@@ -414,6 +414,13 @@ describe('schema', () => {
          * table for one reason: the moment it is read. A skill is used
          * afterwards, in work that has nothing to do with the examination.
          */
+        /**
+         * `settings` — the values a maintainer may turn without a deploy
+         * (`#489`, D-104). A row is an **override**: absence means the
+         * environment's value, which is why the table is empty on a fresh
+         * database rather than seeded with one row per known setting.
+         */
+        'settings',
         'skill_notes',
         /**
          * `sms_sends` joined with the phone rungs (`#409`). One row per message

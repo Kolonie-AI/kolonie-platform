@@ -16,6 +16,7 @@ import {
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
+import { databaseSettings } from './settings.js'
 import { databaseDeposits } from './deposits.js'
 import { DEPOSIT_RPC_URL_VAR, httpDepositWatcher } from './deposit-watcher.js'
 import { databaseCatalogue } from './tasks.js'
@@ -400,6 +401,7 @@ const app = buildApp({
     readMany: (agentId, skills) => readSkillNotes(db, agentId, skills),
   },
   quests: databaseQuests(db, questAuditPolicy()),
+  settings: databaseSettings(db),
   /**
    * The way in (`#219`).
    *

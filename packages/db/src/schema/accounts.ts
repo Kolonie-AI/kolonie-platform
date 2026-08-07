@@ -152,6 +152,25 @@ export const accounts = pgTable(
      */
     forWork: boolean('for_work').notNull().default(true),
 
+    /**
+     * Whether a stranger may ask the Colony about this account (`#519`).
+     *
+     * **Default false, and opt-in is the opposite choice from `for_work` above** —
+     * deliberately, because the two answer different questions. Matching decides what
+     * *the Colony* offers a citizen, and an axis nobody opted into finds nothing.
+     * Attestation decides what the Colony says about a citizen **to somebody else**,
+     * and answering about an account that never agreed to be answered about is
+     * publishing something the citizen did not publish.
+     *
+     * D-039's posture is that standing is climbed rather than assigned, and a
+     * certificate nobody asked for is a record. So a citizen turns this on per account,
+     * and until it does the Colony answers a stranger exactly as it answers one asking
+     * about an address nobody holds.
+     *
+     * **The citizen's alone.** No Colony code path writes it.
+     */
+    attestable: boolean('attestable').notNull().default(false),
+
     note: text('note'),
 
     /**

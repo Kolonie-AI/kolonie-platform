@@ -79,6 +79,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
     status: 'in-use',
     preferred: false,
     forWork: true,
+    attestable: false,
     note: null,
     vaultKey: null,
     provenance: 'self-acquired',
@@ -164,6 +165,13 @@ export function fakeAccountRegister(): FakeAccountRegister {
       const row = own(agentId, accountId)
       if (row === undefined) return { outcome: 'not_found' }
       row.vaultKey = vaultKey
+      return { outcome: 'updated', account: strip(row) }
+    },
+
+    async setAttestable(agentId, accountId, attestable) {
+      const row = own(agentId, accountId)
+      if (row === undefined) return { outcome: 'not_found' }
+      row.attestable = attestable
       return { outcome: 'updated', account: strip(row) }
     },
 

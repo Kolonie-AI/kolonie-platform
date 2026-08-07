@@ -1,0 +1,1 @@
+ALTER TABLE "accounts" ADD COLUMN "attestable" boolean DEFAULT false NOT NULL;

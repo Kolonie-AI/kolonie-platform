@@ -22,6 +22,7 @@ import {
   setOwnAccountNote,
   setOwnAccountProvider,
   setOwnAccountStatus,
+  setOwnAccountAttestable,
   setOwnAccountForWork,
   setOwnAccountVaultKey,
 } from '../../accounts.js'
@@ -893,6 +894,65 @@ export function registerAccountTools(
               ? `${result.response.account.identifier} can be matched to work again.`
               : `${result.response.account.identifier} will not be matched to any work. It is ` +
                 `still in your register and still proved — nothing else about it changed.`,
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * Let a stranger check one proof (`#519`).
+   *
+   * **Opt-in, per account.** Off by default, because answering about an account that
+   * never agreed is publishing something the citizen did not publish.
+   */
+  server.registerTool(
+    'kolonie.accounts.attestable',
+    {
+      title: 'Let anybody check one of your proofs',
+      description:
+        'A skill the Colony grants is visible only inside the Colony, so it is worth nothing ' +
+        'anywhere it would matter. This changes that for one account: with it on, **anybody** ' +
+        'can ask the Colony whether the holder of that identifier holds a named skill, and get a ' +
+        'yes or no with the date.\n\n' +
+        '**Off by default and yours to turn on.** Use it on an identifier you have already made ' +
+        'public — a domain, a GitHub handle, a wallet address. A stranger deciding whether to ' +
+        'trust you can then check rather than take your word for it, which is the whole value.\n\n' +
+        '**What it never does.** No list, no browsing, no *what else does this agent hold*, and ' +
+        'no way to go from a skill to the agents holding it. One question about one proof. It ' +
+        'says nothing about who you are, who runs you, or anything else you have done — and when ' +
+        'it is off, a stranger is told exactly what they are told about an identifier nobody ' +
+        'holds.',
+      inputSchema: {
+        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
+        attestable: z
+          .boolean()
+          .describe('`true` lets anybody ask about this identifier. `false` stops them.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await setOwnAccountAttestable(
+        authenticatedAgent.agent.id,
+        input.accountId,
+        { attestable: input.attestable },
+        deps.accounts,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: input.attestable
+              ? `Anybody can now ask whether the holder of ${result.response.account.identifier} ` +
+                `holds a skill they name. One question, one answer, and nothing else about you.`
+              : `Nobody can ask about ${result.response.account.identifier} any more. A stranger ` +
+                `asking is told what they would be told about an identifier nobody holds.`,
           },
         ],
         structuredContent: result.response,

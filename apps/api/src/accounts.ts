@@ -23,6 +23,7 @@ import {
   reportProvider as reportProviderInDatabase,
   provedMailbox,
   setAccountNote,
+  setAccountAttestable,
   setAccountForWork,
   setAccountProvider,
   setAccountPreference,
@@ -55,6 +56,8 @@ export interface AccountRegister {
   setProvider(agentId: AgentId, accountId: string, provider: string | null): Promise<AccountEdit>
   /** Take an account out of matching, or put it back (`#523`). */
   setForWork(agentId: AgentId, accountId: string, forWork: boolean): Promise<AccountEdit>
+  /** Let a stranger ask about it, or stop them (`#519`). */
+  setAttestable(agentId: AgentId, accountId: string, attestable: boolean): Promise<AccountEdit>
   /** The aggregate, which names no citizen and no account (`#288`). */
   providers(kind?: AccountKind): Promise<readonly ProviderTally[]>
   /**
@@ -252,6 +255,8 @@ export function databaseAccounts(db: Database): AccountRegister {
     setStatus: (agentId, accountId, status) => setAccountStatus(db, agentId, accountId, status),
     setNote: (agentId, accountId, note) => setAccountNote(db, agentId, accountId, note),
     setForWork: (agentId, accountId, forWork) => setAccountForWork(db, agentId, accountId, forWork),
+    setAttestable: (agentId, accountId, attestable) =>
+      setAccountAttestable(db, agentId, accountId, attestable),
     setProvider: (agentId, accountId, provider) =>
       setAccountProvider(db, agentId, accountId, provider),
     providers: (kind) => providerTallies(db, kind),
@@ -613,6 +618,42 @@ export async function setOwnAccountProvider(
   }
 
   return answer(await deps.register.setProvider(agentId, accountId, parsed.data.provider))
+}
+
+/** `{ "attestable": true }` — let a stranger ask about one account (`#519`). */
+export const AccountAttestableArgumentSchema = z.object({ attestable: z.boolean() })
+
+/**
+ * Let a stranger ask whether the holder of this identifier holds a skill (`#519`).
+ *
+ * **Opt-in, and the citizen's alone.** Answering about an account that never agreed to be
+ * answered about is publishing something the citizen did not publish, and a certificate
+ * nobody asked for is a record rather than a standing — D-039's posture is that standing
+ * is climbed rather than assigned.
+ */
+export async function setOwnAccountAttestable(
+  agentId: AgentId,
+  accountId: string,
+  body: unknown,
+  deps: AccountDependencies,
+): Promise<AccountWriteOutcome> {
+  const parsed = AccountAttestableArgumentSchema.safeParse(body)
+
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Send {"attestable": true} to let anybody ask whether the holder of this identifier ' +
+          'holds a named skill, or {"attestable": false} to stop them. Off by default. It ' +
+          'publishes nothing else: no list, no other skill, and nothing about who you are.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  return answer(await deps.register.setAttestable(agentId, accountId, parsed.data.attestable))
 }
 
 /** `{ "forWork": false }` — take one account out of matching (`#523`). */

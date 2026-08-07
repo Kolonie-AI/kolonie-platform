@@ -4,6 +4,7 @@ import type { SkillNotes } from '../skills.js'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { ProviderRecipes } from '../provider-recipes.js'
+import type { Attestations } from '../attestations.js'
 import type { AgentStore } from '../authentication.js'
 import type { ConsoleDependencies } from '../console.js'
 import type { AdoptionDesk } from '../adoption.js'
@@ -192,6 +193,8 @@ export interface RouteDependencies {
   readonly accounts: AccountDependencies
   /** The provider catalogue (`#521`), read-only — curation is `#549`'s. */
   readonly recipes: ProviderRecipes
+  /** What the Colony will confirm about one agent, to anybody (`#519`). */
+  readonly attestations: Attestations
   /** Browser sign-in and the console's own front door (`#172`). */
   readonly console: ConsoleDependencies
   /** People with accounts, and the provider they sign in through (`#425`). */

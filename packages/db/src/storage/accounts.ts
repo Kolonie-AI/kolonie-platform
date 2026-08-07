@@ -514,6 +514,20 @@ export async function setAccountForWork(
   return editOwn(db, agentId, accountId, { forWork })
 }
 
+/**
+ * Let a stranger ask about this account, or stop them (`#519`).
+ *
+ * The citizen's alone, like `status` and `for_work`.
+ */
+export async function setAccountAttestable(
+  db: Database,
+  agentId: AgentId,
+  accountId: string,
+  attestable: boolean,
+): Promise<AccountEdit> {
+  return editOwn(db, agentId, accountId, { attestable })
+}
+
 export async function setAccountVaultKey(
   db: Database,
   agentId: AgentId,
@@ -742,6 +756,8 @@ async function editOwn(
     provider: string | null
     /** Whether this account may be matched to work (`#523`). The citizen's own. */
     forWork: boolean
+    /** Whether a stranger may ask about it (`#519`). The citizen's own. */
+    attestable: boolean
   }>,
 ): Promise<AccountEdit> {
   const [row] = await db
@@ -807,6 +823,7 @@ function toAccount(row: typeof accounts.$inferSelect): Account {
     status: row.status,
     preferred: row.preferred,
     forWork: row.forWork,
+    attestable: row.attestable,
     note: row.note,
     vaultKey: row.vaultKey,
     provider: row.provider,

@@ -1,6 +1,7 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import type { ProviderRecipes } from './provider-recipes.js'
+import type { Attestations } from './attestations.js'
 import {
   API_BASE_PATH,
   DEFAULT_RHYTHM_BOUNDS,
@@ -18,6 +19,7 @@ import { registerIndexRoute } from './routes/index.js'
 import { registerToolDocsRoutes } from './routes/tool-docs.js'
 import { registerAcademyGraphRoute } from './routes/academy-graph.js'
 import { registerCitizenRoutes } from './routes/citizens.js'
+import { registerAttestationRoutes } from './routes/attestations.js'
 import type { CitizenRecords } from './citizens.js'
 import { registerAgentRoutes } from './routes/agents.js'
 import { registerMeRoute } from './routes/me.js'
@@ -153,6 +155,7 @@ export function buildApp({
   dropBaseUrl = '',
   accounts,
   recipes,
+  attestations,
   console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
   skillReleases = DEFAULT_SKILL_RELEASES,
@@ -354,6 +357,11 @@ export function buildApp({
     one: async () => undefined,
   }
 
+  /** A colony that confirms nothing is the true answer in one with no citizens (`#519`). */
+  const publicAttestations: Attestations = attestations ?? {
+    answer: async () => ({ holds: false, grantedAt: null, accountProvedBy: null }),
+  }
+
   const routes: RouteDependencies = {
     log,
     citizens: citizenRecords,
@@ -412,6 +420,7 @@ export function buildApp({
     dropBaseUrl,
     accounts,
     recipes: providerCatalogue,
+    attestations: publicAttestations,
     console: consoleDeps,
     rhythm,
     skillReleases,
@@ -466,6 +475,7 @@ export function buildApp({
       registerToolDocsRoutes(v1, routes)
       registerAcademyGraphRoute(v1, routes)
       registerCitizenRoutes(v1, routes)
+      registerAttestationRoutes(v1, routes)
       registerAgentRoutes(v1, routes)
       registerMeRoute(v1, routes)
       registerProfileRoute(v1, routes)

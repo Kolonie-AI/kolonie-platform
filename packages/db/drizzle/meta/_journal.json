@@ -1142,6 +1142,13 @@
       "when": 1786144666555,
       "tag": "0162_a_question_carries_its_key",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1786145638689,
+      "tag": "0163_a_stranger_may_check_one_proof",
+      "breakpoints": true
     }
   ]
 }

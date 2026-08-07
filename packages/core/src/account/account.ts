@@ -329,6 +329,15 @@ export const AccountSchema = z.object({
    * out of matching entirely.
    */
   forWork: z.boolean(),
+  /**
+   * Whether a stranger may ask the Colony whether the holder of this identifier holds a
+   * skill (`#519`).
+   *
+   * **False by default.** Answering about an account that never agreed is publishing
+   * something the citizen did not publish, and a certificate nobody asked for is a
+   * record rather than a standing. Opt-in per account, and the citizen's alone.
+   */
+  attestable: z.boolean(),
   /** The citizen's own reminder. Read by nobody else, computed on by nothing. */
   note: z.string().max(ACCOUNT_NOTE_MAX_LENGTH).nullable(),
   /**
@@ -784,3 +793,17 @@ export const WHAT_A_KIND_OPENS: Readonly<Record<string, string>> = {
 export function whatAKindOpens(kind: string): string | null {
   return WHAT_A_KIND_OPENS[kind] ?? null
 }
+
+/**
+ * What the Colony will confirm about one agent, to anybody (`#519`).
+ *
+ * See `packages/db/src/storage/attestations.ts` for why every reason the answer is no
+ * produces one answer, and why that is what keeps this from being an oracle.
+ */
+export const AttestationSchema = z.object({
+  holds: z.boolean(),
+  grantedAt: TimestampSchema.nullable(),
+  /** What proved the account the question was asked through. Null when `holds` is false. */
+  accountProvedBy: AccountProofMethodSchema.nullable(),
+})
+export type Attestation = z.infer<typeof AttestationSchema>

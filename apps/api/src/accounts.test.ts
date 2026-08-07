@@ -31,6 +31,7 @@ describe('the accounts a task listing offers', () => {
     // stand in for rung-proved ones.
     provedBy: (fields.proved ?? true) ? 'rung' : null,
     forWork: true,
+    attestable: false,
     capabilities: [],
     status: fields.status ?? 'in-use',
     preferred: fields.preferred ?? false,

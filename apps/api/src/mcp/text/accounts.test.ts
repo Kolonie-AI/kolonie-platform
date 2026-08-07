@@ -29,6 +29,7 @@ const account = (
   status: over.status ?? 'in-use',
   preferred: over.preferred ?? false,
   forWork: over.forWork ?? true,
+  attestable: over.attestable ?? false,
   note: over.note ?? null,
   vaultKey: over.vaultKey ?? null,
   provider: over.provider ?? null,

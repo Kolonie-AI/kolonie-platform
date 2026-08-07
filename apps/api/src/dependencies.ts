@@ -3,6 +3,7 @@ import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { ProviderRecipes } from './provider-recipes.js'
+import type { Attestations } from './attestations.js'
 import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
 import type { AdoptionDesk } from './adoption.js'
@@ -312,6 +313,13 @@ export interface AppDependencies {
    * nobody has written an entry.
    */
   readonly recipes?: ProviderRecipes
+  /**
+   * What the Colony will confirm about one agent, to anybody (`#519`).
+   *
+   * Optional and resolved in `app.ts`, like `recipes`: a colony with no citizens
+   * confirms nothing, which is the true answer in it.
+   */
+  readonly attestations?: Attestations
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
   readonly console: ConsoleDependencies
   /**

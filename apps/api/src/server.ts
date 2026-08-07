@@ -87,6 +87,7 @@ import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { databaseAccountProofs } from './account-proofs.js'
 import { databaseProviderRecipes } from './provider-recipes.js'
+import { databaseAttestations } from './attestations.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import { skillReleasesFromEnv } from './skill-releases.js'
 import type { RecordObstruction } from './obstruction.js'
@@ -709,6 +710,8 @@ const app = buildApp({
   // citizen's own rows.
   /** The provider catalogue (`#521`). Its own object because it names no citizen. */
   recipes: databaseProviderRecipes(db),
+  /** What the Colony will confirm about one agent, to anybody (`#519`). */
+  attestations: databaseAttestations(db),
   accounts: {
     register: databaseAccounts(db),
     resolution: databaseAccountResolution(db),

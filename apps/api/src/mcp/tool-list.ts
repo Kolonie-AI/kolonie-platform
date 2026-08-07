@@ -273,6 +273,15 @@ export const AUTHENTICATED_TOOLS = [
    * half of `#523` is an argument on `kolonie.tasks.list` rather than a tool of its own.
    */
   'kolonie.accounts.for-work',
+  /**
+   * Letting a stranger check one proof (`#519`).
+   *
+   * Opt-in and per account, beside `for-work` because both are the citizen deciding what
+   * the register may be used for — and opposite in default for the reason the column
+   * comments give: matching decides what the Colony offers *it*, attestation decides what
+   * the Colony says about it to *somebody else*.
+   */
+  'kolonie.accounts.attestable',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

@@ -1071,6 +1071,16 @@ describe('the erasure boundary', () => {
        * unlike a canonical report's `confirmations` there is nothing to rebuild
        * inside this transaction.
        */
+      /**
+       * What the Colony owes a citizen for an accepted report (`#505`).
+       * **Nulls, and a check refuses to null an *outstanding* one.** A settled
+       * obligation loses the name and stays as the Colony's record of what it
+       * paid; an unsettled one cannot, so an erasure that would drop a debt
+       * fails instead. `erasure.md` requires the amount to be paid before
+       * deletion where it clears the chain minimum and forfeited to the Treasury
+       * where it does not — this is the backstop under that, not a substitute.
+       */
+      'payout_obligations.agent_id n',
       'permission_reports.agent_id c',
       'pow_challenges.agent_id c',
       /** `#298`. Cascades: a report is a citizen's word and goes with the citizen. */

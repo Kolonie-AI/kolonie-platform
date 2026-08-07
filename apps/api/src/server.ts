@@ -24,6 +24,8 @@ import { databaseSettings } from './settings.js'
 import { databaseDeposits } from './deposits.js'
 import { DEPOSIT_RPC_URL_VAR, httpDepositWatcher } from './deposit-watcher.js'
 import { databasePayments } from './payments.js'
+import { databasePayouts, payoutConfigurationRefusal } from './payouts.js'
+import { httpPayoutChain } from './payout-chain.js'
 import { PAYMENT_RPC_URL_VAR, httpPaymentWatcher } from './payment-watcher.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
@@ -388,6 +390,38 @@ const autonomyStore = databaseAutonomyStore(db)
  */
 const payoutWalletAddress = colonyWallet()
 
+/**
+ * The payout ceilings, or nothing — D-106 (`#505`).
+ *
+ * **Read from the environment at startup and refused if half-set.** They are
+ * settings (D-104) as well, so a maintainer turns them without a deploy; what
+ * the environment supplies is the boot default, and a deployment that has a
+ * wallet and no ceilings is one that would pay without a limit. Absent
+ * altogether means this deployment does not pay at all, which is every
+ * environment that is not production.
+ */
+const payoutCeilings = (():
+  { readonly perTransaction: number; readonly perDay: number } | undefined => {
+  const perTransaction = numericEnv('PAYOUT_MAX_LAMPORTS')
+  const perDay = numericEnv('PAYOUT_DAILY_MAX_LAMPORTS')
+
+  if (perTransaction === undefined && perDay === undefined) return undefined
+
+  const refusal = payoutConfigurationRefusal({ perTransaction, perDay })
+  if (refusal !== undefined) throw new Error(refusal)
+
+  return { perTransaction: perTransaction as number, perDay: perDay as number }
+})()
+
+/** A whole number from the environment, or nothing. Never a silent zero. */
+function numericEnv(name: string): number | undefined {
+  const raw = process.env[name]?.trim()
+  if (raw === undefined || raw === '') return undefined
+
+  const value = Number(raw)
+  return Number.isSafeInteger(value) ? value : Number.NaN
+}
+
 const app = buildApp({
   registry: databaseRegistry(db),
   /**
@@ -467,6 +501,29 @@ const app = buildApp({
           ...(process.env['DEPOSIT_WEBHOOK_SECRET'] !== undefined && {
             webhookSecret: process.env['DEPOSIT_WEBHOOK_SECRET'],
           }),
+        },
+      }),
+  /**
+   * Paying citizens, one accepted report at a time (`#505`).
+   *
+   * Present only where the Colony can actually pay: a wallet, an endpoint and
+   * both ceilings. **The ceilings are read at startup and the process refuses to
+   * run with either unset** — a ceiling that defaults to infinity is not a
+   * ceiling, and payouts are automatic, immediate and otherwise unbounded.
+   */
+  ...(payoutWalletAddress === undefined || payoutCeilings === undefined
+    ? {}
+    : {
+        payouts: {
+          desk: databasePayouts(db),
+          wallet: {
+            address: payoutWalletAddress,
+            secret: process.env[PAYOUT_WALLET_SECRET_VAR]?.trim() ?? '',
+          },
+          ceilings: payoutCeilings,
+          ...(process.env[PAYMENT_RPC_URL_VAR]?.trim()
+            ? { chain: httpPayoutChain(process.env[PAYMENT_RPC_URL_VAR].trim()) }
+            : {}),
         },
       }),
   submissions: databaseSubmissions(db),

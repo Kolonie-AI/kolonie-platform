@@ -109,6 +109,7 @@ export function buildApp({
   settings = noSettings(),
   deposits,
   payments,
+  payouts,
   submissions,
   guidance,
   support,
@@ -461,7 +462,7 @@ export function buildApp({
       registerDepositRoutes(v1, routes)
       // Mounted only where a wallet is configured: a deployment that cannot take
       // money should not advertise a route that would answer as though it could.
-      if (payments !== undefined) registerPaymentRoutes(v1, payments, routes.log)
+      if (payments !== undefined) registerPaymentRoutes(v1, payments, routes.log, payouts)
       registerAcademyRoutes(v1, routes)
       registerEmailRoutes(v1, routes)
       registerSmsRoutes(v1, routes)

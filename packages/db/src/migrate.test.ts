@@ -294,7 +294,9 @@ describe('the migrations', () => {
     // **Eighty-one** (`#503`, D-106): `colony_payments`, what arrived at the
     // Colony's own wallet and whose it was. The number goes *down* again at
     // `#506`, which removes the two deposit tables this one replaces.
-    expect(afterFirst.tables).toBe('81')
+    // **Eighty-two** (`#505`): `payout_obligations`, what is owed to a citizen
+    // for an accepted report and whether the chain has taken the transfer.
+    expect(afterFirst.tables).toBe('82')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

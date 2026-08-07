@@ -9,6 +9,7 @@ import {
   settlePaymentDelivery,
   type PaymentDependencies,
 } from '../payments.js'
+import { runPayouts, type PayoutDependencies } from '../payouts.js'
 
 /**
  * Money arriving at the Colony's own wallet — D-106 (`#503`).
@@ -26,6 +27,7 @@ export function registerPaymentRoutes(
   v1: FastifyInstance,
   payments: PaymentDependencies,
   log: Log,
+  payouts?: PayoutDependencies,
 ): void {
   const secret = payments.webhookSecret
   if (secret === undefined || secret.trim() === '') return
@@ -121,6 +123,48 @@ export function registerPaymentRoutes(
    * citizen's business: a quarantined payment belongs to whoever sent it, and
    * listing it to agents would be an invitation to claim one.
    */
+  /**
+   * Pay every citizen the Colony owes — D-106 (`#505`).
+   *
+   * **Beside the reconciliation rather than on a clock of its own**, because the
+   * two are one subject: a pass over money in and money out. The caller is the
+   * same timer, and it runs this second — money that has just been recognised
+   * may be what a payout is waiting on.
+   *
+   * `POST` because it moves money. It is idempotent: an obligation is settled
+   * once, by an update that requires it to still be unpaid, so a timer firing
+   * twice pays nobody twice.
+   */
+  v1.post('/payouts/run', async (request, reply) => {
+    if (!webhookAuthorised(request.headers['authorization'], secret)) {
+      return reply.status(ERROR_STATUS[WEBHOOK_REFUSED.code]).send(WEBHOOK_REFUSED)
+    }
+
+    if (payouts === undefined) {
+      // A deployment that cannot pay says so once, here, rather than by failing
+      // a unit every quarter of an hour.
+      return reply.send({ considered: 0, paid: 0, lamportsPaid: 0, refused: {}, floatShort: false })
+    }
+
+    const outcome = await runPayouts(payouts)
+
+    /**
+     * **The float running dry is the Colony's failure and must be loud.**
+     * `log.error` and not `info`: a citizen discovering it before the Colony
+     * does is the failure this line exists to prevent.
+     */
+    if (outcome.floatShort) {
+      log.error('the payout wallet holds less than the Colony owes', new Error('float short'), {
+        event: 'payout.float.short',
+        ...outcome,
+      })
+    } else {
+      log.info('a payout pass ran', { event: 'payout.pass', ...outcome })
+    }
+
+    return reply.send(outcome)
+  })
+
   v1.get('/payments/quarantined', async (request, reply) => {
     if (!webhookAuthorised(request.headers['authorization'], secret)) {
       return reply.status(ERROR_STATUS[WEBHOOK_REFUSED.code]).send(WEBHOOK_REFUSED)

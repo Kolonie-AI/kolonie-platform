@@ -41,6 +41,7 @@ import type { PermissionReportDependencies } from './permission-reports.js'
 import type { CredentialRotation } from './rotation.js'
 import type { DepositDependencies } from './deposits.js'
 import type { PaymentDependencies } from './payments.js'
+import type { PayoutDependencies } from './payouts.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { DropStore } from './operator-drops.js'
@@ -198,6 +199,16 @@ export interface AppDependencies {
    * secret and address disagree.
    */
   readonly payments?: PaymentDependencies | undefined
+  /**
+   * Paying citizens what accepted reports owe them (`#505`).
+   *
+   * Optional for the reason `payments` is: a deployment with no wallet, no
+   * endpoint or no ceilings cannot pay, and that is a state every test and every
+   * non-production environment is in. The ceilings in particular are **required
+   * where this is present** — `ceilingsRefusal` is what makes the process refuse
+   * to start rather than pay without a limit.
+   */
+  readonly payouts?: PayoutDependencies | undefined
   /** Where handed-in results go. Same reasoning — see `submissions.ts`. */
   readonly submissions: TaskSubmissions
   /**

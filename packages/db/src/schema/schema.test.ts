@@ -377,6 +377,13 @@ describe('schema', () => {
         'operator_pages',
         'operator_request_messages',
         'operator_requests',
+        /**
+         * What the Colony owes a citizen for an accepted report, and whether it
+         * has paid — D-106 (`#505`). A row exists because a report was accepted
+         * rather than because a payment failed: a debt the Colony cannot find is
+         * the failure this table is for.
+         */
+        'payout_obligations',
         'permission_reports',
         'pow_challenges',
         // `provider_reports` (#298): what a provider did to a citizen that got

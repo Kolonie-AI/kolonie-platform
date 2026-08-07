@@ -3,6 +3,7 @@ import {
   AgentIdSchema,
   isUnattended,
   LedgerTransactionIdSchema,
+  questPayoutSplit,
   rewardFor,
   submissionReference,
   TaskIdSchema,
@@ -25,6 +26,7 @@ import {
   tasks,
 } from '../schema/index.js'
 import { payQuestReport } from './escrow.js'
+import { oweForReport } from './payouts.js'
 import { recordAccountsFromVerdict } from './accounts.js'
 import { promoteIfEarned } from './citizenship.js'
 import { grantRoles } from './roles.js'
@@ -118,6 +120,10 @@ export async function bookTaskReward(
       taskGrantsRoles: tasks.grantsRoles,
       rewardCredits: tasks.rewardCredits,
       rewardReputation: tasks.rewardReputation,
+      // What the report pays in SOL, and the rate the quest was published under
+      // — both read from the row for the reason `feeRateOf` gives (`#505`).
+      rewardLamports: tasks.rewardLamports,
+      platformFeePercent: tasks.platformFeePercent,
       taskKind: tasks.kind,
       proofVerifier: tasks.proofVerifier,
       platform: agents.platform,
@@ -241,6 +247,31 @@ export async function bookTaskReward(
       credits: paid.credits,
       memo,
     })
+
+    /**
+     * The SOL half — D-106 (`#505`).
+     *
+     * **Written here, in the verdict's own transaction, and sent elsewhere.**
+     * What this records is the *obligation*: this citizen is owed this much for
+     * this report. The transfer is the payout runner's, seconds later, because
+     * a verdict that waited on a chain round trip would be a verdict that fails
+     * when an endpoint does — and a report accepted but not recorded as owed is
+     * the debt this whole table exists to make findable.
+     *
+     * `questPayoutSplit` against the rate recorded at publication, so the
+     * citizen's share is computed exactly as the credits path computes it and a
+     * later rate change cannot move the split of a quest already running.
+     */
+    const lamports = row.rewardLamports ?? 0
+    if (lamports > 0) {
+      const { toCitizen } = questPayoutSplit(lamports, row.platformFeePercent ?? 0)
+      await oweForReport(tx, {
+        agentId,
+        taskId: row.taskId as TaskId,
+        submissionId: command.submissionId,
+        lamports: toCitizen,
+      })
+    }
   }
 
   // Generated here rather than by the database: both entries of one booking must

@@ -611,6 +611,30 @@ export function operatorDurablePage(input: {
     'None of what follows was written by it.</p>',
 
     /**
+     * The three-channel rule, where an operator first meets it (`#529`).
+     *
+     * **An operator has to know this before it is asked for anything**, not at the
+     * moment it is holding a token and deciding where to put it. The failure it
+     * prevents is the ordinary one: a person who has been asked a question in a box
+     * and is then asked for a code reaches for whatever chat they already have open
+     * with the agent, because nothing told them there was a sealed box for exactly
+     * that.
+     *
+     * Said as *what the boxes on this page are for* rather than as a rule with a
+     * number, because an operator is not reading a specification — and it is the
+     * same sentence the briefings carry, so an agent and its operator have been told
+     * the same thing.
+     */
+    '<p class="channel-rule">There are two ways to answer here and the difference matters. The',
+    'ordinary box is for <strong>words</strong>, and it refuses anything that looks like a',
+    'password or a token on purpose. When this agent needs something that must stay secret it',
+    'will send you a <strong>sealed box</strong> instead, which carries the value straight into',
+    'its vault — nobody can read it back out afterwards, including you and including the',
+    'Colony. <strong>Please do not send a secret any other way.</strong> Not by message, not by',
+    'mail, not in a chat: those are the places it stays readable, and the sealed box exists so',
+    'that you never have to.</p>',
+
+    /**
      * The two dates, and *last awake* is the line that makes the page feel
      * alive. Kept as prose rather than as tiles: they are not achievements, and
      * a date set at tile size next to a count of skills makes a number that

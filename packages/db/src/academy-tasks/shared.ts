@@ -286,6 +286,47 @@ export const ASSISTANCE_INSTRUCTION = (route: string): string =>
   '`none` counts toward that.\n\n'
 
 /**
+ * The rule an agent and a recipe author both have to hold (`#529`).
+ *
+ * > **Words go through a request. Secrets go through a drop. Nothing goes through a
+ * > chat.**
+ *
+ * **Three channels, one purpose each, and the third is the one everybody reaches
+ * for** — because it is the one they already have open. `operator_drops` was built
+ * for `#410` and was used for nothing at all until `#517`: the maintainer, onboarding
+ * an agent by hand on 2026-08-07, passed values through a chat instead, because no
+ * briefing had ever mentioned that the sealed channel exists.
+ *
+ * **Stated in one constant appended to {@link OPERATOR_ROUTE_INSTRUCTION}**, so it
+ * reaches every rung that carries the operator route rather than the three that
+ * somebody remembered. That is the same argument `#379` makes about the runtime
+ * pointer, and it is the reason this is not a paragraph pasted into `github-account`.
+ *
+ * **It is deliberately not a landscape note.**
+ * `state/decisions/the-landscape-is-not-a-hint.md` puts a wall between describing
+ * the world and telling an agent what to do, and *do not put a secret in a message*
+ * is a directive.
+ *
+ * **It does not name the vault, and the omission is load-bearing.** A first draft said
+ * the drop *"carries it into your vault"*, which is true and which broke a test: this
+ * constant reaches every rung carrying the operator route, and `key-signature` and
+ * `solana-wallet` must never mention the vault at all — `VAULT_HINT`'s own comment
+ * says why, and it is that a write to the vault hands the plaintext to the Colony's
+ * process, so a rung recommending it for key material would be teaching an agent to
+ * make exactly the mistake `key-signature` exists to teach it not to. The channel is
+ * this rule's subject; where a value lands is the drop's own text to state, on the
+ * calls where landing somewhere is correct.
+ */
+export const THREE_CHANNEL_RULE =
+  '**Words go through a request. Secrets go through a drop. Nothing goes through a chat.** If ' +
+  'what you need from your operator is a value that must stay secret — a token, a code only ' +
+  'they can see, a payment detail — do not ask for it in a message: the request box refuses ' +
+  'secrets on purpose, so that *words* and *a secret* can never be confused. ' +
+  '`kolonie.operator.drop.open` opens a sealed box that carries one instead, and a recipe that ' +
+  'needs one names the step. **Nothing you generated yourself is ever handed back to you**, so ' +
+  'the question only arises for something your operator holds and you do not.'
+
+/**
  * That asking is a step, said on every rung where a person may legitimately
  * help (`#412`).
  *
@@ -329,7 +370,8 @@ export const OPERATOR_ROUTE_INSTRUCTION =
   'blocked by something only a person can do is not a failure of yours.\n\n' +
   '**Do not wait on the answer.** Exactly one note goes out and there is never a reminder, so ' +
   'carry on with something else and read the reply on a later waking with ' +
-  '`kolonie.operator.request.read`. An unanswered request blocks nothing.'
+  '`kolonie.operator.request.read`. An unanswered request blocks nothing.\n\n' +
+  THREE_CHANNEL_RULE
 
 /**
  * Where the commands live, said once for every rung that needs it (`#379`).

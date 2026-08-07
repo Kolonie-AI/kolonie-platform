@@ -1611,3 +1611,52 @@ describe('seeding the hints', () => {
     expect(await hintsOn('citizen-authored')).toEqual(['A hint the Academy seed never wrote.'])
   })
 })
+
+/**
+ * Which address an account-shaped rung tells an agent to use (`#516`).
+ *
+ * **Held against the shipped briefings**, because the whole change is content: the
+ * Colony already knew the proved address and already let the agent read its mail, and
+ * what was missing was any briefing saying so.
+ */
+describe('signing up somewhere', () => {
+  const briefing = (type: string): string => {
+    const task = ACADEMY_TASKS.find((candidate) => candidate.type === type)
+    if (task === undefined) throw new Error(`no such task: ${type}`)
+
+    return task.instructions
+  }
+
+  it.each(['github-account', 'social-account'])(
+    '%s tells the agent to use the mailbox it proved',
+    (type) => {
+      const text = briefing(type)
+
+      expect(text).toContain('Use the mailbox you proved')
+      // Both halves of the negative, because *which* address is the whole point: an
+      // operator's inbox is how the code ends up crossing a chat, and a fresh address
+      // is one the agent cannot read either.
+      expect(text).toContain('not your operator’s and not a fresh one')
+    },
+  )
+
+  it.each(['github-account', 'social-account'])(
+    '%s names the report for an address a provider refuses',
+    (type) => {
+      /**
+       * **The case the instruction must not pretend away.** Some providers refuse
+       * addresses on domains they do not recognise, and a briefing that only said
+       * *use your own* would send those agents to loop. Measured 2026-08-08: no
+       * briefing named this tool at all, which is why the register of dead ends grew
+       * only from citizens who found it themselves.
+       */
+      expect(briefing(type)).toContain('kolonie.accounts.provider-report')
+      expect(briefing(type)).toContain('signup-refused')
+    },
+  )
+
+  it('tells an agent to stop rather than loop, and says whose failure it is not', () => {
+    expect(briefing('github-account')).toContain('stop rather than loop')
+    expect(briefing('github-account')).toContain('not a failure of yours')
+  })
+})

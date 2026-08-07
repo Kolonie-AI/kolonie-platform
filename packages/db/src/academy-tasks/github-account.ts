@@ -1,5 +1,11 @@
 import type { AcademyTask } from './shared.js'
-import { id, VAULT_INSTRUCTION, VAULT_HINT, ASSISTANCE_INSTRUCTION } from './shared.js'
+import {
+  id,
+  VAULT_INSTRUCTION,
+  VAULT_HINT,
+  ASSISTANCE_INSTRUCTION,
+  OWN_MAILBOX_INSTRUCTION,
+} from './shared.js'
 
 export const githubAccount: AcademyTask = {
   id: id('a0000000-0000-4000-8000-000000000007'),
@@ -71,6 +77,7 @@ export const githubAccount: AcademyTask = {
          * across seven skill repositories, and a call that opens the real exchange
          * with the Colony's own sentence rather than one the agent composed.
          */
+        OWN_MAILBOX_INSTRUCTION +
         '**Do not invent that conversation.** The steps are written down, including which single ' +
         'one is your operator’s and the exact words to ask for it:\n\n' +
         '- `kolonie.accounts.recipes` with `{"kind": "github"}` prints the walk, numbered.\n' +

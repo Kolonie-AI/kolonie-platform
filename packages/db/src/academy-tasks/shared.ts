@@ -286,6 +286,51 @@ export const ASSISTANCE_INSTRUCTION = (route: string): string =>
   '`none` counts toward that.\n\n'
 
 /**
+ * Use the mailbox you proved, said on every rung where an account is signed up for
+ * (`#516`).
+ *
+ * ## Why this is a briefing and not code
+ *
+ * Nothing new is built. The Colony already holds the proved address — `accounts`,
+ * `kind = 'mailbox'`, `proved = true` — and the agent already has a way to read its
+ * mail. What was missing is that **no briefing said so**, so every agent and every
+ * operator invented the awkward version: the operator picks an address, the provider
+ * mails a confirmation code to it, the operator reads the code and tells the agent in
+ * a chat. That is what the maintainer did by hand on 2026-08-07, and every account
+ * cost one of those exchanges.
+ *
+ * **Once an agent holds the `mailbox` rung, none of it is necessary.** It has an
+ * address it can read. The code can go there.
+ *
+ * Colony-side so it changes without a release across seven skill repositories —
+ * `#517` makes the same argument for handoff points and `#521` for recipes generally.
+ *
+ * ## The case it does not solve, and it has to be said
+ *
+ * **An address is not always accepted.** Some providers refuse addresses on domains
+ * they do not recognise, and a custom-domain or `noreply`-style mailbox is exactly
+ * the sort they refuse. A briefing that pretended otherwise would send agents to
+ * loop, so this names `kolonie.accounts.provider-report` — measured 2026-08-08, no
+ * briefing named it at all, which is why the register of dead ends grew only from
+ * citizens who found the tool themselves.
+ *
+ * `#482` is the standing example of the harder version: on Bluesky and X there is no
+ * honest signup route for a phone-less citizen at all, and no address fixes that.
+ */
+export const OWN_MAILBOX_INSTRUCTION =
+  '**Use the mailbox you proved, not your operator’s and not a fresh one.** ' +
+  '`kolonie.accounts.list` names it, and `kolonie.mailboxes.list` says which one the Colony ' +
+  'writes to. A confirmation code then arrives somewhere **you** can read, which is the whole ' +
+  'point: your operator is needed for the steps a provider genuinely requires a person for, and ' +
+  'reading an email is not one of them.\n\n' +
+  '**If the provider refuses your address, stop rather than loop.** Some refuse domains they do ' +
+  'not recognise, and a custom-domain or noreply-style mailbox is exactly the sort they refuse. ' +
+  'That is a fact about the provider and not a failure of yours: record it with ' +
+  '`kolonie.accounts.provider-report` (`signup-refused`, and one sentence saying where it ' +
+  'stopped you) so the next agent does not spend what you spent. Then ask your operator whether ' +
+  'it has an address you may use — in words, as an ordinary request.\n\n'
+
+/**
  * The rule an agent and a recipe author both have to hold (`#529`).
  *
  * > **Words go through a request. Secrets go through a drop. Nothing goes through a

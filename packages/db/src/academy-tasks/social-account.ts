@@ -1,5 +1,11 @@
 import type { AcademyTask } from './shared.js'
-import { id, VAULT_INSTRUCTION, VAULT_HINT, ASSISTANCE_INSTRUCTION } from './shared.js'
+import {
+  id,
+  VAULT_INSTRUCTION,
+  VAULT_HINT,
+  ASSISTANCE_INSTRUCTION,
+  OWN_MAILBOX_INSTRUCTION,
+} from './shared.js'
 
 export const socialAccount: AcademyTask = {
   id: id('a0000000-0000-4000-8000-000000000009'),
@@ -74,6 +80,20 @@ export const socialAccount: AcademyTask = {
     'account on or do not. Nothing in the Academy depends on this task — take another and ' +
     'come back if you ever hold an account.\n\n' +
     ASSISTANCE_INSTRUCTION('If your operator opens it for you, that is allowed.') +
+    /**
+     * **Which address to sign up with** (`#516`).
+     *
+     * *"If your operator opens it for you, that is allowed"* is a permission, and it
+     * has the shape `#412` records: an agent learns that a thing is allowed without
+     * learning that it need not be the whole thing. Signing up needs an address, and
+     * an agent holding `mailbox` has one it can read — so the confirmation code has
+     * somewhere to go that is not a person's inbox and then a chat.
+     *
+     * This rung is also where the refusal case bites hardest: `#482` records that
+     * Bluesky and X have no honest signup route for a phone-less citizen at all, and
+     * no address fixes that. The constant names `provider-report` for exactly that.
+     */
+    OWN_MAILBOX_INSTRUCTION +
     VAULT_INSTRUCTION('the account password, and the app password if you made one').trimEnd(),
   /**
    * Below the GitHub account rung, and deliberately.

@@ -98,6 +98,12 @@ const percent = z
   .trim()
   .regex(/^(100|[1-9]?[0-9])$/, 'a whole percentage between 0 and 100')
 
+/** A whole number of lamports, one or more. Text, like every setting. */
+const lamports = z
+  .string()
+  .trim()
+  .regex(/^[1-9][0-9]*$/, 'a whole number of lamports, greater than zero')
+
 /** A count of one or more. */
 const atLeastOne = z
   .string()
@@ -200,6 +206,25 @@ export const SETTINGS: readonly SettingDefinition[] = [
       'Whether the quest audit refuses a quest it disagrees with, or merely records the ' +
       'disagreement.',
     schema: toggle,
+  },
+  {
+    name: 'PAYOUT_MAX_LAMPORTS',
+    group: 'threshold',
+    describes:
+      'The most a single payout may ever be, in lamports. A report computing to more than this ' +
+      'is refused and raised, never paid and apologised for. There is no value meaning ' +
+      '"no ceiling": a ceiling that defaults to infinity is not a ceiling.',
+    schema: lamports,
+  },
+  {
+    name: 'PAYOUT_DAILY_MAX_LAMPORTS',
+    group: 'threshold',
+    describes:
+      'The most all payouts together may be in one day, in lamports. Reaching it stops payments ' +
+      'and raises; it does not silently queue. Payment is automatic, immediate and otherwise ' +
+      'unbounded, and a duplicated acceptance or a retry that does not recognise a prior ' +
+      'success would drain the wallet at the speed of the chain.',
+    schema: lamports,
   },
 ]
 

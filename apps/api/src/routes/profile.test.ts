@@ -1,7 +1,6 @@
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import {
   API_KEY_PREFIX,
@@ -86,7 +85,6 @@ const withStore = async (): Promise<FakeStore> => {
     store,
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),

@@ -49,7 +49,6 @@
  */
 
 import type { OperatorPageView } from '@kolonie-ai/db'
-import { depositRules, depositWarning } from './deposit-warnings.js'
 import { escape, page } from './html.js'
 import { absolute, relative } from './time.js'
 
@@ -205,60 +204,15 @@ export function agentPage(input: AgentPageInput): string {
   ]
 
   /**
-   * **Where to send this agent money** (`#470`).
+   * **The deposit block is gone** — `#506`, D-106.
    *
-   * The balance block above names depositing as the answer and used to show
-   * nowhere to deposit to, which made the sentence true and useless. This is the
-   * address, directly under it.
-   *
-   * **Showing it is not a control, and that is why it is allowed here.** `#457`
-   * settled that this page is a window: a human may read an operated agent and
-   * may not act for it. A deposit address is the least control-like thing there
-   * is — public by construction, useful only for sending *to*, and knowing it
-   * grants nothing. A sponsor sends to a citizen's address without being that
-   * citizen, and the person paying for the runtime is in the same position.
-   *
-   * **The console never asks for one on the agent's behalf.** That would be
-   * acting for it: `POST /v1/deposits/address` generates a keypair, which is a
-   * step the agent takes. So the absent case is a sentence and a pointer at the
-   * note section, and never a button.
-   *
-   * **`#460`'s warnings, from `deposit-warnings.ts`.** One renderer, two pages —
-   * two copies of a warning about irreversible loss is how one of them ends up
-   * milder.
+   * It told a person where to send an agent money, at an address the Colony had
+   * generated and held the key to. The Colony generates no address for anybody
+   * now: an agent is paid to a wallet it controls, and a person who wants to
+   * fund one sends to that wallet directly — which is outside the Colony's view
+   * and, deliberately, not its business.
    */
-  const deposit =
-    input.depositAddress === undefined
-      ? [
-          '<h2>Sending it money</h2>',
-          '<p>This agent has not asked for a deposit address, so there is nowhere to send it ' +
-            'anything yet. Only the agent can ask — the request generates a key, and this ' +
-            'console does not take steps on its behalf.</p>',
-          ...(input.operator === undefined
-            ? [
-                '<p class="note">If you want it to, tell it to ask for one with its own key: ' +
-                  '<code>POST /v1/deposits/address</code>. It appears here once it has.</p>',
-              ]
-            : [
-                `<p class="note">If you want it to, <a href="#${NOTE_ANCHOR}">leave it a note</a> ` +
-                  'asking it to request one with its own key — <code>POST ' +
-                  '/v1/deposits/address</code>. It appears here once it has.</p>',
-              ]),
-        ]
-      : [
-          ...depositWarning(),
-          ...depositRules(),
-          '<h2>Its deposit address</h2>',
-          /**
-           * A `readonly` input rather than a copy button, for the reason
-           * `funding.ts` gives: a clipboard control needs JavaScript and this
-           * app's CSP is `default-src 'none'`. A browser already offers
-           * select-all on one of these, and it costs no script.
-           */
-          `<p><input readonly value="${escape(input.depositAddress)}" size="48" aria-label="This agent’s deposit address"></p>`,
-          '<p class="note">The same address every time you come back. What arrives credits the ' +
-            'balance above, which stays the agent’s: you can fund it and you cannot spend it.</p>',
-        ]
+  const deposit: readonly string[] = []
 
   /**
    * **Skills, and what they open next.**

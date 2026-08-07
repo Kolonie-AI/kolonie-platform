@@ -1,7 +1,6 @@
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { CAPABILITY_STAGE, THIRD_PARTY_CHALLENGE_STAGE } from '@kolonie-ai/core'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
@@ -60,7 +59,6 @@ const build = (answer: CaptchaCheck = 'passed') => {
   return buildApp({
     humans: fakeHumans(),
     quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),
@@ -274,7 +272,6 @@ describe('POST /v1/academy/challenges', () => {
     const withoutCaptcha = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -647,7 +644,6 @@ describe('when the gate is not configured', () => {
     buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -740,7 +736,6 @@ describe('when the gate is not configured', () => {
     const disabled = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

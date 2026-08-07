@@ -1,7 +1,6 @@
 import {
   BROWSER_STAGES,
   createLog,
-  DEPOSIT_SEALING_KEY_VAR,
   OPERATOR_DROP_SEALING_KEY_VAR,
   PAYOUT_WALLET_ADDRESS_VAR,
   PAYOUT_WALLET_SECRET_VAR,
@@ -21,8 +20,6 @@ import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
-import { databaseDeposits } from './deposits.js'
-import { DEPOSIT_RPC_URL_VAR, httpDepositWatcher } from './deposit-watcher.js'
 import { databasePayments } from './payments.js'
 import { databasePayouts, payoutConfigurationRefusal } from './payouts.js'
 import { httpPayoutChain } from './payout-chain.js'
@@ -451,31 +448,6 @@ const app = buildApp({
   },
   quests: databaseQuests(db, questAuditPolicy(), payoutWalletAddress),
   settings: databaseSettings(db),
-  /**
-   * The way in (`#219`).
-   *
-   * **The sealing key is read here, at startup, and that placement is the check
-   * rather than a detail of it** — the same argument `banSaltFromEnv` makes. A
-   * process without it must not issue a deposit address whose secret it cannot
-   * seal, and finding that out at the first sponsor's first request is finding
-   * it out in the wrong place.
-   */
-  deposits: {
-    desk: databaseDeposits(db, depositSealingKey()),
-    /**
-     * **Absent means the reconciliation reports zeros, and that is deliberate.**
-     * `RPC_URL` is the one part of the deposit path that degrades rather than
-     * refusing to start: the webhook still credits, and what is lost is only
-     * the recovery of a delivery the webhook missed. Saying so at startup is
-     * better than a job that throws on a schedule (kolonie-infra#72).
-     */
-    ...(process.env[DEPOSIT_RPC_URL_VAR]?.trim()
-      ? { watcher: httpDepositWatcher(process.env[DEPOSIT_RPC_URL_VAR].trim()) }
-      : {}),
-    ...(process.env['DEPOSIT_WEBHOOK_SECRET'] !== undefined && {
-      webhookSecret: process.env['DEPOSIT_WEBHOOK_SECRET'],
-    }),
-  },
   /**
    * The way in after D-106 (`#503`).
    *
@@ -917,24 +889,6 @@ try {
 } catch (error) {
   log.error('kolonie-api failed to start', error, { event: 'service.start.failed' })
   process.exit(1)
-}
-
-/**
- * The key deposit-address secrets are sealed with.
- *
- * **Empty is allowed and is not silently safe**: `depositAddressFor` seals with
- * whatever it is given, and a blank key would seal with a blank key. So an unset
- * variable is refused here rather than accepted — the deposit path is money, and
- * a process that cannot protect a keypair must not generate one.
- */
-function depositSealingKey(): string {
-  const key = process.env[DEPOSIT_SEALING_KEY_VAR] ?? ''
-  if (key.trim().length >= 32) return key
-
-  throw new Error(
-    `${DEPOSIT_SEALING_KEY_VAR} is unset or shorter than 32 characters. It seals the secret ` +
-      'half of every deposit address, and a process that cannot seal one must not generate one.',
-  )
 }
 
 /**

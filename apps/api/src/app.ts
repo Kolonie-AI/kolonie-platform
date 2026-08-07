@@ -24,7 +24,6 @@ import { registerProfileRoute } from './routes/profile.js'
 import { registerErasureRoutes } from './routes/erasure.js'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { registerQuestRoutes } from './routes/quests.js'
-import { registerDepositRoutes } from './routes/deposits.js'
 import { registerPaymentRoutes } from './routes/payments.js'
 import {
   consoleError,
@@ -107,7 +106,6 @@ export function buildApp({
   catalogue,
   quests,
   settings = noSettings(),
-  deposits,
   payments,
   payouts,
   submissions,
@@ -352,7 +350,6 @@ export function buildApp({
     catalogue,
     quests,
     settings,
-    deposits,
     submissions,
     guidance,
     support,
@@ -459,7 +456,6 @@ export function buildApp({
       registerErasureRoutes(v1, routes)
       registerTaskRoutes(v1, routes)
       registerQuestRoutes(v1, routes)
-      registerDepositRoutes(v1, routes)
       // Mounted only where a wallet is configured: a deployment that cannot take
       // money should not advertise a route that would answer as though it could.
       if (payments !== undefined) registerPaymentRoutes(v1, payments, routes.log, payouts)

@@ -7,7 +7,7 @@ import { z } from 'zod'
  * `#219` built the receiving side against a shape designed from what the credit
  * needs — `signature`, `address`, `mint`, `tokenProgram`, `baseUnits`,
  * `commitment` — and no observer emits it. An enhanced Helius webhook delivers
- * an array of transactions carrying `tokenTransfers[]`, and **neither the
+ * an array of transactions carrying `nativeTransfers[]`, and **neither the
  * enhanced nor the raw form carries a token program or a commitment at all**.
  * So the endpoint answered `422` to every delivery a real sender could make.
  *
@@ -22,21 +22,6 @@ import { z } from 'zod'
  * re-read a signature that says nothing, which the reconciliation does hourly
  * anyway.
  */
-
-/**
- * One entry of `tokenTransfers`, as far as this file cares.
- *
- * Everything else Helius sends on the entry — `fromTokenAccount`,
- * `toTokenAccount`, `fromUserAccount`, `tokenAmount`, `tokenStandard` — is
- * ignored rather than parsed. `tokenAmount` in particular is a decimal token
- * amount where the ledger counts base units, and those are different numbers
- * rather than different names for one; reading it would be the beginning of
- * crediting off the payload.
- */
-const HeliusTokenTransferSchema = z.looseObject({
-  /** The wallet that gained the token. A deposit address, when it is one of ours. */
-  toUserAccount: z.string().min(1).max(64).optional(),
-})
 
 /**
  * One entry of `nativeTransfers`, as far as this file cares — D-106 (`#503`).
@@ -61,7 +46,6 @@ const HeliusNativeTransferSchema = z.looseObject({
  */
 const HeliusTransactionSchema = z.looseObject({
   signature: z.string().min(1).max(120),
-  tokenTransfers: z.array(HeliusTokenTransferSchema).optional(),
   nativeTransfers: z.array(HeliusNativeTransferSchema).optional(),
 })
 
@@ -90,50 +74,11 @@ export interface TransferClaim {
 }
 
 /**
- * The claims in one delivery, deduplicated.
- *
- * A transaction that moved USDC through several accounts owned by the same
- * deposit address produces one entry per hop, and re-reading the same signature
- * once per hop would credit nothing extra and cost an RPC call each time. The
- * pair is what identifies the work, so the pair is what is deduplicated.
- *
- * A transaction with no `tokenTransfers` — a SOL transfer, an account creation,
- * anything Helius is configured to send that is not a token movement —
- * contributes nothing and is not an error. A webhook is allowed to be chattier
- * than its reader.
- */
-export function claimsInDelivery(delivery: HeliusDelivery): readonly TransferClaim[] {
-  const seen = new Set<string>()
-  const claims: TransferClaim[] = []
-
-  for (const transaction of delivery) {
-    for (const transfer of transaction.tokenTransfers ?? []) {
-      const address = transfer.toUserAccount
-      if (address === undefined) continue
-
-      const key = `${transaction.signature}\0${address}`
-      if (seen.has(key)) continue
-      seen.add(key)
-
-      claims.push({ signature: transaction.signature, address })
-    }
-  }
-
-  return claims
-}
-
-/**
  * The SOL claims in one delivery, deduplicated — D-106 (`#503`).
  *
- * The same translation as {@link claimsInDelivery} against `nativeTransfers`
- * instead of `tokenTransfers`, and deliberately a second function rather than a
- * parameter on the first: the two feed different tables, and a boolean that
- * decides which one a delivery credits is a boolean somebody passes wrongly
- * once.
- *
- * It survives `#506` and the token half does not, which is the other reason to
- * keep them apart — removing the deposit path should delete a function, not edit
- * one.
+ * **The token half was beside this and is gone** (`#506`). It read
+ * `tokenTransfers` for the deposit path, which the Colony no longer has; keeping
+ * the two apart is what made removing one a deletion rather than an edit.
  */
 export function nativeClaimsInDelivery(delivery: HeliusDelivery): readonly TransferClaim[] {
   const seen = new Set<string>()

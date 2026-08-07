@@ -52,17 +52,17 @@ describe('REQUIRED_ENV', () => {
     expect(REQUIRED_ENV).toContain('BAN_MARK_SALT')
   })
 
-  it('declares a per-image variable for that image and no other', () => {
-    // The gap #252 closed: DEPOSIT_SEALING_KEY makes apps/api exit and is read
-    // by nothing else, so it belongs to one image. Adding it to the shared list
-    // would refuse a deploy of three containers over a variable they never read
-    // — a worse failure than the one being fixed.
-    expect(API_REQUIRED_ENV).toContain('DEPOSIT_SEALING_KEY')
-    expect(REQUIRED_ENV as readonly string[]).not.toContain('DEPOSIT_SEALING_KEY')
+  it('keeps a place for a per-image variable, even with none in it', () => {
+    // `API_REQUIRED_ENV` held DEPOSIT_SEALING_KEY until `#506` removed the
+    // deposit module, and it is empty of its own names now rather than being
+    // collapsed into REQUIRED_ENV. The mechanism `#252` built is what matters:
+    // a variable one image cannot start without goes here, and adding it to the
+    // shared list would refuse a deploy of three containers over something they
+    // never read.
+    expect(API_REQUIRED_ENV as readonly string[]).toEqual(REQUIRED_ENV as readonly string[])
 
     for (const [app, names] of IMAGES) {
-      if (app === 'apps/api') continue
-      expect(names, `${app} must not inherit apps/api's variables`).toEqual(REQUIRED_ENV)
+      expect(names, `${app} must not inherit another image's variables`).toEqual(REQUIRED_ENV)
     }
   })
 

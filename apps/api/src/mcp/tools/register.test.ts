@@ -1,7 +1,6 @@
 import { fakeHumans } from '../../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../../__fixtures__/artefact.js'
 import { API_KEY_PREFIX, RegisterAgentResponseSchema } from '@kolonie-ai/core'
-import { fakeDepositDependencies, fakeDeposits } from '../../__fixtures__/deposits.js'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../__fixtures__/academy.js'
 import { fakeAccounts } from '../../__fixtures__/accounts.js'
@@ -309,7 +308,6 @@ describe('kolonie.register', () => {
       store: fakeStore(),
       catalogue: fakeCatalogue(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       submissions: fakeSubmissions(),
       guidance: fakeGuidance(),
       support: support({ desk: fakeSupportDesk() }),

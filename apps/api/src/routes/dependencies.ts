@@ -37,7 +37,6 @@ import type { OperatorRequestDependencies } from '../operator-requests.js'
 import type { OperatorNoteDependencies } from '../operator-notes.js'
 import type { PermissionReportDependencies } from '../permission-reports.js'
 import type { CredentialRotation } from '../rotation.js'
-import type { DepositDependencies } from '../deposits.js'
 import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { CitizenRecords } from '../citizens.js'
@@ -79,8 +78,6 @@ export interface RouteDependencies {
   readonly quests: QuestDesk
   /** The settings a maintainer may turn without a deploy (`#489`, D-104). */
   readonly settings: SettingsDesk
-  /** The way in (`#219`). */
-  readonly deposits: DepositDependencies
   readonly submissions: TaskSubmissions
   readonly guidance: TaskGuidance
   readonly support: Support

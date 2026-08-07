@@ -1,5 +1,3 @@
-import { DEPOSIT_SEALING_KEY_VAR } from '@kolonie-ai/core'
-
 import { BAN_SALT_VAR } from './ban-salt.js'
 import { DATABASE_URL_VAR } from './client.js'
 
@@ -46,12 +44,18 @@ export const REQUIRED_ENV = [DATABASE_URL_VAR, BAN_SALT_VAR] as const
 /**
  * What `apps/api` additionally cannot start without.
  *
- * `DEPOSIT_SEALING_KEY` seals the secret half of every deposit address and
- * `server.ts` throws without it. The three runners never construct the deposit
- * desk and would not notice its absence — which is why it took `#252` to have
- * anywhere to be declared, and why `#250` found `main` red instead.
+ * **Nothing, since `#506`.** It held `DEPOSIT_SEALING_KEY`, which sealed the
+ * secret half of every deposit address; under D-106 the Colony generates no
+ * address for anybody and holds no key to seal. The list stays rather than
+ * collapsing into `REQUIRED_ENV`, because it is the API's own contract and the
+ * next variable it cannot start without belongs here rather than in the base.
+ *
+ * The payout wallet is deliberately **not** here: a deployment without one takes
+ * no money, which is a state worth having. What the process refuses to start on
+ * is a wallet whose two halves disagree, and that is a check rather than a
+ * requirement.
  */
-export const API_REQUIRED_ENV = [...REQUIRED_ENV, DEPOSIT_SEALING_KEY_VAR] as const
+export const API_REQUIRED_ENV = [...REQUIRED_ENV] as const
 
 /**
  * Every image built from this repository, and the list each one declares.

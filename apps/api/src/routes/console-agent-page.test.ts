@@ -12,7 +12,6 @@ import {
   fakeAutonomyStore,
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
 import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { SESSION_COOKIE } from './console.js'
@@ -35,7 +34,6 @@ let humans: FakeHumanStore
 let pages: ReturnType<typeof fakeOperatorPages>
 let contracts: ReturnType<typeof fakeAutonomyStore>
 let quests: FakeQuestDesk
-let deposits: ReturnType<typeof fakeDeposits>
 let agentId: AgentId
 let strangersAgentId: AgentId
 
@@ -44,16 +42,12 @@ beforeEach(async () => {
   pages = fakeOperatorPages()
   contracts = fakeAutonomyStore()
   quests = fakeQuests()
-  deposits = fakeDeposits()
   const agents = fakeStore()
 
   app = buildApp({
     ...fakeColony(),
     store: agents,
     quests,
-    // Held here rather than taken from `fakeColony`, so a test can ask the desk
-    // afterwards whether opening the page generated an address (`#470`).
-    deposits: fakeDepositDependencies(deposits),
     console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
     humans: { store: humans, tenant: fakeTenant() },
     autonomy: {
@@ -430,99 +424,6 @@ describe('the agent page', () => {
       await pages.issue(strangersAgentId, 'somebody@example.org')
 
       expect((await openPage(cookie, strangersAgentId)).statusCode).toBe(404)
-    })
-  })
-
-  /**
-   * Where to send this agent money (`#470`).
-   *
-   * The property under all of these is that reading a page is reading: the
-   * console shows an address the agent already asked for and never asks on its
-   * behalf, because asking generates a keypair.
-   */
-  describe('its deposit address', () => {
-    it('shows the address the agent asked for, with the warnings above it', async () => {
-      const cookie = await signedInCookie()
-      await link(agentId)
-      // The agent asks for its own, through the desk the route reads.
-      const issued = await deposits.address(agentId)
-      if (issued.outcome !== 'issued') throw new Error('the fake refused an address')
-
-      const body = (await openPage(cookie, agentId)).body
-
-      expect(body).toContain(issued.address)
-      expect(body).toContain('Send only USDC, on Solana')
-      expect(body).toContain('Money in is one-way.')
-    })
-
-    /**
-     * **The rejection case.** A `GET` that generates a keypair would be the
-     * console acting for the agent, on a page whose whole rule is that it does
-     * not — and it would do it to anybody who opened the page.
-     */
-    it('creates nothing by being opened', async () => {
-      const cookie = await signedInCookie()
-      await link(agentId)
-
-      expect(await deposits.watched()).toHaveLength(0)
-
-      const body = (await openPage(cookie, agentId)).body
-
-      // Asked of the desk the app is wired to, so this is what the route did
-      // rather than what the page rendered.
-      expect(await deposits.watched()).toHaveLength(0)
-      expect(body).toContain('has not asked for a deposit address')
-      // No form aimed at this agent, which is the assertion `#457` turns on.
-      expect(body).not.toMatch(/<form[^>]*action="\/agents\//)
-    })
-
-    /** Opening it twice is still no address, for the same reason. */
-    it('creates nothing on a second open either', async () => {
-      const cookie = await signedInCookie()
-      await link(agentId)
-
-      await openPage(cookie, agentId)
-      await openPage(cookie, agentId)
-
-      expect(await deposits.watched()).toHaveLength(0)
-    })
-
-    /** An agent this person does not operate answers as a missing one, address or not. */
-    it('does not leak a stranger’s address', async () => {
-      const cookie = await signedInCookie()
-      await link(agentId)
-      const issued = await deposits.address(strangersAgentId)
-      if (issued.outcome !== 'issued') throw new Error('the fake refused an address')
-
-      const strangers = await openPage(cookie, strangersAgentId)
-      const nobodys = await openPage(cookie, '99999999-9999-4999-8999-999999999999' as AgentId)
-
-      expect(strangers.statusCode).toBe(404)
-      expect(strangers.body).toBe(nobodys.body)
-      expect(strangers.body).not.toContain(issued.address)
-    })
-
-    /** The JSON representation says the same thing, so a key-driven reader agrees. */
-    it('carries the address on the JSON answer, and omits it when there is none', async () => {
-      const cookie = await signedInCookie()
-      await link(agentId)
-
-      const before = await app.inject({
-        method: 'GET',
-        url: `/agents/${agentId}`,
-        headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
-      })
-      expect(before.json()).not.toHaveProperty('depositAddress')
-
-      const issued = await deposits.address(agentId)
-      if (issued.outcome !== 'issued') throw new Error('the fake refused an address')
-
-      const after = await app.inject({
-        method: 'GET',
-        url: `/agents/${agentId}`,
-        headers: { host: CONSOLE_HOST, accept: 'application/json', cookie },
-      })
-      expect(after.json()).toMatchObject({ depositAddress: issued.address })
     })
   })
 })

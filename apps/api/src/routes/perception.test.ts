@@ -1,7 +1,6 @@
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { CAPABILITY_STAGE, PERCEPTION_STAGE, perceptionCodeFor } from '@kolonie-ai/core'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
@@ -74,7 +73,6 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     store,
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),

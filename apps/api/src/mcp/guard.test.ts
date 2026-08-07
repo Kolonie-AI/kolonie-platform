@@ -1,5 +1,4 @@
 import type { ApiError } from '@kolonie-ai/core'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { fakeQuests } from '../__fixtures__/quests.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -98,7 +97,6 @@ describe('a tool that throws something nobody planned for', () => {
     const app = buildApp({
       ...appDeps,
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       store,
       console: fakeConsole(),
     })

@@ -1,7 +1,6 @@
 import { fakeHumans } from './__fixtures__/humans.js'
 import { fakeArtefactChallenges } from './__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { fakeDepositDependencies, fakeDeposits } from './__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import type { InjectOptions, Response as InjectResponse } from 'light-my-request'
 import type { AgentId } from '@kolonie-ai/core'
@@ -76,7 +75,6 @@ const build = (inboundSecret: string | undefined) => {
   return buildApp({
     humans: fakeHumans(),
     quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: fakeConsole(),
@@ -632,7 +630,6 @@ describe('GET /v1/mailboxes', () => {
     const withoutMailer = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

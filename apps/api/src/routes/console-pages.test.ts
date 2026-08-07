@@ -3,7 +3,6 @@ import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_PLATFORM_FEE_PERCENT, ERROR_STATUS, questFeeBreakdown } from '@kolonie-ai/core'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
@@ -90,7 +89,6 @@ beforeEach(async () => {
     store,
     catalogue: fakeCatalogue(),
     quests,
-    deposits: fakeDepositDependencies(fakeDeposits()),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),
@@ -690,7 +688,6 @@ describe('when the console throws', () => {
       registry: fakeRegistry(),
       store,
       catalogue: fakeCatalogue(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       quests: {
         ...failing,
         listOwn: async () => {

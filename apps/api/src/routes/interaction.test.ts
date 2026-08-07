@@ -8,7 +8,6 @@ import {
   interactionTargetFor,
 } from '@kolonie-ai/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
@@ -83,7 +82,6 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
     store,
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),

@@ -52,7 +52,7 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 # This list is API_REQUIRED_ENV, not the shared REQUIRED_ENV: DEPOSIT_SEALING_KEY
 # is read by this image alone, and declaring it on the three runners would stop
 # their deploys over a variable they never read.
-LABEL ai.kolonie.required-env="DATABASE_URL,BAN_MARK_SALT,DEPOSIT_SEALING_KEY"
+LABEL ai.kolonie.required-env="DATABASE_URL,BAN_MARK_SALT"
 
 # The compose healthcheck calls curl; alpine ships without it.
 RUN apk add --no-cache curl

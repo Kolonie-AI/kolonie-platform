@@ -41,7 +41,6 @@ import {
 } from '../console/html.js'
 import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
-import { fundingPage } from '../console/funding.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { backendPage } from '../console/backend.js'
 import {
@@ -70,7 +69,6 @@ import {
   withdrawQuest,
   writeQuestDraft,
 } from '../quests.js'
-import { readDepositAddress, readDepositHistory } from '../deposits.js'
 import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
@@ -1244,7 +1242,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
     const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
-    const [balance, open, own, quests, written, depositAddress] = await Promise.all([
+    const [balance, open, own, quests, written] = await Promise.all([
       deps.quests.balance(operated.agentId),
       /**
        * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
@@ -1275,15 +1273,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * rather than this route's.
        */
       deps.quests.listOwn(operated.agentId),
-      /**
-       * The agent's deposit address, if it has asked for one (`#470`).
-       *
-       * **`existing` and never `address`.** The second generates a keypair when
-       * there is none, and this is a `GET` read by somebody who operates the
-       * agent rather than by the agent itself — `#457` lets them read it and not
-       * act for it, and creating a key on a page load is acting for it.
-       */
-      deps.deposits.desk.existing(operated.agentId),
     ])
 
     const view = {
@@ -1309,7 +1298,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * Absent rather than `null` when the agent holds none, so the JSON
        * representation says the same thing the page does: it has not asked.
        */
-      ...(depositAddress === undefined ? {} : { depositAddress }),
       quests: quests.map((quest) => ({
         questId: String(quest.questId),
         title: quest.title,
@@ -1727,145 +1715,18 @@ function registerSponsorPages(
   })
 
   /**
-   * Where a person puts money in (`#460`).
+   * **The funding page and `POST /funding/identity` are gone** — `#506`, D-106.
    *
-   * ## The person's own identity, and nothing else
+   * They existed to hand a person a deposit address the Colony held the key to,
+   * and to open a `sponsor-*` identity to hang it on. Under D-106 the Colony
+   * generates no address for anybody: a sponsor pays a quest invoice in SOL from
+   * a wallet it controls, and the invoice is on the quest rather than on a
+   * funding page.
    *
-   * **An agent's balance is on the agent's page and is not fundable from here.**
-   * A human topping up an agent's balance is a control, and this console is a
-   * window — `#457` is the rule and this route is one of the places it applies.
-   * The address comes from `readDepositAddress`, which resolves its subject from
-   * the caller and never from the request, so there is nowhere to put somebody
-   * else's id.
-   *
-   * ## `POST` behind a `GET`, and why that is safe here
-   *
-   * The address route is a `POST` because the first call creates a keypair. It
-   * is **idempotent** — `deposits.ts` returns the first address on every call
-   * afterwards — so rendering this page twice cannot produce a second one, which
-   * is the acceptance criterion that made the shape worth checking rather than
-   * assuming.
-   *
-   * ## Nothing here creates an identity
-   *
-   * A person who has never written a quest holds none (`#455`), and this page
-   * says what a deposit is for instead of quietly creating one to have something
-   * to show. Money is not a reason to make a row somebody did not ask for.
+   * What a person needs instead is on `kolonie-platform#540` — pricing a quest
+   * in SOL where a sponsor writes one — and `#539`, which is what lets a person
+   * verify the wallet they would pay from at all.
    */
-  app.get('/funding', async (request, reply) => {
-    if (!(await ctx.guard(request, reply))) return reply
-
-    const held = await identity(request, reply, { create: false, refuse: false })
-    if (held === null) {
-      const signedIn = await ctx.person(request)
-      if (signedIn === null) {
-        if (wantsHtml(request)) reply.callNotFound()
-        else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
-        return reply
-      }
-
-      /**
-       * Signed in with nothing to fund yet — a page, not a refusal.
-       *
-       * `without: 'identity'` is what turns it into an offer rather than a dead
-       * end (`#469`): the page renders the action that makes one.
-       */
-      const empty = {
-        zone: zoneFrom(request.headers),
-        without: 'identity' as const,
-        balance: { available: 0, reserved: 0, escrowed: 0 },
-        deposits: [],
-      }
-      return wantsHtml(request) ? html(reply, fundingPage(empty)) : reply.send(empty)
-    }
-
-    const [issued, history, balance, committed] = await Promise.all([
-      readDepositAddress(held.id, deps.deposits.desk),
-      readDepositHistory(held.id, deps.deposits.desk),
-      deps.quests.balance(held.id),
-      deps.quests.commitments(held.id),
-    ])
-
-    const view = {
-      zone: zoneFrom(request.headers),
-      /**
-       * An address the Colony refused to issue — `#266`'s unconfirmed sign-up
-       * address — renders the same page without one rather than an error. The
-       * person is told what to do about it by the sign-in flow, and a funding
-       * page that failed hard would be a dead end with money on the other side.
-       *
-       * **`without` says which absence it is** (`#469`). The identity exists, so
-       * offering to make one would be nonsense; what this person has to do is
-       * open the mail, and the page now says that instead.
-       */
-      ...('error' in issued ? { without: 'confirmation' as const } : { address: issued.address }),
-      balance: {
-        available: balance.available,
-        reserved: balance.reserved,
-        /** Summed from the per-quest decomposition, which is where escrow lives. */
-        escrowed: committed.reduce((total, row) => total + row.escrowed, 0),
-      },
-      deposits: history.deposits,
-    }
-
-    return wantsHtml(request) ? html(reply, fundingPage(view)) : reply.send(view)
-  })
-
-  /**
-   * The second door into `#455`'s rule: fund before you write (`#469`).
-   *
-   * ## Why there is a second door at all
-   *
-   * `#455` decided the person's own identity is created **at the first quest
-   * draft**, so that signing in to look around does not manufacture empty
-   * citizens and distort the counts the Colony publishes. That reasoning still
-   * holds and is not reversed here — `POST /quests` is unchanged and remains the
-   * other way in.
-   *
-   * What it did not anticipate is somebody who wants to fund *before* they
-   * write. For them `/funding` was a dead end: it explained what a deposit is
-   * for and offered no way to have one, and the only route to an address was to
-   * start a quest draft — a strange thing to demand of a person who has just
-   * decided to pay. **Funding is a commitment of the same kind as drafting**, so
-   * pressing this is exactly the act `#455`'s rule was waiting for.
-   *
-   * ## A `POST`, and never a page load
-   *
-   * A `GET` that creates a row is how signing in to look around starts
-   * manufacturing citizens again, which is precisely what `#455` refused. So
-   * this is a button somebody pressed, and `GET /funding` above still passes
-   * `create: false`.
-   *
-   * ## Idempotent, and it costs nothing to be
-   *
-   * `identity` answers an existing identity before it opens one, and
-   * `POST /v1/deposits/address` returns the first address on every later call.
-   * Pressing twice is one identity and one address, so the ordinary
-   * post-redirect-get applies and a refresh is harmless.
-   *
-   * ## Nothing about `#266` is bypassed
-   *
-   * The identity is made; the *address* is still refused until somebody has
-   * followed the sign-in link, because that refusal lives in `depositAddressFor`
-   * and this route does not go near it. `/funding` then says to open the mail.
-   */
-  app.post('/funding/identity', async (request, reply) => {
-    const held = await identity(request, reply, { create: true })
-    if (held === null) return reply
-
-    /**
-     * **A `303` back to the page**, not a render.
-     *
-     * Nothing here is shown once — unlike `#459`'s adoption code, which is why
-     * that route renders directly — so the ordinary post-redirect-get is right:
-     * a refresh must not re-post, and the address a person came for is assembled
-     * by the route that already assembles it rather than by a second copy of it
-     * here.
-     */
-    return wantsHtml(request)
-      ? reply.status(303).header('location', '/funding').send()
-      : reply.status(200).send({ identity: String(held.id) })
-  })
 
   /**
    * Every quest the identities this person operates have written (`#456`).

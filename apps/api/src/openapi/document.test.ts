@@ -1,7 +1,6 @@
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { API_BASE_PATH } from '@kolonie-ai/core'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../__fixtures__/academy.js'
@@ -73,7 +72,6 @@ describe('the OpenAPI document', () => {
     app = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

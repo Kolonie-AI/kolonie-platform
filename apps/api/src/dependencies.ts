@@ -39,7 +39,6 @@ import type { OperatorNoteDependencies } from './operator-notes.js'
 import type { OperatorRequestDependencies } from './operator-requests.js'
 import type { PermissionReportDependencies } from './permission-reports.js'
 import type { CredentialRotation } from './rotation.js'
-import type { DepositDependencies } from './deposits.js'
 import type { PaymentDependencies } from './payments.js'
 import type { PayoutDependencies } from './payouts.js'
 import type { QuestDesk } from './quests.js'
@@ -186,8 +185,6 @@ export interface AppDependencies {
    * setting. `server.ts` passes the real one.
    */
   readonly settings?: SettingsDesk | undefined
-  /** The way in: deposit addresses, the webhook and the reconciliation (`#219`). */
-  readonly deposits: DepositDependencies
   /**
    * The way in after D-106: one Colony wallet, and a payment recognised by its
    * sender (`#503`).

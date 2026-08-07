@@ -1,7 +1,6 @@
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import { fakeQuests } from '../__fixtures__/quests.js'
 import type { FastifyInstance } from 'fastify'
 import type { InjectOptions, Response as InjectResponse } from 'light-my-request'
@@ -77,7 +76,6 @@ beforeEach(async () => {
     registry: fakeRegistry(),
     store,
     quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
     catalogue,
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),

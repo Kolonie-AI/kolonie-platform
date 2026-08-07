@@ -1,7 +1,7 @@
 import { ERROR_STATUS, HeliusDeliverySchema, nativeClaimsInDelivery } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { clientIp } from '../client-ip.js'
-import { WEBHOOK_REFUSED, webhookAuthorised } from '../deposits.js'
+import { WEBHOOK_REFUSED, webhookAuthorised } from '../webhook-auth.js'
 import type { Log } from '@kolonie-ai/core'
 import {
   readPaymentDelivery,

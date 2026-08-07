@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { USDC_MINT } from './deposits.js'
-import { HELIUS_DELIVERY_MAX, HeliusDeliverySchema, claimsInDelivery } from './helius.js'
+import { HELIUS_DELIVERY_MAX, HeliusDeliverySchema, nativeClaimsInDelivery } from './helius.js'
 
 /**
  * A recorded enhanced delivery, trimmed to the fields Helius documents.
@@ -16,18 +15,13 @@ const aDelivery = (): unknown => [
     timestamp: 1_770_000_000,
     type: 'TRANSFER',
     fee: 5000,
-    tokenTransfers: [
+    nativeTransfers: [
       {
-        fromTokenAccount: 'a-payer-token-account',
-        toTokenAccount: 'a-deposit-token-account',
         fromUserAccount: 'a-payer',
-        toUserAccount: 'a-deposit-address',
-        mint: USDC_MINT,
-        tokenAmount: 12.5,
-        tokenStandard: 'Fungible',
+        toUserAccount: 'the-colony-wallet',
+        amount: 2_000_000,
       },
     ],
-    nativeTransfers: [],
   },
 ]
 
@@ -35,8 +29,8 @@ describe('reading a Helius delivery', () => {
   it('takes the signature and the receiving wallet, and nothing else', () => {
     const delivery = HeliusDeliverySchema.parse(aDelivery())
 
-    expect(claimsInDelivery(delivery)).toEqual([
-      { signature: 'a-signature', address: 'a-deposit-address' },
+    expect(nativeClaimsInDelivery(delivery)).toEqual([
+      { signature: 'a-signature', address: 'the-colony-wallet' },
     ])
   })
 
@@ -57,12 +51,12 @@ describe('reading a Helius delivery', () => {
       {
         signature: 'a-signature',
         somethingNew: { nested: true },
-        tokenTransfers: [{ toUserAccount: 'a-deposit-address', aNewField: 1 }],
+        nativeTransfers: [{ toUserAccount: 'the-colony-wallet', aNewField: 1 }],
       },
     ]
 
-    expect(claimsInDelivery(HeliusDeliverySchema.parse(delivery))).toEqual([
-      { signature: 'a-signature', address: 'a-deposit-address' },
+    expect(nativeClaimsInDelivery(HeliusDeliverySchema.parse(delivery))).toEqual([
+      { signature: 'a-signature', address: 'the-colony-wallet' },
     ])
   })
 
@@ -73,7 +67,7 @@ describe('reading a Helius delivery', () => {
   it('refuses a delivery longer than a sender could plausibly batch', () => {
     const enormous = Array.from({ length: HELIUS_DELIVERY_MAX + 1 }, (_, index) => ({
       signature: `signature-${index}`,
-      tokenTransfers: [],
+      nativeTransfers: [],
     }))
 
     expect(HeliusDeliverySchema.safeParse(enormous).success).toBe(false)
@@ -84,44 +78,44 @@ describe('reading a Helius delivery', () => {
     const delivery = HeliusDeliverySchema.parse([
       {
         signature: 'a-signature',
-        tokenTransfers: [
-          { toUserAccount: 'a-deposit-address' },
-          { toUserAccount: 'a-deposit-address' },
+        nativeTransfers: [
+          { toUserAccount: 'the-colony-wallet' },
+          { toUserAccount: 'the-colony-wallet' },
           { toUserAccount: 'another-address' },
         ],
       },
     ])
 
-    expect(claimsInDelivery(delivery)).toEqual([
-      { signature: 'a-signature', address: 'a-deposit-address' },
+    expect(nativeClaimsInDelivery(delivery)).toEqual([
+      { signature: 'a-signature', address: 'the-colony-wallet' },
       { signature: 'a-signature', address: 'another-address' },
     ])
   })
 
   it('reads every transaction in a batched delivery', () => {
     const delivery = HeliusDeliverySchema.parse([
-      { signature: 'first', tokenTransfers: [{ toUserAccount: 'an-address' }] },
-      { signature: 'second', tokenTransfers: [{ toUserAccount: 'an-address' }] },
+      { signature: 'first', nativeTransfers: [{ toUserAccount: 'an-address' }] },
+      { signature: 'second', nativeTransfers: [{ toUserAccount: 'an-address' }] },
     ])
 
-    expect(claimsInDelivery(delivery)).toHaveLength(2)
+    expect(nativeClaimsInDelivery(delivery)).toHaveLength(2)
   })
 
   /** A webhook may be configured more broadly than its reader cares about. */
   it('contributes nothing for a transaction that moved no token', () => {
     const delivery = HeliusDeliverySchema.parse([
       { signature: 'a-signature', type: 'UNKNOWN' },
-      { signature: 'another-signature', tokenTransfers: [] },
+      { signature: 'another-signature', nativeTransfers: [] },
     ])
 
-    expect(claimsInDelivery(delivery)).toEqual([])
+    expect(nativeClaimsInDelivery(delivery)).toEqual([])
   })
 
   it('skips an entry with no receiving wallet rather than inventing one', () => {
     const delivery = HeliusDeliverySchema.parse([
-      { signature: 'a-signature', tokenTransfers: [{ mint: USDC_MINT }] },
+      { signature: 'a-signature', nativeTransfers: [{ amount: 2_000_000 }] },
     ])
 
-    expect(claimsInDelivery(delivery)).toEqual([])
+    expect(nativeClaimsInDelivery(delivery)).toEqual([])
   })
 })

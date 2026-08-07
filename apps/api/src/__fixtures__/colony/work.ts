@@ -1,11 +1,9 @@
 import type { ResetResult } from '@kolonie-ai/db'
 import type { TaskCatalogue } from '../../tasks.js'
 import type { TaskSubmissions } from '../../submissions.js'
-import type { DepositDependencies } from '../../deposits.js'
 import type { Retesting } from '../../retest.js'
 import { fakeCatalogue } from '../catalogue.js'
 import { fakeQuests, type FakeQuestDesk } from '../quests.js'
-import { fakeDepositDependencies, fakeDeposits } from '../deposits.js'
 import { fakeSubmissions } from '../submissions.js'
 import { fakeGuidance, type FakeGuidance } from '../guidance.js'
 
@@ -26,7 +24,6 @@ export interface FakeWork {
   /** The quest write path and the review (`#176`), in memory. */
   readonly quests: FakeQuestDesk
   /** The way in (`#219`), in memory. */
-  readonly deposits: DepositDependencies
   /** Where submissions go, behind both surfaces. Overridable the same way. */
   readonly submissions: TaskSubmissions
   /**
@@ -48,7 +45,6 @@ export function fakeWork(): FakeWork {
   return {
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
-    deposits: fakeDepositDependencies(fakeDeposits()),
 
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),

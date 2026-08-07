@@ -1,7 +1,6 @@
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { AUDIENCE_FLOOR, ERROR_STATUS, QUEST_TASK_TYPE, type TaskId } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
@@ -68,7 +67,6 @@ beforeEach(async () => {
     store,
     catalogue: fakeCatalogue(),
     quests,
-    deposits: fakeDepositDependencies(fakeDeposits()),
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),
     support: support({ desk: fakeSupportDesk() }),

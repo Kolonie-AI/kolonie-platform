@@ -1,7 +1,6 @@
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { API_KEY_PREFIX, type ApiError, type ApiKey, GetMeResponseSchema } from '@kolonie-ai/core'
-import { fakeDepositDependencies, fakeDeposits } from '../__fixtures__/deposits.js'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../__fixtures__/academy.js'
@@ -97,7 +96,6 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -153,7 +151,6 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -216,7 +213,6 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -272,7 +268,6 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -328,7 +323,6 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -393,7 +387,6 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),
@@ -550,7 +543,6 @@ describe('the MCP surface over HTTP', () => {
     app = buildApp({
       humans: fakeHumans(),
       quests: fakeQuests(),
-      deposits: fakeDepositDependencies(fakeDeposits()),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
       console: fakeConsole(),

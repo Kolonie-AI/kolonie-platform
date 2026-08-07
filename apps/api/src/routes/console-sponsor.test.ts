@@ -101,56 +101,6 @@ describe('a sponsor identity on a human account', () => {
     expect(nonsense.json()).toEqual(anonymous.json())
   })
 
-  /**
-   * The deposit address is the step `#400` was open for, and the reason this
-   * issue exists. It is asserted through the session with no `Authorization`
-   * header anywhere in the request.
-   */
-  it('lets that person read a deposit address in a browser, with no key', async () => {
-    const { human, cookie } = await signedIn()
-    const sponsor = anAgent()
-    people.holdsSponsor(human.id, sponsor)
-
-    const response = await post('/deposits/address', cookie)
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json()).toHaveProperty('address')
-  })
-
-  /**
-   * **The half that must not have broken.** `routes/console.ts`: an agent
-   * *"must never be told to open a browser in order to be a sponsor"*. The key
-   * is tried first and unchanged, so this path is the one it always was.
-   */
-  it('still lets an agent do it with an API key and no browser', async () => {
-    const { apiKey } = store.issue({})
-
-    const response = await app.inject({
-      method: 'POST',
-      url: `${API_BASE_PATH}/deposits/address`,
-      headers: { authorization: `Bearer ${apiKey}` },
-    })
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json()).toHaveProperty('address')
-  })
-
-  /**
-   * Signed in is not the same as holding an identity, and the refusal must not
-   * say which of the two happened — a distinguishable one would tell a caller
-   * *this browser is signed in* without it having established that.
-   */
-  it('refuses a signed-in person who has never opened one, exactly as an absent key is refused', async () => {
-    const { cookie } = await signedIn()
-
-    const withSession = await post('/deposits/address', cookie)
-    const withNothing = await post('/deposits/address')
-
-    expect(withSession.statusCode).toBe(401)
-    expect(withSession.json()).toEqual(withNothing.json())
-    expect(withSession.headers['www-authenticate']).toBe(withNothing.headers['www-authenticate'])
-  })
-
   it('lets that person write a quest in a browser too', async () => {
     const { human, cookie } = await signedIn()
     people.holdsSponsor(human.id, anAgent())

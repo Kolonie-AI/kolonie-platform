@@ -6,13 +6,10 @@ import { agentSkills, agents, submissions, taskAttempts, tasks } from '../schema
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { countAudience } from './activity.js'
 import { registerAgent } from './agents.js'
-import { depositAddressFor } from './deposits.js'
 import { creditBalance } from './funding.js'
 import { redeemSignInLink, registerWebIdentity, requestSignInLink } from './sign-in.js'
 
 const target = databaseTestTarget()
-
-const SEALING_KEY = 'a'.repeat(64)
 
 /**
  * The account a stranger opens from the console, and the two things that are
@@ -160,18 +157,6 @@ describe('a console sponsor account', () => {
       )
       expect(rows[0]?.count).toBe('0')
     })
-
-    it('hands out no deposit address, so no transfer can arrive at all', async () => {
-      const sponsor = await aSponsor('unconfirmed@example.org')
-
-      const issued = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
-
-      expect(issued.outcome).toBe('address-unconfirmed')
-      const rows = await db.execute<{ count: string }>(
-        sql`select count(*)::text as count from deposit_addresses`,
-      )
-      expect(rows[0]?.count).toBe('0')
-    })
   })
 
   describe('funding, once the link has been followed', () => {
@@ -190,15 +175,6 @@ describe('a console sponsor account', () => {
       )
 
       expect(result.outcome).toBe('credited')
-    })
-
-    it('hands out a deposit address', async () => {
-      const sponsor = await aSponsor('reader@example.org')
-      await confirm(sponsor, 'reader@example.org')
-
-      const issued = await depositAddressFor(db, { agentId: sponsor, sealingKey: SEALING_KEY })
-
-      expect(issued.outcome).toBe('issued')
     })
   })
 
@@ -223,9 +199,6 @@ describe('a console sponsor account', () => {
       )
 
       expect(result.outcome).toBe('credited')
-      expect(
-        (await depositAddressFor(db, { agentId: agent, sealingKey: SEALING_KEY })).outcome,
-      ).toBe('issued')
     })
   })
 

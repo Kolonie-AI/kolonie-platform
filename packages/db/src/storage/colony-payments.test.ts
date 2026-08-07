@@ -187,4 +187,31 @@ describe('a payment to the Colony wallet', () => {
       expect(name).not.toMatch(forbidden)
     }
   })
+
+  /**
+   * **The property `#506` asks to survive the deposit module's removal**, and it
+   * is asserted over the whole package rather than over one file — the deposit
+   * module's own assertion was scoped to its exports, and the thing that must
+   * now be true is broader: *nowhere* in persistence generates, seals or unseals
+   * a key on anybody's behalf.
+   *
+   * The Colony holds one wallet. Its secret is on the deploy host, is read by
+   * the process that signs, and never reaches this package at all — which is why
+   * a match here is a regression rather than a false positive.
+   */
+  it("holds no key to anybody else's money, anywhere in the package", async () => {
+    const db = await import('../index.js')
+
+    /**
+     * **Money keys, and not every secret.** `sealVaultValue` stays and is
+     * deliberately not matched: a citizen's vault is the citizen's own secrets,
+     * sealed with a key derived from its own credential, and the Colony cannot
+     * open one. D-106 is about the Colony holding a key to somebody else's
+     * *money*, which is a narrower claim and the one worth asserting — a regex
+     * that swept the vault in would be a test nobody could keep true.
+     */
+    const forbidden = /keypair|depositAddress|sealingKey|unsealDeposit/i
+
+    expect(Object.keys(db).filter((name) => forbidden.test(name))).toEqual([])
+  })
 })

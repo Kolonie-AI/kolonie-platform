@@ -1079,6 +1079,13 @@
       "when": 1786130529949,
       "tag": "0153_the_academy_pays_no_lamports_either",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1786132887740,
+      "tag": "0154_the_deposit_module_is_gone",
+      "breakpoints": true
     }
   ]
 }

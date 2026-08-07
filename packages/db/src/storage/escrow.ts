@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   LedgerTransactionIdSchema,
   QUEST_OBSTACLE_BONUS_WINNERS,
+  QUEST_REVIEW_REWARD_CREDITS,
   questFundingReference,
   questCommitment,
   questObstacleBonus,
@@ -147,12 +148,24 @@ export async function escrowHeldFor(db: Database | Transaction, taskId: TaskId):
   return Number(row?.total ?? 0)
 }
 
+/**
+ * The ledger types booked from this file.
+ *
+ * Named rather than widened to the whole of `LedgerEntryType`: the enum has
+ * thirteen members and this file has business writing three of them. A booking
+ * helper that accepts every type is one a faucet grant or a proposal stake can
+ * be written through by accident, from the file that owns quest money.
+ *
+ * `review_reward` joined the two on `#499`.
+ */
+type BookingType = 'task_funding' | 'task_payout' | 'review_reward'
+
 /** Both rows of one booking, written together. */
 async function book(
   tx: Transaction,
   entry: {
     readonly reference: string
-    readonly type: 'task_funding' | 'task_payout'
+    readonly type: BookingType
     readonly memo: string
     readonly amount: number
     readonly from:
@@ -197,7 +210,7 @@ async function bookMany(
   tx: Transaction,
   entry: {
     readonly reference: string
-    readonly type: 'task_funding' | 'task_payout'
+    readonly type: BookingType
     readonly memo: string
     readonly sides: readonly { readonly who: Party; readonly amount: number }[]
   },
@@ -784,4 +797,88 @@ export async function commitmentsBy(
     escrowed: Number(row.escrowed),
     paid: Number(row.paid),
   }))
+}
+
+/**
+ * What the Treasury holds, right now.
+ *
+ * Every entry against the system account, summed. There is no running-total
+ * column to read: a balance in this Colony is always the ledger added up, which
+ * is what makes the deferred double-entry trigger the only thing that has to be
+ * right.
+ */
+export async function treasuryBalance(db: Database | Transaction): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<string>`coalesce(sum(${ledgerEntries.amount}), 0)::text` })
+    .from(ledgerEntries)
+    .where(eq(ledgerEntries.systemAccount, 'treasury'))
+
+  return Number(row?.total ?? 0)
+}
+
+/** The one booking per quest decided, so a retry cannot become a second payment. */
+export const reviewRewardReference = (taskId: TaskId): string => `review:${taskId}`
+
+/**
+ * Treasury → steward, for deciding one quest (`D-105`, `#499`).
+ *
+ * **Called inside the deciding transaction**, so a quest that left
+ * `pending_review` and a steward that was paid commit together or neither does.
+ * That is `fundQuestEscrow`'s arrangement and it is here for the same reason:
+ * the two-step version has a window in which one is true and the other is not.
+ *
+ * **The same call from both verdicts, with the same amount.** Publishing and
+ * refusing pass through here identically — there is no verdict argument to get
+ * wrong, because a payment that differed by verdict would carry an opinion about
+ * the verdict and D-105's whole argument is that it must not.
+ *
+ * **It lives in this file rather than beside `publishQuest`** because `bookMany`
+ * does, and `bookMany` is private on purpose: it is what asserts a booking sums
+ * to zero before the trigger does. Exporting it to reach it from `steward.ts`
+ * would open every future two-legged booking to being written by hand.
+ *
+ * ## When the Treasury cannot cover it
+ *
+ * **The decision commits and the payment is skipped**, with a line on stderr.
+ * `#499` asked for this branch to be decided rather than discovered, and this is
+ * the branch it recommended: a steward's verdict must not fail on the Colony's
+ * bookkeeping. A steward that reads a quest carefully, refuses it for a good
+ * reason, and is told the refusal did not go through because the Treasury is
+ * empty has been given a worse outcome than an unpaid review.
+ *
+ * **It is not hypothetical.** At pilot prices the platform fee on a quest is
+ * zero, so every payment here comes out of the Treasury's bootstrap balance and
+ * nothing is replenishing it.
+ *
+ * @returns the credits actually paid — 5, or 0 when the Treasury could not cover it
+ */
+export async function payStewardReview(
+  tx: Transaction,
+  command: {
+    readonly stewardId: AgentId
+    readonly taskId: TaskId
+  },
+): Promise<number> {
+  const held = await treasuryBalance(tx)
+  if (held < QUEST_REVIEW_REWARD_CREDITS) {
+    console.warn(
+      `quest ${command.taskId}: decided, and the steward was not paid — the Treasury holds ` +
+        `${held} and a review costs ${QUEST_REVIEW_REWARD_CREDITS}. The decision stands (D-105).`,
+    )
+    return 0
+  }
+
+  await bookMany(tx, {
+    reference: reviewRewardReference(command.taskId),
+    type: 'review_reward',
+    // What an audit reads. `credits.ts` already renders the type to a citizen as
+    // *a review you did*, so this says which quest rather than repeating that.
+    memo: `Reviewing quest ${command.taskId}`,
+    sides: [
+      { who: { kind: 'system', account: 'treasury' }, amount: -QUEST_REVIEW_REWARD_CREDITS },
+      { who: { kind: 'agent', agentId: command.stewardId }, amount: QUEST_REVIEW_REWARD_CREDITS },
+    ],
+  })
+
+  return QUEST_REVIEW_REWARD_CREDITS
 }

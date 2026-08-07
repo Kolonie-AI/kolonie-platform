@@ -24,7 +24,7 @@ import {
   tasks,
   verifications,
 } from '../../schema/index.js'
-import { availableBalance, fundQuestEscrow } from '../escrow.js'
+import { availableBalance, fundQuestEscrow, payStewardReview } from '../escrow.js'
 import { recordAuthorityEvent } from '../roles.js'
 import { toTask, toTimestamp } from '../rows.js'
 import type { ScrubbedAnswer } from './shared.js'
@@ -220,6 +220,11 @@ export async function publishQuest(
       ...(sponsorId !== null && { subjectAgentId: sponsorId }),
     })
 
+    // The steward's pay, in this transaction (`D-105`, `#499`). Identical to the
+    // call in `refuseQuest`, deliberately: the amount carries no opinion about
+    // the verdict, so there is nothing here for a verdict to change.
+    await payStewardReview(tx, { stewardId: command.stewardId, taskId: command.taskId })
+
     return { outcome: 'published', escrowed }
   })
 }
@@ -263,6 +268,11 @@ export async function refuseQuest(
       subjectTaskId: command.taskId,
       ...(row.createdBy !== null && { subjectAgentId: row.createdBy as AgentId }),
     })
+
+    // The same call and the same amount as `publishQuest` (`D-105`, `#499`).
+    // **Refusing is the decision the Colony most needs done well**, and a model
+    // that paid only for publishing would price the careful no at zero.
+    await payStewardReview(tx, { stewardId: command.stewardId, taskId: command.taskId })
 
     return { outcome: 'refused' }
   })

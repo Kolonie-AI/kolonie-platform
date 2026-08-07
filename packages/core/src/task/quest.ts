@@ -80,6 +80,24 @@ export const QUEST_MAX_SLOTS = 10_000
 export const QUEST_MAX_DURATION_DAYS = 365
 
 /** The shortest useful refusal, and the longest one a sponsor will read. */
+/**
+ * What a steward is paid for deciding one quest, either verdict (`D-105`, `#499`).
+ *
+ * Five US cents, flat, independent of the quest's value — which is the whole of
+ * the decision. **The same amount whether it publishes or refuses**: a payment
+ * that differed by verdict would carry an opinion about the verdict, and
+ * refusing is the decision the Colony most needs done well.
+ *
+ * Three things fix the figure, and D-105 argues each: a review of a 60-credit
+ * quest and of a 6,000-credit one are the same reading; it is small enough that
+ * reviewing is not a way to earn; and it is large enough to be visible in a
+ * balance, which one credit — the pilot report price — would not be.
+ *
+ * **Repricing it is a new decision, not a tuning knob.** D-105 revisits it when
+ * the platform fee stops being zero and not before.
+ */
+export const QUEST_REVIEW_REWARD_CREDITS = 5
+
 export const QUEST_REFUSAL_MIN_LENGTH = 10
 export const QUEST_REFUSAL_MAX_LENGTH = 1000
 

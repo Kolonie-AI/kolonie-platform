@@ -966,6 +966,87 @@ describe('the operator’s form', () => {
       expect(await notes.store.countUnread(agentId)).toBe(1)
     })
 
+    /**
+     * The silence that reads as being ignored (`#495`).
+     *
+     * An operator asked two questions at 07:29Z; its citizen answered at 10:19Z,
+     * its next scheduled waking. Nothing told the operator the answer had
+     * arrived, and from where they sat that is indistinguishable from being
+     * ignored. The page now says the wait and says there is no notification, and
+     * both halves are asserted because the first without the second still leaves
+     * somebody waiting to hear.
+     */
+    describe('what the page says will happen next (#495)', () => {
+      it('quotes the citizen’s own declared rhythm', async () => {
+        pages.rhythmFor(agentId, 3)
+        const token = await aPage()
+
+        const response = await get(`/operator/page/${token}`)
+
+        expect(response.body).toContain('about every 3 hours')
+        expect(response.body).toContain('you will not be notified')
+        expect(response.body).toContain('Its answer appears on this page')
+      })
+
+      it('says an hour rather than 1 hours', async () => {
+        pages.rhythmFor(agentId, 1)
+        const token = await aPage()
+
+        expect((await get(`/operator/page/${token}`)).body).toContain('about every 1 hour')
+      })
+
+      /**
+       * **The rejection case.** A citizen that has never declared a rhythm must
+       * not be given an invented number, and the page must not quietly drop the
+       * sentence either — the *you will not be notified* half is the one an
+       * operator cannot infer, and it is true whether or not a rhythm is known.
+       */
+      it('names the gap rather than inventing a number when no rhythm was declared', async () => {
+        const token = await aPage()
+
+        const body = (await get(`/operator/page/${token}`)).body
+
+        expect(body).toContain('has not told the Colony how often that is')
+        expect(body).toContain('you will not be notified')
+        expect(body).not.toContain('about every')
+      })
+
+      /**
+       * **Both boxes**, because the defect was reported about a question the
+       * operator asked and the answer box is where that conversation continues.
+       * A sentence on only one of them would be right in the case nobody
+       * complained about.
+       */
+      it('says it under the answer box too', async () => {
+        pages.rhythmFor(agentId, 6)
+        const { token } = await anAsk()
+
+        const body = (await get(`/operator/page/${token}`)).body
+
+        expect(body).toContain('name="intent" value="answer"')
+        expect(body.match(/you will not be notified/g)).toHaveLength(2)
+      })
+
+      /**
+       * **The page is the whole of this change.** Nothing was added to the
+       * sending side, and `kolonie.operator.request.reply` keeps its rule that
+       * the Colony never chases — what was wrong was not the silence, it was
+       * that the silence was undeclared. Asserted as the page still carrying no
+       * script and no input that reaches anything but words, which is the
+       * property the two new paragraphs must not have weakened.
+       */
+      it('adds no behaviour to the page, only words', async () => {
+        pages.rhythmFor(agentId, 3)
+        const token = await aPage()
+
+        const body = (await get(`/operator/page/${token}`)).body
+
+        expect(body).not.toContain('<script')
+        expect(body.match(/<textarea/g)).toHaveLength(1)
+        expect(body).not.toContain('<select')
+      })
+    })
+
     it('is told apart from an answer by the form, not by the shape of the body', async () => {
       const { token, requestId } = await anAsk()
 

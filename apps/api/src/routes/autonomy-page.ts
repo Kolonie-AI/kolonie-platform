@@ -154,6 +154,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       badges: OperatorPageView['badges']
       contract: OperatorPageView['contract']
       facts: OperatorPageView['facts']
+      declaredRhythmHours: OperatorPageView['declaredRhythmHours']
     },
     errors: { readonly answerError?: string; readonly noteError?: string } = {},
   ): Promise<string> => operatorPageBody(deps, token, `/operator/page/${token}`, view, errors)

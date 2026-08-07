@@ -37,6 +37,7 @@ export async function operatorPageBody(
     badges: OperatorPageView['badges']
     contract: OperatorPageView['contract']
     facts: OperatorPageView['facts']
+    declaredRhythmHours: OperatorPageView['declaredRhythmHours']
   },
   errors: {
     readonly answerError?: string
@@ -68,6 +69,7 @@ export async function operatorPageBody(
     // What it has proved and what it has been doing (`#399`), resolved by the
     // same token and by nothing the caller sent.
     facts: view.facts,
+    declaredRhythmHours: view.declaredRhythmHours,
     action,
     ...(errors.as === undefined ? {} : { as: errors.as }),
     ...(errors.answerError === undefined ? {} : { answerError: errors.answerError }),

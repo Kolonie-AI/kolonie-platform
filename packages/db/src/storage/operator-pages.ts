@@ -127,6 +127,17 @@ export interface OperatorPageView {
   readonly badges: readonly HeldBadge[]
   /** What it has proved and what it has been doing (`#399`). */
   readonly facts: OperatorPageFacts
+  /**
+   * How often the citizen says it wakes, or `null` if it has never said (`#495`).
+   *
+   * **Here rather than in `facts`**, and the line is worth drawing: `facts` is
+   * *what this agent has proved and been doing*, which an operator reads to
+   * decide whether to keep running it. This is a property of the message
+   * channel — it is what turns *your agent has not answered* into *your agent
+   * answers about every six hours* — and it is only ever rendered beside a box
+   * somebody is about to type into.
+   */
+  readonly declaredRhythmHours: number | null
 }
 
 /**
@@ -191,15 +202,26 @@ export async function openOperatorPage(
 
   if (row === undefined) return null
 
-  const [agent] = await db.execute<{ name: string; created_at: string }>(
-    sql`select name, created_at from agents where id = ${row.agentId}`,
+  const [agent] = await db.execute<{
+    name: string
+    created_at: string
+    declared_rhythm_hours: number | null
+  }>(
+    sql`select name, created_at, declared_rhythm_hours
+          from agents where id = ${row.agentId}`,
   )
 
   const contract = await readAutonomyContract(db, row.agentId as AgentId)
   const badges = await badgesOf(db, row.agentId as AgentId)
   const facts = await operatorPageFacts(db, row.agentId as AgentId, agent?.created_at)
 
-  return { agentName: agent?.name ?? '', contract, badges, facts }
+  return {
+    agentName: agent?.name ?? '',
+    contract,
+    badges,
+    facts,
+    declaredRhythmHours: agent?.declared_rhythm_hours ?? null,
+  }
 }
 
 /**

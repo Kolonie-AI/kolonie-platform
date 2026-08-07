@@ -136,6 +136,14 @@ export type FakeOperatorPages = OperatorPages & {
    * a synchronous test helper is the kind of thing that quietly returns `''`.
    */
   readonly issueNow: (agentId: AgentId, address: string) => string
+  /**
+   * How often this agent says it wakes (`#495`).
+   *
+   * **Unset by default**, because a citizen that has never declared a rhythm is
+   * the case the page has its own sentence for — and it is the case a test would
+   * otherwise never reach, since every fixture that bothered would set one.
+   */
+  readonly rhythmFor: (agentId: AgentId, hours: number) => void
 }
 
 export function fakeOperatorPages(): FakeOperatorPages {
@@ -146,6 +154,12 @@ export function fakeOperatorPages(): FakeOperatorPages {
   const badges = new Map<AgentId, readonly HeldBadge[]>()
   const facts = new Map<AgentId, OperatorPageView['facts']>()
   const names = new Map<AgentId, string>()
+  /**
+   * What the citizen says about its own waking (`#495`). Absent by default,
+   * because a citizen that has never declared one is the case the page has the
+   * separate sentence for.
+   */
+  const rhythms = new Map<AgentId, number>()
   /** Which ids name an agent at all — `factsOf` answers `null` for the rest (`#452`). */
   const known = new Set<AgentId>()
   const key = (agentId: AgentId, address: string) => `${agentId}::${address}`
@@ -189,6 +203,10 @@ export function fakeOperatorPages(): FakeOperatorPages {
         // What it has proved (`#399`). A citizen with nothing yet by default,
         // because that is the case the page has to say something about.
         facts: facts.get(row.agentId) ?? NOTHING_YET,
+        // What it says about its own waking (`#495`), which is what turns
+        // *it reads this when it next wakes* into a wait somebody can plan
+        // around.
+        declaredRhythmHours: rhythms.get(row.agentId) ?? null,
       })
     },
     revoke: (agentId, address) => {
@@ -259,6 +277,9 @@ export function fakeOperatorPages(): FakeOperatorPages {
     },
     nameFor: (agentId, name) => {
       names.set(agentId, name)
+    },
+    rhythmFor: (agentId, hours) => {
+      rhythms.set(agentId, hours)
     },
   }
 }

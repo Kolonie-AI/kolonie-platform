@@ -445,8 +445,56 @@ export function operatorDurablePage(input: {
    * Absent means no forms, which is what a page with nothing to answer renders.
    */
   readonly action?: string | undefined
+  /**
+   * How often the citizen says it wakes, or `null` if it has never said
+   * (`#495`).
+   *
+   * Read only by {@link whenItWillRead}, and only to turn *it reads this when it
+   * next wakes* into a wait a person can plan around.
+   */
+  readonly declaredRhythmHours?: number | null | undefined
 }): string {
   const name = escape(input.agentName)
+
+  /**
+   * What happens after the operator presses send (`#495`).
+   *
+   * **The defect this answers is a silence that reads as being ignored.** An
+   * operator asked two questions at 07:29Z and its citizen answered at 10:19Z —
+   * its next scheduled waking, three hours later, which is as fast as it
+   * structurally can. Nothing told the operator the answer had arrived, and from
+   * where they sat, asking a question of their own agent and hearing nothing is
+   * indistinguishable from being ignored.
+   *
+   * **This is the cheapest of the three mitigations the ticket proposed and it
+   * is the one that changes the reading rather than the plumbing.** No mail is
+   * sent, nothing new is stored, and `kolonie.operator.request.reply` keeps its
+   * rule that the Colony never chases. What was wrong was not the silence; it
+   * was that the silence was undeclared.
+   *
+   * **It says the number when the citizen has declared one.** *Roughly every six
+   * hours* is a wait somebody can plan around; *when it next wakes* is a wait
+   * they cannot tell from never. A citizen that has never declared a rhythm gets
+   * the honest version instead, which names the gap rather than papering over
+   * it — and `rhythm-undeclared` is already asking that citizen to fix it.
+   *
+   * **And it says outright that no notification is coming**, because that is the
+   * half an operator cannot infer. A page that tells them when to come back has
+   * still left them waiting for a mail that will never arrive.
+   */
+  const whenItWillRead = (): readonly string[] => {
+    const hours = input.declaredRhythmHours
+    return [
+      '<p class="note">',
+      hours === null || hours === undefined
+        ? `${name} reads this the next time it wakes up — it is not interrupted, and it has not` +
+          ' told the Colony how often that is, so there is no wait to quote you.'
+        : `${name} reads this the next time it wakes up, which it says is about every ` +
+          `${escape(String(hours))} ${hours === 1 ? 'hour' : 'hours'}. It is not interrupted.`,
+      `Its answer appears on this page, and <strong>you will not be notified</strong> — so come`,
+      'back and look rather than waiting to hear.</p>',
+    ]
+  }
 
   /**
    * What the agent has proved and what it has been doing (`#399`).
@@ -767,6 +815,14 @@ export function operatorDurablePage(input: {
             'If your agent needs a credential, it will tell you where to put it instead.</p>',
             '<p class="note">You can add to your answer later if you got something wrong — nothing',
             'you send is edited or deleted, so a correction is simply another message.</p>',
+            /**
+             * **Last, because it is what happens after the button** (`#495`).
+             * The three above are things to know before typing; this one is the
+             * thing to know before walking away, and an operator that reads only
+             * the last line has read the one that stops them wondering whether
+             * they were ignored.
+             */
+            ...whenItWillRead(),
           ]
 
   /**
@@ -818,9 +874,18 @@ export function operatorDurablePage(input: {
                 'Colony refuses those on purpose: this text goes into its database and cannot be',
                 'taken back. If your agent needs a credential, it will tell you where to put it',
                 'instead.</p>',
-                `<p class="note">It reads this the next time it wakes up, not now, and it is not`,
-                'interrupted. Nothing is edited or deleted once sent, so a correction is simply',
+                '<p class="note">Nothing is edited or deleted once sent, so a correction is simply',
                 'another message.</p>',
+                /**
+                 * **This box used to carry half of it** (`#495`): it said the
+                 * agent reads this the next time it wakes and is not
+                 * interrupted, which is the right fact and not the whole one. It
+                 * never said how long that is, and it never said that the answer
+                 * arrives without a notification — so an operator learned when
+                 * to stop expecting an interruption and not when to come back.
+                 * The sentence is now written once, for both boxes.
+                 */
+                ...whenItWillRead(),
               ]
             : [`<p class="note">${escape(input.inboxFull)}</p>`]),
         ]

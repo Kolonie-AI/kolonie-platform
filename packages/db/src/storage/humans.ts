@@ -502,6 +502,15 @@ export type BootstrapOutcome =
   | { readonly outcome: 'already-held'; readonly humanId: HumanId }
   /** No identity carries that subject yet — they have not signed in. */
   | { readonly outcome: 'no-such-identity' }
+  /**
+   * More than one identity carries it, so it names nobody in particular.
+   *
+   * Nothing is granted. A stored subject is not always provider-prefixed — see
+   * the note on the query — and the one outcome that must not happen is a
+   * person given authority because their numeric id collided with somebody
+   * else's.
+   */
+  | { readonly outcome: 'ambiguous-subject' }
   /** The variable is unset or blank, which is what most deployments look like. */
   | { readonly outcome: 'not-configured' }
 
@@ -512,19 +521,34 @@ export async function bootstrapMaintainer(
   if (subject === undefined || subject.trim() === '') return { outcome: 'not-configured' }
 
   /**
-   * Matched on `subject` alone rather than on `(provider, subject)`.
+   * Matched on `subject` alone rather than on `(provider, subject)` — **and it
+   * is not assumed to be unique.**
    *
-   * An Auth0 `sub` carries its own provider prefix — `github|12345` — so it is
-   * already unique across providers, and asking the operator to set two
-   * variables to name one identity would be two chances to get it wrong for no
-   * gain.
+   * This originally said an Auth0 `sub` carries its own provider prefix,
+   * `github|12345`, and is therefore unique across providers on its own.
+   * **Measured against production on 2026-08-07 while setting the variable for
+   * the first time: the stored subject is a bare numeric id**, seven characters
+   * and no prefix. So the justification was false for the data it was written
+   * about, and a bare id can collide across providers — a Google account whose
+   * numeric id happens to match a GitHub one is not far-fetched.
+   *
+   * Asking for a second variable is still the wrong trade: two names for one
+   * identity is two chances to get it wrong, and the collision is rare. So the
+   * ambiguity is **refused rather than resolved arbitrarily** — two rows means
+   * nobody is granted anything and the start says so. Granting to whichever row
+   * the planner returned first is the only outcome that could hand a person
+   * authority over somebody else's Colony.
    */
-  const [identity] = await db
+  const identities = await db
     .select({ humanId: humanIdentities.humanId })
     .from(humanIdentities)
     .where(eq(humanIdentities.subject, subject.trim()))
-    .limit(1)
+    .limit(2)
 
+  if (identities.length === 0) return { outcome: 'no-such-identity' }
+  if (identities.length > 1) return { outcome: 'ambiguous-subject' }
+
+  const [identity] = identities
   if (identity === undefined) return { outcome: 'no-such-identity' }
 
   const humanId = HumanIdSchema.parse(identity.humanId)

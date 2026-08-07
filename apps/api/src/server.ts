@@ -793,6 +793,16 @@ try {
     log.warn(`${BOOTSTRAP_MAINTAINER_SUBJECT_VAR} names no identity that has signed in yet`, {
       event: 'maintainer.bootstrap.pending',
     })
+  } else if (outcome.outcome === 'ambiguous-subject') {
+    // Loud, because nothing was granted and nobody would otherwise find out.
+    // A stored subject is not always provider-prefixed, so a bare numeric id
+    // can name two identities — and granting to either would be handing one
+    // person authority over the other's Colony.
+    log.error(
+      `${BOOTSTRAP_MAINTAINER_SUBJECT_VAR} names more than one identity — nobody was granted the maintainer role`,
+      undefined,
+      { event: 'maintainer.bootstrap.ambiguous' },
+    )
   }
 } catch (error) {
   log.error('the maintainer bootstrap failed', error, { event: 'maintainer.bootstrap.failed' })

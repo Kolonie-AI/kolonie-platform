@@ -450,6 +450,36 @@ describe('the authority a person holds', () => {
       })
     })
 
+    /**
+     * **The justification for matching on `subject` alone was false.** It said
+     * an Auth0 `sub` carries its own provider prefix — measured against
+     * production on 2026-08-07, the stored subject is a bare numeric id with no
+     * prefix, so it can collide across providers.
+     *
+     * Refused rather than resolved arbitrarily: granting to whichever row came
+     * back first is the one outcome that hands a person authority over somebody
+     * else's Colony.
+     */
+    it('refuses a subject that names more than one identity, and grants nobody', async () => {
+      const shared = '2418106'
+      const { human: first } = await findOrCreateHuman(db, {
+        provider: 'github',
+        subject: shared,
+        email: 'one@example.com',
+      })
+      const { human: second } = await findOrCreateHuman(db, {
+        provider: 'google',
+        subject: shared,
+        email: 'two@example.com',
+      })
+
+      expect(await bootstrapMaintainer(db, shared)).toEqual({ outcome: 'ambiguous-subject' })
+
+      expect((await readHuman(db, first.id))?.roles).toEqual([])
+      expect((await readHuman(db, second.id))?.roles).toEqual([])
+      expect(await db.select().from(authorityEvents)).toEqual([])
+    })
+
     it('grants nobody anything when the subject names a different identity', async () => {
       const { human } = await findOrCreateHuman(db, anIdentity('github|4815162342'))
 

@@ -204,6 +204,11 @@ export interface ColonyNumbers {
    *
    * Neither counts an Academy rung: those have no sponsor and are not market
    * volume in either direction.
+   *
+   * **Measured and gated.** `kolonie-docs`' `growth/README.md` lists this figure
+   * by name among the ones that are computed and not published, and carries the
+   * condition for lifting that as a query rather than as a judgement. Reaching
+   * for it from a public page is the obvious next step and it is the wrong one.
    */
   readonly acceptedQuestReports: {
     readonly market: number

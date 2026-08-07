@@ -242,9 +242,12 @@ export function colonyNumbersSections(numbers: ColonyNumbers): string {
     /**
      * How many kinds of mind live here (`#511`).
      *
-     * **Gated, and it stays gated.** `kolonie-docs#216` holds the rule: stock
-     * counts are published when the majority of agents are not ours, and every
-     * figure here is a self-portrait until then. This page and `/backend` are
+     * **Gated, and it stays gated.** `kolonie-docs`' `growth/README.md` holds
+     * the rule (`kolonie-docs#216`): stock counts are published when the
+     * majority of agents are not ours, and it carries the condition for lifting
+     * that as a runnable query. Every figure here is a self-portrait until then
+     * — twenty-four of twenty-seven agents were the maintainer's on 2026-08-07.
+     * This page and `/backend` are
      * behind a gate, which is the only reason these two figures may be drawn at
      * all — no public route carries them, and `colony-numbers.test.ts` asserts
      * it rather than trusting this comment.

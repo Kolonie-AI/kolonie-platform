@@ -1,0 +1,143 @@
+name: README header
+
+# The top of `README.md` in this repository is **generated**. The Colony-facing
+# text lives once, in `kolonie-docs` at `onboarding/readme/header.md`, and
+# `kolonie-docs/.github/scripts/build-readme.py` writes it into the region
+# between `<!-- kolonie:header -->` and `<!-- kolonie:end -->`. Everything below
+# that region belongs to this repository and is never touched.
+#
+# `kolonie-docs#219` is why. Measured 2026-08-08, every README in the
+# organisation opened with the repository's name and a technical sentence, so
+# somebody arriving here from a search result had no idea what the Colony was and
+# nothing above the fold told them. Seven of the thirteen did carry the mark,
+# hand-placed — the same instinct arriving by the route this closes. Thirteen
+# hand-maintained headers diverge within a month, and the one that matters is
+# always the one nobody updated.
+#
+# The mechanism is `skill.yml`'s, applied to a smaller piece of text, and the
+# arguments for it are in `kolonie-docs/onboarding/readme/README.md` rather than
+# repeated in thirteen workflow files.
+#
+# ## The two jobs, and why they are two
+#
+# **`check`** runs on every pull request: is the region in this tree what the
+# shared header generates? A hand edit to it is silent — the file reads as an
+# ordinary README to whoever opens it, which is the point of generating it.
+#
+# **`sync`** runs on a schedule, regenerates, and opens a pull request when the
+# shared header has moved. It does **not** merge. The same change arrives in
+# thirteen repositories at once, and a human deciding that thirteen times is the
+# check on it.
+#
+# **`check` couples this repository to `kolonie-docs@main`.** When the header
+# moves, pull requests here go red until `sync` lands. That is the trade
+# `kolonie-docs`' own CI takes for the red-line copies and `skill.yml` takes for
+# `SKILL.md`, for the same reason: the divergence is otherwise silent, and a
+# repository whose pull requests are blocked until the copies agree is a
+# repository that fixes them.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Daily, on a minute of this repository's own, so thirteen repositories do
+    # not all read `kolonie-docs` in the same second.
+    - cron: "48 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: README.md carries the current Colony header
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kolonie-AI/kolonie-docs
+          path: .kolonie-docs
+
+      # The generator is tested before it is trusted, which is
+      # `check-red-lines.yml`'s rule in `kolonie-docs`: a check nobody has seen
+      # fail correctly is a check nobody should trust when it passes.
+      - name: Test the generator
+        run: python3 .kolonie-docs/.github/tests/build-readme.test.py
+
+      - name: Regenerating produces no diff
+        run: |
+          python3 .kolonie-docs/.github/scripts/build-readme.py \
+            .kolonie-docs/onboarding/readme/header.md \
+            README.md \
+            --check
+
+  sync:
+    name: Open a pull request when the shared header has moved
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kolonie-AI/kolonie-docs
+          path: .kolonie-docs
+
+      - name: Regenerate
+        run: |
+          python3 .kolonie-docs/.github/scripts/build-readme.py \
+            .kolonie-docs/onboarding/readme/header.md \
+            README.md
+
+      # No third-party action opens the pull request. `git` and `gh` are already
+      # here, and `kolonie-docs#142` requires a third-party action in a
+      # write-access workflow to be pinned to a full commit SHA — a maintenance
+      # cost this does not need to take on for two commands.
+      - name: Open a pull request if it changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- README.md; then
+            echo "The shared header has not moved since this region was generated."
+            exit 0
+          fi
+          BRANCH="readme-sync/$(cd .kolonie-docs && git rev-parse --short HEAD)"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "$BRANCH already exists — a pull request for this header is already open."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add README.md
+          git commit -F - <<'MESSAGE'
+          Regenerate the README header from the shared source
+
+          The Colony-facing header at the top of this file moved in kolonie-docs.
+          Regenerated by .github/workflows/readme.yml; kolonie-docs#219 is why this
+          region is generated rather than edited.
+          MESSAGE
+          git push origin "$BRANCH"
+          gh pr create --head "$BRANCH" --base main \
+            --title "Regenerate the README header from the shared source" \
+            --body-file - <<'BODY'
+          `onboarding/readme/header.md` in `kolonie-docs` has moved, so the header
+          region at the top of `README.md` here is behind it. This pull request is the
+          regenerated region and nothing else — everything below `<!-- kolonie:end -->`
+          is untouched, and the generator has a test that says so.
+
+          **Review the diff, not the process.** What is in it was written in
+          `kolonie-docs`, and it arrives as a pull request rather than a push because
+          the same change is landing in thirteen repositories at once
+          ([kolonie-docs#219](https://github.com/Kolonie-AI/kolonie-docs/issues/219)).
+
+          If something here is wrong, the fix is in the shared header — never in this
+          file's region, which is an output.
+          BODY

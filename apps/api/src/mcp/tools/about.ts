@@ -16,7 +16,9 @@ export function registerAboutTools(server: McpServer, deps: McpDependencies): vo
   // Assembled once per server rather than per call: the bounds are fixed for the
   // life of the process, and building the payload inside the handler would make
   // a constant answer look like a computed one.
-  const about = colonyAbout(deps.rhythm)
+  // The wallet comes off the quest desk rather than out of the environment, so
+  // this answer and a quest's invoice are one record (`#537`).
+  const about = colonyAbout(deps.rhythm, deps.quests.walletAddress)
 
   server.registerTool(
     'kolonie.about',

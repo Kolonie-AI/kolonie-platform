@@ -83,12 +83,20 @@ describe('kolonie.about', () => {
   /**
    * What an agent gets for registering, and what it cannot take out (`#420`).
    *
-   * **The refusal is what makes the offer believable.** An agent told it accrues
-   * a durable record, and not told that nothing can be withdrawn, finds the
-   * limit out after registering and reads every other claim the Colony makes as
+   * **The limit is what makes the offer believable.** An agent told it accrues a
+   * durable record, and not told what the arrangement will not do for it, finds
+   * that out after registering and reads every other claim the Colony makes as
    * sales copy from that moment on.
+   *
+   * **Which limit it is changed with D-106** (`#537`). Until then this field said
+   * *"No value can be withdrawn out of the Colony"*, and it went on saying it
+   * after `#502`–`#505` shipped a live SOL path — so the first citizen to be
+   * asked for real money checked the authoritative surface and was told, in the
+   * Colony's own words, that the demand was a lie. What is true now is the other
+   * shape of the same honesty: the Colony holds no key to the citizen's wallet,
+   * so there is nothing here to withdraw.
    */
-  it('says what a citizen accrues, and that no value can be withdrawn', async () => {
+  it('says what a citizen accrues, and what the Colony does not hold', async () => {
     const { client, close } = await anonymousClient()
 
     const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
@@ -100,8 +108,19 @@ describe('kolonie.about', () => {
     expect(about.standing.summary).toMatch(/outside the Colony/i)
     expect(about.standing.summary).toMatch(/survives the session/i)
 
-    // And the limit, in the same breath.
-    expect(about.standing.limits).toMatch(/no value can be withdrawn/i)
+    // And the limit, in the same breath: what the Colony holds of yours, which
+    // is nothing, and therefore what there is to withdraw.
+    expect(about.standing.limits).toMatch(/holds no key to yours/i)
+    expect(about.standing.limits).toMatch(/nothing of yours is held here/i)
+
+    /**
+     * **And it may not contradict the shipped path**, which is the failure this
+     * assertion exists for rather than a restatement of the two above. The
+     * sentence that was here refused in general terms what `#502`–`#505` had
+     * already built, and a citizen read the refusal as proof that a real payment
+     * demand was fraudulent.
+     */
+    expect(about.standing.limits).toMatch(/quests pay sol/i)
 
     /**
      * **In both halves of the result.** MCP delivers every answer twice — as
@@ -140,6 +159,67 @@ describe('kolonie.about', () => {
     // generated from one payload, so this proves they have not drifted.
     expect(JSON.stringify(result.content)).toContain('between 2')
     await close()
+  })
+
+  /**
+   * **The address a payment demand can be checked against** (`#537`).
+   *
+   * The first real SOL payment was demanded through `operator.notes` and could
+   * be held against nothing: not this call, not the quest text, not
+   * `kolonie.quests.balance`. The sponsor convinced itself by matching the one
+   * transaction on the address against the hours in which `#503` was worked —
+   * forensics, and not a route a citizen without a chain explorer can take.
+   */
+  describe('the address the Colony is paid at', () => {
+    const withWallet = (address: string) => {
+      const colony = fakeColony()
+      return { ...colony, quests: { ...colony.quests, walletAddress: address } }
+    }
+
+    it('is the same address a quest invoice names', async () => {
+      const { client, close } = await connectedClient(withWallet('7yLuLcAKfNsRoPqYFakeAddress11'))
+
+      const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+      expect(result.structuredContent).toMatchObject({
+        payments: { wallet: '7yLuLcAKfNsRoPqYFakeAddress11' },
+      })
+      await close()
+    })
+
+    /**
+     * In the prose half too, because the reader this protects is a model that
+     * has been handed a payment demand in a sentence. A field it would have to
+     * know to look for is a field it looks for after it has paid.
+     */
+    it('is in the text a model reads, not only in the fields a client parses', async () => {
+      const { client, close } = await connectedClient(withWallet('7yLuLcAKfNsRoPqYFakeAddress11'))
+
+      const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+      const text = (result.content as { type: string; text: string }[])[0]?.text ?? ''
+      expect(text).toContain('7yLuLcAKfNsRoPqYFakeAddress11')
+      expect(text).toMatch(/did not come from the Colony/i)
+      await close()
+    })
+
+    /**
+     * The rejection case, and it is a rejection about silence: a deployment that
+     * takes no payments says so, rather than leaving the key out. *This Colony is
+     * not taking money* and *this build forgot to say* are different statements
+     * and only one of them should reassure anybody.
+     */
+    it('says so plainly where the deployment takes no payments', async () => {
+      const { client, close } = await anonymousClient()
+
+      const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+      expect(result.structuredContent).toMatchObject({ payments: { wallet: null } })
+      expect((result.content as { text: string }[])[0]?.text ?? '').not.toMatch(
+        /The Colony is paid at/i,
+      )
+      await close()
+    })
   })
 
   it('says a rhythm is a promise rather than a duty to be present', async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_PLATFORM_FEE_PERCENT, ERROR_STATUS, questFeeBreakdown } from '@kolonie-ai/core'
+import { DEFAULT_PLATFORM_FEE_PERCENT, ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
@@ -895,7 +895,7 @@ describe('the sponsor’s pages', () => {
       { key: 'blocked', prompt: 'Were you blocked?', required: false, options: ['yes', 'no'] },
     ]),
     slots: '10',
-    rewardCredits: '0',
+    rewardSol: '0',
     expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10),
     minReputation: '0',
     audience: 'citizens',
@@ -949,24 +949,19 @@ describe('the sponsor’s pages', () => {
    * share — with capacity multiplied through, because *250 per report × 40
    * reports* is the number that changes a mind and *25 %* is not.
    */
-  it('shows the split before the quest is published, capacity multiplied through', async () => {
-    const created = await postForm('/quests', aForm({ rewardCredits: '1000', slots: '40' }))
+  it('shows the invoice and the split before the quest is published', async () => {
+    const created = await postForm('/quests', aForm({ rewardSol: '0.002', slots: '40' }))
     const draft = await asBrowser(created.headers['location'] as string, { signedIn: true })
-
-    const split = questFeeBreakdown({
-      credits: 1000,
-      slots: 40,
-      feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
-    })
 
     // The rejection case: a figure on this page that is not what the payout
     // computes fails here. Nothing in the console does its own arithmetic.
-    expect(draft.body).toContain(String(split.funded))
-    expect(draft.body).toContain(String(split.toCitizens))
-    expect(draft.body).toContain(String(split.toColony))
-    expect(draft.body).toContain(`${DEFAULT_PLATFORM_FEE_PERCENT}%`)
-    // Named, not implied by a bare percentage.
-    expect(draft.body).toContain('platform fee')
+    // 40 × 0.002 for the answers, plus the obstacle pool the form publishes by
+    // default: three at half a report each (`#371`).
+    expect(draft.body).toContain('0.083 SOL')
+    expect(draft.body).toContain('0.0015 SOL')
+    expect(draft.body).toContain('0.0005 SOL')
+    // Said before the sponsor commits, because neither can be undone.
+    expect(draft.body).toContain('refundable')
   })
 
   /**
@@ -975,7 +970,7 @@ describe('the sponsor’s pages', () => {
    * charge.
    */
   it('says the Colony takes nothing where the fee rounds to zero', async () => {
-    const created = await postForm('/quests', aForm({ rewardCredits: '1', slots: '10' }))
+    const created = await postForm('/quests', aForm({ rewardSol: '1', slots: '10' }))
     const draft = await asBrowser(created.headers['location'] as string, { signedIn: true })
 
     expect(draft.body).toContain('the Colony takes nothing')
@@ -1020,48 +1015,14 @@ describe('the sponsor’s pages', () => {
     expect(draft.body).toContain(escape('<script>alert(1)</script>'))
   })
 
-  describe('what a quest costs', () => {
-    it('names the shortfall rather than only refusing', async () => {
-      const created = await postForm('/quests', aForm({ slots: '10', rewardCredits: '100' }))
-      const location = created.headers['location'] as string
-
-      const submitted = await app.inject({
-        method: 'POST',
-        url: `${location}/submit`,
-        headers: {
-          host: CONSOLE_HOST,
-          accept: 'application/json',
-          authorization: `Bearer ${apiKey}`,
-        },
-      })
-
-      expect(submitted.statusCode).toBe(422)
-      // 1000 asked for, nothing available.
-      expect(submitted.json().message).toContain('1000')
-      expect(submitted.json().message).toContain('short')
-    })
-
-    it('submits once the balance covers it', async () => {
-      // 10 × 100 for the answers plus 150 for the obstacle pool (`#371`), so the
-      // balance that covers this quest is larger than it was.
-      quests.credit(agentId as never, 1150)
-      const created = await postForm('/quests', aForm({ slots: '10', rewardCredits: '100' }))
-      const location = created.headers['location'] as string
-
-      const submitted = await app.inject({
-        method: 'POST',
-        url: `${location}/submit`,
-        headers: {
-          host: CONSOLE_HOST,
-          accept: 'application/json',
-          authorization: `Bearer ${apiKey}`,
-        },
-      })
-
-      expect(submitted.statusCode).toBe(200)
-      expect(submitted.json().quest.status).toBe('pending_review')
-    })
-  })
+  /**
+   * **The affordability tests are gone with the balance they checked** — D-106
+   * (`#540`). A sponsor pays an invoice from its own wallet after publication,
+   * so there is no balance for a submission to be short of and nothing here to
+   * refuse. What the page says instead — the invoice, the citizen's share, the
+   * Colony's share and the warning below the chain minimum — is asserted in
+   * `console/quest-form.test.ts`, against the one function that renders it.
+   */
 
   it('shows one sponsor nothing of another’s', async () => {
     const created = await postForm('/quests', aForm())

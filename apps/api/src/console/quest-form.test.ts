@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { KNOWN_SKILLS, QUEST_PROOF_VERIFIERS, QUEST_TIER_CAPS } from '@kolonie-ai/core'
 import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import {
-  affordability,
+  questInvoiceLine,
   obstacleNote,
   parseQuestForm,
   proofNote,
@@ -22,7 +22,7 @@ const aForm = (overrides: Record<string, unknown> = {}): Record<string, unknown>
   minReputation: '0',
   audience: 'citizens',
   proofVerifier: 'email-inbox',
-  rewardCredits: '1',
+  rewardSol: '0.002',
   ...overrides,
 })
 
@@ -39,7 +39,7 @@ describe('the quest form', () => {
     if (result.outcome !== 'parsed') return
     expect(result.draft['title']).toBe('A thousand registrations')
     expect(result.draft['slots']).toBe(100)
-    expect(result.draft['reward']).toEqual({ credits: 1, reputation: 1 })
+    expect(result.draft['reward']).toEqual({ credits: 0, reputation: 1, lamports: 2_000_000 })
   })
 
   /**
@@ -79,7 +79,7 @@ describe('the quest form', () => {
       // affects publication only.
       'keepObstaclesUnpublished',
       'proofVerifier',
-      'rewardCredits',
+      'rewardSol',
     ])
   })
 
@@ -266,27 +266,43 @@ describe('the quest form', () => {
     })
   })
 
-  describe('what it costs, and whether the balance covers it', () => {
-    it('multiplies capacity by price', () => {
-      expect(affordability({ slots: 100, credits: 1, available: 500 }).total).toBe(100)
+  describe('what it costs, and where the money goes', () => {
+    const line = (over: Record<string, number | boolean> = {}) =>
+      questInvoiceLine({
+        slots: 100,
+        lamports: 2_000_000,
+        publishObstacles: false,
+        feePercent: 25,
+        chainMinimum: 890_880,
+        ...over,
+      })
+
+    it('names the invoice, the citizen share and the Colony share', () => {
+      expect(line()).toContain('0.2 SOL')
+      expect(line()).toContain('0.0015 SOL')
+      expect(line()).toContain('0.0005 SOL')
     })
 
-    it('names the shortfall rather than only refusing', () => {
-      const money = affordability({ slots: 100, credits: 10, available: 250 })
-
-      expect(money.affordable).toBe(false)
-      expect(money.shortfall).toBe(750)
+    /** Said before the sponsor commits, because neither can be undone. */
+    it('says nothing is refundable and that unfilled capacity is not returned', () => {
+      expect(line()).toContain('refundable')
+      expect(line()).toContain('not returned')
     })
 
-    it('is affordable when the balance exactly covers it', () => {
-      expect(affordability({ slots: 10, credits: 5, available: 50 }).affordable).toBe(true)
+    /**
+     * Physics, not policy: a citizen whose address has never held SOL cannot
+     * receive less than the rent-exempt minimum, so the payment accrues.
+     * Warning about it is right; refusing the price would not be (`#505`).
+     */
+    it('warns when the citizen share is below the chain minimum, and does not refuse it', () => {
+      const small = line({ lamports: 1_000 })
+
+      expect(small).toContain('accrues')
+      expect(small).toContain('0.00089088 SOL')
     })
 
-    it('costs nothing at the pilot price of zero', () => {
-      const money = affordability({ slots: 1000, credits: 0, available: 0 })
-
-      expect(money.total).toBe(0)
-      expect(money.affordable).toBe(true)
+    it('says a quest that pays reputation has no invoice at all', () => {
+      expect(line({ lamports: 0 })).toContain('no invoice')
     })
   })
 })

@@ -14,9 +14,9 @@
  */
 
 import {
+  RENT_EXEMPT_MINIMUM_FALLBACK,
   audienceFragment,
   distinctOperatorsNotice,
-  questFeeBreakdown,
   questPayNotice,
   reportAudience,
   type QuestReportCounts,
@@ -32,7 +32,7 @@ import {
   activityNote,
   obstacleNote,
   proofNote,
-  type Affordability,
+  questInvoiceLine,
 } from './quest-form.js'
 
 /**
@@ -341,7 +341,17 @@ export function questFormPage(input: {
       `<label for="questions">The report questions, as JSON</label><input id="questions" name="questions" value="${value('questions')}" required>`,
       '<p class="note">Each has a key, a prompt, a required flag, and either bounds or a closed set of options. A closed question is the one the Colony can count.</p>',
       `<label for="slots">Capacity — how many accepted reports you are buying</label><input id="slots" name="slots" type="number" min="1" value="${value('slots')}" required>`,
-      `<label for="rewardCredits">Price per accepted report, in credits</label><input id="rewardCredits" name="rewardCredits" type="number" min="0" value="${value('rewardCredits')}">`,
+      /**
+       * Entered in SOL and stored in lamports — D-106 (`#540`).
+       *
+       * `type="text"` and not `type="number"`: a number input offers a
+       * spinner and a locale-dependent decimal separator, and this value is
+       * parsed by `lamportsFromSol`, which refuses anything it cannot state
+       * exactly. A comma silently becoming a full stop between the two is not
+       * a thing to leave to a browser.
+       */
+      `<label for="rewardSol">Price per accepted report, in SOL</label><input id="rewardSol" name="rewardSol" type="text" inputmode="decimal" placeholder="0.002" value="${value('rewardSol')}">`,
+      '<p class="note">Leave it empty for a quest that pays reputation and nothing else. What you enter is what one accepted report costs you; the citizen receives its share and the Colony keeps the rest.</p>',
       `<label for="expiresAt">Expiry</label><input id="expiresAt" name="expiresAt" type="date" value="${value('expiresAt')}" required>`,
       '<fieldset><legend>Required skills</legend>',
       `<p class="note">Chosen from the Colony’s list. A skill it does not grant is a requirement nobody can meet.</p>${skills}`,
@@ -374,7 +384,6 @@ export function questFormPage(input: {
 /** One draft: what it costs, what a citizen will read, and what to do next. */
 export function questDraftPage(input: {
   readonly quest: Task
-  readonly money: Affordability
   readonly rejectionReason: string | null
   readonly awaitingModeration: boolean
   readonly problems?: readonly string[] | undefined
@@ -405,31 +414,29 @@ export function questDraftPage(input: {
    */
   readonly feePercent: number
 }): string {
-  const { quest, money } = input
+  const { quest } = input
   /** Somebody else's agent's quest is read-only, and the page shows no control at all. */
   const readOnly = input.writtenBy !== undefined
 
   /**
-   * Where the money goes, before the work rather than after it (`#463`).
+   * What the quest costs and where the money goes — D-106 (`#540`).
    *
-   * The rate this quest will actually pay: the one recorded when it was
-   * published, or the configured rate for a draft that has not been. Never a
-   * second calculation — `questFeeBreakdown` calls the same split the payout
-   * books against.
+   * **One sentence-block, and it is the invoice.** There is no balance to be
+   * short of any more: a sponsor pays from its own wallet when the quest is
+   * published, so *can you afford it* stopped being a question this page can
+   * answer and *what will it cost you* became the only one worth asking.
+   *
+   * The split is the same function the payout books against, at the rate this
+   * quest will actually pay — recorded at publication, or the configured rate
+   * for a draft that has not been.
    */
-  const split = questFeeBreakdown({
-    credits: quest.reward.credits,
+  const cost = `<p>${questInvoiceLine({
     slots: quest.slots ?? 0,
+    lamports: quest.reward.lamports,
+    publishObstacles: quest.publishObstacles,
     feePercent: quest.platformFeePercent ?? input.feePercent,
-  })
-
-  const where = split.free
-    ? `<p>Citizens receive all ${split.toCitizens} of it — at ${quest.reward.credits} credit(s) a report the platform fee rounds to nothing, so the Colony takes nothing.</p>`
-    : `<p>Of that, <strong>${split.toCitizens} goes to citizens</strong> — ${split.perReport.toCitizen} per accepted report — and <strong>${split.toColony} is the Colony's share</strong>, the platform fee of ${split.feePercent}%, ${split.perReport.toTreasury} per accepted report. It is taken as each report is accepted, so capacity nobody fills is never charged for and comes back to you whole.</p>`
-
-  const cost = money.affordable
-    ? `<p>Total ${money.total} credit(s) — capacity ${quest.slots ?? 0} × ${quest.reward.credits}. Your available balance is ${money.available}.</p>${where}`
-    : `<p><strong>This quest costs ${money.total} credit(s) and your available balance is ${money.available}. You are ${money.shortfall} short.</strong> Add funds or lower the capacity or the price; a quest that cannot be paid for never reaches a steward.</p>${where}`
+    chainMinimum: RENT_EXEMPT_MINIMUM_FALLBACK,
+  })}</p>`
 
   /**
    * What this quest's targeting reaches, counted rather than estimated.
@@ -464,7 +471,9 @@ export function questDraftPage(input: {
       ? ''
       : [
           `<form method="post" action="/quests/${escape(quest.id)}/submit">`,
-          `<button type="submit"${money.affordable ? '' : ' disabled'}>Submit for review</button>`,
+          // Never disabled: there is no balance to be short of, so nothing here can
+          // know in advance whether the sponsor will pay (`#540`).
+          `<button type="submit">Submit for review</button>`,
           '</form>',
         ].join('\n')
 
@@ -526,7 +535,7 @@ export function questDraftPage(input: {
         requires: quest.requires,
         minReputation: quest.minReputation,
         reward: quest.reward,
-        feePercent: split.feePercent,
+        feePercent: quest.platformFeePercent ?? input.feePercent,
       }),
       '</div>',
       '<p><a href="/">Back to your quests</a></p>',

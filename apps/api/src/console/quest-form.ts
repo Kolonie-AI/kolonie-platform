@@ -22,9 +22,13 @@ import {
   QUEST_PROOF_VERIFIERS,
   QUEST_TIER_CAPS,
   activityWindowNotice,
+  lamportsFromSol,
   obstacleBonusNotice,
   obstaclePublicationNotice,
+  questInvoiceLamports,
+  questPayoutSplit,
   questTier,
+  solFromLamports,
   type ActivityWindow,
   type QuestProofVerifier,
 } from '@kolonie-ai/core'
@@ -52,7 +56,7 @@ export const QUEST_FORM_FIELDS = [
   'distinctOperators',
   'keepObstaclesUnpublished',
   'proofVerifier',
-  'rewardCredits',
+  'rewardSol',
 ] as const
 
 export type QuestFormField = (typeof QUEST_FORM_FIELDS)[number]
@@ -218,8 +222,22 @@ export function parseQuestForm(body: unknown): FormParse {
     problems.push('Capacity is how many accepted reports you are buying, and it is at least 1.')
   }
 
-  const rewardCredits = number('rewardCredits') ?? 0
-  if (rewardCredits < 0) problems.push('A price per report cannot be negative.')
+  /**
+   * The price, entered as SOL and stored as lamports — D-106 (`#540`).
+   *
+   * **Parsed once, here, and integers everywhere after.** A price decided in
+   * floating point is a payment that is occasionally one lamport short, which is
+   * why `lamportsFromSol` refuses anything it cannot state exactly rather than
+   * rounding it.
+   */
+  const rewardSol = text('rewardSol')
+  const rewardLamports = rewardSol === '' ? 0 : lamportsFromSol(rewardSol)
+  if (rewardLamports === null) {
+    problems.push(
+      'A price is an amount of SOL with at most nine decimal places — 0.002, or 1.5. ' +
+        'Leave it empty for a quest that pays reputation and nothing else.',
+    )
+  }
 
   const minReputation = number('minReputation') ?? 0
   if (minReputation < 0) problems.push('A minimum reputation cannot be negative.')
@@ -334,7 +352,7 @@ export function parseQuestForm(body: unknown): FormParse {
       distinctOperators,
       publishObstacles,
       proofVerifier,
-      reward: { credits: rewardCredits, reputation: 1 },
+      reward: { credits: 0, reputation: 1, lamports: rewardLamports ?? 0 },
     },
   }
 }
@@ -416,13 +434,41 @@ export interface Affordability {
  * that it was never fundable. The reservation rule is `#174`'s; this is where a
  * person meets it.
  */
-export function affordability(input: {
+export function questInvoiceLine(input: {
   readonly slots: number
-  readonly credits: number
-  readonly available: number
-}): Affordability {
-  const total = input.slots * input.credits
-  const shortfall = Math.max(0, total - input.available)
+  readonly lamports: number
+  readonly publishObstacles: boolean
+  readonly feePercent: number
+  /** The chain's rent-exempt minimum, so a small price can be warned about. */
+  readonly chainMinimum: number
+}): string {
+  if (input.lamports === 0) {
+    return 'This quest pays reputation and nothing else, so there is no invoice and it goes live when a steward publishes it.'
+  }
 
-  return { total, available: input.available, shortfall, affordable: shortfall === 0 }
+  const invoice = questInvoiceLamports({
+    reward: { lamports: input.lamports },
+    slots: input.slots,
+    publishObstacles: input.publishObstacles,
+  })
+  const { toCitizen, toTreasury } = questPayoutSplit(input.lamports, input.feePercent)
+
+  /**
+   * **The chain minimum is a warning and never a refusal** (`#540`). A citizen
+   * whose address has never held SOL cannot receive less than the rent-exempt
+   * minimum — the transfer would be spent creating nothing — so such a payout
+   * accrues instead. That is physics, and turning it into a refusal here would
+   * make it policy, which `#505` forbids.
+   */
+  const accrues =
+    toCitizen < input.chainMinimum
+      ? ` A citizen whose wallet has never held SOL cannot receive ${solFromLamports(toCitizen)} SOL in one transfer, so its payment accrues until it clears ${solFromLamports(input.chainMinimum)} SOL rather than arriving when the report is accepted.`
+      : ''
+
+  return (
+    `This quest costs ${solFromLamports(invoice)} SOL, payable from your own verified wallet ` +
+    `before it goes live. Each accepted report pays the citizen ${solFromLamports(toCitizen)} SOL ` +
+    `and the Colony ${solFromLamports(toTreasury)} SOL. Nothing here is refundable, and capacity ` +
+    `nobody fills is not returned.${accrues}`
+  )
 }

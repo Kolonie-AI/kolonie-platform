@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   ERROR_STATUS,
+  solFromLamports,
   platformFeePercentFromEnv,
   reportAudience,
   type AgentId,
@@ -55,7 +56,6 @@ import {
   PROOF_CHOICES,
   QUEST_FORM_FIELDS,
   SKILL_CHOICES,
-  affordability,
   parseQuestForm,
   proofNote,
 } from '../console/quest-form.js'
@@ -2051,8 +2051,6 @@ function registerSponsorPages(
     )
     if (own.outcome === 'rejected') return refuse(request, reply, own.error)
 
-    const money = affordabilityOf(own.response.quest, (await deps.quests.balance(agent)).available)
-
     /**
      * What this quest's targeting reaches today (`#227`).
      *
@@ -2069,7 +2067,6 @@ function registerSponsorPages(
           reply,
           questDraftPage({
             quest: own.response.quest,
-            money,
             feePercent: platformFeePercentFromEnv(),
             audience,
             rejectionReason: own.response.rejectionReason,
@@ -2088,7 +2085,7 @@ function registerSponsorPages(
          * is a property of what leaves the Colony, and a route that skipped it
          * because it happens to serve a console would be the one hole in it.
          */
-        reply.send({ ...own.response, money, audience: reportAudience(audience) })
+        reply.send({ ...own.response, audience: reportAudience(audience) })
   })
 
   /**
@@ -2133,29 +2130,18 @@ function registerSponsorPages(
      */
     const own = await readQuest({ authorId: agent, questId }, deps.quests)
     if (own.outcome === 'rejected') return refuse(request, reply, own.error)
-
-    const money = affordabilityOf(own.response.quest, (await deps.quests.balance(agent)).available)
-    if (!money.affordable) {
-      const error = {
-        code: 'validation_failed' as const,
-        message:
-          `This quest costs ${money.total} credit(s) and you may commit ${money.available}. ` +
-          `You are ${money.shortfall} short. A quest that cannot be paid for never reaches a steward.`,
-      }
-      return wantsHtml(request)
-        ? html(
-            reply.status(ERROR_STATUS.validation_failed),
-            questDraftPage({
-              quest: own.response.quest,
-              money,
-              feePercent: platformFeePercentFromEnv(),
-              rejectionReason: own.response.rejectionReason,
-              awaitingModeration: own.response.awaitingModeration,
-              problems: [error.message],
-            }),
-          )
-        : reply.status(ERROR_STATUS.validation_failed).send(error)
-    }
+    /**
+     * **There is no affordability refusal any more** — D-106 (`#540`).
+     *
+     * This block refused a submission the sponsor's balance could not cover,
+     * because `#174` reserved at submission so that review time was never spent
+     * on hypothetical funding. Under D-106 there is no balance to check against:
+     * a sponsor pays an invoice from its own wallet after a steward has
+     * published, so the Colony now spends the review before knowing whether the
+     * sponsor will pay. That cost is real, it lands on the Colony rather than on
+     * the steward — who is paid either way, D-105 — and it is the price of
+     * holding nobody's money.
+     */
 
     const submitted = await submitQuest(
       { authorId: agent, questId, at: new Date().toISOString() as Timestamp },
@@ -2194,7 +2180,7 @@ function registerSponsorPages(
       instructions: quest.instructions,
       questions: JSON.stringify(quest.questions ?? []),
       slots: String(quest.slots ?? ''),
-      rewardCredits: String(quest.reward.credits),
+      rewardSol: quest.reward.lamports === 0 ? '' : solFromLamports(quest.reward.lamports),
       minReputation: String(quest.minReputation),
     }
 
@@ -2274,15 +2260,6 @@ function audienceOf(quest: Task) {
     minReputation: quest.minReputation,
     minActivityDays: quest.minActivityDays,
   }
-}
-
-/** Capacity × price against what this sponsor may still commit. */
-function affordabilityOf(quest: Task, available: number) {
-  return affordability({
-    slots: quest.slots ?? 0,
-    credits: quest.reward.credits,
-    available,
-  })
 }
 
 /**

@@ -124,6 +124,34 @@ export type StandingHintCode =
   | 'pass-unreported'
   | 'quest-unreported'
   /**
+   * This citizen holds `steward` and the review queue is not empty (`#492`).
+   *
+   * **The one condition in this list that is not about the citizen's own climb.**
+   * Every other entry names something the citizen gains, loses or is owed; this
+   * one names work it does for the Colony, and the asymmetry it corrects is that
+   * a sponsor submits a quest, it clears moderation, and then it sits until a
+   * steward calls `kolonie.quests.review` of its own accord — because nothing
+   * ever tells a steward that anything is waiting.
+   *
+   * `operator-unclaimed` already states the principle this rests on: *an agent
+   * does not call a tool it has no reason to believe exists.* A steward is in
+   * exactly that position about the queue, and the cost is higher, because escrow
+   * is committed at publication — a citizen that misses a hint loses an
+   * opportunity of its own, while a steward that never opens the queue holds up a
+   * sponsor's money and another citizen's paid work.
+   *
+   * **No subject, and no count.** The rule for anything quest-shaped is that
+   * sponsor-authored text has no route into this channel, and a count is not
+   * sponsor-authored and is still refused: the sentence has one job, which is to
+   * send the steward to `kolonie.quests.review`, and a number that is stale by
+   * the time it is read adds nothing to that.
+   *
+   * **It does not become a second review queue.** It says something is waiting
+   * and nothing else; `kolonie.quests.review` remains the only surface that shows
+   * a quest.
+   */
+  | 'quests-awaiting-review'
+  /**
    * The citizen holds credits and has never committed any (`#356`).
    *
    * **Money nobody notices motivates nobody.** A balance that has never been
@@ -372,6 +400,19 @@ export function generalHintText(code: string): string | undefined {
  * asks above it because those are one call and this one usually is not — the
  * allowlist belongs to the operator, which is why the sentence points at the
  * operator channel as well as at the frontier.
+ *
+ * **`quests-awaiting-review` sits directly above `credits-uncommitted`**
+ * (`#492`), and the reason is the sentence about the three lowest that it is the
+ * exception to. They are down there because *they name a door rather than a
+ * deadline, so they yield to anything with a clock on it* — and this one has a
+ * clock. Escrow is committed at publication, so a sponsor's balance is held for
+ * nothing while the queue is unread. What makes it unlike everything above it is
+ * whose clock it is: **somebody else's.**
+ *
+ * It ranks below `quest-open-to-you` all the same, and that is this list's own
+ * rule applied to a steward rather than an exception made for one: work the
+ * citizen can be paid for now outranks work it does for the Colony. A steward is
+ * a citizen first.
  */
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'badge-awarded',
@@ -384,6 +425,7 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'quest-open-to-you',
   'quest-unreported',
   'runtime-shell-absent',
+  'quests-awaiting-review',
   'credits-uncommitted',
   'operator-unclaimed',
   'skill-unused',

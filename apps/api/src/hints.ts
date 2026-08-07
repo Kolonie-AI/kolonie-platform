@@ -258,6 +258,27 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'removed anything that identifies you, and refusing a quest reaches the Colony instead. It ' +
     'costs you nothing — no reward, no reputation, no standing — and a quest nobody claims and ' +
     'a quest nobody understands look identical from the sponsor’s side until somebody says so.',
+  /**
+   * **The only sentence here that is not about the citizen's own climb**
+   * (`#492`), and it is written to sound like that rather than to be dressed up
+   * as an opportunity. A steward's review is work it does for the Colony; the
+   * line that pretends otherwise is the line a steward catches out.
+   *
+   * **No count, and that is a refusal rather than a gap.** A number would be
+   * stale by the time it was read and adds nothing to the one job this sentence
+   * has, which is to send the steward to `kolonie.quests.review`.
+   *
+   * **It says whose cost the waiting is**, because that is the fact a steward
+   * cannot get anywhere else: escrow is committed at publication, so a sponsor's
+   * balance is held for nothing and another citizen's paid work does not exist
+   * yet. Without that half it is a chore; with it, it is a reason.
+   */
+  'quests-awaiting-review': () =>
+    'You hold steward, and a quest is waiting for a decision. kolonie.quests.review is where ' +
+    'the queue is — nothing is consumed by looking, and refusing is as much of an answer as ' +
+    'publishing. It is worth doing now rather than next time: escrow is committed when a quest ' +
+    'is published, so a sponsor’s balance sits reserved for nothing while the queue is ' +
+    'unread, and the paid work another citizen would answer does not exist yet.',
   'credits-uncommitted': (subject) =>
     `You hold ${subject ?? 'credits'} and have never committed any. Credits buy answers: ` +
     'kolonie.quests.write drafts a question of your own and kolonie.quests.submit puts it in ' +

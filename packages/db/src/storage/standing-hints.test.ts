@@ -14,6 +14,7 @@ import {
   taskAttempts,
   taskConsiderations,
   taskSetAsides,
+  questModerations,
   questReports,
   taskReports,
   tasks,
@@ -1269,6 +1270,188 @@ describe('the seven conditions the Colony kept to itself', () => {
       await anAttemptDeclaring(agentId, { shell: true })
 
       expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+  })
+
+  /**
+   * The one condition in the list that is not about the citizen's own climb
+   * (`#492`).
+   *
+   * Everything else here asks *what does this citizen gain, lose or owe*. This
+   * asks whether a steward has been told that somebody else's money is sitting
+   * reserved while a queue goes unread — and until this existed, nothing in the
+   * Colony ever told it.
+   */
+  describe('a quest waiting for a steward (#492)', () => {
+    const aSteward = async (): Promise<AgentId> => {
+      const agentId = await aQuietCitizen()
+      await db.execute(sql`update agents set roles = '{steward}'::role[] where id = ${agentId}`)
+      return agentId
+    }
+
+    /**
+     * A quest in the queue `kolonie.quests.review` actually reads: **cleared by
+     * the moderator and not merely sitting in `pending_review`.** That is
+     * `questReviewQueue`'s own definition, and the hint inherits it by calling
+     * that function rather than by copying its `where`.
+     */
+    /** One booking on the citizen's leg, so `credits-uncommitted` is applicable too. */
+    const creditTo = async (agentId: AgentId, amount: number): Promise<void> => {
+      const transactionId = crypto.randomUUID()
+      await db.insert(ledgerEntries).values([
+        {
+          transactionId,
+          accountKind: 'agent' as const,
+          agentId,
+          amount,
+          type: 'faucet_grant' as const,
+        },
+        {
+          transactionId,
+          accountKind: 'system' as const,
+          systemAccount: 'treasury' as const,
+          amount: -amount,
+          type: 'faucet_grant' as const,
+        },
+      ])
+    }
+
+    const aQuestAwaitingReview = async (): Promise<TaskId> => {
+      const taskId = await aTask({
+        kind: 'quest' as const,
+        status: 'pending_review' as const,
+        title: 'A sponsor’s own words, which must not travel',
+        rewardCredits: 15,
+        slots: 2,
+        audience: 'citizens' as const,
+      })
+      await db.insert(questModerations).values({
+        taskId,
+        decision: 'approved' as const,
+        model: 'a-model',
+        stages: {},
+        contentSha256: 'a'.repeat(64),
+      })
+      return taskId
+    }
+
+    it('is said to a steward with something in the queue', async () => {
+      const agentId = await aSteward()
+      await aQuestAwaitingReview()
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('quests-awaiting-review')
+      // No subject and no count: the sentence's job is to send the steward to
+      // the queue, and a number stale by the time it is read does not help.
+      expect(hint?.subject).toBeNull()
+    })
+
+    /**
+     * **The rejection case the issue asks for**, and the one that carries the
+     * risk: two citizens, one queue, and only the steward is offered it. A
+     * citizen without the role has no call that would clear this line.
+     */
+    it('is not said to a citizen that is not a steward', async () => {
+      const steward = await aSteward()
+      const ordinary = await aQuietCitizen()
+      await aQuestAwaitingReview()
+
+      expect((await hintInAFreshRun(steward))?.code).toBe('quests-awaiting-review')
+      expect(await hintInAFreshRun(ordinary)).toBeNull()
+    })
+
+    it('says nothing to a steward while the queue is empty', async () => {
+      const agentId = await aSteward()
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * The queue is *cleared by the moderator and not yet decided by a human*.
+     * A quest the moderation stage has not answered about is not waiting for a
+     * steward, and a hint that named a door which is not there would teach a
+     * steward to disbelieve the channel.
+     */
+    it('says nothing about a quest the moderator has not cleared', async () => {
+      const agentId = await aSteward()
+      await aTask({
+        kind: 'quest' as const,
+        status: 'pending_review' as const,
+        rewardCredits: 15,
+        slots: 2,
+        audience: 'citizens' as const,
+      })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * It clears the way every condition in this file clears — by acting. Here
+     * that is a decision, and **refusing clears it exactly as publishing does**,
+     * which is the property worth asserting: a hint that only went away when a
+     * steward said yes would be a channel with an opinion about the verdict.
+     */
+    it('stops once the steward has refused it', async () => {
+      const agentId = await aSteward()
+      const taskId = await aQuestAwaitingReview()
+      expect((await hintInAFreshRun(agentId))?.code).toBe('quests-awaiting-review')
+
+      // `tasks_rejection_reason_iff_rejected` — a refusal without a reason is
+      // not a state this table lets exist, which is the right constraint.
+      await db
+        .update(tasks)
+        .set({ status: 'rejected' as const, rejectionReason: 'Not a question the Colony can ask.' })
+        .where(eq(tasks.id, taskId))
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * And publishing clears it too — into the next condition rather than into
+     * silence, because a published quest is one this steward could now answer.
+     * The line the steward is handed changes, and no line is said twice.
+     */
+    it('stops once the steward has published it', async () => {
+      const agentId = await aSteward()
+      const taskId = await aQuestAwaitingReview()
+      expect((await hintInAFreshRun(agentId))?.code).toBe('quests-awaiting-review')
+
+      await db
+        .update(tasks)
+        .set({ status: 'active' as const })
+        .where(eq(tasks.id, taskId))
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('quest-open-to-you')
+    })
+
+    /**
+     * **Both halves of the rank argument, on one steward in one run**, because
+     * both conditions can be applicable at once and the channel serves a single
+     * line. This is what makes `STANDING_HINT_RANK`'s placement paragraph an
+     * assertion rather than a claim.
+     */
+    it('yields to a quest the steward could be paid for, and outranks its own credits', async () => {
+      const agentId = await aSteward()
+      await aQuestAwaitingReview()
+      await creditTo(agentId, 40)
+
+      // Above `credits-uncommitted`: somebody else's escrow is held while this
+      // queue is unread, so it has a clock on it and the door below does not.
+      expect((await hintInAFreshRun(agentId))?.code).toBe('quests-awaiting-review')
+
+      await aTask({
+        kind: 'quest' as const,
+        status: 'active' as const,
+        requiresSkills: [],
+        rewardCredits: 15,
+        slots: 2,
+        audience: 'citizens' as const,
+      })
+
+      // And below `quest-open-to-you`: a steward is a citizen first, so work it
+      // can be paid for now outranks work it does for the Colony.
+      expect((await hintInAFreshRun(agentId))?.code).toBe('quest-open-to-you')
     })
   })
 

@@ -11,6 +11,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, agentSessions, supportTickets, taskConsiderations } from '../schema/index.js'
 import { openProspects } from './prospects.js'
+import { questReviewQueue } from './quests/steward.js'
 import { currentSessionIdSql, previousSessionStartSql } from './sessions.js'
 import { markBadgeTold, untoldBadge } from './badges.js'
 
@@ -520,6 +521,40 @@ async function shellDeclaredAbsent(db: Database | Transaction, agentId: AgentId)
 }
 
 /**
+ * Whether this citizen is a steward with something waiting for it (`#492`).
+ *
+ * **The queue is `questReviewQueue`, called rather than reimplemented.** The
+ * issue asked for *the same queue `stewardQueue` already reads, not a second
+ * query with its own idea of what is waiting* — and the way to guarantee that is
+ * to run the same function rather than to copy its `where` clause. A predicate
+ * duplicated here would drift the first time the queue's definition changed, and
+ * a hint that names a door which is not there is worse than no hint: the steward
+ * opens `kolonie.quests.review`, finds nothing, and learns to disbelieve the
+ * channel.
+ *
+ * That queue is *cleared by the moderator and not yet decided by a human*, and
+ * it is deliberately not *everything in `pending_review`* — see its own doc
+ * comment. Inheriting that distinction is the point of calling it.
+ *
+ * **The role is asked first, and it is the cheap half.** A non-steward is
+ * answered by one indexed read and never reaches the queue, so the ordinary
+ * citizen's waking costs nothing for a condition that can never apply to it.
+ * Every citizen in the Colony but one is in that case today.
+ */
+async function stewardWithQueue(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
+  const [row] = await db
+    .select({ steward: sql<boolean>`'steward'::role = any(${agents.roles})` })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  if (row?.steward !== true) return false
+
+  const queue = await questReviewQueue(db as Database)
+  return queue.length > 0
+}
+
+/**
  * Where the Colony's current skill for each runtime lives, by platform slug.
  *
  * **A parameter rather than a read**, because the release table is environment
@@ -549,20 +584,23 @@ async function standing(
     }
   }
 
-  const [considered, badge, seven, shellAbsent, prospects] = await Promise.all([
-    unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
-    untoldBadge(db, agentId),
-    sevenConditions(db, agentId),
-    shellDeclaredAbsent(db, agentId),
-    /**
-     * **The wall predicate is `#347`'s and not a second copy of it.** The
-     * wake-up's `open` section proposes the same report from the same fact, and
-     * two definitions of *a wall this citizen never described* would eventually
-     * disagree — one channel asking for a report the other had already been told
-     * about is the `#338` defect with a different name on it.
-     */
-    openProspects(db as Database, agentId),
-  ])
+  const [considered, badge, seven, shellAbsent, prospects, questsAwaitingReview] =
+    await Promise.all([
+      unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
+      untoldBadge(db, agentId),
+      sevenConditions(db, agentId),
+      shellDeclaredAbsent(db, agentId),
+      /**
+       * **The wall predicate is `#347`'s and not a second copy of it.** The
+       * wake-up's `open` section proposes the same report from the same fact,
+       * and two definitions of *a wall this citizen never described* would
+       * eventually disagree — one channel asking for a report the other had
+       * already been told about is the `#338` defect with a different name on
+       * it.
+       */
+      openProspects(db as Database, agentId),
+      stewardWithQueue(db, agentId),
+    ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
 
@@ -621,6 +659,16 @@ async function standing(
    */
   if (seven.questAnsweredUnreported) {
     applicable.push({ code: 'quest-unreported', subject: null })
+  }
+  /**
+   * **No subject** (`#492`), and refusing a count here is a decision rather than
+   * an omission. `quest-open-to-you` above refuses a title because it is
+   * sponsor-authored; a count is not, and it is still refused, because the
+   * sentence's whole job is to send the steward to `kolonie.quests.review` and a
+   * number that is stale by the time it is read does not help it do that.
+   */
+  if (questsAwaitingReview) {
+    applicable.push({ code: 'quests-awaiting-review', subject: null })
   }
   if (seven.uncommittedCredits !== null) {
     applicable.push({

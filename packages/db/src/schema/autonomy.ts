@@ -89,6 +89,30 @@ export const autonomyContracts = pgTable(
       .defaultNow(),
 
     reviewDueAt: timestamp('review_due_at', { withTimezone: true, mode: 'string' }).notNull(),
+
+    /**
+     * The form this answer came from (`#514`).
+     *
+     * **One form may now answer for several agents**, and the issue's own
+     * requirement is that an operator can see, per agent, what it agreed to: *a
+     * shared answer that leaves twelve agents each claiming a contract nobody can
+     * trace back is worse than twelve forms.* This column is that trace, and it
+     * is what lets one agent's operator page say which other agents the same
+     * answer covered.
+     *
+     * `set null` rather than `cascade`: an invitation may be swept, and a
+     * contract whose provenance has gone is still a contract the operator gave.
+     * `null` is therefore ordinary — every contract recorded before this column
+     * existed carries it, and so does any whose form has since gone.
+     *
+     * **Nothing an agent reads carries it.** `readAutonomyContract` is the
+     * citizen's own read and does not select it; the sibling names live behind
+     * the operator's page, because who else shares an operator is not something
+     * a citizen learns (`#510`).
+     */
+    invitationId: uuid('invitation_id').references(() => autonomyFormInvitations.id, {
+      onDelete: 'set null',
+    }),
   },
   (table) => [
     check(

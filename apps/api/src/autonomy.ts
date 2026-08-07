@@ -33,7 +33,18 @@ import type { OperatorMailer } from './email.js'
 export interface AutonomyStore {
   invite(agentId: AgentId, operatorAddress: string): Promise<AutonomyInvitation>
   openForm(token: string): Promise<OpenAutonomyForm | null>
-  record(token: string, contract: AutonomyContract): Promise<StoredAutonomyContract | null>
+  /**
+   * The answer, and the operator's other agents it ticked (`#514`).
+   *
+   * Every id in `alsoFor` is re-checked against what that form may cover, in the
+   * same transaction that records it — this arrives from an unauthenticated form
+   * post and is a request rather than an instruction.
+   */
+  record(
+    token: string,
+    contract: AutonomyContract,
+    alsoFor?: readonly AgentId[],
+  ): Promise<StoredAutonomyContract | null>
   read(agentId: AgentId): Promise<StoredAutonomyContract | null>
   isRecorded(agentId: AgentId): Promise<boolean>
 }
@@ -136,7 +147,7 @@ export function databaseAutonomyStore(db: Database): AutonomyStore {
   return {
     invite: (agentId, operatorAddress) => inviteOperator(db, agentId, operatorAddress),
     openForm: (token) => openAutonomyForm(db, token),
-    record: (token, contract) => recordAutonomyContract(db, token, contract),
+    record: (token, contract, alsoFor) => recordAutonomyContract(db, token, contract, alsoFor),
     read: (agentId) => readAutonomyContract(db, agentId),
     isRecorded: (agentId) => hasAutonomyContract(db, agentId),
   }
@@ -284,6 +295,14 @@ export async function answerAutonomyForm(
   token: string,
   body: unknown,
   deps: AutonomyDependencies,
+  /**
+   * The operator's other agents it ticked, if any (`#514`).
+   *
+   * Passed through untrusted. The store decides which of them this form may
+   * actually cover, because that is the only place the decision can be made in
+   * the same transaction as the write.
+   */
+  alsoFor: readonly AgentId[] = [],
 ): Promise<AutonomyOutcome<StoredAutonomyContract>> {
   const parsed = AutonomyContractSchema.safeParse(body ?? {})
   if (!parsed.success) {
@@ -300,7 +319,7 @@ export async function answerAutonomyForm(
     }
   }
 
-  const contract = await deps.store.record(token, parsed.data)
+  const contract = await deps.store.record(token, parsed.data, alsoFor)
 
   if (contract === null) {
     return {

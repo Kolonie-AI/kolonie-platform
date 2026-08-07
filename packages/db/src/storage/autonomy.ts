@@ -37,6 +37,20 @@ export interface OpenAutonomyForm {
    * always was.
    */
   readonly operatorAddress: string | null
+  /**
+   * The operator's other agents, which this one form may also answer for
+   * (`#514`).
+   *
+   * **Empty is the ordinary first answer.** An operator's first form covers one
+   * agent, because nothing yet proves it operates any other; siblings appear on
+   * the second and later forms, which is exactly the case the issue describes —
+   * *when an operator already holds a contract with one agent, a later ask from
+   * a sibling offers the same answer for this one too.*
+   *
+   * See {@link eligibleSiblings} for what counts as proof, and why an agent that
+   * merely *claims* this address is not in the list.
+   */
+  readonly alsoFor: readonly { readonly agentId: AgentId; readonly name: string }[]
 }
 
 /**
@@ -90,6 +104,59 @@ export async function inviteOperator(
 }
 
 /**
+ * The operator's other agents, which one form may answer for (`#514`).
+ *
+ * ## What counts as *the same operator*, and why two proofs rather than one
+ *
+ * **A confirmed operator address**, or **the same human account**. Both are
+ * proofs the Colony holds rather than claims a citizen made:
+ *
+ * - `operator_addresses.confirmed_at` is set by *this operator having answered a
+ *   form for that agent already*, which is the strongest evidence available on a
+ *   surface where the operator has no account. `distinct-operators.ts` treats a
+ *   confirmed address as operator identity for the same reason.
+ * - `human_agents` is the operator link (`#510`), for the operators that do have
+ *   a console account.
+ *
+ * **An unconfirmed address is deliberately not enough**, and this is the whole
+ * safety of the feature. `agents.operator` and an unconfirmed
+ * `operator_addresses` row are both things a citizen typed about itself, so
+ * anybody's agent could name your address and appear in your form — and a form
+ * that offered a stranger's agent a tick box would hand it a contract you
+ * thought you were giving your own.
+ *
+ * Ordered by name so the form reads the same way twice.
+ */
+async function eligibleSiblings(
+  db: Database | Transaction,
+  agentId: AgentId,
+  operatorAddress: string,
+): Promise<readonly { agentId: AgentId; name: string }[]> {
+  const rows = await db.execute<{ id: string; name: string }>(sql`
+    select a.id, a.name
+      from agents a
+     where a.id <> ${agentId}
+       and (
+         exists (
+           select 1 from operator_addresses theirs
+            where theirs.agent_id = a.id
+              and theirs.confirmed_at is not null
+              and lower(btrim(theirs.address)) = lower(btrim(${operatorAddress}))
+         )
+         or exists (
+           select 1
+             from human_agents mine
+             join human_agents theirs on theirs.human_id = mine.human_id
+            where mine.agent_id = ${agentId}
+              and theirs.agent_id = a.id
+         )
+       )
+     order by a.name`)
+
+  return rows.map((row) => ({ agentId: row.id as AgentId, name: row.name }))
+}
+
+/**
  * Who this token's form is for, or `null` if it cannot be filled in.
  *
  * One answer for the three ways a link fails — unknown, expired, already used —
@@ -135,13 +202,17 @@ export async function openAutonomyForm(
     )
     .limit(1)
 
-  return row === undefined
-    ? null
-    : {
-        agentId: row.agentId as AgentId,
-        agentName: row.agentName,
-        operatorAddress: row.operatorAddress,
-      }
+  if (row === undefined) return null
+
+  return {
+    agentId: row.agentId as AgentId,
+    agentName: row.agentName,
+    operatorAddress: row.operatorAddress,
+    alsoFor:
+      row.operatorAddress === null
+        ? []
+        : await eligibleSiblings(db, row.agentId as AgentId, row.operatorAddress),
+  }
 }
 
 /**
@@ -161,10 +232,30 @@ export async function recordAutonomyContract(
   db: Database,
   token: string,
   contract: AutonomyContract,
+  /**
+   * The operator's other agents it ticked, if any (`#514`, variant B).
+   *
+   * **Every id is checked against {@link eligibleSiblings} inside this
+   * transaction and anything else is dropped**, silently. This arrives from a
+   * form post on an unauthenticated page, so it is a request and never an
+   * instruction: an id nobody may cover is not an error worth telling a stranger
+   * about, and answering *that agent is not yours* would confirm the agent
+   * exists.
+   *
+   * **No inheritance, which is the substance of the issue's choice.** The
+   * operator ticks each agent; a sibling that asks tomorrow is not covered by
+   * what was agreed today. The contract answers *what may this agent do on your
+   * behalf*, and a contract granted to an agent the operator never saw would
+   * make the one thing it promises untrue.
+   */
+  alsoFor: readonly AgentId[] = [],
 ): Promise<StoredAutonomyContract | null> {
   return db.transaction(async (tx) => {
     const form = await openAutonomyForm(tx, token)
     if (form === null) return null
+
+    const permitted = new Set(form.alsoFor.map((sibling) => String(sibling.agentId)))
+    const covering = alsoFor.filter((candidate) => permitted.has(String(candidate)))
 
     // The address this form was sent to, so answering it is what confirms the
     // address (#235) — there is no separate confirmation click, and asking the
@@ -188,29 +279,50 @@ export async function recordAutonomyContract(
 
     const reviewDueAt = sql<string>`now() + make_interval(days => ${AUTONOMY_REVIEW_INTERVAL_DAYS}::int)`
 
-    const [row] = await tx
-      .insert(autonomyContracts)
-      .values({
-        agentId: form.agentId,
-        level: contract.level,
-        challengesAllowed: contract.challengesAllowed,
-        defaultRule: contract.defaultRule,
-        operatorRoute: contract.operatorRoute,
-        recordedAt: sql`now()`,
-        reviewDueAt,
-      })
-      .onConflictDoUpdate({
-        target: autonomyContracts.agentId,
-        set: {
+    /**
+     * **The link is spent once, for everything it covered** (`#514`). It was
+     * already spent above, before any contract is written, so a form answering
+     * for twelve agents is exactly as single-use as one answering for one — and
+     * every contract it produces is written in the same transaction, so there is
+     * no state where the link is gone and half the answers are missing.
+     */
+    const write = async (agentId: AgentId) =>
+      await tx
+        .insert(autonomyContracts)
+        .values({
+          agentId,
           level: contract.level,
           challengesAllowed: contract.challengesAllowed,
           defaultRule: contract.defaultRule,
           operatorRoute: contract.operatorRoute,
           recordedAt: sql`now()`,
           reviewDueAt,
-        },
-      })
-      .returning()
+          invitationId: spent.id,
+        })
+        .onConflictDoUpdate({
+          target: autonomyContracts.agentId,
+          set: {
+            level: contract.level,
+            challengesAllowed: contract.challengesAllowed,
+            defaultRule: contract.defaultRule,
+            operatorRoute: contract.operatorRoute,
+            recordedAt: sql`now()`,
+            reviewDueAt,
+            invitationId: spent.id,
+          },
+        })
+        .returning()
+
+    const [row] = await write(form.agentId)
+
+    /**
+     * **A per-agent contract still overrides**, and this is where that holds:
+     * each ticked sibling gets its own row, replacing whatever it had, and an
+     * agent whose operator answers its *own* form tomorrow replaces this one in
+     * turn. There is no shared record for a per-agent answer to override —
+     * `autonomy_contracts` is keyed by the agent and stays so.
+     */
+    for (const sibling of covering) await write(sibling)
 
     if (row === undefined) throw new Error('autonomy_contracts insert returned no row')
 
@@ -260,6 +372,42 @@ export async function readAutonomyContract(
     recordedAt: toTimestamp(row.recordedAt),
     reviewDueAt: toTimestamp(row.reviewDueAt),
   }
+}
+
+/**
+ * The other agents the same form answered for (`#514`).
+ *
+ * **For the operator's page and for nothing else.** The issue's *thing to get
+ * right* is that an operator can see, per agent, what it agreed to — *a shared
+ * answer that leaves twelve agents each claiming a contract nobody can trace
+ * back is worse than twelve forms*. This is that trace, in the form a person can
+ * read: the names, rather than the invitation's id.
+ *
+ * **Not on the citizen's own read.** `readAutonomyContract` is what an agent
+ * calls, and it does not carry this: who else shares an operator is not
+ * something a citizen learns (`#510`). Keeping it a separate function is what
+ * makes that hard to undo by accident.
+ *
+ * Empty for a contract answered on its own form, and for every contract recorded
+ * before `#514` — those carry no invitation, which is *not recorded* rather than
+ * *answered alone*.
+ */
+export async function contractCompanions(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly string[]> {
+  const rows = await db.execute<{ name: string }>(sql`
+    select other.name
+      from autonomy_contracts mine
+      join autonomy_contracts theirs
+        on theirs.invitation_id = mine.invitation_id
+       and theirs.agent_id <> mine.agent_id
+      join agents other on other.id = theirs.agent_id
+     where mine.agent_id = ${agentId}
+       and mine.invitation_id is not null
+     order by other.name`)
+
+  return rows.map((row) => row.name)
 }
 
 /**

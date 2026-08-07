@@ -1100,6 +1100,13 @@
       "when": 1786140238048,
       "tag": "0156_an_account_the_colony_can_check",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1786140794861,
+      "tag": "0157_one_form_can_answer_for_several_agents",
+      "breakpoints": true
     }
   ]
 }

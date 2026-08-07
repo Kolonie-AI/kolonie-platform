@@ -5,6 +5,7 @@ import type { Database } from '../client.js'
 import { agents, autonomyContracts, autonomyFormInvitations } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
+  contractCompanions,
   hasAutonomyContract,
   inviteOperator,
   openAutonomyForm,
@@ -157,6 +158,136 @@ describe('the autonomy contract', () => {
       expect((await readAutonomyContract(db, agentId))?.level).toBe('free')
       // One row: the current answer is the one that binds.
       expect(await db.select().from(autonomyContracts)).toHaveLength(1)
+    })
+  })
+
+  /**
+   * One form, several agents (`#514`, variant B).
+   *
+   * An operator with twelve agents received twelve mails and answered the same
+   * four questions twelve times, scattered over days — and the likely outcome
+   * was two contracts and ten agents that never got an answer. What is asserted
+   * here is the shape that fixes it without the part worth giving up: the form
+   * **names** the others and the operator **ticks** them; nothing is inherited.
+   */
+  describe('answering for several agents at once', () => {
+    /** An agent whose operator has already answered a form for it. */
+    const under = async (name: string, address: string): Promise<AgentId> => {
+      const sibling = await anAgent(name)
+      const invitation = await inviteOperator(db, sibling, address)
+      await recordAutonomyContract(db, invitation.token, NARROW)
+      return sibling
+    }
+
+    it('offers nobody on an operator’s first form', async () => {
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      expect((await openAutonomyForm(db, invitation.token))?.alsoFor).toEqual([])
+    })
+
+    it('offers the agents that operator has already answered for', async () => {
+      const sibling = await under('sibling', 'operator@example.org')
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      const form = await openAutonomyForm(db, invitation.token)
+
+      expect(form?.alsoFor).toEqual([{ agentId: sibling, name: 'sibling' }])
+    })
+
+    /**
+     * **The safety of the whole feature.** An unconfirmed address is a string a
+     * citizen typed about itself, so anybody's agent could name your address —
+     * and a form that offered it a tick box would hand a stranger's agent a
+     * contract you thought you were giving your own.
+     */
+    it('offers no agent that merely claims the address', async () => {
+      const claimant = await anAgent('claimant')
+      // Invited and never answered for: the address is recorded, not confirmed.
+      await inviteOperator(db, claimant, 'operator@example.org')
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      expect((await openAutonomyForm(db, invitation.token))?.alsoFor).toEqual([])
+    })
+
+    it('offers nobody from a different operator', async () => {
+      await under('theirs', 'somebody-else@example.org')
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      expect((await openAutonomyForm(db, invitation.token))?.alsoFor).toEqual([])
+    })
+
+    it('records the same answer for each agent the operator ticked', async () => {
+      const sibling = await under('sibling', 'operator@example.org')
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      await recordAutonomyContract(db, invitation.token, BROAD, [sibling])
+
+      expect((await readAutonomyContract(db, agentId))?.level).toBe('free')
+      expect((await readAutonomyContract(db, sibling))?.level).toBe('free')
+    })
+
+    it('leaves an agent the operator did not tick exactly as it was', async () => {
+      const sibling = await under('sibling', 'operator@example.org')
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      await recordAutonomyContract(db, invitation.token, BROAD)
+
+      expect((await readAutonomyContract(db, sibling))?.level).toBe('accompanied')
+    })
+
+    /** The rejection case: an id from a form post is a request, never an instruction. */
+    it('drops an agent the form was never entitled to cover', async () => {
+      const stranger = await under('stranger', 'somebody-else@example.org')
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      await recordAutonomyContract(db, invitation.token, BROAD, [stranger])
+
+      expect((await readAutonomyContract(db, stranger))?.level).toBe('accompanied')
+    })
+
+    it('spends the link once, for every agent it covered', async () => {
+      const sibling = await under('sibling', 'operator@example.org')
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+      await recordAutonomyContract(db, invitation.token, BROAD, [sibling])
+
+      expect(await recordAutonomyContract(db, invitation.token, NARROW, [sibling])).toBeNull()
+      expect((await readAutonomyContract(db, sibling))?.level).toBe('free')
+    })
+
+    /** A per-agent contract still overrides: the shared answer is not a shared row. */
+    it('lets a sibling’s own later form replace what the shared one said', async () => {
+      const sibling = await under('sibling', 'operator@example.org')
+      const shared = await inviteOperator(db, agentId, 'operator@example.org')
+      await recordAutonomyContract(db, shared.token, BROAD, [sibling])
+
+      const own = await inviteOperator(db, sibling, 'operator@example.org')
+      await recordAutonomyContract(db, own.token, NARROW)
+
+      expect((await readAutonomyContract(db, sibling))?.level).toBe('accompanied')
+      // And the agent whose form it was is untouched by its sibling's change.
+      expect((await readAutonomyContract(db, agentId))?.level).toBe('free')
+    })
+
+    /**
+     * *A shared answer that leaves twelve agents each claiming a contract nobody
+     * can trace back is worse than twelve forms* — so each side can name the
+     * other.
+     */
+    it('lets each agent’s page name the others the same answer covered', async () => {
+      const sibling = await under('sibling', 'operator@example.org')
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      await recordAutonomyContract(db, invitation.token, BROAD, [sibling])
+
+      expect(await contractCompanions(db, agentId)).toEqual(['sibling'])
+      expect(await contractCompanions(db, sibling)).toEqual(['canary'])
+    })
+
+    it('names nobody for a contract answered on its own form', async () => {
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+      await recordAutonomyContract(db, invitation.token, NARROW)
+
+      expect(await contractCompanions(db, agentId)).toEqual([])
     })
   })
 

@@ -1,3 +1,4 @@
+import type { AgentId } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import type { FastifyInstance } from 'fastify'
 import { answerAutonomyForm } from '../autonomy.js'
@@ -50,6 +51,11 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
         autonomyFormPage({
           agentName: form.agentName,
           token: token as string,
+          // The operator's other agents, each named and none ticked (`#514`).
+          alsoFor: form.alsoFor.map((sibling) => ({
+            agentId: String(sibling.agentId),
+            name: sibling.name,
+          })),
           /**
            * Prefilled with the address this form was sent to (`#484`).
            *
@@ -74,6 +80,21 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     }
 
     const submitted = (request.body ?? {}) as Record<string, unknown>
+    /**
+     * The ticked siblings (`#514`).
+     *
+     * A form posts one value as a string and several as an array, so both shapes
+     * arrive here and neither is an error. What is *permitted* is decided by the
+     * store, inside the transaction that records the answer — these ids come from
+     * an unauthenticated page and are a request, never an instruction.
+     */
+    const alsoFor = (Array.isArray(submitted['alsoFor'])
+      ? submitted['alsoFor']
+      : submitted['alsoFor'] === undefined
+        ? []
+        : [submitted['alsoFor']]
+    ).filter((value): value is string => typeof value === 'string') as unknown as readonly AgentId[]
+
     const result = await answerAutonomyForm(
       token as string,
       {
@@ -86,6 +107,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
         operatorRoute: submitted['operatorRoute'],
       },
       autonomy,
+      alsoFor,
     )
 
     if (result.outcome === 'rejected') {
@@ -113,6 +135,14 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
               agentName: form.agentName,
               token: token as string,
               error: result.error.message,
+              // The ticks survive the retry, for the reason every other field's
+              // value does (`#484`): the link is single-use, so friction here is
+              // spent rather than deferred.
+              alsoFor: form.alsoFor.map((sibling) => ({
+                agentId: String(sibling.agentId),
+                name: sibling.name,
+              })),
+              ticked: alsoFor.map(String),
               values: {
                 level: asText(submitted['level']),
                 challengesAllowed: asText(submitted['challengesAllowed']),

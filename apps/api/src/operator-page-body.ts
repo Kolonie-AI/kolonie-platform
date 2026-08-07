@@ -36,6 +36,8 @@ export async function operatorPageBody(
     agentName: string
     badges: OperatorPageView['badges']
     contract: OperatorPageView['contract']
+    /** The other agents the same form answered for (`#514`). */
+    contractAlsoCovered?: OperatorPageView['contractAlsoCovered'] | undefined
     facts: OperatorPageView['facts']
     declaredRhythmHours: OperatorPageView['declaredRhythmHours']
   },
@@ -65,7 +67,10 @@ export async function operatorPageBody(
     // The wall (`#241`), resolved with the page's own subject: the token
     // names the agent, and nothing here takes an id from the caller.
     badges: view.badges,
-    contract: view.contract,
+    contract:
+      view.contract === null
+        ? null
+        : { ...view.contract, alsoCovered: view.contractAlsoCovered ?? [] },
     // What it has proved and what it has been doing (`#399`), resolved by the
     // same token and by nothing the caller sent.
     facts: view.facts,

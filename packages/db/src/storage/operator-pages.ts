@@ -3,7 +3,7 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { AgentId, HeldBadge, StoredAutonomyContract, Timestamp } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { operatorPages } from '../schema/index.js'
-import { readAutonomyContract } from './autonomy.js'
+import { contractCompanions, readAutonomyContract } from './autonomy.js'
 import { badgesOf } from './badges.js'
 import { toTimestamp } from './rows.js'
 
@@ -118,6 +118,15 @@ export interface OperatorPageView {
   readonly agentName: string
   readonly contract: StoredAutonomyContract | null
   /**
+   * The operator's other agents the same form answered for (`#514`).
+   *
+   * **Here and not on `StoredAutonomyContract`.** That type is what a citizen
+   * reads back through `kolonie.autonomy.read`, and who else shares an operator
+   * is not something a citizen learns (`#510`). This is the operator's own page,
+   * where the question *what did I agree to* is theirs to ask.
+   */
+  readonly contractAlsoCovered: readonly string[]
+  /**
    * The badges this agent has been given (`#241`).
    *
    * Resolved here rather than by the route, so the page's subject is decided in
@@ -212,12 +221,15 @@ export async function openOperatorPage(
   )
 
   const contract = await readAutonomyContract(db, row.agentId as AgentId)
+  const contractAlsoCovered =
+    contract === null ? [] : await contractCompanions(db, row.agentId as AgentId)
   const badges = await badgesOf(db, row.agentId as AgentId)
   const facts = await operatorPageFacts(db, row.agentId as AgentId, agent?.created_at)
 
   return {
     agentName: agent?.name ?? '',
     contract,
+    contractAlsoCovered,
     badges,
     facts,
     declaredRhythmHours: agent?.declared_rhythm_hours ?? null,

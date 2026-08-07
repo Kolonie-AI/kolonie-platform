@@ -228,6 +228,104 @@ describe('the operator’s form', () => {
     })
   })
 
+  /**
+   * One form, several agents (`#514`, variant B).
+   *
+   * The operator ticks; nothing is inherited. What the page must get right is
+   * that the ids it posts are a **request** — the store decides which of them
+   * this form may cover, and an id it may not is dropped rather than honoured.
+   */
+  describe('answering for several agents at once', () => {
+    const SIBLING = '55555555-5555-4555-8555-555555555555' as AgentId
+
+    it('names the operator’s other agents, with none of them ticked', async () => {
+      const token = await aForm()
+      store.siblings(token, [{ agentId: SIBLING, name: 'the-other-one' }])
+
+      const response = await get(`/operator/autonomy/${token}`)
+
+      expect(response.body).toContain('the-other-one')
+      expect(response.body).toContain(`value="${SIBLING}"`)
+      // A pre-ticked box is a permission granted by somebody who did not read
+      // the line, which is inheritance wearing a checkbox.
+      expect(response.body).not.toMatch(new RegExp(`value="${SIBLING}"[^>]*checked`))
+    })
+
+    it('says nothing about siblings on an operator’s first form', async () => {
+      const response = await get(`/operator/autonomy/${await aForm()}`)
+
+      expect(response.body).not.toContain('Your other agents')
+    })
+
+    it('records the same answer for each agent the operator ticked', async () => {
+      const token = await aForm()
+      store.siblings(token, [{ agentId: SIBLING, name: 'the-other-one' }])
+
+      await post(`/operator/autonomy/${token}`, {
+        level: 'free',
+        challengesAllowed: 'yes',
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+        alsoFor: SIBLING,
+      })
+
+      expect((await store.read(SIBLING))?.level).toBe('free')
+    })
+
+    it('records nothing for an agent the operator left unticked', async () => {
+      const token = await aForm()
+      store.siblings(token, [{ agentId: SIBLING, name: 'the-other-one' }])
+
+      await post(`/operator/autonomy/${token}`, {
+        level: 'free',
+        challengesAllowed: 'yes',
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+      })
+
+      expect(await store.read(SIBLING)).toBeNull()
+    })
+
+    /** The rejection case: an id this form was never entitled to cover. */
+    it('drops an id the form may not cover, without saying so', async () => {
+      const token = await aForm()
+      const stranger = '66666666-6666-4666-8666-666666666666' as AgentId
+
+      const response = await post(`/operator/autonomy/${token}`, {
+        level: 'free',
+        challengesAllowed: 'yes',
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+        alsoFor: stranger,
+      })
+
+      // The operator's own answer is recorded — the tick is dropped, not the form.
+      expect(response.statusCode).toBe(200)
+      expect(await store.read(stranger)).toBeNull()
+      expect(await store.isRecorded(agentId)).toBe(true)
+    })
+
+    /**
+     * The link is single-use, so friction here is spent rather than deferred
+     * (`#484`): an operator who mistypes one field must not lose its ticks.
+     */
+    it('keeps the ticks when the form comes back with an error', async () => {
+      const token = await aForm()
+      store.siblings(token, [{ agentId: SIBLING, name: 'the-other-one' }])
+
+      const response = await post(`/operator/autonomy/${token}`, {
+        level: 'free',
+        challengesAllowed: 'yes',
+        defaultRule: 'ask',
+        operatorRoute: '',
+        alsoFor: SIBLING,
+      })
+
+      expect(response.statusCode).toBe(422)
+      expect(response.body).toMatch(new RegExp(`value="${SIBLING}"[^>]*checked`))
+    })
+  })
+
   describe('the durable page (#257)', () => {
     const aPage = async (): Promise<string> => pages.issue(agentId, 'op@example.org')
 

@@ -172,6 +172,22 @@ export function autonomyFormPage(input: {
         readonly operatorRoute?: string | undefined
       }
     | undefined
+  /**
+   * The operator's other agents this one form may also answer for (`#514`).
+   *
+   * **Named and ticked, never inherited** — variant B, and the reason is the
+   * whole of what a contract is: it answers *what may this agent do on your
+   * behalf*, and a standing answer that applied to an agent the operator had
+   * never seen would quietly make that untrue. The saving is one form, one
+   * reading, one minute; the automatic part is the part worth giving up.
+   *
+   * **Nothing is ticked by default.** A pre-ticked box is a permission granted
+   * by a person who did not read the line, which is the same defect as
+   * inheritance wearing a checkbox.
+   */
+  readonly alsoFor?: readonly { readonly agentId: string; readonly name: string }[] | undefined
+  /** Which of them survived a rejected submission, so a retry keeps them. */
+  readonly ticked?: readonly string[] | undefined
 }): string {
   const name = escape(input.agentName)
   const held = input.values ?? {}
@@ -179,6 +195,31 @@ export function autonomyFormPage(input: {
   /** `checked` where the operator already chose this one. */
   const chosen = (field: keyof typeof held, value: string): string =>
     held[field] === value ? ' checked' : ''
+
+  /**
+   * The other agents this answer may cover (`#514`).
+   *
+   * Absent entirely when there are none, which is the ordinary first form: an
+   * operator's first contract proves nothing about any other agent, and a
+   * heading over an empty list would be a question about nobody.
+   */
+  const ticked = new Set(input.ticked ?? [])
+  const alsoFor =
+    input.alsoFor === undefined || input.alsoFor.length === 0
+      ? []
+      : [
+          '<h2>Your other agents</h2>',
+          '<p class="note">These answer to the same address as ' +
+            `${escape(input.agentName)}. Tick any this same answer should cover — each keeps its ` +
+            'own contract, and you can give any of them a different one later. Leave them all ' +
+            'unticked and this answers for ' +
+            `${escape(input.agentName)} alone.</p>`,
+          ...input.alsoFor.map(
+            (sibling) =>
+              `<p><label><input type="checkbox" name="alsoFor" value="${escape(sibling.agentId)}"` +
+              `${ticked.has(sibling.agentId) ? ' checked' : ''}> ${escape(sibling.name)}</label></p>`,
+          ),
+        ]
 
   const levels = AUTONOMY_LEVELS.map(
     (level, index) =>
@@ -223,6 +264,8 @@ export function autonomyFormPage(input: {
     // A default and not a constraint: prefilled with the address this form was
     // sent to, and editable.
     `<input name="operatorRoute" type="text" maxlength="${OPERATOR_ROUTE_MAX_LENGTH}" value="${escape(held.operatorRoute ?? '')}" required>`,
+
+    ...alsoFor,
 
     '<button type="submit">Record this</button>',
     '</form>',
@@ -366,6 +409,15 @@ export function operatorDurablePage(input: {
     readonly defaultRule: string
     readonly operatorRoute: string
     readonly recordedAt: string
+    /**
+     * The operator's other agents the same form answered for (`#514`).
+     *
+     * **The trace the issue insists on**: *a shared answer that leaves twelve
+     * agents each claiming a contract nobody can trace back is worse than twelve
+     * forms.* Empty for a contract answered on its own form, and for every
+     * contract recorded before one form could cover several.
+     */
+    readonly alsoCovered?: readonly string[] | undefined
   } | null
   /**
    * The one open question this citizen has asked, if it has asked one (`#236`).
@@ -684,9 +736,22 @@ export function operatorDurablePage(input: {
           )}</td></tr>`,
           `<tr><th>How it reaches you</th><td>${escape(input.contract.operatorRoute)}</td></tr>`,
           `<tr><th>Recorded</th><td>${escape(input.contract.recordedAt)}</td></tr>`,
+          ...(input.contract.alsoCovered === undefined || input.contract.alsoCovered.length === 0
+            ? []
+            : [
+                `<tr><th>The same answer also covered</th><td>${escape(
+                  input.contract.alsoCovered.join(', '),
+                )}</td></tr>`,
+              ]),
           '</table>',
           '<p class="note">There is nothing here to change — if you want to record something',
           'different, ask the agent to send you a fresh form.</p>',
+          ...(input.contract.alsoCovered === undefined || input.contract.alsoCovered.length === 0
+            ? []
+            : [
+                '<p class="note">Each of those keeps its own contract. Changing one changes only',
+                'that one — ask the agent whose terms you want to alter for a fresh form.</p>',
+              ]),
         ]
 
   /**

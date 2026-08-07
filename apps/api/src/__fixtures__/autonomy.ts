@@ -16,6 +16,11 @@ export interface FakeAutonomyStore extends AutonomyStore {
   readonly outstanding: (agentId: AgentId) => string | null
   /** Give a citizen a contract without going through a form. */
   readonly grant: (agentId: AgentId, contract: AutonomyContract) => void
+  /** Put an operator's other agents on the form this token opens (`#514`). */
+  readonly siblings: (
+    token: string,
+    siblings: readonly { agentId: AgentId; name: string }[],
+  ) => void
 }
 
 /**
@@ -29,7 +34,12 @@ export interface FakeAutonomyStore extends AutonomyStore {
 export function fakeAutonomyStore(): FakeAutonomyStore {
   const open = new Map<
     string,
-    { agentId: AgentId; agentName: string; operatorAddress: string | null }
+    {
+      agentId: AgentId
+      agentName: string
+      operatorAddress: string | null
+      alsoFor: { agentId: AgentId; name: string }[]
+    }
   >()
   const byAgent = new Map<AgentId, string>()
   const contracts = new Map<AgentId, StoredAutonomyContract>()
@@ -47,6 +57,9 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
         agentId,
         agentName: `agent-${randomUUID().slice(0, 4)}`,
         operatorAddress: operatorAddress ?? null,
+        // Empty by default, which is what an operator's first form answers for
+        // (`#514`). A test that is about the siblings puts them there itself.
+        alsoFor: [],
       })
       byAgent.set(agentId, token)
 
@@ -56,7 +69,7 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
       })
     },
     openForm: (token) => Promise.resolve(open.get(token) ?? null),
-    record: (token, contract) => {
+    record: (token, contract, alsoFor = []) => {
       const form = open.get(token)
       if (form === undefined) return Promise.resolve(null)
       open.delete(token)
@@ -67,12 +80,27 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
         reviewDueAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
       }
       contracts.set(form.agentId, stored)
+      /**
+       * **Only the ones this form may cover** (`#514`), exactly as the real store
+       * decides it. A fake that recorded whatever it was handed would pass the
+       * route's happy path and hide the one property that matters — that an id
+       * nobody may cover is dropped rather than honoured.
+       */
+      const permitted = new Set(form.alsoFor.map((sibling) => String(sibling.agentId)))
+      for (const sibling of alsoFor) {
+        if (permitted.has(String(sibling))) contracts.set(sibling, stored)
+      }
 
       return Promise.resolve(stored)
     },
     read: (agentId) => Promise.resolve(contracts.get(agentId) ?? null),
     isRecorded: (agentId) => Promise.resolve(contracts.has(agentId)),
     outstanding: (agentId) => byAgent.get(agentId) ?? null,
+    /** Put an operator's other agents on the form this token opens (`#514`). */
+    siblings: (token, siblings) => {
+      const form = open.get(token)
+      if (form !== undefined) form.alsoFor = [...siblings]
+    },
     grant: (agentId, contract) => {
       contracts.set(agentId, {
         ...contract,
@@ -95,6 +123,8 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
 export type FakeOperatorPages = OperatorPages & {
   readonly tokenFor: (agentId: AgentId, address: string) => string | null
   readonly contractFor: (agentId: AgentId, contract: StoredAutonomyContract) => void
+  /** Say which other agents the same form answered for (`#514`). */
+  readonly alsoCoveredFor: (agentId: AgentId, names: readonly string[]) => void
   /** What this agent's wall shows (`#241`). Empty unless a test puts one there. */
   readonly badgesFor: (agentId: AgentId, held: readonly HeldBadge[]) => void
   /**
@@ -152,6 +182,8 @@ export function fakeOperatorPages(): FakeOperatorPages {
   const opened = new Map<string, string>()
   const contracts = new Map<AgentId, StoredAutonomyContract>()
   const badges = new Map<AgentId, readonly HeldBadge[]>()
+  /** The other agents one form answered for, per agent (`#514`). */
+  const alsoCovered = new Map<AgentId, readonly string[]>()
   const facts = new Map<AgentId, OperatorPageView['facts']>()
   const names = new Map<AgentId, string>()
   /**
@@ -197,6 +229,10 @@ export function fakeOperatorPages(): FakeOperatorPages {
       return Promise.resolve({
         agentName: names.get(row.agentId) ?? 'canary',
         contract: contracts.get(row.agentId) ?? null,
+        // Nothing by default (`#514`): a contract answered on its own form
+        // covered nobody else, which is every contract until an operator ticks
+        // a sibling.
+        contractAlsoCovered: alsoCovered.get(row.agentId) ?? [],
         // The wall (`#241`). Empty unless a test puts something on it, which is
         // the ordinary case — a page with no badges draws no badge section.
         badges: badges.get(row.agentId) ?? [],
@@ -269,6 +305,8 @@ export function fakeOperatorPages(): FakeOperatorPages {
       return found === undefined ? null : { address: found[1].address, token: found[0] }
     },
     contractFor: (agentId, contract) => contracts.set(agentId, contract),
+    /** Say which other agents the same form answered for (`#514`). */
+    alsoCoveredFor: (agentId: AgentId, names: readonly string[]) => alsoCovered.set(agentId, names),
     badgesFor: (agentId, held) => {
       badges.set(agentId, held)
     },

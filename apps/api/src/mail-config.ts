@@ -38,6 +38,23 @@ export const MAILER_VARS = [
  */
 export const CONSOLE_SENDER_VAR = 'CONSOLE_SENDER_ADDRESS'
 
+/**
+ * The name every mail the Colony writes to a person is signed with (`#483`).
+ *
+ * **One name for both senders, not one per surface.** The Academy's sender and
+ * the console's are two addresses and one organisation; naming the component
+ * tells the reader something only this repository cares about.
+ *
+ * Shaped like {@link CONSOLE_SENDER_VAR}: a variable with a fallback, so a
+ * deployment that does not set it sends what it sends today rather than failing.
+ * The fallback is **no display name at all** and not a built-in `Kolonie AI` —
+ * `#483` asks for exactly today's behaviour when unset, and a default that
+ * changed what production sends the moment it merged would be a live-mail change
+ * nobody had verified. Setting it is the deploy-side step, and the value to set
+ * is `Kolonie AI`.
+ */
+export const MAIL_SENDER_NAME_VAR = 'MAIL_SENDER_NAME'
+
 /** What outbound mail has, and what it is missing. */
 export interface MailConfiguration {
   /** Absent when anything in {@link MAILER_VARS} is unset — never a broken one. */
@@ -99,10 +116,17 @@ export function mailerFromEnv(
 
   const academySender = env['ACADEMY_SENDER_ADDRESS']!
 
+  const senderName = env[MAIL_SENDER_NAME_VAR]
+
   const mailer = make({
     accountId: env['CLOUDFLARE_ACCOUNT_ID']!,
     token: env['CLOUDFLARE_EMAIL_SEND_TOKEN']!,
     sender: academySender,
+    // Bound once, here, so it reaches every send through `Mailer` and
+    // `OperatorMailer` alike — the six `OperatorMailer` sends and the Academy's
+    // own — rather than being a thing each caller has to remember (`#474`'s
+    // argument, applied to the second field).
+    ...(senderName === undefined || senderName.trim() === '' ? {} : { senderName }),
   })
   const consoleSender =
     (env[CONSOLE_SENDER_VAR] ?? '') === '' ? academySender : env[CONSOLE_SENDER_VAR]!

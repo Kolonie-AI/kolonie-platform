@@ -922,7 +922,58 @@ export function cloudflareMailer(config: {
   readonly token: string
   /** The address the code is sent from — a domain onboarded for Email Sending. */
   readonly sender: string
+  /**
+   * The name a person's mail client shows as the sender (`#483`).
+   *
+   * **Undefined sends exactly what was sent before this existed** — a bare
+   * address — which is why a deployment that does not set it is unaffected
+   * rather than broken. A missing display name is a cosmetic loss; a mailer
+   * that will not start is not.
+   *
+   * ## What the reader sees without it
+   *
+   * `konsole@kolonie.ai` and no name, so their client capitalises the local
+   * part and shows the sender as **Konsole**. That name is chosen nowhere. It is
+   * the name of a component inside this system, shown to a person who has been
+   * asked one question about their agent by an organisation they are meeting for
+   * the first time — and the sender name is the first thing they read.
+   *
+   * `#398` moved console mail off `academy@challenge.<domain>` on the argument
+   * that *"account mail from a host called challenge reads as phishing, and a
+   * cautious reader is right to hesitate."* This is the same argument one field
+   * over. What the reader needs to know is who is writing, and the answer is the
+   * Colony — not `Kolonie AI Konsole`, which re-introduces at a smaller scale
+   * exactly what `#398` removed.
+   */
+  readonly senderName?: string | undefined
 }): Mailer {
+  /**
+   * The sender as one `from` string, in RFC 5322 display-name form.
+   *
+   * **This is the shape to verify, and it is the maintainer's step.** A REST API
+   * taking a single `from` string ordinarily accepts `Name <address>`, and that
+   * is what this implements — but which shape Cloudflare Email Sending accepts
+   * cannot be established from a green unit test, which proves the header was
+   * built and not that Cloudflare took it.
+   *
+   * **It will not fail quietly if it is wrong.** Cloudflare *refuses* a sender it
+   * does not accept rather than rewriting it, so a wrong shape is a
+   * `delivered: false` with a reason — not a mail that goes out looking subtly
+   * off. If the live send refuses this, the alternative is a separate name field
+   * in the request body, and the change stays inside this function.
+   *
+   * The name is always quoted rather than quoted-when-necessary: a display name
+   * containing a comma, a dot or a colon is invalid bare, and `"Kolonie AI"` is
+   * valid either way. One rule beats a rule with an exception nobody remembers.
+   */
+  const senderWithName = (address: string): string => {
+    const name = config.senderName?.trim()
+    if (name === undefined || name === '') return address
+    // Already in display-name form — a caller that passed its own. Left alone.
+    if (address.includes('<')) return address
+    return `"${name.replace(/["\\]/g, '')}" <${address}>`
+  }
+
   return {
     async send({ to, subject, text, from }) {
       const response = await fetch(
@@ -937,7 +988,12 @@ export function cloudflareMailer(config: {
           // (`#398`). Both must be on a domain onboarded for Email Sending —
           // an address that is not is refused by Cloudflare, not silently
           // rewritten.
-          body: JSON.stringify({ to, from: from ?? config.sender, subject, text }),
+          body: JSON.stringify({
+            to,
+            from: senderWithName(from ?? config.sender),
+            subject,
+            text,
+          }),
         },
       )
 

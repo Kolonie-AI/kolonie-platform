@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MAILER_VARS, mailerFromEnv } from './mail-config.js'
 import type { Mailer } from './email.js'
 
@@ -150,5 +150,98 @@ describe('mailerFromEnv', () => {
     const mail = mailerFromEnv({ ...configured, CLOUDFLARE_ACCOUNT_ID: '' }, aMailer)
 
     expect(mail.mailer).toBeUndefined()
+  })
+})
+
+/**
+ * `#483`. An operator who has never heard of the Colony received one mail from
+ * `konsole@kolonie.ai`, and their client showed the sender as **Konsole** — a
+ * name chosen nowhere, invented by the mail client capitalising the local part,
+ * because the Colony sent no display name at all.
+ *
+ * **Driven through the real `cloudflareMailer` against a stubbed `fetch`**, not
+ * through a fake that re-implements the naming: the whole of this change is one
+ * string built in one function, and a fixture that built it too would be
+ * asserting its own arithmetic.
+ *
+ * What this cannot prove is the half `#483` hands back to the maintainer: that
+ * Cloudflare *accepts* this shape. A unit test proves the header was built.
+ */
+describe('the name the Colony signs its mail with', () => {
+  /** Every request body `cloudflareMailer` sent, parsed. */
+  const capturing = () => {
+    const bodies: { from?: string }[] = []
+    const fetchStub = vi.fn(async (_url: string, init?: { body?: string }) => {
+      bodies.push(JSON.parse(init?.body ?? '{}') as { from?: string })
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      } as unknown as Response
+    })
+    return { fetchStub, froms: () => bodies.map((body) => body.from) }
+  }
+
+  const send = async (env: Record<string, string>) => {
+    const { fetchStub, froms } = capturing()
+    vi.stubGlobal('fetch', fetchStub)
+    try {
+      const mail = mailerFromEnv({ ...configured, ...env })
+      await mail.mailer?.send({ to: 'someone@example.invalid', subject: 's', text: 't' })
+      await mail.operatorMailer?.send({ to: 'someone@example.invalid', subject: 's', text: 't' })
+      return froms()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+
+  it('sends a bare address when the variable is unset — exactly today’s behaviour', async () => {
+    expect(await send({})).toEqual(['academy@example.invalid', 'academy@example.invalid'])
+  })
+
+  it('treats a blank variable as unset rather than as an empty name', async () => {
+    expect(await send({ MAIL_SENDER_NAME: '   ' })).toEqual([
+      'academy@example.invalid',
+      'academy@example.invalid',
+    ])
+  })
+
+  /**
+   * RFC 5322 display-name form, always quoted rather than quoted-when-necessary:
+   * a name containing a comma or a dot is invalid bare, and `"Kolonie AI"` is
+   * valid either way. One rule beats a rule with an exception nobody remembers.
+   */
+  it('signs with the name when one is configured', async () => {
+    expect(await send({ MAIL_SENDER_NAME: 'Kolonie AI' })).toEqual([
+      '"Kolonie AI" <academy@example.invalid>',
+      '"Kolonie AI" <academy@example.invalid>',
+    ])
+  })
+
+  /**
+   * **One name for both senders**, which is the whole of *"not one per
+   * surface"*: the Academy's address and the console's are two addresses and one
+   * organisation. Not `Kolonie AI Konsole` — naming the component re-introduces
+   * at a smaller scale exactly what `#398` removed.
+   */
+  it('reaches the console’s own sender with the same name', async () => {
+    expect(
+      await send({
+        CONSOLE_SENDER_ADDRESS: 'konsole@example.invalid',
+        MAIL_SENDER_NAME: 'Kolonie AI',
+      }),
+    ).toEqual([
+      // The Academy's send, then the operator mailer's — two addresses, one name.
+      '"Kolonie AI" <academy@example.invalid>',
+      '"Kolonie AI" <konsole@example.invalid>',
+    ])
+  })
+
+  /** A name with a quote in it cannot break out of the display name. */
+  it('cannot be made to produce a malformed header', async () => {
+    const [from] = await send({ MAIL_SENDER_NAME: 'Not "Kolonie" <evil@example.invalid>' })
+
+    expect(from).toBe('"Not Kolonie <evil@example.invalid>" <academy@example.invalid>')
+    expect(from?.match(/"/g)).toHaveLength(2)
   })
 })

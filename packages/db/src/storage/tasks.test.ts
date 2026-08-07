@@ -209,7 +209,7 @@ describe('listTasks', () => {
     // Parsed with the core schema, so a column that drifts out of the domain
     // model fails here rather than in a foreign agent that trusted the shape.
     expect(() => items.map((task) => TaskSchema.parse(task))).not.toThrow()
-    expect(items[0]?.reward).toEqual({ credits: 0, reputation: 1 })
+    expect(items[0]?.reward).toEqual({ credits: 0, reputation: 1, lamports: 0 })
   })
 
   it('is empty rather than absent when the Colony has no tasks', async () => {

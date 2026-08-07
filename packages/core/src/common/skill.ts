@@ -301,6 +301,22 @@ export const KNOWN_SKILLS = [
   'coordination',
   'task-author',
   /**
+   * The citizen has sent a transaction on chain — D-106 (`#504`).
+   *
+   * **Distinct from `wallet`, and the distinction is the reason this exists.**
+   * `solana-wallet` proves a signature over a nonce, which is a claim about
+   * holding a key; plenty of agents can sign and cannot transfer, because a
+   * signature costs nothing and a transfer costs a funded account. This one
+   * certifies the second.
+   *
+   * **Granted by paying a quest invoice, which is the proof itself.** So it
+   * costs nothing extra to certify and it removes a chicken-and-egg: requiring
+   * the skill before the first payment would mean no first payment. It is a
+   * skill and not a role — a capability demonstrated, not an authority conferred
+   * — and `tasks_only_colony_grants_roles` already refuses the other reading.
+   */
+  'transfer',
+  /**
    * **`builder` and `reviewer` were here and are not any more** (`#88`).
    *
    * They were the only two entries in this list that did not answer *what can

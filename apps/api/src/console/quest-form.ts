@@ -132,7 +132,7 @@ export function proofNote(verifier: string | null): string {
 export function obstacleBonusLine(reward: number, publish: boolean): string {
   return (
     obstacleBonusNotice({
-      reward: { credits: reward, reputation: 0 },
+      reward: { credits: reward, reputation: 0, lamports: 0 },
       publishObstacles: publish,
     }) ??
     'Nothing extra is held for obstacle reports on this quest: they pay a share of what an ' +

@@ -415,7 +415,7 @@ const app = buildApp({
     read: (agentId, skill) => readSkillNote(db, agentId, skill),
     readMany: (agentId, skills) => readSkillNotes(db, agentId, skills),
   },
-  quests: databaseQuests(db, questAuditPolicy()),
+  quests: databaseQuests(db, questAuditPolicy(), payoutWalletAddress),
   settings: databaseSettings(db),
   /**
    * The way in (`#219`).

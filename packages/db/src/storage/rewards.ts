@@ -189,8 +189,11 @@ export async function bookTaskReward(
 
   const paid =
     row.testRerun || renewal
-      ? { credits: 0, reputation: 0 }
-      : rewardFor({ credits: row.rewardCredits, reputation: row.rewardReputation }, row.assistance)
+      ? { credits: 0, reputation: 0, lamports: 0 }
+      : rewardFor(
+          { credits: row.rewardCredits, reputation: row.rewardReputation, lamports: 0 },
+          row.assistance,
+        )
 
   /**
    * The rate is in the memo, on every entry, because the ledger is where an

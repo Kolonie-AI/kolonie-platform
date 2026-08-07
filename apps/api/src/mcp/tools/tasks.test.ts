@@ -59,7 +59,7 @@ describe('kolonie.tasks.list', () => {
   it('names reputation and no coin amount for an Academy task', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const catalogue = fakeCatalogue()
-    const task = aTask({ kind: 'academy', reward: { credits: 0, reputation: 3 } })
+    const task = aTask({ kind: 'academy', reward: { credits: 0, reputation: 3, lamports: 0 } })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
     catalogue.answersRead(task)
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
@@ -87,7 +87,7 @@ describe('kolonie.tasks.list', () => {
     const catalogue = fakeCatalogue()
     const task = aTask({
       kind: 'quest',
-      reward: { credits: 250, reputation: 0 },
+      reward: { credits: 250, reputation: 0, lamports: 0 },
       platformFeePercent: 25,
     })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })

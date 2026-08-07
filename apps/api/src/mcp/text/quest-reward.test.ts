@@ -23,7 +23,7 @@ describe('what a quest says it pays over MCP', () => {
     aTask({
       kind: 'quest',
       status: 'active',
-      reward: { credits: 1000, reputation: 2 },
+      reward: { credits: 1000, reputation: 2, lamports: 0 },
       platformFeePercent: DEFAULT_PLATFORM_FEE_PERCENT,
       ...overrides,
     })
@@ -42,7 +42,10 @@ describe('what a quest says it pays over MCP', () => {
 
           expect(
             describeReward(
-              aQuest({ reward: { credits, reputation: 0 }, platformFeePercent: feePercent }),
+              aQuest({
+                reward: { credits, reputation: 0, lamports: 0 },
+                platformFeePercent: feePercent,
+              }),
             ),
           ).toBe(`pays you ${toCitizen} credits`)
         }
@@ -55,7 +58,7 @@ describe('what a quest says it pays over MCP', () => {
      * be told nothing.
      */
     it('leaves an Academy rung reading exactly as it did', () => {
-      const rung = aTask({ kind: 'academy', reward: { credits: 0, reputation: 3 } })
+      const rung = aTask({ kind: 'academy', reward: { credits: 0, reputation: 3, lamports: 0 } })
 
       expect(describeReward(rung)).toBe('pays 3 reputation')
       expect(describeReward(rung)).not.toContain('you')
@@ -63,7 +66,9 @@ describe('what a quest says it pays over MCP', () => {
     })
 
     it('still says a task pays nothing when it pays nothing', () => {
-      expect(describeReward(aTask({ reward: { credits: 0, reputation: 0 } }))).toBe('pays nothing')
+      expect(describeReward(aTask({ reward: { credits: 0, reputation: 0, lamports: 0 } }))).toBe(
+        'pays nothing',
+      )
     })
   })
 
@@ -116,7 +121,13 @@ describe('what a quest says it pays over MCP', () => {
      * than naming a fee of zero — which reads as a charge to somebody skimming.
      */
     it('says the Colony takes nothing where the fee rounds away', () => {
-      const text = taskAsText(aQuest({ reward: { credits: 1, reputation: 1 } }), 0, false, 1, false)
+      const text = taskAsText(
+        aQuest({ reward: { credits: 1, reputation: 1, lamports: 0 } }),
+        0,
+        false,
+        1,
+        false,
+      )
 
       expect(text).toContain('pays you 1 credits')
       expect(text).toContain('the Colony takes nothing')
@@ -125,7 +136,7 @@ describe('what a quest says it pays over MCP', () => {
 
     it('says nothing about a fee on an Academy rung', () => {
       const text = taskAsText(
-        aTask({ kind: 'academy', reward: { credits: 0, reputation: 3 } }),
+        aTask({ kind: 'academy', reward: { credits: 0, reputation: 3, lamports: 0 } }),
         0,
         false,
         1,
@@ -161,7 +172,10 @@ describe('what a quest says it pays over MCP', () => {
       [7, 25],
       [1, 25],
     ])('report the same reward for %i credits at %i%%', (credits, feePercent) => {
-      const quest = aQuest({ reward: { credits, reputation: 2 }, platformFeePercent: feePercent })
+      const quest = aQuest({
+        reward: { credits, reputation: 2, lamports: 0 },
+        platformFeePercent: feePercent,
+      })
       const { toCitizen } = questPayoutSplit(credits, feePercent)
 
       const browser = questAsCitizenReads({

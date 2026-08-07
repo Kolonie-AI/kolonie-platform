@@ -10,6 +10,20 @@ export interface OwnQuest {
   readonly rejectionReason: string | null
   /** Whether this quest is still waiting for the moderation stage (`#176`). */
   readonly awaitingModeration: boolean
+  /**
+   * The invoice, on a quest waiting to be paid for and nowhere else — D-106
+   * (`#504`).
+   *
+   * **On `OwnQuest` rather than on `Task`, because it is the sponsor's business
+   * and nobody else's.** A citizen reading a quest sees what it pays; what the
+   * sponsor still owes is a fact about the sponsor. `Task` is the shape both
+   * read, so an amount outstanding on it would leak from the one surface to the
+   * other by construction.
+   */
+  readonly invoice?: {
+    readonly lamports: number
+    readonly paidLamports: number
+  }
 }
 
 /** One of this account's quests, or why it is not. */

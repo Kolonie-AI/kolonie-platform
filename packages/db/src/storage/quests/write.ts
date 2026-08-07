@@ -255,7 +255,7 @@ export async function submitQuestForReview(
      */
     const { balance, reserved } = await availableBalance(tx, command.authorId)
     const wanted = questCommitment({
-      reward: { credits: row.rewardCredits, reputation: row.rewardReputation },
+      reward: { credits: row.rewardCredits, reputation: row.rewardReputation, lamports: 0 },
       slots: row.slots ?? 0,
       publishObstacles: row.publishObstacles,
     })

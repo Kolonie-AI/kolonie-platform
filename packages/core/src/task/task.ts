@@ -44,7 +44,25 @@ export type TaskType = z.infer<typeof TaskTypeSchema>
  * own lifecycle and has nothing to do with the GitHub board; a reader who
  * conflates the two will look for a column that does not exist.
  */
-export const TaskStatusSchema = z.enum(['draft', 'pending_review', 'rejected', 'active', 'retired'])
+export const TaskStatusSchema = z.enum([
+  'draft',
+  'pending_review',
+  'rejected',
+  'active',
+  'retired',
+  /**
+   * Published, and waiting for the sponsor to pay its invoice — D-106
+   * (`#504`).
+   *
+   * **Between `pending_review` and `active`, and appended rather than inserted.**
+   * The order of the values is the Postgres enum's order and a new one can only
+   * be added at the end; the lifecycle it belongs to is documented here instead.
+   * A quest in this state has cleared moderation and a steward, costs what it
+   * costs, and is visible to nobody: nothing is reserved before payment, so
+   * there is no escrow to hold and no balance to debit.
+   */
+  'awaiting_payment',
+])
 export type TaskStatus = z.infer<typeof TaskStatusSchema>
 
 /**
@@ -148,6 +166,22 @@ export type TaskKind = z.infer<typeof TaskKindSchema>
 export const TaskRewardSchema = z.object({
   credits: z.int().min(0),
   reputation: z.int().min(0),
+  /**
+   * What one accepted report pays, in lamports — D-106 (`#504`, `#505`).
+   *
+   * **This is what `credits` becomes.** Settlement is SOL between wallets, so
+   * the price of a report is an amount of SOL and not a claim against the
+   * Colony. `credits` survives until `#506` removes it, and the two are never
+   * added together: a quest priced in lamports is paid by invoice and a quest
+   * priced in credits is the old arrangement, being retired.
+   *
+   * **Defaulted to zero rather than required**, so every existing caller that
+   * builds a reward from two fields keeps parsing. Zero means a quest that pays
+   * reputation and nothing else — which is what the Academy pays and what
+   * `kolonie-docs#109`'s first quest pays — and such a quest needs no invoice
+   * and goes live the moment a steward publishes it.
+   */
+  lamports: z.int().min(0).default(0),
 })
 export type TaskReward = z.infer<typeof TaskRewardSchema>
 
@@ -331,6 +365,9 @@ export function rewardFor(reward: TaskReward, assistance: Assistance): TaskRewar
   return {
     credits: Math.ceil((reward.credits * UNDECLARED_REWARD_PERCENT) / 100),
     reputation: Math.ceil((reward.reputation * UNDECLARED_REWARD_PERCENT) / 100),
+    // Reduced by the same proportion, and `ceil` for the same reason the other
+    // two use it: an undeclared attempt is worth less, not nothing (`#504`).
+    lamports: Math.ceil((reward.lamports * UNDECLARED_REWARD_PERCENT) / 100),
   }
 }
 

@@ -6,6 +6,8 @@ import {
   StoredQuestQuestionsSchema,
   paidQuestRejection,
   platformFeePercentFromEnv,
+  questInvoiceLamports,
+  questNeedsInvoice,
   type AgentId,
   type ModerationStages,
   type QuestAuditPolicy,
@@ -39,6 +41,15 @@ export interface PendingQuest {
 
 export type QuestPublishOutcome =
   | { readonly outcome: 'published'; readonly escrowed: number }
+  /**
+   * Published and waiting for its money — D-106 (`#504`).
+   *
+   * Distinct from `published` because the two are different facts to tell a
+   * steward: one means citizens can see it now, and the other means nobody can
+   * until the sponsor pays. A single outcome with a flag would be read as the
+   * first by whichever caller forgot the flag.
+   */
+  | { readonly outcome: 'awaiting-payment'; readonly invoiceLamports: number }
   | { readonly outcome: 'unknown-quest' }
   | { readonly outcome: 'not-in-review'; readonly status: Task['status'] }
   /** Nobody publishes a quest it wrote (`#173`). */
@@ -164,6 +175,54 @@ export async function publishQuest(
 
     const sponsorId = row.createdBy as AgentId | null
     const capacity = row.slots ?? 0
+
+    /**
+     * The invoice, under D-106 — and the branch is the whole of `#504`.
+     *
+     * A quest priced in lamports is **not** escrowed, not balance-checked and
+     * not made visible: it goes to `awaiting_payment` and waits for a transfer
+     * from the sponsor's own wallet. Nothing is reserved before payment, so
+     * there is no escrow to hold and no balance to debit.
+     *
+     * A quest priced in credits takes the path below it, which `#506` removes
+     * along with credits themselves. The two are never mixed: the invoice is
+     * computed from `reward_lamports` alone.
+     */
+    const invoiceLamports = questInvoiceLamports({
+      reward: { lamports: row.rewardLamports ?? 0 },
+      slots: capacity,
+      publishObstacles: row.publishObstacles,
+    })
+
+    if (questNeedsInvoice(invoiceLamports)) {
+      await tx
+        .update(tasks)
+        .set({
+          status: 'awaiting_payment',
+          updatedAt: command.at,
+          invoiceLamports,
+          awaitingPaymentSince: command.at,
+          // The rate in force, written at the same moment and for the same
+          // reason as on the credits path: this is when the deal is struck.
+          platformFeePercent: platformFeePercentFromEnv(),
+        })
+        .where(eq(tasks.id, command.taskId))
+
+      await recordAuthorityEvent(tx, {
+        actorId: command.stewardId,
+        action: 'quest-published',
+        subjectTaskId: command.taskId,
+        ...(sponsorId !== null && { subjectAgentId: sponsorId }),
+      })
+
+      // The steward is paid for deciding, published or refused, and a quest
+      // waiting for money has been decided (D-105). Making this wait for the
+      // sponsor would put a steward's pay in the hands of a third party.
+      await payStewardReview(tx, { stewardId: command.stewardId, taskId: command.taskId })
+
+      return { outcome: 'awaiting-payment', invoiceLamports }
+    }
+
     const total = row.rewardCredits * capacity
 
     if (sponsorId !== null && total > 0) {

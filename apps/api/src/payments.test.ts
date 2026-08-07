@@ -42,6 +42,7 @@ function fakeDesk(
     recorded: async (signature) => seen.has(signature),
     quarantined: async (): Promise<readonly ColonyPaymentRecord[]> => [],
     from: async (): Promise<readonly ColonyPaymentRecord[]> => [],
+    expireUnpaid: async () => [],
   }
 }
 
@@ -154,6 +155,7 @@ describe('the reconciliation over the Colony wallet', () => {
       attributed: 1,
       quarantined: 0,
       recovered: 1,
+      expired: 0,
       failed: 0,
     })
   })
@@ -197,7 +199,20 @@ describe('the reconciliation over the Colony wallet', () => {
       attributed: 0,
       quarantined: 0,
       recovered: 0,
+      expired: 0,
       failed: 0,
     })
+  })
+
+  /**
+   * A quest waiting for money that will never be recognised is stuck in a status
+   * its author cannot edit out of, so the sweep runs even in a deployment that
+   * cannot see the chain (`#504`).
+   */
+  it('returns unpaid quests to draft even with no watcher', async () => {
+    const desk = fakeDesk()
+    const expiring = { ...desk, expireUnpaid: async () => [{ taskId: 'a-quest', forfeited: 7 }] }
+
+    expect(await reconcilePayments({ desk: expiring })).toMatchObject({ expired: 1 })
   })
 })

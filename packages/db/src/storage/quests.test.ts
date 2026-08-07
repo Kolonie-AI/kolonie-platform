@@ -230,7 +230,7 @@ describe('the quest write path', () => {
     title: 'A thousand registrations',
     description: 'We hand out mailbox addresses and want to know whether agents can take one.',
     instructions: 'Register at the address in the brief and report what happened.',
-    reward: { credits: 0, reputation: 5 },
+    reward: { credits: 0, reputation: 5, lamports: 0 },
     slots: 10,
     expiresAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
     audience: 'citizens',
@@ -363,7 +363,7 @@ describe('the quest write path', () => {
       await credit(sponsor, 100)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 50, reputation: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { credits: 50, reputation: 0, lamports: 0 }, slots: 10 }),
       })
 
       const result = await submitQuestForReview(db, {
@@ -383,11 +383,11 @@ describe('the quest write path', () => {
       await credit(sponsor, 130)
       const first = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
       })
       const second = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
       })
 
       expect(
@@ -473,7 +473,7 @@ describe('the quest write path', () => {
       await credit(sponsor, 200)
       const first = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
       })
       const second = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
@@ -630,7 +630,7 @@ describe('the quest write path', () => {
       await credit(sponsor, 500)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
       })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
@@ -655,7 +655,7 @@ describe('the quest write path', () => {
       await credit(sponsor, 500)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
       })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
@@ -745,7 +745,7 @@ describe('the quest write path', () => {
       await credit(sponsor, 200)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
       })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
@@ -774,7 +774,7 @@ describe('the quest write path', () => {
       // The reservation stopped counting, so the sponsor may commit again.
       const next = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
       })
       expect(
         (await submitQuestForReview(db, { authorId: sponsor, taskId: next.task.id, at: now() }))
@@ -1554,7 +1554,7 @@ describe('the quest write path', () => {
       await credit(sponsor, 10_000)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits, reputation: 1 }, slots: 10 }),
+        draft: aDraft({ reward: { credits, reputation: 1, lamports: 0 }, slots: 10 }),
       })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)

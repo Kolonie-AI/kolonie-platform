@@ -10,6 +10,7 @@ import {
   TaskIdSchema,
   audienceSentence,
   capabilityMismatches,
+  invoiceNotice,
   questCommitment,
   questSubmissionRejection,
   reportAudience,
@@ -108,6 +109,16 @@ import { taskAsText } from './mcp/text/tasks.js'
 
 /** Everything the quest surface needs from the outside world. */
 export interface QuestDesk {
+  /**
+   * The Colony's own wallet, where an invoice is paid — D-106 (`#504`).
+   *
+   * **Optional, and its absence is what stops an invoice being shown.** A
+   * deployment with no wallet takes no payments (`#503`), and printing an
+   * address for a sponsor to send money to would be the worst possible way to
+   * find that out. On the desk rather than read from the environment here, for
+   * the reason every other value on it is: this module holds no configuration.
+   */
+  readonly walletAddress?: string | undefined
   create(input: { readonly authorId: AgentId; readonly draft: unknown }): Promise<OwnQuest>
   update(input: {
     readonly authorId: AgentId
@@ -293,8 +304,21 @@ export interface QuestDesk {
 }
 
 /** The quest desk, backed by Postgres. */
-export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUDIT_OFF): QuestDesk {
+export function databaseQuests(
+  db: Database,
+  audit: QuestAuditPolicy = QUEST_AUDIT_OFF,
+  /**
+   * The Colony's wallet, appended rather than inserted (`#504`).
+   *
+   * Appended because a mid-signature insertion breaks every caller silently:
+   * `audit` already has a default and a third parameter added before it would
+   * be read as one. Absent means this deployment shows no invoice, which is the
+   * same thing it means everywhere else.
+   */
+  walletAddress?: string,
+): QuestDesk {
   return {
+    ...(walletAddress === undefined ? {} : { walletAddress }),
     create: (input) =>
       createQuestDraftInDatabase(db, {
         authorId: input.authorId,
@@ -488,6 +512,22 @@ export interface OwnQuestResponse {
    * quest's id to ask about.
    */
   readonly audience?: QuestAudience | undefined
+  /**
+   * What this quest costs and what has been paid, while it waits — D-106
+   * (`#504`).
+   *
+   * **Present only on a quest that is waiting for its money.** The four facts a
+   * sponsor would otherwise find out afterwards are in `notice`, in one
+   * sentence-block, because they are read at the moment the sponsor decides
+   * whether to send — not in a document it would have to go and find.
+   */
+  readonly invoice?: {
+    readonly lamports: number
+    readonly paidLamports: number
+    readonly outstandingLamports: number
+    readonly walletAddress: string
+    readonly notice: string
+  }
 }
 
 export type QuestResult<T> =
@@ -522,6 +562,7 @@ const respond = (
   quest: OwnQuest,
   purse: { readonly balance: number; readonly reserved: number; readonly available: number },
   audience?: QuestAudience,
+  walletAddress?: string,
 ): OwnQuestResponse => {
   const cost = questCommitment({
     reward: quest.task.reward,
@@ -549,6 +590,26 @@ const respond = (
      */
     preview: taskAsText(quest.task, 0, false, 1, false),
     ...(audience === undefined ? {} : { audience }),
+    /**
+     * The invoice, and it is deliberately silent when there is no wallet
+     * configured: a deployment that cannot take payments must not print an
+     * address for a sponsor to send money to.
+     */
+    ...(quest.invoice === undefined || walletAddress === undefined
+      ? {}
+      : {
+          invoice: {
+            lamports: quest.invoice.lamports,
+            paidLamports: quest.invoice.paidLamports,
+            outstandingLamports: Math.max(0, quest.invoice.lamports - quest.invoice.paidLamports),
+            walletAddress,
+            notice: invoiceNotice({
+              lamports: quest.invoice.lamports,
+              paidLamports: quest.invoice.paidLamports,
+              walletAddress,
+            }),
+          },
+        }),
   }
 }
 
@@ -597,7 +658,7 @@ const responding = async (
     audienceOf(quest.task, desk),
   ])
 
-  return respond(quest, purse, audience)
+  return respond(quest, purse, audience, desk.walletAddress)
 }
 
 /** Write a new draft. */
@@ -833,7 +894,12 @@ export async function listQuests(
   // and not about each row, and a read per quest would say the same thing N
   // times.
   const purse = await desk.balance(authorId)
-  return { outcome: 'ok', response: { quests: quests.map((quest) => respond(quest, purse)) } }
+  return {
+    outcome: 'ok',
+    response: {
+      quests: quests.map((quest) => respond(quest, purse, undefined, desk.walletAddress)),
+    },
+  }
 }
 
 /** One of this account's own quests. */
@@ -992,6 +1058,18 @@ export async function readReviewQueue(
 }
 
 /** Publish a quest, moving its escrow in the same transaction. */
+/** What a steward is told when it publishes: money moved, or money awaited. */
+export interface QuestPublished {
+  readonly escrowed: number
+  /**
+   * Present when the quest is waiting for its invoice (`#504`).
+   *
+   * Absent means it is live now — which is the case for a quest that pays
+   * reputation, and for one on the credits path `#506` retires.
+   */
+  readonly awaitingPayment?: { readonly invoiceLamports: number }
+}
+
 export async function publishQuest(
   input: {
     readonly stewardId: AgentId
@@ -999,7 +1077,7 @@ export async function publishQuest(
     readonly at: Timestamp
   },
   desk: QuestDesk,
-): Promise<QuestResult<{ readonly escrowed: number }>> {
+): Promise<QuestResult<QuestPublished>> {
   const taskId = questIdFrom(input.questId)
   if (taskId === undefined) return notFound()
 
@@ -1008,6 +1086,18 @@ export async function publishQuest(
   switch (result.outcome) {
     case 'published':
       return { outcome: 'ok', response: { escrowed: result.escrowed } }
+    /**
+     * Published, and nobody can see it until the sponsor pays — D-106 (`#504`).
+     *
+     * Told apart from `published` in the answer as well as in the outcome,
+     * because a steward that reads *published* and then cannot find the quest in
+     * the live list has been told something false.
+     */
+    case 'awaiting-payment':
+      return {
+        outcome: 'ok',
+        response: { escrowed: 0, awaitingPayment: { invoiceLamports: result.invoiceLamports } },
+      }
     case 'unknown-quest':
       return notFound()
     case 'not-in-review':

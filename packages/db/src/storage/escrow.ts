@@ -272,14 +272,14 @@ export async function fundQuestEscrow(
   },
 ): Promise<number> {
   const total = questCommitment({
-    reward: { credits: command.credits, reputation: 0 },
+    reward: { credits: command.credits, reputation: 0, lamports: 0 },
     slots: command.capacity,
     publishObstacles: command.publishObstacles,
   })
   if (total === 0) return 0
 
   const pool = questObstacleBonusPool({
-    reward: { credits: command.credits, reputation: 0 },
+    reward: { credits: command.credits, reputation: 0, lamports: 0 },
     publishObstacles: command.publishObstacles,
   })
 

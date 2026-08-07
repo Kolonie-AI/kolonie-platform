@@ -37,6 +37,7 @@ export async function listOwnQuests(db: Database, authorId: AgentId): Promise<re
     task: toTask(row),
     rejectionReason: row.rejectionReason,
     awaitingModeration: pending.has(row.id as TaskId),
+    ...invoiceOf(row),
   }))
 }
 
@@ -55,7 +56,24 @@ export async function readOwnQuest(
     task: toTask(found.row),
     rejectionReason: found.row.rejectionReason,
     awaitingModeration: pending.has(taskId),
+    ...invoiceOf(found.row),
   }
+}
+
+/**
+ * The invoice, present only while the quest is waiting for it (`#504`).
+ *
+ * Keyed off the status rather than off the column being non-null, so a quest
+ * that has been paid stops carrying an outstanding amount the moment it goes
+ * live — a sponsor reading *0.5 SOL outstanding* on a running quest would go
+ * looking for a payment nobody is waiting for.
+ */
+function invoiceOf(
+  row: typeof tasks.$inferSelect,
+): { readonly invoice: { readonly lamports: number; readonly paidLamports: number } } | object {
+  if (row.status !== 'awaiting_payment') return {}
+
+  return { invoice: { lamports: row.invoiceLamports ?? 0, paidLamports: row.paidLamports } }
 }
 
 /** Which of these quests are still waiting on the moderator. */

@@ -51,10 +51,18 @@ export const agentSkills = pgTable(
      * `#90`) aborts the erasure, and nothing in an unwritten default says which
      * of the two a reader is looking at. Writing it down costs a word and means
      * the row's fate is decided here rather than by Postgres' check timing.
+     *
+     * **Nullable since `#504`, for exactly one skill and checked as such.** D-106
+     * grants `transfer` for paying a quest invoice, and paying is not a
+     * submission — there is no task, no attempt and no verifier, because the
+     * proof *is* the transaction. Rather than invent a submission to point at,
+     * the column admits the one case and
+     * `agent_skills_submission_unless_demonstrated` refuses every other. The
+     * invariant this comment opens with is unchanged for the twenty-odd skills
+     * that still earn their way through the Academy; what changed is that one
+     * capability is now demonstrated rather than assessed.
      */
-    submissionId: uuid('submission_id')
-      .notNull()
-      .references(() => submissions.id, { onDelete: 'cascade' }),
+    submissionId: uuid('submission_id').references(() => submissions.id, { onDelete: 'cascade' }),
 
     grantedAt: timestamp('granted_at', { withTimezone: true, mode: 'string' })
       .notNull()
@@ -71,6 +79,19 @@ export const agentSkills = pgTable(
      * that had to check first would be racing itself.
      */
     primaryKey({ columns: [table.agentId, table.skill] }),
+    /**
+     * A skill names the submission that earned it, unless it is one the Colony
+     * grants for an act that is not a submission (`#504`).
+     *
+     * **The exception is a list in the database rather than a rule in code**, so
+     * a second skill cannot join it by a caller forgetting to pass an id. Adding
+     * one is a migration, which is the friction this deserves: provenance is
+     * what makes a capability explainable.
+     */
+    check(
+      'agent_skills_submission_unless_demonstrated',
+      sql`${table.submissionId} is not null or ${table.skill} in ('transfer')`,
+    ),
     check('agent_skills_skill_slug', sql`${table.skill} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
     check('agent_skills_skill_min_length', sql`char_length(${table.skill}) >= 3`),
     /** Who holds this skill — the direction the primary key cannot answer. */

@@ -1051,6 +1051,13 @@
       "when": 1786119482120,
       "tag": "0149_the_colony_wallet_recognises_its_sender",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1786121352305,
+      "tag": "0150_a_quest_waits_for_its_invoice",
+      "breakpoints": true
     }
   ]
 }

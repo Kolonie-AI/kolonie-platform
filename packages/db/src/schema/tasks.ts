@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  bigint,
   boolean,
   check,
   index,
@@ -328,6 +329,55 @@ export const tasks = pgTable(
     platformFeePercent: integer('platform_fee_percent'),
 
     /**
+     * What one accepted report pays, in lamports — D-106 (`#504`, `#505`).
+     *
+     * **The column `reward_coins` becomes.** Settlement is SOL between wallets,
+     * so a report's price is an amount of SOL and not a claim against the
+     * Colony. The two never add up together: a quest carrying this is paid by
+     * invoice and a quest carrying credits is the arrangement being retired,
+     * which `#506` removes.
+     *
+     * Null and zero both mean *this quest pays reputation and nothing else*,
+     * which is what every Academy task pays and what `kolonie-docs#109`'s first
+     * quest pays. Such a quest needs no invoice and goes live when a steward
+     * publishes it.
+     */
+    rewardLamports: bigint('reward_lamports', { mode: 'number' }),
+
+    /**
+     * What this quest costs in total, snapshotted at publication.
+     *
+     * **Snapshotted rather than recomputed, for `platform_fee_percent`'s
+     * reason**: capacity, price and the obstacle setting are frozen when a
+     * quest is published, but a stored total is what makes *how much is
+     * outstanding* answerable without re-deriving a formula that may have
+     * changed. The sponsor was shown this number and paid against it.
+     */
+    invoiceLamports: bigint('invoice_lamports', { mode: 'number' }),
+
+    /**
+     * What has been paid towards it, in lamports.
+     *
+     * **It accumulates**, because a sponsor whose wallet cannot cover the whole
+     * invoice in one transaction should not be stuck — and part payments cost
+     * nothing to allow. It never exceeds the invoice: anything above is kept and
+     * does not extend the quest (`applyToInvoice`), which is said on the invoice
+     * before the sponsor pays.
+     */
+    paidLamports: bigint('paid_lamports', { mode: 'number' }).notNull().default(0),
+
+    /**
+     * When the quest started waiting for its money.
+     *
+     * The clock the seven-day expiry runs on, and its own column rather than
+     * `updated_at`, which moves for reasons that are not payment.
+     */
+    awaitingPaymentSince: timestamp('awaiting_payment_since', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+
+    /**
      * The report a quest asks for: an ordered list of questions (`#177`).
      *
      * `jsonb` and not a table, which is the one place this schema prefers a
@@ -477,6 +527,36 @@ export const tasks = pgTable(
      * A capacity of zero is a task nobody can complete that looks like a task.
      * `null` is the way to say unlimited; there is no second way to say it.
      */
+    /**
+     * Money is never negative, and what has been paid never exceeds what was
+     * asked (`#504`). The second half is the check that keeps `applyToInvoice`
+     * honest: a surplus is kept by the Colony rather than shown on the quest,
+     * and a row claiming otherwise would make *how much is outstanding*
+     * answerable two ways.
+     */
+    check(
+      'tasks_invoice_amounts_sane',
+      sql`(${table.rewardLamports} is null or ${table.rewardLamports} >= 0)
+          and (${table.invoiceLamports} is null or ${table.invoiceLamports} >= 0)
+          and ${table.paidLamports} >= 0
+          and (${table.invoiceLamports} is null or ${table.paidLamports} <= ${table.invoiceLamports})`,
+    ),
+    /**
+     * A quest waiting for money has an invoice and a clock, and a quest that is
+     * not waiting has neither. The state and the columns that describe it cannot
+     * disagree — the rule `tasks_retired_at_matches_status` already applies to
+     * retirement, one status over.
+     */
+    check(
+      'tasks_awaiting_payment_has_invoice',
+      // `::text`, for the reason `tasks_rejection_reason_iff_rejected` gives at
+      // length four constraints down: `awaiting_payment` is added to
+      // `task_status` by the same migration that adds this constraint, and
+      // Postgres refuses to *use* a new enum value in the transaction that
+      // created it. The cast is what lets the two live in one migration.
+      sql`(${table.status}::text = 'awaiting_payment')
+          = (${table.awaitingPaymentSince} is not null)`,
+    ),
     check('tasks_slots_positive', sql`${table.slots} is null or ${table.slots} > 0`),
     /**
      * A rate outside 0..100 is not a percentage (`#462`). `null` is the way to

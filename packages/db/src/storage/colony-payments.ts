@@ -7,6 +7,11 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { colonyPayments, solanaWalletChallenges } from '../schema/index.js'
+import {
+  applyPaymentToInvoice,
+  grantTransferSkill,
+  type InvoiceApplication,
+} from './quest-invoices.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -22,7 +27,18 @@ import { toTimestamp } from './rows.js'
 
 /** What a recorded payment came to, and what the caller needs back from it. */
 export type ColonyPaymentOutcome =
-  | { readonly outcome: 'attributed'; readonly agentId: AgentId; readonly lamports: number }
+  | {
+      readonly outcome: 'attributed'
+      readonly agentId: AgentId
+      readonly lamports: number
+      /**
+       * The quest this arrival went to, and whether it started it (`#504`).
+       *
+       * Absent means the sponsor had nothing waiting, which is not an error: an
+       * arrival with no invoice to meet is kept, exactly as an over-payment is.
+       */
+      readonly invoice?: InvoiceApplication
+    }
   | { readonly outcome: 'quarantined'; readonly quarantine: PaymentQuarantine }
   | { readonly outcome: 'already-recorded' }
   | { readonly outcome: 'not-final' }
@@ -94,10 +110,30 @@ export async function recordColonyPayment(
     if (row === undefined) return { outcome: 'already-recorded' as const }
 
     if (attributed) {
+      const agentId = sender!.agentId as AgentId
+
+      /**
+       * The payment meets its quest in the same transaction that records it
+       * (`#504`).
+       *
+       * A quest that went live on a payment row which then rolled back is the
+       * failure the single transaction exists to prevent — the same argument
+       * `recordDeposit` made about the deposit row and its ledger credit.
+       */
+      const invoice = await applyPaymentToInvoice(tx, {
+        sponsorId: agentId,
+        lamports: payment.lamports,
+      })
+
+      // Paying is the proof, and a part payment is a transaction that left a
+      // funded account — which is the whole of what is being certified.
+      await grantTransferSkill(tx, agentId)
+
       return {
         outcome: 'attributed' as const,
-        agentId: sender!.agentId as AgentId,
+        agentId,
         lamports: payment.lamports,
+        invoice,
       }
     }
 

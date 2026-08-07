@@ -149,7 +149,13 @@ export function toTask(
     title: row.title,
     description: row.description,
     instructions: row.instructions,
-    reward: { credits: row.rewardCredits, reputation: row.rewardReputation },
+    reward: {
+      credits: row.rewardCredits,
+      reputation: row.rewardReputation,
+      // Null is zero: a quest priced in credits, or an Academy task, pays no
+      // lamports and says so as a number rather than as an absence (`#504`).
+      lamports: row.rewardLamports ?? 0,
+    },
     slots: row.slots,
     /**
      * Normalised like every other timestamp, and it was not until `#176`.

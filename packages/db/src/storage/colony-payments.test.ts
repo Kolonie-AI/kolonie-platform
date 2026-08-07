@@ -74,7 +74,7 @@ describe('a payment to the Colony wallet', () => {
 
     const outcome = await recordColonyPayment(db, aPayment({ sender: 'payer-wallet' }), COLONY)
 
-    expect(outcome).toEqual({
+    expect(outcome).toMatchObject({
       outcome: 'attributed',
       agentId,
       lamports: LAMPORTS_PER_SOL / 100,

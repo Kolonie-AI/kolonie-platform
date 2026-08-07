@@ -36,7 +36,7 @@ const aDraft = (overrides: Record<string, unknown> = {}) => ({
   title: 'A thousand registrations',
   description: 'We hand out mailbox addresses and want to know whether agents can take one.',
   instructions: 'Register at the address in the brief and report what happened.',
-  reward: { credits: 0, reputation: 5 },
+  reward: { credits: 0, reputation: 5, lamports: 0 },
   slots: 10,
   expiresAt: '2026-08-10T12:00:00.000Z',
   ...overrides,
@@ -132,7 +132,7 @@ describe('what a quest commits', () => {
     // obstacles — held on top of the capacity rather than out of it (`#371`).
     expect(
       questCommitment({
-        reward: { credits: 10, reputation: 1 },
+        reward: { credits: 10, reputation: 1, lamports: 0 },
         slots: 10,
         publishObstacles: true,
       }),
@@ -142,7 +142,7 @@ describe('what a quest commits', () => {
   it('holds nothing for obstacles a sponsor chose not to publish', () => {
     expect(
       questCommitment({
-        reward: { credits: 10, reputation: 1 },
+        reward: { credits: 10, reputation: 1, lamports: 0 },
         slots: 10,
         publishObstacles: false,
       }),
@@ -152,7 +152,7 @@ describe('what a quest commits', () => {
   it('is nothing for a quest that pays reputation only', () => {
     expect(
       questCommitment({
-        reward: { credits: 0, reputation: 5 },
+        reward: { credits: 0, reputation: 5, lamports: 0 },
         slots: 1000,
         publishObstacles: true,
       }),
@@ -166,7 +166,7 @@ describe('what a quest commits', () => {
   it('pays no obstacle bonus on a quest whose answers pay one credit', () => {
     expect(
       questCommitment({
-        reward: { credits: 1, reputation: 0 },
+        reward: { credits: 1, reputation: 0, lamports: 0 },
         slots: 10,
         publishObstacles: true,
       }),

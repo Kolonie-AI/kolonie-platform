@@ -2,6 +2,7 @@ import type { AgentId, ObservedPayment, TransferClaim } from '@kolonie-ai/core'
 import {
   colonyPaymentRecorded as paymentRecordedInDatabase,
   colonyPaymentsFrom as paymentsFromInDatabase,
+  expireUnpaidQuests as expireUnpaidInDatabase,
   quarantinedPayments as quarantinedInDatabase,
   recordColonyPayment as recordPaymentInDatabase,
   type ColonyPaymentOutcome,
@@ -30,6 +31,17 @@ export interface PaymentDesk {
   recorded(signature: string): Promise<boolean>
   quarantined(): Promise<readonly ColonyPaymentRecord[]>
   from(agentId: AgentId): Promise<readonly ColonyPaymentRecord[]>
+  /**
+   * Return quests nobody paid for to draft — D-106 (`#504`).
+   *
+   * **On this desk rather than on a timer of its own**, because it is the same
+   * subject: a pass over what has and has not been paid. A second unit firing on
+   * its own clock would be a second thing to install, enable and notice the
+   * failure of, for a sweep that is one statement.
+   */
+  expireUnpaid(
+    now: Date,
+  ): Promise<readonly { readonly taskId: string; readonly forfeited: number }[]>
 }
 
 /**
@@ -74,6 +86,7 @@ export function databasePayments(db: Database, wallet: string): PaymentDesk {
     recorded: (signature) => paymentRecordedInDatabase(db, signature),
     quarantined: () => quarantinedInDatabase(db),
     from: (agentId) => paymentsFromInDatabase(db, agentId),
+    expireUnpaid: (now) => expireUnpaidInDatabase(db, now),
   }
 }
 
@@ -252,15 +265,33 @@ export async function settlePaymentDelivery(
  * unreachable sponsor address must not stop the pass over the others. With one
  * address there is no *others*, so a failure is the pass failing and says so.
  */
-export async function reconcilePayments(deps: PaymentDependencies): Promise<{
+export async function reconcilePayments(
+  deps: PaymentDependencies,
+  now: Date = new Date(),
+): Promise<{
   readonly attributed: number
   readonly quarantined: number
   /** Arrivals the webhook had not already recorded — whether the live path works. */
   readonly recovered: number
+  /** Quests whose seven days ran out and went back to draft (`#504`). */
+  readonly expired: number
   readonly failed: number
 }> {
   const { desk, watcher } = deps
-  if (watcher === undefined) return { attributed: 0, quarantined: 0, recovered: 0, failed: 0 }
+
+  /**
+   * The expiry runs first and runs whether or not there is a watcher.
+   *
+   * A deployment with no RPC endpoint still has quests waiting for money that
+   * will never be recognised, and leaving them waiting for ever would be the
+   * worse half of a degraded deployment — the sponsor's text is stuck in a
+   * status it cannot edit out of.
+   */
+  const expired = (await desk.expireUnpaid(now)).length
+
+  if (watcher === undefined) {
+    return { attributed: 0, quarantined: 0, recovered: 0, expired, failed: 0 }
+  }
 
   let attributed = 0
   let quarantined = 0
@@ -283,8 +314,8 @@ export async function reconcilePayments(deps: PaymentDependencies): Promise<{
       }
     }
   } catch {
-    return { attributed, quarantined, recovered, failed: 1 }
+    return { attributed, quarantined, recovered, expired, failed: 1 }
   }
 
-  return { attributed, quarantined, recovered, failed: 0 }
+  return { attributed, quarantined, recovered, expired, failed: 0 }
 }

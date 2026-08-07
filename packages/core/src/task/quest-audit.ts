@@ -177,6 +177,17 @@ export function paidQuestRejection(
   policy: QuestAuditPolicy,
   input: {
     readonly credits: number
+    /**
+     * What one accepted report pays in lamports — D-106 (`#504`).
+     *
+     * **Appended, and load-bearing.** This function's first line used to be
+     * `if (input.credits === 0) return undefined`, which was true of every quest
+     * the moment the price moved to a different column: a quest paying SOL
+     * escaped the audit precondition entirely, because it paid no credits. The
+     * brake is about a quest that pays *anything*, not about which column the
+     * amount is in.
+     */
+    readonly lamports: number
     readonly disagreement: number
     /**
      * How many verdicts that rate was computed over.
@@ -189,11 +200,11 @@ export function paidQuestRejection(
     readonly audited: number
   },
 ): string | undefined {
-  if (input.credits === 0) return undefined
+  if (input.credits === 0 && input.lamports === 0) return undefined
 
   if (!policy.enabled) {
     return (
-      'This quest pays credits, and a paying quest may not be published while the sampling ' +
+      'This quest pays, and a paying quest may not be published while the sampling ' +
       'audit is switched off. A model decides whether a report passes, and that is acceptable ' +
       'with a sample of those verdicts being re-read and not without one ' +
       '(governance/quests.md, kolonie-platform#221).'

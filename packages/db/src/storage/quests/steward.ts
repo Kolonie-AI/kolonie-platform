@@ -166,6 +166,9 @@ export async function publishQuest(
     const disagreement = await questDisagreementRate(tx, command.audit)
     const refusal = paidQuestRejection(command.audit, {
       credits: row.rewardCredits,
+      // The quest pays in whichever column its price is in (`#504`). Passing
+      // only credits is how a SOL-priced quest escaped this brake entirely.
+      lamports: row.rewardLamports ?? 0,
       disagreement: disagreement.rate,
       // The count the rate was computed over, which this call used to discard
       // (`#317`). Without it the brake fires on a sample of one.

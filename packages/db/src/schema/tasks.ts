@@ -518,9 +518,19 @@ export const tasks = pgTable(
      * because a Quest genuinely does pay — the boundary is what is being
      * enforced, not the number.
      */
+    /**
+     * **`reward_lamports` is inside this rule and not beside it** (`#504`).
+     * D-038's argument is about the Academy paying anything transferable, and
+     * SOL is more transferable than a credit ever was — an Academy rung that
+     * paid it would be the emission schedule this constraint exists to refuse,
+     * funded out of the Colony's own wallet. The name is left alone: renaming a
+     * constraint is a migration paying for a word.
+     */
     check(
       'tasks_academy_pays_no_credits',
-      sql`${table.kind} = 'quest' or ${table.rewardCredits} = 0`,
+      sql`${table.kind} = 'quest'
+          or (${table.rewardCredits} = 0
+              and (${table.rewardLamports} is null or ${table.rewardLamports} = 0))`,
     ),
     check('tasks_timeout_hours_range', sql`${table.timeoutHours} between 1 and 720`),
     /**

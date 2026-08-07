@@ -143,3 +143,37 @@ describe('a price entered as SOL', () => {
     expect(lamportsFromSol('a lot')).toBeNull()
   })
 })
+
+/**
+ * The two defects the first mainnet run found, each pinned by a test so the
+ * next change has to break the test rather than the money (`#504`).
+ */
+describe('what the first real payment found', () => {
+  /**
+   * `paidQuestRejection` opened with `if (input.credits === 0) return undefined`,
+   * which was true of every SOL-priced quest — so the precondition D-061 exists
+   * for was skipped by the price moving to a different column.
+   */
+  it('does not let a quest escape the audit brake by paying in lamports', async () => {
+    const { QUEST_AUDIT_OFF, paidQuestRejection } = await import('./quest-audit.js')
+
+    expect(
+      paidQuestRejection(QUEST_AUDIT_OFF, {
+        credits: 0,
+        lamports: 2_000_000,
+        disagreement: 0,
+        audited: 0,
+      }),
+    ).toContain('sampling')
+
+    // A quest that pays nothing at all is still free to publish.
+    expect(
+      paidQuestRejection(QUEST_AUDIT_OFF, {
+        credits: 0,
+        lamports: 0,
+        disagreement: 0,
+        audited: 0,
+      }),
+    ).toBeUndefined()
+  })
+})

@@ -88,6 +88,11 @@ export async function createQuestDraft(
       instructions: command.draft.instructions,
       rewardCredits: command.draft.reward.credits,
       rewardReputation: command.draft.reward.reputation,
+      // D-106 (`#504`). Written from the draft like the other two, and its
+      // absence here was a defect the first mainnet run found: a quest priced in
+      // SOL reached the database at zero, so its invoice was zero and it went
+      // live free.
+      rewardLamports: command.draft.reward.lamports,
       slots: command.draft.slots,
       expiresAt: command.draft.expiresAt,
       audience: command.draft.audience,
@@ -159,6 +164,7 @@ export async function updateQuestDraft(
         ...(patch.reward !== undefined && {
           rewardCredits: patch.reward.credits,
           rewardReputation: patch.reward.reputation,
+          rewardLamports: patch.reward.lamports,
         }),
         ...(patch.slots !== undefined && { slots: patch.slots }),
         ...(patch.expiresAt !== undefined && { expiresAt: patch.expiresAt }),

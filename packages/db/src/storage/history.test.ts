@@ -124,6 +124,72 @@ describe('a citizen’s own history', () => {
   })
 
   /**
+   * **A report filed without an attempt must not take the whole history down**
+   * (`#475`).
+   *
+   * `#404` made {@link OwnReportSchema}'s `attemptId` and `attempt` nullable,
+   * because the storage layer, the database constraint and the renderer all
+   * treated them as nullable and the schema alone did not. That was fixed
+   * against `kolonie.tasks.get`, which is where it had been observed. **This
+   * path was never asserted**, and it reads the same rows through the same
+   * {@link listOwnReports} — so on 2026-08-06 production logged four
+   * `mcp.tool.threw` for `kolonie.me.history` with exactly the two fields
+   * `#404` had already made nullable:
+   *
+   * ```
+   * expected "string", received null, at attemptId
+   * expected "number", …
+   * ```
+   *
+   * The throw was a stale image rather than a live defect — the container was
+   * running a build from before `#404` landed — but *nothing in this repository
+   * said the history path was covered*, and a citizen's whole trajectory failing
+   * on one attempt-less row is too sharp an edge to leave resting on a fix made
+   * for a neighbouring tool. This is the assertion that keeps it, whichever tool
+   * reads those rows next.
+   *
+   * The report deliberately belongs to a **different** task from the attempt, so
+   * the case is a citizen holding both kinds of row at once — which is what an
+   * agent that reported on a rung it could not start looks like.
+   */
+  it('reads back a trajectory that includes a report filed against no attempt', async () => {
+    const agentId = await anAgent()
+    const attempted = await aTask('A rung this citizen could try')
+    const refused = await aTask('A rung that refused before step one')
+
+    await fileReport(db, {
+      taskId: refused,
+      agentId,
+      narrative: {
+        did: null,
+        broke: 'The rung refused at its first call, so there was no attempt to open.',
+        changed: null,
+        discarded: null,
+      },
+    })
+
+    const attempt = await openAttempt(db, { agentId, taskId: attempted, opener: 'challenge' })
+    await closeAttempt(db, attempt.id, 'failed')
+
+    // The assertion is that this resolves at all. Before the schema admitted a
+    // null, it threw a ZodError and the citizen got nothing — not a partial
+    // history, not the attempt that was fine, nothing.
+    const history = await readHistory(db, agentId, HistoryRequestSchema.parse({ full: true }))
+
+    // The attempted rung is present and intact; the attempt-less report does not
+    // displace or corrupt it.
+    expect(history.tasks.map((task) => task.taskId)).toEqual([attempted])
+    expect(history.tasks[0]?.attempts).toHaveLength(1)
+    expect(history.tasks[0]?.attempts[0]?.report).toBeNull()
+
+    // And the block a citizen pastes into its own memory is still produced,
+    // which is the half of this tool that a forgetful runtime actually depends
+    // on — a throw here costs the next session its whole record.
+    expect(history.memory.text).toContain(MEMORY_BLOCK_OPEN)
+    expect(history.memory.text).toContain(MEMORY_BLOCK_CLOSE)
+  })
+
+  /**
    * The rejection case #118 names by name: no parameter exists that returns
    * another agent's history — and the storage read is where that has to be true,
    * because the route above it has nothing else to lean on.

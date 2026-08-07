@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
+import { looksLikeCredential } from '../operator/request.js'
 import { AccountKindSchema, AccountProofMethodSchema, AccountProviderSchema } from './account.js'
 
 /**
@@ -96,6 +97,33 @@ export const RecipeStepSchema = z
       'only an operator step can hand over a secret. What the agent generates itself it writes ' +
       'straight to its own vault (#528), and nothing hands it back.',
     path: ['secret'],
+  })
+  /**
+   * **No ask may carry a credential** (`#528`).
+   *
+   * A *value* check and not a check on the words about one, and the difference is
+   * the whole of why this is shaped like this. The first version of this rule looked
+   * for a secret noun beside a handing-over verb, and it refused the one entry that
+   * gets this right: github's ask says *choose the password yourself and **do not
+   * send it** to your agent*, which trips any word-level test that cannot read a
+   * negation. A rule enforced by scanning prose for *do not* is a rule that breaks
+   * when somebody improves the sentence.
+   *
+   * So what is refused is the thing that is unambiguous: an ask that has an actual
+   * credential written into it. `credentialFinding` is the same guard the operator
+   * channels already apply to every message, and reusing it means a recipe cannot
+   * carry what a request would have refused anyway.
+   *
+   * **The channel rule is structural rather than textual.** A `secret` step opens a
+   * sealed drop and nothing else can; a words step opens a request, whose boundary
+   * refuses a credential in the *answer* too. Neither depends on how an ask is
+   * phrased.
+   */
+  .refine((step) => step.ask === undefined || !looksLikeCredential(step.ask), {
+    message:
+      'this ask has a credential written into it. Nothing secret belongs in text an operator ' +
+      'reads on a page — mark the step `secret` and the sealed drop carries the value instead.',
+    path: ['ask'],
   })
 export type RecipeStep = z.infer<typeof RecipeStepSchema>
 

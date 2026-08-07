@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { AccountKindSchema, WriteProviderRecipeSchema } from '@kolonie-ai/core'
+import { AccountKindSchema, looksLikeCredential, WriteProviderRecipeSchema } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { providerRecipe, providerRecipeList, writeProviderRecipe } from './provider-recipes.js'
@@ -240,5 +240,63 @@ describe('the provider catalogue', () => {
         expect(() => WriteProviderRecipeSchema.parse(entry)).not.toThrow()
       }
     })
+  })
+})
+
+/**
+ * Who fills the form, and what may never move in words (`#528`).
+ *
+ * **Held against the shipped entries rather than against a hypothetical one**,
+ * because the rule is about content and the content is what gets edited. A test over
+ * a fixture would pass forever while the real catalogue drifted.
+ */
+describe('what a recipe may ask an operator for', () => {
+  it('never writes a credential into an ask', () => {
+    for (const entry of PROVIDER_CATALOGUE) {
+      for (const step of entry.steps) {
+        if (step.ask === undefined) continue
+        // The same guard the operator channels already apply to every message, so a
+        // recipe cannot carry what a request would have refused anyway.
+        expect(looksLikeCredential(step.ask)).toBe(false)
+      }
+    }
+  })
+
+  it('moves every secret through a drop, and only through a drop', () => {
+    for (const entry of PROVIDER_CATALOGUE) {
+      for (const step of entry.steps) {
+        // `secret` is the only channel switch there is, and it is on the step rather
+        // than in the wording — so no phrasing can route a value the wrong way.
+        if (step.secret === true) expect(step.actor).toBe('operator')
+      }
+    }
+  })
+
+  it('has the agent vault its own credential where the provider allows it', () => {
+    const trello = PROVIDER_CATALOGUE.find((entry) => entry.provider === 'trello.com')
+    const first = trello?.steps[0]
+
+    // The ordinary case: the agent generates the password and writes it to its own
+    // vault *before* submitting anything. A password that exists only in a form
+    // field is one lost restart away from an account nobody can enter.
+    expect(first?.actor).toBe('agent')
+    expect(first?.instruction).toContain('kolonie.vault.set')
+    expect(trello?.steps.some((step) => step.actor === 'operator')).toBe(false)
+  })
+
+  /**
+   * **The exception, asserted so that it stays an exception.** GitHub's terms forbid
+   * an account registered by automated means, so there the operator creates it and
+   * chooses the password. What must hold anyway is that the password does not move
+   * and the token comes back sealed — if somebody later rewrites this entry to have
+   * the operator send the password, this is what fails.
+   */
+  it('tells an operator who must choose a password not to send it', () => {
+    const github = PROVIDER_CATALOGUE.find((entry) => entry.provider === 'github.com')
+    const creating = github?.steps.find((step) => step.actor === 'operator' && step.secret !== true)
+
+    expect(creating?.ask).toContain('do not send it to your agent')
+    // And the thing the agent actually works through arrives through the drop.
+    expect(github?.steps.filter((step) => step.secret === true)).toHaveLength(1)
   })
 })

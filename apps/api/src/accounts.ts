@@ -28,6 +28,7 @@ import {
   setAccountStatus,
   setAccountVaultKey,
 } from '@kolonie-ai/db'
+import type { AccountProofDependencies } from './account-proofs.js'
 import { fieldErrors } from './validation.js'
 
 export { ProviderReportRequestSchema } from '@kolonie-ai/core'
@@ -91,6 +92,15 @@ export interface AccountDependencies {
    * writes from.
    */
   readonly resolution: AccountResolution
+  /**
+   * The two generic proofs (`#520`), with the host their addresses live on.
+   *
+   * **On this object rather than its own**, because a proof's whole purpose is to
+   * put a row in this register: the surfaces sit next to each other, they are
+   * reached by the same caller, and a citizen reading `/accounts` and opening a
+   * proof is doing one thing.
+   */
+  readonly proofs: AccountProofDependencies
 }
 
 /**

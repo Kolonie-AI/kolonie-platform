@@ -181,6 +181,27 @@ export const accounts = pgTable(
       onDelete: 'set null',
     }),
 
+    /**
+     * What the Colony read in order to believe this account (`#520`).
+     *
+     * **`proved` says whether; this says on what evidence, and the pair is never
+     * split.** A rung's verifier read something the Colony chose; a generic proof
+     * read something the citizen arranged. Both belong in the register and they
+     * are not the same strength — see `AccountProofMethodSchema` in core, which
+     * carries the argument, and the check below, which makes the pairing
+     * structural.
+     *
+     * **Every row that predates this column is `rung`, and the backfill says so
+     * rather than leaving null to mean it.** Null on a proved row would be a third
+     * state — *proved by something nobody recorded* — and a reader would have to
+     * decide what to do with it. There was only ever one way to set `proved`
+     * before `#520`, so the historical answer is known rather than assumed.
+     *
+     * Text and not an enum, mirroring `kind` and `provenance`'s reasoning: a third
+     * generic method must not be a migration.
+     */
+    provedBy: text('proved_by'),
+
     provedAt: timestamp('proved_at', { withTimezone: true, mode: 'string' }),
 
     /**
@@ -279,6 +300,49 @@ export const accounts = pgTable(
       'accounts_proved_has_a_date',
       sql`(${table.proved} = false and ${table.provedAt} is null)
           or (${table.proved} = true and ${table.provedAt} is not null)`,
+    ),
+
+    /**
+     * Nothing unproved names a method (`#520`).
+     *
+     * **One direction and not both, and the missing half is a decision the test
+     * suite forced.** The obvious constraint is the pair — a proved row names its
+     * method, an unproved row names none — and the first half cannot be a check
+     * constraint here. `0112` is a data repair that sets `proved = true` on mailbox
+     * rows from the evidence in `email_challenges`, written before this column
+     * existed and therefore not setting it; `mailbox-proof-repair.test.ts` replays
+     * that statement **as written**, on the rule `0104`'s test states — a data
+     * migration runs once and cannot be corrected by running it again, so the
+     * statement that will meet the production database is the one that has to be
+     * tested. A constraint that refuses it would be a constraint that declares a
+     * historically correct statement invalid.
+     *
+     * **So the guarantee moved to the read boundary rather than being dropped.**
+     * `toAccount` reads a proved row with no method as `rung`, which is the same
+     * fact this migration's backfill writes and the same fact `recordProvedAccount`
+     * defaults to — every reader still sees a method on every proved account, which
+     * is the property `#520` actually needs. What is enforced here is the half that
+     * is enforceable: an *unproved* row claiming a proof method would be a strength
+     * asserted with nothing behind it, and nothing historical writes one.
+     */
+    check(
+      'accounts_unproved_names_no_method',
+      sql`${table.proved} = true or ${table.provedBy} is null`,
+    ),
+
+    /**
+     * The three methods that exist, named here so a typo cannot become a strength
+     * nothing recognises.
+     *
+     * A row carrying `provider_mail` rather than `provider-mail` would answer
+     * `false` to *is this a rung* and `false` to *is this a generic proof*, and
+     * every reader would treat it as whichever its own `else` branch happens to
+     * be.
+     */
+    check(
+      'accounts_proved_by_is_known',
+      sql`${table.provedBy} is null
+          or ${table.provedBy} in ('rung', 'provider-mail', 'provider-post')`,
     ),
 
     /** An unproved account has proved no capability. */

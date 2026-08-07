@@ -123,6 +123,14 @@ describe('schema', () => {
          * §4 rules out.
          */
         /**
+         * `#520`: one attempt at proving an account at a provider the Colony
+         * wrote no verifier for — a forwarded provider mail, or a minted string
+         * published at a URL. A proof event log, on the same split `accounts`
+         * one line down describes: the register records the outcome, and the
+         * mechanics of proving are per-method and stay in their own table.
+         */
+        'account_proofs',
+        /**
          * #150. What a citizen holds, beside what it can do — the layer under
          * the skills, which existed six times over as one proof-event log per
          * kind.

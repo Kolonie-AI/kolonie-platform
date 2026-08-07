@@ -9,6 +9,7 @@ import type {
   EmailMintOutcome,
   EmailRedemption,
   InboundOutcome,
+  InboundProofOutcome,
   MailboxPromotion,
   RecheckRedemption,
 } from '@kolonie-ai/db'
@@ -199,6 +200,19 @@ export interface EmailDependencies {
    * inbox rung and the send badge name their own.
    */
   readonly obstruction: RecordObstruction
+  /**
+   * Generic account proofs, which arrive through this same door (`#520`).
+   *
+   * **A second reader of one token space, not a second inbound route.** A
+   * forwarded provider message lands at `<token>@<domain>` exactly as a badge's
+   * mail does, and the Worker in front of this cannot tell them apart — it is a
+   * pipe with no rules in it, deliberately. So the rule lives here: try the
+   * mailbox challenges, and if the token is not one of theirs, try the proofs.
+   *
+   * Optional, so a deployment that has not wired it serves the rung exactly as
+   * before rather than failing on a missing port.
+   */
+  readonly accountProofs?: { inbound(token: string, from: string): Promise<InboundProofOutcome> }
 }
 
 /** Set when the mailbox rung cannot serve, and why. */
@@ -838,6 +852,34 @@ export async function handleInboundMail(
   if (token === null) return { delivered: false, reason: 'no local part in the recipient' }
 
   const result = await deps.challenges.inbound(token, parsed.data.from)
+
+  /**
+   * **An unknown token is the only outcome that falls through** (`#520`).
+   *
+   * It is the one that means *this mail is not about a mailbox challenge at all*.
+   * Every other outcome is a decision the challenge tables have already taken —
+   * expired, wrong sender, already received — and re-asking the proofs would be
+   * asking a second table about a token the first one owns.
+   */
+  if (result.outcome === 'unknown_token' && deps.accountProofs !== undefined) {
+    const proof = await deps.accountProofs.inbound(token, parsed.data.from)
+
+    switch (proof.outcome) {
+      case 'unknown_token':
+        return { delivered: false, reason: 'unknown token' }
+      case 'sender_mismatch':
+        // Not the mailbox the proof was opened against. No reply, for the reason
+        // the module comment gives: bouncing would make this an oracle.
+        return { delivered: false, reason: 'sender is not the mailbox the proof named' }
+      case 'expired':
+        return { delivered: false, reason: 'proof expired' }
+      case 'accepted':
+      case 'already_received':
+        // The arrival *is* the proof. Nothing is mailed back — the account is in
+        // the register and `kolonie.me` is where a citizen reads that.
+        return { delivered: true }
+    }
+  }
 
   switch (result.outcome) {
     case 'unknown_token':

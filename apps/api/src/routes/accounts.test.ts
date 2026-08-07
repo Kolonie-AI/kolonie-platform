@@ -51,7 +51,7 @@ import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeSms } from '../__fixtures__/sms.js'
 import {
   fakeAccountRegister,
-  resolutionOver,
+  fakeAccounts,
   type FakeAccountRegister,
 } from '../__fixtures__/accounts.js'
 
@@ -69,7 +69,7 @@ beforeEach(async () => {
   app = buildApp({
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
-    accounts: { register, resolution: resolutionOver(register) },
+    accounts: fakeAccounts(register),
     console: fakeConsole(),
     email: fakeEmail(),
     sms: fakeSms(),

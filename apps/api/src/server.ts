@@ -83,6 +83,7 @@ import { databaseVisionChallenges } from './vision.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
+import { databaseAccountProofs } from './account-proofs.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import { skillReleasesFromEnv } from './skill-releases.js'
 import type { RecordObstruction } from './obstruction.js'
@@ -693,7 +694,19 @@ const app = buildApp({
   // The account register (#150): what a citizen holds, beside what it can do.
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.
-  accounts: { register: databaseAccounts(db), resolution: databaseAccountResolution(db) },
+  accounts: {
+    register: databaseAccounts(db),
+    resolution: databaseAccountResolution(db),
+    /**
+     * The generic proofs (`#520`). The challenge domain is the same configured
+     * host the mailbox rung mints under — a mail proof's forwarding address lives
+     * beside a badge's, because it is the same door.
+     */
+    proofs: {
+      proofs: databaseAccountProofs(db),
+      challengeDomain: process.env['EMAIL_CHALLENGE_DOMAIN'] ?? '',
+    },
+  },
   /**
    * People with accounts (`#425`).
    *
@@ -765,6 +778,12 @@ const app = buildApp({
     // Absent means the inbound route is not mounted. See app.ts for why this one
     // fails closed where every other Academy surface degrades to a 503.
     inboundSecret: process.env['EMAIL_INBOUND_SECRET'] || undefined,
+    /**
+     * A forwarded provider message arrives at the same door as a badge's mail
+     * (`#520`), so the inbound handler is handed both readers and tries the
+     * challenges first. One route, one token space, two tables.
+     */
+    accountProofs: databaseAccountProofs(db),
   },
   /**
    * The two phone rungs (`#411`).

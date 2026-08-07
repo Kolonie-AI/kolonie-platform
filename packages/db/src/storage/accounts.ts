@@ -4,6 +4,7 @@ import {
   type Account,
   type AccountCapability,
   type AccountKind,
+  type AccountProofMethod,
   type AccountStatus,
   type AgentId,
   type ProviderTally,
@@ -165,9 +166,20 @@ export async function recordProvedAccount(
     readonly provedAt: string
     /** The task it arrived through, when a quest handed it over rather than the citizen. */
     readonly obtainedThroughTaskId?: string | null
+    /**
+     * What read it, defaulting to a rung (`#520`).
+     *
+     * **The default is `rung` because every caller that existed before `#520` was
+     * one**, and a required argument would have been a required argument on
+     * fourteen verdict paths in order to say the thing they all say. What must not
+     * default is the other direction: a generic proof names itself explicitly, and
+     * the update below is the only place a recorded method is ever replaced.
+     */
+    readonly provedBy?: AccountProofMethod
   },
 ): Promise<Account> {
   const existing = await accountByIdentifier(db, agentId, input.kind, input.identifier)
+  const provedBy = input.provedBy ?? 'rung'
 
   if (existing !== undefined) {
     const [updated] = await db
@@ -175,6 +187,17 @@ export async function recordProvedAccount(
       .set({
         proved: true,
         provedAt: existing.provedAt ?? input.provedAt,
+        /**
+         * **A rung overrides a generic proof and never the reverse** (`#520`).
+         *
+         * A citizen that proved `github` generically in July and then cleared the
+         * rung in August holds the stronger claim, and the register should say so.
+         * The reverse would let a generic proof quietly downgrade a rung already
+         * earned — which is the one outcome the issue says must not happen — and it
+         * is refused here rather than trusted to callers, because the caller that
+         * gets it wrong is the one nobody reviews.
+         */
+        provedBy: provedBy === 'rung' ? 'rung' : (existing.provedBy ?? provedBy),
         capabilities: [...new Set([...existing.capabilities, ...input.capabilities])],
         updatedAt: sql`now()`,
       })
@@ -193,6 +216,7 @@ export async function recordProvedAccount(
       identifier: input.identifier,
       proved: true,
       provedAt: input.provedAt,
+      provedBy,
       capabilities: [...input.capabilities],
       provenance: input.obtainedThroughTaskId == null ? 'self-acquired' : 'task',
       obtainedThroughTaskId: input.obtainedThroughTaskId ?? null,
@@ -769,6 +793,19 @@ function toAccount(row: typeof accounts.$inferSelect): Account {
     provider: row.provider,
     provenance: row.provenance,
     obtainedThroughTaskId: row.obtainedThroughTaskId,
+    /**
+     * **The read boundary is where `#520`'s guarantee lives**, and the schema
+     * comment on `accounts_unproved_names_no_method` says why it could not be a
+     * check constraint: `0112` sets `proved` on mailbox rows and was written before
+     * this column existed, and its replay is tested as written.
+     *
+     * A proved row with no recorded method is rung-proved. That is not a guess —
+     * before `#520` a rung was the only thing that could set `proved`, which is the
+     * same reasoning the migration's backfill and `recordProvedAccount`'s default
+     * rest on. So every reader sees a method on every proved account, and nobody has
+     * to coalesce it again.
+     */
+    provedBy: row.proved ? ((row.provedBy ?? 'rung') as NonNullable<Account['provedBy']>) : null,
     provedAt: row.provedAt === null ? null : toTimestamp(row.provedAt),
     confirmedAt: row.confirmedAt === null ? null : toTimestamp(row.confirmedAt),
     unconfirmedSince: row.unconfirmedSince === null ? null : toTimestamp(row.unconfirmedSince),

@@ -27,6 +27,9 @@ describe('the accounts a task listing offers', () => {
     kind: fields.kind ?? AccountKindSchema.parse('mailbox'),
     identifier,
     proved: fields.proved ?? true,
+    // The pair `#520` requires: a proved row names what read it, and these rows
+    // stand in for rung-proved ones.
+    provedBy: (fields.proved ?? true) ? 'rung' : null,
     capabilities: [],
     status: fields.status ?? 'in-use',
     preferred: fields.preferred ?? false,

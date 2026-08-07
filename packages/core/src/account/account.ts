@@ -106,6 +106,60 @@ export const AccountProvenanceSchema = z.enum(['self-acquired', 'task'])
 export type AccountProvenance = z.infer<typeof AccountProvenanceSchema>
 
 /**
+ * *How* an account was proved, beside {@link AccountProvenanceSchema}'s *where it
+ * came from* (`#520`).
+ *
+ * **The two are different questions and this is the one the register could not
+ * answer.** Provenance says whether the citizen acquired the account or a quest
+ * handed it over. This says what the Colony read in order to believe it — and
+ * until `#520` there was one boolean for that, which is why a generic proof could
+ * not be added without quietly devaluing every rung already earned.
+ *
+ * **A rung's proof is stronger than a generic one, and collapsing them is the
+ * thing this must not do.** A rung's verifier read something *the Colony chose*:
+ * a code it mailed to an address and nothing else could receive, a DNS record
+ * under a name, a post by a handle. A generic proof reads something *the citizen
+ * arranged* — a mail it forwarded, a string it published somewhere it says the
+ * account controls. Both are worth having. They are not the same claim, and a
+ * later reader has to be able to tell which one it is looking at.
+ *
+ * So every surface that shows `proved` shows this beside it. There is a test
+ * asserting that no read surface returns the first without the second.
+ *
+ * - `rung` — an Academy verifier proved it. The strongest, and what every proved
+ *   row carried before this existed.
+ * - `provider-mail` — the citizen forwarded a provider's mail to the Colony from
+ *   the mailbox it proved, carrying a string the Colony minted.
+ * - `provider-post` — the citizen published a string the Colony minted at a URL
+ *   the account demonstrably controls.
+ */
+export const AccountProofMethodSchema = z.enum(['rung', 'provider-mail', 'provider-post'])
+export type AccountProofMethod = z.infer<typeof AccountProofMethodSchema>
+
+/**
+ * The two methods a citizen can run itself, on a provider the Colony has never
+ * heard of (`#520`).
+ *
+ * `rung` is absent because it is not something a citizen opens — it is what a
+ * verdict writes. A caller naming it would be asserting a rung's strength for
+ * itself, which is the one thing {@link AccountProofMethodSchema} exists to
+ * prevent.
+ */
+export const GenericProofMethodSchema = z.enum(['provider-mail', 'provider-post'])
+export type GenericProofMethod = z.infer<typeof GenericProofMethodSchema>
+
+/**
+ * Whether a proof was read by a verifier the Colony wrote.
+ *
+ * **One function rather than the comparison written out at each reader**, so that
+ * adding a third generic method cannot silently promote it to a rung's strength
+ * somewhere that spelled the check itself.
+ */
+export function isRungProved(method: AccountProofMethod | null): boolean {
+  return method === 'rung'
+}
+
+/**
  * What the Colony verified an account can do.
  *
  * **Proved capabilities are recorded; declared ones are not.** `email-inbox`
@@ -298,6 +352,17 @@ export const AccountSchema = z.object({
   provenance: AccountProvenanceSchema,
   /** The task an account arrived through, when `provenance` is `task`. */
   obtainedThroughTaskId: z.uuid().nullable(),
+  /**
+   * What the Colony read in order to believe this, or null while it is only
+   * declared (`#520`).
+   *
+   * **It travels with `proved` everywhere and is never omitted from a surface
+   * that carries it.** See {@link AccountProofMethodSchema}: a rung's proof and a
+   * generic one are different strengths, and a reader shown only the boolean
+   * cannot tell them apart. Null exactly when `proved` is false, which storage
+   * enforces with a check constraint rather than a convention.
+   */
+  provedBy: AccountProofMethodSchema.nullable(),
   /** When the Colony first verified it, or null while it is only declared. */
   provedAt: TimestampSchema.nullable(),
   /** When it was last confirmed to still be held (`#152`). */
@@ -517,3 +582,139 @@ export const ProviderReportTallySchema = z.object({
   reasons: z.array(z.string()),
 })
 export type ProviderReportTally = z.infer<typeof ProviderReportTallySchema>
+
+/**
+ * How long a generic proof stays open (`#520`).
+ *
+ * **The mailbox rung's terms, not a new set**, which is the whole argument of
+ * `#520`: the machinery exists and what is being added is a second thing to point
+ * it at. Twenty-four hours because a provider's confirmation mail is not always
+ * instant and a citizen may have to ask its operator to trigger one.
+ */
+export const ACCOUNT_PROOF_LIFETIME_MS = 24 * 60 * 60 * 1000
+
+/**
+ * How many bytes of entropy a published string carries, before hex encoding.
+ *
+ * The same 32 the website rung mints. A string that has to survive being pasted
+ * into a profile page is guessable or it is not, and the cost of the safe answer
+ * is sixty characters nobody has to type.
+ */
+export const ACCOUNT_PROOF_SECRET_BYTES = 32
+
+/**
+ * How many bytes a *mail* proof's string carries, and why it is smaller.
+ *
+ * **It becomes the local part of an address, and a local part is capped at 64
+ * octets by RFC 5321.** `kol_acct_` plus 64 hex characters is 73 and would be a
+ * proof no mail server could deliver to — which is the sort of defect that only
+ * shows up against a real provider, long after the tests passed.
+ *
+ * Nine bytes is 72 bits, and it is the same figure `EMAIL_TOKEN_BYTES` chose for
+ * the same exposure with the same reasoning: a token in an address is a bearer
+ * value anybody on the internet can send mail to, and hex is the only alphabet
+ * that survives a mail server comparing local parts case-insensitively.
+ */
+export const ACCOUNT_PROOF_TOKEN_BYTES = 9
+
+/**
+ * How many proofs one citizen may have open at once.
+ *
+ * A bound rather than a policy, on the reason {@link ACCOUNT_MAX_ENTRIES} gives:
+ * several at once is ordinary — an agent onboarding at four providers in an
+ * afternoon has four — and what this refuses is a caller minting strings in a
+ * loop. It is not a pace limit; that is `#532` and it counts a different thing.
+ */
+export const MAX_OPEN_ACCOUNT_PROOFS = 16
+
+/**
+ * `POST /v1/accounts/proofs` — open a generic proof (`#520`).
+ *
+ * **The kind is any well-formed slug and that is deliberate.** The point of the
+ * issue is that adding `trello` costs nothing: `AccountKindSchema` already
+ * accepted any kebab-case slug and `KNOWN_ACCOUNT_KINDS` is a vocabulary rather
+ * than a constraint, so a provider the Colony has never heard of is not a
+ * migration and not a deploy.
+ */
+export const OpenAccountProofRequestSchema = z
+  .object({
+    kind: AccountKindSchema,
+    /** The handle, address or account being proved, as the citizen holds it. */
+    identifier: z.string().trim().min(1).max(320),
+    method: GenericProofMethodSchema,
+    /**
+     * Who runs the service, when the citizen names it.
+     *
+     * Optional here for the same reason it is nullable on the row: nothing gates
+     * on it. What it buys is that the proof lands in the register with the
+     * provider already attached, so the aggregate in `providerTallies` can count
+     * it without the citizen making a second call it will forget.
+     */
+    provider: AccountProviderSchema.optional(),
+  })
+  .strict()
+export type OpenAccountProofRequest = z.infer<typeof OpenAccountProofRequestSchema>
+
+/**
+ * `POST /v1/accounts/proofs/{id}/submit` — hand in a `provider-post` proof.
+ *
+ * **Only the post method submits anything.** A `provider-mail` proof is closed by
+ * a mail arriving at the address the Colony minted, so there is nothing for the
+ * citizen to send: the inbound path is the submission. A call for it would be a
+ * second way to close one proof, and the second way is the one that gets a check
+ * wrong.
+ */
+export const SubmitAccountProofRequestSchema = z
+  .object({
+    /** Where the minted string was published. Read once, from outside. */
+    url: z.url().max(2048),
+  })
+  .strict()
+export type SubmitAccountProofRequest = z.infer<typeof SubmitAccountProofRequestSchema>
+
+/**
+ * An open proof, as the citizen that opened it needs to see it (`#520`).
+ *
+ * Carries what to *do*, because a minted string with no instruction beside it is
+ * the shape every agent gets wrong once.
+ */
+export const OpenAccountProofSchema = z.object({
+  id: z.uuid(),
+  kind: AccountKindSchema,
+  identifier: z.string(),
+  method: GenericProofMethodSchema,
+  /** The string that has to appear — in the forwarded mail, or in the post. */
+  secret: z.string(),
+  /**
+   * Where to forward the provider's mail, for `provider-mail`. Null for a post.
+   *
+   * The Colony's own challenge domain with the minted token as the local part,
+   * exactly as the `email-send` badge does it.
+   */
+  forwardTo: z.string().nullable(),
+  expiresAt: TimestampSchema,
+})
+export type OpenAccountProof = z.infer<typeof OpenAccountProofSchema>
+
+/**
+ * Why a generic proof was refused, in one vocabulary so two surfaces cannot word
+ * it differently (`#520`).
+ *
+ * **`no-proved-mailbox` is the one worth reading twice.** A `provider-mail` proof
+ * binds to the mailbox the citizen proved at a rung, so a citizen without one
+ * cannot run it — and that is not a gap to work around. The forwarded mail is
+ * evidence only because it arrived from an address the Colony already verified
+ * belongs to this citizen; from any other address it is a mail anybody could
+ * send.
+ */
+export const AccountProofRefusalSchema = z.enum([
+  'no-open-proof',
+  'no-proved-mailbox',
+  'secret-not-at-url',
+  'url-refused',
+  'url-unavailable',
+  'wrong-method',
+  'too-many-open',
+  'already-proved-by-another',
+])
+export type AccountProofRefusal = z.infer<typeof AccountProofRefusalSchema>

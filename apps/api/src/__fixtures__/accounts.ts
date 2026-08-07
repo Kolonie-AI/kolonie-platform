@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import {
   ACCOUNT_MAX_ENTRIES,
+  ACCOUNT_PROOF_LIFETIME_MS,
+  MAX_OPEN_ACCOUNT_PROOFS,
   now as currentTime,
   type Account,
   type ProviderReportOutcome,
   type AccountKind,
   type AgentId,
+  type Timestamp,
 } from '@kolonie-ai/core'
+import type { AccountProofs } from '../account-proofs.js'
 import type {
   AccountRegister,
   AccountDependencies,
@@ -30,6 +34,14 @@ export interface FakeAccountRegister extends AccountRegister {
   ) => Account
   /** Put an account on another citizen's record, to exercise the uniqueness rule. */
   readonly claimForAnother: (kind: string, identifier: string) => void
+  /**
+   * Whether {@link claimForAnother} has taken this one (`#520`).
+   *
+   * Exposed so the proofs fake can refuse what production's unique index refuses,
+   * rather than keeping a second set of its own and having the two disagree about
+   * which accounts are taken.
+   */
+  readonly claimedElsewhere: (kind: string, identifier: string) => boolean
 }
 
 /** An in-memory account register. Reproduces what the routes depend on and nothing more. */
@@ -70,6 +82,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
     vaultKey: null,
     provenance: 'self-acquired',
     obtainedThroughTaskId: null,
+    provedBy: null,
     provedAt: null,
     confirmedAt: null,
     unconfirmedSince: null,
@@ -295,6 +308,17 @@ export function fakeAccountRegister(): FakeAccountRegister {
         kind: account.kind as AccountKind,
         proved: true,
         provedAt: account.provedAt ?? currentTime(),
+        /**
+         * **The fake holds the invariant the check constraint holds** (`#520`): a
+         * proved row names what read it. Defaulting to `rung` rather than leaving
+         * null, because a test that wanted a generic proof says so and every other
+         * one is standing in for a verdict.
+         *
+         * This is the line the fixture comment above is about — the fake diverging
+         * from production by one field is how the mailbox defect got through, and a
+         * null here would be a state the database refuses.
+         */
+        provedBy: account.provedBy ?? 'rung',
       }
       rows.push(row)
       return strip(row)
@@ -303,13 +327,178 @@ export function fakeAccountRegister(): FakeAccountRegister {
     claimForAnother(kind, identifier) {
       elsewhere.add(key(kind, identifier))
     },
+
+    claimedElsewhere(kind, identifier) {
+      return elsewhere.has(key(kind, identifier))
+    },
   }
 }
 
 export function fakeAccounts(
-  register: AccountRegister = fakeAccountRegister(),
+  register: FakeAccountRegister = fakeAccountRegister(),
 ): AccountDependencies {
-  return { register, resolution: resolutionOver(register) }
+  return {
+    register,
+    resolution: resolutionOver(register),
+    proofs: { proofs: fakeAccountProofs(register), challengeDomain: 'challenge.example' },
+  }
+}
+
+/**
+ * The two generic proofs, in memory (`#520`).
+ *
+ * **Built over whichever register the test is using**, on the reason
+ * {@link resolutionOver} gives: a proof that lands has to be visible in the
+ * register afterwards without the test saying so twice, because that is what the
+ * real wiring does — one transaction spends the proof and records the account.
+ *
+ * **`provider-mail` refuses unless the register holds a proved mailbox.** That is
+ * the fake's one real rule and it is the rule production has: the forwarded
+ * message is evidence only because it arrived from an address the Colony verified.
+ * A fixture that skipped it would let the tests pass a path production refuses,
+ * which is the divergence this file's own comments are about.
+ */
+export function fakeAccountProofs(register: FakeAccountRegister): AccountProofs {
+  type Row = {
+    id: string
+    agentId: AgentId
+    kind: string
+    identifier: string
+    method: 'provider-mail' | 'provider-post'
+    provider: string | null
+    secret: string
+    fromAddress: string | null
+    verifiedAt: string | null
+    expiresAt: string
+  }
+  const rows: Row[] = []
+
+  const provedMailboxOf = async (agentId: AgentId): Promise<string | undefined> => {
+    const held = await register.list(agentId)
+
+    return held.find((account) => account.kind === 'mailbox' && account.proved)?.identifier
+  }
+
+  const record = async (row: Row): Promise<void> => {
+    row.verifiedAt = new Date().toISOString()
+    register.proveDirectly(row.agentId, {
+      kind: row.kind as AccountKind,
+      identifier: row.identifier,
+      // Possession and nothing more, exactly as storage records it.
+      capabilities: [],
+      provedBy: row.method,
+      ...(row.provider === null ? {} : { provider: row.provider }),
+    })
+  }
+
+  return {
+    async mint(agentId, input) {
+      const open = rows.filter(
+        (row) =>
+          row.agentId === agentId &&
+          row.verifiedAt === null &&
+          row.expiresAt > new Date().toISOString(),
+      ).length
+      if (open >= MAX_OPEN_ACCOUNT_PROOFS) return { outcome: 'too-many-open', open }
+
+      if (register.claimedElsewhere(input.kind, input.identifier)) {
+        return { outcome: 'already-proved-by-another' }
+      }
+
+      let fromAddress: string | null = null
+      if (input.method === 'provider-mail') {
+        const mailbox = await provedMailboxOf(agentId)
+        if (mailbox === undefined) return { outcome: 'no-proved-mailbox' }
+        fromAddress = mailbox
+      }
+
+      const row: Row = {
+        id: randomUUID(),
+        agentId,
+        kind: input.kind,
+        identifier: input.identifier,
+        method: input.method,
+        provider: input.provider ?? null,
+        secret: `kol_acct_${randomUUID().replaceAll('-', '')}`,
+        fromAddress,
+        verifiedAt: null,
+        expiresAt: new Date(Date.now() + ACCOUNT_PROOF_LIFETIME_MS).toISOString(),
+      }
+      rows.push(row)
+
+      return {
+        outcome: 'minted',
+        proof: {
+          id: row.id,
+          kind: row.kind as AccountKind,
+          identifier: row.identifier,
+          method: row.method,
+          secret: row.secret,
+          token: row.method === 'provider-mail' ? row.secret : null,
+          expiresAt: row.expiresAt as Timestamp,
+        },
+      }
+    },
+
+    async open(agentId, id) {
+      const row = rows.find(
+        (candidate) =>
+          candidate.id === id &&
+          candidate.agentId === agentId &&
+          candidate.verifiedAt === null &&
+          candidate.expiresAt > new Date().toISOString(),
+      )
+
+      if (row === undefined) return undefined
+
+      return {
+        id: row.id,
+        agentId: row.agentId,
+        kind: row.kind as AccountKind,
+        identifier: row.identifier,
+        method: row.method,
+        provider: row.provider,
+        secret: row.secret,
+      }
+    },
+
+    async redeemPost(agentId, id, _url) {
+      const row = rows.find(
+        (candidate) =>
+          candidate.id === id &&
+          candidate.agentId === agentId &&
+          candidate.method === 'provider-post' &&
+          candidate.verifiedAt === null &&
+          candidate.expiresAt > new Date().toISOString(),
+      )
+
+      if (row === undefined) return { outcome: 'no-open-proof' }
+      if (register.claimedElsewhere(row.kind, row.identifier)) {
+        return { outcome: 'already-proved-by-another' }
+      }
+
+      await record(row)
+
+      return { outcome: 'proved', kind: row.kind as AccountKind, identifier: row.identifier }
+    },
+
+    async inbound(token, from) {
+      const row = rows.find(
+        (candidate) => candidate.secret === token && candidate.method === 'provider-mail',
+      )
+
+      if (row === undefined) return { outcome: 'unknown_token' }
+      if (row.verifiedAt !== null) return { outcome: 'already_received' }
+      if (row.fromAddress?.toLowerCase() !== from.toLowerCase()) {
+        return { outcome: 'sender_mismatch' }
+      }
+      if (row.expiresAt <= new Date().toISOString()) return { outcome: 'expired' }
+
+      await record(row)
+
+      return { outcome: 'accepted', kind: row.kind as AccountKind, identifier: row.identifier }
+    },
+  }
 }
 
 /**

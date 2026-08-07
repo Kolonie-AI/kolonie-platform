@@ -1,5 +1,6 @@
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
+import { openProof, submitPostProof } from '../account-proofs.js'
 import {
   declareOwnAccount,
   preferOwnAccount,
@@ -121,6 +122,44 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
     }
 
     return reply.status(200).send(result)
+  })
+
+  /**
+   * Open a generic proof, and hand one in (`#520`).
+   *
+   * **Above the `:accountId` routes**, on the reason the block below states: a
+   * literal path segment has to be declared before a parameterised one, or
+   * `/accounts/proofs` is read as an account whose id is `proofs`.
+   *
+   * **Only the post proof has a submit route.** A mail proof is closed by the
+   * arrival of the forwarded message at the address it was given, so a second way
+   * to close one would be a second place to get the sender check wrong.
+   */
+  v1.post('/accounts/proofs', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const result = await openProof(caller.id, request.body, accounts.proofs)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(201).send(result.response)
+  })
+
+  v1.post('/accounts/proofs/:proofId/submit', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { proofId } = request.params as { proofId: string }
+    const result = await submitPostProof(caller.id, proofId, request.body, accounts.proofs)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result.response)
   })
 
   v1.get('/accounts/providers', async (request, reply) => {

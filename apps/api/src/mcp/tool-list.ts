@@ -237,6 +237,17 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.providers',
   'kolonie.accounts.provider-report',
   'kolonie.accounts.prefer',
+  /**
+   * Proving an account at a provider the Colony wrote no verifier for (`#520`).
+   *
+   * **Two rather than one, because only one of the two methods hands anything
+   * in.** A mail proof is closed by the forwarded message arriving; a post proof
+   * needs the citizen to name where it published. A single tool taking an optional
+   * URL would make an agent guess when to send it — and the guess would be wrong
+   * exactly half the time.
+   */
+  'kolonie.accounts.prove',
+  'kolonie.accounts.prove-submit',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

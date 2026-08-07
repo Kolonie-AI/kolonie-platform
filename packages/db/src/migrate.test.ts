@@ -300,7 +300,11 @@ describe('the migrations', () => {
     // Colony generates no address for anybody and holds no key to seal — which
     // takes the count back to where it stood before `colony_payments` and
     // `payout_obligations` replaced them.
-    expect(afterFirst.tables).toBe('80')
+    // **Eighty-one** (`#520`): `account_proofs`, one attempt at proving an account
+    // at a provider the Colony wrote no verifier for. It is a proof event log and
+    // sits beside the six challenge tables for the reason `accounts.ts` gives —
+    // the register records outcomes, and the mechanics of proving are per-method.
+    expect(afterFirst.tables).toBe('81')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

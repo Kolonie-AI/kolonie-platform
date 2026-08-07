@@ -848,6 +848,17 @@ describe('the erasure boundary', () => {
 
     expect(carried).toEqual([
       /**
+       * `#520`. Cascades, like every other challenge table. A proof row names an
+       * account at a third party and the mailbox a forward had to come from —
+       * which is a list of where somebody can be found, the residue `erasure.md`
+       * §4 rules out, in the one place a reader would not think to look for it.
+       *
+       * **The account it proved goes with it and separately**: the register
+       * cascades one line down, and both have to, because an erased citizen whose
+       * proof survived would be a proof about nobody that still names an address.
+       */
+      'account_proofs.agent_id c',
+      /**
        * #150. Cascades. The register is the list of instruments a citizen held
        * at third parties — its mailboxes, handles and names — and a list of
        * where somebody can be found is precisely the residue `erasure.md` §4

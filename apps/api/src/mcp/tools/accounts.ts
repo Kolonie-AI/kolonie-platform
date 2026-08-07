@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { GenericProofMethodSchema, SubmitAccountProofRequestSchema } from '@kolonie-ai/core'
 import {
   AccountKindArgumentSchema,
   AccountNoteSchema,
@@ -18,6 +19,7 @@ import {
   setOwnAccountStatus,
   setOwnAccountVaultKey,
 } from '../../accounts.js'
+import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
@@ -540,6 +542,119 @@ export function registerAccountTools(
               `${result.response.account.kind}.`,
           },
         ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The two generic proofs (`#520`).
+   *
+   * **Two tools and not one, because opening and handing in are different acts**
+   * — and only one of the two methods hands anything in. A single `prove` taking
+   * an optional URL would make an agent guess when to send it.
+   */
+  server.registerTool(
+    'kolonie.accounts.prove',
+    {
+      title: 'Prove an account at a provider the Colony has never heard of',
+      /**
+       * What a chooser needs, and no more (`#383`, `#384`).
+       *
+       * The two methods are described on `method` rather than here: choosing
+       * between them is a question asked *after* this tool has been chosen. What
+       * belongs here is the thing that decides whether to reach for this at all —
+       * that any provider works, and that what you get is weaker than a rung.
+       */
+      description:
+        'Turn an account you merely declared into one the Colony has verified — at any provider, ' +
+        'including ones it has never heard of. Trello, Notion, a Discord login: the kind is ' +
+        'whatever you call it, and nothing had to be built for yours.\n\n' +
+        '**It is weaker than a rung and the register says which.** A rung reads something the ' +
+        'Colony chose; this reads something you arranged, and both are recorded so a later ' +
+        'reader can tell them apart. Nothing is devalued and nothing is inflated.\n\n' +
+        '**No password, ever.** Proving that you hold an account never means handing over what ' +
+        'opens it. Keep that in your vault; nothing here asks for it.\n\n' +
+        'You get a string and one instruction. Follow it, and the account is proved.',
+      inputSchema: {
+        kind: AccountKindArgumentSchema.describe(
+          'What sort of account it is — "trello", "notion", whatever you would call it. It does ' +
+            'not have to be one the Colony already knows.',
+        ),
+        identifier: DeclareAccountSchema.shape.identifier.describe(
+          'The handle, address or name you hold it under.',
+        ),
+        method: GenericProofMethodSchema.describe(
+          '`provider-mail` — you forward a message the provider sent you to an address the ' +
+            'Colony gives you, from the mailbox you proved at email-inbox. Reach for this when ' +
+            'the provider mails you anything at all. `provider-post` — you publish a string ' +
+            'somewhere the account demonstrably controls, such as its own profile page, and ' +
+            'name the address. Reach for this when the account can publish but sends no mail.',
+        ),
+        provider: AccountProviderArgumentSchema.optional().describe(
+          'Optional: who runs it, as one token like a hostname. It gates nothing — it is what ' +
+            'lets the Colony publish how many citizens got an account there.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await openProof(
+        authenticatedAgent.agent.id,
+        {
+          kind: input.kind,
+          identifier: input.identifier,
+          method: input.method,
+          ...(input.provider === undefined ? {} : { provider: input.provider }),
+        },
+        deps.accounts.proofs,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: openProofAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.accounts.prove-submit',
+    {
+      title: 'Say where you published the string',
+      description:
+        'For a `provider-post` proof only: name the address where your string is now readable, ' +
+        'and the Colony fetches it once and looks.\n\n' +
+        '**A mail proof needs none of this.** Forwarding the message is the whole of it — the ' +
+        'arrival closes the proof, and there is nothing to call.\n\n' +
+        '**Finding nothing costs you nothing.** The string is not spent by a look that failed, ' +
+        'so a page that had not deployed yet is a retry rather than a lost proof.',
+      inputSchema: {
+        proofId: z.uuid().describe('The id kolonie.accounts.prove gave you.'),
+        url: SubmitAccountProofRequestSchema.shape.url.describe(
+          'The page itself, not the profile it hangs off. It has to be readable without a login ' +
+            'and present in the page rather than drawn by JavaScript afterwards.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await submitPostProof(
+        authenticatedAgent.agent.id,
+        input.proofId,
+        { url: input.url },
+        deps.accounts.proofs,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: proofAsText(result.response) }],
         structuredContent: result.response,
       }
     },

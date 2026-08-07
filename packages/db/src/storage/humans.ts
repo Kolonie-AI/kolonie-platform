@@ -4,14 +4,16 @@ import {
   HUMAN_SESSION_CEILING_MS,
   HUMAN_SESSION_IDLE_MS,
   HumanIdSchema,
+  HumanRoleSchema,
   HumanSessionIdSchema,
   type Human,
   type HumanId,
+  type HumanRole,
   type HumanSession,
   type IdentityProvider,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { humanIdentities, humanSessions, humans } from '../schema/index.js'
+import { authorityEvents, humanIdentities, humanSessions, humans } from '../schema/index.js'
 
 /**
  * People, their provider identities, and the sessions they hold (`#425`).
@@ -159,6 +161,13 @@ export async function readHuman(
     id: HumanIdSchema.parse(row.id),
     createdAt: row.createdAt,
     lastSeenAt: row.lastSeenAt,
+    /**
+     * Parsed rather than passed through, the way every other enum array in this
+     * package is: the column is a Postgres enum array and the driver hands back
+     * plain strings, so a value the schema no longer knows would otherwise reach
+     * a caller typed as if it did.
+     */
+    roles: row.roles.map((value) => HumanRoleSchema.parse(value)),
     identities: identities.map((identity) => ({
       provider: identity.provider,
       subject: identity.subject,
@@ -368,4 +377,160 @@ export async function listHumanSessions(
       browser: row.browser,
       location: row.location,
     }))
+}
+
+/** What a human role grant or revocation did. */
+export type HumanRoleChange =
+  | { readonly outcome: 'changed' }
+  /** They already held it, or already did not. Nothing was written, audit row included. */
+  | { readonly outcome: 'unchanged' }
+  /** No such person. */
+  | { readonly outcome: 'unknown-human' }
+
+/**
+ * Grant or withdraw a role a *person* holds, with the record of who did it
+ * (`#485`).
+ *
+ * **Modelled on `setStewardRole` rather than on `setRole`**, and the difference
+ * is the audit row: this writes one, because a permission is not derivable and
+ * the array on `humans.roles` says who holds the role and nothing about who
+ * decided that. `authority_events.subject_human_id` is the column that record
+ * goes in.
+ *
+ * **The change and its record commit together**, which is the rule
+ * `recordAuthorityEvent` states: an act that committed while its audit row did
+ * not is an act with no record, and *the record exists* is the whole point of
+ * the table.
+ *
+ * **`unchanged` writes nothing at all**, audit row included. An audit that fills
+ * with rows where nothing was granted is an audit nobody reads.
+ *
+ * **The actor may be null**, and that is not an oversight: the bootstrap grant
+ * at startup has no actor, because the deploy host set a variable rather than
+ * anybody inside the Colony deciding something. `actor_id` is already nullable
+ * for erasure, and a null there reads as *the Colony itself*, which is exactly
+ * what a deploy-time grant is.
+ */
+export async function setHumanRole(
+  db: Database,
+  command: {
+    readonly humanId: HumanId
+    readonly role: HumanRole
+    readonly hold: boolean
+    readonly actorId?: string | undefined
+  },
+): Promise<HumanRoleChange> {
+  return await db.transaction(async (tx) => {
+    const [person] = await tx
+      .select({ id: humans.id })
+      .from(humans)
+      .where(eq(humans.id, command.humanId))
+      .limit(1)
+
+    if (person === undefined) return { outcome: 'unknown-human' as const }
+
+    // Cast for the reason `grantRoles` casts: the column is `human_role[]` and a
+    // bound parameter arrives as text, so `array_append(human_role[], text)`
+    // matches no signature and fails at runtime rather than at build time.
+    const held = sql`${command.role}::human_role = any(${humans.roles})`
+
+    const rows = await tx
+      .update(humans)
+      .set({
+        roles: command.hold
+          ? sql`array_append(${humans.roles}, ${command.role}::human_role)`
+          : sql`array_remove(${humans.roles}, ${command.role}::human_role)`,
+      })
+      .where(and(eq(humans.id, command.humanId), command.hold ? sql`not ${held}` : held))
+      .returning({ id: humans.id })
+
+    if (rows.length === 0) return { outcome: 'unchanged' as const }
+
+    await tx.insert(authorityEvents).values({
+      actorId: command.actorId ?? null,
+      action: command.hold ? 'role-granted' : 'role-revoked',
+      subjectHumanId: command.humanId,
+      // `role` stays null: see the column's own note. One human role means
+      // `subject_human_id` being set already says which one.
+    })
+
+    return { outcome: 'changed' as const }
+  })
+}
+
+/**
+ * Give the identity named by `BOOTSTRAP_MAINTAINER_SUBJECT` the `maintainer`
+ * role, if it exists and does not hold it (`#485`).
+ *
+ * ## Why a variable rather than a migration
+ *
+ * `authority.ts` records how the first steward arrived: *"the first steward
+ * comes from a migration."* This departs from that on purpose. That migration
+ * named an agent UUID the Colony minted; this one would have to name **a
+ * person's GitHub identity, in a public repository, permanently and unremovably
+ * in git history**. `#429` gives a person the right to have everything about
+ * them deleted, and a migration is the one place that right cannot reach.
+ *
+ * The variable is set on the deploy host, which is where the other things
+ * naming a person already live.
+ *
+ * ## It is still automatic
+ *
+ * The maintainer runs no SQL and clicks nothing: the grant is applied on the
+ * first start after the variable is set, and every start after that finds the
+ * role already held and does nothing.
+ *
+ * ## An unset variable is the ordinary case
+ *
+ * Answers `not-configured` and the process starts normally with nobody holding
+ * the role. **This must never be declared in `required-env.ts` or in an
+ * `ai.kolonie.required-env` label**: `kolonie-infra#42` makes `preflight_env()`
+ * refuse a deploy whose host cannot supply a declared name, so declaring this
+ * one would break every deployment that has no maintainer to bootstrap —
+ * including every future one, since the variable is only ever needed once.
+ * `CONSOLE_SENDER_ADDRESS` is the precedent and states the same trade.
+ *
+ * A subject that names no identity is also not an error. A host may carry the
+ * variable before the person has ever signed in, and the answer is to do
+ * nothing and say so — the next start after they sign in grants it.
+ */
+export const BOOTSTRAP_MAINTAINER_SUBJECT_VAR = 'BOOTSTRAP_MAINTAINER_SUBJECT'
+
+export type BootstrapOutcome =
+  | { readonly outcome: 'granted'; readonly humanId: HumanId }
+  /** The identity holds it already. Every start after the first. */
+  | { readonly outcome: 'already-held'; readonly humanId: HumanId }
+  /** No identity carries that subject yet — they have not signed in. */
+  | { readonly outcome: 'no-such-identity' }
+  /** The variable is unset or blank, which is what most deployments look like. */
+  | { readonly outcome: 'not-configured' }
+
+export async function bootstrapMaintainer(
+  db: Database,
+  subject: string | undefined,
+): Promise<BootstrapOutcome> {
+  if (subject === undefined || subject.trim() === '') return { outcome: 'not-configured' }
+
+  /**
+   * Matched on `subject` alone rather than on `(provider, subject)`.
+   *
+   * An Auth0 `sub` carries its own provider prefix — `github|12345` — so it is
+   * already unique across providers, and asking the operator to set two
+   * variables to name one identity would be two chances to get it wrong for no
+   * gain.
+   */
+  const [identity] = await db
+    .select({ humanId: humanIdentities.humanId })
+    .from(humanIdentities)
+    .where(eq(humanIdentities.subject, subject.trim()))
+    .limit(1)
+
+  if (identity === undefined) return { outcome: 'no-such-identity' }
+
+  const humanId = HumanIdSchema.parse(identity.humanId)
+  const change = await setHumanRole(db, { humanId, role: 'maintainer', hold: true })
+
+  return change.outcome === 'changed'
+    ? { outcome: 'granted', humanId }
+    : { outcome: 'already-held', humanId }
 }

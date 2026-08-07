@@ -305,6 +305,10 @@ export function fakeHumanStore(): FakeHumanStore {
         id: HumanIdSchema.parse(randomUUID()),
         createdAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
+        // Empty, which is what everybody but the maintainer holds (`#485`). A
+        // fixture that granted one by default would make every test that does
+        // not care about authority quietly exercise the privileged path.
+        roles: [],
         identities: [
           {
             provider: identity.provider,

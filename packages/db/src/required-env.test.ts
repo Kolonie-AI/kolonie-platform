@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { banSaltFromEnv } from './ban-salt.js'
+import { BOOTSTRAP_MAINTAINER_SUBJECT_VAR } from './storage/humans.js'
 import { databaseUrlFromEnv } from './client.js'
 import {
   API_REQUIRED_ENV,
@@ -91,5 +92,36 @@ describe('REQUIRED_ENV', () => {
     // stops a deploy over a variable the process would have started without,
     // and a check that is wrong in that direction is one people switch off.
     expect(labelIn(app)).toBe(requiredEnvLabelValue(names))
+  })
+})
+
+/**
+ * `#485`. `BOOTSTRAP_MAINTAINER_SUBJECT` grants the maintainer role at startup
+ * and is **optional on purpose**, so declaring it here would break every
+ * deployment that has no maintainer to bootstrap — which is every one but the
+ * Colony's own, and every future one, since the variable is only ever needed
+ * once.
+ *
+ * `required-env.test.ts` otherwise checks only that the TypeScript source and
+ * the Dockerfile labels *agree*; it cannot tell you that an entry should not be
+ * there. So this is the assertion that makes the judgement `bootstrapMaintainer`
+ * documents into something a test catches rather than something a reviewer has
+ * to remember.
+ *
+ * `CONSOLE_SENDER_ADDRESS` is the precedent and states the same trade.
+ */
+describe('the variables that must stay optional', () => {
+  it('never declares BOOTSTRAP_MAINTAINER_SUBJECT anywhere', () => {
+    expect(BOOTSTRAP_MAINTAINER_SUBJECT_VAR).toBe('BOOTSTRAP_MAINTAINER_SUBJECT')
+
+    expect(REQUIRED_ENV as readonly string[]).not.toContain(BOOTSTRAP_MAINTAINER_SUBJECT_VAR)
+    for (const [, names] of IMAGES) {
+      expect(names as readonly string[]).not.toContain(BOOTSTRAP_MAINTAINER_SUBJECT_VAR)
+    }
+    // And not in the labels the images actually carry, which is where a copy
+    // would drift to if one were ever added by hand.
+    for (const [app] of IMAGES) {
+      expect(labelIn(app)).not.toContain(BOOTSTRAP_MAINTAINER_SUBJECT_VAR)
+    }
   })
 })

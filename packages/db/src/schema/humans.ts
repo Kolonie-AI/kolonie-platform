@@ -9,7 +9,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { identityProvider } from './enums.js'
+import { humanRole, identityProvider } from './enums.js'
 
 /**
  * A person with an account (`#425`).
@@ -50,6 +50,35 @@ export const humans = pgTable('humans', {
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true, mode: 'string' })
     .notNull()
     .defaultNow(),
+  /**
+   * What this person may do beyond what any signed-in person may (`#485`).
+   *
+   * ## Why a person's authority belongs on the person's row
+   *
+   * Authority in this platform lives on `agents.roles`, and that is where
+   * `steward` is read from. There was no way to give a person anything more,
+   * because this table carried no roles at all — so the obvious answer is *give
+   * the maintainer an agent account*, and the comment at the top of this file
+   * already refuses it: a person who signed in with GitHub has earned none of a
+   * citizen's standing and must never accumulate it. An `agents` row minted so a
+   * person can read a dashboard is exactly that substitution, and it would make
+   * *may a human hold a skill* a question about a `where` clause again.
+   *
+   * ## Why an array column and not a join table
+   *
+   * The rule for choosing is stated at `schema/agents.ts`: a join table earns
+   * its keep when there is provenance to record. The provenance here has a home
+   * already, one table over — `authority_events`, which gained
+   * `subject_human_id` for exactly this.
+   *
+   * Mirrors `agents.roles` rather than inventing a second arrangement, down to
+   * the empty-array default: a person with no roles is the ordinary case and is
+   * everybody but one.
+   */
+  roles: humanRole('roles')
+    .array()
+    .notNull()
+    .default(sql`'{}'::human_role[]`),
 })
 
 /**

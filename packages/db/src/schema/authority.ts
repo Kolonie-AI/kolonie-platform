@@ -1,5 +1,6 @@
 import { index, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
+import { humans } from './humans.js'
 import { tasks } from './tasks.js'
 import { authorityAction, role } from './enums.js'
 
@@ -62,10 +63,45 @@ export const authorityEvents = pgTable(
       onDelete: 'set null',
     }),
 
+    /**
+     * The *person* the act was about, for the acts that are about one (`#485`).
+     *
+     * Added when `humans.roles` did, and for the reason this table already
+     * gives one column up: a permission is not derivable. Granting a person the
+     * `maintainer` role leaves nothing behind but the changed array on
+     * `humans.roles`, and the array says who holds the role and nothing about
+     * who decided that.
+     *
+     * **A third separate column rather than a polymorphic id**, on the argument
+     * `subject_agent_id` states: a foreign key that sometimes points at one
+     * table and sometimes at another is a foreign key the database cannot
+     * enforce, and this is the one table where that would be worst.
+     *
+     * `on delete set null`, exactly as the other two are. `#429` gives a person
+     * the right to have everything about them deleted; the Colony's record of a
+     * decision is not the person's writing, so it stays, naming nobody.
+     */
+    subjectHumanId: uuid('subject_human_id').references(() => humans.id, {
+      onDelete: 'set null',
+    }),
+
     /** The quest a publication was about. Null for a role grant or revocation. */
     subjectTaskId: uuid('subject_task_id').references(() => tasks.id, { onDelete: 'set null' }),
 
-    /** Which role was granted or revoked. Null for the acts that are not about one. */
+    /**
+     * Which role was granted or revoked. Null for the acts that are not about one.
+     *
+     * **Null for a *human* grant as well, and there is no second column for
+     * one (`#485`).** `HumanRole` has exactly one member, so a `human_role`
+     * column here would carry no information: `role-granted` with
+     * `subject_human_id` set already says everything a `maintainer` row could.
+     * Adding the column now would be the vocabulary-ahead-of-the-case that
+     * `HumanRoleSchema` refuses one file over.
+     *
+     * It is written down rather than left implicit so that the day a second
+     * human role exists, this is a known gap to fill rather than a surprise —
+     * and so nobody reads the null as a bug.
+     */
     role: role('role'),
 
     at: timestamp('at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
@@ -78,5 +114,7 @@ export const authorityEvents = pgTable(
     index('authority_events_actor_idx').on(table.actorId, table.at.desc()),
     /** *Who granted this identity what* — the same question from the other end. */
     index('authority_events_subject_idx').on(table.subjectAgentId, table.at.desc()),
+    /** And the same question about a person (`#485`). */
+    index('authority_events_subject_human_idx').on(table.subjectHumanId, table.at.desc()),
   ],
 )

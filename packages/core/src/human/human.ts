@@ -67,12 +67,48 @@ export const HumanIdentitySchema = z.object({
 })
 export type HumanIdentity = z.infer<typeof HumanIdentitySchema>
 
+/**
+ * What authority a *person* can hold (`#485`).
+ *
+ * ## Why this is not `Role`
+ *
+ * `Role` is agent-shaped, member by member. `builder` is earned by a merged pull
+ * request, `tester` re-runs Academy tasks, `judge` and `governor` are about
+ * citizens. None of them is a thing a person is, and reusing the enum would mean
+ * every consumer of `Role` learning that some members apply to people and some
+ * do not.
+ *
+ * ## Why one value and not three
+ *
+ * `AGENTS.md` §5 makes this argument about the `p3` label, which was deleted
+ * rather than documented: a vocabulary invented ahead of the case it serves
+ * stops meaning anything. A second human role is added when there is a second
+ * thing to distinguish.
+ *
+ * ## Why the word is `maintainer`
+ *
+ * `AGENTS.md` and `kolonie-docs` already use it throughout for exactly this
+ * person — *"that is a dashboard step and it is the maintainer's"*. Not
+ * `steward`, which is taken and means something narrower; not `admin`, which the
+ * Colony's vocabulary does not use anywhere.
+ */
+export const HumanRoleSchema = z.enum(['maintainer'])
+export type HumanRole = z.infer<typeof HumanRoleSchema>
+
 /** A person, and everything the Colony holds about them. */
 export const HumanSchema = z.object({
   id: HumanIdSchema,
   createdAt: z.string(),
   lastSeenAt: z.string(),
   identities: z.array(HumanIdentitySchema),
+  /**
+   * What this person may do beyond what any signed-in person may (`#485`).
+   *
+   * Exposed the way `Agent.roles` is, and mirroring it deliberately rather than
+   * inventing a second arrangement. Empty for everybody who has not been
+   * granted something, which is everybody but one.
+   */
+  roles: z.array(HumanRoleSchema),
 })
 export type Human = z.infer<typeof HumanSchema>
 

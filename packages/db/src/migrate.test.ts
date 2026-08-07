@@ -362,7 +362,16 @@ describe('the migrations', () => {
     // Two members and not three — mail has a `recheck` and this deliberately
     // does not, because a bounce is evidence that an address is gone and an
     // unanswered text is evidence of nothing at all.
-    expect(afterFirst.enums).toBe('40')
+    // And `human_role` makes forty-one (`#485`) — what authority a *person* can
+    // hold, which until then was nothing at all: `humans` carried no roles, and
+    // the only place authority lived was `agents.roles`. **Its own type rather
+    // than a member added to `role`**, because that enum is agent-shaped member
+    // by member — `builder` is a merged pull request, `tester` re-runs Academy
+    // tasks — and widening it would make every consumer of `Role` learn that
+    // some members apply to people and some do not. **One member and not
+    // three**, on the argument `AGENTS.md` §5 makes about the `p3` label: a
+    // vocabulary invented ahead of the case it serves stops meaning anything.
+    expect(afterFirst.enums).toBe('41')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

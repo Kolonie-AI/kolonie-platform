@@ -6,7 +6,9 @@ import {
 } from '@kolonie-ai/core'
 import type { AgentId, Timestamp } from '@kolonie-ai/core'
 import {
+  BOOTSTRAP_MAINTAINER_SUBJECT_VAR,
   banSaltFromEnv,
+  bootstrapMaintainer,
   createDatabase,
   databaseUrlFromEnv,
   publicCitizenRecord,
@@ -758,6 +760,40 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       .then(() => db.close())
       .then(() => process.exit(0))
   })
+}
+
+/**
+ * Give the maintainer their role, on the first start after the host names them
+ * (`#485`).
+ *
+ * **Before `listen`, and never fatal.** It runs before the port opens so that a
+ * maintainer who restarts the process to pick up the variable does not have to
+ * wonder whether the grant landed before or after the first request. And a
+ * failure here is logged and stepped over: this grants a person a dashboard, and
+ * a process that refuses to serve the Colony because a dashboard role could not
+ * be written would be trading the whole platform for one page.
+ *
+ * `not-configured` is the ordinary answer for every deployment that has no
+ * maintainer to bootstrap, and it is `debug`-shaped rather than a warning —
+ * see {@link bootstrapMaintainer} for why the variable must never be declared
+ * required.
+ */
+try {
+  const outcome = await bootstrapMaintainer(db, process.env[BOOTSTRAP_MAINTAINER_SUBJECT_VAR])
+  if (outcome.outcome === 'granted') {
+    log.info('granted the maintainer role from the host configuration', {
+      event: 'maintainer.bootstrapped',
+      // The person's id and never the subject: an Auth0 `sub` names an account
+      // at a provider, and a log line is not the place to publish one.
+      humanId: outcome.humanId,
+    })
+  } else if (outcome.outcome === 'no-such-identity') {
+    log.warn(`${BOOTSTRAP_MAINTAINER_SUBJECT_VAR} names no identity that has signed in yet`, {
+      event: 'maintainer.bootstrap.pending',
+    })
+  }
+} catch (error) {
+  log.error('the maintainer bootstrap failed', error, { event: 'maintainer.bootstrap.failed' })
 }
 
 try {

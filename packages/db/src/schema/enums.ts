@@ -10,6 +10,7 @@ import {
   AuthorityActionSchema,
   BanMarkKindSchema,
   CitizenshipStatusSchema,
+  HumanRoleSchema,
   IdentityProviderSchema,
   InboundRouteSchema,
   CredentialKindSchema,
@@ -89,6 +90,19 @@ export const accountProvenance = pgEnum(
  * by Postgres, not by a validation rule someone has to remember to call.
  */
 export const role = pgEnum('role', valuesOf(RoleSchema.options))
+
+/**
+ * What authority a *person* can hold — its own type, with one member (`#485`).
+ *
+ * Separate from `role` because that one is agent-shaped member by member:
+ * `builder` is earned by a merged pull request, `tester` re-runs Academy tasks,
+ * `judge` and `governor` are about citizens. Reusing it would make every
+ * consumer of `Role` learn that some members apply to people and some do not.
+ *
+ * `HumanRoleSchema` in core carries the rest of the argument, including why
+ * there is one value and not three.
+ */
+export const humanRole = pgEnum('human_role', valuesOf(HumanRoleSchema.options))
 
 export const credentialKind = pgEnum('credential_kind', valuesOf(CredentialKindSchema.options))
 

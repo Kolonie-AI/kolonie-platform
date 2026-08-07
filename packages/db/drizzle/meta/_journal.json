@@ -1030,6 +1030,13 @@
       "when": 1786085635498,
       "tag": "0146_a_declaration_from_outside_the_door",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1786097781102,
+      "tag": "0147_a_person_may_hold_authority",
+      "breakpoints": true
     }
   ]
 }
